@@ -156,7 +156,7 @@ impl IntoResponse for AppError {
         };
 
         match self {
-            Self::ImgAlreadyExists(_) => tracing::warn!("api warn, code: {code}, {self:?}"),
+            Self::ImgAlreadyExists(_) => tracing::debug!("Image exists: {code}, {self:?}"),
             _ => tracing::error!("api error, code {code}: {self:?}"),
         }
 

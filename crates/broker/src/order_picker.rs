@@ -78,6 +78,48 @@ const PREFLIGHT_CACHE_TTL_SECS: u64 = 3 * 60 * 60; // 3 hours
 /// Cache for preflight results to avoid duplicate computations
 type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 
+#[derive(Debug, Clone)]
+enum ProveLimitReason {
+    CollateralPricing { mcycle_price_collateral: String, collateral_reward: String },
+    EthPricing { max_price: U256, gas_cost: U256, mcycle_price_eth: U256 },
+    ConfigCap { max_mcycles: u64 },
+    DeadlineCap { time_remaining_secs: u64, peak_prove_khz: u64 },
+}
+
+impl std::fmt::Display for ProveLimitReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProveLimitReason::CollateralPricing { mcycle_price_collateral, collateral_reward } => {
+                write!(
+                    f,
+                    "collateral pricing: order collateral reward {} / {} mcycle_price_collateral_token config",
+                    collateral_reward,
+                    mcycle_price_collateral,
+                )
+            }
+            ProveLimitReason::EthPricing { max_price, gas_cost, mcycle_price_eth } => {
+                write!(
+                    f,
+                    "ETH pricing: (order maxPrice {} - gas {}) / mcycle_price config ({} per Mcycle)",
+                    format_ether(*max_price),
+                    format_ether(*gas_cost),
+                    format_ether(*mcycle_price_eth)
+                )
+            }
+            ProveLimitReason::ConfigCap { max_mcycles } => {
+                write!(f, "broker max_mcycle_limit config setting ({} Mcycles)", max_mcycles)
+            }
+            ProveLimitReason::DeadlineCap { time_remaining_secs, peak_prove_khz } => {
+                write!(
+                    f,
+                    "deadline: {}s remaining with peak_prove_khz config ({} kHz)",
+                    time_remaining_secs, peak_prove_khz
+                )
+            }
+        }
+    }
+}
+
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum OrderPickerErr {
@@ -157,7 +199,9 @@ enum OrderPricingOutcome {
         expiry_secs: u64,
     },
     // Do not accept engage order
-    Skip,
+    Skip {
+        reason: String,
+    },
 }
 
 impl<P> OrderPicker<P>
@@ -268,8 +312,8 @@ where
 
                     Ok(true)
                 }
-                Ok(Skip) => {
-                    tracing::info!("Skipping order {order_id}");
+                Ok(Skip { reason }) => {
+                    tracing::info!("Skipping order {order_id}: {reason}");
 
                     // Add the skipped order to the database
                     self.db
@@ -309,16 +353,15 @@ where
         let now = now_timestamp();
 
         // If order_expiration > lock_expiration the period in-between is when order can be filled
-        // by anyone without staking to partially claim the slashed stake
+        // by anyone without staking to partially claim the slashed collateral
         let lock_expired = order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
 
         let expiration = order.expiry();
-        let lockin_stake =
+        let lockin_collateral =
             if lock_expired { U256::ZERO } else { U256::from(order.request.offer.lockCollateral) };
 
         if expiration <= now {
-            tracing::info!("Removing order {order_id} because it has expired");
-            return Ok(Skip);
+            return Ok(Skip { reason: "order has expired".to_string() });
         };
 
         let (min_deadline, allowed_addresses_opt, denied_addresses_opt) = {
@@ -333,45 +376,51 @@ where
         // Does the order expire within the min deadline
         let seconds_left = expiration.saturating_sub(now);
         if seconds_left <= min_deadline {
-            tracing::info!("Removing order {order_id} because it expires within min_deadline: {seconds_left}, min_deadline: {min_deadline}");
-            return Ok(Skip);
+            return Ok(Skip {
+                reason: format!(
+                    "order expires in {seconds_left} seconds with min_deadline {min_deadline}"
+                ),
+            });
         }
 
         // Initial sanity checks:
         if let Some(allow_addresses) = allowed_addresses_opt {
             let client_addr = order.request.client_address();
             if !allow_addresses.contains(&client_addr) {
-                tracing::info!("Removing order {order_id} from {client_addr} because it is not in allowed addrs");
-                return Ok(Skip);
+                return Ok(Skip {
+                    reason: format!("order from {client_addr} is not in allowed addrs"),
+                });
             }
         }
 
         if let Some(deny_addresses) = denied_addresses_opt {
             let client_addr = order.request.client_address();
             if deny_addresses.contains(&client_addr) {
-                tracing::info!(
-                    "Removing order {order_id} from {client_addr} because it is in denied addrs"
-                );
-                return Ok(Skip);
+                return Ok(Skip {
+                    reason: format!(
+                        "order is from {} and is in deny_requestor_addresses",
+                        client_addr
+                    ),
+                });
             }
         }
 
         if !self.supported_selectors.is_supported(order.request.requirements.selector) {
-            tracing::info!(
-                "Removing order {order_id} because it has an unsupported selector requirement. Requested: {:x}. Supported: {:?}",
-                order.request.requirements.selector,
-                self.supported_selectors
-                    .selectors
-                    .iter()
-                    .map(|(k, v)| format!("{k:x} ({v:?})"))
-                    .collect::<Vec<_>>()
-            );
-
-            return Ok(Skip);
+            return Ok(Skip {
+                reason: format!(
+                    "unsupported selector requirement. Requested: {:x}. Supported: {:?}",
+                    order.request.requirements.selector,
+                    self.supported_selectors
+                        .selectors
+                        .iter()
+                        .map(|(k, v)| format!("{k:x} ({v:?})"))
+                        .collect::<Vec<_>>()
+                ),
+            });
         };
 
-        // Check if the stake is sane and if we can afford it
-        // For lock expired orders, we don't check the max stake because we can't lock those orders.
+        // Check if the collateral is sane and if we can afford it
+        // For lock expired orders, we don't check the max collateral because we can't lock those orders.
         let max_collateral: U256 = {
             let config = self.config.lock_all().context("Failed to read config")?;
             parse_units(&config.market.max_collateral, self.collateral_token_decimals)
@@ -379,9 +428,14 @@ where
                 .into()
         };
 
-        if !lock_expired && lockin_stake > max_collateral {
-            tracing::info!("Removing high stake order {order_id}, lock stake: {lockin_stake}, max stake: {max_collateral}");
-            return Ok(Skip);
+        if !lock_expired && lockin_collateral > max_collateral {
+            return Ok(Skip {
+                reason: format!(
+                    "order collateral requirement exceeds max_collateral config {} > {}",
+                    self.format_collateral(lockin_collateral),
+                    self.format_collateral(max_collateral),
+                ),
+            });
         }
 
         // Short circuit if the order has been locked.
@@ -392,8 +446,7 @@ where
                 .await
                 .context("Failed to check if request is locked before pricing")?
         {
-            tracing::debug!("Order {order_id} is already locked, skipping");
-            return Ok(Skip);
+            return Ok(Skip { reason: "order is already locked".to_string() });
         }
 
         if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire
@@ -403,11 +456,10 @@ where
                 .await
                 .context("Failed to check if request is fulfilled before pricing")?
         {
-            tracing::debug!("Order {order_id} is already fulfilled, skipping");
-            return Ok(Skip);
+            return Ok(Skip { reason: "order is already fulfilled".to_string() });
         }
 
-        // Check that we have both enough staking tokens to stake, and enough gas tokens to lock and fulfil
+        // Check that we have both enough staking tokens to collateral, and enough gas tokens to lock and fulfil
         // NOTE: We use the current gas price and a rough heuristic on gas costs. Its possible that
         // gas prices may go up (or down) by the time its time to fulfill. This does not aim to be
         // a tight estimate, although improving this estimate will allow for a more profit.
@@ -436,7 +488,7 @@ where
         };
         let order_gas_cost = U256::from(gas_price) * order_gas;
         let available_gas = self.available_gas_balance().await?;
-        let available_stake = self.available_stake_balance().await?;
+        let available_collateral = self.available_collateral_balance().await?;
         tracing::debug!(
             "Estimated {order_gas} gas to {} order {order_id}; {} ether @ {} gwei",
             if lock_expired { "fulfill" } else { "lock and fulfill" },
@@ -445,38 +497,48 @@ where
         );
 
         if order_gas_cost > order.request.offer.maxPrice && !lock_expired {
-            // Cannot check the gas cost for lock expired orders where the reward is a fraction of the stake
-            // TODO: This can be added once we have a price feed for the stake token in gas tokens
-            tracing::info!(
-                "Estimated gas cost to lock and fulfill order {order_id}: {} exceeds max price; max price {}",
-                format_ether(order_gas_cost),
-                format_ether(order.request.offer.maxPrice)
-            );
-            return Ok(Skip);
+            // Cannot check the gas cost for lock expired orders where the reward is a fraction of the collateral
+            // TODO: This can be added once we have a price feed for the collateral token in gas tokens
+            return Ok(Skip {
+                reason: format!(
+                    "estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
+                    format_ether(order_gas_cost),
+                    format_ether(order.request.offer.maxPrice)
+                ),
+            });
         }
 
         if order_gas_cost > available_gas {
-            tracing::warn!("Estimated there will be insufficient gas for order {order_id} after locking and fulfilling pending orders; available_gas {} ether", format_ether(available_gas));
-            return Ok(Skip);
+            return Ok(Skip {
+                reason: format!(
+                    "estimated gas cost to lock and fulfill order of {} exceeds available gas of {}",
+                    format_ether(order_gas_cost),
+                    format_ether(available_gas)
+                ),
+            });
         }
 
-        if !lock_expired && lockin_stake > available_stake {
-            tracing::warn!(
-                "Insufficient available stake to lock order {order_id}. Requires {lockin_stake}, has {available_stake}"
-            );
-            return Ok(Skip);
+        if !lock_expired && lockin_collateral > available_collateral {
+            return Ok(Skip {
+                reason: format!(
+                    "insufficient available collateral to lock order. Requires {} but has {}",
+                    self.format_collateral(lockin_collateral),
+                    self.format_collateral(available_collateral),
+                ),
+            });
         }
 
         // Calculate exec limit (handles priority requestors and config internally)
-        let (exec_limit_cycles, prove_limit) = self.calculate_exec_limits(order, order_gas_cost)?;
+        let (exec_limit_cycles, prove_limit, prove_limit_reason) =
+            self.calculate_exec_limits(order, order_gas_cost)?;
 
         if prove_limit < 2 {
             // Exec limit is based on user cycles, and 2 is the minimum number of user cycles for a
             // provable execution.
             // TODO when/if total cycle limit is allowed in future, update this to be total cycle min
-            tracing::info!("Removing order {order_id} because its exec limit is too low");
-
-            return Ok(Skip);
+            return Ok(Skip {
+                reason: format!("exec limit is too low for order of {}", prove_limit),
+            });
         }
 
         tracing::debug!(
@@ -631,7 +693,11 @@ where
                 (exec_session_id, cycle_count, image_id)
             }
             PreflightCacheValue::Skip { .. } => {
-                return Ok(Skip);
+                return Ok(Skip {
+                    reason: format!(
+                        "order preflight execution limit hit - limited by {prove_limit_reason}"
+                    ),
+                });
             }
         };
 
@@ -644,8 +710,11 @@ where
         // If a max_mcycle_limit is configured check if the order is over that limit
         let proof_cycles = proof_res.stats.total_cycles;
         if proof_cycles > prove_limit {
-            tracing::info!("Order {order_id} with {proof_cycles} cycles above prove limit from capacity ({prove_limit})");
-            return Ok(Skip);
+            return Ok(Skip {
+                reason: format!(
+                    "order with {proof_cycles} cycles above limit {prove_limit} - limited by: {prove_limit_reason}"
+                )
+            });
         }
 
         let journal = self
@@ -659,12 +728,13 @@ where
         let max_journal_bytes =
             self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
         if journal.len() > max_journal_bytes {
-            tracing::info!(
-                "Order {order_id} journal larger than set limit ({} > {}), skipping",
-                journal.len(),
-                max_journal_bytes
-            );
-            return Ok(Skip);
+            return Ok(Skip {
+                reason: format!(
+                    "order journal larger than set limit ({} > {})",
+                    journal.len(),
+                    max_journal_bytes,
+                ),
+            });
         }
 
         // Validate the predicates:
@@ -675,8 +745,7 @@ where
             journal,
         );
         if predicate.eval(&eval_data).is_none() {
-            tracing::info!("Order {order_id} predicate check failed, skipping");
-            return Ok(Skip);
+            return Ok(Skip { reason: "order predicate check failed".to_string() });
         }
 
         self.evaluate_order(order, &proof_res, order_gas_cost, lock_expired).await
@@ -721,19 +790,24 @@ where
             / U256::from(proof_res.stats.total_cycles);
 
         tracing::debug!(
-            "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle, {} stake required, {} ETH gas cost",
+            "Order {order_id} price: {}-{} ETH, {}-{} ETH per mcycle, {} collateral required, {} ETH gas cost",
             format_ether(U256::from(order.request.offer.minPrice)),
             format_ether(U256::from(order.request.offer.maxPrice)),
             format_ether(mcycle_price_min),
             format_ether(mcycle_price_max),
-            format_units(U256::from(order.request.offer.lockCollateral), self.collateral_token_decimals).unwrap_or_default(),
+           self.format_collateral(order.request.offer.lockCollateral),
             format_ether(order_gas_cost),
         );
 
         // Skip the order if it will never be worth it
         if mcycle_price_max < config_min_mcycle_price {
-            tracing::debug!("Removing under priced order {order_id}");
-            return Ok(Skip);
+            return Ok(Skip {
+                reason: format!(
+                    "order max price {} is less than mcycle_price config {}",
+                    format_ether(U256::from(order.request.offer.maxPrice)),
+                    format_ether(config_min_mcycle_price),
+                ),
+            });
         }
 
         let target_timestamp_secs = if mcycle_price_min >= config_min_mcycle_price {
@@ -764,8 +838,8 @@ where
         Ok(Lock { total_cycles: proof_res.stats.total_cycles, target_timestamp_secs, expiry_secs })
     }
 
-    /// Evaluate if a lock expired order is worth picking based on how much of the slashed stake token we can recover
-    /// and the configured min mcycle price in stake tokens
+    /// Evaluate if a lock expired order is worth picking based on how much of the slashed collateral token we can recover
+    /// and the configured min mcycle price in collateral tokens
     async fn evaluate_lock_expired_order(
         &self,
         order: &OrderRequest,
@@ -783,27 +857,27 @@ where
 
         let total_cycles = U256::from(proof_res.stats.total_cycles);
 
-        // Reward for the order is a fraction of the stake once the lock has expired
+        // Reward for the order is a fraction of the collateral once the lock has expired
         let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
-        let mcycle_price_in_stake_tokens = price.saturating_mul(ONE_MILLION) / total_cycles;
+        let mcycle_price_in_collateral_tokens = price.saturating_mul(ONE_MILLION) / total_cycles;
 
-        tracing::info!(
-            "Order price: {} (stake tokens) - cycles: {} - mcycle price: {} (stake tokens), config_min_mcycle_price_collateral_tokens: {} (stake tokens)",
+        tracing::debug!(
+            "Order price: {} (collateral tokens) - cycles: {} - mcycle price: {} (collateral tokens), config_min_mcycle_price_collateral_tokens: {} (collateral tokens)",
             format_ether(price),
             proof_res.stats.total_cycles,
-            format_ether(mcycle_price_in_stake_tokens),
-            format_ether(config_min_mcycle_price_collateral_tokens),
+            self.format_collateral(mcycle_price_in_collateral_tokens),
+            self.format_collateral(config_min_mcycle_price_collateral_tokens),
         );
 
         // Skip the order if it will never be worth it
-        if mcycle_price_in_stake_tokens < config_min_mcycle_price_collateral_tokens {
-            tracing::info!(
-                "Removing under priced order (slashed stake reward too low) {} (stake price {} < config min stake price {})",
-                order.id(),
-                format_ether(mcycle_price_in_stake_tokens),
-                format_ether(config_min_mcycle_price_collateral_tokens)
-            );
-            return Ok(Skip);
+        if mcycle_price_in_collateral_tokens < config_min_mcycle_price_collateral_tokens {
+            return Ok(Skip {
+                reason: format!(
+                    "slashed collateral reward too low. {} (collateral reward) < config mcycle_price_collateral_token {}",
+                    self.format_collateral(mcycle_price_in_collateral_tokens),
+                    self.format_collateral(config_min_mcycle_price_collateral_tokens),
+                ),
+            });
         }
 
         Ok(ProveAfterLockExpire {
@@ -861,10 +935,10 @@ where
         Ok(available)
     }
 
-    /// Return available stake balance.
+    /// Return available collateral balance.
     ///
-    /// This is defined as the balance in staking tokens of the signer account minus any pending locked stake.
-    async fn available_stake_balance(&self) -> Result<U256> {
+    /// This is defined as the balance in staking tokens of the signer account minus any pending locked collateral.
+    async fn available_collateral_balance(&self) -> Result<U256> {
         let balance =
             self.market.balance_of_collateral(self.provider.default_signer_address()).await?;
         Ok(balance)
@@ -882,7 +956,7 @@ where
         &self,
         order: &OrderRequest,
         order_gas_cost: U256,
-    ) -> Result<(u64, u64), OrderPickerErr> {
+    ) -> Result<(u64, u64, ProveLimitReason), OrderPickerErr> {
         // Derive parameters from order
         let order_id = order.id();
         let is_fulfill_after_lock_expire =
@@ -906,26 +980,32 @@ where
             )
         };
 
-        // Pricing based cycle limits: Calculate the cycle limit based on stake price
-        let stake_based_limit = if min_mcycle_price_collateral_token == U256::ZERO {
+        // Pricing based cycle limits: Calculate the cycle limit based on collateral price
+        let collateral_based_limit = if min_mcycle_price_collateral_token == U256::ZERO {
             tracing::warn!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
             u64::MAX
         } else {
             let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
 
-            let initial_stake_based_limit =
+            let initial_collateral_based_limit =
                 (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_collateral_token))
                     .try_into()
                     .unwrap_or(u64::MAX);
 
             tracing::trace!(
-                "Order {order_id} initial stake based limit: {initial_stake_based_limit}"
+                "Order {order_id} initial collateral based limit: {initial_collateral_based_limit}"
             );
-            initial_stake_based_limit
+            initial_collateral_based_limit
         };
 
-        let mut preflight_limit = stake_based_limit;
-        let mut prove_limit = stake_based_limit;
+        let mut preflight_limit = collateral_based_limit;
+        let mut prove_limit = collateral_based_limit;
+        let mut prove_limit_reason = ProveLimitReason::CollateralPricing {
+            mcycle_price_collateral: self.format_collateral(min_mcycle_price_collateral_token),
+            collateral_reward: self.format_collateral(
+                order.request.offer.collateral_reward_if_locked_and_not_fulfilled(),
+            ),
+        };
 
         // If lock and fulfill, potentially increase that to ETH-based value if higher
         if !is_fulfill_after_lock_expire {
@@ -942,20 +1022,21 @@ where
                     .unwrap_or(u64::MAX)
             };
 
-            if eth_based_limit > stake_based_limit {
+            if eth_based_limit > collateral_based_limit {
                 // Eth based limit is higher, use that for both preflight and prove
-                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) > stake based limit ({stake_based_limit}), using eth based limit for both preflight and prove");
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) > collateral based limit ({collateral_based_limit}), using eth based limit for both preflight and prove");
                 preflight_limit = eth_based_limit;
                 prove_limit = eth_based_limit;
             } else {
                 // Otherwise lower the prove cycle limit for this order variant
-                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) < stake based limit ({stake_based_limit}), using eth based limit for prove");
+                tracing::debug!("Order {order_id} eth based limit ({eth_based_limit}) < collateral based limit ({collateral_based_limit}), using eth based limit for prove");
                 prove_limit = eth_based_limit;
             }
-            tracing::debug!(
-                "Order {order_id} initial preflight pricing cycle limit to prove: {} cycles",
-                prove_limit
-            );
+            prove_limit_reason = ProveLimitReason::EthPricing {
+                max_price: U256::from(order.request.offer.maxPrice),
+                gas_cost: order_gas_cost,
+                mcycle_price_eth: min_mcycle_price,
+            };
         }
 
         debug_assert!(
@@ -982,6 +1063,8 @@ where
                 );
                 prove_limit = config_cycle_limit;
                 preflight_limit = config_cycle_limit;
+                prove_limit_reason =
+                    ProveLimitReason::ConfigCap { max_mcycles: config_mcycle_limit };
             } else if preflight_limit > config_cycle_limit {
                 preflight_limit = config_cycle_limit;
             }
@@ -994,6 +1077,10 @@ where
             if prove_limit > prove_deadline_limit {
                 tracing::debug!("Order {order_id} prove limit capped by deadline: {} -> {} cycles ({:.1}s at {} peak_prove_khz)", prove_limit, prove_deadline_limit, prove_window, peak_prove_khz);
                 prove_limit = prove_deadline_limit;
+                prove_limit_reason = ProveLimitReason::DeadlineCap {
+                    time_remaining_secs: prove_window,
+                    peak_prove_khz,
+                };
             }
 
             // For preflight, also check fulfill-after-expiry window
@@ -1013,9 +1100,10 @@ where
         }
 
         tracing::trace!(
-            "Order {order_id} final limits - preflight: {} cycles, prove: {} cycles",
+            "Order {order_id} final limits - preflight: {} cycles, prove: {} cycles (reason: {})",
             preflight_limit,
-            prove_limit
+            prove_limit,
+            prove_limit_reason
         );
 
         debug_assert!(
@@ -1023,7 +1111,11 @@ where
             "preflight_limit ({preflight_limit}) < prove_limit ({prove_limit})",
         );
 
-        Ok((preflight_limit, prove_limit))
+        Ok((preflight_limit, prove_limit, prove_limit_reason))
+    }
+
+    fn format_collateral(&self, collateral: U256) -> String {
+        format_units(collateral, self.collateral_token_decimals).unwrap_or_else(|_| "?".to_string())
     }
 }
 
@@ -1385,7 +1477,7 @@ pub(crate) mod tests {
         pub(crate) order_index: u32,
         pub(crate) min_price: U256,
         pub(crate) max_price: U256,
-        pub(crate) lock_stake: U256,
+        pub(crate) lock_collateral: U256,
         pub(crate) fulfillment_type: FulfillmentType,
         pub(crate) bidding_start: u64,
         pub(crate) lock_timeout: u32,
@@ -1398,7 +1490,7 @@ pub(crate) mod tests {
                 order_index: 1,
                 min_price: parse_ether("0.02").unwrap(),
                 max_price: parse_ether("0.04").unwrap(),
-                lock_stake: U256::ZERO,
+                lock_collateral: U256::ZERO,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 bidding_start: now_timestamp(),
                 lock_timeout: 900,
@@ -1438,7 +1530,7 @@ pub(crate) mod tests {
                         timeout: params.timeout,
                         lockTimeout: params.lock_timeout,
                         rampUpPeriod: 1,
-                        lockCollateral: params.lock_stake,
+                        lockCollateral: params.lock_collateral,
                     },
                 ),
                 target_timestamp: None,
@@ -1484,7 +1576,7 @@ pub(crate) mod tests {
                         timeout: params.timeout,
                         lockTimeout: params.lock_timeout,
                         rampUpPeriod: 1,
-                        lockCollateral: params.lock_stake,
+                        lockCollateral: params.lock_collateral,
                     },
                 ),
                 target_timestamp: None,
@@ -1663,7 +1755,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain("predicate check failed, skipping"));
+        assert!(logs_contain("predicate check failed"));
     }
 
     #[tokio::test]
@@ -1690,7 +1782,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain("has an unsupported selector requirement"));
+        assert!(logs_contain("unsupported selector requirement"));
     }
 
     #[tokio::test]
@@ -1720,7 +1812,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
+        assert!(logs_contain("Estimated") && logs_contain("lock and fulfill order"));
     }
 
     #[tokio::test]
@@ -1777,7 +1869,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
+        assert!(logs_contain("Estimated") && logs_contain("lock and fulfill order"));
     }
 
     #[tokio::test]
@@ -1837,7 +1929,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
+        assert!(logs_contain("Estimated") && logs_contain("lock and fulfill order"));
     }
 
     #[tokio::test]
@@ -1895,7 +1987,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain(&format!("Estimated gas cost to lock and fulfill order {order_id}:")));
+        assert!(logs_contain("Estimated") && logs_contain("lock and fulfill order"));
     }
 
     #[tokio::test]
@@ -1920,7 +2012,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain("because it is not in allowed addrs"));
+        assert!(logs_contain("is not in allowed addrs"));
     }
 
     #[tokio::test]
@@ -1948,7 +2040,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain("because it is in denied addrs"));
+        assert!(logs_contain("is in deny_requestor_addresses"));
     }
 
     #[tokio::test]
@@ -1997,9 +2089,9 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn cannot_overcommit_stake() {
+    async fn cannot_overcommit_collateral() {
         let signer_inital_balance_eth = 2;
-        let lockin_stake = U256::from(150);
+        let lockin_collateral = U256::from(150);
 
         let config = ConfigLock::default();
         {
@@ -2009,12 +2101,15 @@ pub(crate) mod tests {
 
         let mut ctx = PickerTestCtxBuilder::default()
             .with_initial_signer_eth(signer_inital_balance_eth)
-            .with_initial_hp(lockin_stake)
+            .with_initial_hp(lockin_collateral)
             .with_config(config)
             .build()
             .await;
         let order = ctx
-            .generate_next_order(OrderParams { lock_stake: U256::from(100), ..Default::default() })
+            .generate_next_order(OrderParams {
+                lock_collateral: U256::from(100),
+                ..Default::default()
+            })
             .await;
         let order1_id = order.id();
         assert!(ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
@@ -2023,13 +2118,13 @@ pub(crate) mod tests {
 
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: lockin_stake + U256::from(1),
+                lock_collateral: lockin_collateral + U256::from(1),
                 ..Default::default()
             })
             .await;
         let order_id = order.id();
         assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
-        assert!(logs_contain("Insufficient available stake to lock order"));
+        assert!(logs_contain("insufficient available collateral to lock order"));
         assert_eq!(
             ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
             OrderStatus::Skipped
@@ -2037,19 +2132,21 @@ pub(crate) mod tests {
 
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: parse_units("11", ctx.picker.collateral_token_decimals).unwrap().into(),
+                lock_collateral: parse_units("11", ctx.picker.collateral_token_decimals)
+                    .unwrap()
+                    .into(),
                 ..Default::default()
             })
             .await;
         let order_id = order.id();
         assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
-        // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient stake
+        // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient collateral
         assert_eq!(
             ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
             OrderStatus::Skipped
         );
-        assert!(logs_contain("Removing high stake order"));
+        assert!(logs_contain("collateral requirement exceeds max_collateral config"));
     }
 
     #[tokio::test]
@@ -2095,14 +2192,15 @@ pub(crate) mod tests {
             config.load_write().unwrap().market.mcycle_price = "0.0000001".into();
             config.load_write().unwrap().market.max_journal_bytes = 1;
         }
-        let lock_stake = U256::from(10);
+        let lock_collateral = U256::from(10);
 
         let ctx = PickerTestCtxBuilder::default()
             .with_config(config)
-            .with_initial_hp(lock_stake)
+            .with_initial_hp(lock_collateral)
             .build()
             .await;
-        let order = ctx.generate_next_order(OrderParams { lock_stake, ..Default::default() }).await;
+        let order =
+            ctx.generate_next_order(OrderParams { lock_collateral, ..Default::default() }).await;
 
         let order_id = order.id();
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
@@ -2134,7 +2232,7 @@ pub(crate) mod tests {
                 bidding_start: now_timestamp(),
                 lock_timeout: 1000,
                 timeout: 10000,
-                lock_stake: parse_units("0.1", 6).unwrap().into(),
+                lock_collateral: parse_units("0.1", 6).unwrap().into(),
                 ..Default::default()
             })
             .await;
@@ -2176,8 +2274,8 @@ pub(crate) mod tests {
                 bidding_start: now_timestamp(),
                 lock_timeout: 0,
                 timeout: 10000,
-                // Low stake means low reward for filling after it is unfulfilled
-                lock_stake: parse_units("0.00001", 6).unwrap().into(),
+                // Low collateral means low reward for filling after it is unfulfilled
+                lock_collateral: parse_units("0.00001", 6).unwrap().into(),
                 ..Default::default()
             })
             .await;
@@ -2186,7 +2284,7 @@ pub(crate) mod tests {
 
         assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
-        // Since we know the stake reward is constant, and we know our min_mycle_price_stake_token
+        // Since we know the collateral reward is constant, and we know our min_mycle_price_collateral_token
         // the execution limit check tells us if the order is profitable or not, since it computes the max number
         // of cycles that can be proven while keeping the order profitable.
         assert!(logs_contain(&format!(
@@ -2342,7 +2440,7 @@ pub(crate) mod tests {
 
         let mut order = ctx
             .generate_next_order(OrderParams {
-                lock_stake: U256::from(1),
+                lock_collateral: U256::from(1),
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 bidding_start: now_timestamp() - 100,
                 lock_timeout: 10,
@@ -2351,21 +2449,18 @@ pub(crate) mod tests {
             })
             .await;
 
-        let order_id = order.id();
-        let stake_reward = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward, U256::from(0));
+        let collateral_reward = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+        assert_eq!(collateral_reward, U256::from(0));
 
         let locked = ctx.picker.price_order(&mut order).await;
-        assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
-
-        assert!(logs_contain(&format!(
-            "Removing order {order_id} because its exec limit is too low"
-        )));
+        assert!(
+            matches!(locked, Ok(OrderPricingOutcome::Skip { reason }) if reason.contains("exec limit is too low"))
+        );
 
         let mut order2 = ctx
             .generate_next_order(OrderParams {
                 order_index: 2,
-                lock_stake: U256::from(40),
+                lock_collateral: U256::from(40),
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 bidding_start: now_timestamp() - 100,
                 lock_timeout: 10,
@@ -2375,13 +2470,14 @@ pub(crate) mod tests {
             .await;
 
         let order2_id = order2.id();
-        let stake_reward2 = order2.request.offer.collateral_reward_if_locked_and_not_fulfilled();
-        assert_eq!(stake_reward2, U256::from(20));
+        let collateral_reward2 =
+            order2.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+        assert_eq!(collateral_reward2, U256::from(20));
 
         let locked = ctx.picker.price_order(&mut order2).await;
-        assert!(matches!(locked, Ok(OrderPricingOutcome::Skip)));
+        assert!(matches!(locked, Ok(OrderPricingOutcome::Skip { .. })));
 
-        // Stake token denom offsets the mcycle multiplier, so for 1stake/mcycle, this will be 10
+        // collateral token denom offsets the mcycle multiplier, so for 1collateral/mcycle, this will be 10
         assert!(logs_contain(&format!(
             "Starting preflight execution of {order2_id} with limit of 20 cycles"
         )));
@@ -2396,7 +2492,6 @@ pub(crate) mod tests {
         let ctx = PickerTestCtxBuilder::default().build().await;
 
         let mut order = ctx.generate_next_order(Default::default()).await;
-        let order_id = order.id();
 
         ctx.db
             .set_request_locked(
@@ -2409,9 +2504,9 @@ pub(crate) mod tests {
         assert!(ctx.db.is_request_locked(U256::from(order.request.id)).await?);
 
         let pricing_outcome = ctx.picker.price_order(&mut order).await?;
-        assert!(matches!(pricing_outcome, OrderPricingOutcome::Skip));
-
-        assert!(logs_contain(&format!("Order {order_id} is already locked, skipping")));
+        assert!(
+            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason } if reason.contains("already locked"))
+        );
 
         Ok(())
     }
@@ -2474,16 +2569,15 @@ pub(crate) mod tests {
                 ..Default::default()
             })
             .await;
-        let order_id = order.id();
 
         ctx.db.set_request_fulfilled(U256::from(order.request.id), 1000).await?;
 
         assert!(ctx.db.is_request_fulfilled(U256::from(order.request.id)).await?);
 
         let pricing_outcome = ctx.picker.price_order(&mut order).await?;
-        assert!(matches!(pricing_outcome, OrderPricingOutcome::Skip));
-
-        assert!(logs_contain(&format!("Order {order_id} is already fulfilled, skipping")));
+        assert!(
+            matches!(pricing_outcome, OrderPricingOutcome::Skip { reason } if reason.contains("already fulfilled"))
+        );
 
         Ok(())
     }
@@ -2839,7 +2933,7 @@ pub(crate) mod tests {
 
         // Process short timeout order first - this should hit session limit and cache the Skip result
         let result1 = ctx.picker.price_order(&mut low_timeout_order).await;
-        assert!(matches!(result1, Ok(OrderPricingOutcome::Skip)));
+        assert!(matches!(result1, Ok(OrderPricingOutcome::Skip { .. })));
 
         // Process long timeout order second - this should NOT reuse the low-limit cached result
         // It should succeed with its own higher exec limit via a new preflight call
@@ -2962,16 +3056,16 @@ pub(crate) mod tests {
 
     // Unit tests for calculate_exec_limits function
 
-    /// Helper to parse stake token amounts (6 decimals) instead of ETH (18 decimals)
-    fn parse_stake_tokens(amount: &str) -> U256 {
+    /// Helper to parse collateral token amounts (6 decimals) instead of ETH (18 decimals)
+    fn parse_collateral_tokens(amount: &str) -> U256 {
         parse_units(amount, 6).unwrap().into()
     }
 
     #[tokio::test]
-    async fn test_calculate_exec_limits_eth_higher_than_stake() {
+    async fn test_calculate_exec_limits_eth_higher_than_collateral() {
         let market_config = MarketConf {
             mcycle_price: "0.001".to_string(), // 0.01 ETH per mcycle
-            mcycle_price_collateral_token: "10".to_string(), // 10 stake tokens per mcycle
+            mcycle_price_collateral_token: "10".to_string(), // 10 collateral tokens per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -2993,7 +3087,7 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 max_price: parse_ether("0.05").unwrap(), // 0.05 ETH max price
-                lock_stake: parse_stake_tokens("100"),   // 100 stake tokens
+                lock_collateral: parse_collateral_tokens("100"), // 100 collateral tokens
                 lock_timeout: 900,                       // lock timeout
                 timeout: 1200,                           // order timeout
                 ..Default::default()
@@ -3001,12 +3095,12 @@ pub(crate) mod tests {
             .await;
 
         // For lock and fulfill, if the exec limit based on ETH is higher than the exec
-        // limit based on stake, we should use the ETH limit.
-        let (preflight_limit, prove_limit) =
+        // limit based on collateral, we should use the ETH limit.
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.001 ETH/mcycle = 49M cycles
-        // Stake based: (100 stake tokens - 20% stake burn) * 1M / 10 stake_tokens/mcycle = 8M cycles
+        // collateral based: (100 collateral tokens - 20% collateral burn) * 1M / 10 collateral_tokens/mcycle = 8M cycles
         // ETH-based is higher, so both should use ETH-based limit
 
         assert_eq!(preflight_limit, 49_000_000u64);
@@ -3014,10 +3108,10 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_exec_limits_stake_higher_than_eth_exposes_bug() {
+    async fn test_calculate_exec_limits_collateral_higher_than_eth_exposes_bug() {
         let market_config = MarketConf {
             mcycle_price: "0.1".to_string(), // 0.1 ETH per mcycle (expensive)
-            mcycle_price_collateral_token: "1".to_string(), // 1 stake token per mcycle (cheaper)
+            mcycle_price_collateral_token: "1".to_string(), // 1 collateral token per mcycle (cheaper)
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3039,40 +3133,40 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 max_price: parse_ether("0.05").unwrap(), // 0.05 ETH max price
-                lock_stake: parse_stake_tokens("1000"),  // 1000 stake tokens
+                lock_collateral: parse_collateral_tokens("1000"), // 1000 collateral tokens
                 lock_timeout: 900,
                 timeout: 1200,
                 ..Default::default()
             })
             .await;
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.1 ETH/mcycle = 490k cycles
-        // Stake based: (1000 stake tokens - 20% burn) * 1M / 1 stake_token/mcycle = 800M cycles
-        // Stake-based is higher, demonstrating the bug where preflight != prove limits
+        // collateral based: (1000 collateral tokens - 20% burn) * 1M / 1 collateral_token/mcycle = 800M cycles
+        // collateral-based is higher, demonstrating the bug where preflight != prove limits
 
-        let stake_reward_tokens = order
+        let collateral_reward_tokens = order
             .request
             .offer
             .collateral_reward_if_locked_and_not_fulfilled()
             .div_ceil(U256::from(1_000_000));
-        let stake_based_limit: u64 = stake_reward_tokens
+        let collateral_based_limit: u64 = collateral_reward_tokens
             .saturating_mul(U256::from(1_000_000))
             .div_ceil(U256::from(1))
             .try_into()
             .unwrap();
-        assert_eq!(preflight_limit, stake_based_limit);
+        assert_eq!(preflight_limit, collateral_based_limit);
         assert_eq!(prove_limit, 490_000u64);
     }
 
     #[traced_test]
     #[tokio::test]
-    async fn test_calculate_exec_limits_fulfill_after_expire_stake_only() {
+    async fn test_calculate_exec_limits_fulfill_after_expire_collateral_only() {
         let market_config = MarketConf {
             mcycle_price: "0.0134".to_string(), // Won't be used for FulfillAfterLockExpire
-            mcycle_price_collateral_token: "0.1".to_string(), // 0.1 stake per mcycle
+            mcycle_price_collateral_token: "0.1".to_string(), // 0.1 collateral per mcycle
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3094,29 +3188,29 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 max_price: parse_ether("1.0").unwrap(), // Won't be used
-                lock_stake: parse_stake_tokens("100"),  // 100 stake tokens
+                lock_collateral: parse_collateral_tokens("100"), // 100 collateral tokens
                 lock_timeout: 900,
                 timeout: 1200,
                 ..Default::default()
             })
             .await;
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
-        // Should only use stake-based pricing for FulfillAfterLockExpire
-        // Stake based: (100 stake tokens - 20% burn) / 0.1 stake tokens per mcycle = 80M cycles
-        let stake_reward_tokens =
+        // Should only use collateral-based pricing for FulfillAfterLockExpire
+        // collateral based: (100 collateral tokens - 20% burn) / 0.1 collateral tokens per mcycle = 80M cycles
+        let collateral_reward_tokens =
             order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
-        tracing::info!("Stake reward tokens: {stake_reward_tokens}");
-        let stake_based_limit: u64 = stake_reward_tokens
+        tracing::info!("collateral reward tokens: {collateral_reward_tokens}");
+        let collateral_based_limit: u64 = collateral_reward_tokens
             .saturating_mul(U256::from(1_000_000))
-            .div_ceil(parse_stake_tokens("0.1"))
+            .div_ceil(parse_collateral_tokens("0.1"))
             .try_into()
             .unwrap();
 
-        assert_eq!(preflight_limit, stake_based_limit);
-        assert_eq!(prove_limit, stake_based_limit);
+        assert_eq!(preflight_limit, collateral_based_limit);
+        assert_eq!(prove_limit, collateral_based_limit);
     }
 
     #[tokio::test]
@@ -3145,14 +3239,14 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 max_price: parse_ether("10.0").unwrap(), // Very high price
-                lock_stake: parse_stake_tokens("1000.0"), // Very high stake
+                lock_collateral: parse_collateral_tokens("1000.0"), // Very high collateral
                 lock_timeout: 900,
                 timeout: 1200,
                 ..Default::default()
             })
             .await;
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // Should be capped at 20M cycles regardless of high prices
@@ -3189,7 +3283,7 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 max_price: parse_ether("1.0").unwrap(),
-                lock_stake: parse_stake_tokens("100.0"),
+                lock_collateral: parse_collateral_tokens("100.0"),
                 lock_timeout: 900,
                 timeout: 1200,
                 ..Default::default()
@@ -3199,12 +3293,12 @@ pub(crate) mod tests {
         // Set the client address to the priority address
         order.request.id = RequestId::new(priority_address, 1).into();
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
-        // For LockAndFulfill orders: preflight uses higher limit (stake), prove uses ETH-based
-        assert_eq!(preflight_limit, 500_000_000u64); // Stake-based calculation
+        // For LockAndFulfill orders: preflight uses higher limit (collateral), prove uses ETH-based
+        assert_eq!(preflight_limit, 500_000_000u64); // collateral-based calculation
         assert_eq!(prove_limit, 99_900_000u64); // ETH-based calculation
     }
 
@@ -3234,14 +3328,14 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 max_price: parse_ether("10.0").unwrap(), // High price that would normally allow many cycles
-                lock_stake: parse_stake_tokens("100.0"), // High stake
+                lock_collateral: parse_collateral_tokens("100.0"), // High collateral
                 lock_timeout: 60,                        // 60 second lock timeout
                 timeout: 120,                            // 120 second order timeout
                 ..Default::default()
             })
             .await;
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // Should be limited by timing constraints
@@ -3254,10 +3348,10 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn test_calculate_exec_limits_zero_stake_price_unlimited() {
+    async fn test_calculate_exec_limits_zero_collateral_price_unlimited() {
         let market_config = MarketConf {
             mcycle_price: "0.01".to_string(),
-            mcycle_price_collateral_token: "0".to_string(), // Zero stake price
+            mcycle_price_collateral_token: "0".to_string(), // Zero collateral price
             max_mcycle_limit: None,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
@@ -3279,17 +3373,17 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 max_price: parse_ether("1.0").unwrap(),
-                lock_stake: parse_stake_tokens("10.0"),
+                lock_collateral: parse_collateral_tokens("10.0"),
                 lock_timeout: 900,
                 timeout: 1200,
                 ..Default::default()
             })
             .await;
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
-        // Should be unlimited (u64::MAX) when stake price is zero
+        // Should be unlimited (u64::MAX) when collateral price is zero
         assert_eq!(preflight_limit, u64::MAX);
         assert_eq!(prove_limit, u64::MAX);
     }
@@ -3320,14 +3414,14 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 max_price: parse_ether("1.0").unwrap(), // High price
-                lock_stake: parse_stake_tokens("10.0"), // High stake
+                lock_collateral: parse_collateral_tokens("10.0"), // High collateral
                 lock_timeout: 1,                        // 1 second lock timeout (very short!)
                 timeout: 2,                             // 2 second order timeout
                 ..Default::default()
             })
             .await;
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // Should be limited by very short deadline: 1 second = 1M cycles
@@ -3363,14 +3457,14 @@ pub(crate) mod tests {
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
                 max_price: parse_ether("1.0").unwrap(),
-                lock_stake: parse_stake_tokens("10.0"),
+                lock_collateral: parse_collateral_tokens("10.0"),
                 lock_timeout: 60,
                 timeout: 120,
                 ..Default::default()
             })
             .await;
 
-        let (preflight_limit, prove_limit) =
+        let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
         // Should be unlimited (u64::MAX) when ETH mcycle_price is zero
@@ -3401,7 +3495,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_zero_stake_price_order_processing() {
+    async fn test_zero_collateral_price_order_processing() {
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.mcycle_price_collateral_token = "0".into();
