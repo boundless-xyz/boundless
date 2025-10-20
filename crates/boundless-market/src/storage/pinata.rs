@@ -187,7 +187,7 @@ impl StorageProvider for PinataStorageProvider {
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
         let digest = Sha256::digest(input);
-        let filename = format!("{}.input", hex::encode(digest.as_slice()));
+        let filename = format!("{}.input", hex::encode(&digest[..]));
         self.upload(input, filename).await
     }
 }

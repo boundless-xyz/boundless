@@ -223,7 +223,7 @@ impl StorageProvider for S3StorageProvider {
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
         let digest = Sha256::digest(input);
-        let key = format!("input/{}", hex::encode(digest.as_slice()));
+        let key = format!("input/{}", hex::encode(&digest[..]));
         self.upload(input, &key).await
     }
 }
