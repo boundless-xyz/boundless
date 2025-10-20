@@ -174,7 +174,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         collateral_token_contract.balanceOf(distributor_address).call().await?;
 
     if distributor_eth_balance < distributor_eth_alert_threshold {
-        tracing::error!(
+        tracing::warn!(
             "[B-DIST-ETH-LOW]: Distributor {} ETH balance {} is below alert threshold {}",
             distributor_address,
             format_units(distributor_eth_balance, "ether")?,
@@ -189,7 +189,7 @@ async fn run(args: &MainArgs) -> Result<()> {
     }
 
     if distributor_collateral_balance < distributor_collateral_alert_threshold {
-        tracing::error!(
+        tracing::warn!(
             "[B-DIST-STK-LOW]: Distributor {} collateral balance {} is below alert threshold {}",
             distributor_address,
             format_units(distributor_collateral_balance, collateral_token_decimals)?,

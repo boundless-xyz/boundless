@@ -426,7 +426,7 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `CRITICAL: Distributor unable to send stake. Send stake to distributor: ${distributorAddress} on ${chainId}`,
+    alarmDescription: `Distributor unable to send stake. Send stake to distributor: ${distributorAddress} on ${chainId}`,
     actionsEnabled: true,
     alarmActions,
   });
@@ -474,7 +474,7 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `WARNING: Distributor stake balance low. Send stake to distributor: ${distributorAddress} on ${chainId}`,
+    alarmDescription: `Distributor stake balance low. Send stake to distributor: ${distributorAddress} on ${chainId}`,
     actionsEnabled: true,
     alarmActions,
   });
