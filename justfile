@@ -113,7 +113,7 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd documentation && bun run check
+    cd documentation && bun install && bun run check
     dprint check
     forge fmt --check
 
