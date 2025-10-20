@@ -7,8 +7,8 @@ use crate::Agent;
 use anyhow::{Context as _, Result, bail};
 use risc0_zkvm::{InnerReceipt, ProverOpts, Receipt};
 use workflow_common::{
-    SnarkReq, SnarkResp,
-    s3::{GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
+    CompressType, SnarkReq, SnarkResp,
+    s3::{GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, SHRINK_BITVM2_BUCKET_DIR, STARK_BUCKET_DIR},
 };
 
 /// Converts a stark, stored in s3 to a snark
@@ -24,19 +24,51 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
 
     tracing::debug!("performing identity predicate on receipt, {job_id}");
 
-    let opts = ProverOpts::groth16();
-    let snark_receipt = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from resolve task")?
-        .compress(&opts, &receipt)
-        .context("groth16 compress failed")?;
+    let (snark_receipt, bucket_dir) = match req.compress_type {
+        CompressType::None => bail!("Cannot convert to snark with no compression"),
+        CompressType::Groth16 => (
+            agent
+                .prover
+                .as_ref()
+                .context("Missing prover from resolve task")?
+                .compress(&ProverOpts::groth16(), &receipt)
+                .context("groth16 compress failed")?,
+            GROTH16_BUCKET_DIR,
+        ),
+        CompressType::ShrinkBitvm2 => {
+            // First we compress a succinct receipt just to make sure we have a succinct receipt
+            let succinct_receipt = agent
+                .prover
+                .as_ref()
+                .context("Missing prover from resolve task")?
+                .compress(&ProverOpts::succinct(), &receipt)
+                .context("succinct compress failed")?;
+            let succinct_receipt = succinct_receipt.inner.succinct()?;
+            let p254_receipt = agent
+                .prover
+                .as_ref()
+                .context("Missing prover from resolve task")?
+                .identity_p254(succinct_receipt)
+                .context("failed to create p254 receipt")?;
+            // TODO(ec2): Handle cpu vs gpu here?
+            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
+            let seal_json = shrink_bitvm2::shrink_wrap(&p254_receipt, journal)?;
+            (
+                shrink_bitvm2::finalize(
+                    journal,
+                    p254_receipt.claim.clone(),
+                    &seal_json.try_into()?,
+                )?,
+                SHRINK_BITVM2_BUCKET_DIR,
+            )
+        }
+    };
 
     if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
         bail!("failed to create groth16 receipt");
     }
 
-    let key = &format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
+    let key = &format!("{RECEIPT_BUCKET_DIR}/{bucket_dir}/{job_id}.bincode");
     tracing::debug!("Uploading snark receipt to S3: {key}");
 
     agent

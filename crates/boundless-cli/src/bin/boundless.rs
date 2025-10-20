@@ -1096,6 +1096,7 @@ async fn submit_offer(client: StandardClient, args: &SubmitOfferArgs) -> Result<
         // TODO(risc0-ethereum/#597): This needs to be kept up to date with releases of
         // risc0-ethereum. Add a Selector::inclusion_latest() function to risc0-ethereum and use it
         // here.
+        ProofType::ShrinkBitvm2 => requirements.selector(Selector::shrink_bitvm2_latest() as u32),
         ProofType::Inclusion => requirements.selector(Selector::set_inclusion_latest() as u32),
         ProofType::Groth16 => requirements.selector(Selector::groth16_latest() as u32),
         ProofType::Any => &mut requirements,

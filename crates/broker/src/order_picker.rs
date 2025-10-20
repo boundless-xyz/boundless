@@ -51,7 +51,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
         RequestInputType,
     },
-    selector::SupportedSelectors,
+    selector::{is_shrink_bitvm2_selector, SupportedSelectors},
 };
 use moka::future::Cache;
 use thiserror::Error;
@@ -667,13 +667,23 @@ where
             return Ok(Skip);
         }
 
+        // If the selector is a shrink bitvm2 selector, ensure the journal is exactly 32 bytes
+        if is_shrink_bitvm2_selector(order.request.requirements.selector) && journal.len() != 32 {
+            tracing::info!(
+                "Order {order_id} journal is not 32 bytes for shrink bitvm2 selector, skipping",
+            );
+            return Ok(Skip);
+        }
+
         // Validate the predicates:
         let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
             .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
-        let eval_data = FulfillmentData::from_image_id_and_journal(
-            Digest::from_hex(image_id).unwrap(),
-            journal,
-        );
+        let eval_data = if is_shrink_bitvm2_selector(order.request.requirements.selector) {
+            // TODO(ec2): comment on this
+            FulfillmentData::None
+        } else {
+            FulfillmentData::from_image_id_and_journal(Digest::from_hex(image_id).unwrap(), journal)
+        };
         if predicate.eval(&eval_data).is_none() {
             tracing::info!("Order {order_id} predicate check failed, skipping");
             return Ok(Skip);
@@ -2724,6 +2734,16 @@ pub(crate) mod tests {
             proof_id: &str,
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_compressed_receipt(proof_id).await
+        }
+        async fn shrink_bitvm2(&self, _proof_id: &str) -> Result<String, ProverError> {
+            todo!("Shrink BitVM is not implemented yet");
+        }
+
+        async fn get_bitvm2_receipt(
+            &self,
+            _proof_id: &str,
+        ) -> Result<Option<Receipt>, ProverError> {
+            todo!("Shrink BitVM is not implemented yet");
         }
     }
 

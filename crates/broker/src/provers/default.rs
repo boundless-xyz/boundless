@@ -16,7 +16,7 @@ use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
 use crate::config::ProverConf;
 use crate::provers::{ExecutorResp, ProofResult, Prover, ProverError};
-use anyhow::{Context, Result as AnyhowResult};
+use anyhow::{anyhow, Context, Result as AnyhowResult};
 use async_trait::async_trait;
 use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
@@ -370,7 +370,8 @@ impl Prover for DefaultProver {
             .map(|receipt| bincode::serialize(receipt).unwrap())
             .unwrap_or_default();
 
-        let mut proofs = self.state.proofs.write().await;
+        let mut proofs: tokio::sync::RwLockWriteGuard<'_, HashMap<String, ProofData>> =
+            self.state.proofs.write().await;
         let proof = proofs.get_mut(&proof_id).unwrap();
         match compress_result {
             Ok(_) => {
@@ -395,14 +396,89 @@ impl Prover for DefaultProver {
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
+
+    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
+        tracing::info!("Compressing proof Shrink bitvm2 {proof_id}");
+        let receipt = self
+            .get_receipt(proof_id)
+            .await?
+            .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {proof_id}")))?;
+        if receipt.journal.bytes.len() != 32 {
+            return Err(ProverError::UnexpectedError(anyhow!(
+                "Shrink BitVM2 requires a journal of 32 bytes, got {}",
+                receipt.journal.bytes.len()
+            )));
+        }
+        let proof_id = format!("snark_{}", Uuid::new_v4());
+        self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
+
+        tracing::debug!("shrink bitvm2 identity_p254 for proof {proof_id}");
+
+        let compress_result: Result<Receipt, _> = tokio::task::spawn_blocking(move || {
+            tracing::debug!(
+                "r0vm does not currently support shrink_bitvm2, compressing will be done locally"
+            );
+            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into().map_err(|_| {
+                ProverError::UnexpectedError(anyhow!(
+                    "Failed to convert journal to [u8; 32] as expected for blake3 groth16",
+                ))
+            })?;
+
+            let succinct_receipt = receipt.inner.succinct().unwrap().clone();
+            let seal = shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, journal)
+                .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?;
+            shrink_bitvm2::finalize(
+                journal,
+                receipt.claim().map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?,
+                &seal.try_into().map_err(|_| {
+                    ProverError::UnexpectedError(anyhow!(
+                        "Failed to convert blake3 groth16 seal from json"
+                    ))
+                })?,
+            )
+            .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
+        })
+        .await
+        .unwrap();
+
+        let compressed_bytes = compress_result
+            .as_ref()
+            .map(|receipt| bincode::serialize(receipt).unwrap())
+            .unwrap_or_default();
+
+        let mut proofs = self.state.proofs.write().await;
+        let proof = proofs.get_mut(&proof_id).unwrap();
+        match compress_result {
+            Ok(_) => {
+                proof.status = Status::Succeeded;
+                proof.compressed_receipt = Some(compressed_bytes);
+
+                Ok(proof_id)
+            }
+            Err(err) => {
+                proof.status = Status::Failed;
+                proof.error_msg = err.to_string();
+
+                Err(err)
+            }
+        }
+    }
+    async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+        let proofs = self.state.proofs.read().await;
+        let proof_data = proofs
+            .get(proof_id)
+            .ok_or_else(|| ProverError::NotFound(format!("shrink bitvm2 proof {proof_id}")))?;
+        Ok(proof_data.compressed_receipt.as_ref().cloned())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
-    use risc0_zkvm::sha::Digest;
     use tokio::test;
+
+    use risc0_zkvm::{sha::Digest, Groth16Seal};
 
     #[test]
     async fn test_upload_input_and_image() {
@@ -515,5 +591,33 @@ mod tests {
 
         let journal_err = prover.get_journal(nonexistent_id).await;
         assert!(matches!(journal_err, Err(ProverError::NotFound(_))));
+    }
+
+    #[test]
+    async fn test_shrink_bitvm2() {
+        let prover = DefaultProver::new();
+        // Upload test data
+        let input_data = [255u8; 32].to_vec(); // Example input data
+        let input_id = prover.upload_input(input_data.clone()).await.unwrap();
+        let image_id = Digest::from(ECHO_ID);
+        prover.upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await.unwrap();
+
+        // Run SNARK proving
+        let ProofResult { id: stark_id, .. } =
+            prover.prove_and_monitor_stark(&image_id.to_string(), &input_id, vec![]).await.unwrap();
+
+        let snark_id = prover.shrink_bitvm2(&stark_id).await.unwrap();
+
+        // Fetch the compressed receipt
+        let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
+        let shrink_receipt: Receipt = bincode::deserialize(&compressed_receipt).unwrap();
+
+        let groth16_receipt = shrink_receipt.inner.groth16().unwrap();
+        let groth16_seal = Groth16Seal::decode(&groth16_receipt.seal)
+            .expect("Failed to create Groth16 seal from receipt");
+        let claim_digest =
+            shrink_bitvm2::ShrinkBitvm2ReceiptClaim::ok(ECHO_ID, input_data).claim_digest();
+        shrink_bitvm2::verify::verify(&groth16_seal, claim_digest)
+            .expect("Failed to verify Shrink BitVM2 receipt");
     }
 }

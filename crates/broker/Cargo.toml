@@ -55,6 +55,10 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 url = { workspace = true }
 uuid = { workspace = true }
 
+num-bigint = { version = "0.4", features = ["std"] }
+num-traits = "0.2.19"
+shrink_bitvm2 = { workspace = true }
+
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
 aws-smithy-http-client = { version = "1.0", features = ["test-util"] }
@@ -73,5 +77,10 @@ temp-env = { version = "0.3", features = ["async_closure"] }
 tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }
 
+risc0-groth16 = { workspace = true, features = ["prove"] }
+test-log = { workspace = true }
+
 [features]
 test-utils = ["dep:boundless-test-utils"]
+prove = ["shrink_bitvm2/prove"]
+cuda = ["shrink_bitvm2/cuda"]

@@ -16,7 +16,7 @@ path = "src/bin/agent.rs"
 
 [features]
 default = []
-cuda = ["risc0-zkvm/cuda"]
+cuda = ["risc0-zkvm/cuda", "shrink_bitvm2/cuda"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -34,6 +34,9 @@ risc0-zkvm = { workspace = true, default-features = false, features = [
 ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+shrink_bitvm2 = { workspace = true, features = [
+    "prove",
+]}
 signal-hook = "0.3"
 sqlx = { workspace = true }
 taskdb = { workspace = true }

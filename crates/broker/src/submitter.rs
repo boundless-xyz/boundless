@@ -30,7 +30,7 @@ use boundless_market::{
         encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
         FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
-    selector::is_groth16_selector,
+    selector::{is_groth16_selector, is_shrink_bitvm2_selector},
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -176,6 +176,23 @@ where
         Ok(encoded_seal)
     }
 
+    async fn fetch_encode_shrink_seal(&self, bitvm2_proof_id: &str) -> Result<Vec<u8>> {
+        let bitvm2_receipt = self
+            .prover
+            .get_bitvm2_receipt(bitvm2_proof_id)
+            .await
+            .context("Failed to fetch BitVM2 receipt")?
+            .context("BitVM2 receipt missing")?;
+
+        let bitvm2_receipt: Receipt = bincode::deserialize(&bitvm2_receipt)
+            .context("Failed to deserialize BitVM2 receipt")?;
+
+        let encoded_seal =
+            encode_seal(&bitvm2_receipt).context("Failed to encode BitVM2 receipt seal")?;
+
+        Ok(encoded_seal)
+    }
+
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
         tracing::info!("Submitting batch {batch_id}");
 
@@ -307,6 +324,14 @@ where
                     self.fetch_encode_g16(&compressed_proof_id)
                         .await
                         .context("Failed to fetch and encode g16 proof")?
+                } else if is_shrink_bitvm2_selector(order_request.requirements.selector) {
+                    let compressed_proof_id =
+                        self.db.get_order_compressed_proof_id(order_id).await.context(
+                            "Failed to get order compressed proof ID from DB for submission",
+                        )?;
+                    self.fetch_encode_shrink_seal(&compressed_proof_id)
+                        .await
+                        .context("Failed to fetch and encode bitvm2 proof")?
                 } else {
                     let order_claim_index = aggregation_state
                         .claim_digests
@@ -372,7 +397,7 @@ where
             };
 
             if let Err(err) = res.await {
-                tracing::error!("Failed to submit {order_id}: {err}");
+                tracing::error!("Failed to submit {order_id}: {err:?}");
                 if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
                     tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }
