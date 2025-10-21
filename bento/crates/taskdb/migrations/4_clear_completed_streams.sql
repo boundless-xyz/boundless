@@ -3,7 +3,6 @@ CREATE OR REPLACE FUNCTION clear_completed_jobs()
 RETURNS INTEGER AS $$
 DECLARE
     total_cleared INTEGER := 0;
-    streams_cleared INTEGER := 0;
 BEGIN
     -- Store the count before deletion
     SELECT COUNT(*) INTO total_cleared FROM jobs WHERE state = 'done';
