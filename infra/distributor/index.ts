@@ -407,8 +407,8 @@ export = () => {
     alarmActions,
   });
 
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-stake-alarm-${Severity.SEV1}`, {
-    name: `${serviceName}-log-stake-${Severity.SEV1}`,
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-stake-alarm-${Severity.SEV2}`, {
+    name: `${serviceName}-log-stake-${Severity.SEV2}`,
     metricQueries: [
       {
         id: 'm1',
@@ -450,7 +450,7 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `CRITICAL: Distributor unable to send ETH. Send ETH to distributor: ${distributorAddress} on ${chainId}`,
+    alarmDescription: `Distributor unable to send ETH. Send ETH to distributor: ${distributorAddress} on ${chainId}`,
     actionsEnabled: true,
     alarmActions,
   });
