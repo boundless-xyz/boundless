@@ -710,10 +710,51 @@ where
         // If a max_mcycle_limit is configured check if the order is over that limit
         let proof_cycles = proof_res.stats.total_cycles;
         if proof_cycles > prove_limit {
+            // If the preflight execution has completed, but for the variant is rejected,
+            // provide the config value that needs to be updated in order to have accepted.
+            let config_info = match &prove_limit_reason {
+                ProveLimitReason::EthPricing { max_price, gas_cost, mcycle_price_eth } => {
+                    let available_eth = max_price.saturating_sub(*gas_cost);
+                    let required_price_per_mcycle =
+                        available_eth.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
+                    format!(
+                        "mcycle_price currently {} ETH/Mcycle, needs to be <= {} ETH/Mcycle",
+                        format_ether(*mcycle_price_eth),
+                        format_ether(required_price_per_mcycle)
+                    )
+                }
+                ProveLimitReason::CollateralPricing { mcycle_price_collateral, .. } => {
+                    let reward =
+                        order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+                    let required_collateral_price =
+                        reward.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
+                    format!(
+                        "mcycle_price_collateral_token currently {}, needs to be <= {}",
+                        mcycle_price_collateral,
+                        self.format_collateral(required_collateral_price)
+                    )
+                }
+                ProveLimitReason::ConfigCap { max_mcycles } => {
+                    let required_mcycles = proof_cycles.div_ceil(1_000_000);
+                    format!(
+                        "max_mcycle_limit currently {} Mcycles, needs to be >= {} Mcycles",
+                        max_mcycles, required_mcycles
+                    )
+                }
+                ProveLimitReason::DeadlineCap { time_remaining_secs, peak_prove_khz } => {
+                    let denom = time_remaining_secs.saturating_mul(1_000);
+                    let required_khz = proof_cycles.div_ceil(denom);
+                    format!(
+                        "peak_prove_khz currently {} kHz, needs to be >= {} kHz",
+                        peak_prove_khz, required_khz
+                    )
+                }
+            };
+
             return Ok(Skip {
                 reason: format!(
-                    "order with {proof_cycles} cycles above limit {prove_limit} - limited by: {prove_limit_reason}"
-                )
+                    "order with {proof_cycles} cycles above limit of {prove_limit} cycles - {config_info}"
+                ),
             });
         }
 
