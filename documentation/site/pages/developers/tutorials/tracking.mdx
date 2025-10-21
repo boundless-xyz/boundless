@@ -26,7 +26,7 @@ Here's how to wait for a request to be fulfilled:
 # let client = Client::builder().with_private_key(private_key).build().await?;
 # let program = vec![0u8; 32]; // Example program bytes
 # let input = vec![]; // Example input
-# let offer_params = OfferParams::builder(); // Example offer parameters
+# let offer_params = OfferParams::builder(); // Example auction parameters
 
 // Submit your request
 let request = client.new_request()
