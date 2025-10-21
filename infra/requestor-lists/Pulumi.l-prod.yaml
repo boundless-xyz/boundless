@@ -1,0 +1,4 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGjPuw9GVKnGzACgfI9APUtAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMUTAmt7jgq8blA76AAgEQgDvjkGMD0z2ClZ2YBLeF+2lvsj1OE2+HEZe3SjVEcmZXdRbq3lQEQ6BX7MNNivgM64wu27pu9iZ+r0ECrg==
+config:
+  requestor-lists:DOMAIN: requestors.boundless.network
