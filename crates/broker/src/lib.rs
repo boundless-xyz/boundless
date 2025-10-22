@@ -29,6 +29,7 @@ use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::OrderStreamClient,
+    override_gateway,
     selector::is_groth16_selector,
     Deployment,
 };
@@ -657,7 +658,15 @@ where
                             image_id,
                             computed_id
                         );
-                        self.download_image(&contract_url, "contract").await?
+                        let program = match self.download_image(&contract_url, "contract").await {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                let overridden_url = override_gateway(&contract_url);
+                                tracing::debug!("Retrying with overridden URL: {overridden_url}");
+                                self.download_image(&overridden_url, "gateway fallback").await?
+                            }
+                        };
+                        program
                     }
                 }
                 Err(e) => {
@@ -666,7 +675,15 @@ where
                         image_label,
                         e
                     );
-                    self.download_image(&contract_url, "contract").await?
+                    let program = match self.download_image(&contract_url, "contract").await {
+                        Ok(bytes) => bytes,
+                        Err(_) => {
+                            let overridden_url = override_gateway(&contract_url);
+                            tracing::debug!("Retrying with overridden URL: {overridden_url}");
+                            self.download_image(&overridden_url, "gateway fallback").await?
+                        }
+                    };
+                    program
                 }
             }
         };

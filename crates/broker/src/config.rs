@@ -113,6 +113,10 @@ pub enum OrderCommitmentPriority {
     Random,
     /// Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
     ShortestExpiry,
+    /// Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire randomly
+    LockPrice,
+    /// Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire randomly
+    LockCyclePrice,
 }
 
 impl Default for OrderCommitmentPriority {
@@ -275,6 +279,8 @@ pub struct MarketConf {
     /// Determines how orders are prioritized when committing to prove them. Options:
     /// - "random": Process orders in random order to distribute competition among provers (default)
     /// - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    /// - "lock_price": Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire randomly
+    /// - "lock_cycle_price": Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire randomly
     #[serde(default, alias = "expired_order_fulfillment_priority")]
     pub order_commitment_priority: OrderCommitmentPriority,
     /// Whether to cancel Bento proving sessions when the order is no longer actionable
