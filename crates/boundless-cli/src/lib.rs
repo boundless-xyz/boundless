@@ -287,7 +287,7 @@ impl DefaultProver {
         &self,
         orders: &[(ProofRequest, Bytes)],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
-        let orders_jobs = orders.iter().cloned().map(|(req, sig)| async move {
+        let orders_jobs = orders.iter().cloned().enumerate().map(|(idx, (req, sig))| async move {
             let order_program = fetch_url(&req.imageUrl).await?;
             let order_input: Vec<u8> = match req.input.inputType {
                 RequestInputType::Inline => GuestEnv::decode(&req.input.data)?.stdin,
@@ -328,7 +328,7 @@ impl DefaultProver {
             let fill =
                 Fulfillment { request: req.clone(), signature: sig.into(), fulfillment_data };
 
-            Ok::<_, anyhow::Error>((order_receipt, order_claim, order_claim_digest, fill))
+            Ok::<_, anyhow::Error>((idx, order_receipt, order_claim, order_claim_digest, fill))
         });
 
         let results = futures::future::join_all(orders_jobs).await;
@@ -336,17 +336,22 @@ impl DefaultProver {
         let mut claims = Vec::new();
         let mut claim_digests = Vec::new();
         let mut fills = Vec::new();
+        let mut successful_indices = Vec::new();
 
-        for (i, result) in results.into_iter().enumerate() {
-            if let Err(e) = result {
-                tracing::warn!("Failed to prove request 0x{:x}: {}", orders[i].0.id, e);
-                continue;
+        for result in results {
+            match result {
+                Err(e) => {
+                    tracing::warn!("Failed to prove request: {}", e);
+                    continue;
+                }
+                Ok((idx, receipt, claim, claim_digest, fill)) => {
+                    successful_indices.push(idx);
+                    receipts.push(receipt);
+                    claims.push(claim);
+                    claim_digests.push(claim_digest);
+                    fills.push(fill);
+                }
             }
-            let (receipt, claim, claim_digest, fill) = result?;
-            receipts.push(receipt);
-            claims.push(claim);
-            claim_digests.push(claim_digest);
-            fills.push(fill);
         }
 
         let assessor_receipt = self.assessor(fills.clone(), receipts.clone()).await?;
@@ -367,13 +372,13 @@ impl DefaultProver {
 
         let mut boundless_fills = Vec::new();
 
-        for i in 0..fills.len() {
+        for (i, &order_idx) in successful_indices.iter().enumerate() {
             let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                 claims[i].clone(),
                 merkle_path(&claim_digests, i),
                 verifier_parameters.digest(),
             );
-            let (req, _sig) = &orders[i];
+            let (req, _sig) = &orders[order_idx];
             let order_seal = if is_groth16_selector(req.requirements.selector) {
                 let receipt = self.compress(&receipts[i]).await?;
                 encode_seal(&receipt)?

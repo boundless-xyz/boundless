@@ -39,8 +39,8 @@ pub async fn block_number_near_timestamp(
         let block = provider
             .get_block_by_number(probe.into())
             .await
-            .context("Failed to get block {probe}")?
-            .context("Block {probe} not found")?;
+            .with_context(|| format!("Failed to get block {}", probe))?
+            .with_context(|| format!("Block {} not found", probe))?;
 
         let block_timestamp = UNIX_EPOCH + Duration::from_secs(block.header.timestamp);
         tracing::debug!("Linear search at block {probe}, timestamp {block_timestamp:?}");
@@ -62,8 +62,8 @@ pub async fn block_number_near_timestamp(
         let block = provider
             .get_block_by_number(mid.into())
             .await
-            .context("Failed to get block {mid}")?
-            .context("Block {mid} not found")?;
+            .with_context(|| format!("Failed to get block {}", mid))?
+            .with_context(|| format!("Block {} not found", mid))?;
 
         let block_timestamp = UNIX_EPOCH + Duration::from_secs(block.header.timestamp);
         tracing::debug!("Binary search at block {mid}, timestamp {block_timestamp:?}");

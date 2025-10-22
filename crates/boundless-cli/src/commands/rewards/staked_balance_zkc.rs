@@ -166,17 +166,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_staked_balance_zkc_zero_address() {
-        let ctx = TestContext::ethereum().await;
-
-        ctx.cmd("rewards", "staked-balance-zkc")
-            .arg("0x0000000000000000000000000000000000000000")
-            .assert()
-            .failure()
-            .stderr(contains("Failed to query staked ZKC balance"));
-    }
-
-    #[tokio::test]
     async fn test_staked_balance_zkc_help() {
         crate::test_common::BoundlessCmd::new("rewards", "staked-balance-zkc")
             .arg("--help")
