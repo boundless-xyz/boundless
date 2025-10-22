@@ -431,6 +431,9 @@ prover action="up" env_file="" detached="true":
     if [ "{{action}}" = "logs" ]; then
         # Ignore mining process logs by default
         PROFILE_FLAGS="--profile broker"
+    elif [ "{{action}}" = "down" ] || [ "{{action}}" = "clean" ]; then
+        # Always include miner profile when shutting down to ensure no lingering mining process
+        PROFILE_FLAGS="--profile broker --profile miner"
     elif [ "$BOUNDLESS_MINING" = "false" ]; then
         PROFILE_FLAGS="--profile broker"
     else
