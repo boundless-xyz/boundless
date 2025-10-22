@@ -153,7 +153,7 @@ impl Order {
 pub struct AuthMsg {
     /// SIWE message body
     #[schema(value_type = Object)]
-    pub message: SiweMsg,
+    message: SiweMsg,
     /// SIWE Signature of `message` field
     #[schema(value_type = Object)]
     signature: Signature,
@@ -174,11 +174,11 @@ impl Display for VersionInfo {
     }
 }
 
-impl From<SiweMsg> for VersionInfo {
-    fn from(msg: SiweMsg) -> Self {
+impl From<&SiweMsg> for VersionInfo {
+    fn from(msg: &SiweMsg) -> Self {
         let mut version = "unknown".to_string();
         let mut git_hash = "unknown".to_string();
-        if let Some(statement) = msg.statement {
+        if let Some(statement) = &msg.statement {
             let parts: Vec<&str> = statement.split(':').collect();
             if parts.len() == 3 && parts[0] == "Boundless Order Stream" {
                 version = parts[1].to_string();
@@ -186,6 +186,12 @@ impl From<SiweMsg> for VersionInfo {
             }
         }
         Self { version, git_hash }
+    }
+}
+
+impl From<&AuthMsg> for VersionInfo {
+    fn from(auth_msg: &AuthMsg) -> Self {
+        VersionInfo::from(&auth_msg.message)
     }
 }
 
@@ -224,6 +230,11 @@ impl AuthMsg {
     /// [AuthMsg] address in alloy format
     pub fn address(&self) -> Address {
         Address::from(self.message.address)
+    }
+
+    /// Return the version info from the message
+    pub fn version_info(&self) -> VersionInfo {
+        VersionInfo::from(self)
     }
 }
 
@@ -564,7 +575,7 @@ mod tests {
         let nonce = Nonce { nonce: "TEST_NONCE".to_string() };
         let origin = "http://localhost:8585".parse().unwrap();
         let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
-        let version_info = VersionInfo::from(auth_msg.message.clone());
+        let version_info = auth_msg.version_info();
         println!("VersionInfo: {}", version_info);
         assert!(version_info.version == version);
         assert!(version_info.git_hash == git_hash);

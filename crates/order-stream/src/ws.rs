@@ -24,7 +24,7 @@ use axum::{
 };
 use boundless_market::{
     contracts::IBoundlessMarket,
-    order_stream_client::{AuthMsg, ErrMsg, VersionInfo, ORDER_WS_PATH},
+    order_stream_client::{AuthMsg, ErrMsg, ORDER_WS_PATH},
 };
 use futures_util::{SinkExt, StreamExt};
 use rand::{seq::SliceRandom, Rng};
@@ -105,7 +105,7 @@ pub(crate) async fn websocket_handler(
     }
 
     // Parse message to log version and git hash
-    let version_info = VersionInfo::from(auth_msg.clone().message);
+    let version_info = auth_msg.version_info();
     tracing::info!(
         "Client {client_addr} connected with version: {}, git hash: {}",
         version_info.version,
