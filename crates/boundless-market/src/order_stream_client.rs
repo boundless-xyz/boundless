@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fmt::Display, pin::Pin};
+
 use alloy::{
     primitives::{Address, Signature, U256},
     signers::{Error as SignerErr, Signer},
@@ -24,7 +26,6 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use siwe::Message as SiweMsg;
-use std::pin::Pin;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tokio::net::TcpStream;
@@ -46,6 +47,8 @@ pub const AUTH_GET_NONCE: &str = "/api/v1/nonce/";
 pub const HEALTH_CHECK: &str = "/api/v1/health";
 /// Order stream websocket path.
 pub const ORDER_WS_PATH: &str = "/ws/v1/orders";
+/// Clients info API path.
+pub const CLIENTS_PATH: &str = "/api/v1/clients";
 
 /// Error body for API responses
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -152,17 +155,49 @@ impl Order {
 pub struct AuthMsg {
     /// SIWE message body
     #[schema(value_type = Object)]
-    message: SiweMsg,
+    pub message: SiweMsg,
     /// SIWE Signature of `message` field
     #[schema(value_type = Object)]
     signature: Signature,
 }
 
+/// VersionInfo struct for SIWE message
+#[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
+pub struct VersionInfo {
+    /// Version of the Boundless client
+    pub version: String,
+    /// Git hash of the Boundless client
+    pub git_hash: String,
+}
+
+impl Display for VersionInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Boundless Order Stream\nVersion={}\nGit hash={}", self.version, self.git_hash)
+    }
+}
+
+impl From<SiweMsg> for VersionInfo {
+    fn from(msg: SiweMsg) -> Self {
+        let mut version = "unknown".to_string();
+        let mut git_hash = "unknown".to_string();
+        if let Some(statement) = msg.statement {
+            let parts: Vec<&str> = statement.split(':').collect();
+            if parts.len() == 3 && parts[0] == "Boundless Order Stream" {
+                version = parts[1].to_string();
+                git_hash = parts[2].to_string();
+            }
+        }
+        Self { version, git_hash }
+    }
+}
+
 impl AuthMsg {
     /// Creates a new authentication message from a nonce, origin, signer
     pub async fn new(nonce: Nonce, origin: &Url, signer: &impl Signer) -> Result<Self> {
+        let version = env!("CARGO_PKG_VERSION");
+        let git_hash = option_env!("BOUNDLESS_GIT_HASH").unwrap_or("unknown");
         let message = format!(
-            "{} wants you to sign in with your Ethereum account:\n{}\n\nBoundless Order Stream\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
+            "{} wants you to sign in with your Ethereum account:\n{}\n\nBoundless Order Stream:{version}:{git_hash}\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
             origin.authority(), signer.address(), origin, nonce.nonce, Utc::now().to_rfc3339(),
         );
         let message: SiweMsg = message.parse()?;
@@ -525,10 +560,16 @@ mod tests {
 
     #[tokio::test]
     async fn auth_msg_verify() {
+        let version = env!("CARGO_PKG_VERSION");
+        let git_hash = option_env!("BOUNDLESS_GIT_HASH").unwrap_or("unknown");
         let signer = LocalSigner::random();
         let nonce = Nonce { nonce: "TEST_NONCE".to_string() };
         let origin = "http://localhost:8585".parse().unwrap();
         let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
+        let version_info = VersionInfo::from(auth_msg.message.clone());
+        println!("VersionInfo: {}", version_info);
+        assert!(version_info.version == version);
+        assert!(version_info.git_hash == git_hash);
         auth_msg.verify("localhost:8585", &nonce.nonce).await.unwrap();
     }
 

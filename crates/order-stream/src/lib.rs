@@ -35,8 +35,8 @@ use axum::{
 #[cfg(test)]
 use boundless_market::order_stream_client::OrderData;
 use boundless_market::order_stream_client::{
-    AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
-    ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
+    AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, CLIENTS_PATH, HEALTH_CHECK,
+    ORDER_LIST_PATH, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
 use reqwest::Url;
@@ -60,6 +60,8 @@ use api::{
 };
 use order_db::OrderDb;
 use ws::{__path_websocket_handler, start_broadcast_task, websocket_handler, ConnectionsMap};
+
+use crate::api::{version_summary, version_summary_since};
 
 /// Error type for the application
 #[derive(Error, Debug)]
@@ -450,6 +452,8 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(&format!("{ORDER_LIST_PATH}/{{request_id}}"), get(find_orders_by_request_id))
         .route(&format!("{AUTH_GET_NONCE}{{addr}}"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
+        .route(&format!("{CLIENTS_PATH}/version"), get(version_summary))
+        .route(&format!("{CLIENTS_PATH}/version/{{since}}"), get(version_summary_since))
         .route(HEALTH_CHECK, get(health))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .with_state(state)

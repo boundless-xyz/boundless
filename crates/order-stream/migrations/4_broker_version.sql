@@ -1,0 +1,2 @@
+ALTER TABLE brokers ADD COLUMN version TEXT;
+ALTER TABLE brokers ADD COLUMN git_hash TEXT;

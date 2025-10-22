@@ -24,7 +24,7 @@ use axum::{
 };
 use boundless_market::{
     contracts::IBoundlessMarket,
-    order_stream_client::{AuthMsg, ErrMsg, ORDER_WS_PATH},
+    order_stream_client::{AuthMsg, ErrMsg, VersionInfo, ORDER_WS_PATH},
 };
 use futures_util::{SinkExt, StreamExt};
 use rand::{seq::SliceRandom, Rng};
@@ -103,6 +103,14 @@ pub(crate) async fn websocket_handler(
             (StatusCode::UNAUTHORIZED, format!("Authentication error: {err:?}")).into_response()
         );
     }
+
+    // Parse message to log version and git hash
+    let version_info = VersionInfo::from(auth_msg.clone().message);
+    state
+        .db
+        .set_broker_version(client_addr, version_info)
+        .await
+        .context("Failed to set broker version")?;
 
     // Rotate the customer nonce
     state.db.set_nonce(client_addr).await.context("Failed to update customer nonce")?;
