@@ -718,7 +718,7 @@ where
                     let required_price_per_mcycle =
                         available_eth.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
                     format!(
-                        "mcycle_price currently {} ETH/Mcycle, needs to be <= {} ETH/Mcycle",
+                        "mcycle_price currently {} ETH/Mcycle, order required <= {} ETH/Mcycle",
                         format_ether(*mcycle_price_eth),
                         format_ether(required_price_per_mcycle)
                     )
@@ -729,7 +729,7 @@ where
                     let required_collateral_price =
                         reward.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
                     format!(
-                        "mcycle_price_collateral_token currently {}, needs to be <= {}",
+                        "mcycle_price_collateral_token currently {}, order required <= {}",
                         mcycle_price_collateral,
                         self.format_collateral(required_collateral_price)
                     )
@@ -737,7 +737,7 @@ where
                 ProveLimitReason::ConfigCap { max_mcycles } => {
                     let required_mcycles = proof_cycles.div_ceil(1_000_000);
                     format!(
-                        "max_mcycle_limit currently {} Mcycles, needs to be >= {} Mcycles",
+                        "max_mcycle_limit currently {} Mcycles, order required >= {} Mcycles",
                         max_mcycles, required_mcycles
                     )
                 }
@@ -745,7 +745,7 @@ where
                     let denom = time_remaining_secs.saturating_mul(1_000);
                     let required_khz = proof_cycles.div_ceil(denom);
                     format!(
-                        "peak_prove_khz currently {} kHz, needs to be >= {} kHz",
+                        "peak_prove_khz currently {} kHz, order required >= {} kHz",
                         peak_prove_khz, required_khz
                     )
                 }
