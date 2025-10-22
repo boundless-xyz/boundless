@@ -52,7 +52,7 @@ pub struct GlobalConfig {
 pub struct RequestorConfig {
     /// RPC URL for the requestor network
     #[clap(long = "requestor-rpc-url", env = "REQUESTOR_RPC_URL")]
-    pub rpc_url: Option<Url>,
+    pub requestor_rpc_url: Option<Url>,
 
     /// Private key for requestor transactions
     #[clap(long = "requestor-private-key", env = "REQUESTOR_PRIVATE_KEY", hide_env_values = true)]
@@ -114,13 +114,13 @@ impl RequestorConfig {
         // Get network name from config
         let network = config.as_ref().and_then(|c| c.requestor.as_ref()).map(|r| &r.network);
 
-        if self.rpc_url.is_none() {
+        if self.requestor_rpc_url.is_none() {
             if let Ok(rpc_url) = std::env::var("REQUESTOR_RPC_URL") {
-                self.rpc_url = Some(Url::parse(&rpc_url)?);
+                self.requestor_rpc_url = Some(Url::parse(&rpc_url)?);
             } else if let (Some(ref secrets), Some(network)) = (&secrets, network) {
                 if let Some(requestor_secrets) = secrets.requestor_networks.get(network) {
                     if let Some(ref rpc_url) = requestor_secrets.rpc_url {
-                        self.rpc_url = Some(Url::parse(rpc_url)?);
+                        self.requestor_rpc_url = Some(Url::parse(rpc_url)?);
                     }
                 }
             }
@@ -176,9 +176,9 @@ impl RequestorConfig {
         Ok(self)
     }
 
-    /// Access [Self::rpc_url] or return an error that can be shown to the user.
+    /// Access [Self::requestor_rpc_url] or return an error that can be shown to the user.
     pub fn require_rpc_url(&self) -> Result<Url> {
-        self.rpc_url
+        self.requestor_rpc_url
             .clone()
             .context("Requestor RPC URL not provided.\n\nTo configure: run 'boundless requestor setup'\nOr set REQUESTOR_RPC_URL env var")
     }

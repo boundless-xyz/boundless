@@ -265,7 +265,7 @@ impl RequestorConfigExt for RequestorConfig {
     }
 
     fn require_rpc_url_with_help(&self) -> Result<String> {
-        self.rpc_url.clone().map(|u| u.to_string()).context(
+        self.requestor_rpc_url.clone().map(|u| u.to_string()).context(
             "No RPC URL configured for requestor.\n\n\
             To configure: run 'boundless requestor setup'\n\
             Or set REQUESTOR_RPC_URL environment variable\n\
@@ -288,8 +288,8 @@ impl RequestorConfigExt for RequestorConfig {
 
 impl ConfigValidation for RequestorConfig {
     fn validate(&self) -> Result<()> {
-        if self.rpc_url.is_none() {
-            bail!(self.missing_config_help("rpc_url"));
+        if self.requestor_rpc_url.is_none() {
+            bail!(self.missing_config_help("requestor_rpc_url"));
         }
         Ok(())
     }

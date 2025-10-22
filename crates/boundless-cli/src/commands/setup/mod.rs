@@ -14,15 +14,11 @@
 
 //! Commands for CLI setup and configuration.
 
-mod clear;
-mod completions;
 mod custom_networks;
 mod network;
 pub mod secrets;
 mod setup;
 
-pub use clear::SetupClear;
-pub use completions::SetupCompletions;
 pub use custom_networks::{
     clone_prebuilt_market_as_custom, clone_prebuilt_rewards_as_custom,
     create_minimal_custom_network, create_minimal_custom_rewards, list_networks, rename_network,
@@ -38,26 +34,3 @@ pub use secrets::{
     address_from_private_key, merge_optional, obscure_secret, obscure_url, process_private_key,
 };
 pub use setup::SetupInteractive;
-
-use clap::Subcommand;
-
-use crate::config::GlobalConfig;
-
-/// Commands for setup and configuration
-#[derive(Subcommand, Clone, Debug)]
-pub enum SetupCommands {
-    /// Print shell completions to stdout
-    Completions(SetupCompletions),
-    /// Clear all CLI configuration
-    Clear(SetupClear),
-}
-
-impl SetupCommands {
-    /// Run the command
-    pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
-        match self {
-            Self::Completions(cmd) => cmd.run(),
-            Self::Clear(cmd) => cmd.run(global_config).await,
-        }
-    }
-}

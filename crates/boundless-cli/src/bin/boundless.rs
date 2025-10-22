@@ -44,7 +44,6 @@ use boundless_cli::{
         prover::ProverCommands,
         requestor::RequestorCommands,
         rewards::RewardsCommands,
-        setup::{secrets::obscure_url, SetupCommands},
     },
     config::ProverConfig,
     convert_timestamp, DefaultProver, OrderFulfilled,
@@ -90,10 +89,6 @@ enum Command {
     /// Commands for managing rewards, staking, and PoVW
     #[command(subcommand)]
     Rewards(Box<RewardsCommands>),
-
-    /// Setup and configuration commands
-    #[command(subcommand)]
-    Setup(Box<SetupCommands>),
 
     // Legacy commands - kept temporarily for migration
     #[command(subcommand, hide = true)]
@@ -482,11 +477,7 @@ async fn show_welcome_screen() -> Result<()> {
                 "(read-only)".yellow()
             );
         }
-        println!(
-            "  {} {}",
-            "→".cyan(),
-            "Run 'boundless requestor' to see available commands".dimmed()
-        );
+        println!("  {} {}", "→".cyan(), "Run 'boundless requestor --help' to see available commands".dimmed());
     } else {
         println!("{} Requestor Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless requestor setup'".cyan());
@@ -545,11 +536,7 @@ async fn show_welcome_screen() -> Result<()> {
                 "(read-only)".yellow()
             );
         }
-        println!(
-            "  {} {}",
-            "→".cyan(),
-            "Run 'boundless prover' to see available commands".dimmed()
-        );
+        println!("  {} {}", "→".cyan(), "Run 'boundless prover --help' to see available commands".dimmed());
     } else {
         println!("{} Prover Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless prover setup'".cyan());
@@ -764,420 +751,22 @@ async fn show_welcome_screen() -> Result<()> {
                 println!("  Status: {} (no credentials)", "Read-only".yellow());
             }
         }
-        println!(
-            "  {} {}",
-            "→".cyan(),
-            "Run 'boundless rewards' to see available commands".dimmed()
-        );
+        println!("  {} {}", "→".cyan(), "Run 'boundless rewards --help' to see available commands".dimmed());
     } else {
         println!("{} Rewards Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless rewards setup'".cyan());
     }
 
     println!();
-
-    if !requestor_configured && !prover_configured && !rewards_configured {
-        println!("⚙️  Get started by running: {}", "boundless setup all".cyan());
-        println!("    or see all commands: {}", "boundless --help".cyan());
-    } else {
-        println!("Run {} to see available commands", "'boundless --help'".cyan());
-    }
-
-    Ok(())
-}
-
-fn show_requestor_status() -> Result<()> {
-    use boundless_cli::config_file::{Config, Secrets};
-    use colored::Colorize;
-
-    println!("\n{}\n", "Requestor Module".bold().underline());
-
-    let config = Config::load().ok();
-    let secrets = Secrets::load().ok();
-
-    if let Some(ref cfg) = config {
-        if let Some(ref requestor) = cfg.requestor {
-            let display_network = match requestor.network.as_str() {
-                "base-mainnet" => "Base Mainnet",
-                "base-sepolia" => "Base Sepolia",
-                "eth-sepolia" => "Ethereum Sepolia",
-                custom => custom,
-            };
-
-            println!("{} {}", "Network:".bold(), display_network.blue());
-
-            // Check env var first, then config
-            let env_requestor_pk = std::env::var("REQUESTOR_PRIVATE_KEY").ok();
-            let requestor_sec =
-                secrets.as_ref().and_then(|s| s.requestor_networks.get(&requestor.network));
-
-            if let Some(ref rpc) = requestor_sec.and_then(|s| s.rpc_url.as_ref()) {
-                println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
-            }
-
-            let (pk, pk_source) = if let Some(ref env_pk) = env_requestor_pk {
-                (Some(env_pk.as_str()), "env")
-            } else {
-                (requestor_sec.and_then(|s| s.private_key.as_deref()), "config")
-            };
-
-            if let Some(pk_str) = pk {
-                if let Some(addr) = address_from_private_key(pk_str) {
-                    println!("{} {}", "Requestor Address:".bold(), addr.green());
-                }
-                println!(
-                    "{} {} {}",
-                    "Private Key:".bold(),
-                    "Configured".green(),
-                    format!("[{}]", pk_source).dimmed()
-                );
-            } else if let Some(addr) = requestor_sec.and_then(|s| s.address.as_deref()) {
-                println!("{} {}", "Requestor Address:".bold(), addr.green());
-                println!(
-                    "{} {} {}",
-                    "Private Key:".bold(),
-                    "Not configured (read-only)".yellow(),
-                    "[config file]".dimmed()
-                );
-            } else {
-                println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
-            }
-        } else {
-            println!("{}", "Not configured - run 'boundless requestor setup'".red());
-        }
-    } else {
-        println!("{}", "Not configured - run 'boundless requestor setup'".red());
-    }
-
-    println!("\n{}\n", "Available Commands:".bold());
-    println!("  {} - Deposit funds into the market", "deposit".cyan());
-    println!("  {} - Withdraw funds from the market", "withdraw".cyan());
-    println!("  {} - Check your deposited balance", "balance".cyan());
-    println!("  {} - Submit a new proof request", "submit".cyan());
-    println!("  {} - Submit a proof request from a YAML file", "submit-file".cyan());
-    println!("  {} - Check status of a request", "status".cyan());
-    println!("  {} - Get proof for a fulfilled request", "get-proof".cyan());
-    println!("  {} - Verify a proof", "verify-proof".cyan());
-    println!("  {} - Interactive setup wizard for requestor configuration", "setup".cyan());
-
-    println!(
-        "\n💡 {} {}",
-        "Tip:".bold(),
-        "Try our guide for submitting requests via the CLI at: https://docs.boundless.network/developers/tooling/cli#requesting-a-proof-via-the-boundless-cli".dimmed()
-    );
-
-    Ok(())
-}
-
-fn show_prover_status() -> Result<()> {
-    use boundless_cli::config_file::{Config, Secrets};
-    use colored::Colorize;
-
-    println!("\n{}\n", "Prover Module".bold().underline());
-
-    let config = Config::load().ok();
-    let secrets = Secrets::load().ok();
-
-    if let Some(ref cfg) = config {
-        if let Some(ref prover) = cfg.prover {
-            let display_network = match prover.network.as_str() {
-                "base-mainnet" => "Base Mainnet",
-                "base-sepolia" => "Base Sepolia",
-                "eth-sepolia" => "Ethereum Sepolia",
-                custom => custom,
-            };
-
-            println!("{} {}", "Network:".bold(), display_network.blue());
-
-            // Check env var first, then config
-            let env_prover_pk = std::env::var("PROVER_PRIVATE_KEY").ok();
-            let prover_sec = secrets.as_ref().and_then(|s| s.prover_networks.get(&prover.network));
-
-            if let Some(ref rpc) = prover_sec.and_then(|s| s.rpc_url.as_ref()) {
-                println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
-            }
-
-            let (pk, pk_source) = if let Some(ref env_pk) = env_prover_pk {
-                (Some(env_pk.as_str()), "env")
-            } else {
-                (prover_sec.and_then(|s| s.private_key.as_deref()), "config")
-            };
-
-            if let Some(pk_str) = pk {
-                if let Some(addr) = address_from_private_key(pk_str) {
-                    println!("{} {}", "Prover Address:".bold(), addr.green());
-                }
-                println!(
-                    "{} {} {}",
-                    "Private Key:".bold(),
-                    "Configured".green(),
-                    format!("[{}]", pk_source).dimmed()
-                );
-            } else if let Some(addr) = prover_sec.and_then(|s| s.address.as_deref()) {
-                println!("{} {}", "Prover Address:".bold(), addr.green());
-                println!(
-                    "{} {} {}",
-                    "Private Key:".bold(),
-                    "Not configured (read-only)".yellow(),
-                    "[config file]".dimmed()
-                );
-            } else {
-                println!("{} {}", "Private Key:".bold(), "Not configured (read-only)".yellow());
-            }
-        } else {
-            println!("{}", "Not configured - run 'boundless prover setup'".red());
-        }
-    } else {
-        println!("{}", "Not configured - run 'boundless prover setup'".red());
-    }
-
-    println!("\n{}\n", "Available Commands:".bold());
-    println!("  {} - Deposit collateral into the market", "deposit-collateral".cyan());
-    println!("  {} - Withdraw collateral from the market", "withdraw-collateral".cyan());
-    println!("  {} - Check your collateral balance", "balance-collateral".cyan());
-    println!("  {} - Lock a request for proving", "lock".cyan());
-    println!("  {} - Execute a request (test without submitting)", "execute".cyan());
-    println!("  {} - Fulfill and submit proofs", "fulfill".cyan());
-    println!("  {} - Benchmark proof requests", "benchmark".cyan());
-    println!("  {} - Slash a prover for a given request", "slash".cyan());
-    println!("  {} - Interactive setup wizard for prover configuration", "setup".cyan());
-
-    println!(
-        "\n💡 {} {}",
-        "Tip:".bold(),
-        "Try 'boundless prover benchmark' to test the performance of your Bento cluster".dimmed()
-    );
-
-    Ok(())
-}
-
-async fn show_rewards_status() -> Result<()> {
-    use boundless_cli::commands::rewards::State;
-    use boundless_cli::config_file::{Config, Secrets};
-    use colored::Colorize;
-
-    println!("\n{}\n", "Rewards Module".bold().underline());
-
-    let config = Config::load().ok();
-    let secrets = Secrets::load().ok();
-
-    if let Some(ref cfg) = config {
-        if let Some(ref rewards) = cfg.rewards {
-            let display_network = match rewards.network.as_str() {
-                "mainnet" => "Ethereum Mainnet",
-                "sepolia" => "Ethereum Sepolia",
-                custom => custom,
-            };
-
-            println!("{} {}", "Network:".bold(), display_network.blue());
-
-            if let Some(ref sec) = secrets {
-                if let Some(rewards_sec) = sec.rewards_networks.get(&rewards.network) {
-                    if let Some(ref rpc) = rewards_sec.rpc_url {
-                        println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
-                    }
-
-                    // Display staking address
-                    if let Some(ref staking_pk) = rewards_sec.staking_private_key {
-                        if let Some(addr) = address_from_private_key(staking_pk) {
-                            println!("{} {}", "Staking Address:".bold(), addr.green());
-                        }
-                        println!("  {} {}", "Private Key:".bold(), "Configured".green());
-                    } else if let Some(ref staking_addr) = rewards_sec.staking_address {
-                        println!("{} {}", "Staking Address:".bold(), staking_addr.green());
-                        println!("  {} {}", "Private Key:".bold(), "Not configured".yellow());
-                    }
-
-                    // Display reward address
-                    if let Some(ref reward_pk) = rewards_sec.reward_private_key {
-                        if let Some(addr) = address_from_private_key(reward_pk) {
-                            println!("{} {}", "Reward Address:".bold(), addr.green());
-                        }
-                        println!("  {} {}", "Private Key:".bold(), "Configured".green());
-                    } else if let Some(ref reward_addr) = rewards_sec.reward_address {
-                        println!("{} {}", "Reward Address:".bold(), reward_addr.green());
-                        println!("  {} {}", "Private Key:".bold(), "Not configured".yellow());
-                    }
-
-                    // Display PoVW state file if configured
-                    let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
-                    let povw_state_path = if let Some(ref state) = env_povw_state {
-                        Some(state.as_str())
-                    } else {
-                        rewards_sec.povw_state_file.as_deref()
-                    };
-
-                    if let Some(state_path) = povw_state_path {
-                        // Get absolute path for display
-                        let display_path = std::fs::canonicalize(state_path)
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_else(|_| {
-                                // If canonicalize fails, try to resolve relative to current dir
-                                std::env::current_dir()
-                                    .map(|cwd| cwd.join(state_path).display().to_string())
-                                    .unwrap_or_else(|_| state_path.to_string())
-                            });
-
-                        println!("{} {}", "PoVW State File:".bold(), display_path.green());
-
-                        // Try to load and display state statistics
-                        match State::load(state_path).await {
-                            Ok(state) => {
-                                // Display last updated time
-                                if let Ok(elapsed) = state.updated_at.elapsed() {
-                                    let duration_str = format_duration(elapsed);
-                                    println!(
-                                        "  {} {}",
-                                        "Last updated:".bold(),
-                                        duration_str.dimmed()
-                                    );
-                                }
-
-                                // Display work log stats
-                                if !state.work_log.is_empty() {
-                                    println!(
-                                        "  {} {}",
-                                        "Total PoVW jobs:".bold(),
-                                        state.work_log.jobs.len().to_string().cyan()
-                                    );
-                                } else {
-                                    println!(
-                                        "  {} {}",
-                                        "Total PoVW jobs:".bold(),
-                                        "0 (empty)".yellow()
-                                    );
-                                }
-
-                                // Display last on-chain submission from update_transactions
-                                if !state.update_transactions.is_empty() {
-                                    if let Some((tx_hash, _)) =
-                                        state.update_transactions.iter().next()
-                                    {
-                                        let time_str = state
-                                            .updated_at
-                                            .elapsed()
-                                            .map(format_duration)
-                                            .unwrap_or_else(|_| "unknown".to_string());
-                                        println!(
-                                            "  {} {} (tx: {})",
-                                            "Last submitted on-chain:".bold(),
-                                            time_str.dimmed(),
-                                            format!("{:#x}", tx_hash).cyan()
-                                        );
-                                    }
-                                } else {
-                                    println!(
-                                        "  {} {}",
-                                        "Last submitted on-chain:".bold(),
-                                        "Never submitted".yellow()
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                // Distinguish between file not found vs invalid file
-                                if e.to_string().contains("No such file or directory")
-                                    || e.to_string().contains("Failed to read work log state file")
-                                {
-                                    println!("  {} {} File not found: verify path or run prepare-povw to initialize", "Status:".bold(), "⚠".yellow());
-                                } else {
-                                    println!(
-                                        "  {} {} Invalid file: cannot decode state",
-                                        "Status:".bold(),
-                                        "⚠".yellow()
-                                    );
-                                }
-                            }
-                        }
-                    } else {
-                        println!(
-                            "{} {}",
-                            "PoVW State:".bold(),
-                            "Not configured (PoVW disabled)".yellow()
-                        );
-                    }
-
-                    // Display Beacon API URL if configured
-                    let env_beacon_api = std::env::var("BEACON_API_URL").ok();
-                    if let Some(ref url) = env_beacon_api {
-                        if rewards_sec.beacon_api_url.is_some() {
-                            println!(
-                                "{} {} {}",
-                                "Beacon API:".bold(),
-                                obscure_url(url).dimmed(),
-                                "[env]".dimmed()
-                            );
-                        } else {
-                            println!(
-                                "{} {} {}",
-                                "Beacon API:".bold(),
-                                obscure_url(url).dimmed(),
-                                "[env]".dimmed()
-                            );
-                        }
-                    } else if let Some(ref url) = rewards_sec.beacon_api_url {
-                        println!(
-                            "{} {} {}",
-                            "Beacon API:".bold(),
-                            obscure_url(url).dimmed(),
-                            "[config file]".dimmed()
-                        );
-                    }
-                }
-            }
-        } else {
-            println!("{}", "Not configured - run 'boundless rewards setup'".red());
-        }
-    } else {
-        println!("{}", "Not configured - run 'boundless rewards setup'".red());
-    }
-
-    println!("\n{}\n", "Available Commands:".bold());
-    println!("  {} - Check ZKC balance", "balance-zkc".cyan());
-    println!("  {} - Stake ZKC tokens for rewards", "stake-zkc".cyan());
-    println!("  {} - Check staked ZKC balance", "staked-balance-zkc".cyan());
-    println!("  {} - Delegate rewards to another address", "delegate".cyan());
-    println!("  {} - Get current reward delegate", "get-delegate".cyan());
-    println!("  {} - List staking rewards by epoch", "list-staking-rewards".cyan());
-    println!("  {} - Claim staking rewards", "claim-staking-rewards".cyan());
-    println!("  {} - List PoVW rewards by epoch", "list-povw-rewards".cyan());
-    println!("  {} - Prepare PoVW work log update", "prepare-povw".cyan());
-    println!("  {} - Submit PoVW work updates", "submit-povw".cyan());
-    println!("  {} - Claim PoVW rewards", "claim-povw-rewards".cyan());
-    println!("  {} - Inspect PoVW state file", "inspect-povw-state".cyan());
-    println!("  {} - Get current epoch information", "epoch".cyan());
-    println!("  {} - Check reward power and earning potential", "power".cyan());
-    println!("  {} - Interactive setup wizard for rewards configuration", "setup".cyan());
-
-    println!(
-        "\n💡 {} {}",
-        "Tip:".bold(),
-        "Try 'boundless rewards submit-povw --dry-run' to estimate the rewards you will receive for submitting PoVW work updates".dimmed()
-    );
+    println!("💡 {}", "Run 'boundless --help' to see all available commands".dimmed());
+    println!();
 
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Check for module-level commands without subcommands
     let raw_args: Vec<String> = std::env::args().collect();
-    if raw_args.len() == 2 {
-        match raw_args[1].as_str() {
-            "requestor" => {
-                show_requestor_status()?;
-                return Ok(());
-            }
-            "prover" => {
-                show_prover_status()?;
-                return Ok(());
-            }
-            "rewards" => {
-                show_rewards_status().await?;
-                return Ok(());
-            }
-            _ => {}
-        }
-    }
 
     let args = match MainArgs::try_parse() {
         Ok(args) => args,
@@ -1192,10 +781,21 @@ async fn main() -> Result<()> {
                 err.print()?;
                 return Ok(());
             }
-            // If no subcommand provided, show welcome screen
+            // If no subcommand provided
             if err.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
-                show_welcome_screen().await?;
-                return Ok(());
+                // Check if a module was specified
+                let has_module = raw_args.len() >= 2 &&
+                    matches!(raw_args[1].as_str(), "requestor" | "prover" | "rewards");
+
+                if has_module {
+                    // Module specified without subcommand - show clap's error with help suggestion
+                    err.print()?;
+                    std::process::exit(1);
+                } else {
+                    // Top-level command without args - show welcome screen
+                    show_welcome_screen().await?;
+                    return Ok(());
+                }
             }
             // Print error directly to avoid double "Error:" prefix
             err.print()?;
@@ -1221,7 +821,6 @@ pub(crate) async fn run(args: &MainArgs, config: &GlobalConfig) -> Result<()> {
         Command::Requestor(cmd) => cmd.run(config).await,
         Command::Prover(cmd) => cmd.run(config).await,
         Command::Rewards(cmd) => cmd.run(config).await,
-        Command::Setup(cmd) => cmd.run(config).await,
 
         // Legacy commands - still functional but hidden
         Command::Account(account_cmd) => handle_account_command(account_cmd, config).await,
@@ -1256,8 +855,11 @@ async fn parse_collateral_amount(
 /// Handle account-related commands
 async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) -> Result<()> {
     use boundless_cli::config::RequestorConfig;
-    let requestor_config =
-        RequestorConfig { rpc_url: None, private_key: None, deployment: None }.load_from_files()?;
+    let requestor_config = RequestorConfig {
+        requestor_rpc_url: None,
+        private_key: None,
+        deployment: None,
+    }.load_from_files()?;
 
     match cmd {
         AccountCommands::Deposit { amount } => {
@@ -1372,8 +974,11 @@ async fn handle_account_command(cmd: &AccountCommands, config: &GlobalConfig) ->
 /// Handle request-related commands
 async fn handle_request_command(cmd: &RequestCommands, config: &GlobalConfig) -> Result<()> {
     use boundless_cli::config::RequestorConfig;
-    let requestor_config =
-        RequestorConfig { rpc_url: None, private_key: None, deployment: None }.load_from_files()?;
+    let requestor_config = RequestorConfig {
+        requestor_rpc_url: None,
+        private_key: None,
+        deployment: None,
+    }.load_from_files()?;
 
     match cmd {
         RequestCommands::SubmitOffer(offer_args) => {
@@ -2098,8 +1703,11 @@ fn now_timestamp() -> u64 {
 /// Handle config command
 async fn handle_config_command(config: &GlobalConfig) -> Result<()> {
     use boundless_cli::config::RequestorConfig;
-    let requestor_config =
-        RequestorConfig { rpc_url: None, private_key: None, deployment: None }.load_from_files()?;
+    let requestor_config = RequestorConfig {
+        requestor_rpc_url: None,
+        private_key: None,
+        deployment: None,
+    }.load_from_files()?;
 
     tracing::info!("Displaying CLI configuration");
     println!("\n=== Boundless CLI Configuration ===\n");

@@ -25,6 +25,8 @@ pub mod indexer_client;
 
 // DRY helper modules
 pub mod chain;
+/// Blockchain utility functions for timestamp-to-block conversion
+pub mod chain_utils;
 pub mod config_ext;
 pub mod contracts;
 pub mod display;

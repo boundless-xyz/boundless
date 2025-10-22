@@ -77,6 +77,12 @@ pub struct Deployment {
     #[clap(long, env, long_help = "URL for the offchain order stream service")]
     #[builder(setter(into, strip_option), default)]
     pub order_stream_url: Option<Cow<'static, str>>,
+
+    /// Block number when the BoundlessMarket contract was deployed.
+    /// Used as a starting point for event queries.
+    #[clap(skip)]
+    #[builder(setter(strip_option), default)]
+    pub deployment_block: Option<u64>,
 }
 
 impl Deployment {
@@ -117,6 +123,7 @@ pub const SEPOLIA: Deployment = Deployment {
     set_verifier_address: address!("0xcb9D14347b1e816831ECeE46EC199144F360B55c"),
     collateral_token_address: Some(address!("0xb4FC69A452D09D2662BD8C3B5BB756902260aE28")),
     order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.boundless.network")),
+    deployment_block: None,
 };
 
 /// [Deployment] for the Base mainnet.
@@ -127,6 +134,7 @@ pub const BASE: Deployment = Deployment {
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
     collateral_token_address: Some(address!("0xAA61bB7777bD01B684347961918f1E07fBbCe7CF")),
     order_stream_url: Some(Cow::Borrowed("https://base-mainnet.boundless.network")),
+    deployment_block: Some(35060420),
 };
 
 /// [Deployment] for the Base Sepolia.
@@ -137,6 +145,7 @@ pub const BASE_SEPOLIA: Deployment = Deployment {
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
     collateral_token_address: Some(address!("0x8d4dA4b7938471A919B08F941461b2ed1679d7bb")),
     order_stream_url: Some(Cow::Borrowed("https://base-sepolia.boundless.network")),
+    deployment_block: Some(30570944),
 };
 
 /// Check if the collateral token supports permit.

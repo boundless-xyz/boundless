@@ -512,6 +512,7 @@ where
                 order_stream_url: None,
                 collateral_token_address: None,
                 verifier_router_address: None,
+                deployment_block: None,
             },
             boundless_market,
             set_verifier,

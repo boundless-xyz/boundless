@@ -16,6 +16,7 @@
 
 mod balance_collateral;
 mod benchmark;
+mod config;
 mod deposit_collateral;
 mod execute;
 mod fulfill;
@@ -25,6 +26,7 @@ mod withdraw_collateral;
 
 pub use balance_collateral::ProverBalanceCollateral;
 pub use benchmark::ProverBenchmark;
+pub use config::ProverConfigCmd;
 pub use deposit_collateral::ProverDepositCollateral;
 pub use execute::ProverExecute;
 pub use fulfill::ProverFulfill;
@@ -38,7 +40,20 @@ use crate::{commands::setup::SetupInteractive, config::GlobalConfig};
 
 /// Commands for provers
 #[derive(Subcommand, Clone, Debug)]
+#[command(after_help = "\x1b[1;4mModule Configuration:\x1b[0m
+  Run 'boundless prover setup' for interactive setup
+
+  Alternatively set environment variables:
+    \x1b[1mPROVER_RPC_URL\x1b[0m            RPC endpoint for prover module
+    \x1b[1mPROVER_PRIVATE_KEY\x1b[0m        Private key for prover transactions
+    \x1b[1mBOUNDLESS_MARKET_ADDRESS\x1b[0m  Market contract address (optional, has default)
+    \x1b[1mSET_VERIFIER_ADDRESS\x1b[0m      Verifier contract address (optional, has default)
+
+  Or configure while executing commands:
+    Example: \x1b[1mboundless prover balance --prover-rpc-url <url> --prover-private-key <key>\x1b[0m")]
 pub enum ProverCommands {
+    /// Show prover configuration status
+    Config(ProverConfigCmd),
     /// Deposit collateral funds into the market
     #[command(name = "deposit-collateral")]
     DepositCollateral(ProverDepositCollateral),
@@ -66,6 +81,7 @@ impl ProverCommands {
     /// Run the command
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         match self {
+            Self::Config(cmd) => cmd.run(global_config).await,
             Self::DepositCollateral(cmd) => cmd.run(global_config).await,
             Self::WithdrawCollateral(cmd) => cmd.run(global_config).await,
             Self::BalanceCollateral(cmd) => cmd.run(global_config).await,

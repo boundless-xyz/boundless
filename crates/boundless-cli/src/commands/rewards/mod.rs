@@ -17,6 +17,7 @@
 mod balance_zkc;
 mod claim_povw_rewards;
 mod claim_staking_rewards;
+mod config;
 mod delegate;
 mod epoch;
 mod get_delegate;
@@ -33,6 +34,7 @@ mod submit_povw;
 pub use balance_zkc::RewardsBalanceZkc;
 pub use claim_povw_rewards::RewardsClaimPovwRewards;
 pub use claim_staking_rewards::RewardsClaimStakingRewards;
+pub use config::RewardsConfigCmd;
 pub use delegate::RewardsDelegate;
 pub use epoch::RewardsEpoch;
 pub use get_delegate::RewardsGetDelegate;
@@ -52,7 +54,24 @@ use crate::{commands::setup::SetupInteractive, config::GlobalConfig};
 
 /// Commands for rewards management
 #[derive(Subcommand, Clone, Debug)]
+#[command(after_help = "\x1b[1;4mModule Configuration:\x1b[0m
+  Run 'boundless rewards setup' for interactive setup
+
+  Alternatively set environment variables:
+    \x1b[1mREWARD_RPC_URL\x1b[0m            RPC endpoint for rewards module
+    \x1b[1mREWARD_PRIVATE_KEY\x1b[0m        Private key for reward transactions
+    \x1b[1mSTAKING_PRIVATE_KEY\x1b[0m       Private key for staking (can differ from reward key)
+    \x1b[1mPOVW_STATE_FILE\x1b[0m           Path to PoVW state file (optional)
+    \x1b[1mZKC_ADDRESS\x1b[0m               ZKC token contract (optional, has default)
+    \x1b[1mVEZKC_ADDRESS\x1b[0m             Staked ZKC NFT contract (optional, has default)
+    \x1b[1mSTAKING_REWARDS_ADDRESS\x1b[0m   Rewards distribution contract (optional, has default)
+    \x1b[1mBEACON_API_URL\x1b[0m            Beacon API URL (optional)
+
+  Or configure while executing commands:
+    Example: \x1b[1mboundless rewards balance-zkc --reward-rpc-url <url> --staking-private-key <key>\x1b[0m")]
 pub enum RewardsCommands {
+    /// Show rewards configuration status
+    Config(RewardsConfigCmd),
     /// Stake ZKC tokens
     #[command(name = "stake-zkc")]
     StakeZkc(RewardsStakeZkc),
@@ -100,6 +119,7 @@ impl RewardsCommands {
     /// Run the command
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         match self {
+            Self::Config(cmd) => cmd.run(global_config).await,
             Self::StakeZkc(cmd) => cmd.run(global_config).await,
             Self::BalanceZkc(cmd) => cmd.run(global_config).await,
             Self::StakedBalanceZkc(cmd) => cmd.run(global_config).await,

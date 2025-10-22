@@ -15,6 +15,7 @@
 //! Commands for requestors interacting with the Boundless market.
 
 mod balance;
+mod config;
 mod deposit;
 mod get_proof;
 mod status;
@@ -24,6 +25,7 @@ mod verify_proof;
 mod withdraw;
 
 pub use balance::RequestorBalance;
+pub use config::RequestorConfigCmd;
 pub use deposit::RequestorDeposit;
 pub use get_proof::RequestorGetProof;
 pub use status::RequestorStatus;
@@ -38,7 +40,20 @@ use crate::{commands::setup::SetupInteractive, config::GlobalConfig};
 
 /// Commands for requestors
 #[derive(Subcommand, Clone, Debug)]
+#[command(after_help = "\x1b[1;4mModule Configuration:\x1b[0m
+  Run 'boundless requestor setup' for interactive setup
+
+  Alternatively set environment variables:
+    \x1b[1mREQUESTOR_RPC_URL\x1b[0m         RPC endpoint for requestor module
+    \x1b[1mREQUESTOR_PRIVATE_KEY\x1b[0m     Private key for requestor transactions
+    \x1b[1mBOUNDLESS_MARKET_ADDRESS\x1b[0m  Market contract address (optional, has default)
+    \x1b[1mSET_VERIFIER_ADDRESS\x1b[0m      Verifier contract address (optional, has default)
+
+  Or configure while executing commands:
+    Example: \x1b[1mboundless requestor balance --requestor-rpc-url <url> --requestor-private-key <key>\x1b[0m")]
 pub enum RequestorCommands {
+    /// Show requestor configuration status
+    Config(RequestorConfigCmd),
     /// Deposit funds into the market
     Deposit(RequestorDeposit),
     /// Withdraw funds from the market
@@ -70,6 +85,7 @@ impl RequestorCommands {
     /// Run the command
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         match self {
+            Self::Config(cmd) => cmd.run(global_config).await,
             Self::Deposit(cmd) => cmd.run(global_config).await,
             Self::Withdraw(cmd) => cmd.run(global_config).await,
             Self::DepositedBalance(cmd) | Self::Balance(cmd) => cmd.run(global_config).await,

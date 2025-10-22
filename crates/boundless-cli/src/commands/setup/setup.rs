@@ -186,7 +186,7 @@ impl SetupInteractive {
             );
         }
 
-        display.success("\n✨ Setup complete! Run `boundless` to see your configuration.");
+        display.success("Setup complete! Run `boundless` to see your configuration.");
 
         Ok(())
     }
@@ -232,10 +232,7 @@ impl SetupInteractive {
             );
         }
 
-        display.success(&format!(
-            "\n✨ Setup complete! Run `boundless {}` to see your configuration.",
-            module
-        ));
+        display.success(&format!("✨ Setup complete! Run `boundless {} config` to see your configuration.", module));
 
         Ok(())
     }
@@ -1099,6 +1096,26 @@ impl SetupInteractive {
                 // Merge with provided values (only overwrite if provided)
                 let rpc_url = if let Some(ref url) = self.rpc_url {
                     display.success("Updated RPC URL");
+
+                    // Query chain ID and warn if not Ethereum mainnet
+                    display.info("Querying chain ID from RPC...");
+                    let chain_id = query_chain_id(url).await?;
+                    display.success(&format!("Chain ID: {}", chain_id.to_string().bright_white()));
+
+                    if chain_id != 1 {
+                        display.warning("The RPC URL you provided is NOT for Ethereum mainnet (chain ID 1)");
+                        display.note("The ZKC token contract is deployed on Ethereum mainnet");
+                        display.note("Using a different chain may result in errors when interacting with rewards");
+
+                        let proceed = Confirm::new("Are you sure you want to continue with this RPC URL?")
+                            .with_default(false)
+                            .prompt()?;
+
+                        if !proceed {
+                            bail!("Setup cancelled. Please provide an Ethereum mainnet RPC URL");
+                        }
+                    }
+
                     Some(url.clone())
                 } else {
                     existing_secrets.rpc_url
@@ -1175,6 +1192,21 @@ impl SetupInteractive {
                     display.info("Querying chain ID from RPC...");
                     let chain_id = query_chain_id(rpc_url).await?;
                     display.success(&format!("Chain ID: {}", chain_id.to_string().bright_white()));
+
+                    // Warn if not Ethereum mainnet
+                    if chain_id != 1 {
+                        display.warning("The RPC URL you provided is NOT for Ethereum mainnet (chain ID 1)");
+                        display.note("The ZKC token contract is deployed on Ethereum mainnet");
+                        display.note("Using a different chain may result in errors when interacting with rewards");
+
+                        let proceed = Confirm::new("Are you sure you want to continue with this RPC URL?")
+                            .with_default(false)
+                            .prompt()?;
+
+                        if !proceed {
+                            bail!("Setup cancelled. Please provide an Ethereum mainnet RPC URL");
+                        }
+                    }
 
                     let network_name = format!("custom-{}", chain_id);
 
@@ -1366,6 +1398,25 @@ impl SetupInteractive {
                 .with_help_message("e.g., https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY")
                 .prompt()?
         };
+
+        // Query chain ID and warn if not Ethereum mainnet
+        display.info("Querying chain ID from RPC...");
+        let chain_id = query_chain_id(&rpc_url).await?;
+        display.success(&format!("Chain ID: {}", chain_id.to_string().bright_white()));
+
+        if chain_id != 1 {
+            display.warning("The RPC URL you provided is NOT for Ethereum mainnet (chain ID 1)");
+            display.note("The ZKC token contract is deployed on Ethereum mainnet");
+            display.note("Using a different chain may result in errors when interacting with rewards");
+
+            let proceed = Confirm::new("Are you sure you want to continue with this RPC URL?")
+                .with_default(false)
+                .prompt()?;
+
+            if !proceed {
+                bail!("Setup cancelled. Please provide an Ethereum mainnet RPC URL");
+            }
+        }
 
         Self::print_section_header(&display, "Staking Address Configuration");
         display.note("The staking address is the wallet used to stake ZKC tokens");
