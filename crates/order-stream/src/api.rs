@@ -16,16 +16,16 @@ use alloy::primitives::Address;
 use anyhow::Context;
 use axum::extract::{Json, Path, Query, State};
 use boundless_market::order_stream_client::{
-    ErrMsg, Nonce, OrderData, SubmitOrderRes, AUTH_GET_NONCE, CLIENTS_PATH, HEALTH_CHECK,
-    ORDER_LIST_PATH, ORDER_SUBMISSION_PATH,
+    ErrMsg, Nonce, OrderData, SubmitOrderRes, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
+    ORDER_SUBMISSION_PATH,
 };
 use serde::Deserialize;
-use sqlx::types::chrono::{self, DateTime, Utc};
+use sqlx::types::chrono;
 use std::sync::Arc;
 use utoipa::IntoParams;
 
 use crate::{
-    order_db::{DbOrder, OrderDbErr, VersionSummary},
+    order_db::{DbOrder, OrderDbErr},
     AppError, AppState, Order,
 };
 
@@ -133,42 +133,6 @@ pub(crate) async fn find_orders_by_request_id(
 ) -> Result<Json<Vec<DbOrder>>, AppError> {
     let results =
         state.db.find_orders_by_request_id(request_id).await.context("Failed to query DB")?;
-    Ok(Json(results))
-}
-
-#[utoipa::path(
-    get,
-    path = format!("{}/version", CLIENTS_PATH),
-    responses(
-        (status = 200, description = "summary of broker versions ", body = Vec<VersionSummary>),
-        (status = 500, description = "Internal error", body = ErrMsg)
-    )
-)]
-/// Returns all the orders with the given request_id.
-pub(crate) async fn version_summary(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<VersionSummary>>, AppError> {
-    let results = state.db.get_version_summary().await.context("Failed to query DB")?;
-    Ok(Json(results))
-}
-
-#[utoipa::path(
-    get,
-    path = format!("{}/version/<since>", CLIENTS_PATH),
-    params(
-        ("since" = String, Path, format = DateTime, description = "Only include brokers active since this timestamp")
-    ),
-    responses(
-        (status = 200, description = "summary of broker versions ", body = Vec<VersionSummary>),
-        (status = 500, description = "Internal error", body = ErrMsg)
-    )
-)]
-/// Returns all the orders with the given request_id.
-pub(crate) async fn version_summary_since(
-    State(state): State<Arc<AppState>>,
-    Path(since): Path<DateTime<Utc>>,
-) -> Result<Json<Vec<VersionSummary>>, AppError> {
-    let results = state.db.get_version_summary_since(since).await.context("Failed to query DB")?;
     Ok(Json(results))
 }
 

@@ -14,17 +14,15 @@
 
 use alloy::primitives::Address;
 use async_stream::stream;
-use boundless_market::order_stream_client::{Order, VersionInfo};
+use boundless_market::order_stream_client::Order;
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgListener, PgPool, PgPoolOptions},
     types::chrono::{DateTime, Utc},
-    FromRow,
 };
 use std::pin::Pin;
 use thiserror::Error as ThisError;
-use utoipa::ToSchema;
 
 /// Order DB Errors
 #[derive(ThisError, Debug)]
@@ -62,17 +60,6 @@ pub struct DbOrder {
 
 pub struct OrderDb {
     pool: PgPool,
-}
-
-// Struct to hold the summary results
-#[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
-pub struct VersionSummary {
-    /// Broker version
-    pub version: String,
-    /// Git hash of the broker
-    pub git_hash: String,
-    /// Count of brokers with this version and git hash
-    pub broker_count: i64, // COUNT(*)
 }
 
 const ORDER_CHANNEL: &str = "new_orders";
@@ -118,12 +105,11 @@ impl OrderDb {
     /// Returning its new nonce (hex encoded)
     pub async fn add_broker(&self, addr: Address) -> Result<String, OrderDbErr> {
         let nonce = Self::create_nonce();
-        let res =
-            sqlx::query("INSERT INTO brokers (addr, nonce, updated_at) VALUES ($1, $2, NOW())")
-                .bind(addr.as_slice())
-                .bind(&nonce)
-                .execute(&self.pool)
-                .await?;
+        let res = sqlx::query("INSERT INTO brokers (addr, nonce) VALUES ($1, $2)")
+            .bind(addr.as_slice())
+            .bind(&nonce)
+            .execute(&self.pool)
+            .await?;
 
         if res.rows_affected() != 1 {
             return Err(OrderDbErr::NoRows("broker address"));
@@ -179,26 +165,6 @@ impl OrderDb {
         }
 
         Ok(nonce)
-    }
-
-    /// Updates broker version info
-    pub async fn set_broker_version(
-        &self,
-        addr: Address,
-        version_info: VersionInfo,
-    ) -> Result<(), OrderDbErr> {
-        let res = sqlx::query(
-            "UPDATE brokers SET updated_at = NOW(), version = $1, git_hash = $2 WHERE addr = $3",
-        )
-        .bind(version_info.version)
-        .bind(version_info.git_hash)
-        .bind(addr.as_slice())
-        .execute(&self.pool)
-        .await?;
-        if res.rows_affected() == 0 {
-            return Err(OrderDbErr::NoRows("Updating broker version failed to apply"));
-        }
-        Ok(())
     }
 
     /// Add order to DB and notify listeners
@@ -306,46 +272,6 @@ impl OrderDb {
             };
 
         Ok(rows)
-    }
-
-    /// Get a summary of broker versions
-    ///
-    /// Returns a list of version summaries including version, git hash, and count of brokers
-    pub async fn get_version_summary(&self) -> Result<Vec<VersionSummary>, OrderDbErr> {
-        let summaries = sqlx::query_as::<_, VersionSummary>(
-            "SELECT COALESCE(version, 'unknown') AS version,
-            COALESCE(git_hash, 'unknown') AS git_hash,
-            COUNT(*) AS broker_count
-            FROM brokers
-            GROUP BY COALESCE(version, 'unknown'), COALESCE(git_hash, 'unknown')
-            ORDER BY COALESCE(version, 'unknown'), COALESCE(git_hash, 'unknown')",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(summaries)
-    }
-
-    /// Get a summary of broker versions since a given time
-    ///
-    /// Returns a list of version summaries including version, git hash, and count of brokers
-    /// that have updated since the given time
-    pub async fn get_version_summary_since(
-        &self,
-        since: DateTime<Utc>,
-    ) -> Result<Vec<VersionSummary>, OrderDbErr> {
-        let summaries = sqlx::query_as::<_, VersionSummary>(
-            "SELECT COALESCE(version, 'unknown') AS version,
-            COALESCE(git_hash, 'unknown') AS git_hash,
-            COUNT(*) AS broker_count
-            FROM brokers
-            WHERE updated_at >= $1
-            GROUP BY COALESCE(version, 'unknown'), COALESCE(git_hash, 'unknown')
-            ORDER BY COALESCE(version, 'unknown'), COALESCE(git_hash, 'unknown')",
-        )
-        .bind(since)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(summaries)
     }
 
     /// Returns a stream of new orders from the DB
@@ -581,91 +507,5 @@ mod tests {
                 .unwrap();
 
         assert!(db_nonce.is_some());
-    }
-
-    #[sqlx::test]
-    async fn version_summary(pool: PgPool) {
-        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
-        let addr1 = Address::from_slice(&[1u8; 20]);
-        let addr2 = Address::from_slice(&[2u8; 20]);
-        let addr3 = Address::from_slice(&[3u8; 20]);
-        let addr4 = Address::from_slice(&[4u8; 20]);
-        db.add_broker(addr1).await.unwrap();
-        db.add_broker(addr2).await.unwrap();
-        db.add_broker(addr3).await.unwrap();
-        db.add_broker(addr4).await.unwrap();
-        db.set_broker_version(
-            addr1,
-            VersionInfo { version: "1.0.0".to_string(), git_hash: "abc123".to_string() },
-        )
-        .await
-        .unwrap();
-        db.set_broker_version(
-            addr2,
-            VersionInfo { version: "1.0.0".to_string(), git_hash: "abc123".to_string() },
-        )
-        .await
-        .unwrap();
-        db.set_broker_version(
-            addr3,
-            VersionInfo { version: "unknown".to_string(), git_hash: "unknown".to_string() },
-        )
-        .await
-        .unwrap();
-        let summaries = db.get_version_summary().await.unwrap();
-        assert_eq!(summaries.len(), 2);
-        assert_eq!(summaries[0].version, "1.0.0");
-        assert_eq!(summaries[0].git_hash, "abc123");
-        assert_eq!(summaries[0].broker_count, 2);
-        assert_eq!(summaries[1].version, "unknown");
-        assert_eq!(summaries[1].git_hash, "unknown");
-        assert_eq!(summaries[1].broker_count, 2);
-    }
-
-    #[sqlx::test]
-    async fn version_summary_since(pool: PgPool) {
-        let db = OrderDb::from_pool(pool.clone()).await.unwrap();
-        let addr1 = Address::from_slice(&[1u8; 20]);
-        let addr2 = Address::from_slice(&[2u8; 20]);
-        let addr3 = Address::from_slice(&[3u8; 20]);
-        let addr4 = Address::from_slice(&[4u8; 20]);
-        let since_1 = Utc::now();
-        db.add_broker(addr1).await.unwrap();
-        db.add_broker(addr2).await.unwrap();
-        db.set_broker_version(
-            addr1,
-            VersionInfo { version: "1.0.0".to_string(), git_hash: "abc123".to_string() },
-        )
-        .await
-        .unwrap();
-        db.set_broker_version(
-            addr2,
-            VersionInfo { version: "1.0.0".to_string(), git_hash: "abc123".to_string() },
-        )
-        .await
-        .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        let since_2 = Utc::now();
-        db.add_broker(addr3).await.unwrap();
-        db.add_broker(addr4).await.unwrap();
-        db.set_broker_version(
-            addr3,
-            VersionInfo { version: "unknown".to_string(), git_hash: "unknown".to_string() },
-        )
-        .await
-        .unwrap();
-        let summaries = db.get_version_summary_since(since_1).await.unwrap();
-        assert_eq!(summaries.len(), 2);
-        assert_eq!(summaries[0].version, "1.0.0");
-        assert_eq!(summaries[0].git_hash, "abc123");
-        assert_eq!(summaries[0].broker_count, 2);
-        assert_eq!(summaries[1].version, "unknown");
-        assert_eq!(summaries[1].git_hash, "unknown");
-        assert_eq!(summaries[1].broker_count, 2);
-        let summaries = db.get_version_summary_since(since_2).await.unwrap();
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].version, "unknown");
-        assert_eq!(summaries[0].git_hash, "unknown");
-        assert_eq!(summaries[0].broker_count, 2);
     }
 }

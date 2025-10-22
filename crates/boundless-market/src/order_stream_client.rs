@@ -47,8 +47,6 @@ pub const AUTH_GET_NONCE: &str = "/api/v1/nonce/";
 pub const HEALTH_CHECK: &str = "/api/v1/health";
 /// Order stream websocket path.
 pub const ORDER_WS_PATH: &str = "/ws/v1/orders";
-/// Clients info API path.
-pub const CLIENTS_PATH: &str = "/api/v1/clients";
 
 /// Error body for API responses
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
