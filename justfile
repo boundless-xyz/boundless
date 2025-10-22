@@ -415,9 +415,9 @@ bento action="up" env_file="" compose_flags="" detached="true":
         exit 1
     fi
 
-# Run the broker service with a bento cluster for proving.
-# Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just broker)
-broker action="up" env_file="" detached="true":
+# Run all components of a boundless prover (bento, broker, miner)
+# Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just prover)
+prover action="up" env_file="" detached="true":
     #!/usr/bin/env bash
     BOUNDLESS_MINING="${BOUNDLESS_MINING:-true}"
 
@@ -438,6 +438,13 @@ broker action="up" env_file="" detached="true":
     fi
 
     just bento "{{action}}" "{{env_file}}" "$PROFILE_FLAGS" "{{detached}}"
+
+# Deprecated: Use 'just prover' instead
+broker action="up" env_file="" detached="true":
+    #!/usr/bin/env bash
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
+    just prover "{{action}}" "{{env_file}}" "{{detached}}"
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
 
 # Run the setup script
 bento-setup:
