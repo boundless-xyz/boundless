@@ -14,6 +14,7 @@
 
 //! Commands within the Boundless CLI
 
+pub mod config_display;
 pub mod prover;
 pub mod requestor;
 pub mod rewards;

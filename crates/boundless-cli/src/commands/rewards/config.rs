@@ -14,12 +14,16 @@
 
 use anyhow::Result;
 use clap::Args;
-use colored::Colorize;
 
 use crate::commands::rewards::State;
-use crate::commands::setup::secrets::{address_from_private_key, obscure_url};
+use crate::commands::config_display::{
+    ModuleType, normalize_network_name, get_private_key_with_source,
+    display_rpc_url, display_not_configured, display_tip, address_from_pk,
+};
+use crate::commands::setup::secrets::obscure_url;
 use crate::config::GlobalConfig;
 use crate::config_file::{Config, Secrets};
+use crate::display::DisplayManager;
 
 /// Show rewards configuration status
 #[derive(Args, Clone, Debug)]
@@ -41,139 +45,128 @@ fn format_duration(d: std::time::Duration) -> String {
 impl RewardsConfigCmd {
     /// Run the command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
-        println!("\n{}\n", "Rewards Module".bold().underline());
+        let module = ModuleType::Rewards;
+        let display = DisplayManager::new();
+
+        display.header(module.display_name());
 
         let config = Config::load().ok();
         let secrets = Secrets::load().ok();
 
         if let Some(ref cfg) = config {
             if let Some(ref rewards) = cfg.rewards {
-                let display_network = match rewards.network.as_str() {
-                    "mainnet" => "Ethereum Mainnet",
-                    "sepolia" => "Ethereum Sepolia",
-                    custom => custom,
-                };
-
-                println!("{} {}", "Network:".bold(), display_network.blue());
+                let network = normalize_network_name(&rewards.network);
+                display.item_colored("Network", network, "cyan");
 
                 if let Some(ref sec) = secrets {
                     if let Some(rewards_sec) = sec.rewards_networks.get(&rewards.network) {
-                        if let Some(ref rpc) = rewards_sec.rpc_url {
-                            println!("{} {}", "RPC URL:".bold(), obscure_url(rpc).dimmed());
-                        }
+                        display_rpc_url(&display, rewards_sec.rpc_url.as_deref());
 
                         // Display staking address
-                        if let Some(ref staking_pk) = rewards_sec.staking_private_key {
-                            if let Some(addr) = address_from_private_key(staking_pk) {
-                                println!("{} {}", "Staking Address:".bold(), format!("{:#x}", addr).green());
+                        let (staking_pk, staking_pk_source) = get_private_key_with_source(
+                            "STAKING_PRIVATE_KEY",
+                            rewards_sec.staking_private_key.as_deref(),
+                        );
+
+                        if let Some(pk) = staking_pk {
+                            if let Some(addr) = address_from_pk(pk) {
+                                display.item_colored("Staking Address", format!("{:#x}", addr), "green");
                             }
-                            println!("  {} {}", "Private Key:".bold(), "Configured".green());
-                        } else if let Some(ref staking_addr) = rewards_sec.staking_address {
-                            println!("{} {}", "Staking Address:".bold(), staking_addr.green());
-                            println!("  {} {}", "Private Key:".bold(), "Not configured".yellow());
+                            display.subitem("  ", &format!("Private Key: Configured [{}]", staking_pk_source));
+                        } else if let Some(ref addr) = rewards_sec.staking_address {
+                            display.item_colored("Staking Address", addr, "green");
+                            display.item_colored("  Private Key", "Not configured", "yellow");
                         }
 
                         // Display reward address
-                        if let Some(ref reward_pk) = rewards_sec.reward_private_key {
-                            if let Some(addr) = address_from_private_key(reward_pk) {
-                                println!("{} {}", "Reward Address:".bold(), format!("{:#x}", addr).green());
+                        let (reward_pk, reward_pk_source) = get_private_key_with_source(
+                            "REWARD_PRIVATE_KEY",
+                            rewards_sec.reward_private_key.as_deref(),
+                        );
+
+                        if let Some(pk) = reward_pk {
+                            if let Some(addr) = address_from_pk(pk) {
+                                display.item_colored("Reward Address", format!("{:#x}", addr), "green");
                             }
-                            println!("  {} {}", "Private Key:".bold(), "Configured".green());
-                        } else if let Some(ref reward_addr) = rewards_sec.reward_address {
-                            println!("{} {}", "Reward Address:".bold(), reward_addr.green());
-                            println!("  {} {}", "Private Key:".bold(), "Not configured".yellow());
+                            display.subitem("  ", &format!("Private Key: Configured [{}]", reward_pk_source));
+                        } else if let Some(ref addr) = rewards_sec.reward_address {
+                            display.item_colored("Reward Address", addr, "green");
+                            display.item_colored("  Private Key", "Not configured", "yellow");
                         }
 
                         // Display PoVW state file if configured
                         let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
-                        let povw_state_path = if let Some(ref state) = env_povw_state {
-                            Some(state.as_str())
-                        } else {
-                            rewards_sec.povw_state_file.as_deref()
-                        };
+                        let povw_state_path = env_povw_state.as_deref()
+                            .or_else(|| rewards_sec.povw_state_file.as_deref());
 
                         if let Some(state_path) = povw_state_path {
-                            // Get absolute path for display
                             let display_path = std::fs::canonicalize(state_path)
                                 .map(|p| p.display().to_string())
                                 .unwrap_or_else(|_| {
-                                    // If canonicalize fails, try to resolve relative to current dir
                                     std::env::current_dir()
                                         .map(|cwd| cwd.join(state_path).display().to_string())
                                         .unwrap_or_else(|_| state_path.to_string())
                                 });
 
-                            println!("{} {}", "PoVW State File:".bold(), display_path.green());
+                            display.item_colored("PoVW State File", display_path, "green");
 
-                            // Try to load and display state statistics
                             match State::load(state_path).await {
                                 Ok(state) => {
-                                    // Display last updated time
                                     if let Ok(elapsed) = state.updated_at.elapsed() {
                                         let duration_str = format_duration(elapsed);
-                                        println!("  {} {}", "Last updated:".bold(), duration_str.dimmed());
+                                        display.subitem("  ", &format!("Last updated: {}", duration_str));
                                     }
 
-                                    // Display work log stats
                                     if !state.work_log.is_empty() {
-                                        println!("  {} {}",
-                                            "Total PoVW jobs:".bold(),
-                                            state.work_log.jobs.len().to_string().cyan());
+                                        display.subitem("  ", &format!("Total PoVW jobs: {}", state.work_log.jobs.len()));
                                     } else {
-                                        println!("  {} {}", "Total PoVW jobs:".bold(), "0 (empty)".yellow());
+                                        display.item_colored("  Total PoVW jobs", "0 (empty)", "yellow");
                                     }
 
-                                    // Display last on-chain submission from update_transactions
                                     if !state.update_transactions.is_empty() {
                                         if let Some((tx_hash, _)) = state.update_transactions.iter().next() {
                                             let time_str = state.updated_at.elapsed()
                                                 .map(format_duration)
                                                 .unwrap_or_else(|_| "unknown".to_string());
-                                            println!("  {} {} (tx: {})",
-                                                "Last submitted on-chain:".bold(),
-                                                time_str.dimmed(),
-                                                format!("{:#x}", tx_hash).cyan());
+                                            display.subitem("  ", &format!(
+                                                "Last submitted on-chain: {} (tx: {:#x})",
+                                                time_str, tx_hash
+                                            ));
                                         }
                                     } else {
-                                        println!("  {} {}", "Last submitted on-chain:".bold(), "Never submitted".yellow());
+                                        display.item_colored("  Last submitted", "Never submitted", "yellow");
                                     }
                                 }
                                 Err(e) => {
-                                    // Distinguish between file not found vs invalid file
                                     if e.to_string().contains("No such file or directory") ||
                                        e.to_string().contains("Failed to read work log state file") {
-                                        println!("  {} {} File not found: verify path or run prepare-povw to initialize", "Status:".bold(), "⚠".yellow());
+                                        display.item_colored("  Status", "⚠ File not found: verify path or run prepare-povw to initialize", "yellow");
                                     } else {
-                                        println!("  {} {} Invalid file: cannot decode state", "Status:".bold(), "⚠".yellow());
+                                        display.item_colored("  Status", "⚠ Invalid file: cannot decode state", "yellow");
                                     }
                                 }
                             }
                         } else {
-                            println!("{} {}", "PoVW State:".bold(), "Not configured (PoVW disabled)".yellow());
+                            display.item_colored("PoVW State", "Not configured (PoVW disabled)", "yellow");
                         }
 
                         // Display Beacon API URL if configured
                         let env_beacon_api = std::env::var("BEACON_API_URL").ok();
                         if let Some(ref url) = env_beacon_api {
-                            println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[env]".dimmed());
+                            display.item_colored("Beacon API", format!("{} [env]", obscure_url(url)), "dimmed");
                         } else if let Some(ref url) = rewards_sec.beacon_api_url {
-                            println!("{} {} {}", "Beacon API:".bold(), obscure_url(url).dimmed(), "[config file]".dimmed());
+                            display.item_colored("Beacon API", format!("{} [config file]", obscure_url(url)), "dimmed");
                         }
                     }
                 }
             } else {
-                println!("{}", "Not configured - run 'boundless rewards setup'".red());
+                display_not_configured(&display, module);
             }
         } else {
-            println!("{}", "Not configured - run 'boundless rewards setup'".red());
+            display_not_configured(&display, module);
         }
 
-        println!(
-            "\n💡 {} {}",
-            "Tip:".bold(),
-            "Run 'boundless rewards --help' to see available commands".dimmed()
-        );
-        println!();
+        display_tip(&display, module);
 
         Ok(())
     }
