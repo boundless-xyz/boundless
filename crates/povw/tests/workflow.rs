@@ -54,9 +54,10 @@ async fn test_workflow() -> anyhow::Result<()> {
         log_updater_prover.prove_update(log_builder_receipt, &signer).await?;
 
     // Step 4: Post the proven log update to the smart contract
+    let version = env!("CARGO_PKG_VERSION");
     let tx_receipt = ctx
         .povw_accounting
-        .update_work_log(&log_updater_prove_info.receipt)?
+        .update_work_log(&log_updater_prove_info.receipt, version)?
         .send()
         .await?
         .get_receipt()

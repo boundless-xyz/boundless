@@ -16,6 +16,12 @@ pub use risc0_povw::guest::{Journal as LogBuilderJournal, RISC0_POVW_LOG_BUILDER
 use ruint::aliases::U160;
 use serde::{Deserialize, Serialize};
 
+// Marker used to indicate the version of the seal.
+// If The first 4 bytes of the seal are set to this value (0xb6618e69), the following 3 bytes are
+// interpreted as a version number. This allows for future upgrades to the seal format while
+// maintaining backward compatibility.
+const VERSION_MARKER: u32 = 0xb6618e69; // bytes4(keccak256("VERSION_MARKER"))
+
 #[cfg(feature = "build-guest")]
 pub use crate::guest_artifacts::BOUNDLESS_POVW_LOG_UPDATER_PATH;
 pub use crate::guest_artifacts::{BOUNDLESS_POVW_LOG_UPDATER_ELF, BOUNDLESS_POVW_LOG_UPDATER_ID};
@@ -209,7 +215,7 @@ mod host {
 
     use crate::log_updater::{
         IPovwAccounting::{updateWorkLogCall, IPovwAccountingInstance},
-        Journal,
+        Journal, VERSION_MARKER,
     };
 
     impl<P: Provider> IPovwAccountingInstance<P> {
@@ -217,12 +223,23 @@ mod host {
         pub fn update_work_log(
             &self,
             receipt: &Receipt,
+            version: &str,
         ) -> anyhow::Result<CallBuilder<&P, PhantomData<updateWorkLogCall>>> {
             let journal = Journal::abi_decode(&receipt.journal.bytes)
                 .context("Failed to decode journal from Log Updater receipt")?;
-            let seal = risc0_ethereum_contracts::encode_seal(receipt)
+            let inner_seal = risc0_ethereum_contracts::encode_seal(receipt)
                 .context("Failed to encode seal for log update")?;
-
+            let mut seal = vec![];
+            // Prepend version marker and version bytes to the seal.
+            let seal = match parse_version_to_bytes(version) {
+                Some(v) => {
+                    seal.extend_from_slice(&VERSION_MARKER.to_be_bytes());
+                    seal.extend_from_slice(&v);
+                    seal.extend_from_slice(&inner_seal);
+                    seal
+                }
+                None => inner_seal,
+            };
             Ok(self.updateWorkLog(
                 journal.update.workLogId,
                 journal.update.updatedCommit,
@@ -231,6 +248,20 @@ mod host {
                 seal.into(),
             ))
         }
+    }
+
+    fn parse_version_to_bytes(version: &str) -> Option<[u8; 3]> {
+        let parts: Vec<&str> = version.split('.').collect();
+
+        if parts.len() != 3 {
+            return None;
+        }
+
+        let x = parts[0].parse::<u8>().ok()?;
+        let y = parts[1].parse::<u8>().ok()?;
+        let z = parts[2].parse::<u8>().ok()?;
+
+        Some([x, y, z])
     }
 }
 

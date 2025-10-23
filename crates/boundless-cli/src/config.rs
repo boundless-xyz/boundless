@@ -212,4 +212,34 @@ impl ProverConfig {
 
         Ok(())
     }
+
+    /// Sets environment variables to configure the prover (see [configure_proving_backend]) and
+    /// additionally runs a basic health check to make sure it can connect to Bento, if in use.
+    ///
+    /// This method is intended to give a slightly nicer error message if Bento is not running,
+    /// expecially if they did not actually mean to use Bento.
+    pub async fn get_bento_version(&self) -> anyhow::Result<String> {
+        // No version is implemented for default prover. If dev mode is set, then we are going
+        // to use the dev mode prover anyway, so don't run the health check.
+        if self.use_default_prover || ProverOpts::default().dev_mode() {
+            return Ok("unknown".to_string());
+        }
+
+        // Send a request to the /version endpoint.
+        let bento_url = Url::parse(&self.bento_api_url)
+            .with_context(|| format!("Failed to parse Bento API URL: {}", self.bento_api_url))?;
+        let version_url = bento_url.join("version")?;
+        let version = match reqwest::get(version_url.clone()).await {
+            Ok(response) => match response.error_for_status() {
+                Ok(resp) => match resp.text().await {
+                    Ok(text) => text,
+                    Err(_) => "unknown".to_string(),
+                },
+                Err(_) => "unknown".to_string(),
+            },
+            Err(_) => "unknown".to_string(),
+        };
+
+        Ok(version)
+    }
 }

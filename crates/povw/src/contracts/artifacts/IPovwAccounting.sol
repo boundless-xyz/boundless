@@ -14,6 +14,12 @@
 
 pragma solidity ^0.8.26;
 
+/// @dev Marker used to indicate the version of the seal.
+///      If The first 4 bytes of the seal are set to this value (0xb6618e69), the following 3 bytes are
+///      interpreted as a version number. This allows for future upgrades to the seal format while
+///      maintaining backward compatibility.
+bytes4 constant VERSION_MARKER = bytes4(keccak256("VERSION_MARKER"));
+
 /// An update to a work log.
 struct WorkLogUpdate {
     /// The log ID associated with this update. This log ID is interpreted as an address for the

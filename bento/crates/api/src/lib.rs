@@ -826,6 +826,12 @@ async fn list_work_receipts(
     Ok(Json(WorkReceiptList { receipts }))
 }
 
+// Version endpoint
+const VERSION_PATH: &str = "/version";
+async fn version() -> Result<String, AppError> {
+    Ok(env!("CARGO_PKG_VERSION").to_string())
+}
+
 // Health check endpoint for Docker Compose
 const HEALTH_PATH: &str = "/health";
 async fn health_check() -> StatusCode {
@@ -851,6 +857,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(GET_GROTH16_PATH, get(groth16_download))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
         .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
+        .route(VERSION_PATH, get(version))
         .with_state(state)
 }
 

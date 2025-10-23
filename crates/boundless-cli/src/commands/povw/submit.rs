@@ -158,6 +158,7 @@ impl PovwSubmit {
         }
 
         self.prover_config.configure_proving_backend_with_health_check().await?;
+        let version = self.prover_config.get_bento_version().await?;
         for receipt in receipts_for_update {
             let prover = LogUpdaterProver::builder()
                 .prover(default_prover())
@@ -177,7 +178,7 @@ impl PovwSubmit {
 
             tracing::info!("Sending work log update transaction");
             let tx_result = povw_accounting
-                .update_work_log(&prove_info.receipt)
+                .update_work_log(&prove_info.receipt, &version)
                 .context("Failed to construct update transaction")?
                 .send()
                 .await
