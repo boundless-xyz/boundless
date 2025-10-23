@@ -26,14 +26,6 @@ fn main() {
     // Convert the input to the Solidity struct and verify the EIP-712 signature, using the work
     // log ID as the authenticating party.
     let update = WorkLogUpdate::from_log_builder_journal(input.update, input.value_recipient);
-    update
-        .verify_signature(
-            update.workLogId,
-            &input.signature,
-            input.contract_address,
-            input.chain_id,
-        )
-        .expect("failed to verify signature on work log update");
 
     // Write the journal, including the EIP-712 domain hash for the verifying contract.
     let journal = Journal {

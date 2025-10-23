@@ -52,6 +52,11 @@ struct PendingEpoch {
 }
 
 interface IPovwAccounting {
+    /// @notice Error indicating that a provided signature is invalid.
+    /// @dev This error is used when the signature provided for a work log update does not
+    ///      correctly authenticate the update.
+    error InvalidSignature();
+
     /// @notice Event emitted during the finalization of an epoch.
     /// @dev This event is emitted in some block after the end of the epoch, when the finalizeEpoch
     ///      function is called. Note that this is no later than the first time that updateWorkLog
@@ -94,6 +99,7 @@ interface IPovwAccounting {
         bytes32 updatedCommit,
         uint64 updateValue,
         address valueRecipient,
+        bytes calldata signature,
         bytes calldata seal
     ) external;
 
