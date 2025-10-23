@@ -82,6 +82,12 @@ struct MainArgs {
     /// Amount of collateral to transfer from distributor to prover during top up
     #[clap(long, env, default_value = "10")]
     stake_top_up_amount: String,
+    /// If distributor ETH balance is below this threshold, emit alert log
+    #[clap(long, env, default_value = "0.5")]
+    distributor_eth_alert_threshold: String,
+    /// If distributor collateral balance is below this threshold, emit alert log
+    #[clap(long, env, default_value = "200.0")]
+    distributor_stake_alert_threshold: String,
     /// Deployment to use
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
@@ -133,6 +139,9 @@ async fn run(args: &MainArgs) -> Result<()> {
     let eth_top_up_amount = parse_ether(&args.eth_top_up_amount)?;
     let collateral_top_up_amount: U256 =
         parse_units(&args.stake_top_up_amount, collateral_token_decimals)?.into();
+    let distributor_eth_alert_threshold = parse_ether(&args.distributor_eth_alert_threshold)?;
+    let distributor_collateral_alert_threshold: U256 =
+        parse_units(&args.distributor_stake_alert_threshold, collateral_token_decimals)?.into();
 
     // check top up amounts are greater than thresholds
     if eth_top_up_amount < eth_threshold {
@@ -156,6 +165,43 @@ async fn run(args: &MainArgs) -> Result<()> {
     tracing::info!("Distributor address: {}", distributor_address);
     tracing::info!("Collateral token address: {}", collateral_token);
     tracing::info!("Collateral token decimals: {}", collateral_token_decimals);
+
+    // Check distributor's own balances and emit early warning alerts if low
+    let distributor_eth_balance =
+        distributor_client.provider().get_balance(distributor_address).await?;
+    let collateral_token_contract = IERC20::new(collateral_token, distributor_provider.clone());
+    let distributor_collateral_balance =
+        collateral_token_contract.balanceOf(distributor_address).call().await?;
+
+    if distributor_eth_balance < distributor_eth_alert_threshold {
+        tracing::warn!(
+            "[B-DIST-ETH-LOW]: Distributor {} ETH balance {} is below alert threshold {}",
+            distributor_address,
+            format_units(distributor_eth_balance, "ether")?,
+            format_units(distributor_eth_alert_threshold, "ether")?
+        );
+    } else {
+        tracing::info!(
+            "Distributor ETH balance: {}. Alert threshold: {}",
+            format_units(distributor_eth_balance, "ether")?,
+            format_units(distributor_eth_alert_threshold, "ether")?
+        );
+    }
+
+    if distributor_collateral_balance < distributor_collateral_alert_threshold {
+        tracing::warn!(
+            "[B-DIST-STK-LOW]: Distributor {} collateral balance {} is below alert threshold {}",
+            distributor_address,
+            format_units(distributor_collateral_balance, collateral_token_decimals)?,
+            format_units(distributor_collateral_alert_threshold, collateral_token_decimals)?
+        );
+    } else {
+        tracing::info!(
+            "Distributor collateral balance: {}. Alert threshold: {}",
+            format_units(distributor_collateral_balance, collateral_token_decimals)?,
+            format_units(distributor_collateral_alert_threshold, collateral_token_decimals)?
+        );
+    }
 
     // Transfer ETH from provers to the distributor from provers if above threshold
     for prover_key in &args.prover_keys {
@@ -588,6 +634,8 @@ mod tests {
             stake_threshold: "0.1".to_string(),
             eth_top_up_amount: "0.5".to_string(),
             stake_top_up_amount: "5".to_string(),
+            distributor_eth_alert_threshold: "0.5".to_string(),
+            distributor_stake_alert_threshold: "50.0".to_string(),
             order_generator_keys: vec![order_generator_signer.clone()],
             offchain_requestor_addresses: vec![offchain_requestor_signer.address()],
             slasher_key: slasher_signer.clone(),
