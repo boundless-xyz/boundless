@@ -213,11 +213,9 @@ impl ProverConfig {
         Ok(())
     }
 
-    /// Sets environment variables to configure the prover (see [configure_proving_backend]) and
-    /// additionally runs a basic health check to make sure it can connect to Bento, if in use.
+    /// Get the version of the connected Bento prover.
     ///
-    /// This method is intended to give a slightly nicer error message if Bento is not running,
-    /// expecially if they did not actually mean to use Bento.
+    /// Returns "unknown" if the version could not be determined.
     pub async fn get_bento_version(&self) -> anyhow::Result<String> {
         // No version is implemented for default prover. If dev mode is set, then we are going
         // to use the dev mode prover anyway, so don't run the health check.
