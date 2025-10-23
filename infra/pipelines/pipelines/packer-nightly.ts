@@ -2,7 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BasePipelineArgs } from "./base";
 
-interface NightlyBuildPipelineArgs extends BasePipelineArgs {
+interface PackerNightlyPipelineArgs extends BasePipelineArgs {
     opsAccountId: string;
     serviceAccountIds: {
         development: string;
@@ -28,8 +28,8 @@ phases:
     commands:
       - echo "Starting nightly build process..."
       - echo "Build started on $(date)"
-      - echo "Building from branch: $CODEBUILD_WEBHOOK_HEAD_REF"
-      - echo "Commit: $CODEBUILD_RESOLVED_SOURCE_VERSION"
+      - echo "Building from branch $CODEBUILD_WEBHOOK_HEAD_REF"
+      - echo "Commit $CODEBUILD_RESOLVED_SOURCE_VERSION"
       - sudo yum install -y git wget unzip jq
       - wget https://releases.hashicorp.com/packer/1.14.2/packer_1.14.2_linux_amd64.zip
       - unzip packer_1.14.2_linux_amd64.zip
@@ -40,48 +40,36 @@ phases:
     commands:
       - echo "Building nightly artifacts..."
       - cd infra/packer
-      - packer init bento.pkr.hcl
-      - packer build -var "aws_region=us-west-2" -var "boundless_bento_version=nightly" -var "boundless_broker_version=nightly" bento_nightly.pkr.hcl
-
-      # Generate build artifacts
+      - packer init bento_nightly.pkr.hcl
+      - AWS_POLLING_MAX_ATTEMPTS=3600 AWS_POLLING_DELAY_SECONDS=30 packer build -var "service_account_ids=[\"$DEVELOPMENT_ACCOUNT_ID\",\"$STAGING_ACCOUNT_ID\",\"$PRODUCTION_ACCOUNT_ID\"]" bento_nightly.pkr.hcl
       - echo "Generating build artifacts..."
       - mkdir -p build-artifacts
       - echo "nightly-$(date +%Y%m%d-%H%M%S)" > build-artifacts/version.txt
       - echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" > build-artifacts/commit.txt
       - echo "$CODEBUILD_WEBHOOK_HEAD_REF" > build-artifacts/branch.txt
-
-      # Create build summary
       - echo "Creating build summary..."
-      - cat > build-artifacts/build-summary.json << EOF
-      {
-        "version": "nightly-$(date +%Y%m%d-%H%M%S)",
-        "commit": "$CODEBUILD_RESOLVED_SOURCE_VERSION",
-        "branch": "$CODEBUILD_WEBHOOK_HEAD_REF",
-        "buildTime": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-        "buildId": "$CODEBUILD_BUILD_ID",
-        "status": "success"
-      }
-      EOF
+      - jq -n --arg version "nightly-$(date +%Y%m%d-%H%M%S)" --arg commit "$CODEBUILD_RESOLVED_SOURCE_VERSION" --arg branch "$CODEBUILD_WEBHOOK_HEAD_REF" --arg buildTime "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg buildId "$CODEBUILD_BUILD_ID" '{version:$version, commit:$commit, branch:$branch, buildTime:$buildTime, buildId:$buildId, status:"success"}' > build-artifacts/build-summary.json
 
   post_build:
     commands:
       - echo "Nightly build completed successfully"
-      - echo "Build artifacts:"
+      - echo "Build artifacts"
       - ls -la build-artifacts/
       - cat build-artifacts/build-summary.json
       - echo "Build completed on $(date)"
 `;
 
-export class NightlyBuildPipeline extends pulumi.ComponentResource {
-    constructor(name: string, args: NightlyBuildPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
-        super("pulumi:aws:nightly-build-pipeline", name, args, opts);
+export class PackerNightlyPipeline extends pulumi.ComponentResource {
+    constructor(name: string, args: PackerNightlyPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
+        super("pulumi:aws:packer-nightly-pipeline", name, args, opts);
 
         const { artifactBucket, connection, serviceAccountIds, role } = args;
 
         // CodeBuild project for nightly builds
-        const nightlyBuildProject = new aws.codebuild.Project("nightly-build-project", {
-            name: `${APP_NAME}-build`,
+        const nightlyBuildProject = new aws.codebuild.Project("packer-nightly-build-project", {
+            name: `${APP_NAME}-packer-nightly-build`,
             serviceRole: role.arn,
+            buildTimeout: 480, // 8 hours (480 minutes)
             artifacts: {
                 type: "CODEPIPELINE",
             },
@@ -124,33 +112,13 @@ export class NightlyBuildPipeline extends pulumi.ComponentResource {
             sourceVersion: "CODEPIPELINE",
             tags: {
                 Project: "boundless",
-                Component: "nightly-build",
+                Component: "packer-nightly-build",
                 Environment: "ops",
             },
-        }, { parent: this });
-
-        // EventBridge rule for nightly builds (runs at 2 AM UTC daily)
-        const nightlyScheduleRule = new aws.cloudwatch.EventRule("nightly-schedule-rule", {
-            name: "boundless-nightly-build-schedule",
-            description: "Trigger nightly builds at 2 AM UTC",
-            scheduleExpression: "cron(0 2 * * ? *)", // 2 AM UTC daily
-            state: "ENABLED",
-            tags: {
-                Project: "boundless",
-                Component: "nightly-build",
-                Environment: "ops",
-            },
-        }, { parent: this });
-
-        // EventBridge target to start the pipeline
-        new aws.cloudwatch.EventTarget("nightly-schedule-target", {
-            rule: nightlyScheduleRule.name,
-            arn: pulumi.interpolate`arn:aws:codepipeline:us-west-2:${args.opsAccountId}:pipeline/${APP_NAME}-pipeline`,
-            roleArn: role.arn,
         }, { parent: this });
 
         // Create the main pipeline
-        const pipeline = new aws.codepipeline.Pipeline(`${APP_NAME}-pipeline`, {
+        const pipeline = new aws.codepipeline.Pipeline(`packer-nightly-pipeline`, {
             roleArn: args.role.arn,
             pipelineType: "V2",
             artifactStores: [{
@@ -193,9 +161,58 @@ export class NightlyBuildPipeline extends pulumi.ComponentResource {
             ],
             tags: {
                 Project: "boundless",
-                Component: "nightly-build",
+                Component: "packer-nightly-build",
                 Environment: "ops",
             },
+        }, { parent: this });
+
+        // Create IAM role for EventBridge to execute the pipeline
+        const eventBridgeRole = new aws.iam.Role(`${APP_NAME}-eventbridge-role`, {
+            assumeRolePolicy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Effect: "Allow",
+                    Principal: {
+                        Service: "events.amazonaws.com"
+                    },
+                    Action: "sts:AssumeRole"
+                }]
+            }),
+        }, { parent: this });
+
+        // Grant EventBridge permission to start pipeline execution
+        new aws.iam.RolePolicy(`${APP_NAME}-eventbridge-policy`, {
+            role: eventBridgeRole.id,
+            policy: pipeline.arn.apply((pipelineArn: string) =>
+                JSON.stringify({
+                    Version: "2012-10-17",
+                    Statement: [{
+                        Effect: "Allow",
+                        Action: "codepipeline:StartPipelineExecution",
+                        Resource: pipelineArn
+                    }]
+                })
+            )
+        }, { parent: this });
+
+        // EventBridge rule for nightly builds (runs at 2 AM UTC daily)
+        const nightlyScheduleRule = new aws.cloudwatch.EventRule("packer-nightly-schedule-rule", {
+            name: "boundless-nightly-build-schedule",
+            description: "Trigger nightly builds at 2 AM UTC",
+            scheduleExpression: "cron(0 2 * * ? *)", // 2 AM UTC daily
+            state: "ENABLED",
+            tags: {
+                Project: "boundless",
+                Component: "packer-nightly-build",
+                Environment: "ops",
+            },
+        }, { parent: this });
+
+        // EventBridge target to start the pipeline
+        new aws.cloudwatch.EventTarget("packer-nightly-schedule-target", {
+            rule: nightlyScheduleRule.name,
+            arn: pipeline.arn,
+            roleArn: eventBridgeRole.arn,
         }, { parent: this });
 
         // Outputs

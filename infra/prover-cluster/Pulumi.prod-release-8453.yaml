@@ -10,24 +10,24 @@ config:
   prover-cluster:managerInstanceType: t3a.2xlarge
   prover-cluster:taskDBName: "taskdb"
   prover-cluster:taskDBUsername:
-    secure: v1:PXujzeEs/12Vgl5g:TLxaGmUg61kWGYVer8vwTY8QkaC0bbs=
+    secure: v1:TJ9LVKR/D4T5fqP1:AaraRAeOokTFVL/Z7eFBvdjEInbJHQ==
   prover-cluster:taskDBPassword:
-    secure: v1:fDSTtU9J7zXzF+tB:IOF1ZvqsF9cVrXXonMqSFr6MzG9b
+    secure: v1:UzhrO9QE/GMGimCC:LZiFdz5tIQHqBYQpZ2J9xDiV4NTrhzeH/4u2IvjLHw==
   prover-cluster:minioUsername:
-    secure: v1:P1EhPfZtMpxqXDp1:4msIr+fFlK0O4ixKaDUcJEL92Oh+2NU=
+    secure: v1:qt26WgrY6/0j6EZK:y/YwN7DaeSOLuCzjaJDEY+TT64M486mA
   prover-cluster:minioPassword:
-    secure: v1:qdMFDop9G60QnG9t:HOT+pX2MyrELiYUt3YgsaHMdxTxWgKEpRAto1jh6pszFNu0=
+    secure: v1:GiHZc4IxgbGYvTj2:Uole5jnRgqXcVcJqogooi2MqnSXJRzBAs4ebolTqXeXdXt2c
   prover-cluster:executionCount: "4"
   prover-cluster:auxWorkerCount: "4"
   prover-cluster:proverWorkerCount: "15"
   prover-cluster:privateKey:
-    secure: v1:bZaP8gZLLn+7PG9z:9u7k5/ch7P3WCrI6oaFzUpsljSw3ZiOBKcrM3mQL9Tg09HdrjDK8kM5FpWJ8nSfTouzr2Ghfiyj+KGcJgXYWFQQXbj2SXGVc8HMl0LbPdkk=
+    secure: v1:pNivS9eWP45vRLP3:tGQ1LNjIAs3in1GcMezJ0vBwukUSzy114wpgEWK1MnnnVDIKg+Es4Zym+78guM0S1igZI5CCCYrZzsHjz6A5Tov0bXfb3+MDSrMwQWl4kea5og==
   prover-cluster:ethRpcUrl:
-    secure: v1:lFT0b4jaqt9DTTz8:QUmzfFkJTx753kerYTsYteef43jKTjRsk4GUjgW2vfV41yRzarZ1YVGFJ3QyXfmC8fsfTezQ7JwcEFdprqmkkTu+NaN9wrkb2aZsEdwahxxEIuLUD+DMR1vSO7IgVbd3MmunrP2Dm7ufmVlbzhsTXQ==
-  prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network/"
+    secure: v1:iTFjvkhfa975JrX1:1aBRNXBNfYaV68nLgOkgMsgBZ8hXkCs1VhYGtTpZ7GpdqT62R1ohM1L5etD/8kjxIt60xp07/2Y7bJ0H182cb6QeFPttWHkDCcLWVN8PjDE/kAzKC/ttQnkDZVI/nCegPrjIYQrsfGBb8ePL
+  prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network"
   prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
   prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
-  prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
-  prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
+  prover-cluster:boundlessMarketAddress: "0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
+  prover-cluster:collateralTokenAddress: "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
   prover-cluster:taskDBusername:
     secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=

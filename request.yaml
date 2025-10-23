@@ -26,11 +26,12 @@ input:
     data: "0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"
 
 # Offer specifying how much the client is willing to pay to have this request fulfilled
+# For more information, please see https://docs.boundless.network/developers/tutorials/configure
 offer:
-    minPrice: 1000000000000000
-    maxPrice: 2000000000000000
-    rampUpStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
-    rampUpPeriod: 300
-    timeout: 3600 # 1 hor
-    lockTimeout: 2700 # 45 minutes
-    lockCollateral: 100000 # 0.1 USDC
+    minPrice: 100000000000000 # 0.0001 ETH
+    maxPrice: 250000000000000 # 0.00025 ETH
+    lockCollateral: 20000000000000000000 # 20 ZKC
+    rampUpStart: 85 # seconds
+    rampUpPeriod: 85 # blocks
+    lockTimeout: 625 # 10 minutes 25 seconds
+    timeout:  1500 # 25 minutes
