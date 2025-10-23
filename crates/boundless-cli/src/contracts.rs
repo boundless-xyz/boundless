@@ -22,7 +22,6 @@ use alloy::{
 };
 use anyhow::{ensure, Context, Result};
 use boundless_market::contracts::token::IERC20;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Standard token information

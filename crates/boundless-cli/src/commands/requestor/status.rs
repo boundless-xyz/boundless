@@ -24,7 +24,7 @@ use colored::Colorize;
 use crate::chain_utils::block_number_near_timestamp;
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::{DisplayManager, format_eth};
+use crate::display::{format_eth, DisplayManager};
 
 /// Get the status of a given request
 #[derive(Args, Clone, Debug)]
@@ -204,7 +204,8 @@ impl RequestorStatus {
             search_radius
         );
 
-        let (submission_time, offer) = self.query_submission_info(client, &order_data, lower_bound, upper_bound).await;
+        let (submission_time, offer) =
+            self.query_submission_info(client, &order_data, lower_bound, upper_bound).await;
 
         if let Some(timestamp) = submission_time {
             timeline.push(TimelineEntry::Submitted { timestamp });
@@ -258,12 +259,8 @@ impl RequestorStatus {
             let lock_timeout = offer.rampUpStart + offer.lockTimeout as u64;
             let request_timeout = offer.rampUpStart + offer.timeout as u64;
 
-            timeline.push(TimelineEntry::LockTimeout {
-                timestamp: lock_timeout,
-            });
-            timeline.push(TimelineEntry::RequestTimeout {
-                timestamp: request_timeout,
-            });
+            timeline.push(TimelineEntry::LockTimeout { timestamp: lock_timeout });
+            timeline.push(TimelineEntry::RequestTimeout { timestamp: request_timeout });
         }
 
         // Sort timeline chronologically
@@ -322,10 +319,8 @@ impl RequestorStatus {
         }
 
         // Fallback to chain events
-        if let Ok((request, _)) = client
-            .boundless_market
-            .get_submitted_request(self.request_id, None)
-            .await
+        if let Ok((request, _)) =
+            client.boundless_market.get_submitted_request(self.request_id, None).await
         {
             return Some(request);
         }
@@ -358,11 +353,7 @@ impl RequestorStatus {
                         formatted_time
                     );
                 }
-                TimelineEntry::Fulfilled {
-                    timestamp,
-                    prover,
-                    number,
-                } => {
+                TimelineEntry::Fulfilled { timestamp, prover, number } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
                     println!(
                         "  {} {} {} {}",
@@ -396,10 +387,7 @@ impl RequestorStatus {
         let offer = &request.offer;
         display.item("Min Price", format!("{} ETH", format_eth(offer.minPrice)));
         display.item("Max Price", format!("{} ETH", format_eth(offer.maxPrice)));
-        display.item(
-            "Lock Collateral",
-            format!("{} HP", format_eth(offer.lockCollateral)),
-        );
+        display.item("Lock Collateral", format!("{} HP", format_eth(offer.lockCollateral)));
 
         let lock_timeout_hrs = offer.lockTimeout / 3600;
         let lock_timeout_mins = (offer.lockTimeout % 3600) / 60;

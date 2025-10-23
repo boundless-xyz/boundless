@@ -16,8 +16,8 @@ use anyhow::Result;
 use clap::Args;
 
 use crate::commands::config_display::{
-    ModuleType, normalize_network_name, get_private_key_with_source,
-    display_rpc_url, display_address_and_key_status, display_not_configured, display_tip,
+    display_address_and_key_status, display_not_configured, display_rpc_url, display_tip,
+    get_private_key_with_source, normalize_network_name, ModuleType,
 };
 use crate::config::GlobalConfig;
 use crate::config_file::{Config, Secrets};
@@ -43,8 +43,8 @@ impl RequestorConfigCmd {
                 let network = normalize_network_name(&requestor.network);
                 display.item_colored("Network", network, "cyan");
 
-                let requestor_sec = secrets.as_ref()
-                    .and_then(|s| s.requestor_networks.get(&requestor.network));
+                let requestor_sec =
+                    secrets.as_ref().and_then(|s| s.requestor_networks.get(&requestor.network));
 
                 display_rpc_url(&display, requestor_sec.and_then(|s| s.rpc_url.as_deref()));
 

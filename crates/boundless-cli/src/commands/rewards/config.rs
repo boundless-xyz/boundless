@@ -15,11 +15,11 @@
 use anyhow::Result;
 use clap::Args;
 
-use crate::commands::rewards::State;
 use crate::commands::config_display::{
-    ModuleType, normalize_network_name, get_private_key_with_source,
-    display_rpc_url, display_not_configured, display_tip, address_from_pk,
+    address_from_pk, display_not_configured, display_rpc_url, display_tip,
+    get_private_key_with_source, normalize_network_name, ModuleType,
 };
+use crate::commands::rewards::State;
 use crate::commands::setup::secrets::obscure_url;
 use crate::config::GlobalConfig;
 use crate::config_file::{Config, Secrets};
@@ -70,9 +70,16 @@ impl RewardsConfigCmd {
 
                         if let Some(pk) = staking_pk {
                             if let Some(addr) = address_from_pk(pk) {
-                                display.item_colored("Staking Address", format!("{:#x}", addr), "green");
+                                display.item_colored(
+                                    "Staking Address",
+                                    format!("{:#x}", addr),
+                                    "green",
+                                );
                             }
-                            display.subitem("  ", &format!("Private Key: Configured [{}]", staking_pk_source));
+                            display.subitem(
+                                "  ",
+                                &format!("Private Key: Configured [{}]", staking_pk_source),
+                            );
                         } else if let Some(ref addr) = rewards_sec.staking_address {
                             display.item_colored("Staking Address", addr, "green");
                             display.item_colored("  Private Key", "Not configured", "yellow");
@@ -86,9 +93,16 @@ impl RewardsConfigCmd {
 
                         if let Some(pk) = reward_pk {
                             if let Some(addr) = address_from_pk(pk) {
-                                display.item_colored("Reward Address", format!("{:#x}", addr), "green");
+                                display.item_colored(
+                                    "Reward Address",
+                                    format!("{:#x}", addr),
+                                    "green",
+                                );
                             }
-                            display.subitem("  ", &format!("Private Key: Configured [{}]", reward_pk_source));
+                            display.subitem(
+                                "  ",
+                                &format!("Private Key: Configured [{}]", reward_pk_source),
+                            );
                         } else if let Some(ref addr) = rewards_sec.reward_address {
                             display.item_colored("Reward Address", addr, "green");
                             display.item_colored("  Private Key", "Not configured", "yellow");
@@ -96,7 +110,8 @@ impl RewardsConfigCmd {
 
                         // Display PoVW state file if configured
                         let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
-                        let povw_state_path = env_povw_state.as_deref()
+                        let povw_state_path = env_povw_state
+                            .as_deref()
                             .or_else(|| rewards_sec.povw_state_file.as_deref());
 
                         if let Some(state_path) = povw_state_path {
@@ -114,48 +129,90 @@ impl RewardsConfigCmd {
                                 Ok(state) => {
                                     if let Ok(elapsed) = state.updated_at.elapsed() {
                                         let duration_str = format_duration(elapsed);
-                                        display.subitem("  ", &format!("Last updated: {}", duration_str));
+                                        display.subitem(
+                                            "  ",
+                                            &format!("Last updated: {}", duration_str),
+                                        );
                                     }
 
                                     if !state.work_log.is_empty() {
-                                        display.subitem("  ", &format!("Total PoVW jobs: {}", state.work_log.jobs.len()));
+                                        display.subitem(
+                                            "  ",
+                                            &format!(
+                                                "Total PoVW jobs: {}",
+                                                state.work_log.jobs.len()
+                                            ),
+                                        );
                                     } else {
-                                        display.item_colored("  Total PoVW jobs", "0 (empty)", "yellow");
+                                        display.item_colored(
+                                            "  Total PoVW jobs",
+                                            "0 (empty)",
+                                            "yellow",
+                                        );
                                     }
 
                                     if !state.update_transactions.is_empty() {
-                                        if let Some((tx_hash, _)) = state.update_transactions.iter().next() {
-                                            let time_str = state.updated_at.elapsed()
+                                        if let Some((tx_hash, _)) =
+                                            state.update_transactions.iter().next()
+                                        {
+                                            let time_str = state
+                                                .updated_at
+                                                .elapsed()
                                                 .map(format_duration)
                                                 .unwrap_or_else(|_| "unknown".to_string());
-                                            display.subitem("  ", &format!(
-                                                "Last submitted on-chain: {} (tx: {:#x})",
-                                                time_str, tx_hash
-                                            ));
+                                            display.subitem(
+                                                "  ",
+                                                &format!(
+                                                    "Last submitted on-chain: {} (tx: {:#x})",
+                                                    time_str, tx_hash
+                                                ),
+                                            );
                                         }
                                     } else {
-                                        display.item_colored("  Last submitted", "Never submitted", "yellow");
+                                        display.item_colored(
+                                            "  Last submitted",
+                                            "Never submitted",
+                                            "yellow",
+                                        );
                                     }
                                 }
                                 Err(e) => {
-                                    if e.to_string().contains("No such file or directory") ||
-                                       e.to_string().contains("Failed to read work log state file") {
+                                    if e.to_string().contains("No such file or directory")
+                                        || e.to_string()
+                                            .contains("Failed to read work log state file")
+                                    {
                                         display.item_colored("  Status", "⚠ File not found: verify path or run prepare-povw to initialize", "yellow");
                                     } else {
-                                        display.item_colored("  Status", "⚠ Invalid file: cannot decode state", "yellow");
+                                        display.item_colored(
+                                            "  Status",
+                                            "⚠ Invalid file: cannot decode state",
+                                            "yellow",
+                                        );
                                     }
                                 }
                             }
                         } else {
-                            display.item_colored("PoVW State", "Not configured (PoVW disabled)", "yellow");
+                            display.item_colored(
+                                "PoVW State",
+                                "Not configured (PoVW disabled)",
+                                "yellow",
+                            );
                         }
 
                         // Display Beacon API URL if configured
                         let env_beacon_api = std::env::var("BEACON_API_URL").ok();
                         if let Some(ref url) = env_beacon_api {
-                            display.item_colored("Beacon API", format!("{} [env]", obscure_url(url)), "dimmed");
+                            display.item_colored(
+                                "Beacon API",
+                                format!("{} [env]", obscure_url(url)),
+                                "dimmed",
+                            );
                         } else if let Some(ref url) = rewards_sec.beacon_api_url {
-                            display.item_colored("Beacon API", format!("{} [config file]", obscure_url(url)), "dimmed");
+                            display.item_colored(
+                                "Beacon API",
+                                format!("{} [config file]", obscure_url(url)),
+                                "dimmed",
+                            );
                         }
                     }
                 }

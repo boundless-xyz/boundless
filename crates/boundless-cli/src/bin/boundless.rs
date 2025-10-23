@@ -20,11 +20,7 @@ The Boundless CLI is a command-line interface for interacting with Boundless.
 
 use anyhow::Result;
 use boundless_cli::{
-    commands::{
-        prover::ProverCommands,
-        requestor::RequestorCommands,
-        rewards::RewardsCommands,
-    },
+    commands::{prover::ProverCommands, requestor::RequestorCommands, rewards::RewardsCommands},
     config::GlobalConfig,
 };
 use clap::{CommandFactory, Parser, Subcommand};
@@ -173,7 +169,11 @@ async fn show_welcome_screen() -> Result<()> {
                 "(read-only)".yellow()
             );
         }
-        println!("  {} {}", "→".cyan(), "Run 'boundless requestor --help' to see available commands".dimmed());
+        println!(
+            "  {} {}",
+            "→".cyan(),
+            "Run 'boundless requestor --help' to see available commands".dimmed()
+        );
     } else {
         println!("{} Requestor Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless requestor setup'".cyan());
@@ -232,7 +232,11 @@ async fn show_welcome_screen() -> Result<()> {
                 "(read-only)".yellow()
             );
         }
-        println!("  {} {}", "→".cyan(), "Run 'boundless prover --help' to see available commands".dimmed());
+        println!(
+            "  {} {}",
+            "→".cyan(),
+            "Run 'boundless prover --help' to see available commands".dimmed()
+        );
     } else {
         println!("{} Prover Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless prover setup'".cyan());
@@ -447,7 +451,11 @@ async fn show_welcome_screen() -> Result<()> {
                 println!("  Status: {} (no credentials)", "Read-only".yellow());
             }
         }
-        println!("  {} {}", "→".cyan(), "Run 'boundless rewards --help' to see available commands".dimmed());
+        println!(
+            "  {} {}",
+            "→".cyan(),
+            "Run 'boundless rewards --help' to see available commands".dimmed()
+        );
     } else {
         println!("{} Rewards Module: {}", "✗".red().bold(), "Not configured".red());
         println!("  {} {}", "→".cyan(), "Run 'boundless rewards setup'".cyan());
@@ -480,8 +488,8 @@ async fn main() -> Result<()> {
             // If no subcommand provided
             if err.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
                 // Check if a module was specified
-                let has_module = raw_args.len() >= 2 &&
-                    matches!(raw_args[1].as_str(), "requestor" | "prover" | "rewards");
+                let has_module = raw_args.len() >= 2
+                    && matches!(raw_args[1].as_str(), "requestor" | "prover" | "rewards");
 
                 if has_module {
                     // Module specified without subcommand - show clap's error with help suggestion

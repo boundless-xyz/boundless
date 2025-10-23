@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    time::{SystemTime},
+    time::SystemTime,
 };
 
 use alloy::{

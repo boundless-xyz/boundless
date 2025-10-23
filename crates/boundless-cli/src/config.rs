@@ -16,16 +16,14 @@
 
 use std::{num::ParseIntError, time::Duration};
 
-use alloy::{providers::DynProvider, signers::local::PrivateKeySigner};
+use alloy::signers::local::PrivateKeySigner;
 use anyhow::{Context, Result};
 use clap::Args;
 use risc0_zkvm::ProverOpts;
 use tracing::level_filters::LevelFilter;
 use url::Url;
 
-use boundless_market::{
-    client::ClientBuilder, request_builder::StandardRequestBuilder, Client, Deployment, NotProvided,
-};
+use boundless_market::{client::ClientBuilder, Client, Deployment, NotProvided};
 use boundless_zkc;
 
 /// Parse a private key string, adding "0x" prefix if not present
