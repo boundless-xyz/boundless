@@ -20,6 +20,14 @@
 
 pub mod commands;
 pub mod config;
+pub mod config_file;
+pub(crate) mod indexer_client;
+
+// DRY helper modules
+pub mod chain;
+pub mod config_ext;
+pub mod contracts;
+pub mod display;
 
 use alloy::{
     primitives::{Address, Bytes},
@@ -28,7 +36,6 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_assessor::{AssessorInput, Fulfillment};
-use chrono::{DateTime, Local};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
@@ -84,12 +91,6 @@ impl OrderFulfilled {
             assessorReceipt: assessor_receipt,
         })
     }
-}
-
-/// Converts a timestamp to a [DateTime] in the local timezone.
-pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
-    let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
-    t.with_timezone(&Local)
 }
 
 /// The default prover implementation.
@@ -222,7 +223,7 @@ impl DefaultProver {
         &self,
         orders: &[(ProofRequest, Bytes)],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
-        let orders_jobs = orders.iter().cloned().map(|(req, sig)| async move {
+        let orders_jobs = orders.iter().cloned().enumerate().map(|(idx, (req, sig))| async move {
             let order_program = fetch_url(&req.imageUrl).await?;
             let order_input: Vec<u8> = match req.input.inputType {
                 RequestInputType::Inline => GuestEnv::decode(&req.input.data)?.stdin,
@@ -263,7 +264,7 @@ impl DefaultProver {
             let fill =
                 Fulfillment { request: req.clone(), signature: sig.into(), fulfillment_data };
 
-            Ok::<_, anyhow::Error>((order_receipt, order_claim, order_claim_digest, fill))
+            Ok::<_, anyhow::Error>((idx, order_receipt, order_claim, order_claim_digest, fill))
         });
 
         let results = futures::future::join_all(orders_jobs).await;
@@ -271,17 +272,22 @@ impl DefaultProver {
         let mut claims = Vec::new();
         let mut claim_digests = Vec::new();
         let mut fills = Vec::new();
+        let mut successful_indices = Vec::new();
 
-        for (i, result) in results.into_iter().enumerate() {
-            if let Err(e) = result {
-                tracing::warn!("Failed to prove request 0x{:x}: {}", orders[i].0.id, e);
-                continue;
+        for result in results {
+            match result {
+                Err(e) => {
+                    tracing::warn!("Failed to prove request: {}", e);
+                    continue;
+                }
+                Ok((idx, receipt, claim, claim_digest, fill)) => {
+                    successful_indices.push(idx);
+                    receipts.push(receipt);
+                    claims.push(claim);
+                    claim_digests.push(claim_digest);
+                    fills.push(fill);
+                }
             }
-            let (receipt, claim, claim_digest, fill) = result?;
-            receipts.push(receipt);
-            claims.push(claim);
-            claim_digests.push(claim_digest);
-            fills.push(fill);
         }
 
         let assessor_receipt = self.assessor(fills.clone(), receipts.clone()).await?;
@@ -302,13 +308,13 @@ impl DefaultProver {
 
         let mut boundless_fills = Vec::new();
 
-        for i in 0..fills.len() {
+        for (i, &order_idx) in successful_indices.iter().enumerate() {
             let order_inclusion_receipt = SetInclusionReceipt::from_path_with_verifier_params(
                 claims[i].clone(),
                 merkle_path(&claim_digests, i),
                 verifier_parameters.digest(),
             );
-            let (req, _sig) = &orders[i];
+            let (req, _sig) = &orders[order_idx];
             let order_seal = if is_groth16_selector(req.requirements.selector) {
                 let receipt = self.compress(&receipts[i]).await?;
                 encode_seal(&receipt)?
@@ -384,6 +390,11 @@ fn is_dev_mode() -> bool {
         .filter(|x| x == "1" || x == "true" || x == "yes")
         .is_some()
 }
+
+#[cfg(test)]
+#[allow(missing_docs)]
+#[path = "../tests/common/mod.rs"]
+pub mod test_common;
 
 #[cfg(test)]
 mod tests {

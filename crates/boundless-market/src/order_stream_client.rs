@@ -289,6 +289,51 @@ impl OrderStreamClient {
         }
     }
 
+    /// Fetch an order with its creation timestamp from the order stream server.
+    ///
+    /// Returns both the Order and the timestamp when it was created.
+    /// If multiple orders are found, the `request_digest` must be provided to select the correct order.
+    pub async fn fetch_order_with_timestamp(
+        &self,
+        id: U256,
+        request_digest: Option<B256>,
+    ) -> Result<(Order, DateTime<Utc>)> {
+        let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let order_data: Vec<OrderData> = response.json().await?;
+        if order_data.is_empty() {
+            return Err(anyhow::Error::msg("No order found"));
+        } else if order_data.len() == 1 {
+            let data = &order_data[0];
+            return Ok((data.order.clone(), data.created_at));
+        }
+        match request_digest {
+            Some(digest) => {
+                for data in order_data {
+                    if data.order.request_digest == digest {
+                        return Ok((data.order, data.created_at));
+                    }
+                }
+                Err(anyhow::Error::msg("No order found"))
+            }
+            None => {
+                Err(anyhow::Error::msg("Multiple orders found, please provide a request digest"))
+            }
+        }
+    }
+
     /// Get the nonce from the order stream service for websocket auth
     pub async fn get_nonce(&self, address: Address) -> Result<Nonce> {
         let url = self.base_url.join(AUTH_GET_NONCE)?.join(&address.to_string())?;

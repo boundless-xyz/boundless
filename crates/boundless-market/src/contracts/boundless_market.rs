@@ -1057,7 +1057,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     /// The default range is set to 1000 blocks for each iteration, and the default maximum number of
     /// iterations is 100. This means that the search will cover a maximum of 100,000 blocks.
     /// Optionally, you can specify a lower and upper bound to limit the search range.
-    async fn query_request_submitted_event(
+    pub async fn query_request_submitted_event(
         &self,
         request_id: U256,
         lower_bound: Option<u64>,
@@ -1091,6 +1091,158 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             if let Some((event, _)) = logs.first() {
                 return Ok((event.request.clone(), event.clientSignature.clone()));
+            }
+
+            // Move the upper_block down for the next iteration
+            upper_block = lower_block.saturating_sub(1);
+        }
+
+        // Return error if no logs are found after all iterations
+        Err(MarketError::RequestNotFound(request_id))
+    }
+
+    /// Query the RequestLocked event based on request ID and block options.
+    ///
+    /// Returns the event data and the block number where it occurred.
+    /// For each iteration, we query a range of blocks.
+    /// If the event is not found, we move the range down and repeat until we find the event.
+    /// If the event is not found after the configured max iterations, we return an error.
+    /// The default range is set to 1000 blocks for each iteration, and the default maximum number of
+    /// iterations is 100. This means that the search will cover a maximum of 100,000 blocks.
+    /// Optionally, you can specify a lower and upper bound to limit the search range.
+    pub async fn query_request_locked_event(
+        &self,
+        request_id: U256,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
+    ) -> Result<(IBoundlessMarket::RequestLocked, u64), MarketError> {
+        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
+        let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
+            self.event_query_config.block_range * self.event_query_config.max_iterations,
+        ));
+
+        // Loop to progressively search through blocks
+        for _ in 0..self.event_query_config.max_iterations {
+            // If the current end block is less than or equal to the starting block, stop searching
+            if upper_block <= start_block {
+                break;
+            }
+
+            // Calculate the block range to query: from [lower_block] to [upper_block]
+            let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
+
+            // Set up the event filter for the specified block range
+            let mut event_filter = self.instance.RequestLocked_filter();
+            event_filter.filter = event_filter
+                .filter
+                .topic1(request_id)
+                .from_block(lower_block)
+                .to_block(upper_block);
+
+            // Query the logs for the event
+            let logs = event_filter.query().await?;
+
+            if let Some((event, log_meta)) = logs.first() {
+                let block_num = log_meta.block_number.unwrap_or(0);
+                return Ok((event.clone(), block_num));
+            }
+
+            // Move the upper_block down for the next iteration
+            upper_block = lower_block.saturating_sub(1);
+        }
+
+        // Return error if no logs are found after all iterations
+        Err(MarketError::RequestNotFound(request_id))
+    }
+
+    /// Query ALL ProofDelivered events for a request ID across block range.
+    ///
+    /// Returns a vector of all fulfillment events with their block numbers.
+    /// This is useful because requests can be fulfilled multiple times until timeout.
+    pub async fn query_all_fulfilled_events(
+        &self,
+        request_id: U256,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
+    ) -> Result<Vec<(ProofDelivered, u64)>, MarketError> {
+        let mut all_events = Vec::new();
+        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
+        let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
+            self.event_query_config.block_range * self.event_query_config.max_iterations,
+        ));
+
+        // Loop to progressively search through blocks
+        for _ in 0..self.event_query_config.max_iterations {
+            // If the current end block is less than or equal to the starting block, stop searching
+            if upper_block <= start_block {
+                break;
+            }
+
+            // Calculate the block range to query: from [lower_block] to [upper_block]
+            let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
+
+            // Set up the event filter for the specified block range
+            let mut event_filter = self.instance.ProofDelivered_filter();
+            event_filter.filter = event_filter
+                .filter
+                .topic1(request_id)
+                .from_block(lower_block)
+                .to_block(upper_block);
+
+            // Query the logs for the event
+            let logs = event_filter.query().await?;
+
+            // Collect all events with block numbers from this range
+            for (event, log_meta) in logs {
+                let block_num = log_meta.block_number.unwrap_or(0);
+                all_events.push((event, block_num));
+            }
+
+            // Move the upper_block down for the next iteration
+            upper_block = lower_block.saturating_sub(1);
+        }
+
+        Ok(all_events)
+    }
+
+    /// Query ProverSlashed event for a request ID.
+    ///
+    /// Returns the slash event with its block number if found.
+    pub async fn query_prover_slashed_event(
+        &self,
+        request_id: U256,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
+    ) -> Result<(IBoundlessMarket::ProverSlashed, u64), MarketError> {
+        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
+        let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
+            self.event_query_config.block_range * self.event_query_config.max_iterations,
+        ));
+
+        // Loop to progressively search through blocks
+        for _ in 0..self.event_query_config.max_iterations {
+            // If the current end block is less than or equal to the starting block, stop searching
+            if upper_block <= start_block {
+                break;
+            }
+
+            // Calculate the block range to query: from [lower_block] to [upper_block]
+            let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
+
+            // Set up the event filter for the specified block range
+            let mut event_filter = self.instance.ProverSlashed_filter();
+            event_filter.filter = event_filter
+                .filter
+                .topic1(request_id)
+                .from_block(lower_block)
+                .to_block(upper_block);
+
+            // Query the logs for the event
+            let logs = event_filter.query().await?;
+
+            if let Some((event, log_meta)) = logs.first() {
+                let block_num = log_meta.block_number.unwrap_or(0);
+                return Ok((event.clone(), block_num));
             }
 
             // Move the upper_block down for the next iteration
