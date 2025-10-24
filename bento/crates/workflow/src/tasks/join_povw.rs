@@ -76,5 +76,9 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     .await
     .context("Failed to write joined POVW receipt to Redis")?;
 
+    conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key])
+        .await
+        .context("Failed to delete POVW join receipt keys")?;
+
     Ok(())
 }
