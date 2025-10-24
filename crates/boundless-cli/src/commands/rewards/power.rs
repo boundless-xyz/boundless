@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::display::network_name_from_chain_id;
 use alloy::{
     primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
@@ -22,7 +23,6 @@ use boundless_zkc::{
     deployments::Deployment,
 };
 use clap::Args;
-use crate::display::network_name_from_chain_id;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::display::format_amount;
+use crate::display::network_name_from_chain_id;
 use alloy::{
     network::Ethereum,
     primitives::{
@@ -30,8 +32,6 @@ use boundless_zkc::{
 };
 use clap::Args;
 use colored::Colorize;
-use crate::display::network_name_from_chain_id;
-use crate::display::format_amount;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
@@ -240,8 +240,14 @@ impl RewardsStakeZkc {
         // Show reward power with delegation info
         if reward_delegate != address {
             let reward_power_formatted = format_amount(&format_ether(reward_power));
-            let delegation_note = format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate);
-            println!("  {:<16} {} {}", "Reward Power:", "0".yellow().bold(), delegation_note.dimmed());
+            let delegation_note =
+                format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate);
+            println!(
+                "  {:<16} {} {}",
+                "Reward Power:",
+                "0".yellow().bold(),
+                delegation_note.dimmed()
+            );
         } else {
             let reward_power_formatted = format_amount(&format_ether(reward_power));
             println!("  {:<16} {}", "Reward Power:", reward_power_formatted.yellow().bold());
@@ -310,14 +316,24 @@ impl RewardsStakeZkc {
         let max_povw_formatted = format_amount(&format_ether(max_povw_per_epoch));
 
         display.subsection("Maximum PoVW Rewards");
-        println!("  {:<16} {} {}", "Reward Power:", your_stake_formatted.yellow(), "(equals staked amount)".dimmed());
-        println!("  {:<16} {} {} {}", "Max per Epoch:", max_povw_formatted.yellow().bold(), "ZKC".yellow(), "(reward power / 15)".dimmed());
+        println!(
+            "  {:<16} {} {}",
+            "Reward Power:",
+            your_stake_formatted.yellow(),
+            "(equals staked amount)".dimmed()
+        );
+        println!(
+            "  {:<16} {} {} {}",
+            "Max per Epoch:",
+            max_povw_formatted.yellow().bold(),
+            "ZKC".yellow(),
+            "(reward power / 15)".dimmed()
+        );
 
         // Rough staking reward estimate
         let estimated_epoch_rewards = U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
         let your_estimated_rewards = estimated_epoch_rewards * your_stake / new_total;
-        let estimated_rewards_formatted =
-            format_amount(&format_ether(your_estimated_rewards));
+        let estimated_rewards_formatted = format_amount(&format_ether(your_estimated_rewards));
 
         // Calculate APY as a rough estimate
         let apy = if your_stake > U256::ZERO {
@@ -330,7 +346,12 @@ impl RewardsStakeZkc {
         };
 
         display.subsection("Estimated Staking Rewards (Per Epoch)");
-        println!("  {:<16} ~{} {}", "Est. Rewards:", estimated_rewards_formatted.green(), "ZKC".green());
+        println!(
+            "  {:<16} ~{} {}",
+            "Est. Rewards:",
+            estimated_rewards_formatted.green(),
+            "ZKC".green()
+        );
         display.item("Annual Rate", format!("~{:.2}%", apy));
 
         display.warning("IMPORTANT DISCLAIMERS:");

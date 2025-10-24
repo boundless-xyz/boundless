@@ -29,12 +29,12 @@ use super::network::{
 };
 use super::secrets::address_from_private_key;
 use crate::commands::rewards::State;
-use crate::display::obscure_url;
 use crate::config::GlobalConfig;
 use crate::config_file::{
     Config, ProverConfig, ProverSecrets, RequestorConfig, RequestorSecrets, RewardsConfig,
     RewardsSecrets, Secrets,
 };
+use crate::display::obscure_url;
 use crate::display::DisplayManager;
 
 /// Common setup fields shared across all modules
@@ -384,15 +384,9 @@ impl SetupInteractive {
         let mut secrets = Secrets::load().unwrap_or_default();
 
         let work_done = match module {
-            "requestor" => {
-                self.setup_requestor(&mut config, &mut secrets).await?
-            }
-            "prover" => {
-                self.setup_prover(&mut config, &mut secrets).await?
-            }
-            "rewards" => {
-                self.setup_rewards(&mut config, &mut secrets).await?
-            }
+            "requestor" => self.setup_requestor(&mut config, &mut secrets).await?,
+            "prover" => self.setup_prover(&mut config, &mut secrets).await?,
+            "rewards" => self.setup_rewards(&mut config, &mut secrets).await?,
             _ => unreachable!(),
         };
 
@@ -453,7 +447,10 @@ impl SetupInteractive {
             let work_done = if let Some(ref requestor) = config.requestor {
                 let network_name = &requestor.network;
                 if let Some(removed) = secrets.requestor_networks.remove(network_name) {
-                    display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
+                    display.success(&format!(
+                        "Cleared secrets for network: {}",
+                        network_name.cyan().bold()
+                    ));
                     if removed.rpc_url.is_some() {
                         display.note("  - RPC URL");
                     }
@@ -727,7 +724,7 @@ impl SetupInteractive {
             let mut prompt = Text::new("Enter RPC URL for this network:")
                 .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
 
-            if let Some(ref prev) = existing.as_ref().and_then(|e| e.rpc_url.as_ref()) {
+            if let Some(prev) = existing.as_ref().and_then(|e| e.rpc_url.as_ref()) {
                 prompt = prompt.with_default(prev);
             }
 
@@ -754,9 +751,7 @@ impl SetupInteractive {
                     "Will be stored in plaintext in ~/.boundless/secrets.toml"
                 };
 
-                let pk = Text::new("Enter private key:")
-                    .with_help_message(help_msg)
-                    .prompt()?;
+                let pk = Text::new("Enter private key:").with_help_message(help_msg).prompt()?;
 
                 if pk.is_empty() && has_previous_key {
                     let prev_key = existing.as_ref().and_then(|e| e.private_key.clone()).unwrap();
@@ -768,7 +763,8 @@ impl SetupInteractive {
             } else {
                 display.success("You can set REQUESTOR_PRIVATE_KEY environment variable later for write operations");
 
-                let has_previous_address = existing.as_ref().and_then(|e| e.address.as_ref()).is_some();
+                let has_previous_address =
+                    existing.as_ref().and_then(|e| e.address.as_ref()).is_some();
                 let address_prompt =
                     Confirm::new("Do you want to store an address for read-only mode?")
                         .with_default(has_previous_address)
@@ -778,10 +774,11 @@ impl SetupInteractive {
                         .prompt()?;
 
                 if address_prompt {
-                    let mut addr_prompt = Text::new("Enter requestor address:")
-                        .with_help_message("e.g., 0x1234...");
+                    let mut addr_prompt =
+                        Text::new("Enter requestor address:").with_help_message("e.g., 0x1234...");
 
-                    if let Some(ref prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref()) {
+                    if let Some(prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref())
+                    {
                         addr_prompt = addr_prompt.with_default(prev_addr);
                     }
 
@@ -828,7 +825,10 @@ impl SetupInteractive {
             let work_done = if let Some(ref prover) = config.prover {
                 let network_name = &prover.network;
                 if let Some(removed) = secrets.prover_networks.remove(network_name) {
-                    display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
+                    display.success(&format!(
+                        "Cleared secrets for network: {}",
+                        network_name.cyan().bold()
+                    ));
                     if removed.rpc_url.is_some() {
                         display.note("  - RPC URL");
                     }
@@ -1102,7 +1102,7 @@ impl SetupInteractive {
             let mut prompt = Text::new("Enter RPC URL for this network:")
                 .with_help_message("e.g., https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
 
-            if let Some(ref prev) = existing.as_ref().and_then(|e| e.rpc_url.as_ref()) {
+            if let Some(prev) = existing.as_ref().and_then(|e| e.rpc_url.as_ref()) {
                 prompt = prompt.with_default(prev);
             }
 
@@ -1129,9 +1129,7 @@ impl SetupInteractive {
                     "Will be stored in plaintext in ~/.boundless/secrets.toml"
                 };
 
-                let pk = Text::new("Enter private key:")
-                    .with_help_message(help_msg)
-                    .prompt()?;
+                let pk = Text::new("Enter private key:").with_help_message(help_msg).prompt()?;
 
                 if pk.is_empty() && has_previous_key {
                     let prev_key = existing.as_ref().and_then(|e| e.private_key.clone()).unwrap();
@@ -1143,7 +1141,8 @@ impl SetupInteractive {
             } else {
                 display.success("You can set PROVER_PRIVATE_KEY environment variable later for write operations");
 
-                let has_previous_address = existing.as_ref().and_then(|e| e.address.as_ref()).is_some();
+                let has_previous_address =
+                    existing.as_ref().and_then(|e| e.address.as_ref()).is_some();
                 let address_prompt =
                     Confirm::new("Do you want to store an address for read-only mode?")
                         .with_default(has_previous_address)
@@ -1153,10 +1152,11 @@ impl SetupInteractive {
                         .prompt()?;
 
                 if address_prompt {
-                    let mut addr_prompt = Text::new("Enter prover address:")
-                        .with_help_message("e.g., 0x1234...");
+                    let mut addr_prompt =
+                        Text::new("Enter prover address:").with_help_message("e.g., 0x1234...");
 
-                    if let Some(ref prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref()) {
+                    if let Some(prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref())
+                    {
                         addr_prompt = addr_prompt.with_default(prev_addr);
                     }
 
@@ -1309,7 +1309,10 @@ impl SetupInteractive {
             let work_done = if let Some(ref rewards) = config.rewards {
                 let network_name = &rewards.network;
                 if let Some(removed) = secrets.rewards_networks.remove(network_name) {
-                    display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
+                    display.success(&format!(
+                        "Cleared secrets for network: {}",
+                        network_name.cyan().bold()
+                    ));
                     if removed.rpc_url.is_some() {
                         display.note("  - RPC URL");
                     }
@@ -1734,7 +1737,7 @@ impl SetupInteractive {
             let mut prompt = Text::new("Enter RPC URL for this network:")
                 .with_help_message("e.g., https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY");
 
-            if let Some(ref prev) = existing.as_ref().and_then(|e| e.rpc_url.as_ref()) {
+            if let Some(prev) = existing.as_ref().and_then(|e| e.rpc_url.as_ref()) {
                 prompt = prompt.with_default(prev);
             }
 
@@ -1770,10 +1773,12 @@ impl SetupInteractive {
             let addr = address_from_private_key(&pk);
             (Some(pk), addr.map(|a| format!("{:#x}", a)))
         } else {
-            let has_previous_staking_key = existing.as_ref().and_then(|e| e.staking_private_key.as_ref()).is_some();
-            let has_previous_staking_addr = existing.as_ref().and_then(|e| e.staking_address.as_ref()).is_some();
+            let has_previous_staking_key =
+                existing.as_ref().and_then(|e| e.staking_private_key.as_ref()).is_some();
+            let has_previous_staking_addr =
+                existing.as_ref().and_then(|e| e.staking_address.as_ref()).is_some();
 
-            let default_wants_key = has_previous_staking_key || (!has_previous_staking_key && !has_previous_staking_addr);
+            let default_wants_key = has_previous_staking_key || !has_previous_staking_addr;
             let staking_key_prompt = Confirm::new("Do you want to store a private key for the staking address?")
                 .with_default(default_wants_key)
                 .with_help_message("Skip if using a hardware wallet, smart contract wallet, or don't need to stake ZKC or delegate rewards")
@@ -1786,12 +1791,12 @@ impl SetupInteractive {
                     "Will be stored in plaintext in ~/.boundless/secrets.toml"
                 };
 
-                let pk = Text::new("Enter staking private key:")
-                    .with_help_message(help_msg)
-                    .prompt()?;
+                let pk =
+                    Text::new("Enter staking private key:").with_help_message(help_msg).prompt()?;
 
                 if pk.is_empty() && has_previous_staking_key {
-                    let prev_key = existing.as_ref().and_then(|e| e.staking_private_key.clone()).unwrap();
+                    let prev_key =
+                        existing.as_ref().and_then(|e| e.staking_private_key.clone()).unwrap();
                     let addr = address_from_private_key(&prev_key);
                     (Some(prev_key), addr.map(|a| format!("{:#x}", a)))
                 } else {
@@ -1803,7 +1808,9 @@ impl SetupInteractive {
                 let mut addr_prompt = Text::new("Enter staking address:")
                     .with_help_message("Public Ethereum address that holds your staked ZKC");
 
-                if let Some(ref prev_addr) = existing.as_ref().and_then(|e| e.staking_address.as_ref()) {
+                if let Some(prev_addr) =
+                    existing.as_ref().and_then(|e| e.staking_address.as_ref())
+                {
                     addr_prompt = addr_prompt.with_default(prev_addr);
                 }
 
@@ -1869,15 +1876,33 @@ impl SetupInteractive {
                             (None, Some(delegated.clone()))
                         }
                     } else {
-                        Self::ask_for_reward_address(staking_addr, &staking_private_key, &prev_reward_key.cloned(), &prev_reward_addr.cloned()).await?
+                        Self::ask_for_reward_address(
+                            staking_addr,
+                            &staking_private_key,
+                            &prev_reward_key.cloned(),
+                            &prev_reward_addr.cloned(),
+                        )
+                        .await?
                     }
                 } else {
                     println!("{}", "No delegatee".dimmed());
-                    Self::ask_for_reward_address(staking_addr, &staking_private_key, &prev_reward_key.cloned(), &prev_reward_addr.cloned()).await?
+                    Self::ask_for_reward_address(
+                        staking_addr,
+                        &staking_private_key,
+                        &prev_reward_key.cloned(),
+                        &prev_reward_addr.cloned(),
+                    )
+                    .await?
                 }
             } else {
                 println!("{}", "No delegatee".dimmed());
-                Self::ask_for_reward_address(staking_addr, &staking_private_key, &prev_reward_key.cloned(), &prev_reward_addr.cloned()).await?
+                Self::ask_for_reward_address(
+                    staking_addr,
+                    &staking_private_key,
+                    &prev_reward_key.cloned(),
+                    &prev_reward_addr.cloned(),
+                )
+                .await?
             }
         } else {
             display.warning("No staking address provided - reward address configuration skipped");
@@ -1910,7 +1935,8 @@ impl SetupInteractive {
         let mining_state_file = if let Some(ref reward_addr) = final_reward_addr {
             Self::print_section_header(&display, "PoVW (Proof of Verifiable Work) Configuration");
 
-            let has_previous_povw_state = existing.as_ref().and_then(|e| e.mining_state_file.as_ref()).is_some();
+            let has_previous_povw_state =
+                existing.as_ref().and_then(|e| e.mining_state_file.as_ref()).is_some();
             let generate_povw = Confirm::new("Do you plan to generate PoVW?")
                 .with_default(has_previous_povw_state)
                 .with_help_message("PoVW allows you to earn ZKC rewards for proving work")
@@ -1937,7 +1963,9 @@ impl SetupInteractive {
                     let mut path_prompt = Text::new("Enter path to existing state file:")
                         .with_help_message("Enter full path (supports ~)");
 
-                    if let Some(ref prev_path) = existing.as_ref().and_then(|e| e.mining_state_file.as_ref()) {
+                    if let Some(prev_path) =
+                        existing.as_ref().and_then(|e| e.mining_state_file.as_ref())
+                    {
                         path_prompt = path_prompt.with_default(prev_path);
                     }
 
@@ -2065,7 +2093,8 @@ impl SetupInteractive {
             display.note("A Beacon API URL is required to claim PoVW rewards on Ethereum");
             display.note("Providers like Quicknode offer Beacon API access");
 
-            let has_previous_beacon = existing.as_ref().and_then(|e| e.beacon_api_url.as_ref()).is_some();
+            let has_previous_beacon =
+                existing.as_ref().and_then(|e| e.beacon_api_url.as_ref()).is_some();
             let configure_beacon = Confirm::new("Configure Beacon API URL now?")
                 .with_default(has_previous_beacon)
                 .with_help_message("You can set this later via BEACON_API_URL env var")
@@ -2075,7 +2104,9 @@ impl SetupInteractive {
                 let mut beacon_prompt = Text::new("Enter Beacon API URL:")
                     .with_help_message("e.g., https://YOUR_PROVIDER/beacon");
 
-                if let Some(ref prev_beacon) = existing.as_ref().and_then(|e| e.beacon_api_url.as_ref()) {
+                if let Some(prev_beacon) =
+                    existing.as_ref().and_then(|e| e.beacon_api_url.as_ref())
+                {
                     beacon_prompt = beacon_prompt.with_default(prev_beacon);
                 }
 
@@ -2145,9 +2176,8 @@ impl SetupInteractive {
                     "Will be stored in plaintext in ~/.boundless/secrets.toml"
                 };
 
-                let pk = Text::new("Enter reward private key:")
-                    .with_help_message(help_msg)
-                    .prompt()?;
+                let pk =
+                    Text::new("Enter reward private key:").with_help_message(help_msg).prompt()?;
 
                 if pk.is_empty() && has_previous_reward_key {
                     let prev_key = previous_reward_key.clone().unwrap();
@@ -2272,7 +2302,7 @@ mod tests {
         let updated =
             custom_networks::update_custom_market_addresses(&mut config, &network_name, &setup);
         assert!(updated.is_ok());
-        assert_eq!(updated.unwrap(), true);
+        assert!(updated.unwrap());
 
         let network = &config.custom_markets[0];
         assert_eq!(
@@ -2410,7 +2440,7 @@ mod tests {
         let result =
             custom_networks::update_custom_market_addresses(&mut config, "custom-1234", &setup);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
 
         let network = &config.custom_markets[0];
         assert_eq!(network.order_stream_url.as_ref().unwrap(), "wss://new-url.com");

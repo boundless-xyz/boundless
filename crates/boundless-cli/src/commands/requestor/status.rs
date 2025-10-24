@@ -24,7 +24,7 @@ use colored::Colorize;
 use crate::chain::block_number_near_timestamp;
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
+use crate::display::{format_eth, network_name_from_chain_id, DisplayManager};
 
 /// Get the status of a given request
 #[derive(Args, Clone, Debug)]
@@ -50,12 +50,30 @@ pub struct RequestorStatus {
 
 #[derive(Debug, Clone)]
 enum TimelineEntry {
-    Submitted { timestamp: DateTime<Utc> },
-    Locked { timestamp: u64, prover: Address },
-    LockTimeout { timestamp: u64 },
-    Fulfilled { timestamp: u64, prover: Address, number: usize },
-    Slashed { timestamp: u64, collateral_burned: U256, collateral_transferred: U256, recipient: Address },
-    RequestTimeout { timestamp: u64 },
+    Submitted {
+        timestamp: DateTime<Utc>,
+    },
+    Locked {
+        timestamp: u64,
+        prover: Address,
+    },
+    LockTimeout {
+        timestamp: u64,
+    },
+    Fulfilled {
+        timestamp: u64,
+        prover: Address,
+        number: usize,
+    },
+    Slashed {
+        timestamp: u64,
+        collateral_burned: U256,
+        collateral_transferred: U256,
+        recipient: Address,
+    },
+    RequestTimeout {
+        timestamp: u64,
+    },
 }
 
 impl TimelineEntry {
@@ -125,10 +143,7 @@ impl RequestorStatus {
                         "  Searched the last {} blocks backwards from current block",
                         search_window.to_string().cyan()
                     );
-                    println!(
-                        "  Try using {} to search further back",
-                        "--search-blocks <N>".cyan()
-                    );
+                    println!("  Try using {} to search further back", "--search-blocks <N>".cyan());
                 }
             }
 
@@ -169,7 +184,8 @@ impl RequestorStatus {
             tracing::debug!("Using order stream data to determine block range");
 
             let submission_time = UNIX_EPOCH + Duration::from_secs(created_at.timestamp() as u64);
-            let expiration_timestamp = order.request.offer.rampUpStart + order.request.offer.timeout as u64;
+            let expiration_timestamp =
+                order.request.offer.rampUpStart + order.request.offer.timeout as u64;
             let expiration_time = UNIX_EPOCH + Duration::from_secs(expiration_timestamp);
 
             let start_block = block_number_near_timestamp(
@@ -235,16 +251,14 @@ impl RequestorStatus {
             tracing::debug!("Order not found in stream");
         }
 
-        let (lower_bound, upper_bound) = self.find_event_search_blocks(client, &order_stream_order_data).await;
+        let (lower_bound, upper_bound) =
+            self.find_event_search_blocks(client, &order_stream_order_data).await;
 
-        tracing::debug!(
-            "Event search range: blocks {} to {}",
-            lower_bound,
-            upper_bound
-        );
+        tracing::debug!("Event search range: blocks {} to {}", lower_bound, upper_bound);
 
-        let (submission_time, offer) =
-            self.query_submission_info(client, &order_stream_order_data, lower_bound, upper_bound).await;
+        let (submission_time, offer) = self
+            .query_submission_info(client, &order_stream_order_data, lower_bound, upper_bound)
+            .await;
 
         if let Some(timestamp) = submission_time {
             timeline.push(TimelineEntry::Submitted { timestamp });
@@ -328,7 +342,11 @@ impl RequestorStatus {
                 // Search for slash event after expiration
                 if let Ok((slash_event, block_num)) = client
                     .boundless_market
-                    .query_prover_slashed_event(self.request_id, Some(slash_search_start), Some(upper_bound))
+                    .query_prover_slashed_event(
+                        self.request_id,
+                        Some(slash_search_start),
+                        Some(upper_bound),
+                    )
                     .await
                 {
                     if let Ok(Some(block)) = client
@@ -450,17 +468,26 @@ impl RequestorStatus {
                     );
                     println!("                 Prover: {}", format!("{:#x}", prover).dimmed());
                 }
-                TimelineEntry::Slashed { timestamp, collateral_burned, collateral_transferred, recipient } => {
+                TimelineEntry::Slashed {
+                    timestamp,
+                    collateral_burned,
+                    collateral_transferred,
+                    recipient,
+                } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
+                    println!("  {} {}    {}", symbol.red(), "Slashed".bold().red(), formatted_time);
                     println!(
-                        "  {} {}    {}",
-                        symbol.red(),
-                        "Slashed".bold().red(),
-                        formatted_time
+                        "                 Burned: {} HP",
+                        format_eth(*collateral_burned).dimmed()
                     );
-                    println!("                 Burned: {} HP", format_eth(*collateral_burned).dimmed());
-                    println!("                 Transferred: {} HP", format_eth(*collateral_transferred).dimmed());
-                    println!("                 Recipient: {}", format!("{:#x}", recipient).dimmed());
+                    println!(
+                        "                 Transferred: {} HP",
+                        format_eth(*collateral_transferred).dimmed()
+                    );
+                    println!(
+                        "                 Recipient: {}",
+                        format!("{:#x}", recipient).dimmed()
+                    );
                 }
                 TimelineEntry::RequestTimeout { timestamp } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
@@ -485,7 +512,7 @@ impl RequestorStatus {
         let offer = &request.offer;
         display.item("Min Price", format!("{} ETH", format_eth(offer.minPrice)));
         display.item("Max Price", format!("{} ETH", format_eth(offer.maxPrice)));
-        display.item("Lock Collateral", format!("{} HP", format_eth(offer.lockCollateral)));
+        display.item("Lock Collateral", format!("{} ZKC", format_eth(offer.lockCollateral)));
 
         let lock_timeout_hrs = offer.lockTimeout / 3600;
         let lock_timeout_mins = (offer.lockTimeout % 3600) / 60;

@@ -232,11 +232,7 @@ mod tests {
 
     #[test]
     fn test_token_info_struct() {
-        let info = TokenInfo {
-            address: Address::ZERO,
-            symbol: "TEST".to_string(),
-            decimals: 18,
-        };
+        let info = TokenInfo { address: Address::ZERO, symbol: "TEST".to_string(), decimals: 18 };
 
         assert_eq!(info.symbol, "TEST");
         assert_eq!(info.decimals, 18);

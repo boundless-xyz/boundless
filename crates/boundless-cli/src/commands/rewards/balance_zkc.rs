@@ -20,7 +20,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
+use crate::display::{format_eth, network_name_from_chain_id, DisplayManager};
 
 /// Check the ZKC token balance of an address
 #[derive(Args, Clone, Debug)]

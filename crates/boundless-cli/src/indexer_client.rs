@@ -67,23 +67,6 @@ impl IndexerClient {
         Ok(Self { client, base_url })
     }
 
-    /// Get staking history for a specific address
-    pub async fn get_staking_history(&self, address: Address) -> Result<StakingHistoryResponse> {
-        let url = self
-            .base_url
-            .join(&format!("v1/staking/addresses/{:#x}", address))
-            .context("Failed to build URL")?;
-
-        let response =
-            self.client.get(url).send().await.context("Failed to fetch staking history")?;
-
-        if !response.status().is_success() {
-            anyhow::bail!("API error: {}", response.status());
-        }
-
-        response.json().await.context("Failed to parse staking history response")
-    }
-
     /// Get staking summary for a specific epoch
     pub async fn get_epoch_staking(&self, epoch: u64) -> Result<EpochStakingSummary> {
         let url = self

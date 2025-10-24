@@ -686,7 +686,7 @@ mod tests {
 
         let result = update_custom_market_addresses(&mut config, "custom-1234", &setup);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
 
         let network = &config.custom_markets[0];
         assert_eq!(format!("{:#x}", network.boundless_market_address), test_address);
@@ -727,7 +727,7 @@ mod tests {
 
         let result = update_custom_market_addresses(&mut config, "custom-1234", &setup);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
     }
 
     #[test]
@@ -763,7 +763,7 @@ mod tests {
         };
 
         let result = update_custom_rewards_addresses(&mut config, "custom-5678", &setup);
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
 
         let rewards = &config.custom_rewards[0];
         assert_eq!(format!("{:#x}", rewards.zkc_address), test_address);

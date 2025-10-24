@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::display::network_name_from_chain_id;
 use std::{
     fs::File,
     io::BufReader,
     path::PathBuf,
     time::{Duration, SystemTime},
 };
-use crate::display::network_name_from_chain_id;
 
 use alloy::primitives::U256;
 use anyhow::{ensure, Context, Result};

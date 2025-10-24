@@ -68,7 +68,7 @@ struct MainArgs {
 fn address_from_private_key(private_key: &str) -> Option<String> {
     use alloy::signers::local::PrivateKeySigner;
 
-    let key_str = if private_key.starts_with("0x") { &private_key[2..] } else { private_key };
+    let key_str = private_key.strip_prefix("0x").unwrap_or(private_key);
 
     if let Ok(signer) = key_str.parse::<PrivateKeySigner>() {
         Some(format!("{:?}", signer.address()))
@@ -332,7 +332,7 @@ async fn show_welcome_screen() -> Result<()> {
         } else if let Some(addr) = reward_addr {
             // Check if reward address is same as staking address
             let staking_addr_resolved = staking_pk
-                .and_then(|pk| address_from_private_key(pk))
+                .and_then(address_from_private_key)
                 .map(|a| a.to_lowercase())
                 .or_else(|| staking_addr.map(|s| s.to_lowercase()));
 

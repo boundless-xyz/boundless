@@ -30,7 +30,7 @@ use url::Url;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::{network_name_from_chain_id, convert_timestamp, DisplayManager};
+use crate::display::{convert_timestamp, network_name_from_chain_id, DisplayManager};
 
 /// Submit a proof request constructed with the given offer, input, and image
 #[derive(Args, Clone, Debug)]

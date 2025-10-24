@@ -19,7 +19,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::{validate_address_input, RequestorConfigExt};
-use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
+use crate::display::{format_eth, network_name_from_chain_id, DisplayManager};
 
 /// Command to check balance in the market
 #[derive(Args, Clone, Debug)]
@@ -106,7 +106,7 @@ mod tests {
             .with_account(&account)
             .assert()
             .success()
-            .stdout(contains(&account.address.to_lowercase()));
+            .stdout(contains(account.address.to_lowercase()));
     }
 
     #[tokio::test]

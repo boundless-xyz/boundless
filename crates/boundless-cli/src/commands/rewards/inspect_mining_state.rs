@@ -20,7 +20,10 @@ use colored::Colorize;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 
 use super::State;
-use crate::{config::{GlobalConfig, RewardsConfig}, display::DisplayManager};
+use crate::{
+    config::{GlobalConfig, RewardsConfig},
+    display::DisplayManager,
+};
 
 /// Inspect a mining state file and display detailed statistics
 #[derive(Args, Clone, Debug)]
@@ -204,7 +207,11 @@ impl RewardsInspectMiningState {
         }
 
         if !state.update_transactions.is_empty() {
-            display.item_colored("Transactions", state.update_transactions.len().to_string(), "cyan");
+            display.item_colored(
+                "Transactions",
+                state.update_transactions.len().to_string(),
+                "cyan",
+            );
             println!("\n  Transaction Details:");
 
             let mut txs: Vec<_> = state.update_transactions.iter().collect();

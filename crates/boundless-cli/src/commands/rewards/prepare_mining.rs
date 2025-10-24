@@ -96,50 +96,55 @@ impl RewardsPrepareMining {
         if !state.log_builder_receipts.is_empty() {
             // Only check on-chain state if RPC URL is configured
             if let Some(rpc_url) = rewards_config.reward_rpc_url.clone() {
-            display.subsection("Checking On-Chain State");
-            print!("  Querying mining accounting contract... ");
-            std::io::stdout().flush()?;
-            let provider = ProviderBuilder::new()
-                .connect(rpc_url.as_str())
-                .await
-                .with_context(|| format!("Failed to connect to {rpc_url}"))?;
+                display.subsection("Checking On-Chain State");
+                print!("  Querying mining accounting contract... ");
+                std::io::stdout().flush()?;
+                let provider = ProviderBuilder::new()
+                    .connect(rpc_url.as_str())
+                    .await
+                    .with_context(|| format!("Failed to connect to {rpc_url}"))?;
 
-            let chain_id = provider.get_chain_id().await?;
-            let deployment = Deployment::from_chain_id(chain_id)
-                .context("Could not determine deployment from chain ID")?;
+                let chain_id = provider.get_chain_id().await?;
+                let deployment = Deployment::from_chain_id(chain_id)
+                    .context("Could not determine deployment from chain ID")?;
 
-            let povw_accounting =
-                IPovwAccounting::new(deployment.povw_accounting_address, &provider);
+                let povw_accounting =
+                    IPovwAccounting::new(deployment.povw_accounting_address, &provider);
 
-            // Query on-chain commit
-            let onchain_commit =
-                povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(
-                    || {
-                        format!(
-                            "Failed to get work log commit for {:x} from {:x}",
-                            state.log_id, deployment.povw_accounting_address
-                        )
-                    },
-                )?;
+                // Query on-chain commit
+                let onchain_commit =
+                    povw_accounting.workLogCommit(state.log_id.into()).call().await.with_context(
+                        || {
+                            format!(
+                                "Failed to get work log commit for {:x} from {:x}",
+                                state.log_id, deployment.povw_accounting_address
+                            )
+                        },
+                    )?;
 
-            println!("{}", "✓".green());
+                println!("{}", "✓".green());
 
-            // Check latest local receipt
-            let latest_receipt = state.log_builder_receipts.last().unwrap();
-            let latest_journal = LogBuilderJournal::decode(&latest_receipt.journal.bytes)
-                .context("Failed to decode journal from latest receipt")?;
-            let latest_local_commit = bytemuck::cast::<_, [u8; 32]>(latest_journal.updated_commit);
+                // Check latest local receipt
+                let latest_receipt = state.log_builder_receipts.last().unwrap();
+                let latest_journal = LogBuilderJournal::decode(&latest_receipt.journal.bytes)
+                    .context("Failed to decode journal from latest receipt")?;
+                let latest_local_commit =
+                    bytemuck::cast::<_, [u8; 32]>(latest_journal.updated_commit);
 
-            // If they don't match, warn the user
-            if latest_local_commit != *onchain_commit {
-                display.warning("WARNING");
-                display.note("You have previously prepared mining work that has not yet been submitted on-chain.");
-                display.note("We recommend only preparing once per epoch.");
-                display.note("Running prepare multiple times before submitting work on-chain will increase gas costs during submission.");
-                println!();
-            } else {
-                display.status("Status", "Up to date (all prepared work has been submitted)", "green");
-            }
+                // If they don't match, warn the user
+                if latest_local_commit != *onchain_commit {
+                    display.warning("WARNING");
+                    display.note("You have previously prepared mining work that has not yet been submitted on-chain.");
+                    display.note("We recommend only preparing once per epoch.");
+                    display.note("Running prepare multiple times before submitting work on-chain will increase gas costs during submission.");
+                    println!();
+                } else {
+                    display.status(
+                        "Status",
+                        "Up to date (all prepared work has been submitted)",
+                        "green",
+                    );
+                }
             }
         }
 
@@ -147,7 +152,11 @@ impl RewardsPrepareMining {
         display.subsection("Loading mining work receipts");
         let work_receipt_results = if !self.work_receipt_files.is_empty() {
             // Load from files
-            display.item_colored("Loading from", format!("{} files", self.work_receipt_files.len()), "cyan");
+            display.item_colored(
+                "Loading from",
+                format!("{} files", self.work_receipt_files.len()),
+                "cyan",
+            );
             load_work_receipts(state.log_id, &state.work_log, &self.work_receipt_files).await
         } else {
             // Fetch from Bento (default behavior)
@@ -182,12 +191,18 @@ impl RewardsPrepareMining {
 
         if work_receipts.is_empty() {
             display.status("Status", "No new receipts (nothing to process)", "yellow");
-            display.note("All work receipts have already been added to the state file. Nothing to do.");
+            display.note(
+                "All work receipts have already been added to the state file. Nothing to do.",
+            );
             println!();
             return Ok(());
         }
 
-        display.item_colored("Fetched", format!("{} new mining work receipts", work_receipts.len()), "cyan");
+        display.item_colored(
+            "Fetched",
+            format!("{} new mining work receipts", work_receipts.len()),
+            "cyan",
+        );
 
         // Set up the work log update prover
         display.subsection("Setting up prover for aggregating mining work receipts");

@@ -21,8 +21,8 @@ use crate::commands::config_display::{
 };
 use crate::commands::rewards::State;
 use crate::config::GlobalConfig;
-use crate::display::obscure_url;
 use crate::config_file::{Config, Secrets};
+use crate::display::obscure_url;
 use crate::display::DisplayManager;
 
 /// Show rewards configuration status

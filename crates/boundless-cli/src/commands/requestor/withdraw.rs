@@ -18,7 +18,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
+use crate::display::{format_eth, network_name_from_chain_id, DisplayManager};
 
 /// Command to withdraw funds from the market
 #[derive(Args, Clone, Debug)]

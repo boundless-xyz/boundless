@@ -833,10 +833,7 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
 
     // Check that output mentions backup
     let output = String::from_utf8_lossy(&result.get_output().stdout);
-    assert!(
-        output.contains("Saved backup to"),
-        "Should mention backup creation"
-    );
+    assert!(output.contains("Saved backup to"), "Should mention backup creation");
 
     // Count backup files after update
     let after_count = std::fs::read_dir(&backup_dir)

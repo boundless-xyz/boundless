@@ -273,8 +273,7 @@ pub fn obscure_url(url: &str) -> String {
         }
 
         let host = parts[0];
-        let obscured_host =
-            host.split('.').map(obscure_segment).collect::<Vec<_>>().join(".");
+        let obscured_host = host.split('.').map(obscure_segment).collect::<Vec<_>>().join(".");
 
         let obscured_path: Vec<String> =
             parts[1..].iter().map(|&segment| obscure_segment(segment)).collect();

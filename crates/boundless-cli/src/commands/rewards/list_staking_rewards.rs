@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::display::format_amount;
+use crate::display::network_name_from_chain_id;
 use alloy::{
     primitives::{utils::format_ether, Address, U256},
     providers::{Provider, ProviderBuilder},
@@ -21,8 +23,6 @@ use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
 use colored::Colorize;
 use std::collections::HashMap;
-use crate::display::network_name_from_chain_id;
-use crate::display::format_amount;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
