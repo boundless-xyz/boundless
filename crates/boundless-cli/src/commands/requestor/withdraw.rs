@@ -79,13 +79,19 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires transaction execution and mining"]
-    async fn test_withdraw_dry_run() {
+    async fn test_withdraw_with_deposit() {
         let ctx = TestContext::base().await;
         let account = ctx.account(0);
 
+        // First deposit some funds
+        ctx.cmd("requestor", "deposit")
+            .arg("0.01")
+            .with_account(&account)
+            .assert()
+            .success();
+
+        // Then withdraw them
         ctx.cmd("requestor", "withdraw")
-            .arg("--amount")
             .arg("0.01")
             .with_account(&account)
             .assert()

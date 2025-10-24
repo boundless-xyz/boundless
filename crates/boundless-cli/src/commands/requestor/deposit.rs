@@ -79,13 +79,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires transaction execution and mining"]
-    async fn test_deposit_dry_run() {
+    async fn test_deposit_executes() {
         let ctx = TestContext::base().await;
         let account = ctx.account(0);
 
         ctx.cmd("requestor", "deposit")
-            .arg("--amount")
             .arg("0.01")
             .with_account(&account)
             .assert()
