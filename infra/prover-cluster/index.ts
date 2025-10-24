@@ -31,6 +31,7 @@ const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
 const setVerifierAddress: string = config.require("setVerifierAddress");
 const collateralTokenAddress: string = config.require("collateralTokenAddress");
 const chainId: string = config.require("chainId");
+const apiKey: pulumi.Output<string> = config.requireSecret("apiKey");
 
 // Contract addresses
 const taskDBUsername: string = config.require("taskDBUsername");
@@ -118,6 +119,7 @@ const apiGateway = new ApiGatewayComponent({
     ...baseComponentConfig,
     managerPrivateIp: manager.instance.privateIp,
     securityGroupId: security.securityGroup.id,
+    apiKey: apiKey.apply(key => key.get()),
 });
 
 // Outputs
@@ -173,7 +175,6 @@ export const sharedCredentials = {
 export const albUrl = apiGateway.albUrl;
 export const albDnsName = apiGateway.alb.dnsName;
 export const targetGroupArn = apiGateway.targetGroup.arn;
-export const apiKey = apiGateway.apiKey;
 
 // Cluster info
 export const clusterInfo = {
@@ -199,6 +200,5 @@ export const clusterInfo = {
         albUrl: apiGateway.albUrl,
         albDnsName: apiGateway.alb.dnsName,
         targetGroupArn: apiGateway.targetGroup.arn,
-        apiKey: apiGateway.apiKey,
     },
 };

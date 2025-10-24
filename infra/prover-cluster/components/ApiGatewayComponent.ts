@@ -5,6 +5,7 @@ import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 export interface ApiGatewayComponentConfig extends BaseComponentConfig {
     managerPrivateIp: pulumi.Output<string>;
     securityGroupId: pulumi.Output<string>;
+    apiKey: string;
 }
 
 export class ApiGatewayComponent extends BaseComponent {
@@ -12,10 +13,11 @@ export class ApiGatewayComponent extends BaseComponent {
     public readonly targetGroup: aws.lb.TargetGroup;
     public readonly albUrl: pulumi.Output<string>;
     public readonly wafWebAcl: aws.wafv2.WebAcl;
-    public readonly apiKey: string;
+    private readonly apiKey: string;
 
     constructor(config: ApiGatewayComponentConfig) {
         super(config, "api-gateway");
+        this.apiKey = config.apiKey;
 
         // Create public Application Load Balancer
         this.alb = new aws.lb.LoadBalancer("boundless-alb", {
@@ -73,9 +75,6 @@ export class ApiGatewayComponent extends BaseComponent {
                 targetGroupArn: this.targetGroup.arn,
             }],
         });
-
-        // Generate a random API key
-        this.apiKey = this.generateApiKey();
 
         // Create WAF Web ACL with API key enforcement
         this.wafWebAcl = new aws.wafv2.WebAcl("boundless-waf", {
@@ -163,15 +162,5 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Set the ALB URL for external access
         this.albUrl = this.alb.dnsName.apply(dnsName => `http://${dnsName}`);
-    }
-
-    private generateApiKey(): string {
-        // Generate a random 32-character API key
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        let result = '';
-        for (let i = 0; i < 32; i++) {
-            result += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        return result;
     }
 }

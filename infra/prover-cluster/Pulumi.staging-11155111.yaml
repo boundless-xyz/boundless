@@ -27,3 +27,5 @@ config:
   prover-cluster:setVerifierAddress: "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
   prover-cluster:boundlessMarketAddress: "0xc211b581cB62e3a6D396A592Bab34979E1bBBA7D"
   prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
+  prover-cluster:apiKey:
+    secure: v1:FyNeOBaCcx4NK4kW:AHX2im2Tb1TlkNJ2aQOtlhG5/8JdImlcbNU49JA4RwLWcYL1Hz9mSKNdQwuCo+bVlgtn2YJjCyLcbMw=
