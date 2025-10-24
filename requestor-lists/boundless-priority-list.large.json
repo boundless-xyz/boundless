@@ -1,6 +1,6 @@
 {
   "name": "Boundless Recommended Priority List for Large Provers",
-  "description": "List of recommended priority requestors for provers with large clusters. These requestors in this list send large requests that require significant resources to process.",
+  "description": "List of recommended priority requestors for provers capable of >4000 kHz proving cluster performance.",
   "schemaVersion": {
     "major": 1,
     "minor": 0

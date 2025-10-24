@@ -13,13 +13,41 @@
     {
       "address": "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
       "chainId": 1,
-      "name": "Anonymous Customer",
+      "name": "Anonymous Customer (Cranberries)",
       "description": "",
       "tags": [],
       "extensions": {
         "requestEstimates": {
           "estimatedMcycleCountMin": 100,
           "estimatedMcycleCountMax": 2000,
+          "estimatedMaxInputSizeMB": 25
+        }
+      }
+    },
+    {
+      "address": "0xf23ce39Bf3Ea20C7736C0BBe835B60671EC0b4b2",
+      "chainId": 1,
+      "name": "Anonymous Customer (Dewberries #1)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 10,
+          "estimatedMcycleCountMax": 50,
+          "estimatedMaxInputSizeMB": 25
+        }
+      }
+    },
+    {
+      "address": "0xE3838098D694f572d9eEA90f3b7A65ec3864D568",
+      "chainId": 1,
+      "name": "Anonymous Customer (Dewberries #2)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 10,
+          "estimatedMcycleCountMax": 50,
           "estimatedMaxInputSizeMB": 25
         }
       }
