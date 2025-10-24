@@ -22,7 +22,7 @@ use sqlx::{postgres::PgPool, postgres::PgPoolOptions};
 
 use crate::config::{GlobalConfig, ProverConfig};
 use crate::config_ext::ProverConfigExt;
-use crate::display::DisplayManager;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 
 /// Benchmark proof requests
 #[derive(Args, Clone, Debug)]
@@ -41,7 +41,7 @@ impl ProverBenchmark {
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
 
         display.header("Benchmarking Proof Requests");

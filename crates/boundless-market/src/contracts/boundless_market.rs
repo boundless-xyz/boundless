@@ -1205,6 +1205,54 @@ impl<P: Provider> BoundlessMarketService<P> {
         Ok(all_events)
     }
 
+    /// Query ProverSlashed event for a request ID.
+    ///
+    /// Returns the slash event with its block number if found.
+    pub async fn query_prover_slashed_event(
+        &self,
+        request_id: U256,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
+    ) -> Result<(IBoundlessMarket::ProverSlashed, u64), MarketError> {
+        let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
+        let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
+            self.event_query_config.block_range * self.event_query_config.max_iterations,
+        ));
+
+        // Loop to progressively search through blocks
+        for _ in 0..self.event_query_config.max_iterations {
+            // If the current end block is less than or equal to the starting block, stop searching
+            if upper_block <= start_block {
+                break;
+            }
+
+            // Calculate the block range to query: from [lower_block] to [upper_block]
+            let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
+
+            // Set up the event filter for the specified block range
+            let mut event_filter = self.instance.ProverSlashed_filter();
+            event_filter.filter = event_filter
+                .filter
+                .topic1(request_id)
+                .from_block(lower_block)
+                .to_block(upper_block);
+
+            // Query the logs for the event
+            let logs = event_filter.query().await?;
+
+            if let Some((event, log_meta)) = logs.first() {
+                let block_num = log_meta.block_number.unwrap_or(0);
+                return Ok((event.clone(), block_num));
+            }
+
+            // Move the upper_block down for the next iteration
+            upper_block = lower_block.saturating_sub(1);
+        }
+
+        // Return error if no logs are found after all iterations
+        Err(MarketError::RequestNotFound(request_id))
+    }
+
     /// Returns fulfillment data and seal if the request is fulfilled.
     pub async fn get_request_fulfillment(
         &self,

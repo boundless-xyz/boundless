@@ -33,8 +33,6 @@ pub struct TokenInfo {
     pub symbol: String,
     /// Number of decimal places
     pub decimals: u8,
-    /// Optional token name
-    pub name: Option<String>,
 }
 
 /// Get ERC20 token information
@@ -43,16 +41,10 @@ where
     P: Provider<Ethereum> + Clone + 'static,
 {
     let token = IERC20::new(token_address, provider);
-
     let symbol = token.symbol().call().await.context("Failed to get token symbol")?;
-
     let decimals = token.decimals().call().await.context("Failed to get token decimals")?;
 
-    // Name is optional - not all tokens have it in the IERC20 interface
-    // We'll set it to None for now
-    let name = None;
-
-    Ok(TokenInfo { address: token_address, symbol, decimals, name })
+    Ok(TokenInfo { address: token_address, symbol, decimals })
 }
 
 /// Get balance of an ERC20 token
@@ -88,7 +80,7 @@ where
     Ok((eth_balance, token_balance))
 }
 
-/// Standard transaction confirmation helper
+/// Confirm a transaction by waiting for the specified number of confirmations.
 pub async fn confirm_transaction(
     pending: PendingTransactionBuilder<Ethereum>,
     timeout: Option<Duration>,
@@ -234,32 +226,6 @@ where
     Ok(block.header.inner.timestamp)
 }
 
-/// Estimate gas with a safety margin
-pub async fn estimate_gas_with_margin<P>(
-    provider: P,
-    from: Address,
-    to: Address,
-    data: Vec<u8>,
-    value: U256,
-    margin: f64,
-) -> Result<U256>
-where
-    P: Provider<Ethereum> + 'static,
-{
-    use alloy::rpc::types::TransactionRequest;
-
-    let tx = TransactionRequest::default().from(from).to(to).input(data.into()).value(value);
-
-    let estimated = provider.estimate_gas(tx).await.context("Failed to estimate gas")?;
-
-    // Add safety margin (e.g., 20% more)
-    // Convert u64 to u128 for calculation
-    let estimated_u128: u128 = estimated.into();
-    let with_margin = U256::from((estimated_u128 as f64 * (1.0 + margin)) as u128);
-
-    Ok(with_margin)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,28 +236,9 @@ mod tests {
             address: Address::ZERO,
             symbol: "TEST".to_string(),
             decimals: 18,
-            name: Some("Test Token".to_string()),
         };
 
         assert_eq!(info.symbol, "TEST");
         assert_eq!(info.decimals, 18);
-    }
-
-    #[tokio::test]
-    async fn test_estimate_gas_margin() {
-        // This would need a mock provider to test properly
-        // Just testing the calculation logic
-        let base_gas = U256::from(100_000);
-        let margin = 0.2; // 20%
-        let expected = U256::from(120_000);
-
-        let base_gas_u128: u128 = if base_gas > U256::from(u128::MAX) {
-            u128::MAX
-        } else {
-            base_gas.try_into().unwrap_or(u128::MAX)
-        };
-        let with_margin = U256::from((base_gas_u128 as f64 * (1.0 + margin)) as u128);
-
-        assert_eq!(with_margin, expected);
     }
 }

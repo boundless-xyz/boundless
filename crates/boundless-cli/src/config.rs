@@ -88,11 +88,11 @@ pub struct RewardsConfig {
     #[clap(skip)]
     pub reward_address: Option<alloy::primitives::Address>,
 
-    /// PoVW state file path (loaded from config or env)
+    /// Mining state file path (loaded from config or env)
     #[clap(skip)]
-    pub povw_state_file: Option<String>,
+    pub mining_state_file: Option<String>,
 
-    /// Beacon API URL for claiming PoVW rewards (loaded from config or env)
+    /// Beacon API URL for claiming mining rewards (loaded from config or env)
     #[clap(skip)]
     pub beacon_api_url: Option<Url>,
 
@@ -247,10 +247,10 @@ impl RewardsConfig {
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
             .and_then(|r| r.reward_address.as_ref());
 
-        let config_povw_state_file = secrets
+        let config_mining_state_file = secrets
             .as_ref()
             .and_then(|s| network.and_then(|n| s.rewards_networks.get(n)))
-            .and_then(|r| r.povw_state_file.as_ref());
+            .and_then(|r| r.mining_state_file.as_ref());
 
         let config_beacon_api_url = secrets
             .as_ref()
@@ -340,17 +340,17 @@ impl RewardsConfig {
             }
         }
 
-        // Load PoVW state file (env var takes precedence)
-        if self.povw_state_file.is_none() {
-            if let Ok(state_file) = std::env::var("POVW_STATE_FILE") {
-                if config_povw_state_file.is_some() {
+        // Load mining state file (env var takes precedence)
+        if self.mining_state_file.is_none() {
+            if let Ok(state_file) = std::env::var("MINING_STATE_FILE") {
+                if config_mining_state_file.is_some() {
                     println!(
-                        "⚠ Using POVW_STATE_FILE from environment (overriding configured value)"
+                        "⚠ Using MINING_STATE_FILE from environment (overriding configured value)"
                     );
                 }
-                self.povw_state_file = Some(state_file);
-            } else if let Some(state_file) = config_povw_state_file {
-                self.povw_state_file = Some(state_file.clone());
+                self.mining_state_file = Some(state_file);
+            } else if let Some(state_file) = config_mining_state_file {
+                self.mining_state_file = Some(state_file.clone());
             }
         }
 

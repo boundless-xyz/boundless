@@ -18,7 +18,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::{format_eth, DisplayManager};
+use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
 
 /// Command to deposit funds into the market
 #[derive(Args, Clone, Debug)]
@@ -36,10 +36,11 @@ impl RequestorDeposit {
     /// Run the deposit command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
+        requestor_config.require_private_key_with_help()?;
 
         let client =
             requestor_config.client_builder_with_signer(global_config.tx_timeout)?.build().await?;
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
 
         let display = DisplayManager::with_network(network_name);
         let formatted = format_eth(self.amount);

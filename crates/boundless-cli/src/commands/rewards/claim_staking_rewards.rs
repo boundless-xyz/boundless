@@ -22,7 +22,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::{format_eth, DisplayManager};
+use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
 
 /// Claim accumulated staking rewards
 #[derive(Args, Clone, Debug)]
@@ -51,7 +51,7 @@ impl RewardsClaimStakingRewards {
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = network_name_from_chain_id(Some(chain_id));
         let display = DisplayManager::with_network(network_name);
 
         let staking_rewards_address = rewards_config.staking_rewards_address()?;

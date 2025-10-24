@@ -39,14 +39,14 @@ impl IndexerClient {
         } else {
             // Use hardcoded URLs based on chain ID
             let url_str = match zkc_chain_id {
-                1 => "https://dk96ouq3dipzx.cloudfront.net/", // Ethereum mainnet
-                11155111 => "https://api-sepolia.boundless.market/", // Sepolia testnet
+                1 => "https://indexer.eth-mainnet.boundless.network/", // Ethereum mainnet
+                11155111 => "https://indexer.eth-sepolia.boundless.network/", // Sepolia testnet
                 _ => {
                     tracing::warn!(
                         "Unknown chain ID {}, defaulting to mainnet indexer",
                         zkc_chain_id
                     );
-                    "https://dk96ouq3dipzx.cloudfront.net/"
+                    "https://indexer.eth-mainnet.boundless.network/"
                 }
             };
             tracing::debug!("Using indexer API for chain {}: {}", zkc_chain_id, url_str);

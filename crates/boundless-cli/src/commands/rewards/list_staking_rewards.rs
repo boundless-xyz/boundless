@@ -21,6 +21,8 @@ use boundless_zkc::contracts::IStakingRewards;
 use clap::Args;
 use colored::Colorize;
 use std::collections::HashMap;
+use crate::display::network_name_from_chain_id;
+use crate::display::format_amount;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
@@ -81,7 +83,7 @@ impl RewardsListStakingRewards {
         // Fetch reward delegation history - shows epochs where this address receives delegated power
         let delegation_history = client.get_reward_delegation_history(address).await?;
 
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = network_name_from_chain_id(Some(chain_id));
         let display = DisplayManager::with_network(network_name);
 
         if delegation_history.entries.is_empty() {
@@ -187,7 +189,7 @@ impl RewardsListStakingRewards {
         println!();
         display.balance(
             "Total Rewards Received",
-            &crate::format_amount(&format_ether(total_rewards)),
+            &format_amount(&format_ether(total_rewards)),
             "ZKC",
             "green",
         );
@@ -219,8 +221,8 @@ impl RewardsListStakingRewards {
                             U256::ZERO
                         };
 
-                        let power_formatted = crate::format_amount(&format_ether(data.power));
-                        let rewards_formatted = crate::format_amount(&format_ether(rewards));
+                        let power_formatted = format_amount(&format_ether(data.power));
+                        let rewards_formatted = format_amount(&format_ether(rewards));
 
                         display.subitem(
                             "Reward Power:",

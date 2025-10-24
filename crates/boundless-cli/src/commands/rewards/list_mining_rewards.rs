@@ -24,13 +24,13 @@ use std::collections::HashMap;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
-    display::DisplayManager,
+    display::{format_amount, network_name_from_chain_id, DisplayManager},
     indexer_client::{parse_amount, IndexerClient},
 };
 
-/// List historical PoVW rewards for an address
+/// List historical mining rewards for an address
 #[derive(Args, Clone, Debug)]
-pub struct RewardsListPovwRewards {
+pub struct RewardsListMiningRewards {
     /// Work log ID (address) to query rewards for (defaults to configured reward address)
     #[clap(long)]
     pub address: Option<Address>,
@@ -56,8 +56,8 @@ pub struct RewardsListPovwRewards {
     pub rewards_config: RewardsConfig,
 }
 
-impl RewardsListPovwRewards {
-    /// Run the list-povw-rewards command
+impl RewardsListMiningRewards {
+    /// Run the list-mining-rewards command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
@@ -95,7 +95,7 @@ impl RewardsListPovwRewards {
         // Fetch PoVW history
         let history = client.get_povw_history(address).await?;
 
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = network_name_from_chain_id(Some(chain_id));
         let display = DisplayManager::with_network(network_name);
 
         // Set epoch range with defaults
@@ -103,7 +103,7 @@ impl RewardsListPovwRewards {
         let start_epoch = self.start_epoch.unwrap_or_else(|| end_epoch.saturating_sub(5));
 
         // Create epoch data structures
-        struct EpochPovwData {
+        struct EpochMiningData {
             work_submitted: U256,
             actual_rewards: U256,
             uncapped_rewards: U256,
@@ -113,7 +113,7 @@ impl RewardsListPovwRewards {
             percentage: f64,
         }
 
-        let mut epoch_data: HashMap<u64, EpochPovwData> = HashMap::new();
+        let mut epoch_data: HashMap<u64, EpochMiningData> = HashMap::new();
 
         // Filter history entries by epoch range
         for entry in &history.entries {
@@ -126,7 +126,7 @@ impl RewardsListPovwRewards {
 
                 epoch_data.insert(
                     entry.epoch,
-                    EpochPovwData {
+                    EpochMiningData {
                         work_submitted: work,
                         actual_rewards: actual,
                         uncapped_rewards: uncapped,
@@ -139,7 +139,7 @@ impl RewardsListPovwRewards {
             }
         }
 
-        display.header("PoVW Rewards History");
+        display.header("Mining Rewards History");
 
         if let Some(ref meta) = metadata {
             let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
@@ -169,7 +169,7 @@ impl RewardsListPovwRewards {
         println!();
         display.balance(
             "Total Rewards Received",
-            &crate::format_amount(&format_ether(total_rewards)),
+            &format_amount(&format_ether(total_rewards)),
             "ZKC",
             "green",
         );
@@ -190,10 +190,10 @@ impl RewardsListPovwRewards {
 
             if let Some(data) = epoch_data.get(&epoch) {
                 let work_formatted = format_work_cycles(&data.work_submitted);
-                let actual_formatted = crate::format_amount(&format_ether(data.actual_rewards));
-                let uncapped_formatted = crate::format_amount(&format_ether(data.uncapped_rewards));
-                let cap_formatted = crate::format_amount(&format_ether(data.reward_cap));
-                let staked_formatted = crate::format_amount(&format_ether(data.staked_amount));
+                let actual_formatted = format_amount(&format_ether(data.actual_rewards));
+                let uncapped_formatted = format_amount(&format_ether(data.uncapped_rewards));
+                let cap_formatted = format_amount(&format_ether(data.reward_cap));
+                let staked_formatted = format_amount(&format_ether(data.staked_amount));
 
                 display.subitem(
                     "Work Submitted:",

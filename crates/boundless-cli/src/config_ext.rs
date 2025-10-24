@@ -17,9 +17,6 @@
 use crate::config::{ProverConfig, RequestorConfig, RewardsConfig};
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Context, Result};
-use boundless_market::deployments::Deployment as MarketDeployment;
-use boundless_povw::deployments::Deployment as PovwDeployment;
-use boundless_zkc::deployments::Deployment as ZkcDeployment;
 
 /// Common configuration validation trait
 pub trait ConfigValidation {
@@ -41,20 +38,8 @@ pub trait RewardsConfigExt {
     /// Get reward private key or return helpful error
     fn require_reward_key_with_help(&self) -> Result<PrivateKeySigner>;
 
-    /// Get PoVW private key or return helpful error
-    fn require_povw_key_with_help(&self) -> Result<PrivateKeySigner>;
-
     /// Get staking private key or return helpful error
     fn require_staking_key_with_help(&self) -> Result<PrivateKeySigner>;
-
-    /// Get reward address or return helpful error
-    fn require_reward_address_with_help(&self) -> Result<Address>;
-
-    /// Get ZKC deployment or resolve from chain ID
-    fn get_zkc_deployment(&self, chain_id: u64) -> Result<ZkcDeployment>;
-
-    /// Get PoVW deployment or resolve from chain ID
-    fn get_povw_deployment(&self, chain_id: u64) -> Result<PovwDeployment>;
 }
 
 impl RewardsConfigExt for RewardsConfig {
@@ -69,7 +54,7 @@ impl RewardsConfigExt for RewardsConfig {
             "No RPC URL configured for rewards.\n\n\
             To configure: run 'boundless rewards setup'\n\
             Or set REWARD_RPC_URL environment variable\n\
-            Or use --rpc-url flag",
+            Or use --reward-rpc-url flag",
         )
     }
 
@@ -82,16 +67,6 @@ impl RewardsConfigExt for RewardsConfig {
         )
     }
 
-    fn require_povw_key_with_help(&self) -> Result<PrivateKeySigner> {
-        // PoVW key is the same as reward_private_key in the current implementation
-        self.reward_private_key.clone().or_else(|| self.private_key.clone()).context(
-            "No PoVW private key configured.\n\n\
-            To configure: run 'boundless rewards setup' and enable PoVW\n\
-            Or set REWARD_PRIVATE_KEY environment variable\n\
-            Or use --reward-private-key flag",
-        )
-    }
-
     fn require_staking_key_with_help(&self) -> Result<PrivateKeySigner> {
         self.staking_private_key.clone().or_else(|| self.reward_private_key.clone()).context(
             "No staking private key configured.\n\n\
@@ -99,38 +74,6 @@ impl RewardsConfigExt for RewardsConfig {
             Or set STAKING_PRIVATE_KEY environment variable\n\
             Or use --staking-private-key flag",
         )
-    }
-
-    fn require_reward_address_with_help(&self) -> Result<Address> {
-        self.reward_address.context(
-            "No reward address configured.\n\n\
-            To configure: run 'boundless rewards setup'\n\
-            Or set REWARD_ADDRESS environment variable\n\
-            Or use --recipient flag",
-        )
-    }
-
-    fn get_zkc_deployment(&self, chain_id: u64) -> Result<ZkcDeployment> {
-        self.zkc_deployment.clone().or_else(|| ZkcDeployment::from_chain_id(chain_id)).with_context(
-            || {
-                format!(
-                    "Could not determine ZKC deployment for chain ID {}.\n\
-                Please specify deployment explicitly with environment variables or flags",
-                    chain_id
-                )
-            },
-        )
-    }
-
-    fn get_povw_deployment(&self, chain_id: u64) -> Result<PovwDeployment> {
-        // Use ZKC deployment as base for PoVW deployment
-        PovwDeployment::from_chain_id(chain_id).with_context(|| {
-            format!(
-                "Could not determine PoVW deployment for chain ID {}.\n\
-                Please specify deployment explicitly with environment variables or flags",
-                chain_id
-            )
-        })
     }
 }
 
@@ -160,15 +103,6 @@ pub trait ProverConfigExt {
 
     /// Get private key or return helpful error
     fn require_private_key_with_help(&self) -> Result<PrivateKeySigner>;
-
-    /// Get RPC URL or return helpful error
-    fn require_rpc_url_with_help(&self) -> Result<String>;
-
-    /// Get deployment or resolve from chain ID
-    fn get_deployment(&self, chain_id: u64) -> Result<MarketDeployment>;
-
-    /// Configure proving backend with validation
-    fn configure_backend(&mut self) -> Result<()>;
 }
 
 impl ProverConfigExt for ProverConfig {
@@ -180,38 +114,11 @@ impl ProverConfigExt for ProverConfig {
 
     fn require_private_key_with_help(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
-            "No prover private key configured.\n\n\
+            "No private key configured for prover.\n\n\
             To configure: run 'boundless prover setup'\n\
             Or set PROVER_PRIVATE_KEY environment variable\n\
-            Or use --private-key flag",
+            Or use --prover-private-key flag",
         )
-    }
-
-    fn require_rpc_url_with_help(&self) -> Result<String> {
-        self.prover_rpc_url.clone().map(|u| u.to_string()).context(
-            "No RPC URL configured for prover.\n\n\
-            To configure: run 'boundless prover setup'\n\
-            Or set PROVER_RPC_URL environment variable\n\
-            Or use --rpc-url flag",
-        )
-    }
-
-    fn get_deployment(&self, chain_id: u64) -> Result<MarketDeployment> {
-        self.deployment.clone().or_else(|| MarketDeployment::from_chain_id(chain_id)).with_context(
-            || {
-                format!(
-                    "Could not determine Boundless Market deployment for chain ID {}.\n\
-                Please specify deployment explicitly with environment variables or flags",
-                    chain_id
-                )
-            },
-        )
-    }
-
-    fn configure_backend(&mut self) -> Result<()> {
-        // Call the void function which sets environment variables
-        self.configure_proving_backend();
-        Ok(())
     }
 }
 
@@ -240,12 +147,6 @@ pub trait RequestorConfigExt {
 
     /// Get private key or return helpful error
     fn require_private_key_with_help(&self) -> Result<PrivateKeySigner>;
-
-    /// Get RPC URL or return helpful error
-    fn require_rpc_url_with_help(&self) -> Result<String>;
-
-    /// Get deployment or resolve from chain ID
-    fn get_deployment(&self, chain_id: u64) -> Result<MarketDeployment>;
 }
 
 impl RequestorConfigExt for RequestorConfig {
@@ -257,31 +158,10 @@ impl RequestorConfigExt for RequestorConfig {
 
     fn require_private_key_with_help(&self) -> Result<PrivateKeySigner> {
         self.private_key.clone().context(
-            "No requestor private key configured.\n\n\
+            "No private key configured for requestor.\n\n\
             To configure: run 'boundless requestor setup'\n\
             Or set REQUESTOR_PRIVATE_KEY environment variable\n\
-            Or use --private-key flag",
-        )
-    }
-
-    fn require_rpc_url_with_help(&self) -> Result<String> {
-        self.requestor_rpc_url.clone().map(|u| u.to_string()).context(
-            "No RPC URL configured for requestor.\n\n\
-            To configure: run 'boundless requestor setup'\n\
-            Or set REQUESTOR_RPC_URL environment variable\n\
-            Or use --rpc-url flag",
-        )
-    }
-
-    fn get_deployment(&self, chain_id: u64) -> Result<MarketDeployment> {
-        self.deployment.clone().or_else(|| MarketDeployment::from_chain_id(chain_id)).with_context(
-            || {
-                format!(
-                    "Could not determine Boundless Market deployment for chain ID {}.\n\
-                Please specify deployment explicitly with environment variables or flags",
-                    chain_id
-                )
-            },
+            Or use --requestor-private-key flag",
         )
     }
 }
@@ -356,7 +236,7 @@ mod tests {
             staking_address: None,
             reward_private_key: None,
             reward_address: None,
-            povw_state_file: None,
+            mining_state_file: None,
             beacon_api_url: None,
             zkc_deployment: None,
         };
@@ -369,7 +249,7 @@ mod tests {
             staking_address: None,
             reward_private_key: None,
             reward_address: None,
-            povw_state_file: None,
+            mining_state_file: None,
             beacon_api_url: None,
             zkc_deployment: None,
         };
@@ -385,7 +265,7 @@ mod tests {
             staking_address: None,
             reward_private_key: None,
             reward_address: None,
-            povw_state_file: None,
+            mining_state_file: None,
             beacon_api_url: None,
             zkc_deployment: None,
         };

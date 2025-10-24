@@ -351,15 +351,15 @@ async fn show_welcome_screen() -> Result<()> {
             );
         }
 
-        // Display PoVW state file if configured
-        let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
-        let (povw_state, povw_source) = if let Some(ref state) = env_povw_state {
+        // Display mining state file if configured
+        let env_mining_state = std::env::var("MINING_STATE_FILE").ok();
+        let (mining_state, mining_source) = if let Some(ref state) = env_mining_state {
             (Some(state.as_str()), "env")
         } else {
-            (rewards_secrets.and_then(|s| s.povw_state_file.as_deref()), "config")
+            (rewards_secrets.and_then(|s| s.mining_state_file.as_deref()), "config")
         };
 
-        if let Some(state_path) = povw_state {
+        if let Some(state_path) = mining_state {
             // Get absolute path for display
             let display_path = std::fs::canonicalize(state_path)
                 .map(|p| p.display().to_string())
@@ -371,9 +371,9 @@ async fn show_welcome_screen() -> Result<()> {
                 });
 
             println!(
-                "  PoVW State:      {} {}",
+                "  Mining State:    {} {}",
                 display_path.green(),
-                format!("[{}]", povw_source).dimmed()
+                format!("[{}]", mining_source).dimmed()
             );
 
             // Try to load and display state statistics

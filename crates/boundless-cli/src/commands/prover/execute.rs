@@ -25,7 +25,7 @@ use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, S
 
 use crate::config::{GlobalConfig, ProverConfig};
 use crate::config_ext::ProverConfigExt;
-use crate::display::DisplayManager;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 
 /// Execute a proof request using the RISC Zero zkVM executor
 #[derive(Args, Clone, Debug)]
@@ -56,7 +56,7 @@ impl ProverExecute {
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
 
         display.header("Executing Proof Request");

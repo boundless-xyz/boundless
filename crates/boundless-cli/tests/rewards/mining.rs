@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for PoVW rewards commands.
+//! Integration tests for mining rewards commands.
 
 use alloy::{providers::ext::AnvilApi, signers::local::PrivateKeySigner};
 use boundless_cli::commands::rewards::State;
@@ -26,65 +26,65 @@ use crate::rewards::{cli_cmd, make_fake_work_receipt_file, RewardsEnv};
 
 // NOTE: Tests in this file print the CLI output. Run `cargo test -- --nocapture --test-threads=1` to see it.
 
-/// Test that the prepare-povw command shows help correctly.
+/// Test that the prepare-mining command shows help correctly.
 /// This is a smoke test to ensure the command is properly registered and accessible.
 #[test]
 fn test_prepare_povw_help() {
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args(["rewards", "prepare-povw", "--help"])
+    cmd.args(["rewards", "prepare-mining", "--help"])
         .env("NO_COLOR", "1")
         .env("RUST_LOG", "boundless_cli=debug,info")
         .assert()
         .success()
         .stdout(contains("Usage:"))
-        .stdout(contains("prepare-povw"))
+        .stdout(contains("prepare-mining"))
         .stderr("");
 }
 
-/// Test that the submit-povw command shows help correctly.
+/// Test that the submit-mining command shows help correctly.
 #[test]
 fn test_submit_povw_help() {
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args(["rewards", "submit-povw", "--help"])
+    cmd.args(["rewards", "submit-mining", "--help"])
         .env("NO_COLOR", "1")
         .assert()
         .success()
         .stdout(contains("Usage:"))
-        .stdout(contains("submit-povw"))
+        .stdout(contains("submit-mining"))
         .stderr("");
 }
 
-/// Test that the claim-povw-rewards command shows help correctly.
+/// Test that the claim-mining-rewards command shows help correctly.
 #[test]
 fn test_claim_povw_rewards_help() {
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args(["rewards", "claim-povw-rewards", "--help"])
+    cmd.args(["rewards", "claim-mining-rewards", "--help"])
         .env("NO_COLOR", "1")
         .assert()
         .success()
         .stdout(contains("Usage:"))
-        .stdout(contains("claim-povw-rewards"))
+        .stdout(contains("claim-mining-rewards"))
         .stderr("");
 }
 
-/// Test that the inspect-povw-state command shows help correctly.
+/// Test that the inspect-mining-state command shows help correctly.
 #[test]
 fn test_inspect_povw_state_help() {
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args(["rewards", "inspect-povw-state", "--help"])
+    cmd.args(["rewards", "inspect-mining-state", "--help"])
         .env("NO_COLOR", "1")
         .assert()
         .success()
         .stdout(contains("Usage:"))
-        .stdout(contains("inspect-povw-state"))
+        .stdout(contains("inspect-mining-state"))
         .stderr("");
 }
 
-/// Basic test for prepare-povw without chain interaction
+/// Basic test for prepare-mining without chain interaction
 #[tokio::test]
 async fn test_prepare_povw_basic() -> anyhow::Result<()> {
     // 1. Create a temp dir
@@ -99,14 +99,14 @@ async fn test_prepare_povw_basic() -> anyhow::Result<()> {
     let receipt1_path = temp_path.join("receipt1.bin");
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt1_path)?;
 
-    // 3. Create state file and run the prepare-povw command to add the receipt
+    // 3. Create state file and run the prepare-mining command to add the receipt
     let state_path = temp_path.join("state.bin");
     State::new(log_id).save(&state_path)?;
 
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
-        "prepare-povw",
+        "prepare-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--work-receipt-files",
@@ -128,11 +128,11 @@ async fn test_prepare_povw_basic() -> anyhow::Result<()> {
     let receipt2_path = temp_path.join("receipt2.bin");
     make_fake_work_receipt_file(log_id, 2000, 5, &receipt2_path)?;
 
-    // 5. Run the prepare-povw command again to add the new receipt to the log
+    // 5. Run the prepare-mining command again to add the new receipt to the log
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
-        "prepare-povw",
+        "prepare-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--work-receipt-files",
@@ -152,7 +152,7 @@ async fn test_prepare_povw_basic() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Test the inspect-povw-state command
+/// Test the inspect-mining-state command
 #[tokio::test]
 async fn test_inspect_povw_state() -> anyhow::Result<()> {
     // Create a state file with some content
@@ -173,7 +173,7 @@ async fn test_inspect_povw_state() -> anyhow::Result<()> {
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
-        "prepare-povw",
+        "prepare-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--work-receipt-files",
@@ -187,7 +187,7 @@ async fn test_inspect_povw_state() -> anyhow::Result<()> {
 
     // Now inspect the state file
     let mut cmd = cli_cmd()?;
-    cmd.args(["rewards", "inspect-povw-state", "--state-file", state_path.to_str().unwrap()])
+    cmd.args(["rewards", "inspect-mining-state", "--state-file", state_path.to_str().unwrap()])
         .env("NO_COLOR", "1")
         .assert()
         .success()
@@ -217,14 +217,14 @@ async fn test_prepare_and_submit() -> anyhow::Result<()> {
     let receipt_path = temp_path.join("receipt.bin");
     make_fake_work_receipt_file(log_id, 1000, 10, &receipt_path)?;
 
-    // Create state file and run prepare-povw to create a work log update
+    // Create state file and run prepare-mining to create a work log update
     let state_path = temp_path.join("state.bin");
     State::new(log_id).save(&state_path)?;
 
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
-        "prepare-povw",
+        "prepare-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--work-receipt-files",
@@ -240,11 +240,11 @@ async fn test_prepare_and_submit() -> anyhow::Result<()> {
     let state = State::load(&state_path).await?;
     state.validate_with_ctx(&VerifierContext::default().with_dev_mode(true))?;
 
-    // 3. Use the submit-povw command to post an update to the PoVW accounting contract
+    // 3. Use the submit-mining command to post an update to the PoVW accounting contract
     let env = RewardsEnv::from_test_ctx(&ctx, &tx_signer).await;
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "submit-povw", "--state-file", state_path.to_str().unwrap()])
+    cmd.args(["rewards", "submit-mining", "--state-file", state_path.to_str().unwrap()])
         .assert()
         .success()
         // 4. Confirm that the command logs success
@@ -303,7 +303,7 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
         let result = cmd
             .args([
                 "rewards",
-                "prepare-povw",
+                "prepare-mining",
                 "--state-file",
                 state_path.to_str().unwrap(),
                 "--work-receipt-files",
@@ -325,7 +325,7 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
         env.apply_to_cmd(&mut cmd);
         cmd.args([
             "rewards",
-            "submit-povw",
+            "submit-mining",
             "--state-file",
             state_path.to_str().unwrap(),
             "--recipient",
@@ -351,7 +351,7 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
     println!("Running claim command");
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "claim-povw-rewards", "--log-id", &format!("{:#x}", log_id)]);
+    cmd.args(["rewards", "claim-mining-rewards", "--log-id", &format!("{:#x}", log_id)]);
 
     let result = cmd.assert().success().stdout(contains("Reward claim completed"));
     println!("claim command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
@@ -401,7 +401,7 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     let result = cmd
         .args([
             "rewards",
-            "prepare-povw",
+            "prepare-mining",
             "--state-file",
             state_path.to_str().unwrap(),
             "--work-receipt-files",
@@ -420,7 +420,7 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     env.apply_to_cmd(&mut cmd);
     cmd.args([
         "rewards",
-        "submit-povw",
+        "submit-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--recipient",
@@ -444,7 +444,7 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     let result = cmd
         .args([
             "rewards",
-            "prepare-povw",
+            "prepare-mining",
             "--state-file",
             state_path.to_str().unwrap(),
             "--work-receipt-files",
@@ -463,7 +463,7 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     env.apply_to_cmd(&mut cmd);
     cmd.args([
         "rewards",
-        "submit-povw",
+        "submit-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--recipient",
@@ -483,7 +483,7 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     println!("Running claim command");
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "claim-povw-rewards", "--log-id", &format!("{:#x}", log_id)]);
+    cmd.args(["rewards", "claim-mining-rewards", "--log-id", &format!("{:#x}", log_id)]);
 
     let result = cmd
         .assert()
@@ -537,7 +537,7 @@ async fn test_prepare_from_bento() -> anyhow::Result<()> {
     let result = cmd
         .args([
             "rewards",
-            "prepare-povw",
+            "prepare-mining",
             "--state-file",
             state_path.to_str().unwrap(),
             "--work-receipt-bento-api-url",
@@ -584,7 +584,7 @@ async fn test_prepare_from_bento() -> anyhow::Result<()> {
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
-        "prepare-povw",
+        "prepare-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--work-receipt-bento-api-url",
@@ -645,7 +645,7 @@ async fn test_prepare_from_bento_no_receipts() -> anyhow::Result<()> {
     let result = cmd
         .args([
             "rewards",
-            "prepare-povw",
+            "prepare-mining",
             "--state-file",
             state_path.to_str().unwrap(),
             "--work-receipt-bento-api-url",
@@ -729,7 +729,7 @@ async fn test_prepare_from_bento_multiple_log_ids() -> anyhow::Result<()> {
     let result = cmd
         .args([
             "rewards",
-            "prepare-povw",
+            "prepare-mining",
             "--state-file",
             state_path.to_str().unwrap(),
             "--work-receipt-bento-api-url",
@@ -742,7 +742,7 @@ async fn test_prepare_from_bento_multiple_log_ids() -> anyhow::Result<()> {
         .assert();
 
     // Should succeed and log warnings about skipping other log ID
-    let result = result.success().stdout(contains("Skipping receipts associated with"));
+    let result = result.success().stdout(contains("receipts associated with"));
 
     println!("command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
 
@@ -759,7 +759,7 @@ async fn test_prepare_from_bento_multiple_log_ids() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Test that prepare-povw creates a backup when updating an existing state file
+/// Test that prepare-mining creates a backup when updating an existing state file
 #[tokio::test]
 async fn test_prepare_creates_backup() -> anyhow::Result<()> {
     // Create a temp dir for the state file
@@ -781,7 +781,7 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
     let mut cmd = cli_cmd()?;
     cmd.args([
         "rewards",
-        "prepare-povw",
+        "prepare-mining",
         "--state-file",
         state_path.to_str().unwrap(),
         "--work-receipt-files",
@@ -802,7 +802,7 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
 
     // Get home directory for backup location
     let home = dirs::home_dir().expect("Could not determine home directory");
-    let backup_dir = home.join(".boundless");
+    let backup_dir = home.join(".boundless").join("backups");
 
     // Count existing backup files before update
     let before_count = std::fs::read_dir(&backup_dir)
@@ -819,7 +819,7 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
     let result = cmd
         .args([
             "rewards",
-            "prepare-povw",
+            "prepare-mining",
             "--state-file",
             state_path.to_str().unwrap(),
             "--work-receipt-files",
@@ -834,7 +834,7 @@ async fn test_prepare_creates_backup() -> anyhow::Result<()> {
     // Check that output mentions backup
     let output = String::from_utf8_lossy(&result.get_output().stdout);
     assert!(
-        output.contains("Saved backup of previous state to:"),
+        output.contains("Saved backup to"),
         "Should mention backup creation"
     );
 

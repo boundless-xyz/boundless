@@ -21,12 +21,10 @@
 pub mod commands;
 pub mod config;
 pub mod config_file;
-pub mod indexer_client;
+pub(crate) mod indexer_client;
 
 // DRY helper modules
 pub mod chain;
-/// Blockchain utility functions for timestamp-to-block conversion
-pub mod chain_utils;
 pub mod config_ext;
 pub mod contracts;
 pub mod display;
@@ -38,7 +36,6 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
 use boundless_assessor::{AssessorInput, Fulfillment};
-use chrono::{DateTime, Local};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
@@ -93,67 +90,6 @@ impl OrderFulfilled {
             fills,
             assessorReceipt: assessor_receipt,
         })
-    }
-}
-
-/// Converts a timestamp to a [DateTime] in the local timezone.
-pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
-    let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
-    t.with_timezone(&Local)
-}
-
-/// Format an amount with smart decimal precision.
-/// Shows max 4 decimal places unless the first 4 are all zeros, in which case shows more.
-/// Removes trailing zeros.
-pub fn format_amount(amount_str: &str) -> String {
-    if let Some((whole, decimal)) = amount_str.split_once('.') {
-        let decimal_chars: Vec<char> = decimal.chars().collect();
-
-        let first_four = decimal_chars.iter().take(4).collect::<String>();
-        if first_four == "0000" || first_four.len() < 4 && first_four.chars().all(|c| c == '0') {
-            let first_nonzero = decimal_chars.iter().position(|&c| c != '0');
-            if let Some(pos) = first_nonzero {
-                let precision = (pos + 2).min(decimal_chars.len());
-                let trimmed = decimal_chars[..precision]
-                    .iter()
-                    .collect::<String>()
-                    .trim_end_matches('0')
-                    .to_string();
-                if trimmed.is_empty() {
-                    whole.to_string()
-                } else {
-                    format!("{}.{}", whole, trimmed)
-                }
-            } else {
-                whole.to_string()
-            }
-        } else {
-            let precision = 4.min(decimal_chars.len());
-            let trimmed = decimal_chars[..precision]
-                .iter()
-                .collect::<String>()
-                .trim_end_matches('0')
-                .to_string();
-            if trimmed.is_empty() {
-                whole.to_string()
-            } else {
-                format!("{}.{}", whole, trimmed)
-            }
-        }
-    } else {
-        amount_str.to_string()
-    }
-}
-
-/// Get the network name from a chain ID.
-pub fn network_name_from_chain_id(chain_id: Option<u64>) -> &'static str {
-    match chain_id {
-        Some(1) => "Ethereum Mainnet",
-        Some(8453) => "Base Mainnet",
-        Some(84532) => "Base Sepolia",
-        Some(11155111) => "Ethereum Sepolia",
-        Some(_) => "Custom Network",
-        None => "Unknown Network",
     }
 }
 

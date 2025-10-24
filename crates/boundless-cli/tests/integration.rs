@@ -17,5 +17,5 @@
 mod rewards;
 
 // Include the actual tests
-#[path = "rewards/povw.rs"]
-mod povw;
+#[path = "rewards/mining.rs"]
+mod mining;

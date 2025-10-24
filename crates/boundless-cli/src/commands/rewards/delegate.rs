@@ -22,7 +22,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::DisplayManager;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 
 /// Delegate reward power to another address
 #[derive(Args, Clone, Debug)]
@@ -57,7 +57,7 @@ impl RewardsDelegate {
             .await
             .context("Failed to query current reward delegate")?;
 
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = network_name_from_chain_id(Some(chain_id));
         let display = DisplayManager::with_network(network_name);
 
         display.header("Delegating Reward Power");

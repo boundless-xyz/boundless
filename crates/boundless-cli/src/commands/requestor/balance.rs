@@ -19,7 +19,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::{validate_address_input, RequestorConfigExt};
-use crate::display::{format_eth, DisplayManager};
+use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
 
 /// Command to check balance in the market
 #[derive(Args, Clone, Debug)]
@@ -47,7 +47,7 @@ impl RequestorBalance {
 
         // Build client with standard configuration
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
 
         // Create display manager with network context
         let display = DisplayManager::with_network(network_name);

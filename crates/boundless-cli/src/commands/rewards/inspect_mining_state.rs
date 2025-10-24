@@ -22,26 +22,26 @@ use risc0_povw::guest::Journal as LogBuilderJournal;
 use super::State;
 use crate::{config::{GlobalConfig, RewardsConfig}, display::DisplayManager};
 
-/// Inspect a PoVW state file and display detailed statistics
+/// Inspect a mining state file and display detailed statistics
 #[derive(Args, Clone, Debug)]
-pub struct RewardsInspectPovwState {
-    /// Path to the PoVW state file (defaults to configured state file from setup)
-    #[arg(long = "state-file", env = "POVW_STATE_FILE")]
+pub struct RewardsInspectMiningState {
+    /// Path to the mining state file (defaults to configured state file from setup)
+    #[arg(long = "state-file", env = "MINING_STATE_FILE")]
     state_file: Option<PathBuf>,
 
     #[clap(flatten)]
     rewards_config: RewardsConfig,
 }
 
-impl RewardsInspectPovwState {
-    /// Run the inspect-povw-state command
+impl RewardsInspectMiningState {
+    /// Run the inspect-mining-state command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
         // Determine state file path (param > config > error)
         let state_path = self.state_file.clone()
-            .or_else(|| rewards_config.povw_state_file.clone().map(PathBuf::from))
-            .context("No PoVW state file configured.\n\nTo configure: run 'boundless rewards setup' and enable PoVW\nOr set POVW_STATE_FILE env var")?;
+            .or_else(|| rewards_config.mining_state_file.clone().map(PathBuf::from))
+            .context("No mining state file configured.\n\nTo configure: run 'boundless rewards setup' and enable mining\nOr set MINING_STATE_FILE env var")?;
 
         // Expand ~ to home directory if present
         let expanded_path = if state_path.to_string_lossy().starts_with("~/") {
@@ -79,7 +79,7 @@ impl RewardsInspectPovwState {
         let display = DisplayManager::new();
         println!();
         display.separator();
-        println!("{}", "           PoVW State File Inspector".bold().cyan());
+        println!("{}", "           Mining State File Inspector".bold().cyan());
         display.separator();
 
         // File Information
@@ -194,7 +194,7 @@ impl RewardsInspectPovwState {
 
         if has_unsubmitted_work {
             display.warning("Has unsubmitted work");
-            display.note("(run 'boundless rewards submit-povw')");
+            display.note("(run 'boundless rewards submit-mining')");
         } else if state.update_transactions.is_empty() {
             display.warning("Never submitted");
             display.note("(no transactions recorded)");

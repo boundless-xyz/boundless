@@ -20,8 +20,8 @@ use crate::commands::config_display::{
     get_private_key_with_source, normalize_network_name, ModuleType,
 };
 use crate::commands::rewards::State;
-use crate::commands::setup::secrets::obscure_url;
 use crate::config::GlobalConfig;
+use crate::display::obscure_url;
 use crate::config_file::{Config, Secrets};
 use crate::display::DisplayManager;
 
@@ -106,12 +106,12 @@ impl RewardsConfigCmd {
                     display.item_colored("  Private Key", "Not configured", "yellow");
                 }
 
-                // Display PoVW state file if configured
-                let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
-                let povw_state_path =
-                    env_povw_state.as_deref().or(rewards_sec.povw_state_file.as_deref());
+                // Display Mining state file if configured
+                let env_mining_state = std::env::var("MINING_STATE_FILE").ok();
+                let mining_state_path =
+                    env_mining_state.as_deref().or(rewards_sec.mining_state_file.as_deref());
 
-                if let Some(state_path) = povw_state_path {
+                if let Some(state_path) = mining_state_path {
                     let display_path = std::fs::canonicalize(state_path)
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|_| {

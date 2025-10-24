@@ -18,6 +18,7 @@ use alloy::primitives::{
     utils::{format_ether, format_units},
     Address, B256, U256,
 };
+use chrono::{DateTime, Local};
 use colored::Colorize;
 use std::fmt::Display;
 
@@ -153,9 +154,47 @@ impl Default for DisplayManager {
     }
 }
 
-/// Format an amount for display (removes trailing zeros)
-pub fn format_amount(amount: &str) -> String {
-    crate::format_amount(amount)
+/// Format an amount with smart decimal precision.
+/// Shows max 4 decimal places unless the first 4 are all zeros, in which case shows more.
+/// Removes trailing zeros.
+pub fn format_amount(amount_str: &str) -> String {
+    if let Some((whole, decimal)) = amount_str.split_once('.') {
+        let decimal_chars: Vec<char> = decimal.chars().collect();
+
+        let first_four = decimal_chars.iter().take(4).collect::<String>();
+        if first_four == "0000" || first_four.len() < 4 && first_four.chars().all(|c| c == '0') {
+            let first_nonzero = decimal_chars.iter().position(|&c| c != '0');
+            if let Some(pos) = first_nonzero {
+                let precision = (pos + 2).min(decimal_chars.len());
+                let trimmed = decimal_chars[..precision]
+                    .iter()
+                    .collect::<String>()
+                    .trim_end_matches('0')
+                    .to_string();
+                if trimmed.is_empty() {
+                    whole.to_string()
+                } else {
+                    format!("{}.{}", whole, trimmed)
+                }
+            } else {
+                whole.to_string()
+            }
+        } else {
+            let precision = 4.min(decimal_chars.len());
+            let trimmed = decimal_chars[..precision]
+                .iter()
+                .collect::<String>()
+                .trim_end_matches('0')
+                .to_string();
+            if trimmed.is_empty() {
+                whole.to_string()
+            } else {
+                format!("{}.{}", whole, trimmed)
+            }
+        }
+    } else {
+        amount_str.to_string()
+    }
 }
 
 /// Format ETH amount from wei
@@ -178,45 +217,76 @@ pub fn format_tx_hash(hash: B256) -> String {
     format!("{:#x}", hash)
 }
 
-/// Display a transaction confirmation flow
-pub async fn display_transaction(
-    display: &DisplayManager,
-    tx_hash: B256,
-    pending_message: &str,
-    success_message: &str,
-) {
-    display.tx_hash(tx_hash);
-    display.status("Status", pending_message, "yellow");
-
-    // After confirmation (this would be called after awaiting the receipt)
-    display.success(success_message);
+/// Convert a timestamp to DateTime in the local timezone
+pub fn convert_timestamp(timestamp: u64) -> DateTime<Local> {
+    let t = DateTime::from_timestamp(timestamp as i64, 0).expect("invalid timestamp");
+    t.with_timezone(&Local)
 }
 
-/// Standard balance display with deposited and available amounts
-pub fn display_balance_pair(
-    display: &DisplayManager,
-    deposited: &str,
-    available: &str,
-    symbol: &str,
-) {
-    display.balance("Deposited", deposited, symbol, "green");
-    display.balance("Available", available, symbol, "cyan");
+/// Get the network name from a chain ID
+pub fn network_name_from_chain_id(chain_id: Option<u64>) -> &'static str {
+    match chain_id {
+        Some(1) => "Ethereum Mainnet",
+        Some(8453) => "Base Mainnet",
+        Some(84532) => "Base Sepolia",
+        Some(11155111) => "Ethereum Sepolia",
+        Some(_) => "Custom Network",
+        None => "Unknown Network",
+    }
 }
 
-/// Display epoch information
-pub fn display_epoch_info(display: &DisplayManager, epoch: u64, start_time: u64, end_time: u64) {
-    display.item("Epoch", epoch);
-    display.item("Start Time", crate::indexer_client::format_timestamp(&start_time.to_string()));
-    display.item("End Time", crate::indexer_client::format_timestamp(&end_time.to_string()));
+/// Obscure a secret for display (show first 3 and last 3 characters)
+pub fn obscure_secret(secret: &str) -> String {
+    if secret.len() <= 8 {
+        "****".to_string()
+    } else {
+        format!("{}...{}", &secret[..3], &secret[secret.len() - 3..])
+    }
 }
 
-/// Create a progress bar for long operations
-pub fn progress_bar(current: usize, total: usize, width: usize) -> String {
-    let percentage = (current as f64 / total as f64 * 100.0) as usize;
-    let filled = (current as f64 / total as f64 * width as f64) as usize;
-    let empty = width - filled;
+/// Obscure a single segment (between dots or slashes)
+fn obscure_segment(segment: &str) -> String {
+    let len = segment.len();
+    if len <= 4 {
+        segment.to_string()
+    } else if len <= 10 {
+        format!("{}***{}", segment[..2].to_lowercase(), segment[len - 2..].to_lowercase())
+    } else {
+        let show_chars = if len > 15 { 4 } else { 3 };
+        let stars = if len > 15 { "*****" } else { "***" };
+        format!(
+            "{}{}{}",
+            segment[..show_chars].to_lowercase(),
+            stars,
+            segment[len - show_chars..].to_lowercase()
+        )
+    }
+}
 
-    format!("[{}{}] {}%", "█".repeat(filled).green(), "░".repeat(empty).dimmed(), percentage)
+/// Obscure a URL for display (obscure segments between dots and slashes)
+pub fn obscure_url(url: &str) -> String {
+    if let Some((protocol, rest)) = url.split_once("://") {
+        let parts = rest.split('/').collect::<Vec<_>>();
+
+        if parts.is_empty() {
+            return url.to_string();
+        }
+
+        let host = parts[0];
+        let obscured_host =
+            host.split('.').map(obscure_segment).collect::<Vec<_>>().join(".");
+
+        let obscured_path: Vec<String> =
+            parts[1..].iter().map(|&segment| obscure_segment(segment)).collect();
+
+        if obscured_path.is_empty() {
+            format!("{}://{}", protocol, obscured_host)
+        } else {
+            format!("{}://{}/{}", protocol, obscured_host, obscured_path.join("/"))
+        }
+    } else {
+        url.split('/').map(obscure_segment).collect::<Vec<_>>().join("/")
+    }
 }
 
 #[cfg(test)]
@@ -237,8 +307,31 @@ mod tests {
     }
 
     #[test]
-    fn test_progress_bar() {
-        assert!(progress_bar(5, 10, 20).contains("50%"));
-        assert!(progress_bar(10, 10, 20).contains("100%"));
+    fn test_obscure_secret() {
+        assert_eq!(obscure_secret("abc"), "****");
+        assert_eq!(obscure_secret("12345678"), "****");
+        assert_eq!(obscure_secret("abcdefghijk"), "abc...ijk");
+        assert_eq!(obscure_secret("0x1234567890abcdef"), "0x1...def");
+    }
+
+    #[test]
+    fn test_obscure_url_simple() {
+        let url = "https://example.com/api/v1";
+        let obscured = obscure_url(url);
+        assert_eq!(obscured, "https://ex***le.com/api/v1");
+    }
+
+    #[test]
+    fn test_obscure_url_with_api_key() {
+        let url = "https://eth-mainnet.g.alchemy.com/v2/kEepgHsajdisoajJcfV";
+        let obscured = obscure_url(url);
+        assert_eq!(obscured, "https://eth***net.g.al***my.com/v2/keep*****jcfv");
+    }
+
+    #[test]
+    fn test_obscure_url_long_segments() {
+        let url = "https://verylongsubdomain.anotherlongdomain.com/verylongpath/anotherlongpath";
+        let obscured = obscure_url(url);
+        assert_eq!(obscured, "https://very*****main.anot*****main.com/ver***ath/ano***ath");
     }
 }

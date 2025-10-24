@@ -18,6 +18,7 @@ use std::{
     path::PathBuf,
     time::{Duration, SystemTime},
 };
+use crate::display::network_name_from_chain_id;
 
 use alloy::primitives::U256;
 use anyhow::{ensure, Context, Result};
@@ -31,8 +32,7 @@ use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, S
 use crate::{
     config::{GlobalConfig, RequestorConfig},
     config_ext::RequestorConfigExt,
-    convert_timestamp,
-    display::DisplayManager,
+    display::{convert_timestamp, DisplayManager},
 };
 
 /// Submit a fully specified proof request
@@ -66,6 +66,7 @@ impl RequestorSubmit {
     /// Run the submit command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
+        requestor_config.require_private_key_with_help()?;
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
@@ -74,7 +75,7 @@ impl RequestorSubmit {
             .await
             .context("Failed to build Boundless Client")?;
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
 
         display.header("Submitting Proof Request from YAML");

@@ -116,10 +116,10 @@ pub struct CustomRewardsDeployment {
     pub vezkc_address: Address,
     /// Staking rewards contract address
     pub staking_rewards_address: Address,
-    /// PoVW accounting contract address
-    pub povw_accounting_address: Address,
-    /// PoVW mint contract address
-    pub povw_mint_address: Address,
+    /// Mining accounting contract address
+    pub mining_accounting_address: Address,
+    /// Mining mint contract address
+    pub mining_mint_address: Address,
 }
 
 /// Secrets file (secrets.toml)
@@ -193,11 +193,11 @@ pub struct RewardsSecrets {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reward_address: Option<String>,
 
-    /// Path to PoVW state file (optional - only needed if generating PoVW)
+    /// Path to mining state file (optional - only needed if generating mining work)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub povw_state_file: Option<String>,
+    pub mining_state_file: Option<String>,
 
-    /// Beacon API URL for claiming PoVW rewards
+    /// Beacon API URL for claiming mining rewards
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beacon_api_url: Option<String>,
 

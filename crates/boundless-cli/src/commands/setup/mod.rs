@@ -31,7 +31,5 @@ pub use network::{
     normalize_rewards_network, query_chain_id, ModuleType, PREBUILT_PROVER_NETWORKS,
     PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS,
 };
-pub use secrets::{
-    address_from_private_key, merge_optional, obscure_secret, obscure_url, process_private_key,
-};
+pub use secrets::{address_from_private_key, merge_optional, process_private_key};
 pub use setup::{ProverSetup, RequestorSetup, RewardsSetup, SetupInteractive};

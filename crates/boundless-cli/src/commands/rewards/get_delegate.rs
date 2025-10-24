@@ -22,7 +22,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::{format_eth, DisplayManager};
+use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
 
 /// Get the current reward delegate for an address
 #[derive(Args, Clone, Debug)]
@@ -82,7 +82,7 @@ impl RewardsGetDelegate {
             .await
             .context("Failed to query reward power")?;
 
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = network_name_from_chain_id(Some(chain_id));
         let display = DisplayManager::with_network(network_name);
 
         display.header("Reward Delegation Status");

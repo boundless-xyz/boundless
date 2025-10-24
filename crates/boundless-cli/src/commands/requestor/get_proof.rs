@@ -18,7 +18,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::DisplayManager;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 
 /// Get the journal and seal for a given request
 #[derive(Args, Clone, Debug)]
@@ -37,7 +37,7 @@ impl RequestorGetProof {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
 
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
 
         let display = DisplayManager::with_network(network_name);
 

@@ -15,38 +15,38 @@
 //! Commands for managing ZKC rewards, staking, and PoVW.
 
 mod balance_zkc;
-mod claim_povw_rewards;
+mod claim_mining_rewards;
 mod claim_staking_rewards;
 mod config;
 mod delegate;
 mod epoch;
 mod get_delegate;
-mod inspect_povw_state;
-mod list_povw_rewards;
+mod inspect_mining_state;
+mod list_mining_rewards;
 mod list_staking_rewards;
-mod povw_state;
+mod mining_state;
 mod power;
-mod prepare_povw;
+mod prepare_mining;
 mod stake_zkc;
 mod staked_balance_zkc;
-mod submit_povw;
+mod submit_mining;
 
 pub use balance_zkc::RewardsBalanceZkc;
-pub use claim_povw_rewards::RewardsClaimPovwRewards;
+pub use claim_mining_rewards::RewardsClaimMiningRewards;
 pub use claim_staking_rewards::RewardsClaimStakingRewards;
 pub use config::RewardsConfigCmd;
 pub use delegate::RewardsDelegate;
 pub use epoch::RewardsEpoch;
 pub use get_delegate::RewardsGetDelegate;
-pub use inspect_povw_state::RewardsInspectPovwState;
-pub use list_povw_rewards::RewardsListPovwRewards;
+pub use inspect_mining_state::RewardsInspectMiningState;
+pub use list_mining_rewards::RewardsListMiningRewards;
 pub use list_staking_rewards::RewardsListStakingRewards;
-pub use povw_state::State;
+pub use mining_state::State;
 pub use power::RewardsPower;
-pub use prepare_povw::RewardsPreparePoVW;
+pub use prepare_mining::RewardsPrepareMining;
 pub use stake_zkc::RewardsStakeZkc;
 pub use staked_balance_zkc::RewardsStakedBalanceZkc;
-pub use submit_povw::RewardsSubmitPovw;
+pub use submit_mining::RewardsSubmitMining;
 
 use clap::Subcommand;
 
@@ -61,7 +61,7 @@ use crate::{commands::setup::RewardsSetup, config::GlobalConfig};
     \x1b[1mREWARD_RPC_URL\x1b[0m            RPC endpoint for rewards module
     \x1b[1mREWARD_PRIVATE_KEY\x1b[0m        Private key for reward transactions
     \x1b[1mSTAKING_PRIVATE_KEY\x1b[0m       Private key for staking (can differ from reward key)
-    \x1b[1mPOVW_STATE_FILE\x1b[0m           Path to PoVW state file (optional)
+    \x1b[1mMINING_STATE_FILE\x1b[0m         Path to mining state file (optional)
     \x1b[1mZKC_ADDRESS\x1b[0m               ZKC token contract (optional, has default)
     \x1b[1mVEZKC_ADDRESS\x1b[0m             Staked ZKC NFT contract (optional, has default)
     \x1b[1mSTAKING_REWARDS_ADDRESS\x1b[0m   Rewards distribution contract (optional, has default)
@@ -84,18 +84,18 @@ pub enum RewardsCommands {
     /// List staking rewards by epoch
     #[command(name = "list-staking-rewards")]
     ListStakingRewards(RewardsListStakingRewards),
-    /// List PoVW rewards by epoch
-    #[command(name = "list-povw-rewards")]
-    ListPovwRewards(RewardsListPovwRewards),
-    /// Prepare PoVW work log update
-    #[command(name = "prepare-povw")]
-    PreparePoVW(RewardsPreparePoVW),
-    /// Submit PoVW work updates
-    #[command(name = "submit-povw")]
-    SubmitPovw(RewardsSubmitPovw),
-    /// Claim PoVW rewards
-    #[command(name = "claim-povw-rewards")]
-    ClaimPovwRewards(RewardsClaimPovwRewards),
+    /// List mining rewards by epoch
+    #[command(name = "list-mining-rewards")]
+    ListMiningRewards(RewardsListMiningRewards),
+    /// Prepare mining work log update
+    #[command(name = "prepare-mining")]
+    PrepareMining(RewardsPrepareMining),
+    /// Submit mining work updates
+    #[command(name = "submit-mining")]
+    SubmitMining(RewardsSubmitMining),
+    /// Claim mining rewards
+    #[command(name = "claim-mining-rewards")]
+    ClaimMiningRewards(RewardsClaimMiningRewards),
     /// Claim staking rewards
     #[command(name = "claim-staking-rewards")]
     ClaimStakingRewards(RewardsClaimStakingRewards),
@@ -108,9 +108,9 @@ pub enum RewardsCommands {
     Epoch(RewardsEpoch),
     /// Check reward power and earning potential
     Power(RewardsPower),
-    /// Inspect PoVW state file and display detailed statistics
-    #[command(name = "inspect-povw-state")]
-    InspectPovwState(RewardsInspectPovwState),
+    /// Inspect mining state file and display detailed statistics
+    #[command(name = "inspect-mining-state")]
+    InspectMiningState(RewardsInspectMiningState),
     /// Interactive setup wizard for rewards configuration
     Setup(RewardsSetup),
 }
@@ -124,16 +124,16 @@ impl RewardsCommands {
             Self::BalanceZkc(cmd) => cmd.run(global_config).await,
             Self::StakedBalanceZkc(cmd) => cmd.run(global_config).await,
             Self::ListStakingRewards(cmd) => cmd.run(global_config).await,
-            Self::ListPovwRewards(cmd) => cmd.run(global_config).await,
-            Self::PreparePoVW(cmd) => cmd.run(global_config).await,
-            Self::SubmitPovw(cmd) => cmd.run(global_config).await,
-            Self::ClaimPovwRewards(cmd) => cmd.run(global_config).await,
+            Self::ListMiningRewards(cmd) => cmd.run(global_config).await,
+            Self::PrepareMining(cmd) => cmd.run(global_config).await,
+            Self::SubmitMining(cmd) => cmd.run(global_config).await,
+            Self::ClaimMiningRewards(cmd) => cmd.run(global_config).await,
             Self::ClaimStakingRewards(cmd) => cmd.run(global_config).await,
             Self::Delegate(cmd) => cmd.run(global_config).await,
             Self::GetDelegate(cmd) => cmd.run(global_config).await,
             Self::Epoch(cmd) => cmd.run(global_config).await,
             Self::Power(cmd) => cmd.run(global_config).await,
-            Self::InspectPovwState(cmd) => cmd.run(global_config).await,
+            Self::InspectMiningState(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
         }
     }

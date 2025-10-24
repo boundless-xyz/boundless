@@ -21,10 +21,10 @@ use chrono::{DateTime, Utc};
 use clap::Args;
 use colored::Colorize;
 
-use crate::chain_utils::block_number_near_timestamp;
+use crate::chain::block_number_near_timestamp;
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::{format_eth, DisplayManager};
+use crate::display::{network_name_from_chain_id, format_eth, DisplayManager};
 
 /// Get the status of a given request
 #[derive(Args, Clone, Debug)]
@@ -39,6 +39,10 @@ pub struct RequestorStatus {
     #[clap(short, long)]
     pub verbose: bool,
 
+    /// Number of blocks to search backwards when order not in stream (default: 100000)
+    #[clap(long)]
+    pub search_blocks: Option<u64>,
+
     /// Requestor configuration (RPC URL, private key, deployment)
     #[clap(flatten)]
     pub requestor_config: RequestorConfig,
@@ -50,6 +54,7 @@ enum TimelineEntry {
     Locked { timestamp: u64, prover: Address },
     LockTimeout { timestamp: u64 },
     Fulfilled { timestamp: u64, prover: Address, number: usize },
+    Slashed { timestamp: u64, collateral_burned: U256, collateral_transferred: U256, recipient: Address },
     RequestTimeout { timestamp: u64 },
 }
 
@@ -60,6 +65,7 @@ impl TimelineEntry {
             TimelineEntry::Locked { timestamp, .. } => *timestamp,
             TimelineEntry::LockTimeout { timestamp } => *timestamp,
             TimelineEntry::Fulfilled { timestamp, .. } => *timestamp,
+            TimelineEntry::Slashed { timestamp, .. } => *timestamp,
             TimelineEntry::RequestTimeout { timestamp } => *timestamp,
         }
     }
@@ -68,7 +74,8 @@ impl TimelineEntry {
         match self {
             TimelineEntry::Submitted { .. }
             | TimelineEntry::Locked { .. }
-            | TimelineEntry::Fulfilled { .. } => true,
+            | TimelineEntry::Fulfilled { .. }
+            | TimelineEntry::Slashed { .. } => true,
             TimelineEntry::LockTimeout { .. } | TimelineEntry::RequestTimeout { .. } => false,
         }
     }
@@ -82,7 +89,7 @@ impl RequestorStatus {
         let client = requestor_config.client_builder(global_config.tx_timeout)?.build().await?;
         let status = client.boundless_market.get_status(self.request_id, self.expires_at).await?;
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
 
         display.header("Request History");
@@ -103,6 +110,26 @@ impl RequestorStatus {
 
             if !timeline.is_empty() {
                 self.display_timeline(&timeline);
+            } else {
+                // Check if we have order stream data
+                let has_order = if let Some(ref offchain_client) = client.offchain_client {
+                    offchain_client.fetch_order(self.request_id, None).await.is_ok()
+                } else {
+                    false
+                };
+
+                if !has_order {
+                    let search_window = self.search_blocks.unwrap_or(100000);
+                    println!("\n{}", "No events found".yellow().bold());
+                    println!(
+                        "  Searched the last {} blocks backwards from current block",
+                        search_window.to_string().cyan()
+                    );
+                    println!(
+                        "  Try using {} to search further back",
+                        "--search-blocks <N>".cyan()
+                    );
+                }
             }
 
             // Display order parameters if we have them
@@ -114,11 +141,12 @@ impl RequestorStatus {
         Ok(())
     }
 
-    /// Find a smart starting block for event search using order stream timestamp.
+    /// Find the block range for event search.
     ///
-    /// Returns (estimated_block, search_radius) where search_radius determines how many
-    /// blocks before and after the estimate to search.
-    async fn find_event_search_range<P, St, R, Si>(
+    /// Returns (start_block, end_block) defining the search window.
+    /// When order exists: uses submission to expiration timestamps.
+    /// When no order: searches backwards from current block.
+    async fn find_event_search_blocks<P, St, R, Si>(
         &self,
         client: &boundless_market::Client<P, St, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
@@ -126,7 +154,7 @@ impl RequestorStatus {
     where
         P: alloy::providers::Provider + Clone,
     {
-        const NARROW_SEARCH_RADIUS: u64 = 10000;
+        const DEFAULT_SEARCH_WINDOW: u64 = 100000;
 
         let deployment_block = client.deployment.deployment_block.unwrap_or(0);
         let latest_block = client
@@ -137,35 +165,50 @@ impl RequestorStatus {
             .await
             .unwrap_or(deployment_block.max(1));
 
-        if let Some((_order, created_at)) = order_data {
-            tracing::debug!("Using order stream timestamp for block search");
-            let system_time = UNIX_EPOCH + Duration::from_secs(created_at.timestamp() as u64);
+        if let Some((order, created_at)) = order_data {
+            tracing::debug!("Using order stream data to determine block range");
 
-            if let Ok(block) = block_number_near_timestamp(
+            let submission_time = UNIX_EPOCH + Duration::from_secs(created_at.timestamp() as u64);
+            let expiration_timestamp = order.request.offer.rampUpStart + order.request.offer.timeout as u64;
+            let expiration_time = UNIX_EPOCH + Duration::from_secs(expiration_timestamp);
+
+            let start_block = block_number_near_timestamp(
                 client.boundless_market.instance().provider().clone(),
                 latest_block,
-                system_time,
+                submission_time,
                 Some(Duration::from_secs(3600)),
             )
             .await
-            {
-                tracing::debug!("Binary search found block {} near timestamp", block);
-                return (block, NARROW_SEARCH_RADIUS);
-            }
-            tracing::debug!("Block search failed despite having timestamp");
+            .unwrap_or(deployment_block);
+
+            let end_block = block_number_near_timestamp(
+                client.boundless_market.instance().provider().clone(),
+                latest_block,
+                expiration_time,
+                Some(Duration::from_secs(3600)),
+            )
+            .await
+            .unwrap_or(latest_block);
+
+            tracing::debug!(
+                "Order-based search range: blocks {} to {} (submission to expiration)",
+                start_block,
+                end_block
+            );
+            return (start_block, end_block);
         }
 
-        let center = (deployment_block + latest_block) / 2;
-        let radius = (latest_block - deployment_block) / 2;
+        let search_window = self.search_blocks.unwrap_or(DEFAULT_SEARCH_WINDOW);
+        let start_block = latest_block.saturating_sub(search_window).max(deployment_block);
+        let end_block = latest_block;
 
         tracing::debug!(
-            "Using fallback search range: deployment block {} to current block {} (center: {}, radius: {})",
-            deployment_block,
-            latest_block,
-            center,
-            radius
+            "Backward search range: blocks {} to {} ({} blocks from current)",
+            start_block,
+            end_block,
+            end_block - start_block
         );
-        (center, radius)
+        (start_block, end_block)
     }
 
     async fn build_timeline<P, St, R, Si>(
@@ -179,33 +222,29 @@ impl RequestorStatus {
         let mut timeline = Vec::new();
 
         // Query order stream once at the start
-        let order_data = if let Some(ref offchain_client) = client.offchain_client {
+        let order_stream_order_data = if let Some(ref offchain_client) = client.offchain_client {
             tracing::debug!("Querying order stream for request info");
             offchain_client.fetch_order_with_timestamp(self.request_id, None).await.ok()
         } else {
             None
         };
 
-        if let Some((ref _order, created_at)) = order_data {
+        if let Some((ref _order, created_at)) = order_stream_order_data {
             tracing::debug!("Found order in stream, created at {}", created_at);
         } else {
             tracing::debug!("Order not found in stream");
         }
 
-        let (start_block, search_radius) = self.find_event_search_range(client, &order_data).await;
-        let lower_bound = start_block.saturating_sub(search_radius);
-        let upper_bound = start_block.saturating_add(search_radius);
+        let (lower_bound, upper_bound) = self.find_event_search_blocks(client, &order_stream_order_data).await;
 
         tracing::debug!(
-            "Event search range: blocks {} to {} (center: {}, radius: {})",
+            "Event search range: blocks {} to {}",
             lower_bound,
-            upper_bound,
-            start_block,
-            search_radius
+            upper_bound
         );
 
         let (submission_time, offer) =
-            self.query_submission_info(client, &order_data, lower_bound, upper_bound).await;
+            self.query_submission_info(client, &order_stream_order_data, lower_bound, upper_bound).await;
 
         if let Some(timestamp) = submission_time {
             timeline.push(TimelineEntry::Submitted { timestamp });
@@ -231,13 +270,13 @@ impl RequestorStatus {
             }
         }
 
-        if let Ok(fulfillment_events) = client
+        if let Ok(events) = client
             .boundless_market
             .query_all_fulfilled_events(self.request_id, Some(lower_bound), Some(upper_bound))
             .await
         {
             // Get block timestamps for each event
-            for (idx, (event, block_num)) in fulfillment_events.iter().enumerate() {
+            for (idx, (event, block_num)) in events.iter().enumerate() {
                 if let Ok(Some(block)) = client
                     .boundless_market
                     .instance()
@@ -255,12 +294,59 @@ impl RequestorStatus {
         }
 
         // Add deadline milestones if we have offer parameters
-        if let Some(offer) = offer {
+        // Check order stream first, then fall back to queried offer
+        let offer_params = order_stream_order_data
+            .as_ref()
+            .map(|(order, _)| &order.request.offer)
+            .or(offer.as_ref());
+
+        if let Some(offer) = offer_params {
             let lock_timeout = offer.rampUpStart + offer.lockTimeout as u64;
             let request_timeout = offer.rampUpStart + offer.timeout as u64;
 
             timeline.push(TimelineEntry::LockTimeout { timestamp: lock_timeout });
             timeline.push(TimelineEntry::RequestTimeout { timestamp: request_timeout });
+
+            // Check if request was fulfilled before lock timeout
+            let fulfilled_before_lock_timeout = timeline
+                .iter()
+                .any(|entry| matches!(entry, TimelineEntry::Fulfilled { timestamp, .. } if *timestamp <= lock_timeout));
+
+            // Query for slash events only if NOT fulfilled before lock timeout
+            if !fulfilled_before_lock_timeout {
+                // Calculate search window for slash events (after request expiration)
+                let expiration_time = UNIX_EPOCH + Duration::from_secs(request_timeout);
+                let slash_search_start = block_number_near_timestamp(
+                    client.boundless_market.instance().provider().clone(),
+                    upper_bound,
+                    expiration_time,
+                    Some(Duration::from_secs(3600)),
+                )
+                .await
+                .unwrap_or(upper_bound);
+
+                // Search for slash event after expiration
+                if let Ok((slash_event, block_num)) = client
+                    .boundless_market
+                    .query_prover_slashed_event(self.request_id, Some(slash_search_start), Some(upper_bound))
+                    .await
+                {
+                    if let Ok(Some(block)) = client
+                        .boundless_market
+                        .instance()
+                        .provider()
+                        .get_block_by_number(block_num.into())
+                        .await
+                    {
+                        timeline.push(TimelineEntry::Slashed {
+                            timestamp: block.header.timestamp,
+                            collateral_burned: slash_event.collateralBurned,
+                            collateral_transferred: slash_event.collateralTransferred,
+                            recipient: slash_event.collateralRecipient,
+                        });
+                    }
+                }
+            }
         }
 
         // Sort timeline chronologically
@@ -363,6 +449,18 @@ impl RequestorStatus {
                         formatted_time
                     );
                     println!("                 Prover: {}", format!("{:#x}", prover).dimmed());
+                }
+                TimelineEntry::Slashed { timestamp, collateral_burned, collateral_transferred, recipient } => {
+                    let formatted_time = format_timestamp_from_unix(*timestamp);
+                    println!(
+                        "  {} {}    {}",
+                        symbol.red(),
+                        "Slashed".bold().red(),
+                        formatted_time
+                    );
+                    println!("                 Burned: {} HP", format_eth(*collateral_burned).dimmed());
+                    println!("                 Transferred: {} HP", format_eth(*collateral_transferred).dimmed());
+                    println!("                 Recipient: {}", format!("{:#x}", recipient).dimmed());
                 }
                 TimelineEntry::RequestTimeout { timestamp } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);

@@ -20,7 +20,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, RewardsConfig};
 use crate::config_ext::RewardsConfigExt;
-use crate::display::DisplayManager;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 use crate::indexer_client::IndexerClient;
 
 /// Get information about the current epoch
@@ -47,7 +47,7 @@ impl RewardsEpoch {
             .with_context(|| format!("Failed to connect to {}", rpc_url))?;
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = network_name_from_chain_id(Some(chain_id));
 
         let deployment = self
             .deployment

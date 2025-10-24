@@ -23,7 +23,7 @@ use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};
 use crate::config_ext::ProverConfigExt;
-use crate::display::DisplayManager;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 
 /// Fulfill one or more proof requests
 #[derive(Args, Clone, Debug)]
@@ -53,6 +53,8 @@ impl ProverFulfill {
     /// Run the fulfill command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let prover_config = self.prover_config.clone().load_and_validate()?;
+        prover_config.require_private_key_with_help()?;
+
         let client = prover_config
             .client_builder_with_signer(global_config.tx_timeout)?
             .build()
@@ -70,7 +72,7 @@ impl ProverFulfill {
             bail!("request_ids and tx_hashes must have the same length");
         }
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
         let request_ids_string =
             self.request_ids.iter().map(|id| format!("{:#x}", id)).collect::<Vec<_>>().join(", ");

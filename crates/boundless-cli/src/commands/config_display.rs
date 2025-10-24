@@ -14,8 +14,8 @@
 
 //! Shared utilities for displaying configuration status across modules
 
-use crate::commands::setup::secrets::{address_from_private_key, obscure_url};
-use crate::display::DisplayManager;
+use crate::commands::setup::secrets::address_from_private_key;
+use crate::display::{obscure_url, DisplayManager};
 use alloy::primitives::Address;
 
 /// Module type for configuration display

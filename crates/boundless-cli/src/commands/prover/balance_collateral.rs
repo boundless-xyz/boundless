@@ -19,7 +19,7 @@ use clap::Args;
 use crate::config::{GlobalConfig, ProverConfig};
 use crate::config_ext::{validate_prover_address_input, ProverConfigExt};
 use crate::contracts::{get_token_balance, get_token_info};
-use crate::display::{format_token, DisplayManager};
+use crate::display::{network_name_from_chain_id, format_token, DisplayManager};
 
 /// Check the collateral balance of an account in the market
 #[derive(Args, Clone, Debug)]
@@ -53,7 +53,7 @@ impl ProverBalanceCollateral {
             .await
             .context("Failed to build Boundless Client")?;
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
 
         // Create display manager with network context
         let display = DisplayManager::with_network(network_name);

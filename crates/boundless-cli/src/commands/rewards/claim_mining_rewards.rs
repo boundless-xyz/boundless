@@ -37,18 +37,18 @@ use risc0_zkvm::{default_prover, Digest, ProverOpts};
 use url::Url;
 
 use crate::{
-    chain_utils::block_number_near_timestamp,
+    chain::block_number_near_timestamp,
     config::{GlobalConfig, ProvingBackendConfig, RewardsConfig},
-    display::DisplayManager,
+    display::{network_name_from_chain_id, DisplayManager},
 };
 
 use std::time::Duration;
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 
-/// Claim PoVW rewards associated with submitted work log updates
+/// Claim mining rewards associated with submitted work log updates
 #[derive(Args, Clone, Debug)]
-pub struct RewardsClaimPovwRewards {
+pub struct RewardsClaimMiningRewards {
     /// Work log ID for the reward claim (defaults to reward address from config)
     ///
     /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
@@ -90,8 +90,8 @@ pub struct RewardsClaimPovwRewards {
     proving_backend: ProvingBackendConfig,
 }
 
-impl RewardsClaimPovwRewards {
-    /// Run the claim-povw-rewards command
+impl RewardsClaimMiningRewards {
+    /// Run the claim-mining-rewards command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
@@ -105,7 +105,7 @@ impl RewardsClaimPovwRewards {
         };
 
         let display = DisplayManager::new();
-        display.header("Claiming PoVW Rewards");
+        display.header("Claiming Mining Rewards");
         display.item_colored("Log ID", format!("{:x}", log_id), "cyan");
 
         // Determine beacon API URL (param > config)
@@ -123,7 +123,7 @@ impl RewardsClaimPovwRewards {
             .with_context(|| format!("Failed to connect provider to {rpc_url}"))?;
 
         let chain_id = provider.get_chain_id().await.context("Failed to query the chain ID")?;
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
+        let network_name = network_name_from_chain_id(Some(chain_id));
         display.item_colored("Network", network_name, "cyan");
         let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
             format!("No known Steel chain specification for chain ID {chain_id}")

@@ -30,6 +30,8 @@ use boundless_zkc::{
 };
 use clap::Args;
 use colored::Colorize;
+use crate::display::network_name_from_chain_id;
+use crate::display::format_amount;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
@@ -120,8 +122,8 @@ impl RewardsStakeZkc {
             return self.approve_then_stake(deployment, self.amount, target_token_id).await;
         }
 
-        let network_name = crate::network_name_from_chain_id(Some(chain_id));
-        let amount_formatted = crate::format_amount(&format_ether(self.amount));
+        let network_name = network_name_from_chain_id(Some(chain_id));
+        let amount_formatted = format_amount(&format_ether(self.amount));
 
         let display = DisplayManager::with_network(network_name);
         display.header("Staking ZKC");
@@ -169,7 +171,7 @@ impl RewardsStakeZkc {
             (U256::from(log.data().tokenId), log.data().amount)
         };
 
-        let staked_formatted = crate::format_amount(&format_ether(new_total_staked));
+        let staked_formatted = format_amount(&format_ether(new_total_staked));
         display.success("Staking successful!");
         display.item_colored("Token ID", token_id.to_string(), "cyan");
         display.balance("Total Staked", &staked_formatted, "ZKC", "green");
@@ -227,8 +229,8 @@ impl RewardsStakeZkc {
             .context("Failed to query reward delegate")?;
 
         // Format values
-        let staked_formatted = crate::format_amount(&format_ether(staked_amount));
-        let available_formatted = crate::format_amount(&format_ether(available_balance));
+        let staked_formatted = format_amount(&format_ether(staked_amount));
+        let available_formatted = format_amount(&format_ether(available_balance));
 
         let display = DisplayManager::new();
         display.subsection("Current Balances");
@@ -237,11 +239,11 @@ impl RewardsStakeZkc {
 
         // Show reward power with delegation info
         if reward_delegate != address {
-            let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
+            let reward_power_formatted = format_amount(&format_ether(reward_power));
             let delegation_note = format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate);
             println!("  {:<16} {} {}", "Reward Power:", "0".yellow().bold(), delegation_note.dimmed());
         } else {
-            let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
+            let reward_power_formatted = format_amount(&format_ether(reward_power));
             println!("  {:<16} {}", "Reward Power:", reward_power_formatted.yellow().bold());
         }
 
@@ -256,7 +258,7 @@ impl RewardsStakeZkc {
         let deployment =
             rewards_config.zkc_deployment.as_ref().context("ZKC deployment not configured")?;
 
-        let network_name = crate::network_name_from_chain_id(deployment.chain_id);
+        let network_name = network_name_from_chain_id(deployment.chain_id);
 
         let display = DisplayManager::with_network(network_name);
         display.header("DRY RUN: Staking Estimate");
@@ -289,9 +291,9 @@ impl RewardsStakeZkc {
             100.0
         };
 
-        let total_staked_formatted = crate::format_amount(&format_ether(total_staked));
-        let your_stake_formatted = crate::format_amount(&format_ether(your_stake));
-        let new_total_formatted = crate::format_amount(&format_ether(new_total));
+        let total_staked_formatted = format_amount(&format_ether(total_staked));
+        let your_stake_formatted = format_amount(&format_ether(your_stake));
+        let new_total_formatted = format_amount(&format_ether(new_total));
 
         display.subsection("Current Epoch Statistics");
         display.item_colored("Epoch", summary.epoch.to_string(), "cyan");
@@ -305,7 +307,7 @@ impl RewardsStakeZkc {
 
         // Calculate PoVW cap (reward power / 15)
         let max_povw_per_epoch = your_stake / U256::from(15);
-        let max_povw_formatted = crate::format_amount(&format_ether(max_povw_per_epoch));
+        let max_povw_formatted = format_amount(&format_ether(max_povw_per_epoch));
 
         display.subsection("Maximum PoVW Rewards");
         println!("  {:<16} {} {}", "Reward Power:", your_stake_formatted.yellow(), "(equals staked amount)".dimmed());
@@ -315,7 +317,7 @@ impl RewardsStakeZkc {
         let estimated_epoch_rewards = U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
         let your_estimated_rewards = estimated_epoch_rewards * your_stake / new_total;
         let estimated_rewards_formatted =
-            crate::format_amount(&format_ether(your_estimated_rewards));
+            format_amount(&format_ether(your_estimated_rewards));
 
         // Calculate APY as a rough estimate
         let apy = if your_stake > U256::ZERO {

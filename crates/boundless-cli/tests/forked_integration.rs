@@ -61,7 +61,12 @@ fn test_rewards_commands_available() {
 #[test]
 fn test_setup_commands_available() {
     let mut cmd = Command::cargo_bin("boundless").unwrap();
-    cmd.arg("setup").arg("--help").assert().success().stdout(predicate::str::contains("config"));
+    cmd.arg("requestor")
+        .arg("setup")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("network"));
 }
 
 #[test]

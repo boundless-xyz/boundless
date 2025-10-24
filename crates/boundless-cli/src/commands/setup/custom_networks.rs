@@ -112,13 +112,13 @@ pub fn setup_custom_rewards() -> Result<CustomRewardsDeployment> {
         .parse()
         .context("Invalid address")?;
 
-    let povw_accounting_address = Text::new("PoVW accounting contract address:")
+    let mining_accounting_address = Text::new("Mining accounting contract address:")
         .prompt()?
         .parse()
         .context("Invalid address")?;
 
-    let povw_mint_address =
-        Text::new("PoVW mint contract address:").prompt()?.parse().context("Invalid address")?;
+    let mining_mint_address =
+        Text::new("Mining mint contract address:").prompt()?.parse().context("Invalid address")?;
 
     Ok(CustomRewardsDeployment {
         name,
@@ -126,8 +126,8 @@ pub fn setup_custom_rewards() -> Result<CustomRewardsDeployment> {
         zkc_address,
         vezkc_address,
         staking_rewards_address,
-        povw_accounting_address,
-        povw_mint_address,
+        mining_accounting_address,
+        mining_mint_address,
     })
 }
 
@@ -156,8 +156,8 @@ pub fn create_minimal_custom_rewards(chain_id: u64) -> CustomRewardsDeployment {
         zkc_address: Address::ZERO,
         vezkc_address: Address::ZERO,
         staking_rewards_address: Address::ZERO,
-        povw_accounting_address: Address::ZERO,
-        povw_mint_address: Address::ZERO,
+        mining_accounting_address: Address::ZERO,
+        mining_mint_address: Address::ZERO,
     }
 }
 
@@ -244,15 +244,15 @@ pub fn update_custom_rewards_addresses(
         updated = true;
     }
 
-    if let Some(ref addr_str) = setup.povw_accounting_address {
-        custom_rewards.povw_accounting_address =
-            addr_str.parse::<Address>().context("Invalid PoVW accounting address")?;
+    if let Some(ref addr_str) = setup.mining_accounting_address {
+        custom_rewards.mining_accounting_address =
+            addr_str.parse::<Address>().context("Invalid Mining accounting address")?;
         updated = true;
     }
 
-    if let Some(ref addr_str) = setup.povw_mint_address {
-        custom_rewards.povw_mint_address =
-            addr_str.parse::<Address>().context("Invalid PoVW mint address")?;
+    if let Some(ref addr_str) = setup.mining_mint_address {
+        custom_rewards.mining_mint_address =
+            addr_str.parse::<Address>().context("Invalid Mining mint address")?;
         updated = true;
     }
 
@@ -354,14 +354,14 @@ pub fn clone_prebuilt_rewards_as_custom(
         prebuilt.staking_rewards_address
     };
 
-    let povw_accounting_address = if let Some(ref addr_str) = setup.povw_accounting_address {
-        addr_str.parse::<Address>().context("Invalid PoVW accounting address")?
+    let mining_accounting_address = if let Some(ref addr_str) = setup.mining_accounting_address {
+        addr_str.parse::<Address>().context("Invalid Mining accounting address")?
     } else {
         Address::ZERO
     };
 
-    let povw_mint_address = if let Some(ref addr_str) = setup.povw_mint_address {
-        addr_str.parse::<Address>().context("Invalid PoVW mint address")?
+    let mining_mint_address = if let Some(ref addr_str) = setup.mining_mint_address {
+        addr_str.parse::<Address>().context("Invalid Mining mint address")?
     } else {
         Address::ZERO
     };
@@ -372,8 +372,8 @@ pub fn clone_prebuilt_rewards_as_custom(
         zkc_address,
         vezkc_address,
         staking_rewards_address,
-        povw_accounting_address,
-        povw_mint_address,
+        mining_accounting_address,
+        mining_mint_address,
     })
 }
 
@@ -580,8 +580,8 @@ mod tests {
         assert_eq!(rewards.zkc_address, Address::ZERO);
         assert_eq!(rewards.vezkc_address, Address::ZERO);
         assert_eq!(rewards.staking_rewards_address, Address::ZERO);
-        assert_eq!(rewards.povw_accounting_address, Address::ZERO);
-        assert_eq!(rewards.povw_mint_address, Address::ZERO);
+        assert_eq!(rewards.mining_accounting_address, Address::ZERO);
+        assert_eq!(rewards.mining_mint_address, Address::ZERO);
     }
 
     #[test]
@@ -640,10 +640,11 @@ mod tests {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let result = update_custom_market_addresses(&mut config, "nonexistent", &setup);
@@ -676,10 +677,11 @@ mod tests {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let result = update_custom_market_addresses(&mut config, "custom-1234", &setup);
@@ -716,10 +718,11 @@ mod tests {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let result = update_custom_market_addresses(&mut config, "custom-1234", &setup);
@@ -752,10 +755,11 @@ mod tests {
             zkc_address: Some(test_address.to_string()),
             vezkc_address: Some(test_address.to_string()),
             staking_rewards_address: Some(test_address.to_string()),
-            povw_accounting_address: Some(test_address.to_string()),
-            povw_mint_address: Some(test_address.to_string()),
+            mining_accounting_address: Some(test_address.to_string()),
+            mining_mint_address: Some(test_address.to_string()),
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let result = update_custom_rewards_addresses(&mut config, "custom-5678", &setup);
@@ -765,8 +769,8 @@ mod tests {
         assert_eq!(format!("{:#x}", rewards.zkc_address), test_address);
         assert_eq!(format!("{:#x}", rewards.vezkc_address), test_address);
         assert_eq!(format!("{:#x}", rewards.staking_rewards_address), test_address);
-        assert_eq!(format!("{:#x}", rewards.povw_accounting_address), test_address);
-        assert_eq!(format!("{:#x}", rewards.povw_mint_address), test_address);
+        assert_eq!(format!("{:#x}", rewards.mining_accounting_address), test_address);
+        assert_eq!(format!("{:#x}", rewards.mining_mint_address), test_address);
     }
 
     #[test]

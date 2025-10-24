@@ -21,7 +21,7 @@ use risc0_zkvm::sha::Digest;
 
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
-use crate::display::DisplayManager;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 
 /// Verify the proof of the given request against the SetVerifier contract
 #[derive(Args, Clone, Debug)]
@@ -48,7 +48,7 @@ impl RequestorVerifyProof {
             .await
             .context("Failed to build Boundless Client")?;
 
-        let network_name = crate::network_name_from_chain_id(client.deployment.market_chain_id);
+        let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
 
         display.header("Verifying Proof");

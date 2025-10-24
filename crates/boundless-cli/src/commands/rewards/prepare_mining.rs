@@ -35,11 +35,11 @@ use crate::{
 /// Private type alias for work receipts
 type WorkReceipt = GenericReceipt<WorkClaim<ReceiptClaim>>;
 
-/// Prepare PoVW work log update from work receipts
+/// Prepare mining work log update from work receipts
 #[derive(Args, Clone, Debug)]
-pub struct RewardsPreparePoVW {
-    /// Path to the PoVW state file (defaults to configured state file from setup)
-    #[arg(long = "state-file", env = "POVW_STATE_FILE")]
+pub struct RewardsPrepareMining {
+    /// Path to the mining state file (defaults to configured state file from setup)
+    #[arg(long = "state-file", env = "MINING_STATE_FILE")]
     state_file: Option<PathBuf>,
 
     /// Work receipt files to add to the work log (if provided, files are used instead of fetching from Bento)
@@ -68,18 +68,18 @@ pub struct RewardsPreparePoVW {
     proving_backend: ProvingBackendConfig,
 }
 
-impl RewardsPreparePoVW {
-    /// Run the prepare-povw command
+impl RewardsPrepareMining {
+    /// Run the prepare-mining command
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
         // Determine state file path (param > config > error)
         let state_path = self.state_file.clone()
-            .or_else(|| rewards_config.povw_state_file.clone().map(PathBuf::from))
-            .context("No PoVW state file configured.\n\nTo configure: run 'boundless rewards setup' and enable PoVW\nOr set POVW_STATE_FILE env var")?;
+            .or_else(|| rewards_config.mining_state_file.clone().map(PathBuf::from))
+            .context("No mining state file configured.\n\nTo configure: run 'boundless rewards setup' and enable mining\nOr set MINING_STATE_FILE env var")?;
 
         let display = DisplayManager::new();
-        display.item_colored("PoVW State File", state_path.display().to_string(), "cyan");
+        display.item_colored("Mining State File", state_path.display().to_string(), "cyan");
 
         let mut state = State::load(&state_path)
             .await
@@ -94,12 +94,11 @@ impl RewardsPreparePoVW {
 
         // Check if there's already prepared work that hasn't been submitted on-chain
         if !state.log_builder_receipts.is_empty() {
+            // Only check on-chain state if RPC URL is configured
+            if let Some(rpc_url) = rewards_config.reward_rpc_url.clone() {
             display.subsection("Checking On-Chain State");
-            print!("  Querying PoVW accounting contract... ");
+            print!("  Querying mining accounting contract... ");
             std::io::stdout().flush()?;
-
-            // Get RPC URL and connect to chain
-            let rpc_url = rewards_config.require_rpc_url()?;
             let provider = ProviderBuilder::new()
                 .connect(rpc_url.as_str())
                 .await
@@ -134,17 +133,18 @@ impl RewardsPreparePoVW {
             // If they don't match, warn the user
             if latest_local_commit != *onchain_commit {
                 display.warning("WARNING");
-                display.note("You have previously prepared PoVW work that has not yet been submitted on-chain.");
+                display.note("You have previously prepared mining work that has not yet been submitted on-chain.");
                 display.note("We recommend only preparing once per epoch.");
                 display.note("Running prepare multiple times before submitting work on-chain will increase gas costs during submission.");
                 println!();
             } else {
                 display.status("Status", "Up to date (all prepared work has been submitted)", "green");
             }
+            }
         }
 
         // Determine work receipt source
-        display.subsection("Loading PoVW work receipts");
+        display.subsection("Loading mining work receipts");
         let work_receipt_results = if !self.work_receipt_files.is_empty() {
             // Load from files
             display.item_colored("Loading from", format!("{} files", self.work_receipt_files.len()), "cyan");
@@ -187,10 +187,10 @@ impl RewardsPreparePoVW {
             return Ok(());
         }
 
-        display.item_colored("Fetched", format!("{} new PoVW work receipts", work_receipts.len()), "cyan");
+        display.item_colored("Fetched", format!("{} new mining work receipts", work_receipts.len()), "cyan");
 
         // Set up the work log update prover
-        display.subsection("Setting up prover for aggregating PoVW work receipts");
+        display.subsection("Setting up prover for aggregating mining work receipts");
         self.proving_backend.configure_proving_backend_with_health_check().await?;
 
         let prover_builder = WorkLogUpdateProver::builder()
@@ -218,7 +218,7 @@ impl RewardsPreparePoVW {
 
         let num_receipts = work_receipts.len();
         // Prove the work log update
-        display.subsection("Aggregating PoVW work receipts and generating proof");
+        display.subsection("Aggregating mining work receipts and generating proof");
         display.item_colored("Receipts", num_receipts.to_string(), "cyan");
         println!("{}", "  Proving...".yellow());
         display.note("(This may take several minutes)");
@@ -234,7 +234,7 @@ impl RewardsPreparePoVW {
         display.status("Status", "Complete", "green");
 
         // Backup before modifying state
-        display.subsection("Saving updated PoVW state file");
+        display.subsection("Saving updated mining state file");
         if !self.skip_backup {
             let backup_path = state.save_backup(&state_path)?;
             display.item_colored("Saved backup to", backup_path.display().to_string(), "dimmed");
@@ -254,7 +254,7 @@ impl RewardsPreparePoVW {
         display.item_colored("Saved to", state_path.display().to_string(), "cyan");
         display.item_colored("New commit", new_commit.to_string(), "cyan");
 
-        display.success(&format!("Successfully prepared PoVW state file update. Added {} new receipts to the work log.", num_receipts));
+        display.success(&format!("Successfully prepared mining state file update. Added {} new receipts to the work log.", num_receipts));
         println!();
 
         Ok(())

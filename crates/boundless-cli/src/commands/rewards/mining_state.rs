@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! PoVW state management for rewards commands.
+//! Mining state management for rewards commands.
 
 use std::{
     collections::HashMap,

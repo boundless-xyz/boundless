@@ -34,22 +34,22 @@ use risc0_zkvm::{default_prover, ProverOpts};
 use crate::{
     commands::rewards::State,
     config::{GlobalConfig, ProvingBackendConfig, RewardsConfig},
-    display::DisplayManager,
+    display::{format_amount, DisplayManager},
     indexer_client::{parse_amount, IndexerClient},
 };
 
-/// Submit a work log update to the PoVW accounting contract
+/// Submit a work log update to the mining accounting contract
 ///
 /// To prepare the update, this command creates a Groth16 proof, compressing the updates to be sent
 /// and proving that they are authorized by the signing key for the work log.
 #[derive(Args, Clone, Debug)]
-pub struct RewardsSubmitPovw {
-    /// Path to the PoVW state file (defaults to configured state file from setup)
-    #[arg(long = "state-file", env = "POVW_STATE_FILE")]
+pub struct RewardsSubmitMining {
+    /// Path to the mining state file (defaults to configured state file from setup)
+    #[arg(long = "state-file", env = "MINING_STATE_FILE")]
     state_file: Option<PathBuf>,
 
-    /// The address to assign any PoVW rewards to (defaults to the reward address from config)
-    #[arg(long = "recipient", env = "POVW_RECIPIENT")]
+    /// The address to assign any mining rewards to (defaults to the reward address from config)
+    #[arg(long = "recipient", env = "MINING_RECIPIENT")]
     recipient: Option<Address>,
 
     /// Deployment configuration for the PoVW and ZKC contracts (defaults to deployment from chain ID)
@@ -87,18 +87,18 @@ pub struct RewardsSubmitPovw {
     proving_backend: ProvingBackendConfig,
 }
 
-impl RewardsSubmitPovw {
-    /// Run the submit-povw command
+impl RewardsSubmitMining {
+    /// Run the submit-mining command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
         let display = DisplayManager::new();
-        display.header("Submitting PoVW Work Log Update");
+        display.header("Submitting Mining Work Log Update");
 
         let rewards_config = self.rewards_config.clone().load_from_files()?;
 
         // Determine state file path (param > config > error)
         let state_path = self.state_file.clone()
-            .or_else(|| rewards_config.povw_state_file.clone().map(PathBuf::from))
-            .context("No PoVW state file configured.\n\nTo configure: run 'boundless rewards setup' and enable PoVW\nOr set POVW_STATE_FILE env var")?;
+            .or_else(|| rewards_config.mining_state_file.clone().map(PathBuf::from))
+            .context("No mining state file configured.\n\nTo configure: run 'boundless rewards setup' and enable mining\nOr set MINING_STATE_FILE env var")?;
 
         display.item_colored("State file", state_path.display(), "cyan");
 
@@ -210,14 +210,14 @@ impl RewardsSubmitPovw {
         display.item_colored(
             "Updates to submit",
             format!(
-                "{} updates to the PoVW state file need to be submitted on-chain",
+                "{} updates to the mining state file need to be submitted on-chain",
                 receipts_for_update.len()
             ),
             "cyan",
         );
 
         if receipts_for_update.len() > 1 {
-            display.note("Note: Multiple PoVW state file updates will be submitted. This happens when prepare-povw was run multiple times before submission. For future submissions, consider running prepare-povw only once before submitting to save gas costs");
+            display.note("Note: Multiple mining state file updates will be submitted. This happens when prepare-mining was run multiple times before submission. For future submissions, consider running prepare-mining only once before submitting to save gas costs");
         }
 
         // Execute dry-run if requested
@@ -252,7 +252,7 @@ impl RewardsSubmitPovw {
             display.address("Recipient", recipient_addr);
         }
 
-        display.subsection("Configuring prover for submitting PoVW work");
+        display.subsection("Configuring prover for submitting mining work");
 
         self.proving_backend.configure_proving_backend_with_health_check().await?;
         display.status("Status", "Ready", "green");
@@ -262,7 +262,7 @@ impl RewardsSubmitPovw {
             let receipt_num = idx + 1;
 
             display.subsection(&format!(
-                "Processing PoVW state file update {}/{}",
+                "Processing mining state file update {}/{}",
                 receipt_num, total_receipts
             ));
 
@@ -313,7 +313,7 @@ impl RewardsSubmitPovw {
 
             ensure!(
                 tx_receipt.status(),
-                "Submit PoVW state file update transaction failed: tx_hash = {}",
+                "Submit mining state file update transaction failed: tx_hash = {}",
                 tx_receipt.transaction_hash
             );
 
@@ -348,7 +348,7 @@ impl RewardsSubmitPovw {
         }
 
         display.separator();
-        display.success(&format!("Successfully submitted {} PoVW update(s)", total_receipts));
+        display.success(&format!("Successfully submitted {} mining update(s)", total_receipts));
         display.separator();
 
         Ok(())
@@ -385,7 +385,7 @@ impl RewardsSubmitPovw {
             .ok();
 
         let display = DisplayManager::new();
-        display.header("Dry Run: PoVW Submission Projection");
+        display.header("Dry Run: Mining Submission Projection");
 
         // Parse values with overrides
         let current_work_submitted = if let Some(ref override_val) = self.dry_run_work_submitted {
@@ -443,10 +443,10 @@ impl RewardsSubmitPovw {
         let projected_total_formatted = format_work_cycles(&projected_total_work);
         let new_total_work_formatted = format_work_cycles(&new_total_work);
 
-        let total_emissions_formatted = crate::format_amount(&format_ether(total_emissions));
-        let uncapped_rewards_formatted = crate::format_amount(&format_ether(uncapped_rewards));
-        let reward_cap_formatted = crate::format_amount(&format_ether(reward_cap));
-        let capped_rewards_formatted = crate::format_amount(&format_ether(capped_rewards));
+        let total_emissions_formatted = format_amount(&format_ether(total_emissions));
+        let uncapped_rewards_formatted = format_amount(&format_ether(uncapped_rewards));
+        let reward_cap_formatted = format_amount(&format_ether(reward_cap));
+        let capped_rewards_formatted = format_amount(&format_ether(capped_rewards));
 
         if let Some(ref meta) = metadata {
             let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
@@ -512,7 +512,7 @@ impl RewardsSubmitPovw {
         if uncapped_rewards > reward_cap {
             display.warning("Your rewards are CAPPED");
             let lost = uncapped_rewards - reward_cap;
-            let lost_formatted = crate::format_amount(&format_ether(lost));
+            let lost_formatted = format_amount(&format_ether(lost));
             display
                 .subitem("", &format!("You would lose {} ZKC due to reward cap", lost_formatted));
         }

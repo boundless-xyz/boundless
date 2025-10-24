@@ -27,8 +27,9 @@ use super::network::{
     normalize_market_network, normalize_rewards_network, query_chain_id, PREBUILT_PROVER_NETWORKS,
     PREBUILT_REQUESTOR_NETWORKS, PREBUILT_REWARDS_NETWORKS,
 };
-use super::secrets::{address_from_private_key, obscure_url};
+use super::secrets::address_from_private_key;
 use crate::commands::rewards::State;
+use crate::display::obscure_url;
 use crate::config::GlobalConfig;
 use crate::config_file::{
     Config, ProverConfig, ProverSecrets, RequestorConfig, RequestorSecrets, RewardsConfig,
@@ -131,13 +132,13 @@ pub struct RewardsSetupFields {
     #[arg(long = "set-staking-rewards-address")]
     pub staking_rewards_address: Option<String>,
 
-    /// PoVW accounting contract address (custom networks only)
-    #[arg(long = "set-povw-accounting-address")]
-    pub povw_accounting_address: Option<String>,
+    /// Mining accounting contract address (custom networks only)
+    #[arg(long = "set-mining-accounting-address")]
+    pub mining_accounting_address: Option<String>,
 
-    /// PoVW mint contract address (custom networks only)
-    #[arg(long = "set-povw-mint-address")]
-    pub povw_mint_address: Option<String>,
+    /// Mining mint contract address (custom networks only)
+    #[arg(long = "set-mining-mint-address")]
+    pub mining_mint_address: Option<String>,
 }
 
 /// Requestor setup command
@@ -251,13 +252,13 @@ pub struct SetupInteractive {
     #[arg(long = "set-staking-rewards-address")]
     pub staking_rewards_address: Option<String>,
 
-    /// PoVW accounting contract address (custom networks only)
-    #[arg(long = "set-povw-accounting-address")]
-    pub povw_accounting_address: Option<String>,
+    /// Mining accounting contract address (custom networks only)
+    #[arg(long = "set-mining-accounting-address")]
+    pub mining_accounting_address: Option<String>,
 
-    /// PoVW mint contract address (custom networks only)
-    #[arg(long = "set-povw-mint-address")]
-    pub povw_mint_address: Option<String>,
+    /// Mining mint contract address (custom networks only)
+    #[arg(long = "set-mining-mint-address")]
+    pub mining_mint_address: Option<String>,
 
     /// Rename a custom network (format: OLD_NAME NEW_NAME)
     #[arg(long = "rename-network", num_args = 2, value_names = ["OLD_NAME", "NEW_NAME"])]
@@ -294,8 +295,8 @@ impl RequestorSetup {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: self.common.rename_network.clone(),
             reset: self.common.reset,
             reset_all: self.common.reset_all,
@@ -326,8 +327,8 @@ impl ProverSetup {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: self.common.rename_network.clone(),
             reset: self.common.reset,
             reset_all: self.common.reset_all,
@@ -358,8 +359,8 @@ impl RewardsSetup {
             zkc_address: self.rewards.zkc_address.clone(),
             vezkc_address: self.rewards.vezkc_address.clone(),
             staking_rewards_address: self.rewards.staking_rewards_address.clone(),
-            povw_accounting_address: self.rewards.povw_accounting_address.clone(),
-            povw_mint_address: self.rewards.povw_mint_address.clone(),
+            mining_accounting_address: self.rewards.mining_accounting_address.clone(),
+            mining_mint_address: self.rewards.mining_mint_address.clone(),
             rename_network: self.common.rename_network.clone(),
             reset: self.common.reset,
             reset_all: self.common.reset_all,
@@ -382,48 +383,50 @@ impl SetupInteractive {
         let mut config = Config::load().unwrap_or_default();
         let mut secrets = Secrets::load().unwrap_or_default();
 
-        match module {
+        let work_done = match module {
             "requestor" => {
-                self.setup_requestor(&mut config, &mut secrets).await?;
+                self.setup_requestor(&mut config, &mut secrets).await?
             }
             "prover" => {
-                self.setup_prover(&mut config, &mut secrets).await?;
+                self.setup_prover(&mut config, &mut secrets).await?
             }
             "rewards" => {
-                self.setup_rewards(&mut config, &mut secrets).await?;
+                self.setup_rewards(&mut config, &mut secrets).await?
             }
             _ => unreachable!(),
-        }
+        };
 
-        config.save()?;
-        display.success(&format!(
-            "Configuration saved to {}",
-            Config::path()?.display().to_string().cyan()
-        ));
-
-        if !secrets.requestor_networks.is_empty()
-            || !secrets.prover_networks.is_empty()
-            || !secrets.rewards_networks.is_empty()
-        {
-            secrets.save()?;
-            display.success(&format!(
-                "Secrets saved to {} (permissions: 600)",
-                Secrets::path()?.display().to_string().cyan()
+        if work_done {
+            config.save()?;
+            display.info(&format!(
+                "Configuration saved to {}",
+                Config::path()?.display().to_string().cyan()
             ));
-            display.warning(
-                "Secrets are stored in plaintext. Consider using environment variables instead.",
-            );
-        }
 
-        display.success(&format!(
-            "Setup complete! Run `boundless {} config` to see your configuration.",
-            module
-        ));
+            if !secrets.requestor_networks.is_empty()
+                || !secrets.prover_networks.is_empty()
+                || !secrets.rewards_networks.is_empty()
+            {
+                secrets.save()?;
+                display.info(&format!(
+                    "Secrets saved to {} (permissions: 600)",
+                    Secrets::path()?.display().to_string().cyan()
+                ));
+                display.warning(
+                    "Secrets are stored in plaintext. Consider using environment variables instead.",
+                );
+            }
+
+            display.success(&format!(
+                "Setup complete! Run `boundless {} config` to see your configuration.",
+                module
+            ));
+        }
 
         Ok(())
     }
 
-    async fn setup_requestor(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
+    async fn setup_requestor(&self, config: &mut Config, secrets: &mut Secrets) -> Result<bool> {
         let display = DisplayManager::new();
         Self::print_section_header(&display, "Requestor Module Setup");
 
@@ -442,12 +445,12 @@ impl SetupInteractive {
                     display.note(&format!("  - {}", network));
                 }
             }
-            return Ok(());
+            return Ok(true);
         }
 
         // Handle reset mode (current network only)
         if self.reset {
-            if let Some(ref requestor) = config.requestor {
+            let work_done = if let Some(ref requestor) = config.requestor {
                 let network_name = &requestor.network;
                 if let Some(removed) = secrets.requestor_networks.remove(network_name) {
                     display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
@@ -460,14 +463,17 @@ impl SetupInteractive {
                     if removed.address.is_some() {
                         display.note("  - Address");
                     }
+                    true
                 } else {
                     display.warning(&format!("No secrets found for network: {}", network_name));
+                    false
                 }
             } else {
                 display.warning("No network configured to reset");
                 display.note("Run 'boundless requestor setup' to configure a network first");
-            }
-            return Ok(());
+                false
+            };
+            return Ok(work_done);
         }
 
         // Step 1: Handle --change-network first (determine target network)
@@ -569,7 +575,7 @@ impl SetupInteractive {
                     "Updated requestor configuration for network: {}",
                     network_name.cyan().bold()
                 ));
-                return Ok(());
+                return Ok(true);
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
@@ -630,7 +636,7 @@ impl SetupInteractive {
                         display.note("• Editing ~/.boundless/config.toml directly");
                     }
 
-                    return Ok(());
+                    return Ok(true);
                 } else {
                     bail!("No network configured. Please provide --set-rpc-url to create a custom network, or run 'boundless requestor setup' interactively to select a network");
                 }
@@ -652,7 +658,7 @@ impl SetupInteractive {
                 if let Some(ref addr) = existing.address {
                     display.note(&format!("Address: {}", addr.bright_yellow()));
                 }
-                return Ok(());
+                return Ok(true);
             } else {
                 // Network not configured - continue to interactive setup
                 display.info(&format!(
@@ -792,10 +798,10 @@ impl SetupInteractive {
             RequestorSecrets { rpc_url: Some(rpc_url), private_key, address },
         );
 
-        Ok(())
+        Ok(true)
     }
 
-    async fn setup_prover(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
+    async fn setup_prover(&self, config: &mut Config, secrets: &mut Secrets) -> Result<bool> {
         let display = DisplayManager::new();
         Self::print_section_header(&display, "Prover Module Setup");
 
@@ -814,12 +820,12 @@ impl SetupInteractive {
                     display.note(&format!("  - {}", network));
                 }
             }
-            return Ok(());
+            return Ok(true);
         }
 
         // Handle reset mode (current network only)
         if self.reset {
-            if let Some(ref prover) = config.prover {
+            let work_done = if let Some(ref prover) = config.prover {
                 let network_name = &prover.network;
                 if let Some(removed) = secrets.prover_networks.remove(network_name) {
                     display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
@@ -832,14 +838,17 @@ impl SetupInteractive {
                     if removed.address.is_some() {
                         display.note("  - Address");
                     }
+                    true
                 } else {
                     display.warning(&format!("No secrets found for network: {}", network_name));
+                    false
                 }
             } else {
                 display.warning("No network configured to reset");
                 display.note("Run 'boundless prover setup' to configure a network first");
-            }
-            return Ok(());
+                false
+            };
+            return Ok(work_done);
         }
 
         // Step 1: Handle --change-network first (determine target network)
@@ -941,7 +950,7 @@ impl SetupInteractive {
                     "Updated prover configuration for network: {}",
                     network_name.cyan().bold()
                 ));
-                return Ok(());
+                return Ok(true);
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
@@ -1002,7 +1011,7 @@ impl SetupInteractive {
                         display.note("• Editing ~/.boundless/config.toml directly");
                     }
 
-                    return Ok(());
+                    return Ok(true);
                 } else {
                     bail!("No network configured. Please provide --prover-rpc-url to create a custom network, or run 'boundless prover setup' interactively to select a network");
                 }
@@ -1024,7 +1033,7 @@ impl SetupInteractive {
                 if let Some(ref addr) = existing.address {
                     display.note(&format!("Address: {}", addr.bright_yellow()));
                 }
-                return Ok(());
+                return Ok(true);
             } else {
                 // Network not configured - continue to interactive setup
                 display.info(&format!(
@@ -1163,7 +1172,7 @@ impl SetupInteractive {
             .prover_networks
             .insert(network_name, ProverSecrets { rpc_url: Some(rpc_url), private_key, address });
 
-        Ok(())
+        Ok(true)
     }
 
     async fn update_state_file_only(
@@ -1171,7 +1180,7 @@ impl SetupInteractive {
         secrets: &mut Secrets,
         network_name: &str,
         new_state_file_path: &str,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         // Get existing rewards config for this network
         let existing = secrets.rewards_networks.get_mut(network_name).with_context(|| {
             format!(
@@ -1262,7 +1271,7 @@ impl SetupInteractive {
         }
 
         // Update the state file path
-        existing.povw_state_file = Some(expanded_path.clone());
+        existing.mining_state_file = Some(expanded_path.clone());
 
         if !file_exists {
             // Already printed message about creating new file
@@ -1270,10 +1279,10 @@ impl SetupInteractive {
             println!("  Updated PoVW state file path to: {}", expanded_path.cyan());
         }
 
-        Ok(())
+        Ok(true)
     }
 
-    async fn setup_rewards(&self, config: &mut Config, secrets: &mut Secrets) -> Result<()> {
+    async fn setup_rewards(&self, config: &mut Config, secrets: &mut Secrets) -> Result<bool> {
         let display = DisplayManager::new();
         Self::print_section_header(&display, "Rewards Module Setup");
 
@@ -1292,12 +1301,12 @@ impl SetupInteractive {
                     display.note(&format!("  - {}", network));
                 }
             }
-            return Ok(());
+            return Ok(true);
         }
 
         // Handle reset mode (current network only)
         if self.reset {
-            if let Some(ref rewards) = config.rewards {
+            let work_done = if let Some(ref rewards) = config.rewards {
                 let network_name = &rewards.network;
                 if let Some(removed) = secrets.rewards_networks.remove(network_name) {
                     display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
@@ -1316,20 +1325,23 @@ impl SetupInteractive {
                     if removed.reward_address.is_some() {
                         display.note("  - Reward address");
                     }
-                    if removed.povw_state_file.is_some() {
+                    if removed.mining_state_file.is_some() {
                         display.note("  - PoVW state file path");
                     }
                     if removed.beacon_api_url.is_some() {
                         display.note("  - Beacon API URL");
                     }
+                    true
                 } else {
                     display.warning(&format!("No secrets found for network: {}", network_name));
+                    false
                 }
             } else {
                 display.warning("No network configured to reset");
                 display.note("Run 'boundless rewards setup' to configure a network first");
-            }
-            return Ok(());
+                false
+            };
+            return Ok(work_done);
         }
 
         // Step 1: Handle --change-network first (determine target network)
@@ -1353,8 +1365,8 @@ impl SetupInteractive {
             || self.zkc_address.is_some()
             || self.vezkc_address.is_some()
             || self.staking_rewards_address.is_some()
-            || self.povw_accounting_address.is_some()
-            || self.povw_mint_address.is_some();
+            || self.mining_accounting_address.is_some()
+            || self.mining_mint_address.is_some();
 
         if non_interactive {
             // Non-interactive mode: update existing network or create new one
@@ -1377,8 +1389,8 @@ impl SetupInteractive {
                 let has_contract_address_flags = self.zkc_address.is_some()
                     || self.vezkc_address.is_some()
                     || self.staking_rewards_address.is_some()
-                    || self.povw_accounting_address.is_some()
-                    || self.povw_mint_address.is_some();
+                    || self.mining_accounting_address.is_some()
+                    || self.mining_mint_address.is_some();
 
                 if PREBUILT_REWARDS_NETWORKS.contains(&network_name.as_str())
                     && has_contract_address_flags
@@ -1415,7 +1427,7 @@ impl SetupInteractive {
                             staking_address: None,
                             reward_private_key: None,
                             reward_address: None,
-                            povw_state_file: None,
+                            mining_state_file: None,
                             beacon_api_url: None,
                             private_key: None,
                         },
@@ -1485,11 +1497,11 @@ impl SetupInteractive {
                     existing_secrets.beacon_api_url
                 };
 
-                let povw_state_file = if let Some(ref path) = self.state_file {
+                let mining_state_file = if let Some(ref path) = self.state_file {
                     display.success("Updated PoVW state file path");
                     Some(path.clone())
                 } else {
-                    existing_secrets.povw_state_file
+                    existing_secrets.mining_state_file
                 };
 
                 secrets.rewards_networks.insert(
@@ -1500,7 +1512,7 @@ impl SetupInteractive {
                         staking_address,
                         reward_private_key,
                         reward_address,
-                        povw_state_file,
+                        mining_state_file,
                         beacon_api_url,
                         private_key: None,
                     },
@@ -1515,7 +1527,7 @@ impl SetupInteractive {
                     "Updated rewards configuration for network: {}",
                     network_name.cyan().bold()
                 ));
-                return Ok(());
+                return Ok(true);
             } else {
                 // No network selected - need to create custom network
                 if let Some(ref rpc_url) = self.rpc_url {
@@ -1587,7 +1599,7 @@ impl SetupInteractive {
                             staking_address,
                             reward_private_key,
                             reward_address,
-                            povw_state_file: self.state_file.clone(),
+                            mining_state_file: self.state_file.clone(),
                             beacon_api_url: self.beacon_api_url.clone(),
                             private_key: None,
                         },
@@ -1613,7 +1625,7 @@ impl SetupInteractive {
                         display.note("• Editing ~/.boundless/config.toml directly");
                     }
 
-                    return Ok(());
+                    return Ok(true);
                 } else {
                     bail!("No network configured. Please provide --set-rpc-url to create a custom network, or run 'boundless rewards setup' interactively to select a network");
                 }
@@ -1638,10 +1650,10 @@ impl SetupInteractive {
                 if let Some(ref addr) = existing.reward_address {
                     display.note(&format!("Reward Address: {}", addr.bright_yellow()));
                 }
-                if let Some(ref path) = existing.povw_state_file {
+                if let Some(ref path) = existing.mining_state_file {
                     display.note(&format!("PoVW State File: {}", path.cyan()));
                 }
-                return Ok(());
+                return Ok(true);
             } else {
                 // Network not configured - continue to interactive setup
                 display.info(&format!(
@@ -1706,7 +1718,7 @@ impl SetupInteractive {
                 if let Some(ref addr) = existing_config.reward_address {
                     display.note(&format!("Reward Address: {}", addr.bright_yellow()));
                 }
-                if let Some(ref path) = existing_config.povw_state_file {
+                if let Some(ref path) = existing_config.mining_state_file {
                     display.note(&format!("PoVW State File: {}", path.cyan()));
                 }
                 if let Some(ref beacon) = existing_config.beacon_api_url {
@@ -1895,10 +1907,10 @@ impl SetupInteractive {
             };
 
         // PoVW State File Configuration
-        let povw_state_file = if let Some(ref reward_addr) = final_reward_addr {
+        let mining_state_file = if let Some(ref reward_addr) = final_reward_addr {
             Self::print_section_header(&display, "PoVW (Proof of Verifiable Work) Configuration");
 
-            let has_previous_povw_state = existing.as_ref().and_then(|e| e.povw_state_file.as_ref()).is_some();
+            let has_previous_povw_state = existing.as_ref().and_then(|e| e.mining_state_file.as_ref()).is_some();
             let generate_povw = Confirm::new("Do you plan to generate PoVW?")
                 .with_default(has_previous_povw_state)
                 .with_help_message("PoVW allows you to earn ZKC rewards for proving work")
@@ -1925,7 +1937,7 @@ impl SetupInteractive {
                     let mut path_prompt = Text::new("Enter path to existing state file:")
                         .with_help_message("Enter full path (supports ~)");
 
-                    if let Some(ref prev_path) = existing.as_ref().and_then(|e| e.povw_state_file.as_ref()) {
+                    if let Some(ref prev_path) = existing.as_ref().and_then(|e| e.mining_state_file.as_ref()) {
                         path_prompt = path_prompt.with_default(prev_path);
                     }
 
@@ -2048,7 +2060,7 @@ impl SetupInteractive {
         };
 
         // Beacon API URL Configuration (needed for claiming PoVW rewards)
-        let beacon_api_url = if povw_state_file.is_some() {
+        let beacon_api_url = if mining_state_file.is_some() {
             Self::print_section_header(&display, "Beacon API Configuration");
             display.note("A Beacon API URL is required to claim PoVW rewards on Ethereum");
             display.note("Providers like Quicknode offer Beacon API access");
@@ -2083,7 +2095,7 @@ impl SetupInteractive {
                 staking_address,
                 reward_private_key: final_reward_pk,
                 reward_address: final_reward_addr,
-                povw_state_file,
+                mining_state_file,
                 beacon_api_url,
                 private_key: None,
             },
@@ -2091,7 +2103,7 @@ impl SetupInteractive {
 
         display.success("Rewards module configured successfully");
 
-        Ok(())
+        Ok(true)
     }
 
     async fn ask_for_reward_address(
@@ -2237,10 +2249,11 @@ mod tests {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let chain_id = 31337u64;
@@ -2333,10 +2346,11 @@ mod tests {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let custom_network =
@@ -2386,10 +2400,11 @@ mod tests {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let result =
@@ -2439,10 +2454,11 @@ mod tests {
             zkc_address: None,
             vezkc_address: None,
             staking_rewards_address: None,
-            povw_accounting_address: None,
-            povw_mint_address: None,
+            mining_accounting_address: None,
+            mining_mint_address: None,
             rename_network: None,
             reset: false,
+            reset_all: false,
         };
 
         let network =
