@@ -79,7 +79,9 @@ max_concurrent_proofs = 2
 # - "random": Process orders in random order to distribute competition among provers (default)
 # - "observation_time": Process orders in the order they were observed (FIFO)
 # - "shortest_expiry": Process orders by shortest expiry first (earliest deadline)
-#order_pricing_priority = "random"
+# - "price": Process orders by highest ETH payment, then fulfill-after-lock-expire random weighted by collateral reward
+# - "cycle_price": Process orders by highest ETH price per cycle, then fulfill-after-lock-expire random weighted by collateral reward (default)
+#order_pricing_priority = "cycle_price"
 # Order commitment priority mode
 #
 # Determines how orders are prioritized when committing to prove them. Options:
