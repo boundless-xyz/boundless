@@ -53,174 +53,149 @@ impl RewardsConfigCmd {
         let config = Config::load().ok();
         let secrets = Secrets::load().ok();
 
-        if let Some(ref cfg) = config {
-            if let Some(ref rewards) = cfg.rewards {
-                let network = normalize_network_name(&rewards.network);
-                display.item_colored("Network", network, "cyan");
+        let Some(ref cfg) = config else {
+            display_not_configured(&display, module);
+            display_tip(&display, module);
+            return Ok(());
+        };
 
-                if let Some(ref sec) = secrets {
-                    if let Some(rewards_sec) = sec.rewards_networks.get(&rewards.network) {
-                        display_rpc_url(&display, rewards_sec.rpc_url.as_deref());
+        let Some(ref rewards) = cfg.rewards else {
+            display_not_configured(&display, module);
+            display_tip(&display, module);
+            return Ok(());
+        };
 
-                        // Display staking address
-                        let (staking_pk, staking_pk_source) = get_private_key_with_source(
-                            "STAKING_PRIVATE_KEY",
-                            rewards_sec.staking_private_key.as_deref(),
-                        );
+        let network = normalize_network_name(&rewards.network);
+        display.item_colored("Network", network, "cyan");
 
-                        if let Some(pk) = staking_pk {
-                            if let Some(addr) = address_from_pk(pk) {
+        if let Some(ref sec) = secrets {
+            if let Some(rewards_sec) = sec.rewards_networks.get(&rewards.network) {
+                display_rpc_url(&display, rewards_sec.rpc_url.as_deref());
+
+                // Display staking address
+                let (staking_pk, staking_pk_source) = get_private_key_with_source(
+                    "STAKING_PRIVATE_KEY",
+                    rewards_sec.staking_private_key.as_deref(),
+                );
+
+                if let Some(pk) = staking_pk {
+                    if let Some(addr) = address_from_pk(pk) {
+                        display.item_colored("Staking Address", format!("{:#x}", addr), "green");
+                    }
+                    display
+                        .subitem("  ", &format!("Private Key: Configured [{}]", staking_pk_source));
+                } else if let Some(ref addr) = rewards_sec.staking_address {
+                    display.item_colored("Staking Address", addr, "green");
+                    display.item_colored("  Private Key", "Not configured", "yellow");
+                }
+
+                // Display reward address
+                let (reward_pk, reward_pk_source) = get_private_key_with_source(
+                    "REWARD_PRIVATE_KEY",
+                    rewards_sec.reward_private_key.as_deref(),
+                );
+
+                if let Some(pk) = reward_pk {
+                    if let Some(addr) = address_from_pk(pk) {
+                        display.item_colored("Reward Address", format!("{:#x}", addr), "green");
+                    }
+                    display
+                        .subitem("  ", &format!("Private Key: Configured [{}]", reward_pk_source));
+                } else if let Some(ref addr) = rewards_sec.reward_address {
+                    display.item_colored("Reward Address", addr, "green");
+                    display.item_colored("  Private Key", "Not configured", "yellow");
+                }
+
+                // Display PoVW state file if configured
+                let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
+                let povw_state_path =
+                    env_povw_state.as_deref().or(rewards_sec.povw_state_file.as_deref());
+
+                if let Some(state_path) = povw_state_path {
+                    let display_path = std::fs::canonicalize(state_path)
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| {
+                            std::env::current_dir()
+                                .map(|cwd| cwd.join(state_path).display().to_string())
+                                .unwrap_or_else(|_| state_path.to_string())
+                        });
+
+                    display.item_colored("PoVW State File", display_path, "green");
+
+                    match State::load(state_path).await {
+                        Ok(state) => {
+                            if let Ok(elapsed) = state.updated_at.elapsed() {
+                                let duration_str = format_duration(elapsed);
+                                display.subitem("  ", &format!("Last updated: {}", duration_str));
+                            }
+
+                            if !state.work_log.is_empty() {
+                                display.subitem(
+                                    "  ",
+                                    &format!("Total PoVW jobs: {}", state.work_log.jobs.len()),
+                                );
+                            } else {
+                                display.item_colored("  Total PoVW jobs", "0 (empty)", "yellow");
+                            }
+
+                            if !state.update_transactions.is_empty() {
+                                if let Some((tx_hash, _)) = state.update_transactions.iter().next()
+                                {
+                                    let time_str = state
+                                        .updated_at
+                                        .elapsed()
+                                        .map(format_duration)
+                                        .unwrap_or_else(|_| "unknown".to_string());
+                                    display.subitem(
+                                        "  ",
+                                        &format!(
+                                            "Last submitted on-chain: {} (tx: {:#x})",
+                                            time_str, tx_hash
+                                        ),
+                                    );
+                                }
+                            } else {
                                 display.item_colored(
-                                    "Staking Address",
-                                    format!("{:#x}", addr),
-                                    "green",
+                                    "  Last submitted",
+                                    "Never submitted",
+                                    "yellow",
                                 );
                             }
-                            display.subitem(
-                                "  ",
-                                &format!("Private Key: Configured [{}]", staking_pk_source),
-                            );
-                        } else if let Some(ref addr) = rewards_sec.staking_address {
-                            display.item_colored("Staking Address", addr, "green");
-                            display.item_colored("  Private Key", "Not configured", "yellow");
                         }
-
-                        // Display reward address
-                        let (reward_pk, reward_pk_source) = get_private_key_with_source(
-                            "REWARD_PRIVATE_KEY",
-                            rewards_sec.reward_private_key.as_deref(),
-                        );
-
-                        if let Some(pk) = reward_pk {
-                            if let Some(addr) = address_from_pk(pk) {
+                        Err(e) => {
+                            if e.to_string().contains("No such file or directory")
+                                || e.to_string().contains("Failed to read work log state file")
+                            {
+                                display.item_colored("  Status", "⚠ File not found: verify path or run prepare-povw to initialize", "yellow");
+                            } else {
                                 display.item_colored(
-                                    "Reward Address",
-                                    format!("{:#x}", addr),
-                                    "green",
+                                    "  Status",
+                                    "⚠ Invalid file: cannot decode state",
+                                    "yellow",
                                 );
                             }
-                            display.subitem(
-                                "  ",
-                                &format!("Private Key: Configured [{}]", reward_pk_source),
-                            );
-                        } else if let Some(ref addr) = rewards_sec.reward_address {
-                            display.item_colored("Reward Address", addr, "green");
-                            display.item_colored("  Private Key", "Not configured", "yellow");
-                        }
-
-                        // Display PoVW state file if configured
-                        let env_povw_state = std::env::var("POVW_STATE_FILE").ok();
-                        let povw_state_path = env_povw_state
-                            .as_deref()
-                            .or_else(|| rewards_sec.povw_state_file.as_deref());
-
-                        if let Some(state_path) = povw_state_path {
-                            let display_path = std::fs::canonicalize(state_path)
-                                .map(|p| p.display().to_string())
-                                .unwrap_or_else(|_| {
-                                    std::env::current_dir()
-                                        .map(|cwd| cwd.join(state_path).display().to_string())
-                                        .unwrap_or_else(|_| state_path.to_string())
-                                });
-
-                            display.item_colored("PoVW State File", display_path, "green");
-
-                            match State::load(state_path).await {
-                                Ok(state) => {
-                                    if let Ok(elapsed) = state.updated_at.elapsed() {
-                                        let duration_str = format_duration(elapsed);
-                                        display.subitem(
-                                            "  ",
-                                            &format!("Last updated: {}", duration_str),
-                                        );
-                                    }
-
-                                    if !state.work_log.is_empty() {
-                                        display.subitem(
-                                            "  ",
-                                            &format!(
-                                                "Total PoVW jobs: {}",
-                                                state.work_log.jobs.len()
-                                            ),
-                                        );
-                                    } else {
-                                        display.item_colored(
-                                            "  Total PoVW jobs",
-                                            "0 (empty)",
-                                            "yellow",
-                                        );
-                                    }
-
-                                    if !state.update_transactions.is_empty() {
-                                        if let Some((tx_hash, _)) =
-                                            state.update_transactions.iter().next()
-                                        {
-                                            let time_str = state
-                                                .updated_at
-                                                .elapsed()
-                                                .map(format_duration)
-                                                .unwrap_or_else(|_| "unknown".to_string());
-                                            display.subitem(
-                                                "  ",
-                                                &format!(
-                                                    "Last submitted on-chain: {} (tx: {:#x})",
-                                                    time_str, tx_hash
-                                                ),
-                                            );
-                                        }
-                                    } else {
-                                        display.item_colored(
-                                            "  Last submitted",
-                                            "Never submitted",
-                                            "yellow",
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    if e.to_string().contains("No such file or directory")
-                                        || e.to_string()
-                                            .contains("Failed to read work log state file")
-                                    {
-                                        display.item_colored("  Status", "⚠ File not found: verify path or run prepare-povw to initialize", "yellow");
-                                    } else {
-                                        display.item_colored(
-                                            "  Status",
-                                            "⚠ Invalid file: cannot decode state",
-                                            "yellow",
-                                        );
-                                    }
-                                }
-                            }
-                        } else {
-                            display.item_colored(
-                                "PoVW State",
-                                "Not configured (PoVW disabled)",
-                                "yellow",
-                            );
-                        }
-
-                        // Display Beacon API URL if configured
-                        let env_beacon_api = std::env::var("BEACON_API_URL").ok();
-                        if let Some(ref url) = env_beacon_api {
-                            display.item_colored(
-                                "Beacon API",
-                                format!("{} [env]", obscure_url(url)),
-                                "dimmed",
-                            );
-                        } else if let Some(ref url) = rewards_sec.beacon_api_url {
-                            display.item_colored(
-                                "Beacon API",
-                                format!("{} [config file]", obscure_url(url)),
-                                "dimmed",
-                            );
                         }
                     }
+                } else {
+                    display.item_colored("PoVW State", "Not configured (PoVW disabled)", "yellow");
                 }
-            } else {
-                display_not_configured(&display, module);
+
+                // Display Beacon API URL if configured
+                let env_beacon_api = std::env::var("BEACON_API_URL").ok();
+                if let Some(ref url) = env_beacon_api {
+                    display.item_colored(
+                        "Beacon API",
+                        format!("{} [env]", obscure_url(url)),
+                        "dimmed",
+                    );
+                } else if let Some(ref url) = rewards_sec.beacon_api_url {
+                    display.item_colored(
+                        "Beacon API",
+                        format!("{} [config file]", obscure_url(url)),
+                        "dimmed",
+                    );
+                }
             }
-        } else {
-            display_not_configured(&display, module);
         }
 
         display_tip(&display, module);

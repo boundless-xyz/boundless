@@ -395,7 +395,7 @@ pub fn generate_unique_custom_name(config: &Config, base_name: &str) -> String {
 /// List all available networks for a specific module
 pub fn list_networks(config: &Config, module: Option<&str>) -> Result<()> {
     let display = DisplayManager::new();
-    display.header("\n📡 Available Networks");
+    display.header("\nAvailable Networks");
 
     match module {
         Some("requestor") | None => {
@@ -759,7 +759,6 @@ mod tests {
         };
 
         let result = update_custom_rewards_addresses(&mut config, "custom-5678", &setup);
-        assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
 
         let rewards = &config.custom_rewards[0];

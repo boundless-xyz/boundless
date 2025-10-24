@@ -124,7 +124,7 @@ impl RewardsClaimPovwRewards {
 
         let chain_id = provider.get_chain_id().await.context("Failed to query the chain ID")?;
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
-        display.item_colored("Network", &network_name, "cyan");
+        display.item_colored("Network", network_name, "cyan");
         let chain_spec = CHAIN_SPECS.get(&chain_id).with_context(|| {
             format!("No known Steel chain specification for chain ID {chain_id}")
         })?;

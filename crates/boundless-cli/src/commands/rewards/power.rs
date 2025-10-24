@@ -53,28 +53,26 @@ impl RewardsPower {
 
         let address = if let Some(addr) = self.reward_address {
             addr
+        } else if let Ok(signer) = rewards_config.require_reward_key_with_help() {
+            signer.address()
         } else {
-            if let Ok(signer) = rewards_config.require_reward_key_with_help() {
-                signer.address()
+            use crate::config_file::{Config, Secrets};
+            let config = Config::load().context("Failed to load config")?;
+            let network =
+                config.rewards.as_ref().context("Rewards not configured")?.network.clone();
+
+            let secrets = Secrets::load().context("Failed to load secrets")?;
+            let rewards_secrets = secrets
+                .rewards_networks
+                .get(&network)
+                .context("No rewards secrets for current network")?;
+
+            if let Some(ref addr_str) = rewards_secrets.reward_address {
+                addr_str.parse().context("Invalid reward address")?
             } else {
-                use crate::config_file::{Config, Secrets};
-                let config = Config::load().context("Failed to load config")?;
-                let network =
-                    config.rewards.as_ref().context("Rewards not configured")?.network.clone();
-
-                let secrets = Secrets::load().context("Failed to load secrets")?;
-                let rewards_secrets = secrets
-                    .rewards_networks
-                    .get(&network)
-                    .context("No rewards secrets for current network")?;
-
-                if let Some(ref addr_str) = rewards_secrets.reward_address {
-                    addr_str.parse().context("Invalid reward address")?
-                } else {
-                    anyhow::bail!(
-                        "No reward address configured. Configure a reward address or use --reward-address"
-                    )
-                }
+                anyhow::bail!(
+                    "No reward address configured. Configure a reward address or use --reward-address"
+                )
             }
         };
 
@@ -102,11 +100,7 @@ impl RewardsPower {
             }
         }
 
-        let vezkc = IERC721Votes::new(deployment.vezkc_address, &provider);
         let rewards = IRewards::new(deployment.vezkc_address, &provider);
-
-        let staked_balance =
-            vezkc.balanceOf(address).call().await.context("Failed to query staked balance")?;
 
         let reward_power = rewards
             .getStakingRewards(address)

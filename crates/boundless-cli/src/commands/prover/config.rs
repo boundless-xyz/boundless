@@ -38,34 +38,37 @@ impl ProverConfigCmd {
         let config = Config::load().ok();
         let secrets = Secrets::load().ok();
 
-        if let Some(ref cfg) = config {
-            if let Some(ref prover) = cfg.prover {
-                let network = normalize_network_name(&prover.network);
-                display.item_colored("Network", network, "cyan");
-
-                let prover_sec =
-                    secrets.as_ref().and_then(|s| s.prover_networks.get(&prover.network));
-
-                display_rpc_url(&display, prover_sec.and_then(|s| s.rpc_url.as_deref()));
-
-                let (pk, pk_source) = get_private_key_with_source(
-                    module.private_key_env_var(),
-                    prover_sec.and_then(|s| s.private_key.as_deref()),
-                );
-
-                display_address_and_key_status(
-                    &display,
-                    module.address_label(),
-                    pk,
-                    pk_source,
-                    prover_sec.and_then(|s| s.address.as_deref()),
-                );
-            } else {
-                display_not_configured(&display, module);
-            }
-        } else {
+        let Some(ref cfg) = config else {
             display_not_configured(&display, module);
-        }
+            display_tip(&display, module);
+            return Ok(());
+        };
+
+        let Some(ref prover) = cfg.prover else {
+            display_not_configured(&display, module);
+            display_tip(&display, module);
+            return Ok(());
+        };
+
+        let network = normalize_network_name(&prover.network);
+        display.item_colored("Network", network, "cyan");
+
+        let prover_sec = secrets.as_ref().and_then(|s| s.prover_networks.get(&prover.network));
+
+        display_rpc_url(&display, prover_sec.and_then(|s| s.rpc_url.as_deref()));
+
+        let (pk, pk_source) = get_private_key_with_source(
+            module.private_key_env_var(),
+            prover_sec.and_then(|s| s.private_key.as_deref()),
+        );
+
+        display_address_and_key_status(
+            &display,
+            module.address_label(),
+            pk,
+            pk_source,
+            prover_sec.and_then(|s| s.address.as_deref()),
+        );
 
         display_tip(&display, module);
 

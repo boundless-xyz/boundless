@@ -328,9 +328,9 @@ impl OrderStreamClient {
                 }
                 Err(anyhow::Error::msg("No order found"))
             }
-            None => Err(anyhow::Error::msg(
-                "Multiple orders found, please provide a request digest",
-            )),
+            None => {
+                Err(anyhow::Error::msg("Multiple orders found, please provide a request digest"))
+            }
         }
     }
 

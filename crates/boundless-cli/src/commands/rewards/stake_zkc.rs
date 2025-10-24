@@ -33,6 +33,7 @@ use colored::Colorize;
 
 use crate::{
     config::{GlobalConfig, RewardsConfig},
+    display::DisplayManager,
     indexer_client::{parse_amount, IndexerClient},
 };
 
@@ -122,10 +123,11 @@ impl RewardsStakeZkc {
         let network_name = crate::network_name_from_chain_id(Some(chain_id));
         let amount_formatted = crate::format_amount(&format_ether(self.amount));
 
-        println!("\n{} [{}]", "Staking ZKC".bold(), network_name.blue().bold());
-        println!("  Amount:      {} {}", amount_formatted.yellow().bold(), "ZKC".yellow());
+        let display = DisplayManager::with_network(network_name);
+        display.header("Staking ZKC");
+        display.balance("Amount", &amount_formatted, "ZKC", "yellow");
         if let Some(ref staking_addr) = self.staking_address {
-            println!("  Staking to:  {}", format!("{:#x}", staking_addr).cyan());
+            display.item_colored("Staking to", format!("{:#x}", staking_addr), "cyan");
         }
         println!();
 
@@ -149,8 +151,8 @@ impl RewardsStakeZkc {
 
         let tx_hash = *pending_tx.tx_hash();
 
-        println!("  Transaction: {}", format!("{:#x}", tx_hash).dimmed());
-        println!("  Status:      {}", "Waiting for confirmation...".yellow());
+        display.item_colored("Transaction", format!("{:#x}", tx_hash), "dimmed");
+        display.status("Status", "Waiting for confirmation...", "yellow");
 
         let receipt = pending_tx
             .with_required_confirmations(1)
@@ -168,9 +170,9 @@ impl RewardsStakeZkc {
         };
 
         let staked_formatted = crate::format_amount(&format_ether(new_total_staked));
-        println!("\n{} {}", "✓".green().bold(), "Staking successful!".green().bold());
-        println!("  Token ID:     {}", token_id.to_string().cyan());
-        println!("  Total Staked: {} {}", staked_formatted.green().bold(), "ZKC".green());
+        display.success("Staking successful!");
+        display.item_colored("Token ID", token_id.to_string(), "cyan");
+        display.balance("Total Staked", &staked_formatted, "ZKC", "green");
 
         // Query and display final balances
         self.display_final_status(provider, deployment, tx_signer.address()).await?;
@@ -228,22 +230,19 @@ impl RewardsStakeZkc {
         let staked_formatted = crate::format_amount(&format_ether(staked_amount));
         let available_formatted = crate::format_amount(&format_ether(available_balance));
 
-        println!("\n{}", "Current Balances".bold());
-        println!("  Staked:    {} {}", staked_formatted.green().bold(), "ZKC".green());
-        println!("  Available: {} {}", available_formatted.cyan().bold(), "ZKC".cyan());
+        let display = DisplayManager::new();
+        display.subsection("Current Balances");
+        display.balance("Staked", &staked_formatted, "ZKC", "green");
+        display.balance("Available", &available_formatted, "ZKC", "cyan");
 
         // Show reward power with delegation info
         if reward_delegate != address {
             let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
-            println!(
-                "  Reward Power: {} {}",
-                "0".yellow().bold(),
-                format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate)
-                    .dimmed()
-            );
+            let delegation_note = format!("[delegated {} to {:#x}]", reward_power_formatted, reward_delegate);
+            println!("  {:<16} {} {}", "Reward Power:", "0".yellow().bold(), delegation_note.dimmed());
         } else {
             let reward_power_formatted = crate::format_amount(&format_ether(reward_power));
-            println!("  Reward Power: {}", reward_power_formatted.yellow().bold());
+            println!("  {:<16} {}", "Reward Power:", reward_power_formatted.yellow().bold());
         }
 
         Ok(())
@@ -259,13 +258,8 @@ impl RewardsStakeZkc {
 
         let network_name = crate::network_name_from_chain_id(deployment.chain_id);
 
-        println!("\n{} [{}]", "DRY RUN: Staking Estimate".bold(), network_name.blue().bold());
-
-        let rpc_url = rewards_config.require_rpc_url()?;
-        let provider = ProviderBuilder::new()
-            .connect(rpc_url.as_str())
-            .await
-            .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+        let display = DisplayManager::with_network(network_name);
+        display.header("DRY RUN: Staking Estimate");
 
         // Use deployment chain ID instead of querying RPC (avoids wrong indexer if RPC URL misconfigured)
         let client = IndexerClient::new_from_chain_id(deployment.chain_id.unwrap())?;
@@ -278,10 +272,10 @@ impl RewardsStakeZkc {
 
         if let Some(ref meta) = metadata {
             let formatted_time = crate::indexer_client::format_timestamp(&meta.last_updated_at);
-            println!("Data last updated: {}", formatted_time.dimmed());
+            display.note(&format!("Data last updated: {}", formatted_time));
         }
 
-        println!("Fetching current epoch staking data...");
+        display.note("Fetching current epoch staking data...");
         let summary = client.get_epoch_staking(estimated_epoch).await?;
 
         let total_staked = parse_amount(&summary.total_staked)?;
@@ -299,32 +293,23 @@ impl RewardsStakeZkc {
         let your_stake_formatted = crate::format_amount(&format_ether(your_stake));
         let new_total_formatted = crate::format_amount(&format_ether(new_total));
 
-        println!("\n{}", "Current Epoch Statistics".bold());
-        println!("  Epoch:         {}", summary.epoch.to_string().cyan());
-        println!("  Total Staked:  {} {}", total_staked_formatted.green(), "ZKC".green());
-        println!("  Stakers:       {}", summary.num_stakers.to_string().cyan());
-        println!("  Your Stake:    {} {}", your_stake_formatted.yellow(), "ZKC".yellow());
+        display.subsection("Current Epoch Statistics");
+        display.item_colored("Epoch", summary.epoch.to_string(), "cyan");
+        display.balance("Total Staked", &total_staked_formatted, "ZKC", "green");
+        display.item_colored("Stakers", summary.num_stakers.to_string(), "cyan");
+        display.balance("Your Stake", &your_stake_formatted, "ZKC", "yellow");
 
-        println!("\n{}", "Your Estimated Position".bold());
-        println!("  Share:         {:.2}%", your_percentage);
-        println!("  New Total:     {} {}", new_total_formatted.green(), "ZKC".green());
+        display.subsection("Your Estimated Position");
+        display.item("Share", format!("{:.2}%", your_percentage));
+        display.balance("New Total", &new_total_formatted, "ZKC", "green");
 
         // Calculate PoVW cap (reward power / 15)
         let max_povw_per_epoch = your_stake / U256::from(15);
         let max_povw_formatted = crate::format_amount(&format_ether(max_povw_per_epoch));
 
-        println!("\n{}", "Maximum PoVW Rewards".bold());
-        println!(
-            "  Reward Power:  {} {}",
-            your_stake_formatted.yellow(),
-            "(equals staked amount)".dimmed()
-        );
-        println!(
-            "  Max per Epoch: {} {} {}",
-            max_povw_formatted.yellow().bold(),
-            "ZKC".yellow(),
-            "(reward power / 15)".dimmed()
-        );
+        display.subsection("Maximum PoVW Rewards");
+        println!("  {:<16} {} {}", "Reward Power:", your_stake_formatted.yellow(), "(equals staked amount)".dimmed());
+        println!("  {:<16} {} {} {}", "Max per Epoch:", max_povw_formatted.yellow().bold(), "ZKC".yellow(), "(reward power / 15)".dimmed());
 
         // Rough staking reward estimate
         let estimated_epoch_rewards = U256::from(1000000_u64) * U256::from(10).pow(U256::from(18));
@@ -342,16 +327,16 @@ impl RewardsStakeZkc {
             0.0
         };
 
-        println!("\n{}", "Estimated Staking Rewards (Per Epoch)".bold());
-        println!("  Est. Rewards:  ~{} {}", estimated_rewards_formatted.green(), "ZKC".green());
-        println!("  Annual Rate:   ~{:.2}%", apy);
+        display.subsection("Estimated Staking Rewards (Per Epoch)");
+        println!("  {:<16} ~{} {}", "Est. Rewards:", estimated_rewards_formatted.green(), "ZKC".green());
+        display.item("Annual Rate", format!("~{:.2}%", apy));
 
-        println!("\n{} {}", "⚠".yellow(), "IMPORTANT DISCLAIMERS:".bold());
-        println!("  • These estimates assume current epoch conditions remain constant");
-        println!("  • Actual rewards vary based on network participation");
-        println!("  • Staking locks your tokens. To withdraw, you must initiate the withdrawal process and wait 30 days.");
+        display.warning("IMPORTANT DISCLAIMERS:");
+        display.note("• These estimates assume current epoch conditions remain constant");
+        display.note("• Actual rewards vary based on network participation");
+        display.note("• Staking locks your tokens. To withdraw, you must initiate the withdrawal process and wait 30 days.");
 
-        println!("\n{} To proceed with actual staking, run without --dry-run flag", "ℹ".blue());
+        display.info("To proceed with actual staking, run without --dry-run flag");
 
         Ok(())
     }

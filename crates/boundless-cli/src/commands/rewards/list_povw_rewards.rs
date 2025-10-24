@@ -47,6 +47,10 @@ pub struct RewardsListPovwRewards {
     #[clap(long)]
     pub dry_run: bool,
 
+    /// Display results in ascending order (oldest first)
+    #[clap(long)]
+    pub asc: bool,
+
     /// Rewards configuration (RPC URL, private key, ZKC contract address)
     #[clap(flatten)]
     pub rewards_config: RewardsConfig,
@@ -96,8 +100,7 @@ impl RewardsListPovwRewards {
 
         // Set epoch range with defaults
         let end_epoch = self.end_epoch.unwrap_or(current_epoch);
-        let start_epoch =
-            self.start_epoch.unwrap_or_else(|| if end_epoch >= 5 { end_epoch - 5 } else { 0 });
+        let start_epoch = self.start_epoch.unwrap_or_else(|| end_epoch.saturating_sub(5));
 
         // Create epoch data structures
         struct EpochPovwData {
@@ -146,7 +149,7 @@ impl RewardsListPovwRewards {
         if self.address.is_some() {
             display.address("Address", address);
         } else {
-            display.item("Address", format!("{} (from config)", format!("{:#x}", address)));
+            display.item("Address", format!("{:#x} (from config)", address));
         }
         display.item("Epoch Range", format!("{}-{}", start_epoch, end_epoch));
 
@@ -170,11 +173,18 @@ impl RewardsListPovwRewards {
             "ZKC",
             "green",
         );
-        display.item_colored("Total Work Submitted", &format_work_cycles(&total_work), "cyan");
+        display.item_colored("Total Work Submitted", format_work_cycles(&total_work), "cyan");
         display.item("Epochs Participated", epochs_participated);
 
         display.subsection("Epoch History");
-        for epoch in (start_epoch..=end_epoch).rev() {
+
+        let epochs: Vec<u64> = if self.asc {
+            (start_epoch..=end_epoch).collect()
+        } else {
+            (start_epoch..=end_epoch).rev().collect()
+        };
+
+        for epoch in epochs {
             println!();
             println!("  {} {}", "Epoch".dimmed(), epoch.to_string().cyan().bold());
 

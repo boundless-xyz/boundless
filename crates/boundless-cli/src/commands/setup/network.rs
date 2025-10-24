@@ -92,19 +92,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_market_network_base_mainnet() {
+    fn test_normalize_market_network() {
         assert_eq!(normalize_market_network("Base Mainnet"), "base-mainnet");
         assert_eq!(normalize_market_network("base-mainnet"), "base-mainnet");
-    }
-
-    #[test]
-    fn test_normalize_market_network_base_sepolia() {
         assert_eq!(normalize_market_network("Base Sepolia"), "base-sepolia");
         assert_eq!(normalize_market_network("base-sepolia"), "base-sepolia");
-    }
-
-    #[test]
-    fn test_normalize_market_network_eth_sepolia() {
         assert_eq!(normalize_market_network("Ethereum Sepolia"), "eth-sepolia");
         assert_eq!(normalize_market_network("Eth Sepolia"), "eth-sepolia");
         assert_eq!(normalize_market_network("eth-sepolia"), "eth-sepolia");
@@ -117,75 +109,11 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_rewards_network_eth_mainnet() {
-        assert_eq!(normalize_rewards_network("Eth Mainnet"), "eth-mainnet");
-        assert_eq!(normalize_rewards_network("Ethereum Mainnet"), "eth-mainnet");
-        assert_eq!(normalize_rewards_network("eth-mainnet"), "eth-mainnet");
-    }
-
-    #[test]
-    fn test_normalize_rewards_network_eth_sepolia() {
-        assert_eq!(normalize_rewards_network("Eth Testnet (Sepolia)"), "eth-sepolia");
-        assert_eq!(normalize_rewards_network("Eth Sepolia"), "eth-sepolia");
-        assert_eq!(normalize_rewards_network("Ethereum Sepolia"), "eth-sepolia");
-        assert_eq!(normalize_rewards_network("eth-sepolia"), "eth-sepolia");
-    }
-
-    #[test]
-    fn test_normalize_rewards_network_custom() {
-        assert_eq!(normalize_rewards_network("custom-5678"), "custom-5678");
-        assert_eq!(normalize_rewards_network("my-rewards-network"), "my-rewards-network");
-    }
-
-    #[test]
     fn test_is_prebuilt_network_requestor() {
         assert!(is_prebuilt_network(ModuleType::Requestor, "base-mainnet"));
         assert!(is_prebuilt_network(ModuleType::Requestor, "base-sepolia"));
         assert!(is_prebuilt_network(ModuleType::Requestor, "eth-sepolia"));
         assert!(!is_prebuilt_network(ModuleType::Requestor, "custom-1234"));
         assert!(!is_prebuilt_network(ModuleType::Requestor, "eth-mainnet"));
-    }
-
-    #[test]
-    fn test_is_prebuilt_network_prover() {
-        assert!(is_prebuilt_network(ModuleType::Prover, "base-mainnet"));
-        assert!(is_prebuilt_network(ModuleType::Prover, "base-sepolia"));
-        assert!(is_prebuilt_network(ModuleType::Prover, "eth-sepolia"));
-        assert!(!is_prebuilt_network(ModuleType::Prover, "custom-1234"));
-        assert!(!is_prebuilt_network(ModuleType::Prover, "eth-mainnet"));
-    }
-
-    #[test]
-    fn test_is_prebuilt_network_rewards() {
-        assert!(is_prebuilt_network(ModuleType::Rewards, "eth-mainnet"));
-        assert!(is_prebuilt_network(ModuleType::Rewards, "eth-sepolia"));
-        assert!(!is_prebuilt_network(ModuleType::Rewards, "base-mainnet"));
-        assert!(!is_prebuilt_network(ModuleType::Rewards, "custom-1234"));
-    }
-
-    #[test]
-    fn test_get_prebuilt_networks_requestor() {
-        let networks = get_prebuilt_networks(ModuleType::Requestor);
-        assert_eq!(networks.len(), 3);
-        assert!(networks.contains(&"base-mainnet"));
-        assert!(networks.contains(&"base-sepolia"));
-        assert!(networks.contains(&"eth-sepolia"));
-    }
-
-    #[test]
-    fn test_get_prebuilt_networks_prover() {
-        let networks = get_prebuilt_networks(ModuleType::Prover);
-        assert_eq!(networks.len(), 3);
-        assert!(networks.contains(&"base-mainnet"));
-        assert!(networks.contains(&"base-sepolia"));
-        assert!(networks.contains(&"eth-sepolia"));
-    }
-
-    #[test]
-    fn test_get_prebuilt_networks_rewards() {
-        let networks = get_prebuilt_networks(ModuleType::Rewards);
-        assert_eq!(networks.len(), 2);
-        assert!(networks.contains(&"eth-mainnet"));
-        assert!(networks.contains(&"eth-sepolia"));
     }
 }

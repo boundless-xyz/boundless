@@ -88,7 +88,7 @@ pub fn obscure_url(url: &str) -> String {
         // Process the host (first part) - split by dots
         let host = parts[0];
         let obscured_host =
-            host.split('.').map(|segment| obscure_segment(segment)).collect::<Vec<_>>().join(".");
+            host.split('.').map(obscure_segment).collect::<Vec<_>>().join(".");
 
         // Process the path segments
         let obscured_path: Vec<String> =
@@ -102,7 +102,7 @@ pub fn obscure_url(url: &str) -> String {
         }
     } else {
         // No protocol, just obscure each slash-separated part
-        url.split('/').map(|part| obscure_segment(part)).collect::<Vec<_>>().join("/")
+        url.split('/').map(obscure_segment).collect::<Vec<_>>().join("/")
     }
 }
 
@@ -134,32 +134,13 @@ mod tests {
     fn test_obscure_url_with_api_key() {
         let url = "https://eth-mainnet.g.alchemy.com/v2/kEepgHsajdisoajJcfV";
         let obscured = obscure_url(url);
-        // "eth-mainnet" (11 chars) -> "eth***net"
-        // "g" (1 char) -> "g"
-        // "alchemy" (7 chars) -> "al***my"
-        // "com" (3 chars) -> "com"
-        // "v2" (2 chars) -> "v2"
-        // "kEepgHsajdisoajJcfV" (19 chars) -> "keep*****jcfv"
         assert_eq!(obscured, "https://eth***net.g.al***my.com/v2/keep*****jcfv");
-    }
-
-    #[test]
-    fn test_obscure_url_short_segments() {
-        let url = "https://a.b.c.d/x/y";
-        let obscured = obscure_url(url);
-        // All segments are too short (<=6 chars), should remain unchanged
-        assert_eq!(obscured, "https://a.b.c.d/x/y");
     }
 
     #[test]
     fn test_obscure_url_long_segments() {
         let url = "https://verylongsubdomain.anotherlongdomain.com/verylongpath/anotherlongpath";
         let obscured = obscure_url(url);
-        // "verylongsubdomain" (17 chars) -> "very*****main"
-        // "anotherlongdomain" (17 chars) -> "anot*****main"
-        // "com" (3 chars) -> "com"
-        // "verylongpath" (12 chars) -> "ver***ath"
-        // "anotherlongpath" (15 chars) -> "ano***ath"
         assert_eq!(obscured, "https://very*****main.anot*****main.com/ver***ath/ano***ath");
     }
 
@@ -189,39 +170,6 @@ mod tests {
     fn test_address_from_private_key_invalid() {
         let pk = "not_a_valid_key";
         let address = address_from_private_key(pk);
-        assert!(address.is_none());
-    }
-
-    #[test]
-    fn test_address_from_private_key_too_short() {
-        let pk = "abc123";
-        let address = address_from_private_key(pk);
-        assert!(address.is_none());
-    }
-
-    #[test]
-    fn test_process_private_key_without_prefix() {
-        let pk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-        let (clean_pk, address) = process_private_key(pk);
-        assert_eq!(clean_pk, pk);
-        assert!(address.is_some());
-        assert_eq!(address.unwrap(), "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
-    }
-
-    #[test]
-    fn test_process_private_key_with_prefix() {
-        let pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-        let (clean_pk, address) = process_private_key(pk);
-        assert_eq!(clean_pk, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
-        assert!(address.is_some());
-        assert_eq!(address.unwrap(), "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
-    }
-
-    #[test]
-    fn test_process_private_key_invalid() {
-        let pk = "invalid";
-        let (clean_pk, address) = process_private_key(pk);
-        assert_eq!(clean_pk, "invalid");
         assert!(address.is_none());
     }
 

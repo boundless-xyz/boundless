@@ -266,14 +266,14 @@ impl RewardsConfig {
                     );
                 }
                 self.reward_rpc_url = Some(Url::parse(&rpc_url)?);
-            } else if let Some(ref rpc_url) = config_rpc_url {
+            } else if let Some(rpc_url) = config_rpc_url {
                 self.reward_rpc_url = Some(Url::parse(rpc_url)?);
             }
         }
 
         // Load deprecated private_key field from config only (for backward compatibility)
         if self.private_key.is_none() {
-            if let Some(ref pk) = config_private_key {
+            if let Some(pk) = config_private_key {
                 self.private_key = Some(parse_private_key(pk)?);
             }
         }
@@ -285,7 +285,7 @@ impl RewardsConfig {
                     println!("⚠ Using STAKING_PRIVATE_KEY from environment (overriding configured value)");
                 }
                 self.staking_private_key = Some(parse_private_key(&pk)?);
-            } else if let Some(ref pk) = config_staking_private_key {
+            } else if let Some(pk) = config_staking_private_key {
                 self.staking_private_key = Some(parse_private_key(pk)?);
             }
         }
@@ -301,7 +301,7 @@ impl RewardsConfig {
                 if !addr.is_empty() {
                     self.staking_address = Some(addr.parse()?);
                 }
-            } else if let Some(ref addr) = config_staking_address {
+            } else if let Some(addr) = config_staking_address {
                 if !addr.is_empty() {
                     self.staking_address = Some(addr.parse()?);
                 }
@@ -317,7 +317,7 @@ impl RewardsConfig {
                     );
                 }
                 self.reward_private_key = Some(parse_private_key(&pk)?);
-            } else if let Some(ref pk) = config_reward_private_key {
+            } else if let Some(pk) = config_reward_private_key {
                 self.reward_private_key = Some(parse_private_key(pk)?);
             }
         }
@@ -333,7 +333,7 @@ impl RewardsConfig {
                 if !addr.is_empty() {
                     self.reward_address = Some(addr.parse()?);
                 }
-            } else if let Some(ref addr) = config_reward_address {
+            } else if let Some(addr) = config_reward_address {
                 if !addr.is_empty() {
                     self.reward_address = Some(addr.parse()?);
                 }
@@ -363,7 +363,7 @@ impl RewardsConfig {
                     );
                 }
                 self.beacon_api_url = Some(Url::parse(&url)?);
-            } else if let Some(ref url) = config_beacon_api_url {
+            } else if let Some(url) = config_beacon_api_url {
                 self.beacon_api_url = Some(Url::parse(url)?);
             }
         }

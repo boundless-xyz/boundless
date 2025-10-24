@@ -81,6 +81,7 @@ pub fn normalize_network_name(network: &str) -> &str {
     match network {
         "base-mainnet" => "Base Mainnet",
         "base-sepolia" => "Base Sepolia",
+        "eth-mainnet" => "Ethereum Mainnet",
         "eth-sepolia" => "Ethereum Sepolia",
         "mainnet" => "Ethereum Mainnet",
         "sepolia" => "Ethereum Sepolia",
@@ -94,7 +95,6 @@ pub fn get_private_key_with_source<'a>(
     config_pk: Option<&'a str>,
 ) -> (Option<&'a str>, &'static str) {
     if let Ok(env_pk) = std::env::var(env_var_name) {
-        // This is safe because the env var is held for the lifetime of the program
         (Some(Box::leak(env_pk.into_boxed_str())), "env")
     } else {
         (config_pk, "config")

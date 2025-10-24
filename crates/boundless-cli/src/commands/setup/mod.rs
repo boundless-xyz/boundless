@@ -17,6 +17,7 @@
 mod custom_networks;
 mod network;
 pub mod secrets;
+#[allow(clippy::module_inception)]
 mod setup;
 
 pub use custom_networks::{

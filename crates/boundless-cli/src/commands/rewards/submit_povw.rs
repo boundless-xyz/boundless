@@ -357,7 +357,7 @@ impl RewardsSubmitPovw {
     /// Execute dry-run to show projected rewards
     async fn execute_dry_run(
         &self,
-        rewards_config: &RewardsConfig,
+        _rewards_config: &RewardsConfig,
         provider: &impl Provider,
         deployment: &Deployment,
         state: &State,
@@ -505,7 +505,7 @@ impl RewardsSubmitPovw {
                 "{} {} {}",
                 capped_rewards_formatted.green().bold(),
                 "ZKC".green(),
-                format!("(min(reward cap, potential rewards))").dimmed()
+                "(min(reward cap, potential rewards))".to_string().dimmed()
             ),
         );
 

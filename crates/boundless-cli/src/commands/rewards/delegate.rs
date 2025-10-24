@@ -44,7 +44,7 @@ impl RewardsDelegate {
 
         let provider = ProviderBuilder::new()
             .wallet(signer.clone())
-            .on_http(rpc_url.parse().context("Invalid RPC URL")?);
+            .connect_http(rpc_url.parse().context("Invalid RPC URL")?);
 
         let chain_id = provider.get_chain_id().await.context("Failed to get chain ID")?;
 

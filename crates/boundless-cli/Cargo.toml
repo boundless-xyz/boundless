@@ -35,7 +35,6 @@ inquire = "0.7"
 libc = "0.2.159"
 num_enum = "0.7.4"
 reqwest = { workspace = true }
-toml = "0.8"
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 risc0-povw = { workspace = true, features = ["prover"] }
@@ -47,6 +46,7 @@ shadow-rs = { version = "1.1", default-features = false }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tabled = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+toml = "0.8"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }

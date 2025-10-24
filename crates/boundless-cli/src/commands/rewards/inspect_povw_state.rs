@@ -20,7 +20,7 @@ use colored::Colorize;
 use risc0_povw::guest::Journal as LogBuilderJournal;
 
 use super::State;
-use crate::config::{GlobalConfig, RewardsConfig};
+use crate::{config::{GlobalConfig, RewardsConfig}, display::DisplayManager};
 
 /// Inspect a PoVW state file and display detailed statistics
 #[derive(Args, Clone, Debug)]
@@ -67,7 +67,7 @@ impl RewardsInspectPovwState {
             .modified()
             .ok()
             .and_then(|t| t.elapsed().ok())
-            .map(|d| format_duration(d))
+            .map(format_duration)
             .unwrap_or_else(|| "unknown".to_string());
 
         // Load state
@@ -76,33 +76,35 @@ impl RewardsInspectPovwState {
         })?;
 
         // Print header
-        println!("\n{}", "═══════════════════════════════════════════════════════".bold());
+        let display = DisplayManager::new();
+        println!();
+        display.separator();
         println!("{}", "           PoVW State File Inspector".bold().cyan());
-        println!("{}", "═══════════════════════════════════════════════════════".bold());
+        display.separator();
 
         // File Information
-        println!("\n{}", "File Information".bold().green());
-        println!("  Path:          {}", display_path.display().to_string().cyan());
-        println!("  Size:          {} bytes", file_size.to_string().cyan());
-        println!("  Last Modified: {}", file_modified.dimmed());
+        display.subsection("File Information");
+        display.item_colored("Path", display_path.display().to_string(), "cyan");
+        display.item_colored("Size", format!("{} bytes", file_size), "cyan");
+        println!("  {:<16} {}", "Last Modified:", file_modified.dimmed());
 
         // State Metadata
-        println!("\n{}", "State Metadata".bold().green());
-        println!("  Log ID:        {}", format!("0x{:x}", state.log_id).cyan());
+        display.subsection("State Metadata");
+        display.item_colored("Log ID", format!("0x{:x}", state.log_id), "cyan");
 
         if let Ok(elapsed) = state.updated_at.elapsed() {
-            println!("  Last Updated:  {}", format_duration(elapsed).dimmed());
+            println!("  {:<16} {}", "Last Updated:", format_duration(elapsed).dimmed());
         }
 
         // Work Log Information
-        println!("\n{}", "Work Log".bold().green());
-        println!("  Commit:        {}", state.work_log.commit().to_string().cyan());
+        display.subsection("Work Log");
+        display.item_colored("Commit", state.work_log.commit().to_string(), "cyan");
 
         if state.work_log.is_empty() {
-            println!("  Jobs:          {} {}", "0".yellow(), "(empty work log)".dimmed());
+            println!("  {:<16} {} {}", "Jobs:", "0".yellow(), "(empty work log)".dimmed());
         } else {
             let total_jobs = state.work_log.jobs.len();
-            println!("  Jobs:          {}", total_jobs.to_string().cyan());
+            display.item_colored("Jobs", total_jobs.to_string(), "cyan");
 
             let mut job_ids: Vec<_> = state.work_log.jobs.keys().collect();
             job_ids.sort();
@@ -128,8 +130,8 @@ impl RewardsInspectPovwState {
         }
 
         // Log Builder Receipts
-        println!("\n{}", "Log Builder Receipts".bold().green());
-        println!("  Count:         {}", state.log_builder_receipts.len().to_string().cyan());
+        display.subsection("Log Builder Receipts");
+        display.item_colored("Count", state.log_builder_receipts.len().to_string(), "cyan");
 
         // Build a map of updated_commit -> receipt index for linking transactions
         use std::collections::HashMap;
@@ -164,7 +166,7 @@ impl RewardsInspectPovwState {
         }
 
         // On-Chain Submissions
-        println!("\n{}", "On-Chain Submissions".bold().green());
+        display.subsection("On-Chain Submissions");
 
         // Check for unsubmitted work
         let has_unsubmitted_work = if !state.log_builder_receipts.is_empty() {
@@ -191,27 +193,18 @@ impl RewardsInspectPovwState {
         };
 
         if has_unsubmitted_work {
-            println!(
-                "  Status:        {} {}",
-                "Has unsubmitted work".yellow().bold(),
-                "(run 'boundless rewards submit-povw')".dimmed()
-            );
+            display.warning("Has unsubmitted work");
+            display.note("(run 'boundless rewards submit-povw')");
         } else if state.update_transactions.is_empty() {
-            println!(
-                "  Status:        {} {}",
-                "Never submitted".yellow(),
-                "(no transactions recorded)".dimmed()
-            );
+            display.warning("Never submitted");
+            display.note("(no transactions recorded)");
         } else {
-            println!(
-                "  Status:        {} {}",
-                "Up to date".green().bold(),
-                "(all work submitted)".dimmed()
-            );
+            display.success("Up to date");
+            display.note("(all work submitted)");
         }
 
         if !state.update_transactions.is_empty() {
-            println!("  Transactions:  {}", state.update_transactions.len().to_string().cyan());
+            display.item_colored("Transactions", state.update_transactions.len().to_string(), "cyan");
             println!("\n  Transaction Details:");
 
             let mut txs: Vec<_> = state.update_transactions.iter().collect();
@@ -252,7 +245,7 @@ impl RewardsInspectPovwState {
         }
 
         // Validation
-        println!("\n{}", "Validation".bold().green());
+        display.subsection("Validation");
         print!("  State Check:   ");
         match state.validate() {
             Ok(_) => {
@@ -260,11 +253,12 @@ impl RewardsInspectPovwState {
             }
             Err(e) => {
                 println!("{}", "Validation failed".red().bold());
-                println!("  Error:         {}", e.to_string().red());
+                display.item_colored("Error", e.to_string(), "red");
             }
         }
 
-        println!("\n{}", "═══════════════════════════════════════════════════════".bold());
+        println!();
+        display.separator();
         println!();
 
         Ok(())
