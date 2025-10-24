@@ -29,6 +29,7 @@ use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::OrderStreamClient,
+    override_gateway,
     selector::is_groth16_selector,
     Deployment,
 };
@@ -66,6 +67,7 @@ pub(crate) mod prioritization;
 pub(crate) mod provers;
 pub(crate) mod proving;
 pub(crate) mod reaper;
+pub(crate) mod requestor_monitor;
 pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
@@ -457,6 +459,7 @@ pub struct Broker<P> {
     provider: Arc<P>,
     db: DbObj,
     config_watcher: ConfigWatcher,
+    priority_requestors: requestor_monitor::PriorityRequestors,
 }
 
 impl<P> Broker<P>
@@ -486,7 +489,10 @@ where
             tracing::info!("Using default deployment configuration for chain ID {chain_id}");
         }
 
-        Ok(Self { args, db, provider: Arc::new(provider), config_watcher })
+        let priority_requestors =
+            requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
+
+        Ok(Self { args, db, provider: Arc::new(provider), config_watcher, priority_requestors })
     }
 
     pub fn deployment(&self) -> &Deployment {
@@ -656,7 +662,15 @@ where
                             image_id,
                             computed_id
                         );
-                        self.download_image(&contract_url, "contract").await?
+                        let program = match self.download_image(&contract_url, "contract").await {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                let overridden_url = override_gateway(&contract_url);
+                                tracing::debug!("Retrying with overridden URL: {overridden_url}");
+                                self.download_image(&overridden_url, "gateway fallback").await?
+                            }
+                        };
+                        program
                     }
                 }
                 Err(e) => {
@@ -665,7 +679,15 @@ where
                         image_label,
                         e
                     );
-                    self.download_image(&contract_url, "contract").await?
+                    let program = match self.download_image(&contract_url, "contract").await {
+                        Ok(bytes) => bytes,
+                        Err(_) => {
+                            let overridden_url = override_gateway(&contract_url);
+                            tracing::debug!("Retrying with overridden URL: {overridden_url}");
+                            self.download_image(&overridden_url, "gateway fallback").await?
+                        }
+                    };
+                    program
                 }
             }
         };
@@ -886,6 +908,7 @@ where
             pricing_tx,
             collateral_token_decimals,
             order_state_tx.clone(),
+            self.priority_requestors.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -903,6 +926,7 @@ where
                 prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
+                self.priority_requestors.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,
@@ -986,6 +1010,19 @@ where
                 .spawn()
                 .await
                 .context("Failed to start reaper service")?;
+            Ok(())
+        });
+
+        // Start the RequestorMonitor to periodically fetch priority lists
+        let requestor_monitor =
+            Arc::new(requestor_monitor::RequestorMonitor::new(self.priority_requestors.clone()));
+        let config_clone = config.clone();
+        let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(requestor_monitor, config_clone, non_critical_cancel_token_clone)
+                .spawn()
+                .await
+                .context("Requestor list monitor panicked")?;
             Ok(())
         });
 

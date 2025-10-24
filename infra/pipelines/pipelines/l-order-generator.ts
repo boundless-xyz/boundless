@@ -1,5 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
-import { LaunchBasePipeline, LaunchPipelineConfig } from "./l-base";
+import { LaunchDefaultPipeline, LaunchPipelineConfig } from "./l-base";
 import { BasePipelineArgs } from "./base";
 
 interface LOrderGeneratorPipelineArgs extends BasePipelineArgs { }
@@ -10,7 +10,7 @@ const config: LaunchPipelineConfig = {
   computeType: "BUILD_GENERAL1_MEDIUM"
 };
 
-export class LOrderGeneratorPipeline extends LaunchBasePipeline {
+export class LOrderGeneratorPipeline extends LaunchDefaultPipeline {
   constructor(name: string, args: LOrderGeneratorPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:pipelines:l-order-generatorPipeline`, name, config, args, opts);
   }

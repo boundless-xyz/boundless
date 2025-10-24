@@ -43,6 +43,7 @@ test-cargo-example:
 test-cargo-db:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
 
@@ -112,7 +113,7 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd documentation && bun run check
+    cd documentation && bun install && bun run check
     dprint check
     forge fmt --check
 
@@ -414,9 +415,12 @@ bento action="up" env_file="" compose_flags="" detached="true":
         exit 1
     fi
 
-# Run the broker service with a bento cluster for proving.
-broker action="up" env_file="" detached="true":
+# Run all components of a boundless prover (bento, broker, miner)
+# Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just prover)
+prover action="up" env_file="" detached="true":
     #!/usr/bin/env bash
+    BOUNDLESS_MINING="${BOUNDLESS_MINING:-true}"
+
     # Check if broker.toml exists, if not create it from template
     if [ ! -f broker.toml ]; then
         echo "Creating broker.toml from template..."
@@ -424,38 +428,26 @@ broker action="up" env_file="" detached="true":
         echo "broker.toml created successfully."
     fi
 
-    just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
-
-# Run the mining service with a bento cluster
-mine action="up":
-    #!/usr/bin/env bash
-    if ! command -v docker &> /dev/null; then
-        echo "Error: Docker command is not available. Please make sure you have docker in your PATH."
-        exit 1
-    fi
-
-    if ! docker compose version &> /dev/null; then
-        echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
-        exit 1
-    fi
-
-    if [ "{{action}}" = "up" ]; then
-        echo "Starting mining service"
-        docker compose --profile miner up -d --build miner
-        echo "Mining service has been started."
-    elif [ "{{action}}" = "down" ]; then
-        echo "Stopping mining service"
-        if docker compose --profile miner stop miner; then
-            echo "Mining service has been stopped."
-        else
-            echo "Error: Failed to stop mining service."
-            exit 1
-        fi
+    if [ "{{action}}" = "logs" ]; then
+        # Ignore mining process logs by default
+        PROFILE_FLAGS="--profile broker"
+    elif [ "{{action}}" = "down" ] || [ "{{action}}" = "clean" ]; then
+        # Always include miner profile when shutting down to ensure no lingering mining process
+        PROFILE_FLAGS="--profile broker --profile miner"
+    elif [ "$BOUNDLESS_MINING" = "false" ]; then
+        PROFILE_FLAGS="--profile broker"
     else
-        echo "Unknown action: {{action}}"
-        echo "Available actions: up, down"
-        exit 1
+        PROFILE_FLAGS="--profile broker --profile miner"
     fi
+
+    just bento "{{action}}" "{{env_file}}" "$PROFILE_FLAGS" "{{detached}}"
+
+# Deprecated: Use 'just prover' instead
+broker action="up" env_file="" detached="true":
+    #!/usr/bin/env bash
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
+    just prover "{{action}}" "{{env_file}}" "{{detached}}"
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
 
 # Run the setup script
 bento-setup:

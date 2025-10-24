@@ -61,9 +61,7 @@ x-broker-common: &broker-common
       condition: service_healthy
     gpu_prove_agent0:
       condition: service_started
-    exec_agent0:
-      condition: service_started
-    exec_agent1:
+    exec_agent:
       condition: service_started
     aux_agent:
       condition: service_started
@@ -169,11 +167,10 @@ services:
       - redis
       - minio
 
-  exec_agent0:
+  exec_agent:
     <<: *exec-agent-common
-
-  exec_agent1:
-    <<: *exec-agent-common
+    deploy:
+      replicas: 2
 
   aux_agent:
     <<: *agent-common
@@ -271,7 +268,7 @@ services:
       context: .
       dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
       args:
-        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.0.1/bento-bundle-linux-amd64.tar.gz}
+        BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.0.2/bento-bundle-linux-amd64.tar.gz}
     restart: always
     depends_on:
       rest_api:
@@ -283,7 +280,7 @@ services:
     environment:
       <<: *base-environment
       RUST_LOG: ${RUST_LOG:-info}
-    entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 2000000; done"
+    entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 500000; done"
 
 volumes:
   redis-data:

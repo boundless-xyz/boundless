@@ -15,7 +15,8 @@ members = [
     "crates/lambdas/indexer-monitor",
     "crates/order-generator",
     "crates/order-stream",
-    "crates/povw",
+    "crates/povw", 
+    "crates/requestor-lists",
     "crates/rewards",
     "crates/slasher",
     "crates/test-utils",
@@ -24,23 +25,24 @@ members = [
 ]
 
 [workspace.package]
-version = "0.15.0"
+version = "1.0.0"
 edition = "2021"
 homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
-boundless-assessor = { version = "0.15.0", path = "crates/assessor" }
-boundless-cli = { version = "0.15.0", path = "crates/boundless-cli" }
-boundless-market = { version = "0.15.0", path = "crates/boundless-market" }
-boundless-rewards = { version = "0.15.0", path = "crates/rewards" }
+boundless-assessor = { version = "1.0.0", path = "crates/assessor" }
+boundless-cli = { path = "crates/boundless-cli" }
+boundless-market = { version = "1.0.0", path = "crates/boundless-market" }
+boundless-rewards = { path = "crates/rewards" }
 boundless-test-utils = { path = "crates/test-utils" }
-boundless-zkc = { version = "0.15.0", path = "crates/zkc" }
+boundless-zkc = { path = "crates/zkc" }
 boundless-povw = { path = "crates/povw" }
 distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
+requestor-lists = { path = "crates/requestor-lists" }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }
