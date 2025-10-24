@@ -50,7 +50,7 @@ pub use submit_povw::RewardsSubmitPovw;
 
 use clap::Subcommand;
 
-use crate::{commands::setup::SetupInteractive, config::GlobalConfig};
+use crate::{commands::setup::RewardsSetup, config::GlobalConfig};
 
 /// Commands for rewards management
 #[derive(Subcommand, Clone, Debug)]
@@ -112,7 +112,7 @@ pub enum RewardsCommands {
     #[command(name = "inspect-povw-state")]
     InspectPovwState(RewardsInspectPovwState),
     /// Interactive setup wizard for rewards configuration
-    Setup(SetupInteractive),
+    Setup(RewardsSetup),
 }
 
 impl RewardsCommands {
@@ -134,7 +134,7 @@ impl RewardsCommands {
             Self::Epoch(cmd) => cmd.run(global_config).await,
             Self::Power(cmd) => cmd.run(global_config).await,
             Self::InspectPovwState(cmd) => cmd.run(global_config).await,
-            Self::Setup(cmd) => cmd.run_module(global_config, "rewards").await,
+            Self::Setup(cmd) => cmd.run(global_config).await,
         }
     }
 }

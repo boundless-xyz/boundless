@@ -36,7 +36,7 @@ pub use withdraw::RequestorWithdraw;
 
 use clap::Subcommand;
 
-use crate::{commands::setup::SetupInteractive, config::GlobalConfig};
+use crate::{commands::setup::RequestorSetup, config::GlobalConfig};
 
 /// Commands for requestors
 #[derive(Subcommand, Clone, Debug)]
@@ -78,7 +78,7 @@ pub enum RequestorCommands {
     #[command(name = "verify-proof")]
     VerifyProof(RequestorVerifyProof),
     /// Interactive setup wizard for requestor configuration
-    Setup(SetupInteractive),
+    Setup(RequestorSetup),
 }
 
 impl RequestorCommands {
@@ -94,7 +94,7 @@ impl RequestorCommands {
             Self::Status(cmd) => cmd.run(global_config).await,
             Self::GetProof(cmd) => cmd.run(global_config).await,
             Self::VerifyProof(cmd) => cmd.run(global_config).await,
-            Self::Setup(cmd) => cmd.run_module(global_config, "requestor").await,
+            Self::Setup(cmd) => cmd.run(global_config).await,
         }
     }
 }

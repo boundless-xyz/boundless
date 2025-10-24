@@ -34,4 +34,4 @@ pub use network::{
 pub use secrets::{
     address_from_private_key, merge_optional, obscure_secret, obscure_url, process_private_key,
 };
-pub use setup::SetupInteractive;
+pub use setup::{ProverSetup, RequestorSetup, RewardsSetup, SetupInteractive};

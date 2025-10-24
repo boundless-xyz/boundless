@@ -36,7 +36,147 @@ use crate::config_file::{
 };
 use crate::display::DisplayManager;
 
-/// Interactive setup command
+/// Common setup fields shared across all modules
+#[derive(Args, Clone, Debug)]
+pub struct CommonSetupFields {
+    /// Switch network and load any previously saved configuration for that network
+    #[arg(long = "change-network")]
+    pub network: Option<String>,
+
+    /// RPC URL for the network
+    #[arg(long = "set-rpc-url")]
+    pub rpc_url: Option<String>,
+
+    /// Rename a custom network (format: OLD_NAME NEW_NAME)
+    #[arg(long = "rename-network", num_args = 2, value_names = ["OLD_NAME", "NEW_NAME"])]
+    pub rename_network: Option<Vec<String>>,
+
+    /// Reset secrets for the currently selected network
+    #[arg(long = "reset")]
+    pub reset: bool,
+
+    /// Reset all configuration and secrets for this module across all networks
+    #[arg(long = "reset-all")]
+    pub reset_all: bool,
+}
+
+/// Market-related setup fields (requestor/prover)
+#[derive(Args, Clone, Debug)]
+pub struct MarketSetupFields {
+    /// Private key for transactions (will be stored in ~/.boundless/secrets.toml)
+    #[arg(long = "set-private-key")]
+    pub private_key: Option<String>,
+
+    /// Address for read-only mode
+    #[arg(long = "set-address")]
+    pub address: Option<String>,
+
+    /// BoundlessMarket contract address (custom networks only)
+    #[arg(long = "set-boundless-market-address")]
+    pub boundless_market_address: Option<String>,
+
+    /// RiscZeroVerifierRouter contract address (custom networks only)
+    #[arg(long = "set-verifier-router-address")]
+    pub verifier_router_address: Option<String>,
+
+    /// RiscZeroSetVerifier contract address (custom networks only)
+    #[arg(long = "set-set-verifier-address")]
+    pub set_verifier_address: Option<String>,
+
+    /// Collateral token contract address (custom networks only)
+    #[arg(long = "set-collateral-token-address")]
+    pub collateral_token_address: Option<String>,
+
+    /// Order stream URL (custom networks only)
+    #[arg(long = "set-order-stream-url")]
+    pub order_stream_url: Option<String>,
+}
+
+/// Rewards-specific setup fields
+#[derive(Args, Clone, Debug)]
+pub struct RewardsSetupFields {
+    /// Staking private key
+    #[arg(long = "set-staking-private-key")]
+    pub staking_private_key: Option<String>,
+
+    /// Staking address for read-only mode
+    #[arg(long = "set-staking-address")]
+    pub staking_address: Option<String>,
+
+    /// Reward private key
+    #[arg(long = "set-reward-private-key")]
+    pub reward_private_key: Option<String>,
+
+    /// Reward address
+    #[arg(long = "set-reward-address")]
+    pub reward_address: Option<String>,
+
+    /// Beacon API URL
+    #[arg(long = "set-beacon-api-url")]
+    pub beacon_api_url: Option<String>,
+
+    /// Update only the PoVW state file path
+    #[arg(long = "state-file")]
+    pub state_file: Option<String>,
+
+    /// ZKC token contract address (custom networks only)
+    #[arg(long = "set-zkc-address")]
+    pub zkc_address: Option<String>,
+
+    /// veZKC contract address (custom networks only)
+    #[arg(long = "set-vezkc-address")]
+    pub vezkc_address: Option<String>,
+
+    /// Staking rewards contract address (custom networks only)
+    #[arg(long = "set-staking-rewards-address")]
+    pub staking_rewards_address: Option<String>,
+
+    /// PoVW accounting contract address (custom networks only)
+    #[arg(long = "set-povw-accounting-address")]
+    pub povw_accounting_address: Option<String>,
+
+    /// PoVW mint contract address (custom networks only)
+    #[arg(long = "set-povw-mint-address")]
+    pub povw_mint_address: Option<String>,
+}
+
+/// Requestor setup command
+#[derive(Args, Clone, Debug)]
+pub struct RequestorSetup {
+    /// Common setup fields
+    #[command(flatten)]
+    pub common: CommonSetupFields,
+
+    /// Market-related setup fields
+    #[command(flatten)]
+    pub market: MarketSetupFields,
+}
+
+/// Prover setup command
+#[derive(Args, Clone, Debug)]
+pub struct ProverSetup {
+    /// Common setup fields
+    #[command(flatten)]
+    pub common: CommonSetupFields,
+
+    /// Market-related setup fields
+    #[command(flatten)]
+    pub market: MarketSetupFields,
+}
+
+/// Rewards setup command
+#[derive(Args, Clone, Debug)]
+pub struct RewardsSetup {
+    /// Common setup fields
+    #[command(flatten)]
+    pub common: CommonSetupFields,
+
+    /// Rewards-specific setup fields
+    #[command(flatten)]
+    pub rewards: RewardsSetupFields,
+}
+
+/// Interactive setup command (for `boundless setup`)
 #[derive(Args, Clone, Debug)]
 pub struct SetupInteractive {
     /// Switch network and load any previously saved configuration for that network
@@ -123,72 +263,115 @@ pub struct SetupInteractive {
     #[arg(long = "rename-network", num_args = 2, value_names = ["OLD_NAME", "NEW_NAME"])]
     pub rename_network: Option<Vec<String>>,
 
-    /// Reset all configuration for this module
+    /// Reset secrets for the currently selected network
     #[arg(long = "reset")]
     pub reset: bool,
+
+    /// Reset all configuration and secrets for this module across all networks
+    #[arg(long = "reset-all")]
+    pub reset_all: bool,
+}
+
+impl RequestorSetup {
+    /// Run requestor setup
+    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        let setup = SetupInteractive {
+            network: self.common.network.clone(),
+            rpc_url: self.common.rpc_url.clone(),
+            private_key: self.market.private_key.clone(),
+            address: self.market.address.clone(),
+            staking_private_key: None,
+            staking_address: None,
+            reward_private_key: None,
+            reward_address: None,
+            beacon_api_url: None,
+            state_file: None,
+            boundless_market_address: self.market.boundless_market_address.clone(),
+            verifier_router_address: self.market.verifier_router_address.clone(),
+            set_verifier_address: self.market.set_verifier_address.clone(),
+            collateral_token_address: self.market.collateral_token_address.clone(),
+            order_stream_url: self.market.order_stream_url.clone(),
+            zkc_address: None,
+            vezkc_address: None,
+            staking_rewards_address: None,
+            povw_accounting_address: None,
+            povw_mint_address: None,
+            rename_network: self.common.rename_network.clone(),
+            reset: self.common.reset,
+            reset_all: self.common.reset_all,
+        };
+        setup.run_module(global_config, "requestor").await
+    }
+}
+
+impl ProverSetup {
+    /// Run prover setup
+    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        let setup = SetupInteractive {
+            network: self.common.network.clone(),
+            rpc_url: self.common.rpc_url.clone(),
+            private_key: self.market.private_key.clone(),
+            address: self.market.address.clone(),
+            staking_private_key: None,
+            staking_address: None,
+            reward_private_key: None,
+            reward_address: None,
+            beacon_api_url: None,
+            state_file: None,
+            boundless_market_address: self.market.boundless_market_address.clone(),
+            verifier_router_address: self.market.verifier_router_address.clone(),
+            set_verifier_address: self.market.set_verifier_address.clone(),
+            collateral_token_address: self.market.collateral_token_address.clone(),
+            order_stream_url: self.market.order_stream_url.clone(),
+            zkc_address: None,
+            vezkc_address: None,
+            staking_rewards_address: None,
+            povw_accounting_address: None,
+            povw_mint_address: None,
+            rename_network: self.common.rename_network.clone(),
+            reset: self.common.reset,
+            reset_all: self.common.reset_all,
+        };
+        setup.run_module(global_config, "prover").await
+    }
+}
+
+impl RewardsSetup {
+    /// Run rewards setup
+    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+        let setup = SetupInteractive {
+            network: self.common.network.clone(),
+            rpc_url: self.common.rpc_url.clone(),
+            private_key: None,
+            address: None,
+            staking_private_key: self.rewards.staking_private_key.clone(),
+            staking_address: self.rewards.staking_address.clone(),
+            reward_private_key: self.rewards.reward_private_key.clone(),
+            reward_address: self.rewards.reward_address.clone(),
+            beacon_api_url: self.rewards.beacon_api_url.clone(),
+            state_file: self.rewards.state_file.clone(),
+            boundless_market_address: None,
+            verifier_router_address: None,
+            set_verifier_address: None,
+            collateral_token_address: None,
+            order_stream_url: None,
+            zkc_address: self.rewards.zkc_address.clone(),
+            vezkc_address: self.rewards.vezkc_address.clone(),
+            staking_rewards_address: self.rewards.staking_rewards_address.clone(),
+            povw_accounting_address: self.rewards.povw_accounting_address.clone(),
+            povw_mint_address: self.rewards.povw_mint_address.clone(),
+            rename_network: self.common.rename_network.clone(),
+            reset: self.common.reset,
+            reset_all: self.common.reset_all,
+        };
+        setup.run_module(global_config, "rewards").await
+    }
 }
 
 impl SetupInteractive {
     /// Print a section header with consistent styling
     fn print_section_header(display: &DisplayManager, title: &str) {
         display.header(&format!("\n{}", title));
-    }
-
-    /// Run the interactive setup
-    pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
-        let display = DisplayManager::new();
-        display.header("\n🔧 Boundless CLI Interactive Setup");
-
-        let module = Select::new(
-            "Which module would you like to configure?",
-            vec!["Requestor", "Prover", "Rewards", "All"],
-        )
-        .prompt()?;
-
-        let mut config = Config::load().unwrap_or_default();
-        let mut secrets = Secrets::load().unwrap_or_default();
-
-        match module {
-            "Requestor" => {
-                self.setup_requestor(&mut config, &mut secrets).await?;
-            }
-            "Prover" => {
-                self.setup_prover(&mut config, &mut secrets).await?;
-            }
-            "Rewards" => {
-                self.setup_rewards(&mut config, &mut secrets).await?;
-            }
-            "All" => {
-                self.setup_requestor(&mut config, &mut secrets).await?;
-                self.setup_prover(&mut config, &mut secrets).await?;
-                self.setup_rewards(&mut config, &mut secrets).await?;
-            }
-            _ => unreachable!(),
-        }
-
-        config.save()?;
-        display.success(&format!(
-            "Configuration saved to {}",
-            Config::path()?.display().to_string().cyan()
-        ));
-
-        if !secrets.requestor_networks.is_empty()
-            || !secrets.prover_networks.is_empty()
-            || !secrets.rewards_networks.is_empty()
-        {
-            secrets.save()?;
-            display.success(&format!(
-                "Secrets saved to {} (permissions: 600)",
-                Secrets::path()?.display().to_string().cyan()
-            ));
-            display.warning(
-                "Secrets are stored in plaintext. Consider using environment variables instead.",
-            );
-        }
-
-        display.success("Setup complete! Run `boundless` to see your configuration.");
-
-        Ok(())
     }
 
     /// Run setup for a specific module
@@ -233,7 +416,7 @@ impl SetupInteractive {
         }
 
         display.success(&format!(
-            "✨ Setup complete! Run `boundless {} config` to see your configuration.",
+            "Setup complete! Run `boundless {} config` to see your configuration.",
             module
         ));
 
@@ -244,11 +427,46 @@ impl SetupInteractive {
         let display = DisplayManager::new();
         Self::print_section_header(&display, "Requestor Module Setup");
 
-        // Handle reset mode
-        if self.reset {
+        // Handle reset-all mode
+        if self.reset_all {
+            let network_count = secrets.requestor_networks.len();
+            let networks: Vec<String> = secrets.requestor_networks.keys().cloned().collect();
+
             config.requestor = None;
             secrets.requestor_networks.clear();
+
             display.success("Cleared all requestor configuration");
+            if network_count > 0 {
+                display.success(&format!("Removed secrets for {} network(s):", network_count));
+                for network in networks {
+                    display.note(&format!("  - {}", network));
+                }
+            }
+            return Ok(());
+        }
+
+        // Handle reset mode (current network only)
+        if self.reset {
+            if let Some(ref requestor) = config.requestor {
+                let network_name = &requestor.network;
+                if let Some(removed) = secrets.requestor_networks.remove(network_name) {
+                    display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
+                    if removed.rpc_url.is_some() {
+                        display.note("  - RPC URL");
+                    }
+                    if removed.private_key.is_some() {
+                        display.note("  - Private key");
+                    }
+                    if removed.address.is_some() {
+                        display.note("  - Address");
+                    }
+                } else {
+                    display.warning(&format!("No secrets found for network: {}", network_name));
+                }
+            } else {
+                display.warning("No network configured to reset");
+                display.note("Run 'boundless requestor setup' to configure a network first");
+            }
             return Ok(());
         }
 
@@ -581,11 +799,46 @@ impl SetupInteractive {
         let display = DisplayManager::new();
         Self::print_section_header(&display, "Prover Module Setup");
 
-        // Handle reset mode
-        if self.reset {
+        // Handle reset-all mode
+        if self.reset_all {
+            let network_count = secrets.prover_networks.len();
+            let networks: Vec<String> = secrets.prover_networks.keys().cloned().collect();
+
             config.prover = None;
             secrets.prover_networks.clear();
+
             display.success("Cleared all prover configuration");
+            if network_count > 0 {
+                display.success(&format!("Removed secrets for {} network(s):", network_count));
+                for network in networks {
+                    display.note(&format!("  - {}", network));
+                }
+            }
+            return Ok(());
+        }
+
+        // Handle reset mode (current network only)
+        if self.reset {
+            if let Some(ref prover) = config.prover {
+                let network_name = &prover.network;
+                if let Some(removed) = secrets.prover_networks.remove(network_name) {
+                    display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
+                    if removed.rpc_url.is_some() {
+                        display.note("  - RPC URL");
+                    }
+                    if removed.private_key.is_some() {
+                        display.note("  - Private key");
+                    }
+                    if removed.address.is_some() {
+                        display.note("  - Address");
+                    }
+                } else {
+                    display.warning(&format!("No secrets found for network: {}", network_name));
+                }
+            } else {
+                display.warning("No network configured to reset");
+                display.note("Run 'boundless prover setup' to configure a network first");
+            }
             return Ok(());
         }
 
@@ -1024,11 +1277,58 @@ impl SetupInteractive {
         let display = DisplayManager::new();
         Self::print_section_header(&display, "Rewards Module Setup");
 
-        // Handle reset mode
-        if self.reset {
+        // Handle reset-all mode
+        if self.reset_all {
+            let network_count = secrets.rewards_networks.len();
+            let networks: Vec<String> = secrets.rewards_networks.keys().cloned().collect();
+
             config.rewards = None;
             secrets.rewards_networks.clear();
+
             display.success("Cleared all rewards configuration");
+            if network_count > 0 {
+                display.success(&format!("Removed secrets for {} network(s):", network_count));
+                for network in networks {
+                    display.note(&format!("  - {}", network));
+                }
+            }
+            return Ok(());
+        }
+
+        // Handle reset mode (current network only)
+        if self.reset {
+            if let Some(ref rewards) = config.rewards {
+                let network_name = &rewards.network;
+                if let Some(removed) = secrets.rewards_networks.remove(network_name) {
+                    display.success(&format!("Cleared secrets for network: {}", network_name.cyan().bold()));
+                    if removed.rpc_url.is_some() {
+                        display.note("  - RPC URL");
+                    }
+                    if removed.staking_private_key.is_some() {
+                        display.note("  - Staking private key");
+                    }
+                    if removed.staking_address.is_some() {
+                        display.note("  - Staking address");
+                    }
+                    if removed.reward_private_key.is_some() {
+                        display.note("  - Reward private key");
+                    }
+                    if removed.reward_address.is_some() {
+                        display.note("  - Reward address");
+                    }
+                    if removed.povw_state_file.is_some() {
+                        display.note("  - PoVW state file path");
+                    }
+                    if removed.beacon_api_url.is_some() {
+                        display.note("  - Beacon API URL");
+                    }
+                } else {
+                    display.warning(&format!("No secrets found for network: {}", network_name));
+                }
+            } else {
+                display.warning("No network configured to reset");
+                display.note("Run 'boundless rewards setup' to configure a network first");
+            }
             return Ok(());
         }
 
