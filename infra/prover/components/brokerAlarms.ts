@@ -82,7 +82,7 @@ export const createProverAlarms = (
 
   // Alarms across the entire prover.
   // Note: AWS has a limit of 5 filter patterns containing regex for each log group
-  // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPattern.html
+  // https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html
 
   // [Regex] 5 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
   createErrorCodeAlarm('%\[B-[A-Z]+-500\]%', 'unexpected-errors', Severity.SEV2, {

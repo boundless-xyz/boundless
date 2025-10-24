@@ -2,3 +2,4 @@
 /node_modules/
 .env
 Pulumi.dev.yaml
+Pulumi.dev-*.yaml

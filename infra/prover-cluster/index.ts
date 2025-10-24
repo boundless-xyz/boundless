@@ -1,11 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import {
-    SecurityComponent,
-    ManagerComponent,
-    WorkerClusterComponent,
-    BaseComponentConfig
-} from "./components";
+import {BaseComponentConfig, ManagerComponent, SecurityComponent, WorkerClusterComponent} from "./components";
 
 const stackName = pulumi.getStack();
 const baseConfig = new pulumi.Config("base");
@@ -60,6 +55,11 @@ const boundlessAmi = aws.ec2.getAmi({
 
 const imageId = pulumi.output(boundlessAmi).apply(ami => ami.id);
 
+// Alert topics
+const boundlessAlertsTopicArn = baseConfig.get('SLACK_ALERTS_TOPIC_ARN');
+const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
+const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
+
 // Base configuration for all components
 const baseComponentConfig: BaseComponentConfig = {
     stackName,
@@ -91,6 +91,7 @@ const manager = new ManagerComponent({
     setVerifierAddress,
     collateralTokenAddress,
     chainId,
+    alertsTopicArns: alertsTopicArns,
 });
 
 // Create worker clusters
@@ -108,6 +109,7 @@ const workerCluster = new WorkerClusterComponent({
     proverCount,
     executionCount,
     auxCount,
+    alertsTopicArns: alertsTopicArns,
 });
 
 // Outputs
