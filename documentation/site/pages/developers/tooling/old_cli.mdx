@@ -1,0 +1,514 @@
+# Boundless CLI
+
+:::note[Boundless CLI Source code]
+The Boundless CLI source code can be found at [boundless/crates/boundless-cli](https://github.com/boundless-xyz/boundless/tree/main/crates/boundless-cli).
+:::
+
+`boundless` is a command-line interface for interacting with the Boundless Market, specifically designed to help handle depositing, withdrawing, staking and submitting proof requests.
+
+## Installation
+
+You'll need to [install Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html), then you can run the following command to install the CLI.
+
+```bash
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
+```
+
+## Usage
+
+```
+boundless [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+```
+
+### Global Options
+
+You pass these before specifying a command:
+
+| Option                                 | Description                                                                               |
+|----------------------------------------|-------------------------------------------------------------------------------------------|
+| `-r, --rpc-url <RPC_URL>`              | Ethereum RPC endpoint URL. Defaults to `http://localhost:8545`.                           |
+| `--private-key <PRIVATE_KEY>`          | A private key string (hex-encoded); used to sign transactions.                            |
+| `-b, --boundless-market-address <ADDR>`| Address of the Boundless Market contract.                                                 |
+| `-v, --verifier-address <ADDR>`        | Address of the Verifier contract.                                                         |
+| `-s, --set-verifier-address <ADDR>`    | Address of the SetVerifier contract.                                                      |
+| `--tx-timeout <SECONDS>`               | Transaction timeout in seconds. If set, the CLI will wait up to this duration for mining. |
+| `-h, --help`                           | Print help.                                                                               |
+| `-V, --version`                        | Print version.                                                                            |
+
+
+## Commands
+
+Each command is run in the form:
+
+```
+boundless [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+```
+
+#### Available Commands
+
+
+| Command            | Description                                                   |
+|--------------------|---------------------------------------------------------------|
+| [account](#account)          | Account management commands                         |
+| [request](#request)          | Proof request commands                              |
+| [proving](#proving)          | Proof execution commands                            |
+| [ops](#ops)                  | Operations on the boundless market                  |
+| [config](#config)      | Display configuration and environment variables     |
+
+**Examples:**
+
+Check the balance of `0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c` on the Sepolia market.
+
+```bash
+RPC_URL=https://rpc.node \
+boundless account balance 0x3da7206e104f6d5dd070bfe06c5373cc45c3e65c
+```
+
+Send a proof request to the Sepolia market, with the program pre-uploaded to IPFS and an input of "hello".
+
+```bash
+RPC_URL=https://rpc.node \
+PRIVATE_KEY=0xabc... \
+boundless request submit-offer --wait --input "hello" \
+--program-url http://dweb.link/ipfs/bafkreido62tz2uyieb3s6wmixwmg43hqybga2ztmdhimv7njuulf3yug4e
+```
+
+Deposit 1.5 Sepolia ETH to the market.
+
+```bash
+RPC_URL=https://rpc.node \
+PRIVATE_KEY=0xabc... \
+boundless account deposit 1.5
+```
+
+:::tip[Alchemy]
+We recommend using Alchemy for your RPC URL during testing; their free tier is more than enough to test requesting a proof.
+Receiving proofs requires event queries, which public RPCs may not support.
+:::
+
+The options for RPC URL and private key can also be passed as flags: `--rpc-url` and `--private-key`.
+
+The rest of this page will assume you've set these are environment variables.
+
+### account
+
+The `account` command is used to manage your account on the Boundless Market. It allows you to deposit and withdraw Ether, check your balance, and manage your collateral.
+
+#### deposit
+
+Deposits Ether into the Boundless Market:
+
+```
+account deposit <amount>
+```
+
+Where `<amount>` is an amount of Ether to deposit, e.g. `1.5`.
+
+**Example**:
+
+```
+boundless account deposit 1
+```
+
+This deposits 1 ETH from your wallet into the Boundless Market contract.
+
+
+#### withdraw
+
+Withdraws Ether from the Boundless Market back into your externally owned account (EOA):
+
+```
+account withdraw <amount>
+```
+
+**Example**:
+
+```
+boundless account withdraw 1
+```
+
+This withdraws 1 ETH of your in-market balance back to your wallet.
+
+
+#### balance
+
+Checks the current in-market ETH balance for a given address (defaults to your address if not specified):
+
+```
+account balance [address]
+```
+
+- `[address]` (optional) — The address to check. If omitted, uses the caller's address.
+
+**Example**:
+
+```
+boundless account balance 0xabc123...
+boundless account balance
+```
+
+#### deposit-collateral
+
+Deposits ZKC into the market as collateral (ZKC is used for collateral in Boundless):
+
+```
+account deposit-collateral <amount>
+```
+
+**Example**:
+
+```
+boundless account deposit-collateral 100
+```
+
+This deposits 100 ZKC into your collateral balance.
+
+
+#### withdraw-collateral
+
+Withdraws collateral ZKC from the market:
+
+```
+account withdraw-collateral <amount>
+```
+
+**Example**:
+
+```
+boundless account withdraw-collateral 50
+```
+
+#### collateral-balance
+
+Checks the current collateral ZKC balance for a given address (defaults to your address if none given):
+
+```
+account collateral-balance [address]
+```
+
+**Example**:
+
+```
+boundless account collateral-balance 0xabc123...
+boundless account collateral-balance
+```
+
+### request
+
+The `request` command is used to manage proof requests on the Boundless Market. It allows you to create, submit, and manage proof requests.
+
+#### submit-offer
+
+{/* TODO: This needs to be rewritten to match the new CLI */}
+
+Constructs and submits a proof request by reading a YAML offer definition, plus specifying guest program, input data, and additional requirements on the command line. This is effectively a "shortcut" for quickly submitting a structured request:
+
+```
+request submit-offer [OPTIONS] <YAML_OFFER> [ID] [--wait] [--offchain] [--no-preflight]
+             --program <PATH_TO_PROGRAM>
+             --input <STRING> OR --input-file <PATH>
+             [--encode-input]
+             [--inline-input]
+             [--journal-digest <HEX> | --journal-prefix <STRING>]
+             [--callback-address <ADDRESS> --callback-gas-limit <NUM>]
+```
+
+- `yaml_offer`: path to a YAML file describing the `Offer`.
+- `id`: optional integer ID to assign to the request.
+- `--program <PATH>`: path to the guest program  to run.
+- `--input <STRING>` or `--input-file <PATH>`: data to feed the guest image.
+- `--encode-input`: if used, the input is encoded with `risc0_zkvm::serde`.
+- `--inline-input`: if used, the input is pushed onchain rather than stored offchain.
+- `--journal-digest <HEX>`: require the guest's journal to match this digest.
+- `--journal-prefix <STRING>`: require the guest's journal to start with these bytes.
+- `--callback-address <ADDRESS> --callback-gas-limit <NUM>`: optional callback triggered upon proof success.
+- `--wait`: block until the proof request is fulfilled (or expires).
+- `--offchain`: submit the request offchain to an order-stream server (requires `--order-stream-url`).
+- `--no-preflight`: skip local "dry-run" execution of the guest.
+- `--proof-type <PROOF_TYPE>`: specify the proof type to request. This is a string that indicates the type of proof you want to generate for the request.
+  - `any`: Any proof type
+  - `groth16`: Groth16 proof type
+  - `inclusion`: Inclusion proof type
+
+**Example**:
+
+```
+boundless request submit-offer offer.yaml --program guest.wasm \
+  --input-file data.bin --journal-prefix "ABCDEF" --wait
+```
+
+Submits a request reading the YAML from `offer.yaml`, providing `guest.wasm` as the program, `data.bin` as input, and requiring the journal to start with "ABCDEF". It waits for fulfillment.
+
+#### submit
+
+Submits a proof request from a single YAML file containing the entire `ProofRequest` structure. Allows offchain or onchain submission, plus optional local preflight:
+
+```
+request submit [OPTIONS] <YAML_REQUEST> [ID] [--wait] [--offchain] [--no-preflight]
+```
+
+- `yaml_request`: path to a YAML file describing a `ProofRequest`.
+- `id`: optional integer ID for the request (otherwise generated or from the YAML itself).
+- `--wait`: wait for fulfillment.
+- `--offchain`: submit to an order-stream server (requires `--order-stream-url`).
+- `--no-preflight`: skip local "dry-run" execution.
+- `--callback-address <ADDRESS> --callback-gas-limit <NUM>`: optional callback triggered upon proof success.
+- `--proof-type <PROOF_TYPE>`: specify the proof type to request. This is a string that indicates the type of proof you want to generate for the request.
+  - `any`: Any proof type
+  - `groth16`: Groth16 proof type
+  - `inclusion`: Inclusion proof type
+
+**Example**:
+
+```
+boundless request submit ./request.yaml --wait
+```
+
+#### status
+
+Shows the request status and whether it's open, locked, fulfilled, or expired:
+
+```
+request status <REQUEST_ID> [expires_at]
+```
+
+- `expires_at`: optional expiration timestamp (UNIX time). If omitted, uses the request's known end time.
+
+**Example**:
+
+```
+boundless request status 0x5...
+```
+
+#### get-proof
+
+Retrieves the final `journal` and `seal` from onchain storage for a given request ID (once fulfilled):
+
+```
+request get-proof <REQUEST_ID>
+```
+**Example**:
+```
+boundless request get-proof 0x5...
+```
+
+#### verify-proof
+
+Verifies a proof for a given request ID on the local side, checking the onchain `journal` and `seal` with the chosen image ID.
+
+```
+request verify-proof <REQUEST_ID> <IMAGE_ID>
+```
+Where `<IMAGE_ID>` is a 32-byte hex digest identifying the guest code.
+
+**Example**:
+
+```
+boundless request verify-proof 0x5... 0x0002f87ec0...
+```
+
+### proving
+
+The `proving` subcommand is used to execute guest code locally, lock and generate proofs for specific requests.
+
+>**Note**: The proving subcommands are not equivalent to running a [prover cluster](../../provers/quick-start.mdx).
+
+#### execute
+
+Locally executes (without proving) the given request's guest code, either from a YAML file or fetching from chain/offchain. Allows checking correctness prior to submission:
+
+```
+proving execute [--request-path <PATH> | --request-id <U256> [--tx-hash <HASH>] [--request-digest <B256>]]
+        [--order-stream-url <URL>]
+```
+
+- `--request-path`: path to a YAML file containing the request.
+- `--request-id`: the proof request identifier.
+- `--request-digest`: request's EIP712 digest (optional).
+- `--tx-hash`: transaction hash (optional, to find the request).
+- `--order-stream-url`: fetch request data from an offchain server.
+
+**Examples**:
+
+- **Execute from local YAML**:
+  ```
+  boundless proving execute --request-path ./request.yaml
+  ```
+
+- **Execute from onchain** (specifying the request ID):
+  ```
+  boundless proving execute --request-id 0x5... --tx-hash 0xabc...
+  ```
+
+#### fulfill
+
+Generates valid proofs locally for one or more requests, then publishes the fulfillments onchain. This subcommand uses the RISC Zero default prover and can process multiple requests in a single batch, which is more efficient than fulfilling requests individually:
+
+```
+proving fulfill --request-ids <U256,...> [--request-digests <B256,...>] [--tx-hashes <B256,...>]
+        [--order-stream-url <URL>]
+```
+- `--request-ids`: comma-separated list of proof request identifiers (hex values)
+- `--request-digests`: comma-separated list of request EIP712 digests (optional, must match request_ids length and order)
+- `--tx-hashes`: comma-separated list of transaction hashes (optional, must match request_ids length and order)
+- `--order-stream-url`: fetch request data from an offchain server
+
+**Examples**:
+
+```
+# Fulfill a single request
+boundless proving fulfill --request-ids 0x5...
+
+# Fulfill multiple requests
+boundless proving fulfill --request-ids 0x123,0x456,0x789
+
+# Fulfill multiple requests with digests and tx hashes
+boundless proving fulfill --request-ids 0x123,0x456,0x789 \
+    --request-digests 0xabc,0xdef,0x012 \
+    --tx-hashes 0x111,0x222,0x333
+```
+
+#### lock
+
+Locks the request on the market, preventing other provers to acquire the exclusive right to get paid for its fulfillment, as long as the request gets fulfilled before the lock timeout:
+
+```
+proving lock --request-id <U256> [--request-digest <B256>] [--tx-hash <B256>]
+        [--order-stream-url <URL>]
+```
+- `--request-id`: the proof request identifier.
+- `--request-digest`: request's EIP712 digest (optional).
+- `--tx-hash`: transaction hash (optional, to find the request).
+- `--order-stream-url`: fetch request data from an offchain server.
+
+**Example**:
+```
+boundless proving lock --request-id 0x5...
+```
+
+### ops
+
+The `ops` command is used to manage operations on the Boundless Market. Currently, it only supports slashing expired orders.
+
+#### slash
+
+Slashes a prover for failing to meet obligations for a given request ID (only the requestor can slash):
+
+```
+ops slash <REQUEST_ID>
+```
+
+**Example**:
+
+```
+boundless ops slash 0x5...
+```
+
+### config
+
+To make sure everything is set up correctly, you can run the following command:
+
+```bash
+boundless config
+```
+
+This will display the current configuration, including the RPC URL, private key, Boundless Market address, Verifier address, and SetVerifier address.
+This is useful for verifying that the CLI is correctly configured to interact with the Boundless Market and the Ethereum network.
+
+## Requesting a Proof via the Boundless CLI
+
+{/* TODO: Really, its most use for debugging when you want to try specific modifications of an order, or replay an order that was extracted from the market. */}
+
+In early testing, and when trying out new order parameters, it can be useful to submit a request via the Boundless CLI.
+
+The Boundless CLI builds upon the [`boundless_market`](https://docs.rs/boundless-market/latest/boundless_market) library.
+It covers multiple market interactions such as submitting proof requests, cancelling requests, executing dry runs, requesting the status of a given request, retrieving the journal and seal of a fulfilled request and verifying a proof.
+
+To submit a proof, a valid `request.yaml` is required, this config file will specify the parameters of the request:
+
+- Request ID
+  - This can be specified, or if set to 0, a random ID will be assigned.
+- Requirements:
+  - The image ID of the program being proven.
+  - The contents of the outputs of the program, the journal.
+    This is to make sure the outputs are as expected (e.g., to ensure the right input was provided, by checking an input digest committed to the journal).
+- Image URL
+  - The link to the program stored on any public HTTP server.
+    IPFS, used through a gateway, works well (Boundless will support IPFS URLs natively in the future).
+- Input:
+  - The input bytes are passed to the program for execution.
+    The input can have any encoding. The bytes will be passed to the guest without modification.
+- Offer:
+  - This includes the minimum and maximum price for the proof request, the block number to open bidding, the price ramp up period, how many blocks before the request should timeout, and the lock-in stake the prover has to escrow to submit a bid.
+
+Below is an example of a `request.yaml` file that can be used with the `boundless submit request` command.
+
+{/* TODO: This needs to be tested to make sure it still works */}
+
+```yaml [request.yaml]
+# Unique ID for this request, constructed from the client address and a 32-bit index.
+# Constructed as (address(client) << 32) | index
+id: 0 # if set to 0, gets overwritten by a random id
+
+# Specifies the requirements for the delivered proof, including the program that must be run,
+# and the constraints on the journal's value, which define the statement to be proven.
+requirements:
+    imageId: "53cb4210cf2f5bf059e3a4f7bcbb8e21ddc5c11a690fd79e87947f9fec5522a3"
+    predicate:
+        predicateType: PrefixMatch
+        data: "53797374"
+    callback:
+        addr: "0x0000000000000000000000000000000000000000"
+        gasLimit: 0
+    selector: "00000000"
+
+# A public URI where the program (i.e. image) can be downloaded. This URI will be accessed by
+# provers that are evaluating whether to bid on the request.
+imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu"
+
+# Input to be provided to the zkVM guest execution.
+# The input data is a encoded guest environment.
+# See crates/boundless-market/src/input.rs for additional details.
+input:
+    inputType: Inline
+    data: "0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"
+
+# Offer specifying how much the client is willing to pay to have this request fulfilled
+offer:
+    minPrice: 100000000000000
+    maxPrice: 2000000000000000
+    rampUpStart: 0 # if set to 0, gets overwritten by the current UNIX timestamp
+    rampUpPeriod: 300
+    timeout: 3600 # 1 hor
+    lockTimeout: 2700 # 45 minutes
+    lockCollateral: 5000000000000000000 # 5 ZKC tokens
+```
+
+To submit a request, export or create a `.env` file with the following environment variables:
+
+```bash [Terminal]
+export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com"
+export PRIVATE_KEY="YOUR_SEPOLIA_WALLET_PRIVATE_KEY"
+```
+
+Then run the following command:
+
+```bash [Terminal]
+RUST_LOG=info boundless request submit request.yaml
+```
+
+To wait until the submitted request has been fulfilled, the `--wait` option can be added:
+
+```bash [Terminal]
+# [!code word:--wait]
+RUST_LOG=info boundless request submit request.yaml --wait
+```
+
+And to submit the request to the offchain order-stream service, make a deposit and then run `request submit` with `--offchain`.
+
+```bash [Terminal]
+# [!code word:--offchain]
+RUST_LOG=info boundless account deposit 0.002 # Enough for the request above; deposit more to cover multiple requests.
+RUST_LOG=info boundless request submit request.yaml --wait --offchain
+```
+
