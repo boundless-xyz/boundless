@@ -110,7 +110,7 @@ impl Deployment {
     /// Check if the collateral token supports permit.
     /// Some chain's bridged tokens do not support permit, for example Base.
     pub fn collateral_token_supports_permit(&self) -> bool {
-        collateral_token_supports_permit(self.market_chain_id.unwrap())
+        self.market_chain_id.map(collateral_token_supports_permit).unwrap_or(false)
     }
 }
 
