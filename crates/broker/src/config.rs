@@ -113,15 +113,15 @@ pub enum OrderCommitmentPriority {
     Random,
     /// Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
     ShortestExpiry,
-    /// Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire randomly
-    LockPrice,
-    /// Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire randomly
-    LockCyclePrice,
+    /// Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire random weighted by collateral reward
+    Price,
+    /// Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire random weighted by collateral reward
+    CyclePrice,
 }
 
 impl Default for OrderCommitmentPriority {
     fn default() -> Self {
-        Self::Random
+        Self::CyclePrice
     }
 }
 
