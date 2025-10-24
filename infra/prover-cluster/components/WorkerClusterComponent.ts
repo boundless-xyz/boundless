@@ -1,8 +1,8 @@
 import * as pulumi from "@pulumi/pulumi";
-import * as aws from "@pulumi/aws";
-import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
-import { LaunchTemplateComponent, LaunchTemplateConfig } from "./LaunchTemplateComponent";
-import { AutoScalingGroupComponent, AutoScalingGroupConfig } from "./AutoScalingGroupComponent";
+import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
+import {LaunchTemplateComponent, LaunchTemplateConfig} from "./LaunchTemplateComponent";
+import {AutoScalingGroupComponent, AutoScalingGroupConfig} from "./AutoScalingGroupComponent";
+import {MetricAlarmComponent} from "./MetricAlarmComponent";
 
 export interface WorkerClusterConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -17,12 +17,16 @@ export interface WorkerClusterConfig extends BaseComponentConfig {
     proverCount: number;
     executionCount: number;
     auxCount: number;
+    alertsTopicArns: string[];
 }
 
 export class WorkerClusterComponent extends BaseComponent {
     public readonly proverAsg: AutoScalingGroupComponent;
     public readonly executionAsg: AutoScalingGroupComponent;
     public readonly auxAsg: AutoScalingGroupComponent;
+    public readonly proverAlarms: MetricAlarmComponent;
+    public readonly executionAlarms: MetricAlarmComponent;
+    public readonly auxAlarms: MetricAlarmComponent;
 
     constructor(config: WorkerClusterConfig) {
         super(config, "boundless-bento");
@@ -35,6 +39,15 @@ export class WorkerClusterComponent extends BaseComponent {
 
         // Create aux cluster
         this.auxAsg = this.createAuxCluster(config);
+
+        // Create prover cluster alarms
+        this.proverAlarms = this.createProverAlarms(config);
+
+        // Create execution cluster alarms
+        this.executionAlarms = this.createExecutionAlarms(config);
+
+        // Create aux cluster alarms
+        this.auxAlarms = this.createAuxAlarms(config);
     }
 
     private createProverCluster(config: WorkerClusterConfig): AutoScalingGroupComponent {
@@ -60,6 +73,14 @@ export class WorkerClusterComponent extends BaseComponent {
         return new AutoScalingGroupComponent(asgConfig);
     }
 
+    private createProverAlarms(config: WorkerClusterConfig): MetricAlarmComponent {
+        return new MetricAlarmComponent({
+            ...config,
+            serviceName: "bento-prover-cluster",
+            logGroupName: `/boundless/bento/${config.stackName}/prover`,
+        });
+    }
+
     private createExecutionCluster(config: WorkerClusterConfig): AutoScalingGroupComponent {
         const launchTemplateConfig: LaunchTemplateConfig = {
             ...config,
@@ -83,6 +104,14 @@ export class WorkerClusterComponent extends BaseComponent {
         return new AutoScalingGroupComponent(asgConfig);
     }
 
+    private createExecutionAlarms(config: WorkerClusterConfig): MetricAlarmComponent {
+        return new MetricAlarmComponent({
+            ...config,
+            serviceName: "bento-execution-cluster",
+            logGroupName: `/boundless/bento/${config.stackName}/execution`,
+        });
+    }
+
     private createAuxCluster(config: WorkerClusterConfig): AutoScalingGroupComponent {
         const launchTemplateConfig: LaunchTemplateConfig = {
             ...config,
@@ -104,5 +133,13 @@ export class WorkerClusterComponent extends BaseComponent {
         };
 
         return new AutoScalingGroupComponent(asgConfig);
+    }
+
+    private createAuxAlarms(config: WorkerClusterConfig): MetricAlarmComponent {
+        return new MetricAlarmComponent({
+            ...config,
+            serviceName: "bento-aux-cluster",
+            logGroupName: `/boundless/bento/${config.stackName}/aux`,
+        });
     }
 }
