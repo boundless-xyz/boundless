@@ -83,6 +83,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
             .await?;
     }
+    conn.unlink::<_, ()>(&segment_key).await.context("Failed to delete segment key")?;
 
     Ok(())
 }
