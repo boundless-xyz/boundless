@@ -26,6 +26,8 @@ export = () => {
   const stakeTopUpAmount = isDev ? getEnvVar("STAKE_TOP_UP_AMOUNT") : config.require('STAKE_TOP_UP_AMOUNT');
   const proverEthDonateThreshold = isDev ? getEnvVar("PROVER_ETH_DONATE_THRESHOLD") : config.require('PROVER_ETH_DONATE_THRESHOLD');
   const proverStakeDonateThreshold = isDev ? getEnvVar("PROVER_STAKE_DONATE_THRESHOLD") : config.require('PROVER_STAKE_DONATE_THRESHOLD');
+  const distributorEthAlertThreshold = config.get('DISTRIBUTOR_ETH_ALERT_THRESHOLD');
+  const distributorStakeAlertThreshold = config.get('DISTRIBUTOR_STAKE_ALERT_THRESHOLD');
 
   const scheduleMinutes = config.require('SCHEDULE_MINUTES');
 
@@ -206,6 +208,8 @@ export = () => {
     stakeTopUpAmount ? `--stake-top-up-amount ${stakeTopUpAmount}` : '',
     proverEthDonateThreshold ? `--prover-eth-donate-threshold ${proverEthDonateThreshold}` : '',
     proverStakeDonateThreshold ? `--prover-stake-donate-threshold ${proverStakeDonateThreshold}` : '',
+    distributorEthAlertThreshold ? `--distributor-eth-alert-threshold ${distributorEthAlertThreshold}` : '',
+    distributorStakeAlertThreshold ? `--distributor-stake-alert-threshold ${distributorStakeAlertThreshold}` : '',
     offchainRequestorAddresses ? `--offchain-requestor-addresses ${offchainRequestorAddresses}` : '',
   ]
 
@@ -352,6 +356,30 @@ export = () => {
     pattern: '"[B-DIST-ETH]"',
   }, { dependsOn: [fargateTask] });
 
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-eth-low-filter`, {
+    name: `${serviceName}-log-eth-low-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-eth-low`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: '"[B-DIST-ETH-LOW]"',
+  }, { dependsOn: [fargateTask] });
+
+  new aws.cloudwatch.LogMetricFilter(`${serviceName}-stake-low-filter`, {
+    name: `${serviceName}-log-stake-low-filter`,
+    logGroupName: serviceName,
+    metricTransformation: {
+      namespace: `Boundless/Services/${serviceName}`,
+      name: `${serviceName}-log-stake-low`,
+      value: '1',
+      defaultValue: '0',
+    },
+    pattern: '"[B-DIST-STK-LOW]"',
+  }, { dependsOn: [fargateTask] });
+
   const alarmActions = alertsTopicArns;
 
   new aws.cloudwatch.MetricAlarm(`${serviceName}-error-alarm-${Severity.SEV2}`, {
@@ -395,17 +423,16 @@ export = () => {
     ],
     threshold: 1,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
-    // >=2 error periods per hour
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `Send stake to distributor: ${distributorAddress} on ${chainId}`,
+    alarmDescription: `Distributor unable to send stake. Send stake to distributor: ${distributorAddress} on ${chainId}`,
     actionsEnabled: true,
     alarmActions,
   });
 
-  new aws.cloudwatch.MetricAlarm(`${serviceName}-eth-alarm-${Severity.SEV2}`, {
-    name: `${serviceName}-log-eth-${Severity.SEV2}`,
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-eth-alarm-${Severity.SEV1}`, {
+    name: `${serviceName}-log-eth-${Severity.SEV1}`,
     metricQueries: [
       {
         id: 'm1',
@@ -423,7 +450,55 @@ export = () => {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     treatMissingData: 'notBreaching',
-    alarmDescription: `Send ETH to distributor: ${distributorAddress} on ${chainId}`,
+    alarmDescription: `Distributor unable to send ETH. Send ETH to distributor: ${distributorAddress} on ${chainId}`,
+    actionsEnabled: true,
+    alarmActions,
+  });
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-stake-low-alarm-${Severity.SEV2}`, {
+    name: `${serviceName}-log-stake-low-${Severity.SEV2}`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-stake-low`,
+          period: 3600,
+          stat: 'Sum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `Distributor stake balance low. Send stake to distributor: ${distributorAddress} on ${chainId}`,
+    actionsEnabled: true,
+    alarmActions,
+  });
+
+  new aws.cloudwatch.MetricAlarm(`${serviceName}-eth-low-alarm-${Severity.SEV2}`, {
+    name: `${serviceName}-log-eth-low-${Severity.SEV2}`,
+    metricQueries: [
+      {
+        id: 'm1',
+        metric: {
+          namespace: `Boundless/Services/${serviceName}`,
+          metricName: `${serviceName}-log-eth-low`,
+          period: 3600,
+          stat: 'Sum',
+        },
+        returnData: true,
+      },
+    ],
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    treatMissingData: 'notBreaching',
+    alarmDescription: `WARNING: Distributor ETH balance low. Send ETH to distributor: ${distributorAddress} on ${chainId}`,
     actionsEnabled: true,
     alarmActions,
   });
