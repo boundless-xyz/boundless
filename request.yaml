@@ -28,10 +28,10 @@ input:
 # Offer specifying how much the client is willing to pay to have this request fulfilled
 # For more information, please see https://docs.boundless.network/developers/tutorials/configure
 offer:
-    minPrice: 100000000000000 # 0.0001 ETH
+    minPrice: 0
     maxPrice: 250000000000000 # 0.00025 ETH
     lockCollateral: 20000000000000000000 # 20 ZKC
-    rampUpStart: 85 # seconds
+    rampUpStart: 0 # 0 to use current unix timestamp
     rampUpPeriod: 85 # blocks
     lockTimeout: 625 # 10 minutes 25 seconds
     timeout:  1500 # 25 minutes
