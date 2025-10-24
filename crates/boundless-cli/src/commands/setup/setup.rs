@@ -777,8 +777,7 @@ impl SetupInteractive {
                     let mut addr_prompt =
                         Text::new("Enter requestor address:").with_help_message("e.g., 0x1234...");
 
-                    if let Some(prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref())
-                    {
+                    if let Some(prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref()) {
                         addr_prompt = addr_prompt.with_default(prev_addr);
                     }
 
@@ -1155,8 +1154,7 @@ impl SetupInteractive {
                     let mut addr_prompt =
                         Text::new("Enter prover address:").with_help_message("e.g., 0x1234...");
 
-                    if let Some(prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref())
-                    {
+                    if let Some(prev_addr) = existing.as_ref().and_then(|e| e.address.as_ref()) {
                         addr_prompt = addr_prompt.with_default(prev_addr);
                     }
 
@@ -1808,8 +1806,7 @@ impl SetupInteractive {
                 let mut addr_prompt = Text::new("Enter staking address:")
                     .with_help_message("Public Ethereum address that holds your staked ZKC");
 
-                if let Some(prev_addr) =
-                    existing.as_ref().and_then(|e| e.staking_address.as_ref())
+                if let Some(prev_addr) = existing.as_ref().and_then(|e| e.staking_address.as_ref())
                 {
                     addr_prompt = addr_prompt.with_default(prev_addr);
                 }
@@ -2104,8 +2101,7 @@ impl SetupInteractive {
                 let mut beacon_prompt = Text::new("Enter Beacon API URL:")
                     .with_help_message("e.g., https://YOUR_PROVIDER/beacon");
 
-                if let Some(prev_beacon) =
-                    existing.as_ref().and_then(|e| e.beacon_api_url.as_ref())
+                if let Some(prev_beacon) = existing.as_ref().and_then(|e| e.beacon_api_url.as_ref())
                 {
                     beacon_prompt = beacon_prompt.with_default(prev_beacon);
                 }
