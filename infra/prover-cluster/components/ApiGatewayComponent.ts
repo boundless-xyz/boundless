@@ -5,7 +5,7 @@ import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 export interface ApiGatewayComponentConfig extends BaseComponentConfig {
     managerPrivateIp: pulumi.Output<string>;
     securityGroupId: pulumi.Output<string>;
-    apiKey: string;
+    apiKey: pulumi.Output<string>;
 }
 
 export class ApiGatewayComponent extends BaseComponent {
@@ -13,7 +13,7 @@ export class ApiGatewayComponent extends BaseComponent {
     public readonly targetGroup: aws.lb.TargetGroup;
     public readonly albUrl: pulumi.Output<string>;
     public readonly wafWebAcl: aws.wafv2.WebAcl;
-    private readonly apiKey: string;
+    private readonly apiKey: pulumi.Output<string>;
 
     constructor(config: ApiGatewayComponentConfig) {
         super(config, "api-gateway");

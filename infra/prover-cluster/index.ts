@@ -119,7 +119,7 @@ const apiGateway = new ApiGatewayComponent({
     ...baseComponentConfig,
     managerPrivateIp: manager.instance.privateIp,
     securityGroupId: security.securityGroup.id,
-    apiKey: apiKey.apply(key => key.get()),
+    apiKey: apiKey.apply(key => key),
 });
 
 // Outputs
