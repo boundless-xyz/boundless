@@ -84,11 +84,7 @@ mod tests {
         let account = ctx.account(0);
 
         // First deposit some funds
-        ctx.cmd("requestor", "deposit")
-            .arg("0.01")
-            .with_account(&account)
-            .assert()
-            .success();
+        ctx.cmd("requestor", "deposit").arg("0.01").with_account(&account).assert().success();
 
         // Then withdraw them
         ctx.cmd("requestor", "withdraw")
