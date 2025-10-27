@@ -4,7 +4,7 @@
 // as found in the LICENSE-BSL file.
 
 use lazy_static::lazy_static;
-use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, Opts};
+use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, Opts, register};
 
 // Prometheus metrics for workflow execution
 lazy_static! {
@@ -209,5 +209,39 @@ pub mod helpers {
         DB_CONNECTION_POOL_SIZE.set(size);
         DB_CONNECTION_POOL_IDLE.set(idle);
         DB_CONNECTION_POOL_ACTIVE.set(active);
+    }
+
+    /// Initialize and register all metrics with the default registry
+    pub fn init() {
+        let _ = register(Box::new(EXECUTION_DURATION.clone()));
+        let _ = register(Box::new(SEGMENT_COUNT.clone()));
+        let _ = register(Box::new(USER_CYCLES.clone()));
+        let _ = register(Box::new(TOTAL_CYCLES.clone()));
+        let _ = register(Box::new(TASKS_CREATED.clone()));
+        let _ = register(Box::new(TASK_PROCESSING_DURATION.clone()));
+        let _ = register(Box::new(EXECUTION_ERRORS.clone()));
+        let _ = register(Box::new(GUEST_FAULTS.clone()));
+        let _ = register(Box::new(S3_OPERATIONS.clone()));
+        let _ = register(Box::new(S3_OPERATION_DURATION.clone()));
+        let _ = register(Box::new(REDIS_OPERATIONS.clone()));
+        let _ = register(Box::new(REDIS_OPERATION_DURATION.clone()));
+        let _ = register(Box::new(DB_OPERATIONS.clone()));
+        let _ = register(Box::new(DB_OPERATION_DURATION.clone()));
+        let _ = register(Box::new(DB_CONNECTION_POOL_SIZE.clone()));
+        let _ = register(Box::new(DB_CONNECTION_POOL_IDLE.clone()));
+        let _ = register(Box::new(DB_CONNECTION_POOL_ACTIVE.clone()));
+        let _ = register(Box::new(SEGMENT_QUEUE_SIZE.clone()));
+        let _ = register(Box::new(TASK_QUEUE_SIZE_GAUGE.clone()));
+        let _ = register(Box::new(ASSUMPTION_COUNT.clone()));
+        let _ = register(Box::new(ASSUMPTION_PROCESSING_DURATION.clone()));
+        let _ = register(Box::new(POVW_RESOLVE_DURATION.clone()));
+        let _ = register(Box::new(POVW_RESOLVE_OPERATIONS.clone()));
+        let _ = register(Box::new(TASK_DURATION.clone()));
+        let _ = register(Box::new(TASK_OPERATIONS.clone()));
+        let _ = register(Box::new(PROVE_DURATION.clone()));
+        let _ = register(Box::new(JOIN_DURATION.clone()));
+        let _ = register(Box::new(KECCAK_DURATION.clone()));
+        let _ = register(Box::new(UNION_DURATION.clone()));
+        let _ = register(Box::new(RESOLVE_DURATION.clone()));
     }
 }

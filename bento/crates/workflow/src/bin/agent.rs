@@ -13,6 +13,9 @@ use workflow::{Agent, Args};
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
 
+    // Initialize and register all metrics with the default Prometheus registry
+    workflow_common::metrics::helpers::init();
+
     let args = Args::parse();
     let task_stream = args.task_stream.clone();
     let agent = Agent::new(args).await.context("Failed to initialize Agent")?;
