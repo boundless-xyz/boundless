@@ -26,9 +26,8 @@ const navigation = [
     links: [
       ["Boundless Mainnet Explorer", "https://explorer.boundless.network/orders"],
       ["Boundless Testnet Explorer", "https://explorer.testnet.boundless.network/orders"],
-      ["Boundless CLI", "/developers/tooling/sdk"],
+      ["Boundless CLI", "/developers/tooling/cli"],
       ["Boundless SDK", "/developers/tooling/sdk"],
-      ["Bento CLI", "/developers/tooling/cli"],
     ],
   },
   {
