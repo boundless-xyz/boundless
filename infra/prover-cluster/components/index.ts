@@ -4,3 +4,4 @@ export { LaunchTemplateComponent, LaunchTemplateConfig } from "./LaunchTemplateC
 export { AutoScalingGroupComponent, AutoScalingGroupConfig } from "./AutoScalingGroupComponent";
 export { ManagerComponent, ManagerComponentConfig } from "./ManagerComponent";
 export { WorkerClusterComponent, WorkerClusterConfig } from "./WorkerClusterComponent";
+export { ApiGatewayComponent, ApiGatewayComponentConfig } from "./ApiGatewayComponent";
