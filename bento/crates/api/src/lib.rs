@@ -25,7 +25,8 @@ use taskdb::{JobState, TaskDbErr};
 use thiserror::Error;
 use uuid::Uuid;
 use workflow_common::{
-    CompressType, ExecutorReq, SnarkReq as WorkflowSnarkReq, TaskType,
+    CompressType, ExecutorReq, SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT,
+    SnarkReq as WorkflowSnarkReq, TaskType,
     s3::{
         ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
         RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR, WORK_RECEIPTS_BUCKET_DIR,
@@ -156,7 +157,7 @@ impl IntoResponse for AppError {
         };
 
         match self {
-            Self::ImgAlreadyExists(_) => tracing::warn!("api warn, code: {code}, {self:?}"),
+            Self::ImgAlreadyExists(_) => tracing::debug!("Image exists: {code}, {self:?}"),
             _ => tracing::error!("api error, code {code}: {self:?}"),
         }
 
@@ -208,11 +209,11 @@ pub struct Args {
     exec_retries: i32,
 
     /// Snark timeout in seconds
-    #[clap(long, default_value_t = 60 * 2)]
+    #[clap(long, default_value_t = SNARK_TIMEOUT_DEFAULT)]
     snark_timeout: i32,
 
     /// Snark retries
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t = SNARK_RETRIES_DEFAULT)]
     snark_retries: i32,
 }
 

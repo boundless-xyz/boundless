@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::future::pending;
 use std::time::Duration;
 
 use crate::{
@@ -21,7 +20,7 @@ use crate::{
     errors::CodedError,
     futures_retry::retry,
     impl_coded_debug, now_timestamp,
-    provers::ProverObj,
+    provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
@@ -37,11 +36,11 @@ pub enum ProvingErr {
     #[error("{code} Proving failed after retries: {0:#}", code = self.code())]
     ProvingFailed(anyhow::Error),
 
-    #[error("{code} Request fulfilled by another prover", code = self.code())]
-    ExternallyFulfilled,
+    #[error("{code} Order not actionable, should cancel: {0}", code = self.code())]
+    ShouldCancel(&'static str),
 
-    #[error("{code} Proving timed out", code = self.code())]
-    ProvingTimedOut,
+    #[error("{code} Proof completed but order not actionable: {0}", code = self.code())]
+    CompletedNotActionable(&'static str),
 
     #[error("{code} Unexpected error: {0:#}", code = self.code())]
     UnexpectedError(#[from] anyhow::Error),
@@ -53,8 +52,8 @@ impl CodedError for ProvingErr {
     fn code(&self) -> &str {
         match self {
             ProvingErr::ProvingFailed(_) => "[B-PRO-501]",
-            ProvingErr::ExternallyFulfilled => "[B-PRO-502]",
-            ProvingErr::ProvingTimedOut => "[B-PRO-503]",
+            ProvingErr::ShouldCancel(_) => "[B-PRO-502]",
+            ProvingErr::CompletedNotActionable(_) => "[B-PRO-503]",
             ProvingErr::UnexpectedError(_) => "[B-PRO-500]",
         }
     }
@@ -80,18 +79,6 @@ impl ProvingService {
         Ok(Self { db, prover, config, order_state_tx, priority_requestors })
     }
 
-    async fn cancel_stark_session(&self, proof_id: &str, order_id: &str, reason: &str) {
-        if let Err(err) = self.prover.cancel_stark(proof_id).await {
-            tracing::warn!(
-                "Failed to cancel proof {} for {} order {}: {}",
-                proof_id,
-                reason,
-                order_id,
-                err
-            );
-        }
-    }
-
     async fn monitor_proof_internal(
         &self,
         order_id: &str,
@@ -106,8 +93,24 @@ impl ProvingService {
             .context("Monitoring proof (stark) failed")?;
 
         if is_groth16 && snark_proof_id.is_none() {
-            let compressed_proof_id =
-                self.prover.compress(stark_proof_id).await.context("Failed to compress proof")?;
+            let (retry_count, sleep_ms) = {
+                let config = self.config.lock_all().context("Failed to lock config")?;
+                (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+            };
+
+            let compressed_proof_id = retry(
+                retry_count,
+                sleep_ms,
+                || async {
+                    let proof_id = self.prover.compress(stark_proof_id).await?;
+                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                    Ok::<String, provers::ProverError>(proof_id)
+                },
+                "compress_and_verify",
+            )
+            .await
+            .context("Failed to compress and verify proof")?;
+
             self.db
                 .set_order_compressed_proof_id(order_id, &compressed_proof_id)
                 .await
@@ -192,42 +195,46 @@ impl ProvingService {
 
         let proof_id = order.proof_id.as_ref().context("Order should have proof ID")?;
 
+        // Check config: should we cancel jobs when orders become not actionable?
+        let should_cancel_on_not_actionable =
+            self.config.lock_all().map(|c| c.market.cancel_proving_expired_orders).unwrap_or(false);
+
         let timeout_duration = {
-            let expiry_timestamp_secs =
-                order.expire_timestamp.expect("Order should have expiry set");
+            let expiry_timestamp_secs = order.request.expires_at();
             let now = now_timestamp();
             Duration::from_secs(expiry_timestamp_secs.saturating_sub(now))
         };
-        // Only subscribe to order state events for FulfillAfterLockExpire orders
-        let mut order_state_rx = if matches!(
-            order.fulfillment_type,
-            FulfillmentType::FulfillAfterLockExpire
-        ) {
-            let rx = self.order_state_tx.subscribe();
 
+        // Track whether order is not actionable (expired or fulfilled externally)
+        let mut not_actionable_reason: Option<&'static str> = None;
+
+        let mut order_state_rx = self.order_state_tx.subscribe();
+        if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire)
+            || order.expire_timestamp.unwrap() < now_timestamp()
+        {
             // Check if the order has already been fulfilled before starting proof
             match self.db.is_request_fulfilled(request_id).await {
                 Ok(true) => {
                     tracing::debug!(
-                        "Order {} (request {}) was already fulfilled, skipping proof",
+                        "Order {} (request {}) was already fulfilled before monitoring started",
                         order_id,
                         request_id
                     );
-                    self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
-                    return Err(ProvingErr::ExternallyFulfilled);
+                    if should_cancel_on_not_actionable {
+                        return Err(ProvingErr::ShouldCancel("Already fulfilled"));
+                    } else {
+                        not_actionable_reason = Some("Already fulfilled");
+                    }
                 }
-                Ok(false) => Some(rx),
+                Ok(false) => {}
                 Err(e) => {
                     tracing::warn!(
                         "Failed to check fulfillment status for order {}, will continue proving: {e:?}",
                         order_id,
                     );
-                    Some(rx)
                 }
             }
-        } else {
-            None
-        };
+        }
 
         let monitor_task = self.monitor_proof_internal(
             &order_id,
@@ -237,10 +244,6 @@ impl ProvingService {
         );
         tokio::pin!(monitor_task);
 
-        // Note: this timeout may not exactly match the order expiry exactly due to
-        // discrepancy between wall clock and monotonic clock from the timeout,
-        // but this time, along with aggregation and submission time, should never
-        // exceed the actual order expiry.
         let timeout_future = tokio::time::sleep(timeout_duration);
         tokio::pin!(timeout_future);
 
@@ -248,37 +251,76 @@ impl ProvingService {
             tokio::select! {
                 // Proof monitoring completed
                 res = &mut monitor_task => {
-                    break res.with_context(|| {
+                    let status = res.with_context(|| {
                         format!("Monitoring proof failed for order {order_id}, proof_id: {proof_id}")
                     }).map_err(ProvingErr::ProvingFailed)?;
-                }
-                // Timeout occurred
-                _ = &mut timeout_future => {
-                    tracing::debug!(
-                        "Proving timed out for order {}, cancelling proof {}",
-                        order_id,
-                        proof_id
-                    );
-                    self.cancel_stark_session(proof_id, &order_id, "timed out").await;
-                    return Err(ProvingErr::ProvingTimedOut);
-                }
-                // External fulfillment notification (only active for FulfillAfterLockExpire orders)
-                Some(recv_res) = async {
-                    match &mut order_state_rx {
-                        Some(rx) => Some(rx.recv().await),
-                        None => pending::<Option<Result<OrderStateChange, tokio::sync::broadcast::error::RecvError>>>().await,
+
+                    // If order not actionable, return error instead of success
+                    if let Some(reason) = not_actionable_reason {
+                        tracing::info!(
+                            "Proof completed for order {} but order not actionable: {}",
+                            order_id,
+                            reason
+                        );
+                        return Err(ProvingErr::CompletedNotActionable(reason));
                     }
-                } => {
+
+                    break status;
+                }
+
+                // Request expiry timeout
+                _ = &mut timeout_future => {
+                    tracing::debug!("Order {order_id} expired during proving");
+
+                    if should_cancel_on_not_actionable {
+                        return Err(ProvingErr::ShouldCancel("Order expired"));
+                    } else {
+                        tracing::debug!("Waiting for proof completion for capacity tracking");
+                        not_actionable_reason = Some("Order expired");
+                        // Disarm timeout so it doesn't fire again
+                        timeout_future.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(365 * 24 * 60 * 60));
+                    }
+                }
+
+                // External fulfillment notification
+                recv_res = order_state_rx.recv() => {
                     match recv_res {
                         Ok(OrderStateChange::Fulfilled { request_id: fulfilled_request_id }) if fulfilled_request_id == request_id => {
-                            tracing::debug!(
-                                "Order {} (request {}) was fulfilled by another prover, cancelling proof {}",
-                                order_id,
-                                request_id,
-                                proof_id
-                            );
-                            self.cancel_stark_session(proof_id, &order_id, "externally fulfilled").await;
-                            return Err(ProvingErr::ExternallyFulfilled);
+                            // Determine if this makes the order not actionable based on order type
+                            let is_not_actionable = match order.fulfillment_type {
+                                FulfillmentType::FulfillAfterLockExpire => {
+                                    // Always not actionable - someone else fulfilled it
+                                    true
+                                }
+                                FulfillmentType::LockAndFulfill => {
+                                    // Only not actionable if lock already expired
+                                    now_timestamp() >= order.request.lock_expires_at()
+                                }
+                                FulfillmentType::FulfillWithoutLocking => {
+                                    // Always not actionable - someone else fulfilled it
+                                    true
+                                }
+                            };
+
+                            if is_not_actionable {
+                                tracing::debug!(
+                                    "Order {} (request {}) fulfilled externally and not actionable",
+                                    order_id,
+                                    request_id
+                                );
+
+                                if should_cancel_on_not_actionable {
+                                    return Err(ProvingErr::ShouldCancel("Externally fulfilled"));
+                                } else {
+                                    tracing::debug!("Waiting for proof completion for capacity tracking");
+                                    not_actionable_reason = Some("Externally fulfilled");
+                                }
+                            } else {
+                                tracing::trace!(
+                                    "Order {} fulfilled externally but lock not expired yet, continuing",
+                                    order_id
+                                );
+                            }
                         }
                         Ok(_) => {
                             // Fulfillment for a different request, continue monitoring
@@ -340,9 +382,17 @@ impl ProvingService {
                     tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
                 }
             }
-            Err(ProvingErr::ExternallyFulfilled) => {
-                tracing::info!("Order {order_id} was fulfilled by another prover, cancelled proof");
-                handle_order_failure(&self.db, &order_id, "Externally fulfilled").await;
+            Err(ProvingErr::ShouldCancel(reason)) => {
+                tracing::info!("Order {order_id} not actionable, cancelling proof: {reason}");
+                // Config says to cancel - release capacity immediately
+                cancel_proof_and_fail_order(&self.prover, &self.db, &self.config, &order, reason)
+                    .await;
+            }
+            Err(ProvingErr::CompletedNotActionable(reason)) => {
+                tracing::info!(
+                    "Order {order_id} proof completed but order not actionable: {reason}"
+                );
+                handle_order_failure(&self.db, &order_id, reason).await;
             }
             Err(err) => {
                 tracing::error!(
@@ -362,31 +412,17 @@ impl ProvingService {
             self.db.get_active_proofs().await.context("Failed to get active proofs")?;
 
         tracing::info!("Found {} proofs currently proving", current_proofs.len());
-        let now = crate::now_timestamp();
         for order in current_proofs {
             let order_id = order.id();
-            if order.expire_timestamp.unwrap() < now {
-                tracing::warn!("Order {} had expired on proving task start", order_id);
-                cancel_proof_and_fail_order(
-                    &self.prover,
-                    &self.db,
-                    &order,
-                    "Order expired on startup",
-                )
-                .await;
-            }
-            let prove_serv = self.clone();
 
             if order.proof_id.is_none() {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
-                handle_order_failure(&prove_serv.db, &order_id, "Proving status missing proof_id")
-                    .await;
+                handle_order_failure(&self.db, &order_id, "Proving status missing proof_id").await;
                 continue;
             }
 
-            // TODO: Manage these tasks in a joinset?
-            // They should all be fail-able without triggering a larger failure so it should be
-            // fine.
+            // Spawn monitoring task - it will handle expiry/cancellation based on config
+            let prove_serv = self.clone();
             tokio::spawn(async move { prove_serv.prove_and_update_db(order).await });
         }
 
@@ -737,7 +773,7 @@ mod tests {
         let request_id = U256::from(123);
         let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();
 
-        // Test 1: FulfillAfterLockExpire order cancelled by matching fulfillment event
+        // Test 1: FulfillAfterLockExpire order waits for completion when fulfilled externally
         let order = create_test_order(
             request_id,
             image_id.clone(),
@@ -755,13 +791,13 @@ mod tests {
             proving_service_clone.monitor_proof_with_timeout(order_clone).await
         });
 
-        // Send fulfillment event for the same request - should cancel proof
+        // Send fulfillment event - should wait for proof completion (default config)
         send_order_state_event(order_state_tx.clone(), OrderStateChange::Fulfilled { request_id })
             .await;
 
         let result = monitor_task.await.unwrap();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Request fulfilled by another prover"));
+        assert!(result.unwrap_err().to_string().contains("order not actionable"));
 
         // Test 2: FulfillAfterLockExpire order ignores different request ID
         let request_id_2 = U256::from(456);
@@ -796,6 +832,6 @@ mod tests {
         assert!(result_2.is_ok());
         assert_eq!(result_2.unwrap(), OrderStatus::PendingAgg);
 
-        assert!(logs_contain("was fulfilled by another prover"));
+        assert!(logs_contain("fulfilled externally"));
     }
 }

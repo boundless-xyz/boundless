@@ -79,11 +79,5 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
         .await
         .context("Failed to upload final receipt to obj store")?;
 
-    tracing::debug!("Deleting the keyspace {job_prefix}:*");
-    // remove the redis keys after job is completed
-    redis::scan_and_delete(&mut conn, &job_prefix)
-        .await
-        .context("Failed to delete all redis keys")?;
-
     Ok(())
 }

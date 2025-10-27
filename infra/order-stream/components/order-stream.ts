@@ -254,7 +254,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
 
     const rds = new aws.rds.Instance(`${serviceName}-rds`, {
       engine: 'postgres',
-      engineVersion: '17.2',
+      engineVersion: '17.4',
       identifier: `${serviceName}-rds`,
       dbName: rdsDbName,
       username: rdsUser,

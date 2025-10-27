@@ -2,7 +2,7 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAG8+En5WRcnegfmXdKPmxM2AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMBhB0twYe9uOb6WQgAgEQgDuYPvLqO7SGhJXFhNltdNmk6blOB7tU2Uht3YQp0LASG73HV3CWrInUVl9D23sm0nxtM92r+cF0Man0Ag==
 config:
   order-generator-base:ETH_RPC_URL:
-    secure: v1:ENeoZdNSYWsAQCwk:wXFfNsgKV0odRClidW019J6a7LdGQBz3yA7MuYLNOtpx9nRDev2b5OCP36tWe4cqeq5JdlLGDfyIAhi03xWKVLEDdi47dcUg6BI=
+    secure: v1:JV6BU8LnLaZSXmOO:P7LOOA5XoPzhznzjpRUQLza+wA36VAebDwi8qwAp08LK+w3fCI3CHJexzfJgRlM4UGR92GfXW7LBNhSRLjy5eyCl/G5skmQRoMns4QkZi5u9FzF7fy52nhXWLXCFIRsCCyxC7vtXCrVrUL48ZlqdP/U/3g==
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:b/fG9OcLTlPl5+Ah:pbB0G1AXGhZUq9tZOQVgxh2A5j65sgLJHo83GMAUfNqPxp0bJIM9ukiL9BwAjT5MS1lwE2mRiWQrRe5rqNWkIxAcBKDeJFxHZWdnD7I6n+Y=

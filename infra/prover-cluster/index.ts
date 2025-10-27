@@ -4,6 +4,7 @@ import {
     SecurityComponent,
     ManagerComponent,
     WorkerClusterComponent,
+    ApiGatewayComponent,
     BaseComponentConfig
 } from "./components";
 
@@ -13,6 +14,7 @@ const baseStackName = baseConfig.require('BASE_STACK');
 const baseStack = new pulumi.StackReference(baseStackName);
 const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
 const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
+const pubSubNetIds = baseStack.getOutput('PUBLIC_SUBNET_IDS') as pulumi.Output<string[]>;
 
 const config = new pulumi.Config();
 
@@ -29,6 +31,7 @@ const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
 const setVerifierAddress: string = config.require("setVerifierAddress");
 const collateralTokenAddress: string = config.require("collateralTokenAddress");
 const chainId: string = config.require("chainId");
+const apiKey: pulumi.Output<string> = config.requireSecret("apiKey");
 
 // Contract addresses
 const taskDBUsername: string = config.require("taskDBUsername");
@@ -66,6 +69,7 @@ const baseComponentConfig: BaseComponentConfig = {
     environment,
     vpcId,
     privateSubnetIds: privSubNetIds,
+    publicSubnetIds: pubSubNetIds,
 };
 
 // Create security components
@@ -108,6 +112,14 @@ const workerCluster = new WorkerClusterComponent({
     proverCount,
     executionCount,
     auxCount,
+});
+
+// Create API Gateway with NLB
+const apiGateway = new ApiGatewayComponent({
+    ...baseComponentConfig,
+    managerPrivateIp: manager.instance.privateIp,
+    securityGroupId: security.securityGroup.id,
+    apiKey: apiKey.apply(key => key),
 });
 
 // Outputs
@@ -159,6 +171,11 @@ export const sharedCredentials = {
     s3Region: "us-west-2",
 };
 
+// ALB outputs
+export const albUrl = apiGateway.albUrl;
+export const albDnsName = apiGateway.alb.dnsName;
+export const targetGroupArn = apiGateway.targetGroup.arn;
+
 // Cluster info
 export const clusterInfo = {
     manager: {
@@ -178,5 +195,10 @@ export const clusterInfo = {
         id: imageId,
         name: pulumi.output(boundlessAmi).apply(ami => ami.name),
         version: boundlessBentoVersion,
+    },
+    apiGateway: {
+        albUrl: apiGateway.albUrl,
+        albDnsName: apiGateway.alb.dnsName,
+        targetGroupArn: apiGateway.targetGroup.arn,
     },
 };
