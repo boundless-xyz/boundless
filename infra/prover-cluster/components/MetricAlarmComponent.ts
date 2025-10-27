@@ -34,6 +34,11 @@ export class MetricAlarmComponent extends BaseComponent {
             return new aws.cloudwatch.LogGroup(`${config.serviceName}-log-group`, {
                 name: config.logGroupName,
                 retentionInDays: 0,
+                tags: {
+                    Name: config.logGroupName,
+                    Environment: this.config.environment,
+                    Project: "boundless-bento-cluster",
+                }
             });
         });
 
@@ -47,7 +52,7 @@ export class MetricAlarmComponent extends BaseComponent {
         severity?: Severity,
     ): aws.cloudwatch.LogMetricFilter => {
         // Generate a metric by filtering for the error code
-        return new aws.cloudwatch.LogMetricFilter(`${config.serviceName}-${metricName}-${severity}-${config.stackName}-filter`, {
+        return new aws.cloudwatch.LogMetricFilter(`${config.serviceName}-${metricName}-${severity}-filter`, {
             name: `${config.serviceName}-${metricName}-${severity}-${config.stackName}-filter`,
             logGroupName: config.logGroupName,
             metricTransformation: {
@@ -73,7 +78,7 @@ export class MetricAlarmComponent extends BaseComponent {
         this.createLogMetricFilter(config, pattern, metricName, severity);
 
         // Create an alarm for the metric
-        return new aws.cloudwatch.MetricAlarm(`${config.serviceName}-${metricName}-${severity}-${config.stackName}-alarm`, {
+        return new aws.cloudwatch.MetricAlarm(`${config.serviceName}-${metricName}-${severity}-alarm`, {
             name: `${config.serviceName}-${metricName}-${severity}-${config.stackName}`,
             metricQueries: [
                 {
