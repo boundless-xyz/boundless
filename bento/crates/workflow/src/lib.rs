@@ -24,6 +24,8 @@ use taskdb::ReadyTask;
 use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
 
+/// Metrics server for exposing Prometheus metrics
+pub mod metrics_server;
 mod redis;
 mod tasks;
 
@@ -187,6 +189,15 @@ impl Agent {
         std::env::var("POVW_LOG_ID").is_ok()
     }
 
+    /// Update database connection pool metrics
+    pub fn update_db_pool_metrics(&self) {
+        use workflow_common::metrics::helpers;
+        let size = self.db_pool.size() as i64;
+        let idle = self.db_pool.num_idle() as i64;
+        let active = size - idle;
+        helpers::update_db_pool_metrics(size, idle, active);
+    }
+
     /// Initialize the [Agent] from the [Args] config params
     ///
     /// Starts any connection pools and establishes the agents configs
@@ -320,6 +331,9 @@ impl Agent {
         }
 
         while !term_sig.load(Ordering::Relaxed) {
+            // Update database pool metrics periodically
+            self.update_db_pool_metrics();
+
             let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
                 .await
                 .context("Failed to request_work")?;

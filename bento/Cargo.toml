@@ -45,6 +45,7 @@ tracing-subscriber = "0.3"
 uuid = { version = "1.7", features = ["v4"] }
 workflow = { path = "crates/workflow" }
 workflow-common = { path = "crates/workflow-common" }
+prometheus = "0.13"
 
 [profile.dev]
 opt-level = 3

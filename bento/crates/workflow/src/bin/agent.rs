@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use tracing_subscriber::filter::EnvFilter;
+use workflow::metrics_server;
 use workflow::{Agent, Args};
 
 #[tokio::main]
@@ -22,6 +23,18 @@ async fn main() -> Result<()> {
         .context("Failed to run migrations")?;
 
     tracing::info!("Successful agent startup! Worker type: {task_stream}");
+
+    // Start metrics server in background
+    let metrics_port = std::env::var("METRICS_PORT")
+        .unwrap_or_else(|_| "9090".to_string())
+        .parse::<u16>()
+        .unwrap_or(9090);
+
+    tokio::spawn(async move {
+        if let Err(e) = metrics_server::start_metrics_server(metrics_port).await {
+            tracing::error!("Metrics server error: {}", e);
+        }
+    });
 
     // Poll until agent is signaled to exit:
     agent.poll_work().await.context("Exiting agent polling")

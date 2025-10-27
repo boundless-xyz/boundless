@@ -9,11 +9,16 @@ use crate::{
     tasks::{deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
+use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{KECCAK_RECEIPT_PATH, UnionReq};
+use workflow_common::{
+    KECCAK_RECEIPT_PATH, UnionReq,
+    metrics::{TASK_DURATION, UNION_DURATION, helpers},
+};
 
 /// Run the union operation
 pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {
+    let start_time = Instant::now();
     tracing::debug!("Starting union for job_id: {job_id}");
     let mut conn = agent.redis_pool.get().await?;
 
@@ -61,6 +66,11 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key])
         .await
         .context("Failed to delete union receipt keys")?;
+
+    // Record total task duration and success
+    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
+    UNION_DURATION.observe(start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation("union", "complete", "success");
 
     Ok(())
 }

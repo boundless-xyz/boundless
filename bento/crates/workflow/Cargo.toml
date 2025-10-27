@@ -43,3 +43,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true }
 workflow-common = { workspace = true }
+prometheus = { workspace = true }

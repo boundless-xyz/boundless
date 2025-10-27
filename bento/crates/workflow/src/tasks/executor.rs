@@ -17,6 +17,7 @@ use risc0_zkvm::{
 use sqlx::postgres::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 use taskdb::planner::{
     Planner,
     task::{Command as TaskCmd, Task},
@@ -25,6 +26,11 @@ use tempfile::NamedTempFile;
 use workflow_common::{
     AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
     JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
+    metrics::{
+        ASSUMPTION_COUNT, ASSUMPTION_PROCESSING_DURATION, EXECUTION_DURATION, EXECUTION_ERRORS,
+        GUEST_FAULTS, S3_OPERATION_DURATION, S3_OPERATIONS, SEGMENT_COUNT,
+        TASK_PROCESSING_DURATION, TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES, helpers,
+    },
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
@@ -55,8 +61,10 @@ async fn process_task(
     compress_type: CompressType,
     keccak_req: Option<KeccakReq>,
 ) -> Result<()> {
+    let task_start = Instant::now();
     match tree_task.command {
         TaskCmd::Keccak => {
+            TASKS_CREATED.with_label_values(&["keccak"]).inc();
             let keccak_req = keccak_req.context("keccak_req returned None")?;
             let prereqs = serde_json::json!([]);
             let task_id = format!("{}", tree_task.task_number);
@@ -77,6 +85,7 @@ async fn process_task(
             .expect("create_task failure during keccak task creation");
         }
         TaskCmd::Segment => {
+            TASKS_CREATED.with_label_values(&["segment"]).inc();
             let task_def = serde_json::to_value(TaskType::Prove(ProveReq {
                 // Use segment index here instead of task_id to prevent overlapping
                 // because the planner is running after we are flushing segments we have to track
@@ -110,6 +119,7 @@ async fn process_task(
             .context("create_task failure during segment creation")?;
         }
         TaskCmd::Join => {
+            TASKS_CREATED.with_label_values(&["join"]).inc();
             let task_def = serde_json::to_value(TaskType::Join(JoinReq {
                 idx: tree_task.task_number,
                 left: tree_task.depends_on[0],
@@ -136,6 +146,7 @@ async fn process_task(
             .context("create_task failure during join creation")?;
         }
         TaskCmd::Union => {
+            TASKS_CREATED.with_label_values(&["union"]).inc();
             let task_def = serde_json::to_value(TaskType::Union(UnionReq {
                 idx: tree_task.task_number,
                 left: tree_task.keccak_depends_on[0],
@@ -162,6 +173,7 @@ async fn process_task(
             .context("create_task failure during Union creation")?;
         }
         TaskCmd::Finalize => {
+            TASKS_CREATED.with_label_values(&["finalize"]).inc();
             let keccak_count = u64::from(!tree_task.keccak_depends_on.is_empty());
             // Optionally create the Resolve task ahead of the finalize
             let assumption_count = i32::try_from(assumptions.len() as u64 + keccak_count)
@@ -236,7 +248,10 @@ async fn process_task(
                 .context("create_task for snark compression failed")?;
             }
         }
-    }
+    };
+
+    // Record task processing duration
+    TASK_PROCESSING_DURATION.observe(task_start.elapsed().as_secs_f64());
 
     Ok(())
 }
@@ -276,28 +291,71 @@ enum SenderType {
 /// Writes out all segments async using tokio tasks then waits for all
 /// tasks to complete before exiting.
 pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Result<ExecutorResp> {
+    let start_time = Instant::now();
     let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
 
     // Fetch ELF binary data
     let elf_key = format!("{ELF_BUCKET_DIR}/{}", request.image);
     tracing::debug!("Downloading - {}", elf_key);
-    let elf_data = agent.s3_client.read_buf_from_s3(&elf_key).await?;
+    let s3_start = Instant::now();
+    let elf_data = match agent.s3_client.read_buf_from_s3(&elf_key).await {
+        Ok(data) => {
+            S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
+            S3_OPERATION_DURATION.observe(s3_start.elapsed().as_secs_f64());
+            data
+        }
+        Err(e) => {
+            S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
+            S3_OPERATION_DURATION.observe(s3_start.elapsed().as_secs_f64());
+            return Err(e);
+        }
+    };
 
     // Write the image_id for pulling later
     let image_key = format!("{job_prefix}:image_id");
-    redis::set_key_with_expiry(
+    let redis_start = Instant::now();
+    match redis::set_key_with_expiry(
         &mut conn,
         &image_key,
         request.image.clone(),
         Some(agent.args.redis_ttl),
     )
-    .await?;
+    .await
+    {
+        Ok(()) => {
+            helpers::record_redis_operation(
+                "set_key_with_expiry",
+                "success",
+                redis_start.elapsed().as_secs_f64(),
+            );
+        }
+        Err(e) => {
+            helpers::record_redis_operation(
+                "set_key_with_expiry",
+                "error",
+                redis_start.elapsed().as_secs_f64(),
+            );
+            return Err(e.into());
+        }
+    }
     let image_id = read_image_id(&request.image)?;
 
     // Fetch input data
     let input_key = format!("{INPUT_BUCKET_DIR}/{}", request.input);
-    let input_data = agent.s3_client.read_buf_from_s3(&input_key).await?;
+    let input_s3_start = Instant::now();
+    let input_data = match agent.s3_client.read_buf_from_s3(&input_key).await {
+        Ok(data) => {
+            S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
+            S3_OPERATION_DURATION.observe(input_s3_start.elapsed().as_secs_f64());
+            data
+        }
+        Err(e) => {
+            S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
+            S3_OPERATION_DURATION.observe(input_s3_start.elapsed().as_secs_f64());
+            return Err(e);
+        }
+    };
 
     // validate elf
     if elf_data[0..V2_ELF_MAGIC.len()] != *V2_ELF_MAGIC {
@@ -314,13 +372,25 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let mut assumption_receipts = vec![];
     let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
 
+    // Record assumption count
+    ASSUMPTION_COUNT.inc_by(request.assumptions.len() as u64);
+
     for receipt_id in request.assumptions.iter() {
+        let assumption_start = Instant::now();
         let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{receipt_id}.bincode");
-        let receipt_bytes = agent
-            .s3_client
-            .read_buf_from_s3(&receipt_key)
-            .await
-            .context("Failed to download receipt from obj store")?;
+        let receipt_s3_start = Instant::now();
+        let receipt_bytes = match agent.s3_client.read_buf_from_s3(&receipt_key).await {
+            Ok(bytes) => {
+                S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
+                S3_OPERATION_DURATION.observe(receipt_s3_start.elapsed().as_secs_f64());
+                bytes
+            }
+            Err(e) => {
+                S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
+                S3_OPERATION_DURATION.observe(receipt_s3_start.elapsed().as_secs_f64());
+                return Err(e.context("Failed to download receipt from obj store"));
+            }
+        };
 
         let (succinct_receipt, assumption_claim) = match bincode::deserialize::<Receipt>(
             &receipt_bytes,
@@ -361,14 +431,34 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .context("Failed to serialize succinct assumption receipt")?;
 
         let assumption_key = format!("{receipts_key}:{assumption_claim}");
-        redis::set_key_with_expiry(
+        let assumption_redis_start = Instant::now();
+        match redis::set_key_with_expiry(
             &mut conn,
             &assumption_key,
             succinct_receipt_bytes,
             Some(agent.args.redis_ttl),
         )
         .await
-        .context("Failed to put assumption claim in redis")?;
+        {
+            Ok(()) => {
+                helpers::record_redis_operation(
+                    "set_key_with_expiry",
+                    "success",
+                    assumption_redis_start.elapsed().as_secs_f64(),
+                );
+            }
+            Err(e) => {
+                helpers::record_redis_operation(
+                    "set_key_with_expiry",
+                    "error",
+                    assumption_redis_start.elapsed().as_secs_f64(),
+                );
+                return Err(e.into());
+            }
+        }
+
+        // Record assumption processing duration
+        ASSUMPTION_PROCESSING_DURATION.observe(assumption_start.elapsed().as_secs_f64());
     }
 
     // Set the exec limit in 1 million cycle increments
@@ -648,10 +738,20 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         },
     );
 
-    let session = exec_task
-        .await
-        .context("Failed to join executor run_with_callback task")?
-        .context("execution failed")?;
+    let session = match exec_task.await.context("Failed to join executor run_with_callback task")? {
+        Ok(session) => {
+            // Record successful execution metrics
+            SEGMENT_COUNT.inc_by(session.segment_count as u64);
+            USER_CYCLES.inc_by(session.user_cycles);
+            TOTAL_CYCLES.inc_by(session.total_cycles);
+            session
+        }
+        Err(e) => {
+            // Record execution error
+            EXECUTION_ERRORS.with_label_values(&["execution_failed"]).inc();
+            return Err(e.context("execution failed"));
+        }
+    };
 
     tracing::info!(
         "execution {} completed with {} segments and {} user-cycles",
@@ -661,35 +761,75 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     );
 
     // Write the guest stdout/stderr logs to object store after completing exec
-    agent
+    let log_upload_start = Instant::now();
+    match agent
         .s3_client
         .write_file_to_s3(&format!("{EXEC_LOGS_BUCKET_DIR}/{job_id}.log"), &guest_log_path)
         .await
-        .context("Failed to upload guest logs to object store")?;
+    {
+        Ok(()) => {
+            S3_OPERATIONS.with_label_values(&["write", "success"]).inc();
+            S3_OPERATION_DURATION.observe(log_upload_start.elapsed().as_secs_f64());
+        }
+        Err(e) => {
+            S3_OPERATIONS.with_label_values(&["write", "error"]).inc();
+            S3_OPERATION_DURATION.observe(log_upload_start.elapsed().as_secs_f64());
+            return Err(e.context("Failed to upload guest logs to object store"));
+        }
+    }
 
     let journal_key = format!("{job_prefix}:journal");
 
     if let Some(journal) = session.journal {
         if exec_only {
-            agent
+            let journal_s3_start = Instant::now();
+            match agent
                 .s3_client
                 .write_buf_to_s3(
                     &format!("{PREFLIGHT_JOURNALS_BUCKET_DIR}/{job_id}.bin"),
                     journal.bytes,
                 )
                 .await
-                .context("Failed to write journal to obj store")?;
+            {
+                Ok(()) => {
+                    S3_OPERATIONS.with_label_values(&["write", "success"]).inc();
+                    S3_OPERATION_DURATION.observe(journal_s3_start.elapsed().as_secs_f64());
+                }
+                Err(e) => {
+                    S3_OPERATIONS.with_label_values(&["write", "error"]).inc();
+                    S3_OPERATION_DURATION.observe(journal_s3_start.elapsed().as_secs_f64());
+                    return Err(e.context("Failed to write journal to obj store"));
+                }
+            }
         } else {
             let serialized_journal =
                 serialize_obj(&journal).context("Failed to serialize journal")?;
 
-            redis::set_key_with_expiry(
+            let journal_redis_start = Instant::now();
+            match redis::set_key_with_expiry(
                 &mut conn,
                 &journal_key,
                 serialized_journal,
                 Some(agent.args.redis_ttl),
             )
-            .await?;
+            .await
+            {
+                Ok(()) => {
+                    helpers::record_redis_operation(
+                        "set_key_with_expiry",
+                        "success",
+                        journal_redis_start.elapsed().as_secs_f64(),
+                    );
+                }
+                Err(e) => {
+                    helpers::record_redis_operation(
+                        "set_key_with_expiry",
+                        "error",
+                        journal_redis_start.elapsed().as_secs_f64(),
+                    );
+                    return Err(e.into());
+                }
+            }
         }
     } else {
         // Optionally handle the case where there is no journal
@@ -701,11 +841,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         match res {
             Ok(()) => {
                 if guest_fault {
+                    GUEST_FAULTS.inc();
+                    EXECUTION_ERRORS.with_label_values(&["guest_fault"]).inc();
                     bail!("Ran into fault");
                 }
                 continue;
             }
             Err(err) => {
+                EXECUTION_ERRORS.with_label_values(&["task_failed"]).inc();
                 tracing::error!("queue monitor sub task failed: {err:?}");
                 bail!(err);
             }
@@ -713,6 +856,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     }
 
     tracing::debug!("Done with all IO tasks");
+
+    // Record total execution duration
+    EXECUTION_DURATION.observe(start_time.elapsed().as_secs_f64());
 
     let resp = ExecutorResp {
         segments: session.segment_count as u64,
