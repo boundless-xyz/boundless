@@ -20,6 +20,7 @@ mod config;
 mod deposit_collateral;
 mod execute;
 mod fulfill;
+mod generate_config;
 mod lock;
 mod slash;
 mod withdraw_collateral;
@@ -30,6 +31,7 @@ pub use config::ProverConfigCmd;
 pub use deposit_collateral::ProverDepositCollateral;
 pub use execute::ProverExecute;
 pub use fulfill::ProverFulfill;
+pub use generate_config::ProverGenerateConfig;
 pub use lock::ProverLock;
 pub use slash::ProverSlash;
 pub use withdraw_collateral::ProverWithdrawCollateral;
@@ -75,6 +77,9 @@ pub enum ProverCommands {
     Slash(ProverSlash),
     /// Interactive setup wizard for prover configuration
     Setup(ProverSetup),
+    /// Generate optimized broker and compose configuration files
+    #[command(name = "generate-config")]
+    GenerateConfig(ProverGenerateConfig),
 }
 
 impl ProverCommands {
@@ -91,6 +96,7 @@ impl ProverCommands {
             Self::Benchmark(cmd) => cmd.run(global_config).await,
             Self::Slash(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
+            Self::GenerateConfig(cmd) => cmd.run(global_config).await,
         }
     }
 }

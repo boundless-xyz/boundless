@@ -386,17 +386,16 @@ impl AggregatorService {
         };
 
         // Check that the min batch size is not greater than the max concurrent proofs
-        let conf_batch_size = match (conf_batch_size, conf_max_concurrent_proofs) {
-            (Some(batch_size), Some(max_concurrent)) if batch_size > max_concurrent => {
-                tracing::warn!(
-                    "Configured min_batch_size ({}) exceeds max_concurrent_proofs ({}). \
-                     Setting min_batch_size to max_concurrent_proofs.",
-                    batch_size,
-                    max_concurrent
-                );
-                Some(max_concurrent)
-            }
-            (batch_size, _) => batch_size,
+        let conf_batch_size = if conf_batch_size > conf_max_concurrent_proofs {
+            tracing::warn!(
+                "Configured min_batch_size ({}) exceeds max_concurrent_proofs ({}). \
+                 Setting min_batch_size to max_concurrent_proofs.",
+                conf_batch_size,
+                conf_max_concurrent_proofs
+            );
+            conf_max_concurrent_proofs
+        } else {
+            conf_batch_size
         };
 
         // Skip finalization checks if we have nothing in this batch
@@ -409,21 +408,19 @@ impl AggregatorService {
         // Finalize the batch whenever it exceeds a target size.
         // Add any pending jobs into the batch along with the finalization run.
         let batch_size = batch.orders.len() + pending_orders.len();
-        if let Some(batch_target_size) = conf_batch_size {
-            if batch_size >= batch_target_size as usize {
-                tracing::debug!(
-                    "Finalizing batch {batch_id}: size target hit {} - {}",
-                    batch_size,
-                    batch_target_size
-                );
-                return Ok(true);
-            } else {
-                tracing::debug!(
-                    "Batch {batch_id} below size target hit {} - {}",
-                    batch_size,
-                    batch_target_size
-                );
-            }
+        if batch_size >= conf_batch_size as usize {
+            tracing::debug!(
+                "Finalizing batch {batch_id}: size target hit {} - {}",
+                batch_size,
+                conf_batch_size
+            );
+            return Ok(true);
+        } else {
+            tracing::debug!(
+                "Batch {batch_id} below size target hit {} - {}",
+                batch_size,
+                conf_batch_size
+            );
         }
 
         // Finalize the batch if the journal size is already above the max
@@ -447,18 +444,16 @@ impl AggregatorService {
         }
 
         // Finalize the batch whenever the current batch exceeds a certain age (e.g. one hour).
-        if let Some(batch_time) = conf_batch_time {
-            let time_delta = Utc::now() - batch.start_time;
-            if time_delta.num_seconds() as u64 >= batch_time {
-                tracing::debug!(
-                    "Finalizing batch {batch_id}: time limit hit {} - {}",
-                    time_delta.num_seconds(),
-                    batch.start_time
-                );
-                return Ok(true);
-            } else {
-                tracing::debug!("Batch {batch_id} below time limit");
-            }
+        let time_delta = Utc::now() - batch.start_time;
+        if time_delta.num_seconds() as u64 >= conf_batch_time {
+            tracing::debug!(
+                "Finalizing batch {batch_id}: time limit hit {} - {}",
+                time_delta.num_seconds(),
+                batch.start_time
+            );
+            return Ok(true);
+        } else {
+            tracing::debug!("Batch {batch_id} below time limit");
         }
 
         // Finalize whenever a batch hits the target fee total.
@@ -795,7 +790,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
         }
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
@@ -953,7 +948,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
         }
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
@@ -1126,7 +1121,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
             config.batcher.batch_max_fees = Some("0.1".into());
         }
 
@@ -1234,7 +1229,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
             config.batcher.block_deadline_buffer_secs = 100;
         }
 
@@ -1349,7 +1344,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(10);
+            config.batcher.min_batch_size = 10;
             // set config such that the batch max journal size is exceeded
             // if two ECHO sized journals are included in a batch
             config.market.max_journal_bytes = 20;

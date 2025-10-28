@@ -75,7 +75,11 @@ mod defaults {
     }
 
     pub const fn max_concurrent_preflights() -> u32 {
-        4
+        2
+    }
+
+    pub const fn max_file_size() -> usize {
+        50_000_000
     }
 
     pub fn assessor_default_image_url() -> String {
@@ -84,6 +88,80 @@ mod defaults {
 
     pub fn set_builder_default_image_url() -> String {
         "https://signal-artifacts.beboundless.xyz/v2/set-builder/guest.bin".to_string()
+    }
+
+    pub fn priority_requestor_lists() -> Option<Vec<String>> {
+        Some(vec![
+            "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json".to_string()
+        ])
+    }
+
+    pub const fn max_mcycle_limit() -> u64 {
+        8000
+    }
+
+    pub const fn min_deadline() -> u64 {
+        300
+    }
+
+    pub const fn lookback_blocks() -> u64 {
+        300
+    }
+
+    pub const fn max_concurrent_proofs() -> u32 {
+        1
+    }
+
+    pub const fn status_poll_retry_count() -> u64 {
+        3
+    }
+
+    pub const fn status_poll_ms() -> u64 {
+        1000
+    }
+
+    pub const fn req_retry_count() -> u64 {
+        3
+    }
+
+    pub const fn req_retry_sleep_ms() -> u64 {
+        500
+    }
+
+    pub const fn proof_retry_count() -> u64 {
+        1
+    }
+
+    pub const fn proof_retry_sleep_ms() -> u64 {
+        500
+    }
+
+    pub const fn max_critical_task_retries() -> u32 {
+        10
+    }
+
+    pub const fn batch_max_time() -> u64 {
+        1000
+    }
+
+    pub const fn min_batch_size() -> u32 {
+        1
+    }
+
+    pub const fn block_deadline_buffer_secs() -> u64 {
+        180
+    }
+
+    pub const fn txn_timeout() -> u64 {
+        45
+    }
+
+    pub const fn single_txn_fulfill() -> bool {
+        true
+    }
+
+    pub const fn withdraw() -> bool {
+        false
     }
 }
 
@@ -134,22 +212,24 @@ pub struct MarketConf {
     /// This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
     /// execution took, as calculated by running the request in preflight. This is one of the inputs to
     /// decide the minimum price to accept for a request.
-    pub mcycle_price: String,
+    #[serde(alias = "mcycle_price")]
+    pub min_mcycle_price: String,
     /// Mega-cycle price, denominated in the Boundless collateral token.
     ///
     /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
     /// order when paid in collateral tokens, as is the case for orders with an expired lock.
     #[serde(alias = "mcycle_price_collateral_token")]
-    pub mcycle_price_collateral_token: String,
+    pub min_mcycle_price_collateral_token: String,
     /// Assumption price (in native token)
     ///
     /// DEPRECATED
     #[deprecated]
     pub assumption_price: Option<String>,
-    /// Optional max cycles (in mcycles)
+    /// Max cycles (in mcycles)
     ///
     /// Orders over this max_cycles will be skipped after preflight
-    pub max_mcycle_limit: Option<u64>,
+    #[serde(default = "defaults::max_mcycle_limit")]
+    pub max_mcycle_limit: u64,
     /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
     ///
     /// If enabled, the order will be preflighted without constraints.
@@ -158,6 +238,7 @@ pub struct MarketConf {
     /// Optional URLs to fetch requestor priority lists from.
     ///
     /// These lists will be periodically refreshed and merged with priority_requestor_addresses.
+    #[serde(default = "defaults::priority_requestor_lists")]
     pub priority_requestor_lists: Option<Vec<String>>,
     /// Max journal size in bytes
     ///
@@ -175,8 +256,10 @@ pub struct MarketConf {
     ///
     /// If there is not enough time left before the deadline, the prover may not be able to complete
     /// proving of the request and finalize the batch for publishing before expiration.
+    #[serde(default = "defaults::min_deadline")]
     pub min_deadline: u64,
     /// On startup, the number of blocks to look back for possible open orders.
+    #[serde(default = "defaults::lookback_blocks")]
     pub lookback_blocks: u64,
     /// Max collateral amount, denominated in the Boundless collateral token.
     ///
@@ -198,6 +281,7 @@ pub struct MarketConf {
     /// same block
     pub lockin_priority_gas: Option<u64>,
     /// Max input / image file size allowed for downloading from request URLs.
+    #[serde(default = "defaults::max_file_size")]
     pub max_file_size: usize,
     /// Max retries for fetching input / image contents from URLs
     pub max_fetch_retries: Option<u8>,
@@ -245,8 +329,8 @@ pub struct MarketConf {
     /// Max concurrent proofs
     ///
     /// Maximum number of concurrent proofs that can be processed at once
-    #[serde(alias = "max_concurrent_locks")]
-    pub max_concurrent_proofs: Option<u32>,
+    #[serde(alias = "max_concurrent_locks", default = "defaults::max_concurrent_proofs")]
+    pub max_concurrent_proofs: u32,
     /// Optional cache directory for storing downloaded images and inputs
     ///
     /// If not set, files will be re-downloaded every time
@@ -295,21 +379,21 @@ impl Default for MarketConf {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
-            mcycle_price: "0.00001".to_string(),
-            mcycle_price_collateral_token: "0.001".to_string(),
+            min_mcycle_price: "0.00001".to_string(),
+            min_mcycle_price_collateral_token: "0.001".to_string(),
             assumption_price: None,
-            max_mcycle_limit: None,
+            max_mcycle_limit: defaults::max_mcycle_limit(),
             priority_requestor_addresses: None,
-            priority_requestor_lists: None,
-            max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
+            priority_requestor_lists: defaults::priority_requestor_lists(),
+            max_journal_bytes: defaults::max_journal_bytes(),
             peak_prove_khz: None,
-            min_deadline: 120, // 2 mins
-            lookback_blocks: 100,
+            min_deadline: defaults::min_deadline(),
+            lookback_blocks: defaults::lookback_blocks(),
             max_collateral: "0.1".to_string(),
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             lockin_priority_gas: None,
-            max_file_size: 50_000_000,
+            max_file_size: defaults::max_file_size(),
             max_fetch_retries: Some(2),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
@@ -319,7 +403,7 @@ impl Default for MarketConf {
             balance_error_threshold: None,
             collateral_balance_warn_threshold: None,
             collateral_balance_error_threshold: None,
-            max_concurrent_proofs: None,
+            max_concurrent_proofs: defaults::max_concurrent_proofs(),
             cache_dir: None,
             assessor_default_image_url: defaults::assessor_default_image_url(),
             set_builder_default_image_url: defaults::set_builder_default_image_url(),
@@ -337,8 +421,10 @@ pub struct ProverConf {
     /// Number of retries to poll for proving status.
     ///
     /// Provides a little durability for transient failures.
+    #[serde(default = "defaults::status_poll_retry_count")]
     pub status_poll_retry_count: u64,
     /// Polling interval to monitor proving status (in millisecs)
+    #[serde(default = "defaults::status_poll_ms")]
     pub status_poll_ms: u64,
     /// Optional config, if using bonsai set the zkVM version here
     pub bonsai_r0_zkvm_ver: Option<String>,
@@ -346,16 +432,20 @@ pub struct ProverConf {
     ///
     /// Used for API requests to a prover backend, creating sessions, preflighting, uploading images, etc.
     /// Provides a little durability for transient failures.
+    #[serde(default = "defaults::req_retry_count")]
     pub req_retry_count: u64,
     /// Number of milliseconds to sleep between retries.
+    #[serde(default = "defaults::req_retry_sleep_ms")]
     pub req_retry_sleep_ms: u64,
     /// Number of retries to for running the entire proof generation process
     ///
     /// This is separate from the request retry count, as the proving process
     /// is a multi-step process involving multiple API calls to create a proof
     /// job and then polling for the proof job to complete.
+    #[serde(default = "defaults::proof_retry_count")]
     pub proof_retry_count: u64,
     /// Number of milliseconds to sleep between proof retries.
+    #[serde(default = "defaults::proof_retry_sleep_ms")]
     pub proof_retry_sleep_ms: u64,
     /// Set builder guest program binary path
     ///
@@ -368,8 +458,8 @@ pub struct ProverConf {
     ///
     /// The broker service has a number of subtasks. Some are considered critical. If a task fails, it
     /// will be retried, but after this number of retries, the process will exit.
-    /// None indicates there are infinite number of retries.
-    pub max_critical_task_retries: Option<u32>,
+    #[serde(default = "defaults::max_critical_task_retries")]
+    pub max_critical_task_retries: u32,
     /// Interval for checking expired committed orders (in seconds)
     ///
     /// This is the interval at which the ReaperTask will check for expired orders and mark them as failed.
@@ -388,16 +478,16 @@ pub struct ProverConf {
 impl Default for ProverConf {
     fn default() -> Self {
         Self {
-            status_poll_retry_count: 0,
-            status_poll_ms: 1000,
+            status_poll_retry_count: defaults::status_poll_retry_count(),
+            status_poll_ms: defaults::status_poll_ms(),
             bonsai_r0_zkvm_ver: None,
-            req_retry_count: 0,
-            req_retry_sleep_ms: 1000,
-            proof_retry_count: 0,
-            proof_retry_sleep_ms: 1000,
+            req_retry_count: defaults::req_retry_count(),
+            req_retry_sleep_ms: defaults::req_retry_sleep_ms(),
+            proof_retry_count: defaults::proof_retry_count(),
+            proof_retry_sleep_ms: defaults::proof_retry_sleep_ms(),
             set_builder_guest_path: None,
             assessor_set_guest_path: None,
-            max_critical_task_retries: None,
+            max_critical_task_retries: defaults::max_critical_task_retries(),
             reaper_interval_secs: defaults::reaper_interval_secs(),
             reaper_grace_period_secs: defaults::reaper_grace_period_secs(),
         }
@@ -408,10 +498,11 @@ impl Default for ProverConf {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BatcherConfig {
     /// Max batch duration before publishing (in seconds)
-    pub batch_max_time: Option<u64>,
+    #[serde(default = "defaults::batch_max_time")]
+    pub batch_max_time: u64,
     /// Batch size (in proofs) before publishing
-    #[serde(alias = "batch_size")]
-    pub min_batch_size: Option<u32>,
+    #[serde(alias = "batch_size", default = "defaults::min_batch_size")]
+    pub min_batch_size: u32,
     /// Max combined journal size (in bytes) that once exceeded will trigger a publish
     #[serde(default = "defaults::batch_max_journal_bytes")]
     pub batch_max_journal_bytes: usize,
@@ -421,9 +512,11 @@ pub struct BatcherConfig {
     ///
     /// Number of seconds before the lowest block deadline in the order batch
     /// to flush the batch. This should be approximately snark_proving_time * 2
+    #[serde(default = "defaults::block_deadline_buffer_secs")]
     pub block_deadline_buffer_secs: u64,
     /// Timeout, in seconds for transaction confirmations
-    pub txn_timeout: Option<u64>,
+    #[serde(default = "defaults::txn_timeout")]
+    pub txn_timeout: u64,
     /// Polling time, in milliseconds
     ///
     /// The time between polls for new orders to aggregate and how often to check for batch finalize
@@ -433,10 +526,10 @@ pub struct BatcherConfig {
     ///
     /// A single transaction. Requires the `submitRootAndFulfill` method
     /// be present on the deployed contract
-    #[serde(default)]
+    #[serde(default = "defaults::single_txn_fulfill")]
     pub single_txn_fulfill: bool,
     /// Whether to withdraw from the prover balance when fulfilling
-    #[serde(default)]
+    #[serde(default = "defaults::withdraw")]
     pub withdraw: bool,
     /// Number of attempts to make to submit a batch before abandoning
     #[serde(default = "defaults::max_submission_attempts")]
@@ -446,15 +539,15 @@ pub struct BatcherConfig {
 impl Default for BatcherConfig {
     fn default() -> Self {
         Self {
-            batch_max_time: None,
-            min_batch_size: Some(2),
+            batch_max_time: defaults::batch_max_time(),
+            min_batch_size: defaults::min_batch_size(),
             batch_max_journal_bytes: defaults::batch_max_journal_bytes(),
             batch_max_fees: None,
-            block_deadline_buffer_secs: 120,
-            txn_timeout: None,
+            block_deadline_buffer_secs: defaults::block_deadline_buffer_secs(),
+            txn_timeout: defaults::txn_timeout(),
             batch_poll_time_ms: Some(1000),
-            single_txn_fulfill: false,
-            withdraw: false,
+            single_txn_fulfill: defaults::single_txn_fulfill(),
+            withdraw: defaults::withdraw(),
             max_submission_attempts: defaults::max_submission_attempts(),
         }
     }
@@ -707,7 +800,7 @@ error = ?"#;
         write_config(CONFIG_TEMPL, config_temp.as_file_mut());
         let config = Config::load(config_temp.path()).await.unwrap();
 
-        assert_eq!(config.market.mcycle_price, "0.1");
+        assert_eq!(config.market.min_mcycle_price, "0.1");
         assert_eq!(config.market.assumption_price, None);
         assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 300);
@@ -726,11 +819,11 @@ error = ?"#;
         assert_eq!(config.prover.set_builder_guest_path, None);
         assert_eq!(config.prover.assessor_set_guest_path, None);
 
-        assert_eq!(config.batcher.batch_max_time, Some(300));
-        assert_eq!(config.batcher.min_batch_size, Some(2));
+        assert_eq!(config.batcher.batch_max_time, 300);
+        assert_eq!(config.batcher.min_batch_size, 2);
         assert_eq!(config.batcher.batch_max_fees, Some("0.1".into()));
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
-        assert_eq!(config.batcher.txn_timeout, None);
+        assert_eq!(config.batcher.txn_timeout, 45);
         assert_eq!(config.batcher.batch_poll_time_ms, None);
     }
 
@@ -752,12 +845,12 @@ error = ?"#;
 
         {
             let config = config_mgnr.config.lock_all().unwrap();
-            assert_eq!(config.market.mcycle_price, "0.1");
+            assert_eq!(config.market.min_mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, None);
             assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
-            assert_eq!(config.market.max_mcycle_limit, None);
+            assert_eq!(config.market.max_mcycle_limit, 8000);
             assert_eq!(config.prover.status_poll_ms, 1000);
         }
 
@@ -767,7 +860,7 @@ error = ?"#;
         {
             tracing::debug!("Locking config for reading...");
             let config = config_mgnr.config.lock_all().unwrap();
-            assert_eq!(config.market.mcycle_price, "0.1");
+            assert_eq!(config.market.min_mcycle_price, "0.1");
             assert_eq!(config.market.assumption_price, Some("0.1".into()));
             assert_eq!(config.market.peak_prove_khz, Some(10000));
             assert_eq!(config.market.min_deadline, 300);
@@ -779,7 +872,7 @@ error = ?"#;
             );
             assert_eq!(config.market.lockin_priority_gas, Some(100));
             assert_eq!(config.market.max_fetch_retries, Some(10));
-            assert_eq!(config.market.max_mcycle_limit, Some(10));
+            assert_eq!(config.market.max_mcycle_limit, 10);
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert_eq!(config.prover.status_poll_retry_count, 2);
             assert_eq!(config.prover.req_retry_count, 1);
@@ -787,9 +880,9 @@ error = ?"#;
             assert_eq!(config.prover.proof_retry_count, 1);
             assert_eq!(config.prover.proof_retry_sleep_ms, 500);
             assert!(config.prover.bonsai_r0_zkvm_ver.is_none());
-            assert_eq!(config.batcher.txn_timeout, Some(45));
+            assert_eq!(config.batcher.txn_timeout, 45);
             assert_eq!(config.batcher.batch_poll_time_ms, Some(1200));
-            assert_eq!(config.batcher.min_batch_size, Some(3));
+            assert_eq!(config.batcher.min_batch_size, 3);
             assert!(config.batcher.single_txn_fulfill);
             assert!(config.batcher.withdraw);
         }
