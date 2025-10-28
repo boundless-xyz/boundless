@@ -598,9 +598,7 @@ mod tests {
         eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         UNSPECIFIED_SELECTOR,
     };
-    use boundless_test_utils::guests::{
-        ASSESSOR_GUEST_ELF, ASSESSOR_GUEST_ID, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF, SET_BUILDER_ID,
-    };
+    use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
     use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
     use risc0_ethereum_contracts::selector::Selector;
     use std::sync::Arc;
@@ -644,9 +642,12 @@ mod tests {
 
         // Create prover and upload images
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        prover.upload_image(&SET_BUILDER_ID.to_string(), SET_BUILDER_ELF.to_vec()).await.unwrap();
         prover
-            .upload_image(&ASSESSOR_GUEST_ID.to_string(), ASSESSOR_GUEST_ELF.to_vec())
+            .upload_image(&set_builder_image_id.to_string(), SET_BUILDER_ELF.to_vec())
+            .await
+            .unwrap();
+        prover
+            .upload_image(&assessor_image_id.to_string(), ASSESSOR_GUEST_ELF.to_vec())
             .await
             .unwrap();
 
