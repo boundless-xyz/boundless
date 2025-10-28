@@ -198,14 +198,9 @@ pub mod helpers {
     }
 
     /// Record task operation metrics
-    pub fn record_task_operation(task_name: &str, operation_type: &str, status: &str) {
+    pub fn record_task(task_name: &str, operation_type: &str, status: &str, duration_seconds: f64) {
         TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
-    }
-
-    /// Record POVW resolve operation metrics
-    pub fn record_povw_operation(operation_type: &str, status: &str, duration_seconds: f64) {
-        POVW_RESOLVE_OPERATIONS.with_label_values(&[operation_type, status]).inc();
-        POVW_RESOLVE_DURATION.observe(duration_seconds);
+        TASK_DURATION.observe(duration_seconds);
     }
 
     /// Record database operation metrics

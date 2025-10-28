@@ -4,8 +4,7 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    Agent,
-    redis::AsyncCommands,
+    Agent, redis,
     tasks::{RECUR_RECEIPT_PATH, deserialize_obj, read_image_id},
 };
 use anyhow::{Context, Result, bail};
@@ -30,19 +29,12 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
     let job_prefix = format!("job:{job_id}");
     let root_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.max_idx);
 
-    // pull the root receipt from redis
-    let redis_start = Instant::now();
-    let root_receipt: Vec<u8> = match conn.get::<_, Vec<u8>>(&root_receipt_key).await {
-        Ok(data) => {
-            helpers::record_redis_operation("get", "success", redis_start.elapsed().as_secs_f64());
-            data
-        }
-        Err(e) => {
-            helpers::record_redis_operation("get", "error", redis_start.elapsed().as_secs_f64());
-            return Err(anyhow::anyhow!(e)
-                .context(format!("failed to get the root receipt key: {root_receipt_key}")));
-        }
-    };
+    // Get root receipt using Redis helper
+    let root_receipt: Vec<u8> =
+        redis::get_key(&mut conn, &root_receipt_key).await.map_err(|e| {
+            anyhow::anyhow!(e)
+                .context(format!("failed to get the root receipt key: {root_receipt_key}"))
+        })?;
 
     let root_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&root_receipt)
         .with_context(|| {
@@ -53,28 +45,11 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
             )
         })?;
 
-    // construct the journal key and grab the journal from redis
+    // Get journal using Redis helper
     let journal_key = format!("{job_prefix}:journal");
-    let redis_journal_start = Instant::now();
-    let journal: Vec<u8> = match conn.get::<_, Vec<u8>>(&journal_key).await {
-        Ok(data) => {
-            helpers::record_redis_operation(
-                "get",
-                "success",
-                redis_journal_start.elapsed().as_secs_f64(),
-            );
-            data
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "get",
-                "error",
-                redis_journal_start.elapsed().as_secs_f64(),
-            );
-            return Err(anyhow::anyhow!(e)
-                .context(format!("Journal data not found for key ID: {journal_key}")));
-        }
-    };
+    let journal: Vec<u8> = redis::get_key(&mut conn, &journal_key).await.map_err(|e| {
+        anyhow::anyhow!(e).context(format!("Journal data not found for key ID: {journal_key}"))
+    })?;
 
     let journal = deserialize_obj(&journal)
         .with_context(|| {
@@ -86,28 +61,11 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
         });
     let rollup_receipt = Receipt::new(InnerReceipt::Succinct(root_receipt), journal?);
 
-    // build the image ID for pulling the image from redis
+    // Get image ID using Redis helper
     let image_key = format!("{job_prefix}:image_id");
-    let redis_image_start = Instant::now();
-    let image_id_string: String = match conn.get::<_, String>(&image_key).await {
-        Ok(data) => {
-            helpers::record_redis_operation(
-                "get",
-                "success",
-                redis_image_start.elapsed().as_secs_f64(),
-            );
-            data
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "get",
-                "error",
-                redis_image_start.elapsed().as_secs_f64(),
-            );
-            return Err(anyhow::anyhow!(e)
-                .context(format!("Journal data not found for key ID: {image_key}")));
-        }
-    };
+    let image_id_string: String = redis::get_key(&mut conn, &image_key).await.map_err(|e| {
+        anyhow::anyhow!(e).context(format!("Image ID not found for key: {image_key}"))
+    })?;
     let image_id = read_image_id(&image_id_string)?;
 
     rollup_receipt.verify(image_id).context("Receipt verification failed")?;
@@ -131,7 +89,6 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
 
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task_operation("finalize", "complete", "success");
 
     Ok(())
 }

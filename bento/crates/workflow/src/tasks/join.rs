@@ -28,23 +28,15 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     let left_path_key = format!("{recur_receipts_prefix}:{}", request.left);
     let right_path_key = format!("{recur_receipts_prefix}:{}", request.right);
 
-    // Record Redis operation for receipt retrieval
-    let redis_start = Instant::now();
-    let (left_receipt, right_receipt): (Vec<u8>, Vec<u8>) = match conn
+    // Get receipts using Redis helper
+    let (left_receipt, right_receipt): (Vec<u8>, Vec<u8>) = conn
         .mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_path_key, &right_path_key])
         .await
-    {
-        Ok(data) => {
-            helpers::record_redis_operation("mget", "success", redis_start.elapsed().as_secs_f64());
-            data
-        }
-        Err(e) => {
-            helpers::record_redis_operation("mget", "error", redis_start.elapsed().as_secs_f64());
-            return Err(anyhow::anyhow!(e).context(format!(
+        .map_err(|e| {
+            anyhow::anyhow!(e).context(format!(
                 "failed to get receipts for keys: {left_path_key}, {right_path_key}"
-            )));
-        }
-    };
+            ))
+        })?;
 
     let left_receipt: SuccinctReceipt<ReceiptClaim> =
         deserialize_obj(&left_receipt).context("Failed to deserialize left receipt")?;
@@ -61,6 +53,7 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     tracing::trace!("Joining {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
     // Record join operation
+    let join_start = Instant::now();
     let joined = match agent
         .prover
         .as_ref()
@@ -68,11 +61,22 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
         .join(&left_receipt, &right_receipt)
     {
         Ok(receipt) => {
-            helpers::record_task_operation("join", "join_receipts", "success");
+            JOIN_DURATION.observe(join_start.elapsed().as_secs_f64());
+            helpers::record_task(
+                "join",
+                "join_receipts",
+                "success",
+                join_start.elapsed().as_secs_f64(),
+            );
             receipt
         }
         Err(e) => {
-            helpers::record_task_operation("join", "join_receipts", "error");
+            helpers::record_task(
+                "join",
+                "join_receipts",
+                "error",
+                join_start.elapsed().as_secs_f64(),
+            );
             return Err(e);
         }
     };
@@ -83,59 +87,27 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     let join_result = serialize_obj(&joined).expect("Failed to serialize the segment");
     let output_key = format!("{recur_receipts_prefix}:{}", request.idx);
 
-    // Record Redis write operation
-    let redis_write_start = Instant::now();
-    match redis::set_key_with_expiry(
-        &mut conn,
-        &output_key,
-        join_result,
-        Some(agent.args.redis_ttl),
-    )
-    .await
-    {
-        Ok(()) => {
-            helpers::record_redis_operation(
-                "set_key_with_expiry",
-                "success",
-                redis_write_start.elapsed().as_secs_f64(),
-            );
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "set_key_with_expiry",
-                "error",
-                redis_write_start.elapsed().as_secs_f64(),
-            );
-            return Err(e.into());
-        }
-    }
+    // Store joined receipt using Redis helper
+    redis::set_key_with_expiry(&mut conn, &output_key, join_result, Some(agent.args.redis_ttl))
+        .await
+        .map_err(|e| anyhow::anyhow!(e).context("Failed to store joined receipt"))?;
 
     tracing::debug!("Join Complete {job_id} - {}", request.left);
 
-    // Record cleanup operation
+    // Clean up intermediate receipts
     let cleanup_start = Instant::now();
-    match conn.unlink::<_, ()>(&[&left_path_key, &right_path_key]).await {
-        Ok(()) => {
-            helpers::record_redis_operation(
-                "unlink",
-                "success",
-                cleanup_start.elapsed().as_secs_f64(),
-            );
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "unlink",
-                "error",
-                cleanup_start.elapsed().as_secs_f64(),
-            );
-            return Err(anyhow::anyhow!(e).context("Failed to delete join receipt keys"));
-        }
-    }
+    let cleanup_result = conn.unlink::<_, ()>(&[&left_path_key, &right_path_key]).await;
+    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(
+        "unlink",
+        cleanup_status,
+        cleanup_start.elapsed().as_secs_f64(),
+    );
+    cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete join receipt keys"))?;
 
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    JOIN_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task_operation("join", "complete", "success");
+    helpers::record_task("join", "complete", "success", start_time.elapsed().as_secs_f64());
 
     Ok(())
 }

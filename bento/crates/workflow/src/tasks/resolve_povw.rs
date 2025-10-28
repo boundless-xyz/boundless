@@ -60,7 +60,8 @@ pub async fn resolve_povw(
     let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
         match agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt) {
             Ok(receipt) => {
-                helpers::record_povw_operation(
+                helpers::record_task(
+                    "resolve_povw",
                     "povw_unwrap",
                     "success",
                     povw_unwrap_start.elapsed().as_secs_f64(),
@@ -68,7 +69,8 @@ pub async fn resolve_povw(
                 receipt
             }
             Err(e) => {
-                helpers::record_povw_operation(
+                helpers::record_task(
+                    "resolve_povw",
                     "povw_unwrap",
                     "error",
                     povw_unwrap_start.elapsed().as_secs_f64(),
@@ -255,7 +257,7 @@ pub async fn resolve_povw(
     POVW_RESOLVE_DURATION.observe(start_time.elapsed().as_secs_f64());
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
     RESOLVE_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task_operation("resolve_povw", "complete", "success");
+    helpers::record_task("resolve_povw", "complete", "success", start_time.elapsed().as_secs_f64());
 
     Ok(assumptions_len)
 }

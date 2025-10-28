@@ -78,7 +78,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
 
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task_operation("snark", "complete", "success");
+    helpers::record_task("snark", "complete", "success", start_time.elapsed().as_secs_f64());
 
     Ok(SnarkResp { snark: job_id.to_string() })
 }

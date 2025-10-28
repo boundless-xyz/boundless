@@ -177,7 +177,7 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
     RESOLVE_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task_operation("resolve", "complete", "success");
+    helpers::record_task("resolve", "complete", "success", start_time.elapsed().as_secs_f64());
 
     tracing::info!("Resolve operation completed successfully");
     Ok(assumptions_len)

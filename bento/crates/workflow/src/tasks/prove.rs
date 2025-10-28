@@ -199,7 +199,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task_operation("prove", "complete", "success");
+    helpers::record_task("prove", "complete", "success", start_time.elapsed().as_secs_f64());
 
     Ok(())
 }

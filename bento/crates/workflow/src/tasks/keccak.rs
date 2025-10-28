@@ -140,7 +140,7 @@ pub async fn keccak(
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
     KECCAK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task_operation("keccak", "complete", "success");
+    helpers::record_task("keccak", "complete", "success", start_time.elapsed().as_secs_f64());
 
     Ok(())
 }
