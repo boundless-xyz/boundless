@@ -14,7 +14,7 @@ use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{
     ProveReq,
-    metrics::{PROVE_DURATION, TASK_DURATION, TASK_OPERATIONS, helpers},
+    metrics::{LIFT_POVW_DURATION, PROVE_DURATION, TASK_DURATION, TASK_OPERATIONS, helpers},
 };
 
 /// Run a prove request

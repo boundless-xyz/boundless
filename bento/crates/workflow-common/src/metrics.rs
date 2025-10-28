@@ -10,103 +10,103 @@ use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, 
 lazy_static! {
     // Execution metrics
     pub static ref EXECUTION_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("executor_execution_duration_seconds", "Duration of job execution in seconds")
+        HistogramOpts::new("execution_duration_seconds", "Duration of job execution in seconds")
             .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0])
     ).unwrap();
 
     pub static ref SEGMENT_COUNT: IntCounter = IntCounter::new(
-        "executor_segments_total", "Total number of segments processed"
+        "segments_total", "Total number of segments processed"
     ).unwrap();
 
     pub static ref USER_CYCLES: IntCounter = IntCounter::new(
-        "executor_user_cycles_total", "Total user cycles executed"
+        "user_cycles_total", "Total user cycles executed"
     ).unwrap();
 
     pub static ref TOTAL_CYCLES: IntCounter = IntCounter::new(
-        "executor_total_cycles_total", "Total cycles executed"
+        "total_cycles_total", "Total cycles executed"
     ).unwrap();
 
     // Task processing metrics
     pub static ref TASKS_CREATED: IntCounterVec = IntCounterVec::new(
-        Opts::new("executor_tasks_created_total", "Total number of tasks created by type"),
+        Opts::new("tasks_created_total", "Total number of tasks created by type"),
         &["task_type"]
     ).unwrap();
 
     pub static ref TASK_PROCESSING_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("executor_task_processing_duration_seconds", "Duration of task processing")
+        HistogramOpts::new("task_processing_duration_seconds", "Duration of task processing")
             .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
     ).unwrap();
 
     // Error metrics
     pub static ref EXECUTION_ERRORS: IntCounterVec = IntCounterVec::new(
-        Opts::new("executor_errors_total", "Total number of execution errors by type"),
+        Opts::new("errors_total", "Total number of execution errors by type"),
         &["error_type"]
     ).unwrap();
 
     pub static ref GUEST_FAULTS: IntCounter = IntCounter::new(
-        "executor_guest_faults_total", "Total number of guest faults"
+        "guest_faults_total", "Total number of guest faults"
     ).unwrap();
 
     // I/O metrics
     pub static ref S3_OPERATIONS: IntCounterVec = IntCounterVec::new(
-        Opts::new("executor_s3_operations_total", "Total number of S3 operations by type"),
+        Opts::new("s3_operations_total", "Total number of S3 operations by type"),
         &["operation_type", "status"]
     ).unwrap();
 
     pub static ref S3_OPERATION_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("executor_s3_operation_duration_seconds", "Duration of S3 operations")
+        HistogramOpts::new("s3_operation_duration_seconds", "Duration of S3 operations")
             .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0])
     ).unwrap();
 
     pub static ref REDIS_OPERATIONS: IntCounterVec = IntCounterVec::new(
-        Opts::new("executor_redis_operations_total", "Total number of Redis operations by type"),
+        Opts::new("redis_operations_total", "Total number of Redis operations by type"),
         &["operation_type", "status"]
     ).unwrap();
 
     pub static ref REDIS_OPERATION_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("executor_redis_operation_duration_seconds", "Duration of Redis operations")
+        HistogramOpts::new("redis_operation_duration_seconds", "Duration of Redis operations")
             .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0])
     ).unwrap();
 
     // Database operation metrics
     pub static ref DB_OPERATIONS: IntCounterVec = IntCounterVec::new(
-        Opts::new("executor_db_operations_total", "Total number of database operations by type"),
+        Opts::new("db_operations_total", "Total number of database operations by type"),
         &["operation_type", "status"]
     ).unwrap();
 
     pub static ref DB_OPERATION_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("executor_db_operation_duration_seconds", "Duration of database operations")
+        HistogramOpts::new("db_operation_duration_seconds", "Duration of database operations")
             .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
     ).unwrap();
 
     pub static ref DB_CONNECTION_POOL_SIZE: IntGauge = IntGauge::new(
-        "executor_db_connection_pool_size", "Current database connection pool size"
+        "db_connection_pool_size", "Current database connection pool size"
     ).unwrap();
 
     pub static ref DB_CONNECTION_POOL_IDLE: IntGauge = IntGauge::new(
-        "executor_db_connection_pool_idle", "Current number of idle database connections"
+        "db_connection_pool_idle", "Current number of idle database connections"
     ).unwrap();
 
     pub static ref DB_CONNECTION_POOL_ACTIVE: IntGauge = IntGauge::new(
-        "executor_db_connection_pool_active", "Current number of active database connections"
+        "db_connection_pool_active", "Current number of active database connections"
     ).unwrap();
 
     // Queue metrics
     pub static ref SEGMENT_QUEUE_SIZE: IntGauge = IntGauge::new(
-        "executor_segment_queue_size", "Current size of segment queue"
+        "segment_queue_size", "Current size of segment queue"
     ).unwrap();
 
     pub static ref TASK_QUEUE_SIZE_GAUGE: IntGauge = IntGauge::new(
-        "executor_task_queue_size", "Current size of task queue"
+        "task_queue_size", "Current size of task queue"
     ).unwrap();
 
     // Assumption metrics
     pub static ref ASSUMPTION_COUNT: IntCounter = IntCounter::new(
-        "executor_assumptions_total", "Total number of assumptions processed"
+        "assumptions_total", "Total number of assumptions processed"
     ).unwrap();
 
     pub static ref ASSUMPTION_PROCESSING_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("executor_assumption_processing_duration_seconds", "Duration of assumption processing")
+        HistogramOpts::new("assumption_processing_duration_seconds", "Duration of assumption processing")
             .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
     ).unwrap();
 
@@ -145,6 +145,11 @@ lazy_static! {
 
     pub static ref JOIN_POVW_DURATION: Histogram = Histogram::with_opts(
         HistogramOpts::new("join_povw_duration_seconds", "Duration of POVW join operations")
+            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
+    ).unwrap();
+
+    pub static ref LIFT_POVW_DURATION: Histogram = Histogram::with_opts(
+        HistogramOpts::new("lift_povw_duration_seconds", "Duration of POVW lift operations")
             .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
     ).unwrap();
 
@@ -246,6 +251,7 @@ pub mod helpers {
         let _ = register(Box::new(PROVE_DURATION.clone()));
         let _ = register(Box::new(JOIN_DURATION.clone()));
         let _ = register(Box::new(JOIN_POVW_DURATION.clone()));
+        let _ = register(Box::new(LIFT_POVW_DURATION.clone()));
         let _ = register(Box::new(KECCAK_DURATION.clone()));
         let _ = register(Box::new(UNION_DURATION.clone()));
         let _ = register(Box::new(RESOLVE_DURATION.clone()));
