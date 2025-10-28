@@ -233,14 +233,14 @@ impl RequestorStatus {
         }
 
         if let Some((order, created_at)) = order_data {
-            tracing::info!("Using order stream data to determine block range");
+            tracing::debug!("Using order stream data to determine block range");
 
             let submission_time = UNIX_EPOCH + Duration::from_secs(created_at.timestamp() as u64);
             let expiration_timestamp =
                 order.request.offer.rampUpStart + order.request.offer.timeout as u64;
             let expiration_time = UNIX_EPOCH + Duration::from_secs(expiration_timestamp);
 
-            tracing::info!(
+            tracing::debug!(
                 "Submission time: {} (unix: {}), Expiration time: {} (unix: {})",
                 created_at.format("%Y-%m-%d %H:%M:%S UTC"),
                 created_at.timestamp(),
@@ -268,7 +268,7 @@ impl RequestorStatus {
             .await
             .unwrap_or(latest_block);
 
-            tracing::info!(
+            tracing::debug!(
                 "Converted timestamps to blocks: submission -> block {}, expiration -> block {}",
                 start_block,
                 end_block
@@ -280,12 +280,12 @@ impl RequestorStatus {
         let start_block = latest_block.saturating_sub(search_window).max(deployment_block);
         let end_block = latest_block;
 
-        tracing::info!(
+        tracing::debug!(
             "No order stream data available, searching backwards {} blocks from current block {}",
             search_window,
             latest_block
         );
-        tracing::info!("Backward search range: blocks {} to {}", start_block, end_block);
+        tracing::debug!("Backward search range: blocks {} to {}", start_block, end_block);
         (start_block, end_block)
     }
 
@@ -311,9 +311,9 @@ impl RequestorStatus {
         };
 
         if let Some((ref _order, created_at)) = order_stream_order_data {
-            tracing::info!("Found order in stream, created at {}", created_at);
+            tracing::info!("Found order in order stream, created at {}", created_at);
         } else {
-            tracing::info!("Order not found in stream");
+            tracing::info!("Order not found in order stream");
         }
 
         // Get ProofRequest to compute request digest
@@ -335,7 +335,7 @@ impl RequestorStatus {
         let (lower_bound, upper_bound) =
             self.find_event_search_blocks(client, &order_stream_order_data).await;
 
-        tracing::info!("Event search range determined: blocks {} to {}", lower_bound, upper_bound);
+        tracing::debug!("Event search range determined: blocks {} to {}", lower_bound, upper_bound);
 
         let (submission_time, offer, submitted_block_number, submitted_tx_hash) = self
             .query_submission_info(client, &order_stream_order_data, lower_bound, upper_bound)
@@ -377,7 +377,7 @@ impl RequestorStatus {
 
         // Process RequestLocked result
         if let Ok(data) = locked_result {
-            tracing::info!("Found RequestLocked event at block {}", data.block_number);
+            tracing::debug!("Found RequestLocked event at block {}", data.block_number);
             if let Ok(Some(block)) = client
                 .boundless_market
                 .instance()
@@ -399,7 +399,7 @@ impl RequestorStatus {
 
         // Process ProofDelivered results
         if let Ok(events) = delivered_result {
-            tracing::info!("Found {} ProofDelivered event(s)", events.len());
+            tracing::debug!("Found {} ProofDelivered event(s)", events.len());
             for data in events.iter() {
                 if let Ok(Some(block)) = client
                     .boundless_market
@@ -421,7 +421,7 @@ impl RequestorStatus {
 
         // Process RequestFulfilled result
         if let Ok(data) = fulfilled_result {
-            tracing::info!("Found RequestFulfilled event at block {}", data.block_number);
+            tracing::debug!("Found RequestFulfilled event at block {}", data.block_number);
             if let Ok(Some(block)) = client
                 .boundless_market
                 .instance()
@@ -456,7 +456,7 @@ impl RequestorStatus {
             // Check if request was fulfilled before lock timeout
             let fulfilled_before_lock_timeout = timeline
                 .iter()
-                .any(|entry| matches!(entry, TimelineEntry::ProofDelivered { timestamp, .. } if *timestamp <= lock_timeout));
+                .any(|entry| matches!(entry, TimelineEntry::RequestFulfilled { timestamp, .. } if *timestamp <= lock_timeout));
 
             // Query for slash events only if NOT fulfilled before lock timeout
             if !fulfilled_before_lock_timeout {
@@ -472,7 +472,7 @@ impl RequestorStatus {
                 .unwrap_or(upper_bound);
 
                 // Search for slash event after expiration
-                tracing::info!(
+                tracing::debug!(
                     "Querying ProverSlashed event for request ID {:x} in blocks {} to {} (after request expiration)",
                     self.request_id,
                     slash_search_start,
@@ -487,7 +487,7 @@ impl RequestorStatus {
                     )
                     .await
                 {
-                    tracing::info!("Found ProverSlashed event at block {}", data.block_number);
+                    tracing::debug!("Found ProverSlashed event at block {}", data.block_number);
                     if let Ok(Some(block)) = client
                         .boundless_market
                         .instance()
@@ -526,12 +526,11 @@ impl RequestorStatus {
     {
         // Use order stream data if available
         if let Some((order, created_at)) = order_data {
-            tracing::info!("Using order stream data for submission info");
+            tracing::debug!("Using order stream data for submission info");
             return (Some(*created_at), Some(order.request.offer.clone()), None, None);
         }
 
-        // Fallback to chain events
-        tracing::info!(
+        tracing::debug!(
             "Searching for RequestSubmitted event in blocks {} to {}",
             lower_bound,
             upper_bound
@@ -541,7 +540,7 @@ impl RequestorStatus {
             .query_request_submitted_event(self.request_id, Some(lower_bound), Some(upper_bound))
             .await
         {
-            tracing::info!("Found RequestSubmitted event at block {}", data.block_number);
+            tracing::debug!("Found RequestSubmitted event at block {}", data.block_number);
 
             // Fetch block to get timestamp
             if let Ok(Some(block)) = client
@@ -562,7 +561,7 @@ impl RequestorStatus {
             }
         }
 
-        tracing::info!("No RequestSubmitted event found in specified range");
+        tracing::debug!("No RequestSubmitted event found in specified range");
         (None, None, None, None)
     }
 
