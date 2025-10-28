@@ -337,15 +337,15 @@ impl RequestorStatus {
 
         tracing::info!("Event search range determined: blocks {} to {}", lower_bound, upper_bound);
 
-        let (submission_time, offer) = self
+        let (submission_time, offer, submitted_block_number, submitted_tx_hash) = self
             .query_submission_info(client, &order_stream_order_data, lower_bound, upper_bound)
             .await;
 
         if let Some(timestamp) = submission_time {
             timeline.push(TimelineEntry::Submitted {
                 timestamp,
-                block_number: None,
-                tx_hash: None,
+                block_number: submitted_block_number,
+                tx_hash: submitted_tx_hash,
                 request_digest,
             });
         }
@@ -520,18 +520,18 @@ impl RequestorStatus {
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,
-    ) -> (Option<DateTime<Utc>>, Option<Offer>)
+    ) -> (Option<DateTime<Utc>>, Option<Offer>, Option<u64>, Option<B256>)
     where
         P: alloy::providers::Provider + Clone,
     {
         // Use order stream data if available
         if let Some((order, created_at)) = order_data {
-            tracing::debug!("Using order stream data for submission info");
-            return (Some(*created_at), Some(order.request.offer.clone()));
+            tracing::info!("Using order stream data for submission info");
+            return (Some(*created_at), Some(order.request.offer.clone()), None, None);
         }
 
-        // Fallback to chain events for offer only
-        tracing::debug!(
+        // Fallback to chain events
+        tracing::info!(
             "Searching for RequestSubmitted event in blocks {} to {}",
             lower_bound,
             upper_bound
@@ -541,12 +541,29 @@ impl RequestorStatus {
             .query_request_submitted_event(self.request_id, Some(lower_bound), Some(upper_bound))
             .await
         {
-            tracing::debug!("Found RequestSubmitted event at block {}", data.block_number);
-            return (None, Some(data.request.offer));
+            tracing::info!("Found RequestSubmitted event at block {}", data.block_number);
+
+            // Fetch block to get timestamp
+            if let Ok(Some(block)) = client
+                .boundless_market
+                .instance()
+                .provider()
+                .get_block_by_number(data.block_number.into())
+                .await
+            {
+                let timestamp = DateTime::from_timestamp(block.header.timestamp as i64, 0)
+                    .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap());
+                return (
+                    Some(timestamp),
+                    Some(data.request.offer),
+                    Some(data.block_number),
+                    Some(data.tx_hash),
+                );
+            }
         }
 
-        tracing::debug!("No RequestSubmitted event found in specified range");
-        (None, None)
+        tracing::info!("No RequestSubmitted event found in specified range");
+        (None, None, None, None)
     }
 
     async fn get_proof_request<P, St, R, Si>(
