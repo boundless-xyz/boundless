@@ -11,11 +11,16 @@ use crate::{
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown};
+use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq};
+use workflow_common::{
+    KECCAK_RECEIPT_PATH, ResolveReq,
+    metrics::{RESOLVE_DURATION, TASK_DURATION, TASK_OPERATIONS, helpers},
+};
 
 /// Run the resolve operation
 pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Result<Option<u64>> {
+    let start_time = Instant::now();
     let max_idx = &request.max_idx;
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
@@ -24,9 +29,19 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     tracing::debug!("Starting resolve for job_id: {job_id}, max_idx: {max_idx}");
 
     let mut conn = agent.redis_pool.get().await?;
-    let receipt: Vec<u8> = conn.get::<_, Vec<u8>>(&root_receipt_key).await.with_context(|| {
-        format!("segment data not found for root receipt key: {root_receipt_key}")
-    })?;
+    let redis_start = Instant::now();
+    let receipt: Vec<u8> = match conn.get::<_, Vec<u8>>(&root_receipt_key).await {
+        Ok(data) => {
+            helpers::record_redis_operation("get", "success", redis_start.elapsed().as_secs_f64());
+            data
+        }
+        Err(e) => {
+            helpers::record_redis_operation("get", "error", redis_start.elapsed().as_secs_f64());
+            return Err(anyhow::anyhow!(e).context(format!(
+                "segment data not found for root receipt key: {root_receipt_key}"
+            )));
+        }
+    };
 
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
     let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&receipt)?;
@@ -62,12 +77,25 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
                     // Resolve union receipt
                     tracing::debug!("Resolving union claim digest: {union_claim}");
-                    conditional_receipt = agent
+                    conditional_receipt = match agent
                         .prover
                         .as_ref()
                         .context("Missing prover from resolve task")?
                         .resolve(&conditional_receipt, &union_receipt)
-                        .context("Failed to resolve the union receipt")?;
+                    {
+                        Ok(receipt) => {
+                            TASK_OPERATIONS
+                                .with_label_values(&["resolve", "resolve_union", "success"])
+                                .inc();
+                            receipt
+                        }
+                        Err(e) => {
+                            TASK_OPERATIONS
+                                .with_label_values(&["resolve", "resolve_union", "error"])
+                                .inc();
+                            return Err(e.context("Failed to resolve the union receipt"));
+                        }
+                    };
                 }
 
                 for assumption in assumptions {
@@ -89,12 +117,25 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         })?;
 
                     // Resolve
-                    conditional_receipt = agent
+                    conditional_receipt = match agent
                         .prover
                         .as_ref()
                         .context("Missing prover from resolve task")?
                         .resolve(&conditional_receipt, &assumption_receipt)
-                        .context("Failed to resolve the conditional receipt")?;
+                    {
+                        Ok(receipt) => {
+                            TASK_OPERATIONS
+                                .with_label_values(&["resolve", "resolve_assumption", "success"])
+                                .inc();
+                            receipt
+                        }
+                        Err(e) => {
+                            TASK_OPERATIONS
+                                .with_label_values(&["resolve", "resolve_assumption", "error"])
+                                .inc();
+                            return Err(e.context("Failed to resolve the conditional receipt"));
+                        }
+                    };
                 }
                 tracing::debug!("Resolve complete for job_id: {job_id}");
             }
@@ -107,14 +148,36 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
         serialize_obj(&conditional_receipt).context("Failed to serialize resolved receipt")?;
 
     tracing::debug!("Writing resolved receipt to Redis key: {root_receipt_key}");
-    redis::set_key_with_expiry(
+    let redis_write_start = Instant::now();
+    match redis::set_key_with_expiry(
         &mut conn,
         &root_receipt_key,
         serialized_asset,
         Some(agent.args.redis_ttl),
     )
     .await
-    .context("Failed to set root receipt key with expiry")?;
+    {
+        Ok(()) => {
+            helpers::record_redis_operation(
+                "set_key_with_expiry",
+                "success",
+                redis_write_start.elapsed().as_secs_f64(),
+            );
+        }
+        Err(e) => {
+            helpers::record_redis_operation(
+                "set_key_with_expiry",
+                "error",
+                redis_write_start.elapsed().as_secs_f64(),
+            );
+            return Err(anyhow::anyhow!("Failed to set root receipt key with expiry: {e}"));
+        }
+    }
+
+    // Record total task duration and success
+    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
+    RESOLVE_DURATION.observe(start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation("resolve", "complete", "success");
 
     tracing::info!("Resolve operation completed successfully");
     Ok(assumptions_len)

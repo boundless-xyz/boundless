@@ -44,6 +44,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         deserialize_obj(&segment_vec).context("Failed to deserialize segment data from redis")?;
 
     // Record proving operation
+    let prove_start = Instant::now();
     let segment_receipt = match agent
         .prover
         .as_ref()
@@ -51,6 +52,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         .prove_segment(&agent.verifier_ctx, &segment)
     {
         Ok(receipt) => {
+            PROVE_DURATION.observe(prove_start.elapsed().as_secs_f64());
             TASK_OPERATIONS.with_label_values(&["prove", "prove_segment", "success"]).inc();
             receipt
         }
@@ -71,6 +73,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
 
     if agent.is_povw_enabled() {
+        let lift_povw_start = Instant::now();
         let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = match agent
             .prover
             .as_ref()
@@ -78,6 +81,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
             .lift_povw(&segment_receipt)
         {
             Ok(receipt) => {
+                LIFT_POVW_DURATION.observe(lift_povw_start.elapsed().as_secs_f64());
                 TASK_OPERATIONS.with_label_values(&["prove", "lift_povw", "success"]).inc();
                 receipt
             }
@@ -195,7 +199,6 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    PROVE_DURATION.observe(start_time.elapsed().as_secs_f64());
     helpers::record_task_operation("prove", "complete", "success");
 
     Ok(())

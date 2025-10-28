@@ -143,6 +143,11 @@ lazy_static! {
             .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
     ).unwrap();
 
+    pub static ref JOIN_POVW_DURATION: Histogram = Histogram::with_opts(
+        HistogramOpts::new("join_povw_duration_seconds", "Duration of POVW join operations")
+            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
+    ).unwrap();
+
     pub static ref KECCAK_DURATION: Histogram = Histogram::with_opts(
         HistogramOpts::new("keccak_duration_seconds", "Duration of keccak operations")
             .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
@@ -240,6 +245,7 @@ pub mod helpers {
         let _ = register(Box::new(TASK_OPERATIONS.clone()));
         let _ = register(Box::new(PROVE_DURATION.clone()));
         let _ = register(Box::new(JOIN_DURATION.clone()));
+        let _ = register(Box::new(JOIN_POVW_DURATION.clone()));
         let _ = register(Box::new(KECCAK_DURATION.clone()));
         let _ = register(Box::new(UNION_DURATION.clone()));
         let _ = register(Box::new(RESOLVE_DURATION.clone()));

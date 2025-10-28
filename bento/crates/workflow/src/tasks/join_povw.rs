@@ -10,11 +10,16 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
+use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::JoinReq;
+use workflow_common::{
+    JoinReq,
+    metrics::{JOIN_POVW_DURATION, TASK_DURATION, TASK_OPERATIONS, helpers},
+};
 
 /// Run a POVW join request
 pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()> {
+    let start_time = Instant::now();
     let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
 
@@ -22,12 +27,21 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     let left_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.left);
     let right_receipt_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.right);
 
-    let (left_receipt_bytes, right_receipt_bytes): (Vec<u8>, Vec<u8>) = conn
-        .mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_receipt_key, &right_receipt_key])
-        .await
-        .with_context(|| {
-            format!("failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}")
-        })?;
+    let redis_start = Instant::now();
+    let mget_result =
+        conn.mget::<_, (Vec<u8>, Vec<u8>)>(&[&left_receipt_key, &right_receipt_key]).await;
+    let (left_receipt_bytes, right_receipt_bytes): (Vec<u8>, Vec<u8>) = match mget_result {
+        Ok(data) => {
+            helpers::record_redis_operation("mget", "success", redis_start.elapsed().as_secs_f64());
+            data
+        }
+        Err(e) => {
+            helpers::record_redis_operation("mget", "error", redis_start.elapsed().as_secs_f64());
+            return Err(anyhow::anyhow!(
+                "failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}: {e}"
+            ));
+        }
+    };
 
     // Deserialize POVW receipts
     let (left_receipt, right_receipt): (
@@ -46,14 +60,23 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
         .context("Failed to verify right receipt integrity")?;
 
     tracing::debug!("Starting POVW join of receipts {} and {}", request.left, request.right);
-
+    let join_povw_start = Instant::now();
     // Use POVW-specific join - this is required for POVW functionality
-    let joined_receipt = if let Some(prover) = agent.prover.as_ref() {
-        prover.join_povw(&left_receipt, &right_receipt).context(
-            "POVW join method not available - POVW functionality requires RISC Zero POVW support",
-        )?
-    } else {
-        return Err(anyhow::anyhow!("No prover available for join task"));
+    let joined_receipt = match agent.prover.as_ref() {
+        Some(prover) => match prover.join_povw(&left_receipt, &right_receipt) {
+            Ok(receipt) => {
+                TASK_OPERATIONS.with_label_values(&["join_povw", "join_povw", "success"]).inc();
+                JOIN_POVW_DURATION.observe(join_povw_start.elapsed().as_secs_f64());
+                receipt
+            }
+            Err(e) => {
+                TASK_OPERATIONS.with_label_values(&["join_povw", "join_povw", "error"]).inc();
+                return Err(e.context(
+                        "POVW join method not available - POVW functionality requires RISC Zero POVW support",
+                    ));
+            }
+        },
+        None => return Err(anyhow::anyhow!("No prover available for join task")),
     };
 
     joined_receipt
@@ -67,18 +90,54 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     let povw_receipt_asset =
         serialize_obj(&joined_receipt).context("Failed to serialize joined POVW receipt")?;
 
-    redis::set_key_with_expiry(
+    let redis_write_start = Instant::now();
+    match redis::set_key_with_expiry(
         &mut conn,
         &povw_output_key,
         povw_receipt_asset,
         Some(agent.args.redis_ttl),
     )
     .await
-    .context("Failed to write joined POVW receipt to Redis")?;
+    {
+        Ok(()) => {
+            helpers::record_redis_operation(
+                "set_key_with_expiry",
+                "success",
+                redis_write_start.elapsed().as_secs_f64(),
+            );
+        }
+        Err(e) => {
+            helpers::record_redis_operation(
+                "set_key_with_expiry",
+                "error",
+                redis_write_start.elapsed().as_secs_f64(),
+            );
+            return Err(anyhow::anyhow!("Failed to write joined POVW receipt to Redis: {e}"));
+        }
+    }
 
-    conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key])
-        .await
-        .context("Failed to delete POVW join receipt keys")?;
+    let cleanup_start = Instant::now();
+    match conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key]).await {
+        Ok(()) => {
+            helpers::record_redis_operation(
+                "unlink",
+                "success",
+                cleanup_start.elapsed().as_secs_f64(),
+            );
+        }
+        Err(e) => {
+            helpers::record_redis_operation(
+                "unlink",
+                "error",
+                cleanup_start.elapsed().as_secs_f64(),
+            );
+            return Err(anyhow::anyhow!("Failed to delete POVW join receipt keys: {e}"));
+        }
+    }
+
+    // Record total task duration and success
+    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation("join_povw", "complete", "success");
 
     Ok(())
 }
