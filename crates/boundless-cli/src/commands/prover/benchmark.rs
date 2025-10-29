@@ -193,9 +193,12 @@ impl ProverBenchmark {
             display.item_colored("Effective", format!("{:.2} KHz", effective_khz), "cyan");
             let recommended_khz = effective_khz * RECOMMENDED_PEAK_PROVE_KHZ_FACTOR;
             display.item_colored(
-                &format!("Recommended `peak_prove_khz` ({:.0}% of effective)", RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0),
+                &format!(
+                    "Recommended `peak_prove_khz` ({:.0}% of effective)",
+                    RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0
+                ),
                 format!("{:.2} KHz", recommended_khz),
-                "cyan"
+                "cyan",
             );
 
             if let Some(time) = elapsed_time {
@@ -221,9 +224,12 @@ impl ProverBenchmark {
             display.item_colored("Request ID", format!("{:#x}", worst_request_id), "yellow");
             display.item_colored("Effective", format!("{:.2} KHz", worst_khz), "yellow");
             display.item_colored(
-                &format!("Recommended `peak_prove_khz` ({:.0}% of effective)", RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0),
+                &format!(
+                    "Recommended `peak_prove_khz` ({:.0}% of effective)",
+                    RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0
+                ),
                 format!("{:.2} KHz", worst_recommended_khz),
-                "yellow"
+                "yellow",
             );
             display.item_colored("Cycles", format!("{:.0}", worst_cycles), "yellow");
             display.item_colored("Time", format!("{:.2}s", worst_time), "yellow");

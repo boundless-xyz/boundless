@@ -718,7 +718,7 @@ where
                     let required_price_per_mcycle =
                         available_eth.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
                     format!(
-                        "mcycle_price currently {} ETH/Mcycle, order required <= {} ETH/Mcycle",
+                        "min_mcycle_price set to {} ETH/Mcycle in config, order requires min_mcycle_price <= {} ETH/Mcycle to be considered",
                         format_ether(*mcycle_price_eth),
                         format_ether(required_price_per_mcycle)
                     )
@@ -729,7 +729,7 @@ where
                     let required_collateral_price =
                         reward.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
                     format!(
-                        "mcycle_price_collateral_token currently {}, order required <= {}",
+                        "min_mcycle_price_collateral_token set to {} ZKC/Mcycle in config, order requires min_mcycle_price_collateral_token <= {} ZKC/Mcycle to be considered",
                         mcycle_price_collateral,
                         self.format_collateral(required_collateral_price)
                     )
@@ -737,7 +737,7 @@ where
                 ProveLimitReason::ConfigCap { max_mcycles } => {
                     let required_mcycles = proof_cycles.div_ceil(1_000_000);
                     format!(
-                        "max_mcycle_limit currently {} Mcycles, order required >= {} Mcycles",
+                        "max_mcycle_limit set to {} Mcycles in config, order requires max_mcycle_limit >= {} Mcycles to be considered",
                         max_mcycles, required_mcycles
                     )
                 }
@@ -745,7 +745,7 @@ where
                     let denom = time_remaining_secs.saturating_mul(1_000);
                     let required_khz = proof_cycles.div_ceil(denom);
                     format!(
-                        "peak_prove_khz currently {} kHz, order required >= {} kHz",
+                        "peak_prove_khz set to {} kHz in config, order requires peak_prove_khz >= {} kHz to be considered",
                         peak_prove_khz, required_khz
                     )
                 }

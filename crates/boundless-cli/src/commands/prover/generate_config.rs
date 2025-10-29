@@ -51,7 +51,7 @@ const EVENT_QUERY_CHUNK_SIZE: u64 = 500;
 #[derive(Debug, Clone)]
 struct MarketPricing {
     median: f64,
-    percentile_40: f64,
+    percentile_25: f64,
     sample_size: usize,
 }
 
@@ -370,11 +370,11 @@ impl ProverGenerateConfig {
                     "cyan",
                 );
                 display.item_colored(
-                    "40th percentile",
+                    "25th percentile",
                     format!(
                         "{:.10} ETH/Mcycle ({} Gwei/Mcycle)",
-                        pricing.percentile_40,
-                        pricing.percentile_40 * 1e9
+                        pricing.percentile_25,
+                        pricing.percentile_25 * 1e9
                     ),
                     "cyan",
                 );
@@ -392,17 +392,18 @@ impl ProverGenerateConfig {
             display.note("");
             display.note(&format!(
                 "Recommended minimum price: {:.10} ETH/Mcycle ({} Gwei/Mcycle)",
-                pricing.percentile_40,
-                pricing.percentile_40 * 1e9
+                pricing.percentile_25,
+                pricing.percentile_25 * 1e9
             ));
             display.note("");
-            display.note("This value is set at the 40th percentile of recent market prices. It ensures you are");
+            display
+                .note("This value is computed based on recent market prices. It ensures you are");
             display.note("priced competitively such that you will be able to lock and fulfill orders for ETH rewards");
             display.note("in the market.");
             display.note("");
 
             Text::new("Press Enter to accept or enter custom price:")
-                .with_default(&format!("{:.10}", pricing.percentile_40))
+                .with_default(&format!("{:.10}", pricing.percentile_25))
                 .with_help_message("You can update this later in broker.toml")
                 .prompt()
                 .context("Failed to get price")?
@@ -672,11 +673,11 @@ impl ProverGenerateConfig {
             prices_per_mcycle[prices_per_mcycle.len() / 2]
         };
 
-        // Calculate 40th percentile
-        let percentile_40_idx = ((prices_per_mcycle.len() as f64) * 0.40) as usize;
-        let percentile_40 = prices_per_mcycle[percentile_40_idx.min(prices_per_mcycle.len() - 1)];
+        // Calculate 25th percentile
+        let percentile_25_idx = ((prices_per_mcycle.len() as f64) * 0.25) as usize;
+        let percentile_25 = prices_per_mcycle[percentile_25_idx.min(prices_per_mcycle.len() - 1)];
 
-        Ok(MarketPricing { median: median_price, percentile_40, sample_size })
+        Ok(MarketPricing { median: median_price, percentile_25, sample_size })
     }
 
     async fn get_peak_performance(
