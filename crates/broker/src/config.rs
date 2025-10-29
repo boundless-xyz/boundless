@@ -557,10 +557,13 @@ impl Default for BatcherConfig {
 #[derive(Deserialize, Serialize, Default, Debug)]
 pub struct Config {
     /// Market / bidding configurations
+    #[serde(default)]
     pub market: MarketConf,
     /// Prover backend configs
+    #[serde(default)]
     pub prover: ProverConf,
     /// Aggregation batch configs
+    #[serde(default)]
     pub batcher: BatcherConfig,
 }
 
