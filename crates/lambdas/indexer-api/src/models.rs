@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Health check response
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,

@@ -233,7 +233,7 @@ impl SharedTestEnv {
                     }
 
                     // Print progress every 5 seconds
-                    if start.elapsed().as_secs() % 5 == 0 {
+                    if start.elapsed().as_secs().is_multiple_of(5) {
                         let size = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
                         debug!(
                             "Still indexing... (elapsed: {}s, DB size: {} bytes)",
