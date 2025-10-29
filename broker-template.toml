@@ -1,4 +1,4 @@
-# #############################################################################
+### [Disclaimer] #####
 # IMPORTANT: Running the broker with these settings will likely result in your
 # broker not being able to lock or fulfill orders, and may even result in your
 # broker being slashed.
@@ -9,7 +9,7 @@
 #
 # Additionally, refer to documentation:
 # https://docs.boundless.network/provers/broker#settings-in-brokertoml
-# #############################################################################
+### [End] ###
 
 [market]
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
@@ -23,8 +23,8 @@
 min_mcycle_price = "0.0000005"
 
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
-# to attempt to fulfill an order in the case that the order was locked but not
-# fulfilled within the lock timeout.
+# to attempt to fulfill an order in the case that the order was locked by another prover
+# but not fulfilled within the lock timeout.
 #
 # If an order is locked by a prover, but not fulfilled within the lock timeout,
 # that prover is slashed by the amount of collateral specified in the order. A
@@ -35,7 +35,7 @@ min_mcycle_price = "0.0000005"
 #
 # Note: attempting to fulfill these orders is a 'proof race' where the first prover
 # to fulfill the order is rewarded with the collateral.
-min_mcycle_price_collateral_token = "0.0001"
+min_mcycle_price_collateral_token = "0.00005"
 
 # Estimated peak performance of the proving cluster, in kHz.
 #

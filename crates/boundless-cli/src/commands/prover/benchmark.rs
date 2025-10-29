@@ -35,7 +35,7 @@ pub struct ProverBenchmark {
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
 }
-
+const RECOMMENDED_PEAK_PROVE_KHZ_FACTOR: f64 = 0.75;
 impl ProverBenchmark {
     /// Run the benchmark command
     pub async fn run(&self, global_config: &GlobalConfig) -> Result<f64> {
@@ -57,6 +57,7 @@ impl ProverBenchmark {
 
         // Track performance metrics across all runs
         let mut worst_khz = f64::MAX;
+        let mut worst_recommended_khz = 0.0;
         let mut worst_time = 0.0;
         let mut worst_cycles = 0.0;
         let mut worst_request_id = U256::ZERO;
@@ -110,7 +111,7 @@ impl ProverBenchmark {
             let assumptions = vec![];
             let start_time = std::time::Instant::now();
 
-            display.status("Status", "Generating proof", "yellow");
+            display.status("Status", "Generating proof (this may take a while)", "yellow");
             let proof_id =
                 prover.create_session(image_id, input_id, assumptions.clone(), false).await?;
             tracing::debug!("Created session {}", proof_id.uuid);
@@ -190,6 +191,8 @@ impl ProverBenchmark {
             display.item_colored("Cycles", format!("{:.0}", total_cycles), "cyan");
             display.item_colored("Time", format!("{:.2}s", elapsed_secs), "cyan");
             display.item_colored("Effective", format!("{:.2} KHz", effective_khz), "cyan");
+            let recommended_khz = effective_khz * RECOMMENDED_PEAK_PROVE_KHZ_FACTOR;
+            display.item_colored("Recommended `peak_prove_khz` ({RECOMMENDED_PEAK_PROVE_KHZ_FACTOR*100}% of effective)", format!("{:.2} KHz", recommended_khz), "cyan");
 
             if let Some(time) = elapsed_time {
                 tracing::debug!("Server side time: {:?}", time);
@@ -198,6 +201,7 @@ impl ProverBenchmark {
             // Track worst performance
             if effective_khz < worst_khz {
                 worst_khz = effective_khz;
+                worst_recommended_khz = recommended_khz;
                 worst_time = elapsed_secs;
                 worst_cycles = total_cycles;
                 worst_request_id = *request_id;
@@ -212,11 +216,12 @@ impl ProverBenchmark {
             display.note("Worst performance:");
             display.item_colored("Request ID", format!("{:#x}", worst_request_id), "yellow");
             display.item_colored("Effective", format!("{:.2} KHz", worst_khz), "yellow");
+            display.item_colored("Recommended `peak_prove_khz` ({RECOMMENDED_PEAK_PROVE_KHZ_FACTOR*100}% of effective)", format!("{:.2} KHz", worst_recommended_khz), "yellow");
             display.item_colored("Cycles", format!("{:.0}", worst_cycles), "yellow");
             display.item_colored("Time", format!("{:.2}s", worst_time), "yellow");
         }
 
-        Ok(worst_khz)
+        Ok(worst_recommended_khz)
     }
 }
 

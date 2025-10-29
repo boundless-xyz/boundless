@@ -27,21 +27,20 @@ use boundless_market::{
 };
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
-use url::Url;
 use tracing_subscriber::fmt::format::FmtSpan;
+use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = Args::parse();
 
     // Backward compatibility: allow RPC_URL when PROVER_RPC_URL is not set and CLI did not override.
-    let rpc_overridden_via_cli = std::env::args().skip(1).any(|arg| {
-        arg == "--rpc-url" || arg.starts_with("--rpc-url=")
-    });
+    let rpc_overridden_via_cli =
+        std::env::args().skip(1).any(|arg| arg == "--rpc-url" || arg.starts_with("--rpc-url="));
     if std::env::var("PROVER_RPC_URL").is_err() && !rpc_overridden_via_cli {
         if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
-            args.rpc_url = Url::parse(&legacy_rpc_url)
-                .context("Invalid RPC_URL environment variable")?;
+            args.rpc_url =
+                Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
             tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
         }
     }
