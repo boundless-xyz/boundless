@@ -38,7 +38,7 @@ pub struct ProverBenchmark {
 
 impl ProverBenchmark {
     /// Run the benchmark command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+    pub async fn run(&self, global_config: &GlobalConfig) -> Result<f64> {
         let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
@@ -216,7 +216,7 @@ impl ProverBenchmark {
             display.item_colored("Time", format!("{:.2}s", worst_time), "yellow");
         }
 
-        Ok(())
+        Ok(worst_khz)
     }
 }
 

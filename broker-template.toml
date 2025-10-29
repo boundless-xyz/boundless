@@ -1,3 +1,4 @@
+# #############################################################################
 # IMPORTANT: Running the broker with these settings will likely result in your
 # broker not being able to lock or fulfill orders, and may even result in your
 # broker being slashed.
@@ -8,6 +9,7 @@
 #
 # Additionally, refer to documentation:
 # https://docs.boundless.network/provers/broker#settings-in-brokertoml
+# #############################################################################
 
 [market]
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
@@ -16,7 +18,7 @@
 # Orders are preflighted (https://docs.boundless.network/provers/terminology#preflight)
 # to determine the number of cycles required to prove the order. Based on this
 # cycle count, and the current price of the order, the broker computes the
-# current price per mega-cycle for the order. This value is compared to the
+# current price per mega-cycle being offered for the order. This value is compared to the
 # `min_mcycle_price` to determine if the order should be locked.
 min_mcycle_price = "0.0000005"
 
@@ -28,8 +30,8 @@ min_mcycle_price = "0.0000005"
 # that prover is slashed by the amount of collateral specified in the order. A
 # portion of this collateral is then used to incentivize other provers to
 # fulfill the order. `min_mcycle_price_collateral_token` determines the minimum
-# price per mega-cycle in terms of the collateral token (ZKC) for the broker to
-# attempt to fulfill these orders.
+# price per mega-cycle in collateral token (ZKC) that must be offered by the prover 
+# for the broker to attempt to fulfill these orders.
 #
 # Note: attempting to fulfill these orders is a 'proof race' where the first prover
 # to fulfill the order is rewarded with the collateral.

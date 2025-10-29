@@ -81,8 +81,8 @@ pub struct Args {
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
 
-    /// RPC URL
-    #[clap(long, env, default_value = "http://localhost:8545")]
+    /// RPC URL (prefers PROVER_RPC_URL; falls back to RPC_URL if unset)
+    #[clap(long, env = "PROVER_RPC_URL", default_value = "http://localhost:8545")]
     pub rpc_url: Url,
 
     /// wallet key

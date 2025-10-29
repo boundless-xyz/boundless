@@ -93,7 +93,10 @@ impl ProverCommands {
             Self::Lock(cmd) => cmd.run(global_config).await,
             Self::Fulfill(cmd) => cmd.run(global_config).await,
             Self::Execute(cmd) => cmd.run(global_config).await,
-            Self::Benchmark(cmd) => cmd.run(global_config).await,
+            Self::Benchmark(cmd) => {
+                cmd.run(global_config).await?;
+                Ok(())
+            }
             Self::Slash(cmd) => cmd.run(global_config).await,
             Self::Setup(cmd) => cmd.run(global_config).await,
             Self::GenerateConfig(cmd) => cmd.run(global_config).await,
