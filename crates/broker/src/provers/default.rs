@@ -146,6 +146,12 @@ impl Prover for DefaultProver {
         Ok(input_id)
     }
 
+    async fn delete_input(&self, input_id: &str) -> Result<(), ProverError> {
+        let mut inputs = self.state.inputs.write().await;
+        inputs.remove(input_id);
+        Ok(())
+    }
+
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError> {
         let mut images = self.state.images.write().await;
         images.insert(image_id.to_string(), image);

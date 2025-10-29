@@ -136,6 +136,7 @@ pub(crate) async fn verify_groth16_receipt(
 pub trait Prover {
     async fn has_image(&self, image_id: &str) -> Result<bool, ProverError>;
     async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError>;
+    async fn delete_input(&self, input_id: &str) -> Result<(), ProverError>;
     async fn upload_image(&self, image_id: &str, image: Vec<u8>) -> Result<(), ProverError>;
     async fn preflight(
         &self,

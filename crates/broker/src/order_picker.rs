@@ -2797,6 +2797,10 @@ pub(crate) mod tests {
             self.default_prover.upload_input(input).await
         }
 
+        async fn delete_input(&self, input_id: &str) -> Result<(), ProverError> {
+            self.default_prover.delete_input(input_id).await
+        }
+
         async fn preflight(
             &self,
             image_id: &str,
