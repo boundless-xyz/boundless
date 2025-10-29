@@ -12,7 +12,7 @@
   "requestors": [
     {
       "address": "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
-      "chainId": 1,
+      "chainId": 8452,
       "name": "Anonymous Customer (Cranberries)",
       "description": "",
       "tags": [],
@@ -26,7 +26,7 @@
     },
     {
       "address": "0xf23ce39Bf3Ea20C7736C0BBe835B60671EC0b4b2",
-      "chainId": 1,
+      "chainId": 8452,
       "name": "Anonymous Customer (Dewberries #1)",
       "description": "",
       "tags": [],
@@ -40,7 +40,7 @@
     },
     {
       "address": "0xE3838098D694f572d9eEA90f3b7A65ec3864D568",
-      "chainId": 1,
+      "chainId": 8452,
       "name": "Anonymous Customer (Dewberries #2)",
       "description": "",
       "tags": [],
@@ -54,7 +54,7 @@
     },
     {
       "address": "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c",
-      "chainId": 1,
+      "chainId": 8452,
       "name": "Anonymous Customer (Lingonberry #1)",
       "description": "",
       "tags": [],
@@ -68,7 +68,7 @@
     },
     {
       "address": "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b",
-      "chainId": 1,
+      "chainId": 8452,
       "name": "Anonymous Customer (Lingonberry #2)",
       "description": "",
       "tags": [],
@@ -82,7 +82,7 @@
     },
     {
       "address": "0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b",
-      "chainId": 1,
+      "chainId": 8452,
       "name": "Anonymous Customer (Marionberry)",
       "description": "",
       "tags": [],
