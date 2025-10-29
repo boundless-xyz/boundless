@@ -51,6 +51,48 @@
           "estimatedMaxInputSizeMB": 25
         }
       }
+    },
+    {
+      "address": "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c",
+      "chainId": 1,
+      "name": "Anonymous Customer (Lingonberry #1)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 30,
+          "estimatedMcycleCountMax": 200,
+          "estimatedMaxInputSizeMB": 10
+        }
+      }
+    },
+    {
+      "address": "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b",
+      "chainId": 1,
+      "name": "Anonymous Customer (Lingonberry #2)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 30,
+          "estimatedMcycleCountMax": 200,
+          "estimatedMaxInputSizeMB": 10
+        }
+      }
+    },
+    {
+      "address": "0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b",
+      "chainId": 1,
+      "name": "Anonymous Customer (Marionberry)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 100,
+          "estimatedMcycleCountMax": 4000,
+          "estimatedMaxInputSizeMB": 10
+        }
+      }
     }
   ]
 }
