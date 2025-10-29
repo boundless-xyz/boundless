@@ -14,7 +14,7 @@
 
 use std::time::{Duration, UNIX_EPOCH};
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, B256, U256};
 use anyhow::Result;
 use boundless_market::contracts::{Offer, ProofRequest};
 use chrono::{DateTime, Utc};
@@ -37,11 +37,19 @@ pub struct RequestorStatus {
 
     /// Show detailed timeline and order parameters
     #[clap(short, long)]
-    pub verbose: bool,
+    pub timeline: bool,
 
     /// Number of blocks to search backwards when order not in stream (default: 100000)
     #[clap(long)]
     pub search_blocks: Option<u64>,
+
+    /// Override the starting block for event search
+    #[clap(long)]
+    pub search_start_block: Option<u64>,
+
+    /// Override the ending block for event search
+    #[clap(long)]
+    pub search_end_block: Option<u64>,
 
     /// Requestor configuration (RPC URL, private key, deployment)
     #[clap(flatten)]
@@ -52,24 +60,41 @@ pub struct RequestorStatus {
 enum TimelineEntry {
     Submitted {
         timestamp: DateTime<Utc>,
+        block_number: Option<u64>,
+        tx_hash: Option<B256>,
+        request_digest: B256,
     },
     Locked {
         timestamp: u64,
         prover: Address,
+        block_number: u64,
+        tx_hash: B256,
+        request_digest: B256,
     },
     LockTimeout {
         timestamp: u64,
     },
-    Fulfilled {
+    RequestFulfilled {
         timestamp: u64,
         prover: Address,
-        number: usize,
+        block_number: u64,
+        tx_hash: B256,
+        request_digest: B256,
+    },
+    ProofDelivered {
+        timestamp: u64,
+        prover: Address,
+        block_number: u64,
+        tx_hash: B256,
+        request_digest: B256,
     },
     Slashed {
         timestamp: u64,
         collateral_burned: U256,
         collateral_transferred: U256,
         recipient: Address,
+        block_number: u64,
+        tx_hash: B256,
     },
     RequestTimeout {
         timestamp: u64,
@@ -79,10 +104,11 @@ enum TimelineEntry {
 impl TimelineEntry {
     fn timestamp_seconds(&self) -> u64 {
         match self {
-            TimelineEntry::Submitted { timestamp } => timestamp.timestamp() as u64,
+            TimelineEntry::Submitted { timestamp, .. } => timestamp.timestamp() as u64,
             TimelineEntry::Locked { timestamp, .. } => *timestamp,
             TimelineEntry::LockTimeout { timestamp } => *timestamp,
-            TimelineEntry::Fulfilled { timestamp, .. } => *timestamp,
+            TimelineEntry::RequestFulfilled { timestamp, .. } => *timestamp,
+            TimelineEntry::ProofDelivered { timestamp, .. } => *timestamp,
             TimelineEntry::Slashed { timestamp, .. } => *timestamp,
             TimelineEntry::RequestTimeout { timestamp } => *timestamp,
         }
@@ -92,7 +118,8 @@ impl TimelineEntry {
         match self {
             TimelineEntry::Submitted { .. }
             | TimelineEntry::Locked { .. }
-            | TimelineEntry::Fulfilled { .. }
+            | TimelineEntry::RequestFulfilled { .. }
+            | TimelineEntry::ProofDelivered { .. }
             | TimelineEntry::Slashed { .. } => true,
             TimelineEntry::LockTimeout { .. } | TimelineEntry::RequestTimeout { .. } => false,
         }
@@ -122,8 +149,9 @@ impl RequestorStatus {
 
         display.status("Status", status_text, status_color);
 
-        if self.verbose {
+        if self.timeline {
             // Build timeline
+            display.info("Fetching timeline...");
             let timeline = self.build_timeline(&client, &requestor_config).await?;
 
             if !timeline.is_empty() {
@@ -180,6 +208,30 @@ impl RequestorStatus {
             .await
             .unwrap_or(deployment_block.max(1));
 
+        // Check for manual overrides first
+        if self.search_start_block.is_some() || self.search_end_block.is_some() {
+            let start_block = self.search_start_block.unwrap_or(deployment_block);
+            let end_block = self.search_end_block.unwrap_or(latest_block);
+
+            tracing::info!(
+                "Using manually specified block range: {} to {}",
+                start_block,
+                end_block
+            );
+
+            // Validate and swap if needed
+            if start_block > end_block {
+                tracing::warn!(
+                    "Start block {} is greater than end block {}, swapping them",
+                    start_block,
+                    end_block
+                );
+                return (end_block, start_block);
+            }
+
+            return (start_block, end_block);
+        }
+
         if let Some((order, created_at)) = order_data {
             tracing::debug!("Using order stream data to determine block range");
 
@@ -187,6 +239,16 @@ impl RequestorStatus {
             let expiration_timestamp =
                 order.request.offer.rampUpStart + order.request.offer.timeout as u64;
             let expiration_time = UNIX_EPOCH + Duration::from_secs(expiration_timestamp);
+
+            tracing::debug!(
+                "Submission time: {} (unix: {}), Expiration time: {} (unix: {})",
+                created_at.format("%Y-%m-%d %H:%M:%S UTC"),
+                created_at.timestamp(),
+                DateTime::from_timestamp(expiration_timestamp as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                    .unwrap_or_else(|| "Invalid timestamp".to_string()),
+                expiration_timestamp
+            );
 
             let start_block = block_number_near_timestamp(
                 client.boundless_market.instance().provider().clone(),
@@ -207,7 +269,7 @@ impl RequestorStatus {
             .unwrap_or(latest_block);
 
             tracing::debug!(
-                "Order-based search range: blocks {} to {} (submission to expiration)",
+                "Converted timestamps to blocks: submission -> block {}, expiration -> block {}",
                 start_block,
                 end_block
             );
@@ -219,11 +281,11 @@ impl RequestorStatus {
         let end_block = latest_block;
 
         tracing::debug!(
-            "Backward search range: blocks {} to {} ({} blocks from current)",
-            start_block,
-            end_block,
-            end_block - start_block
+            "No order stream data available, searching backwards {} blocks from current block {}",
+            search_window,
+            latest_block
         );
+        tracing::debug!("Backward search range: blocks {} to {}", start_block, end_block);
         (start_block, end_block)
     }
 
@@ -237,6 +299,9 @@ impl RequestorStatus {
     {
         let mut timeline = Vec::new();
 
+        // Get EIP-712 domain for request digest computation
+        let domain = client.boundless_market.eip712_domain().await?;
+
         // Query order stream once at the start
         let order_stream_order_data = if let Some(ref offchain_client) = client.offchain_client {
             tracing::debug!("Querying order stream for request info");
@@ -246,64 +311,131 @@ impl RequestorStatus {
         };
 
         if let Some((ref _order, created_at)) = order_stream_order_data {
-            tracing::debug!("Found order in stream, created at {}", created_at);
+            tracing::info!("Found order in order stream, created at {}", created_at);
         } else {
-            tracing::debug!("Order not found in stream");
+            tracing::info!("Order not found in order stream");
         }
+
+        // Get ProofRequest to compute request digest
+        let proof_request = if let Some((ref order, _)) = order_stream_order_data {
+            Some(order.request.clone())
+        } else {
+            self.get_proof_request(client).await
+        };
+
+        // Compute request digest if we have the proof request
+        let request_digest = if let Some(ref request) = proof_request {
+            request.signing_hash(domain.verifying_contract, domain.chain_id)?
+        } else {
+            // If we can't get the request, we can't compute the digest
+            // This shouldn't happen according to user, but we need to handle it
+            anyhow::bail!("Could not retrieve proof request to compute request digest")
+        };
 
         let (lower_bound, upper_bound) =
             self.find_event_search_blocks(client, &order_stream_order_data).await;
 
-        tracing::debug!("Event search range: blocks {} to {}", lower_bound, upper_bound);
+        tracing::debug!("Event search range determined: blocks {} to {}", lower_bound, upper_bound);
 
-        let (submission_time, offer) = self
+        let (submission_time, offer, submitted_block_number, submitted_tx_hash) = self
             .query_submission_info(client, &order_stream_order_data, lower_bound, upper_bound)
             .await;
 
         if let Some(timestamp) = submission_time {
-            timeline.push(TimelineEntry::Submitted { timestamp });
+            timeline.push(TimelineEntry::Submitted {
+                timestamp,
+                block_number: submitted_block_number,
+                tx_hash: submitted_tx_hash,
+                request_digest,
+            });
         }
 
-        if let Ok((lock_event, block_num)) = client
-            .boundless_market
-            .query_request_locked_event(self.request_id, Some(lower_bound), Some(upper_bound))
-            .await
-        {
-            // Get block timestamp
+        // Query all events in parallel for better performance
+        tracing::info!(
+            "Querying events for request ID {:x} in blocks {} to {}",
+            self.request_id,
+            lower_bound,
+            upper_bound
+        );
+        let (locked_result, delivered_result, fulfilled_result) = tokio::join!(
+            client.boundless_market.query_request_locked_event(
+                self.request_id,
+                Some(lower_bound),
+                Some(upper_bound)
+            ),
+            client.boundless_market.query_all_proof_delivered_events(
+                self.request_id,
+                Some(lower_bound),
+                Some(upper_bound)
+            ),
+            client.boundless_market.query_request_fulfilled_event(
+                self.request_id,
+                Some(lower_bound),
+                Some(upper_bound)
+            ),
+        );
+
+        // Process RequestLocked result
+        if let Ok(data) = locked_result {
+            tracing::debug!("Found RequestLocked event at block {}", data.block_number);
             if let Ok(Some(block)) = client
                 .boundless_market
                 .instance()
                 .provider()
-                .get_block_by_number(block_num.into())
+                .get_block_by_number(data.block_number.into())
                 .await
             {
+                let locked_request_digest =
+                    data.event.request.signing_hash(domain.verifying_contract, domain.chain_id)?;
                 timeline.push(TimelineEntry::Locked {
                     timestamp: block.header.timestamp,
-                    prover: lock_event.prover,
+                    prover: data.event.prover,
+                    block_number: data.block_number,
+                    tx_hash: data.tx_hash,
+                    request_digest: locked_request_digest,
                 });
             }
         }
 
-        if let Ok(events) = client
-            .boundless_market
-            .query_all_fulfilled_events(self.request_id, Some(lower_bound), Some(upper_bound))
-            .await
-        {
-            // Get block timestamps for each event
-            for (idx, (event, block_num)) in events.iter().enumerate() {
+        // Process ProofDelivered results
+        if let Ok(events) = delivered_result {
+            tracing::debug!("Found {} ProofDelivered event(s)", events.len());
+            for data in events.iter() {
                 if let Ok(Some(block)) = client
                     .boundless_market
                     .instance()
                     .provider()
-                    .get_block_by_number((*block_num).into())
+                    .get_block_by_number(data.block_number.into())
                     .await
                 {
-                    timeline.push(TimelineEntry::Fulfilled {
+                    timeline.push(TimelineEntry::ProofDelivered {
                         timestamp: block.header.timestamp,
-                        prover: event.prover,
-                        number: idx + 1,
+                        prover: data.event.prover,
+                        block_number: data.block_number,
+                        tx_hash: data.tx_hash,
+                        request_digest: data.event.fulfillment.requestDigest,
                     });
                 }
+            }
+        }
+
+        // Process RequestFulfilled result
+        if let Ok(data) = fulfilled_result {
+            tracing::debug!("Found RequestFulfilled event at block {}", data.block_number);
+            if let Ok(Some(block)) = client
+                .boundless_market
+                .instance()
+                .provider()
+                .get_block_by_number(data.block_number.into())
+                .await
+            {
+                timeline.push(TimelineEntry::RequestFulfilled {
+                    timestamp: block.header.timestamp,
+                    prover: data.event.prover,
+                    block_number: data.block_number,
+                    tx_hash: data.tx_hash,
+                    request_digest: data.event.requestDigest,
+                });
             }
         }
 
@@ -324,7 +456,7 @@ impl RequestorStatus {
             // Check if request was fulfilled before lock timeout
             let fulfilled_before_lock_timeout = timeline
                 .iter()
-                .any(|entry| matches!(entry, TimelineEntry::Fulfilled { timestamp, .. } if *timestamp <= lock_timeout));
+                .any(|entry| matches!(entry, TimelineEntry::RequestFulfilled { timestamp, .. } if *timestamp <= lock_timeout));
 
             // Query for slash events only if NOT fulfilled before lock timeout
             if !fulfilled_before_lock_timeout {
@@ -340,7 +472,13 @@ impl RequestorStatus {
                 .unwrap_or(upper_bound);
 
                 // Search for slash event after expiration
-                if let Ok((slash_event, block_num)) = client
+                tracing::debug!(
+                    "Querying ProverSlashed event for request ID {:x} in blocks {} to {} (after request expiration)",
+                    self.request_id,
+                    slash_search_start,
+                    upper_bound
+                );
+                if let Ok(data) = client
                     .boundless_market
                     .query_prover_slashed_event(
                         self.request_id,
@@ -349,18 +487,21 @@ impl RequestorStatus {
                     )
                     .await
                 {
+                    tracing::debug!("Found ProverSlashed event at block {}", data.block_number);
                     if let Ok(Some(block)) = client
                         .boundless_market
                         .instance()
                         .provider()
-                        .get_block_by_number(block_num.into())
+                        .get_block_by_number(data.block_number.into())
                         .await
                     {
                         timeline.push(TimelineEntry::Slashed {
                             timestamp: block.header.timestamp,
-                            collateral_burned: slash_event.collateralBurned,
-                            collateral_transferred: slash_event.collateralTransferred,
-                            recipient: slash_event.collateralRecipient,
+                            collateral_burned: data.event.collateralBurned,
+                            collateral_transferred: data.event.collateralTransferred,
+                            recipient: data.event.collateralRecipient,
+                            block_number: data.block_number,
+                            tx_hash: data.tx_hash,
                         });
                     }
                 }
@@ -379,33 +520,49 @@ impl RequestorStatus {
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,
-    ) -> (Option<DateTime<Utc>>, Option<Offer>)
+    ) -> (Option<DateTime<Utc>>, Option<Offer>, Option<u64>, Option<B256>)
     where
         P: alloy::providers::Provider + Clone,
     {
         // Use order stream data if available
         if let Some((order, created_at)) = order_data {
             tracing::debug!("Using order stream data for submission info");
-            return (Some(*created_at), Some(order.request.offer.clone()));
+            return (Some(*created_at), Some(order.request.offer.clone()), None, None);
         }
 
-        // Fallback to chain events for offer only
         tracing::debug!(
             "Searching for RequestSubmitted event in blocks {} to {}",
             lower_bound,
             upper_bound
         );
-        if let Ok((request, block_num)) = client
+        if let Ok(data) = client
             .boundless_market
             .query_request_submitted_event(self.request_id, Some(lower_bound), Some(upper_bound))
             .await
         {
-            tracing::debug!("Found RequestSubmitted event at block {}", block_num);
-            return (None, Some(request.offer));
+            tracing::debug!("Found RequestSubmitted event at block {}", data.block_number);
+
+            // Fetch block to get timestamp
+            if let Ok(Some(block)) = client
+                .boundless_market
+                .instance()
+                .provider()
+                .get_block_by_number(data.block_number.into())
+                .await
+            {
+                let timestamp = DateTime::from_timestamp(block.header.timestamp as i64, 0)
+                    .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap());
+                return (
+                    Some(timestamp),
+                    Some(data.request.offer),
+                    Some(data.block_number),
+                    Some(data.tx_hash),
+                );
+            }
         }
 
         tracing::debug!("No RequestSubmitted event found in specified range");
-        (None, None)
+        (None, None, None, None)
     }
 
     async fn get_proof_request<P, St, R, Si>(
@@ -439,14 +596,38 @@ impl RequestorStatus {
             let symbol = if entry.is_actual_event() { "⏺" } else { "⏰" };
 
             match entry {
-                TimelineEntry::Submitted { timestamp } => {
+                TimelineEntry::Submitted { timestamp, block_number, tx_hash, request_digest } => {
                     let formatted_time = format_timestamp(*timestamp);
-                    println!("  {} {}  {}", symbol.cyan(), "Submitted".bold(), formatted_time);
+                    let source_label = if block_number.is_some() && tx_hash.is_some() {
+                        "(onchain)".dimmed()
+                    } else {
+                        "(offchain)".dimmed()
+                    };
+                    println!(
+                        "  {} {}  {} {}",
+                        symbol.cyan(),
+                        "Submitted".bold(),
+                        formatted_time,
+                        source_label
+                    );
+                    println!("                 Request Digest: {:#x}", request_digest);
                 }
-                TimelineEntry::Locked { timestamp, prover } => {
+                TimelineEntry::Locked {
+                    timestamp,
+                    prover,
+                    block_number,
+                    tx_hash,
+                    request_digest,
+                } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
                     println!("  {} {}     {}", symbol.cyan(), "Locked".bold(), formatted_time);
                     println!("                 Prover: {}", format!("{:#x}", prover).dimmed());
+                    println!(
+                        "                 Block: {} | Tx: {:#x}",
+                        block_number.to_string().dimmed(),
+                        tx_hash
+                    );
+                    println!("                 Request Digest: {:#x}", request_digest);
                 }
                 TimelineEntry::LockTimeout { timestamp } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
@@ -457,22 +638,57 @@ impl RequestorStatus {
                         formatted_time
                     );
                 }
-                TimelineEntry::Fulfilled { timestamp, prover, number } => {
+                TimelineEntry::RequestFulfilled {
+                    timestamp,
+                    prover,
+                    block_number,
+                    tx_hash,
+                    request_digest,
+                } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
                     println!(
-                        "  {} {} {} {}",
+                        "  {} {} {}",
                         symbol.green(),
                         "Fulfilled".bold().green(),
-                        format!("#{}", number).dimmed(),
                         formatted_time
                     );
                     println!("                 Prover: {}", format!("{:#x}", prover).dimmed());
+                    println!(
+                        "                 Block: {} | Tx: {:#x}",
+                        block_number.to_string().dimmed(),
+                        tx_hash
+                    );
+                    println!("                 Request Digest: {:#x}", request_digest);
+                }
+                TimelineEntry::ProofDelivered {
+                    timestamp,
+                    prover,
+                    block_number,
+                    tx_hash,
+                    request_digest,
+                } => {
+                    let formatted_time = format_timestamp_from_unix(*timestamp);
+                    println!(
+                        "  {} {} {}",
+                        symbol.cyan(),
+                        "ProofDelivered".bold().cyan(),
+                        formatted_time
+                    );
+                    println!("                 Prover: {}", format!("{:#x}", prover).dimmed());
+                    println!(
+                        "                 Block: {} | Tx: {:#x}",
+                        block_number.to_string().dimmed(),
+                        tx_hash
+                    );
+                    println!("                 Request Digest: {:#x}", request_digest);
                 }
                 TimelineEntry::Slashed {
                     timestamp,
                     collateral_burned,
                     collateral_transferred,
                     recipient,
+                    block_number,
+                    tx_hash,
                 } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
                     println!("  {} {}    {}", symbol.red(), "Slashed".bold().red(), formatted_time);
@@ -488,6 +704,11 @@ impl RequestorStatus {
                         "                 Recipient: {}",
                         format!("{:#x}", recipient).dimmed()
                     );
+                    println!(
+                        "                 Block: {} | Tx: {:#x}",
+                        block_number.to_string().dimmed(),
+                        tx_hash
+                    );
                 }
                 TimelineEntry::RequestTimeout { timestamp } => {
                     let formatted_time = format_timestamp_from_unix(*timestamp);
@@ -497,6 +718,14 @@ impl RequestorStatus {
                         "Request Timeout".bold().yellow(),
                         formatted_time
                     );
+                }
+            }
+
+            // Display block info if available (for submitted event which may or may not have it)
+            if let TimelineEntry::Submitted { block_number, tx_hash, request_digest: _, .. } = entry
+            {
+                if let (Some(bn), Some(tx)) = (block_number, tx_hash) {
+                    println!("                 Block: {} | Tx: {:#x}", bn.to_string().dimmed(), tx);
                 }
             }
         }

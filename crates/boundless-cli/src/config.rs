@@ -41,7 +41,7 @@ pub struct GlobalConfig {
     pub tx_timeout: Option<Duration>,
 
     /// Log level (error, warn, info, debug, trace)
-    #[clap(long, env = "LOG_LEVEL", global = true, default_value = "info")]
+    #[clap(long, env = "LOG_LEVEL", global = true, default_value = "warn")]
     pub log_level: LevelFilter,
 }
 
