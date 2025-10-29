@@ -272,6 +272,13 @@ where
                     if let Err(e) = self.db.insert_skipped_request(&order).await {
                         tracing::error!("Failed to add cancelled order to database: {e}");
                     }
+                    if let Some(input_id) = &order.input_id {
+                        if let Err(e) = self.prover.delete_input(input_id).await {
+                            tracing::error!(
+                                "Failed to delete input for skipped order {order_id}: {e:?}"
+                            );
+                        }
+                    }
                     return Ok(false);
                 }
             };
@@ -320,6 +327,13 @@ where
                         .insert_skipped_request(&order)
                         .await
                         .context("Failed to add skipped order to database")?;
+                    if let Some(input_id) = &order.input_id {
+                        if let Err(e) = self.prover.delete_input(input_id).await {
+                            tracing::error!(
+                                "Failed to delete input for skipped order {order_id}: {e:?}"
+                            );
+                        }
+                    }
                     Ok(false)
                 }
                 Err(err) => {
@@ -328,6 +342,13 @@ where
                         .insert_skipped_request(&order)
                         .await
                         .context("Failed to skip failed priced order")?;
+                    if let Some(input_id) = &order.input_id {
+                        if let Err(e) = self.prover.delete_input(input_id).await {
+                            tracing::error!(
+                                "Failed to delete input for skipped order {order_id}: {e:?}"
+                            );
+                        }
+                    }
                     Ok(false)
                 }
             }
@@ -629,6 +650,11 @@ where
                             }
                             Err(err) => match err {
                                 ProverError::ProvingFailed(ref err_msg) => {
+                                    if let Err(e) = prover.delete_input(&input_id).await {
+                                        tracing::error!(
+                                            "Failed to delete input for skipped order {order_id_clone}: {e:?}"
+                                        );
+                                    }
                                     if err_msg.contains("Session limit exceeded") 
                                         || err_msg.contains("Execution stopped intentionally due to session limit") {
                                         tracing::debug!(

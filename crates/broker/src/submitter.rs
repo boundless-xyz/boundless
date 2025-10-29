@@ -521,6 +521,7 @@ where
     ) -> Result<(), SubmitterErr> {
         tracing::warn!("All orders in batch {batch_id} are expired ({}). Batch will not be submitted, and all orders will be marked as failed.", &orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "));
         for order in orders.clone() {
+            let order_id = order.id();
             if let Err(db_err) =
                 self.db.set_order_failure(order.id().as_str(), "Failed to submit batch").await
             {
@@ -528,6 +529,11 @@ where
                     "Failed to set order failure during proof submission: {} {db_err:?}",
                     order.id()
                 );
+            }
+            if let Some(input_id) = order.input_id.as_ref() {
+                if let Err(e) = self.prover.delete_input(input_id).await {
+                    tracing::error!("Failed to delete input for skipped order {order_id}: {e:?}");
+                }
             }
         }
         Err(SubmitterErr::AllRequestsExpiredBeforeSubmission(

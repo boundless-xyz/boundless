@@ -359,7 +359,12 @@ impl ProvingService {
                 tracing::error!(
                     "Failed to create stark session for order {order_id}: {proving_err:?}"
                 );
-                handle_order_failure(&self.db, &order_id, "Proving session create failed").await;
+                self.handle_order_failure(
+                    &order_id,
+                    order.input_id.as_ref(),
+                    "Proving session create failed",
+                )
+                .await;
                 return;
             }
         };
@@ -392,7 +397,8 @@ impl ProvingService {
                 tracing::info!(
                     "Order {order_id} proof completed but order not actionable: {reason}"
                 );
-                handle_order_failure(&self.db, &order_id, reason).await;
+
+                self.handle_order_failure(&order_id, order.input_id.as_ref(), reason).await;
             }
             Err(err) => {
                 tracing::error!(
@@ -402,7 +408,8 @@ impl ProvingService {
                     proof_retry_count
                 );
 
-                handle_order_failure(&self.db, &order_id, "Proving failed").await;
+                self.handle_order_failure(&order_id, order.input_id.as_ref(), "Proving failed")
+                    .await;
             }
         }
     }
@@ -417,7 +424,12 @@ impl ProvingService {
 
             if order.proof_id.is_none() {
                 tracing::error!("Order in status Proving missing proof_id: {order_id}");
-                handle_order_failure(&self.db, &order_id, "Proving status missing proof_id").await;
+                self.handle_order_failure(
+                    &order_id,
+                    order.input_id.as_ref(),
+                    "Proving status missing proof_id",
+                )
+                .await;
                 continue;
             }
 
@@ -427,6 +439,22 @@ impl ProvingService {
         }
 
         Ok(())
+    }
+
+    async fn handle_order_failure(
+        &self,
+        order_id: &str,
+        input_id: Option<impl AsRef<str>>,
+        failure_reason: &'static str,
+    ) {
+        if let Err(inner_err) = self.db.set_order_failure(order_id, failure_reason).await {
+            tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
+        }
+        if let Some(input_id) = input_id {
+            if let Err(e) = self.prover.delete_input(input_id.as_ref()).await {
+                tracing::error!("Failed to delete input for skipped order {order_id}: {e:?}");
+            }
+        }
     }
 }
 
@@ -475,12 +503,6 @@ impl RetryTask for ProvingService {
 
             Ok(())
         })
-    }
-}
-
-async fn handle_order_failure(db: &DbObj, order_id: &str, failure_reason: &'static str) {
-    if let Err(inner_err) = db.set_order_failure(order_id, failure_reason).await {
-        tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
     }
 }
 

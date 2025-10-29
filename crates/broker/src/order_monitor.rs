@@ -558,6 +558,7 @@ where
                                     );
                                 }
                             }
+                            // TODO(ec2): Delete input from prover
                             if let Err(err) = self.db.insert_skipped_request(order).await {
                                 tracing::error!(
                                     "Failed to set DB failure state for order: {order_id} - {err:?}"

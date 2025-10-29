@@ -389,6 +389,7 @@ impl BrokerDb for SqliteDb {
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
     async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError> {
+        // TODO(ec2): Do we need to set input_id to NULL here?
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -417,6 +418,7 @@ impl BrokerDb for SqliteDb {
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
     async fn set_order_complete(&self, id: &str) -> Result<(), DbError> {
+        // TODO(ec2): Do we need to set input_id to NULL here?
         let res = sqlx::query(
             r#"
             UPDATE orders
