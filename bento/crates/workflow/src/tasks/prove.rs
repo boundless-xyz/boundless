@@ -14,7 +14,7 @@ use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{
     ProveReq,
-    metrics::{LIFT_POVW_DURATION, PROVE_DURATION, TASK_DURATION, TASK_OPERATIONS, helpers},
+    metrics::{LIFT_POVW_DURATION, PROVE_DURATION, TASK_DURATION, helpers},
 };
 
 /// Run a prove request
@@ -28,18 +28,14 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
     tracing::debug!("Starting proof of idx: {job_id} - {index}");
 
     // Record Redis operation for segment retrieval
-    let redis_start = Instant::now();
-    let segment_vec: Vec<u8> = match conn.get::<_, Vec<u8>>(&segment_key).await {
-        Ok(data) => {
-            helpers::record_redis_operation("get", "success", redis_start.elapsed().as_secs_f64());
-            data
-        }
+    let segment_vec: Vec<u8> = match redis::get_key(&mut conn, &segment_key).await {
+        Ok(data) => data,
         Err(e) => {
-            helpers::record_redis_operation("get", "error", redis_start.elapsed().as_secs_f64());
             return Err(anyhow::anyhow!(e)
                 .context(format!("segment data not found for segment key: {segment_key}")));
         }
     };
+
     let segment =
         deserialize_obj(&segment_vec).context("Failed to deserialize segment data from redis")?;
 
@@ -51,20 +47,17 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         .context("Missing prover from prove task")?
         .prove_segment(&agent.verifier_ctx, &segment)
     {
-        Ok(receipt) => {
-            PROVE_DURATION.observe(prove_start.elapsed().as_secs_f64());
-            TASK_OPERATIONS.with_label_values(&["prove", "prove_segment", "success"]).inc();
-            receipt
-        }
-        Err(e) => {
-            TASK_OPERATIONS.with_label_values(&["prove", "prove_segment", "error"]).inc();
-            return Err(e.context("Failed to prove segment"));
-        }
+        Ok(receipt) => receipt,
+        Err(e) => return Err(e),
     };
+    let prove_elapsed_time = prove_start.elapsed().as_secs_f64();
+    PROVE_DURATION.observe(prove_elapsed_time);
 
     segment_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
         .context("Failed to verify segment receipt integrity")?;
+
+    helpers::record_task("prove", "prove_segment", "success", prove_elapsed_time);
 
     tracing::debug!("Completed proof: {job_id} - {index}");
 
@@ -80,51 +73,26 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
             .context("Missing prover from resolve task")?
             .lift_povw(&segment_receipt)
         {
-            Ok(receipt) => {
-                LIFT_POVW_DURATION.observe(lift_povw_start.elapsed().as_secs_f64());
-                TASK_OPERATIONS.with_label_values(&["prove", "lift_povw", "success"]).inc();
-                receipt
-            }
-            Err(e) => {
-                TASK_OPERATIONS.with_label_values(&["prove", "lift_povw", "error"]).inc();
-                return Err(e.context(format!("Failed to POVW lift segment {index}")));
-            }
+            Ok(receipt) => receipt,
+            Err(e) => return Err(e),
         };
+        let lift_povw_elapsed_time = lift_povw_start.elapsed().as_secs_f64();
+
+        LIFT_POVW_DURATION.observe(lift_povw_elapsed_time);
 
         lift_receipt
             .verify_integrity_with_context(&agent.verifier_ctx)
             .context("Failed to verify lift receipt integrity")?;
+        helpers::record_task("prove", "lift_povw", "success", lift_povw_elapsed_time);
 
         tracing::debug!("lifting complete {job_id} - {index}");
 
         // Write out lifted POVW receipt
         let lift_asset =
             serialize_obj(&lift_receipt).expect("Failed to serialize the POVW segment");
-        let redis_write_start = Instant::now();
-        match redis::set_key_with_expiry(
-            &mut conn,
-            &output_key,
-            lift_asset,
-            Some(agent.args.redis_ttl),
-        )
-        .await
-        {
-            Ok(()) => {
-                helpers::record_redis_operation(
-                    "set_key_with_expiry",
-                    "success",
-                    redis_write_start.elapsed().as_secs_f64(),
-                );
-            }
-            Err(e) => {
-                helpers::record_redis_operation(
-                    "set_key_with_expiry",
-                    "error",
-                    redis_write_start.elapsed().as_secs_f64(),
-                );
-                return Err(e.into());
-            }
-        }
+        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
+            .await
+            .context("Failed to set POVW receipt key with expiry")?;
     } else {
         let lift_receipt: SuccinctReceipt<ReceiptClaim> = match agent
             .prover
@@ -132,14 +100,8 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
             .context("Missing prover from resolve task")?
             .lift(&segment_receipt)
         {
-            Ok(receipt) => {
-                TASK_OPERATIONS.with_label_values(&["prove", "lift", "success"]).inc();
-                receipt
-            }
-            Err(e) => {
-                TASK_OPERATIONS.with_label_values(&["prove", "lift", "error"]).inc();
-                return Err(e.context(format!("Failed to lift segment {index}")));
-            }
+            Ok(receipt) => receipt,
+            Err(e) => return Err(e),
         };
 
         lift_receipt
@@ -150,52 +112,21 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
         // Write out lifted regular receipt
         let lift_asset = serialize_obj(&lift_receipt).expect("Failed to serialize the segment");
-        let redis_write_start = Instant::now();
-        match redis::set_key_with_expiry(
-            &mut conn,
-            &output_key,
-            lift_asset,
-            Some(agent.args.redis_ttl),
-        )
-        .await
-        {
-            Ok(()) => {
-                helpers::record_redis_operation(
-                    "set_key_with_expiry",
-                    "success",
-                    redis_write_start.elapsed().as_secs_f64(),
-                );
-            }
-            Err(e) => {
-                helpers::record_redis_operation(
-                    "set_key_with_expiry",
-                    "error",
-                    redis_write_start.elapsed().as_secs_f64(),
-                );
-                return Err(e.into());
-            }
-        }
+        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
+            .await
+            .context("Failed to set receipt key with expiry")?;
     }
 
-    // Record segment cleanup operation
+    // Clean up segment
     let cleanup_start = Instant::now();
-    match conn.unlink::<_, ()>(&segment_key).await {
-        Ok(()) => {
-            helpers::record_redis_operation(
-                "unlink",
-                "success",
-                cleanup_start.elapsed().as_secs_f64(),
-            );
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "unlink",
-                "error",
-                cleanup_start.elapsed().as_secs_f64(),
-            );
-            return Err(anyhow::anyhow!(e).context("Failed to delete segment key"));
-        }
-    }
+    let cleanup_result = conn.unlink::<_, ()>(&segment_key).await;
+    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(
+        "unlink",
+        cleanup_status,
+        cleanup_start.elapsed().as_secs_f64(),
+    );
+    cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete segment key"))?;
 
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());

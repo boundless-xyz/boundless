@@ -25,22 +25,21 @@ pub async fn set_key_with_expiry<T>(
 where
     T: ToRedisArgs + Send + Sync + 'static,
 {
-    match ttl {
+    let redis_start = Instant::now();
+    let (operation, result) = match ttl {
         Some(expiry) => {
-            let redis_start = Instant::now();
             let result = conn.set_ex(key, value, expiry).await;
-            let status = if result.is_ok() { "success" } else { "error" };
-            helpers::record_redis_operation("set_ex", status, redis_start.elapsed().as_secs_f64());
-            result
+            ("set_ex", result)
         }
         None => {
-            let redis_start = Instant::now();
             let result = conn.set(key, value).await;
-            let status = if result.is_ok() { "success" } else { "error" };
-            helpers::record_redis_operation("set", status, redis_start.elapsed().as_secs_f64());
-            result
+            ("set", result)
         }
-    }
+    };
+    let elapsed = redis_start.elapsed().as_secs_f64();
+    let status = if result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(operation, status, elapsed);
+    result
 }
 
 pub async fn get_key<T>(conn: &mut deadpool_redis::Connection, key: &str) -> RedisResult<T>
@@ -49,7 +48,8 @@ where
 {
     let redis_start = Instant::now();
     let result = conn.get::<_, T>(key).await;
+    let elapsed = redis_start.elapsed().as_secs_f64();
     let status = if result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation("get", status, redis_start.elapsed().as_secs_f64());
+    helpers::record_redis_operation("get", status, elapsed);
     result
 }

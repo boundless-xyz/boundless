@@ -29,7 +29,7 @@ use workflow_common::{
     metrics::{
         ASSUMPTION_COUNT, ASSUMPTION_PROCESSING_DURATION, EXECUTION_DURATION, EXECUTION_ERRORS,
         GUEST_FAULTS, S3_OPERATION_DURATION, S3_OPERATIONS, SEGMENT_COUNT,
-        TASK_PROCESSING_DURATION, TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES, helpers,
+        TASK_PROCESSING_DURATION, TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES,
     },
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
@@ -314,31 +314,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
     // Write the image_id for pulling later
     let image_key = format!("{job_prefix}:image_id");
-    let redis_start = Instant::now();
-    match redis::set_key_with_expiry(
+    redis::set_key_with_expiry(
         &mut conn,
         &image_key,
         request.image.clone(),
         Some(agent.args.redis_ttl),
     )
     .await
-    {
-        Ok(()) => {
-            helpers::record_redis_operation(
-                "set_key_with_expiry",
-                "success",
-                redis_start.elapsed().as_secs_f64(),
-            );
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "set_key_with_expiry",
-                "error",
-                redis_start.elapsed().as_secs_f64(),
-            );
-            return Err(e.into());
-        }
-    }
+    .map_err(|e| anyhow::anyhow!(e).context("Failed to set image_id key"))?;
     let image_id = read_image_id(&request.image)?;
 
     // Fetch input data
@@ -431,31 +414,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .context("Failed to serialize succinct assumption receipt")?;
 
         let assumption_key = format!("{receipts_key}:{assumption_claim}");
-        let assumption_redis_start = Instant::now();
-        match redis::set_key_with_expiry(
+        redis::set_key_with_expiry(
             &mut conn,
             &assumption_key,
             succinct_receipt_bytes,
             Some(agent.args.redis_ttl),
         )
         .await
-        {
-            Ok(()) => {
-                helpers::record_redis_operation(
-                    "set_key_with_expiry",
-                    "success",
-                    assumption_redis_start.elapsed().as_secs_f64(),
-                );
-            }
-            Err(e) => {
-                helpers::record_redis_operation(
-                    "set_key_with_expiry",
-                    "error",
-                    assumption_redis_start.elapsed().as_secs_f64(),
-                );
-                return Err(e.into());
-            }
-        }
+        .map_err(|e| anyhow::anyhow!(e).context("Failed to set assumption receipt key"))?;
 
         // Record assumption processing duration
         ASSUMPTION_PROCESSING_DURATION.observe(assumption_start.elapsed().as_secs_f64());
@@ -805,31 +771,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let serialized_journal =
                 serialize_obj(&journal).context("Failed to serialize journal")?;
 
-            let journal_redis_start = Instant::now();
-            match redis::set_key_with_expiry(
+            redis::set_key_with_expiry(
                 &mut conn,
                 &journal_key,
                 serialized_journal,
                 Some(agent.args.redis_ttl),
             )
             .await
-            {
-                Ok(()) => {
-                    helpers::record_redis_operation(
-                        "set_key_with_expiry",
-                        "success",
-                        journal_redis_start.elapsed().as_secs_f64(),
-                    );
-                }
-                Err(e) => {
-                    helpers::record_redis_operation(
-                        "set_key_with_expiry",
-                        "error",
-                        journal_redis_start.elapsed().as_secs_f64(),
-                    );
-                    return Err(e.into());
-                }
-            }
+            .map_err(|e| anyhow::anyhow!(e).context("Failed to set journal key"))?;
         }
     } else {
         // Optionally handle the case where there is no journal

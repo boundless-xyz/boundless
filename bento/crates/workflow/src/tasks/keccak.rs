@@ -39,19 +39,12 @@ pub async fn keccak(
     let mut conn = agent.redis_pool.get().await?;
     let keccak_input_path = format!("job:{job_id}:{}:{}", COPROC_CB_PATH, request.claim_digest);
 
-    // Record Redis operation for keccak input retrieval
-    let redis_start = Instant::now();
-    let keccak_input: Vec<u8> = match conn.get::<_, Vec<u8>>(&keccak_input_path).await {
-        Ok(data) => {
-            helpers::record_redis_operation("get", "success", redis_start.elapsed().as_secs_f64());
-            data
-        }
-        Err(e) => {
-            helpers::record_redis_operation("get", "error", redis_start.elapsed().as_secs_f64());
-            return Err(anyhow::anyhow!(e)
-                .context(format!("segment data not found for segment key: {keccak_input_path}")));
-        }
-    };
+    // Get keccak input using Redis helper
+    let keccak_input: Vec<u8> =
+        redis::get_key(&mut conn, &keccak_input_path).await.map_err(|e| {
+            anyhow::anyhow!(e)
+                .context(format!("segment data not found for segment key: {keccak_input_path}"))
+        })?;
 
     let keccak_req = ProveKeccakRequest {
         claim_digest: request.claim_digest,
@@ -88,54 +81,29 @@ pub async fn keccak(
     let keccak_receipt_bytes =
         serialize_obj(&keccak_receipt).context("Failed to serialize keccak receipt")?;
 
-    // Record Redis write operation
-    let redis_write_start = Instant::now();
-    match redis::set_key_with_expiry(
+    // Store keccak receipt using Redis helper
+    redis::set_key_with_expiry(
         &mut conn,
         &receipts_key,
         keccak_receipt_bytes,
         Some(agent.args.redis_ttl),
     )
     .await
-    {
-        Ok(()) => {
-            helpers::record_redis_operation(
-                "set_key_with_expiry",
-                "success",
-                redis_write_start.elapsed().as_secs_f64(),
-            );
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "set_key_with_expiry",
-                "error",
-                redis_write_start.elapsed().as_secs_f64(),
-            );
-            return Err(anyhow::anyhow!(e).context("Failed to write keccak receipt to redis"));
-        }
-    }
+    .map_err(|e| anyhow::anyhow!(e).context("Failed to write keccak receipt to redis"))?;
 
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
 
-    // Record cleanup operation
+    // Clean up keccak input
     let cleanup_start = Instant::now();
-    match conn.unlink::<_, ()>(&keccak_input_path).await {
-        Ok(()) => {
-            helpers::record_redis_operation(
-                "unlink",
-                "success",
-                cleanup_start.elapsed().as_secs_f64(),
-            );
-        }
-        Err(e) => {
-            helpers::record_redis_operation(
-                "unlink",
-                "error",
-                cleanup_start.elapsed().as_secs_f64(),
-            );
-            return Err(anyhow::anyhow!(e).context("Failed to delete keccak input path key"));
-        }
-    }
+    let cleanup_result = conn.unlink::<_, ()>(&keccak_input_path).await;
+    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(
+        "unlink",
+        cleanup_status,
+        cleanup_start.elapsed().as_secs_f64(),
+    );
+    cleanup_result
+        .map_err(|e| anyhow::anyhow!(e).context("Failed to delete keccak input path key"))?;
 
     // Record total task duration and success
     TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
