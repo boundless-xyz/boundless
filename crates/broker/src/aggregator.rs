@@ -949,6 +949,7 @@ mod tests {
         {
             let mut config = config.load_write().unwrap();
             config.batcher.min_batch_size = 2;
+            config.market.max_concurrent_proofs = 2;
         }
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
@@ -1230,6 +1231,7 @@ mod tests {
         {
             let mut config = config.load_write().unwrap();
             config.batcher.min_batch_size = 2;
+            config.market.max_concurrent_proofs = 2;
             config.batcher.block_deadline_buffer_secs = 100;
         }
 
@@ -1345,6 +1347,7 @@ mod tests {
         {
             let mut config = config.load_write().unwrap();
             config.batcher.min_batch_size = 10;
+            config.market.max_concurrent_proofs = 10;
             // set config such that the batch max journal size is exceeded
             // if two ECHO sized journals are included in a batch
             config.market.max_journal_bytes = 20;

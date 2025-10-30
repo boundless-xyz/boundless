@@ -2504,6 +2504,10 @@ pub(crate) mod tests {
     #[traced_test]
     async fn test_lock_expired_exec_limit_precision_loss() {
         let config = ConfigLock::default();
+        let min_deadline = {
+            let cfg = config.lock_all().unwrap();
+            cfg.market.min_deadline
+        };
         {
             config.load_write().unwrap().market.min_mcycle_price_collateral_token = "1".into();
         }
@@ -2513,13 +2517,15 @@ pub(crate) mod tests {
             .build()
             .await;
 
+        let timeout = (min_deadline + 200) as u32;
+
         let mut order = ctx
             .generate_next_order(OrderParams {
                 lock_collateral: U256::from(1),
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 bidding_start: now_timestamp() - 100,
                 lock_timeout: 10,
-                timeout: 300,
+                timeout,
                 ..Default::default()
             })
             .await;
@@ -2539,7 +2545,7 @@ pub(crate) mod tests {
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 bidding_start: now_timestamp() - 100,
                 lock_timeout: 10,
-                timeout: 300,
+                timeout,
                 ..Default::default()
             })
             .await;
@@ -3427,7 +3433,7 @@ pub(crate) mod tests {
         let market_config = MarketConf {
             min_mcycle_price: "0.01".to_string(),
             min_mcycle_price_collateral_token: "0".to_string(), // Zero collateral price
-            max_mcycle_limit: 8000,
+            max_mcycle_limit: u64::MAX,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
             ..Default::default()
@@ -3511,7 +3517,7 @@ pub(crate) mod tests {
         let market_config = MarketConf {
             min_mcycle_price: "0".to_string(), // Zero ETH price
             min_mcycle_price_collateral_token: "0.1".to_string(),
-            max_mcycle_limit: 8000,
+            max_mcycle_limit: u64::MAX,
             peak_prove_khz: None,
             priority_requestor_addresses: None,
             ..Default::default()

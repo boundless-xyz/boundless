@@ -59,7 +59,7 @@ const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
 
 // Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
 // orders locked by other provers that exceeded their lock timeout
-const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.00005";
+const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.0005";
 
 #[derive(Debug, Clone)]
 struct MarketPricing {
