@@ -717,6 +717,7 @@ impl ProverGenerateConfig {
         display.note("Boundless provides a benchmarking suite for estimating your cluster's");
         display.note("peak performance.");
         display.warning("The benchmark suite requires access to a running Bento proving cluster.");
+        display.note("See https://docs.boundless.network/provers/quick-start#running-a-test-proof for information on how to run Bento.");
         display.note("");
 
         let choice = Select::new(
@@ -1119,11 +1120,6 @@ impl ProverGenerateConfig {
                 if should_update {
                     *item = toml_edit::value(config.min_mcycle_price.clone());
                 }
-            }
-
-            // Update min_mcycle_price_collateral_token
-            if let Some(item) = market.get_mut("min_mcycle_price_collateral_token") {
-                *item = toml_edit::value(config.min_mcycle_price_collateral_token.clone());
             }
         }
 
