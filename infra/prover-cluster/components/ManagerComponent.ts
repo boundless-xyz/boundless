@@ -56,10 +56,10 @@ export class ManagerComponent extends BaseComponent {
                 deleteOnTermination: true,
             }],
             tags: {
-                Name: "boundless-bento-manager",
+                Name: `${this.config.stackName}-manager`,
                 Type: "manager",
                 Environment: this.config.environment,
-                Project: "boundless-bento-cluster",
+                Project: `${this.config.stackName}-prover`,
                 "ssm:bootstrap": "manager",
             },
         });
