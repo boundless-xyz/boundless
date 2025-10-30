@@ -134,7 +134,7 @@ lazy_static! {
     pub static ref TASK_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("task_duration_seconds", "Duration of task execution")
             .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0]),
-        &["task_name", "status"]
+        &["task_name", "operation_type", "status"]
     ).unwrap();
 
     pub static ref TASK_OPERATIONS: IntCounterVec = IntCounterVec::new(
@@ -179,7 +179,9 @@ pub mod helpers {
     /// Record task operation metrics
     pub fn record_task(task_name: &str, operation_type: &str, status: &str, duration_seconds: f64) {
         TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
-        TASK_DURATION.with_label_values(&[task_name, status]).observe(duration_seconds);
+        TASK_DURATION
+            .with_label_values(&[task_name, operation_type, status])
+            .observe(duration_seconds);
     }
 
     /// Record database operation metrics
@@ -205,7 +207,9 @@ pub mod helpers {
         duration_seconds: f64,
     ) {
         TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
-        TASK_DURATION.with_label_values(&[task_name, status]).observe(duration_seconds);
+        TASK_DURATION
+            .with_label_values(&[task_name, operation_type, status])
+            .observe(duration_seconds);
     }
 
     /// Record execution duration
