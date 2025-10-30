@@ -113,11 +113,15 @@ pub enum OrderCommitmentPriority {
     Random,
     /// Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
     ShortestExpiry,
+    /// Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire random weighted by collateral reward
+    Price,
+    /// Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire random weighted by collateral reward
+    CyclePrice,
 }
 
 impl Default for OrderCommitmentPriority {
     fn default() -> Self {
-        Self::Random
+        Self::CyclePrice
     }
 }
 
@@ -151,6 +155,10 @@ pub struct MarketConf {
     /// If enabled, the order will be preflighted without constraints.
     #[serde(alias = "priority_requestor_addresses")]
     pub priority_requestor_addresses: Option<Vec<Address>>,
+    /// Optional URLs to fetch requestor priority lists from.
+    ///
+    /// These lists will be periodically refreshed and merged with priority_requestor_addresses.
+    pub priority_requestor_lists: Option<Vec<String>>,
     /// Max journal size in bytes
     ///
     /// Orders that produce a journal larger than this size in preflight will be skipped. Since journals
@@ -271,8 +279,15 @@ pub struct MarketConf {
     /// Determines how orders are prioritized when committing to prove them. Options:
     /// - "random": Process orders in random order to distribute competition among provers (default)
     /// - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
+    /// - "lock_price": Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire randomly
+    /// - "lock_cycle_price": Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire randomly
     #[serde(default, alias = "expired_order_fulfillment_priority")]
     pub order_commitment_priority: OrderCommitmentPriority,
+    /// Whether to cancel Bento proving sessions when the order is no longer actionable
+    /// If false (default), Bento proving continues even if the order cannot be fulfilled in the
+    /// market. This should remain false to avoid losing partial PoVW jobs.
+    #[serde(default)]
+    pub cancel_proving_expired_orders: bool,
 }
 
 impl Default for MarketConf {
@@ -285,6 +300,7 @@ impl Default for MarketConf {
             assumption_price: None,
             max_mcycle_limit: None,
             priority_requestor_addresses: None,
+            priority_requestor_lists: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,
             min_deadline: 120, // 2 mins
@@ -310,6 +326,7 @@ impl Default for MarketConf {
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
+            cancel_proving_expired_orders: false,
         }
     }
 }

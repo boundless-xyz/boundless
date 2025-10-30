@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 /// @title StakingRewards
 /// @notice Contract for distributing staking rewards based on veZKC staking positions
@@ -22,6 +22,12 @@ interface IStakingRewards {
     /// @param epochs The epochs to claim rewards for
     /// @return amount The amount of rewards claimed
     function claimRewards(uint256[] calldata epochs) external returns (uint256 amount);
+
+    /// @notice Claim rewards for the given epochs and send to a recipient
+    /// @param epochs The epochs to claim rewards for
+    /// @param recipient The address to receive the minted rewards
+    /// @return amount The amount of rewards claimed
+    function claimRewardsToRecipient(uint256[] calldata epochs, address recipient) external returns (uint256);
 
     /// @notice Calculate the rewards a user is owed for the given epochs. If the epoch has not ended yet, it will return zero rewards.
     /// @param user The user address

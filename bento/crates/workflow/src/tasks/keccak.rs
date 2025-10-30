@@ -58,10 +58,6 @@ pub async fn keccak(
         .prove_keccak(&keccak_req)
         .context("Failed to prove_keccak")?;
 
-    keccak_receipt
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify keccak receipt integrity")?;
-
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{task_id}");
     let keccak_receipt_bytes =
@@ -77,6 +73,9 @@ pub async fn keccak(
     .context("Failed to write keccak receipt to redis")?;
 
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
+    conn.unlink::<_, ()>(&keccak_input_path)
+        .await
+        .context("Failed to delete keccak input path key")?;
 
     Ok(())
 }

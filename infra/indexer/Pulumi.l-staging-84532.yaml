@@ -3,12 +3,12 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFhGPorkVKVmIzT59
 config:
   aws:region: us-west-2
   indexer:BASE_STACK: organization/bootstrap/services-staging
-  indexer:BOUNDLESS_ADDRESS: 0xBBA33Ecb04d06f116968C8137f78A82a4fc0c0D8
+  indexer:BOUNDLESS_ADDRESS: 0x7abb16522f4599481361d318b765af988bfcca8e
   indexer:CHAIN_ID: "84532"
   indexer:DOCKER_DIR: ../../
   indexer:DOCKER_TAG: latest
   indexer:GH_TOKEN_SECRET:
-    secure: v1:YOjUrjGLO8aFDVNj:duLloMN6c3DozMqOSLt299VOt2K1/yvdRgfPTfFNHxMtGDIIONO43SMs2qiiEVWItGRNlEawi2S8KAAEsi9GY1weihnxRntGXL9H/VAGAibwyWE6o1DNneViJ5r46C7tcuK6Yx6NDrJ4sdREUA==
+    secure: v1:LEOVTR4gE67aokah:G8Cf5p7dbUPGivjKTERSCY4l77i7CgTjPrF42dHISuHwTXlgAZe97ZltaKnMa2B2jBk41TMD4l1D6WjrwCWr6b8Bs3qOVEwJ2TXEC9rZ/5nAllE9+OwW2KEuxfZTpmV1dsdXYqedQjy12zDrPw==
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:RDS_PASSWORD:
     secure: v1:U2jryXZCb4OMwmuN:sBIpdURgdAK7aeRz5x6//mFsQJVsm96fqcySBOUXkUDf6g==
@@ -17,3 +17,5 @@ config:
   indexer:START_BLOCK: "30757608"
   indexer:ETH_RPC_URL:
     secure: v1:YE8PUbzgOCGYW56j:RSk0HuKzhzZh81wvUjGZGGOX5RoEqqg5WH5bsGChtZLhfKJmWmPwqw1coo6P2782e4bLQwJMNWFul/DnIUKgDUO5e7OKQ9bWpu73
+  indexer:ORDER_STREAM_URL:
+    secure: v1:ML0Kk4FpP/GziDre:4jU25g1PNq2wuFzmhDmVAUPU+PfJN3YQyNx6aeMy/auojDeiQungfqUIw9FUqAurV2tPfCriGJncS5DsbsmemkWQsx1MhUZfvnNT6+ByDpmwCd768Yjvp3u/ul4=

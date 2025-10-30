@@ -31,7 +31,6 @@ export = async () => {
   });
 
   let availabilityZones = (await aws.getAvailabilityZones()).names;
-  
 
   const awsRegion = (await aws.getRegion({})).name;
   const services_vpc = new vpc.Vpc(`${prefix}vpc`, {
@@ -40,7 +39,7 @@ export = async () => {
   });
 
   return {
-    DEPLOYMENT_ROLE_ARN: deploymentRole.arn, 
+    DEPLOYMENT_ROLE_ARN: deploymentRole.arn,
     VPC_ID: services_vpc.vpcx.vpcId,
     PRIVATE_SUBNET_IDS: services_vpc.vpcx.privateSubnetIds,
     PUBLIC_SUBNET_IDS: services_vpc.vpcx.publicSubnetIds,

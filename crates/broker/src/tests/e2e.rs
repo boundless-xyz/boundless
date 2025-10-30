@@ -140,7 +140,7 @@ fn broker_args(
         config_file,
         deployment: Some(deployment),
         rpc_url,
-        private_key,
+        private_key: Some(private_key),
         bento_api_url: None,
         bonsai_api_key,
         bonsai_api_url,

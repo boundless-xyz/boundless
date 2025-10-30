@@ -29,7 +29,7 @@ mod mock;
 mod pinata;
 mod s3;
 
-pub use fetch::fetch_url;
+pub use fetch::{fetch_url, override_gateway};
 pub use file::{TempFileStorageProvider, TempFileStorageProviderError};
 pub use mock::{MockStorageError, MockStorageProvider};
 pub use pinata::{PinataStorageProvider, PinataStorageProviderError};

@@ -31,7 +31,7 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli -- --include-ignored
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -40,11 +40,23 @@ test-cargo-example:
     RISC0_DEV_MODE=1 cargo test
 
 # Run database tests
-test-cargo-db: 
+test-cargo-db:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
+
+# Run indexer integration tests (requires ETH_MAINNET_RPC_URL)
+test-indexer:
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$ETH_MAINNET_RPC_URL" ]; then
+        echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    RISC0_DEV_MODE=1 cargo test -p boundless-indexer --all-targets -- --ignored --nocapture
+    RISC0_DEV_MODE=1 cargo test -p indexer-api --all-targets -- --ignored --nocapture
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
@@ -101,7 +113,7 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd documentation && bun run check
+    cd documentation && bun install && bun run check
     dprint check
     forge fmt --check
 
@@ -129,6 +141,7 @@ check-clippy:
     cargo clippy --workspace --all-targets
 
 check-docs:
+    cd documentation && bun install
     # Matches the docs-rs job in CI 
     RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
 
@@ -238,6 +251,7 @@ localnet action="up": check-deps
         sed -i.bak "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
         sed -i.bak "s/^export HIT_POINTS_ADDRESS=.*/export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
         sed -i.bak "s/^export RPC_URL=.*/export RPC_URL=\"http:\/\/localhost:$ANVIL_PORT\"/" .env.localnet
+        sed -i.bak "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
         
@@ -281,13 +295,13 @@ localnet action="up": check-deps
                 --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
                 --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
             
-            echo "Depositing stake using boundless CLI..."
+            echo "Depositing collateral using boundless CLI..."
             RPC_URL=http://localhost:$ANVIL_PORT \
             PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
             BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
             SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
             VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
-            ./target/debug/boundless account deposit-stake 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
+            ./target/debug/boundless account deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
             
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
             if [ ! -f broker.toml ]; then
@@ -372,15 +386,22 @@ bento action="up" env_file="" compose_flags="" detached="true":
         fi
     elif [ "{{action}}" = "down" ]; then
         echo "Stopping Docker Compose services"
-        if docker compose {{compose_flags}} $ENV_FILE_ARG down; then
+        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down; then
             echo "Docker Compose services have been stopped and removed."
         else
             echo "Error: Failed to stop Docker Compose services."
             exit 1
         fi
     elif [ "{{action}}" = "clean" ]; then
+        echo "WARNING: This will stop Docker Compose services and remove all volumes (including data)."
+        echo "If you have not run boundless povw prepare, you will lose the work you have done."
+        read -p "Are you sure you want to continue? (y/N): " -r
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Clean operation cancelled."
+            exit 0
+        fi
         echo "Stopping and cleaning Docker Compose services"
-        if docker compose {{compose_flags}} $ENV_FILE_ARG down -v; then
+        if docker compose {{compose_flags}} --profile miner $ENV_FILE_ARG down -v; then
             echo "Docker Compose services have been stopped and volumes have been removed."
         else
             echo "Error: Failed to clean Docker Compose services."
@@ -395,17 +416,39 @@ bento action="up" env_file="" compose_flags="" detached="true":
         exit 1
     fi
 
-# Run the broker service with a bento cluster for proving.
-broker action="up" env_file="" detached="true":
+# Run all components of a boundless prover (bento, broker, miner)
+# Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just prover)
+prover action="up" env_file="" detached="true":
     #!/usr/bin/env bash
+    BOUNDLESS_MINING="${BOUNDLESS_MINING:-true}"
+
     # Check if broker.toml exists, if not create it from template
     if [ ! -f broker.toml ]; then
         echo "Creating broker.toml from template..."
         cp broker-template.toml broker.toml || { echo "Error: broker-template.toml not found"; exit 1; }
         echo "broker.toml created successfully."
     fi
-    
-    just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
+
+    if [ "{{action}}" = "logs" ]; then
+        # Ignore mining process logs by default
+        PROFILE_FLAGS="--profile broker"
+    elif [ "{{action}}" = "down" ] || [ "{{action}}" = "clean" ]; then
+        # Always include miner profile when shutting down to ensure no lingering mining process
+        PROFILE_FLAGS="--profile broker --profile miner"
+    elif [ "$BOUNDLESS_MINING" = "false" ]; then
+        PROFILE_FLAGS="--profile broker"
+    else
+        PROFILE_FLAGS="--profile broker --profile miner"
+    fi
+
+    just bento "{{action}}" "{{env_file}}" "$PROFILE_FLAGS" "{{detached}}"
+
+# Deprecated: Use 'just prover' instead
+broker action="up" env_file="" detached="true":
+    #!/usr/bin/env bash
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
+    just prover "{{action}}" "{{env_file}}" "{{detached}}"
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
 
 # Run the setup script
 bento-setup:

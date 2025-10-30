@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fmt::Display, pin::Pin};
+
 use alloy::{
     primitives::{Address, Signature, U256},
     signers::{Error as SignerErr, Signer},
 };
 use alloy_primitives::B256;
-use alloy_sol_types::SolStruct;
 use anyhow::{Context, Result};
 use async_stream::stream;
 use chrono::{DateTime, Utc};
@@ -25,7 +26,6 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use siwe::Message as SiweMsg;
-use std::pin::Pin;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tokio::net::TcpStream;
@@ -35,7 +35,7 @@ use tokio_tungstenite::{
 };
 use utoipa::ToSchema;
 
-use crate::contracts::{eip712_domain, ProofRequest, RequestError};
+use crate::contracts::{ProofRequest, RequestError};
 
 /// Order stream submission API path.
 pub const ORDER_SUBMISSION_PATH: &str = "/api/v1/submit_order";
@@ -135,8 +135,7 @@ impl Order {
     /// Validate the Order
     pub fn validate(&self, market_address: Address, chain_id: u64) -> Result<(), OrderError> {
         self.request.validate()?;
-        let domain = eip712_domain(market_address, chain_id);
-        let hash = self.request.eip712_signing_hash(&domain.alloy_struct());
+        let hash = self.request.signing_hash(market_address, chain_id)?;
         if hash != self.request_digest {
             return Err(OrderError::RequestError(RequestError::DigestMismatch));
         }
@@ -160,11 +159,49 @@ pub struct AuthMsg {
     signature: Signature,
 }
 
+/// VersionInfo struct for SIWE message
+#[derive(Deserialize, Serialize, ToSchema, Debug, Clone)]
+pub struct VersionInfo {
+    /// Version of the Boundless client
+    pub version: String,
+    /// Git hash of the Boundless client
+    pub git_hash: String,
+}
+
+impl Display for VersionInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Boundless Order Stream\nVersion={}\nGit hash={}", self.version, self.git_hash)
+    }
+}
+
+impl From<&SiweMsg> for VersionInfo {
+    fn from(msg: &SiweMsg) -> Self {
+        let mut version = "unknown".to_string();
+        let mut git_hash = "unknown".to_string();
+        if let Some(statement) = &msg.statement {
+            let parts: Vec<&str> = statement.split(':').collect();
+            if parts.len() == 3 && parts[0] == "Boundless Order Stream" {
+                version = parts[1].to_string();
+                git_hash = parts[2].to_string();
+            }
+        }
+        Self { version, git_hash }
+    }
+}
+
+impl From<&AuthMsg> for VersionInfo {
+    fn from(auth_msg: &AuthMsg) -> Self {
+        VersionInfo::from(&auth_msg.message)
+    }
+}
+
 impl AuthMsg {
     /// Creates a new authentication message from a nonce, origin, signer
     pub async fn new(nonce: Nonce, origin: &Url, signer: &impl Signer) -> Result<Self> {
+        let version = env!("CARGO_PKG_VERSION");
+        let git_hash = option_env!("BOUNDLESS_GIT_HASH").unwrap_or("unknown");
         let message = format!(
-            "{} wants you to sign in with your Ethereum account:\n{}\n\nBoundless Order Stream\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
+            "{} wants you to sign in with your Ethereum account:\n{}\n\nBoundless Order Stream:{version}:{git_hash}\n\nURI: {}\nVersion: 1\nChain ID: 1\nNonce: {}\nIssued At: {}",
             origin.authority(), signer.address(), origin, nonce.nonce, Utc::now().to_rfc3339(),
         );
         let message: SiweMsg = message.parse()?;
@@ -193,6 +230,11 @@ impl AuthMsg {
     /// [AuthMsg] address in alloy format
     pub fn address(&self) -> Address {
         Address::from(self.message.address)
+    }
+
+    /// Return the version info from the message
+    pub fn version_info(&self) -> VersionInfo {
+        VersionInfo::from(self)
     }
 }
 
@@ -224,8 +266,7 @@ impl OrderStreamClient {
         let url = self.base_url.join(ORDER_SUBMISSION_PATH)?;
         let signature =
             request.sign_request(signer, self.boundless_market_address, self.chain_id).await?;
-        let domain = eip712_domain(self.boundless_market_address, self.chain_id);
-        let request_digest = request.eip712_signing_hash(&domain.alloy_struct());
+        let request_digest = request.signing_hash(self.boundless_market_address, self.chain_id)?;
         let order = Order { request: request.clone(), request_digest, signature };
         order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
@@ -292,6 +333,51 @@ impl OrderStreamClient {
         }
     }
 
+    /// Fetch an order with its creation timestamp from the order stream server.
+    ///
+    /// Returns both the Order and the timestamp when it was created.
+    /// If multiple orders are found, the `request_digest` must be provided to select the correct order.
+    pub async fn fetch_order_with_timestamp(
+        &self,
+        id: U256,
+        request_digest: Option<B256>,
+    ) -> Result<(Order, DateTime<Utc>)> {
+        let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let order_data: Vec<OrderData> = response.json().await?;
+        if order_data.is_empty() {
+            return Err(anyhow::Error::msg("No order found"));
+        } else if order_data.len() == 1 {
+            let data = &order_data[0];
+            return Ok((data.order.clone(), data.created_at));
+        }
+        match request_digest {
+            Some(digest) => {
+                for data in order_data {
+                    if data.order.request_digest == digest {
+                        return Ok((data.order, data.created_at));
+                    }
+                }
+                Err(anyhow::Error::msg("No order found"))
+            }
+            None => {
+                Err(anyhow::Error::msg("Multiple orders found, please provide a request digest"))
+            }
+        }
+    }
+
     /// Get the nonce from the order stream service for websocket auth
     pub async fn get_nonce(&self, address: Address) -> Result<Nonce> {
         let url = self.base_url.join(AUTH_GET_NONCE)?.join(&address.to_string())?;
@@ -302,6 +388,43 @@ impl OrderStreamClient {
         let nonce = res.json().await?;
 
         Ok(nonce)
+    }
+
+    /// List orders sorted by creation time descending (most recent first)
+    ///
+    /// Returns orders created after the given timestamp (if provided), up to the specified limit.
+    /// If `after` is None, returns the most recent orders.
+    pub async fn list_orders_by_creation(
+        &self,
+        after: Option<DateTime<Utc>>,
+        limit: u64,
+    ) -> Result<Vec<OrderData>> {
+        let mut url = self.base_url.join(ORDER_LIST_PATH)?;
+
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("sort", "desc");
+            query.append_pair("limit", &limit.to_string());
+            if let Some(ts) = after {
+                query.append_pair("after", &ts.to_rfc3339());
+            }
+        }
+
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let orders: Vec<OrderData> = response.json().await?;
+        Ok(orders)
     }
 
     /// Return a WebSocket stream connected to the order stream server
@@ -491,10 +614,16 @@ mod tests {
 
     #[tokio::test]
     async fn auth_msg_verify() {
+        let version = env!("CARGO_PKG_VERSION");
+        let git_hash = option_env!("BOUNDLESS_GIT_HASH").unwrap_or("unknown");
         let signer = LocalSigner::random();
         let nonce = Nonce { nonce: "TEST_NONCE".to_string() };
         let origin = "http://localhost:8585".parse().unwrap();
         let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
+        let version_info = auth_msg.version_info();
+        println!("VersionInfo: {}", version_info);
+        assert!(version_info.version == version);
+        assert!(version_info.git_hash == git_hash);
         auth_msg.verify("localhost:8585", &nonce.nonce).await.unwrap();
     }
 

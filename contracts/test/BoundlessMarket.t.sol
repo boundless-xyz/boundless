@@ -3,7 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import {console} from "forge-std/console.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -621,6 +621,34 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(newUser);
         boundlessMarket.deposit{value: 1 ether}();
         vm.snapshotGasLastCall("deposit: second deposit");
+    }
+
+    function testDepositTo() public {
+        vm.deal(testProverAddress, 1 ether);
+        // Deposit funds into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(testProverAddress, 1 ether);
+        vm.prank(testProverAddress);
+        boundlessMarket.depositTo{value: 1 ether}(testProverAddress);
+        testProver.expectBalanceChange(1 ether);
+    }
+
+    function testDepositsTo() public {
+        address newUser = address(uint160(3));
+        vm.deal(newUser, 2 ether);
+
+        // Deposit funds into the market
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.depositTo{value: 1 ether}(newUser);
+        vm.snapshotGasLastCall("depositTo: first ever deposit");
+
+        vm.expectEmit(true, true, true, true);
+        emit IBoundlessMarket.Deposit(newUser, 1 ether);
+        vm.prank(newUser);
+        boundlessMarket.depositTo{value: 1 ether}(newUser);
+        vm.snapshotGasLastCall("depositTo: second deposit");
     }
 
     function testAdminRoleSetup() public view {
@@ -3214,9 +3242,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         snapshotMarketStakeTreasuryBalance();
 
         // Slash the request
-        // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0
+        // Burning = sending tokens to address 0xdEaD, expect a transfer event to be emitted to address 0xdEaD
         vm.expectEmit(true, true, true, false);
-        emit IERC20.Transfer(address(proxy), address(0), request.offer.lockCollateral);
+        emit IERC20.Transfer(address(proxy), address(0xdEaD), request.offer.lockCollateral);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProverSlashed(
             request.id,
@@ -3445,9 +3473,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         otherProver.snapshotCollateralBalance();
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
-        // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0
+        // Burning = sending tokens to address 0xdEaD, expect a transfer event to be emitted to address 0xdEaD
         vm.expectEmit(true, true, true, false);
-        emit IERC20.Transfer(address(proxy), address(0), request.offer.lockCollateral);
+        emit IERC20.Transfer(address(proxy), address(0xdEaD), request.offer.lockCollateral);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProverSlashed(
             request.id,
@@ -3521,9 +3549,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.warp(request.offer.deadline() + 1);
 
         // We expect the prover that ultimately fulfilled the request to receive stake.
-        // Burning = sending tokens to address 0, expect a transfer event to be emitted to address 0
+        // Burning = sending tokens to address 0xdEaD, expect a transfer event to be emitted to address 0xdEaD
         vm.expectEmit(true, true, true, false);
-        emit IERC20.Transfer(address(proxy), address(0), request.offer.lockCollateral);
+        emit IERC20.Transfer(address(proxy), address(0xdEaD), request.offer.lockCollateral);
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.ProverSlashed(
             request.id,
@@ -3675,6 +3703,36 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         expectRequestFulfilled(fill.id);
         client.expectBalanceChange(-1 ether);
         testProver.expectBalanceChange(1 ether);
+        expectMarketBalanceUnchanged();
+    }
+
+    function testFulfillLockedRequestWithCallbackNotEnoughGas() public {
+        Client client = getClient(1);
+
+        // Create request with low gas callback
+        ProofRequest memory request = client.request(1);
+        request.requirements.callback = Callback({addr: address(mockCallback), gasLimit: 500_000});
+
+        bytes memory clientSignature = client.sign(request);
+        client.snapshotBalance();
+        testProver.snapshotBalance();
+
+        // Lock and fulfill the request
+        vm.prank(testProverAddress);
+        boundlessMarket.lockRequest(request, clientSignature);
+
+        (Fulfillment memory fill, AssessorReceipt memory assessorReceipt) =
+            createFillAndSubmitRoot(request, APP_JOURNAL, testProverAddress);
+        Fulfillment[] memory fills = new Fulfillment[](1);
+        fills[0] = fill;
+
+        vm.expectRevert(IBoundlessMarket.InsufficientGas.selector);
+        boundlessMarket.fulfill{gas: 499_000}(fills, assessorReceipt);
+
+        // Verify callback was not called
+        assertEq(mockCallback.getCallCount(), 0, "Callback should not be called");
+
+        expectRequestNotFulfilled(request.id);
         expectMarketBalanceUnchanged();
     }
 
@@ -3920,6 +3978,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         client.snapshotBalance();
         testProver.snapshotBalance();
 
+        // Withdraw some funds so we only have funds to cover for the first offer
+        // and we have a deficit for the second offer to test the partial payment path
+        vm.prank(client.addr());
+        boundlessMarket.withdraw(DEFAULT_BALANCE - 2 ether);
+
         // Lock request A
         vm.prank(testProverAddress);
         boundlessMarket.lockRequest(requestA, clientSignatureA);
@@ -3944,16 +4007,27 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         bytes32 imageId = bytesToBytes32(requestB.requirements.predicate.data);
         emit MockCallback.MockCallbackCalled(imageId, APP_JOURNAL, fill.seal);
-        boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        bytes[] memory errors = boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
+        // Verify that the second request was partially payed
+        assertEq(errors.length, 1, "Expected one error");
+        assertEq(
+            errors[0],
+            abi.encodeWithSelector(IBoundlessMarket.PartialPayment.selector, 3 ether, 2 ether),
+            "Unexpected error"
+        );
 
         // Verify only the second request's callback was called
         assertEq(mockCallback.getCallCount(), 0, "First request's callback should not be called");
         assertEq(mockHighGasCallback.getCallCount(), 1, "Second request's callback should be called once");
 
+        // Deposit back original funds so that the Market original balance is restored
+        vm.prank(client.addr());
+        boundlessMarket.deposit{value: DEFAULT_BALANCE - 2 ether}();
+
         // Verify request state and balances
         expectRequestFulfilled(fill.id);
-        client.expectBalanceChange(-3 ether);
-        testProver.expectBalanceChange(3 ether);
+        client.expectBalanceChange(-2 ether);
+        testProver.expectBalanceChange(2 ether);
         testProver.expectCollateralBalanceChange(-1 ether); // Lost stake from lock
         expectMarketBalanceUnchanged();
     }
@@ -4239,7 +4313,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_DURATION,
-                    address(0)
+                    address(0x01)
                 )
             ),
             abi.encodeCall(BoundlessMarket.initialize, (ownerWallet.addr, "https://assessor.dev.null"))
@@ -4258,7 +4332,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_DURATION,
-                    address(0)
+                    address(0x01)
                 )
             ),
             "",

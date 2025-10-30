@@ -28,7 +28,8 @@ mod redis;
 mod tasks;
 
 pub use workflow_common::{
-    AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, s3::S3Client,
+    AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
+    SNARK_TIMEOUT_DEFAULT, s3::S3Client,
 };
 
 /// Workflow agent
@@ -41,13 +42,13 @@ pub struct Args {
     /// agent stream type to monitor for tasks
     ///
     /// ex: `cpu`, `prove`, `join`, `snark`, etc
-    #[arg(short, long)]
+    #[arg(env, short, long)]
     pub task_stream: String,
 
     /// Polling internal between tasks
     ///
     /// Time to wait between request_work calls
-    #[arg(short, long, default_value_t = 1)]
+    #[arg(env, short, long, default_value_t = 1)]
     pub poll_time: u64,
 
     /// taskdb postgres DATABASE_URL
@@ -59,21 +60,21 @@ pub struct Args {
     pub redis_url: String,
 
     /// risc0 segment po2 arg
-    #[clap(short, long, default_value_t = 20)]
+    #[clap(env, short, long, default_value_t = 20)]
     pub segment_po2: u32,
 
     /// max connections to SQL db in connection pool
-    #[clap(long, default_value_t = 1)]
+    #[clap(env, long, default_value_t = 1)]
     pub db_max_connections: u32,
 
     /// Redis TTL, seconds before objects expire automatically
     ///
     /// Defaults to 8 hours
-    #[clap(long, default_value_t = 8 * 60 * 60)]
+    #[clap(env,long, default_value_t = 8 * 60 * 60)]
     pub redis_ttl: u64,
 
     /// Executor limit, in millions of cycles
-    #[clap(short, long, default_value_t = 100_000)]
+    #[clap(env, short, long, default_value_t = 100_000)]
     pub exec_cycle_limit: u64,
 
     /// S3 / Minio bucket
@@ -97,51 +98,69 @@ pub struct Args {
     pub s3_region: String,
 
     /// Enables a background thread to monitor for tasks that need to be retried / timed-out
-    #[clap(long, default_value_t = false)]
+    #[clap(env, long, default_value_t = false)]
     monitor_requeue: bool,
 
     // Task flags
     /// How many times a prove+lift can fail before hard failure
-    #[clap(long, default_value_t = 3)]
+    #[clap(env, long, default_value_t = 3)]
     prove_retries: i32,
 
     /// How long can a prove+lift can be running for, before it is marked as timed-out
-    #[clap(long, default_value_t = 30)]
+    #[clap(env, long, default_value_t = 30)]
     prove_timeout: i32,
 
     /// How many times a join can fail before hard failure
-    #[clap(long, default_value_t = 3)]
+    #[clap(env, long, default_value_t = 3)]
     join_retries: i32,
 
     /// How long can a join can be running for, before it is marked as timed-out
-    #[clap(long, default_value_t = 10)]
+    #[clap(env, long, default_value_t = 10)]
     join_timeout: i32,
 
     /// How many times a resolve can fail before hard failure
-    #[clap(long, default_value_t = 3)]
+    #[clap(env, long, default_value_t = 3)]
     resolve_retries: i32,
 
     /// How long can a resolve can be running for, before it is marked as timed-out
-    #[clap(long, default_value_t = 10)]
+    #[clap(env, long, default_value_t = 10)]
     resolve_timeout: i32,
 
     /// How many times a finalize can fail before hard failure
-    #[clap(long, default_value_t = 0)]
+    #[clap(env, long, default_value_t = 0)]
     finalize_retries: i32,
 
     /// How long can a finalize can be running for, before it is marked as timed-out
     ///
     /// NOTE: This value is multiplied by the assumption count
-    #[clap(long, default_value_t = 10)]
+    #[clap(env, long, default_value_t = 10)]
     finalize_timeout: i32,
 
     /// Snark timeout in seconds
-    #[clap(long, default_value_t = 60 * 4)]
+    #[clap(env, long, default_value_t = SNARK_TIMEOUT_DEFAULT)]
     snark_timeout: i32,
 
     /// Snark retries
-    #[clap(long, default_value_t = 0)]
+    #[clap(env, long, default_value_t = SNARK_RETRIES_DEFAULT)]
     snark_retries: i32,
+
+    /// Requeue poll interval in seconds
+    ///
+    /// How often to check for tasks that need to be requeued
+    #[clap(env, long, default_value_t = 5)]
+    requeue_poll_interval: u64,
+
+    /// Stuck tasks poll interval in seconds
+    ///
+    /// How often to check for stuck pending tasks
+    #[clap(env, long, default_value_t = 60)]
+    stuck_tasks_poll_interval: u64,
+
+    /// Completed job cleanup poll interval in seconds
+    ///
+    /// How often to clean up completed jobs
+    #[clap(env, long, default_value_t = 60 * 60)]
+    cleanup_poll_interval: u64,
 }
 
 /// Core agent context to hold all optional clients / pools and state
@@ -242,8 +261,61 @@ impl Agent {
         if self.args.monitor_requeue {
             let term_sig_copy = term_sig.clone();
             let db_pool_copy = self.db_pool.clone();
+            let requeue_interval = self.args.requeue_poll_interval;
+
             tokio::spawn(async move {
-                Self::poll_for_requeue(term_sig_copy, db_pool_copy).await.expect("Requeue failed")
+                loop {
+                    if let Err(e) = Self::poll_for_requeue(
+                        term_sig_copy.clone(),
+                        db_pool_copy.clone(),
+                        requeue_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!("Completed job cleanup failed: {:#}", e);
+                        time::sleep(time::Duration::from_secs(requeue_interval)).await;
+                    }
+                }
+            });
+        }
+
+        // Enable stuck task maintenance for aux workers
+        if self.args.task_stream == AUX_WORK_TYPE {
+            let term_sig_copy = term_sig.clone();
+            let db_pool_copy = self.db_pool.clone();
+            let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
+            tokio::spawn(async move {
+                loop {
+                    if let Err(e) = Self::poll_for_stuck_tasks(
+                        term_sig_copy.clone(),
+                        db_pool_copy.clone(),
+                        stuck_tasks_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!("Stuck tasks cleanup failed: {:#}", e);
+                        time::sleep(time::Duration::from_secs(60)).await;
+                    }
+                }
+            });
+
+            // Enable completed job cleanup for aux workers
+            let term_sig_copy = term_sig.clone();
+            let db_pool_copy = self.db_pool.clone();
+            let cleanup_interval = self.args.cleanup_poll_interval;
+            tokio::spawn(async move {
+                loop {
+                    if let Err(e) = Self::poll_for_completed_job_cleanup(
+                        term_sig_copy.clone(),
+                        db_pool_copy.clone(),
+                        cleanup_interval,
+                    )
+                    .await
+                    {
+                        tracing::error!("Completed job cleanup failed: {:#}", e);
+                        time::sleep(time::Duration::from_secs(cleanup_interval)).await;
+                    }
+                }
             });
         }
 
@@ -257,14 +329,42 @@ impl Agent {
             };
 
             if let Err(err) = self.process_work(&task).await {
-                let mut err_str = err.to_string();
+                let mut err_str = format!("{:#}", err);
                 if !err_str.contains("stopped intentionally due to session limit")
                     && !err_str.contains("Session limit exceeded")
                 {
-                    tracing::error!("Failure during task processing: {err:?}");
+                    tracing::error!("Failure during task processing: {err_str}");
                 }
 
                 if task.max_retries > 0 {
+                    // If the next retry would exceed the limit, set a final error now
+                    if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
+                        "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
+                    )
+                    .bind(task.job_id)
+                    .bind(&task.task_id)
+                    .fetch_optional(&self.db_pool)
+                    .await
+                    .context("Failed to read current retries")?
+                        && current_retries + 1 > task.max_retries {
+                            // Prevent massive errors from being reported to the DB
+                            err_str.truncate(1024);
+                            let final_err = if err_str.is_empty() {
+                                "retry max hit".to_string()
+                            } else {
+                                format!("retry max hit: {}", err_str)
+                            };
+                            taskdb::update_task_failed(
+                                &self.db_pool,
+                                &task.job_id,
+                                &task.task_id,
+                                &final_err,
+                            )
+                            .await
+                            .context("Failed to report task failure")?;
+                            continue;
+                        }
+
                     if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
                         .await
                         .context("Failed to update task retries")?
@@ -379,14 +479,85 @@ impl Agent {
     ///
     /// Scan the queue looking for tasks that need to be retried and update them
     /// the agent will catch and fail max retries.
-    async fn poll_for_requeue(term_sig: Arc<AtomicBool>, db_pool: PgPool) -> Result<()> {
+    async fn poll_for_requeue(
+        term_sig: Arc<AtomicBool>,
+        db_pool: PgPool,
+        poll_interval: u64,
+    ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
             tracing::debug!("Triggering a requeue job...");
             let retry_tasks = taskdb::requeue_tasks(&db_pool, 100).await?;
             if retry_tasks > 0 {
                 tracing::info!("Found {retry_tasks} tasks that needed to be retried");
             }
-            time::sleep(tokio::time::Duration::from_secs(5)).await;
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+        }
+
+        Ok(())
+    }
+
+    /// background task to poll for stuck pending tasks and fix them
+    ///
+    /// Check for tasks that are stuck in pending state but should be ready
+    /// because all their dependencies are complete, and fix them.
+    async fn poll_for_stuck_tasks(
+        term_sig: Arc<AtomicBool>,
+        db_pool: PgPool,
+        poll_interval: u64,
+    ) -> Result<()> {
+        while !term_sig.load(Ordering::Relaxed) {
+            tracing::debug!("Checking for stuck pending tasks...");
+
+            // First check if there are any stuck tasks
+            let stuck_tasks = taskdb::check_stuck_pending_tasks(&db_pool).await?;
+            if !stuck_tasks.is_empty() {
+                tracing::warn!("Found {} stuck pending tasks", stuck_tasks.len());
+
+                // Log details about stuck tasks
+                for task in &stuck_tasks {
+                    tracing::info!(
+                        "Stuck task: job_id={}, task_id={}, waiting_on={}, actual_deps={}, completed_deps={}",
+                        task.job_id,
+                        task.task_id,
+                        task.waiting_on,
+                        task.actual_deps,
+                        task.completed_deps
+                    );
+                }
+
+                // Fix the stuck tasks
+                let fixed_count = taskdb::fix_stuck_pending_tasks(&db_pool).await?;
+                if fixed_count > 0 {
+                    tracing::info!("Fixed {} stuck pending tasks", fixed_count);
+                }
+            }
+
+            // Sleep before next check
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+        }
+
+        Ok(())
+    }
+
+    /// background task to clean up completed jobs
+    ///
+    /// Remove completed jobs and their associated tasks and dependencies
+    /// to prevent database bloat over time.
+    async fn poll_for_completed_job_cleanup(
+        term_sig: Arc<AtomicBool>,
+        db_pool: PgPool,
+        poll_interval: u64,
+    ) -> Result<()> {
+        while !term_sig.load(Ordering::Relaxed) {
+            tracing::debug!("Cleaning up completed jobs...");
+
+            let cleared_count = taskdb::clear_completed_jobs(&db_pool).await?;
+            if cleared_count > 0 {
+                tracing::info!("Cleared {} completed jobs", cleared_count);
+            }
+
+            // Sleep before next cleanup
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
         }
 
         Ok(())

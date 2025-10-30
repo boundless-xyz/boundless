@@ -3,7 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -238,7 +238,7 @@ contract Client {
         return ProofRequest({
             id: RequestIdLibrary.from(wallet.addr, idx),
             requirements: defaultRequirements(),
-            imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu",
+            imageUrl: "https://gateway.beboundless.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu",
             input: Input({
                 inputType: InputType.Inline,
                 data: hex"0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"

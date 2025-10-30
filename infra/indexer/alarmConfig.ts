@@ -28,6 +28,7 @@ type ChainStageAlarmConfig = {
     address: string;
     submissionRate: Array<AlarmConfig>;
     successRate: Array<AlarmConfig>;
+    expiredRequests: Array<AlarmConfig>;
   }[];
   provers: Array<{
     name: string;
@@ -43,6 +44,10 @@ type ChainStageAlarmConfig = {
 
 
 export const alarmConfig: ChainStageAlarms = {
+  [ChainId.ETH_MAINNET]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
   [ChainId.BASE_SEPOLIA]: {
     [Stage.STAGING]: {
       clients: [
@@ -68,7 +73,7 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since we deploy with CI to staging, and this causes all the provers to restart,
-              // which can take a long time, especially if multiple changes are pushed subsequently. 
+              // which can take a long time, especially if multiple changes are pushed subsequently.
               // We set a longer time period for the success rate.
               description: "less than 90% success rate for three consecutive hours from og_offchain",
               severity: Severity.SEV2,
@@ -82,7 +87,56 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: [{
+            description: "greater than or equal to 3 expired orders in 60 minutes from og_offchain",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
+        },
+        {
+          name: "kailua_order_generator",
+          address: "0xf353bDA16a83399C11E09615Ee7ac326a5a08Ccf",
+          submissionRate: [
+            {
+              description: "no submitted orders in 60 minutes from kailua_order_generator",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 3600
+              },
+              alarmConfig: {
+                evaluationPeriods: 1,
+                datapointsToAlarm: 1,
+                threshold: 1,
+                comparisonOperator: "LessThanThreshold",
+                treatMissingData: "breaching"
+              }
+            }
+          ],
+          successRate: [
+            {
+              description: "less than 90% success rate for two consecutive hours from kailua_order_generator",
+              severity: Severity.SEV2,
+              metricConfig: {
+                period: 3600
+              },
+              alarmConfig: {
+                threshold: 0.90,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
+                comparisonOperator: "LessThanThreshold"
+              }
+            }
+          ],
+          expiredRequests: []
         },
         {
           name: "og_onchain",
@@ -106,7 +160,7 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               // Since we deploy with CI to staging, and this causes all the provers to restart,
-              // which can take a long time, especially if multiple changes are pushed subsequently. 
+              // which can take a long time, especially if multiple changes are pushed subsequently.
               // We set a longer time period for the success rate.
               description: "less than 90% success rate for three consecutive hours from og_onchain",
               severity: Severity.SEV2,
@@ -120,7 +174,20 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: [{
+            description: "greater than or equal to 3 expired orders in 60 minutes from og_onchain",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }]
         }
       ],
       provers: [
@@ -199,20 +266,6 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xc197eBE12C7Bcf1d9F3b415342bDbC795425335C",
           submissionRate: [
             {
-              description: "no submitted orders in 2 hours minutes from og_offchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 7200
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            },
-            {
               description: "no submitted orders in 60 minutes from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
@@ -240,40 +293,14 @@ export const alarmConfig: ChainStageAlarms = {
                 datapointsToAlarm: 3,
                 comparisonOperator: "LessThanThreshold"
               }
-            },
-            {
-              description: "less than 90% success rate for 8 hour periods within 10 hours from og_offchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 8,
-                datapointsToAlarm: 10,
-                comparisonOperator: "LessThanThreshold"
-              }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "og_onchain",
           address: "0xE198C6944Cae382902A375b0B8673084270A7f8e",
           submissionRate: [
-            {
-              description: "no submitted orders in 60 minutes from og_onchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            },
             {
               description: "no submitted orders in 30 minutes from og_onchain",
               severity: Severity.SEV2,
@@ -292,7 +319,7 @@ export const alarmConfig: ChainStageAlarms = {
           successRate: [
             {
               description: "less than 90% success rate for three consecutive hours from og_onchain",
-              severity: Severity.SEV1,
+              severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
@@ -303,26 +330,13 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "signal_requestor",
           address: "0x47c76e56ad9316a5c1ab17cba87a1cc134552183",
           submissionRate: [
-            {
-              description: "no submitted orders in 3 hours from signal_requestor",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 10800
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            },
             {
               description: "no submitted orders in 2 hours from signal_requestor",
               severity: Severity.SEV2,
@@ -338,7 +352,8 @@ export const alarmConfig: ChainStageAlarms = {
               }
             }
           ],
-          successRate: [] // Signal rarely gets fulfilled on testnet.
+          successRate: [], // Signal rarely gets fulfilled on testnet.
+          expiredRequests: []
         }
       ],
       provers: [
@@ -369,20 +384,6 @@ export const alarmConfig: ChainStageAlarms = {
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching"
           }
-        },
-        {
-          description: "less than 1 fulfilled orders in 60 minutes",
-          severity: Severity.SEV1,
-          metricConfig: {
-            period: 3600
-          },
-          alarmConfig: {
-            threshold: 1,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
         }],
         submittedRequests: [{
           description: "less than 2 submitted orders in 60 minutes",
@@ -392,20 +393,6 @@ export const alarmConfig: ChainStageAlarms = {
           },
           alarmConfig: {
             threshold: 2,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
-        },
-        {
-          description: "less than 1 submitted orders in 30 minutes",
-          severity: Severity.SEV1,
-          metricConfig: {
-            period: 1800,
-          },
-          alarmConfig: {
-            threshold: 1,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "LessThanThreshold",
@@ -496,19 +483,20 @@ export const alarmConfig: ChainStageAlarms = {
               }
             },
             {
-              description: "less than 90% success rate for three 30 minute periods within 3 hours from og_offchain",
+              description: "less than 90% success rate for four 30 minute periods within 3 hours from og_offchain",
               severity: Severity.SEV1,
               metricConfig: {
                 period: 1800
               },
               alarmConfig: {
                 threshold: 0.90,
-                evaluationPeriods: 5,
-                datapointsToAlarm: 3,
+                evaluationPeriods: 6,
+                datapointsToAlarm: 4,
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "og_onchain",
@@ -560,17 +548,18 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "signal_requestor",
           address: "0x734df7809c4ef94da037449c287166d114503198",
           submissionRate: [
             {
-              description: "no submitted orders in 2 hours from signal_requestor",
+              description: "no submitted orders in 1 hour from signal_requestor",
               severity: Severity.SEV1,
               metricConfig: {
-                period: 7200
+                period: 3600
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -595,21 +584,33 @@ export const alarmConfig: ChainStageAlarms = {
               }
             }
           ],
-          successRate: [
-            {
-              description: "less than 90% success rate for two consecutive hours from signal_requestor",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 2,
-                datapointsToAlarm: 2,
-                comparisonOperator: "LessThanThreshold"
-              }
+          successRate: [],
+          expiredRequests: [{
+            description: "greater than or equal to 1 expired orders in 60 minutes from signal_requestor",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 1,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
             }
-          ]
+          },
+          {
+            description: "greater than or equal to 3 expired orders in 60 minutes from signal_requestor",
+            severity: Severity.SEV1,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
         },
         {
           name: "kailua_og_offchain",
@@ -617,7 +618,7 @@ export const alarmConfig: ChainStageAlarms = {
           submissionRate: [
             {
               description: "no submitted orders in 2 hours from kailua_og_offchain",
-              severity: Severity.SEV1,
+              severity: Severity.SEV2,
               metricConfig: {
                 period: 7200
               },
@@ -658,7 +659,40 @@ export const alarmConfig: ChainStageAlarms = {
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
+        },
+        {
+          name: "cranberries",
+          address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+          submissionRate: [],
+          successRate: [],
+          expiredRequests: [{
+            description: "greater than or equal to 1 expired orders in 60 minutes from Cranberries",
+            severity: Severity.SEV2,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 1,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          },
+          {
+            description: "greater than or equal to 3 expired orders in 60 minutes from Cranberries",
+            severity: Severity.SEV1,
+            metricConfig: {
+              period: 3600,
+            },
+            alarmConfig: {
+              threshold: 3,
+              evaluationPeriods: 1,
+              datapointsToAlarm: 1,
+              comparisonOperator: "GreaterThanOrEqualToThreshold",
+            }
+          }],
         }
       ],
       provers: [
@@ -772,20 +806,6 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xc197eBE12C7Bcf1d9F3b415342bDbC795425335C",
           submissionRate: [
             {
-              description: "no submitted orders in 2 hours from og_offchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 7200
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            },
-            {
               description: "no submitted orders in 60 minutes from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
@@ -815,45 +835,19 @@ export const alarmConfig: ChainStageAlarms = {
                 datapointsToAlarm: 2,
                 comparisonOperator: "LessThanThreshold"
               }
-            },
-            {
-              description: "less than 90% success rate for three 30 minute periods within 3 hours from og_offchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 1800
-              },
-              alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 5,
-                datapointsToAlarm: 3,
-                comparisonOperator: "LessThanThreshold"
-              }
             }
-          ]
+          ],
+          expiredRequests: []
         },
         {
           name: "og_onchain",
           address: "0xE198C6944Cae382902A375b0B8673084270A7f8e",
           submissionRate: [
             {
-              description: "no submitted orders in 60 minutes from og_onchain",
-              severity: Severity.SEV1,
-              metricConfig: {
-                period: 3600
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            },
-            {
-              description: "no submitted orders in 30 minutes from og_onchain",
+              description: "no submitted orders in 2 hours from og_onchain",
               severity: Severity.SEV2,
               metricConfig: {
-                period: 1800
+                period: 7200
               },
               alarmConfig: {
                 evaluationPeriods: 1,
@@ -869,19 +863,20 @@ export const alarmConfig: ChainStageAlarms = {
             // so we set a more lenient success rate threshold, since there may be periods where
             // fewer proofs get fulfilled due to variant proof lengths.
             {
-              description: "less than 90% success rate for two consecutive hours from og_onchain",
-              severity: Severity.SEV1,
+              description: "less than 75% success rate for four consecutive hours from og_onchain",
+              severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
-                threshold: 0.90,
-                evaluationPeriods: 2,
-                datapointsToAlarm: 2,
+                threshold: 0.75,
+                evaluationPeriods: 4,
+                datapointsToAlarm: 4,
                 comparisonOperator: "LessThanThreshold"
               }
             }
-          ]
+          ],
+          expiredRequests: []
         }
       ],
       provers: [
@@ -900,22 +895,8 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 3 fulfilled orders in 60 minutes",
+          description: "less than 2 fulfilled orders in 60 minutes",
           severity: Severity.SEV2,
-          metricConfig: {
-            period: 3600
-          },
-          alarmConfig: {
-            threshold: 3,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
-        },
-        {
-          description: "less than 1 fulfilled orders in 60 minutes",
-          severity: Severity.SEV1,
           metricConfig: {
             period: 3600
           },
@@ -928,27 +909,13 @@ export const alarmConfig: ChainStageAlarms = {
           }
         }],
         submittedRequests: [{
-          description: "less than 2 submitted orders in 30 minutes",
+          description: "less than 2 submitted orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
-            period: 1800
+            period: 3600
           },
           alarmConfig: {
             threshold: 2,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            comparisonOperator: "LessThanThreshold",
-            treatMissingData: "breaching"
-          }
-        },
-        {
-          description: "less than 1 submitted orders in 30 minutes",
-          severity: Severity.SEV1,
-          metricConfig: {
-            period: 1800,
-          },
-          alarmConfig: {
-            threshold: 1,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "LessThanThreshold",
@@ -958,26 +925,26 @@ export const alarmConfig: ChainStageAlarms = {
         // Expired and slashed requests are not necessarily problems with the market. We keep these at low threshold
         // just during the initial launch for monitoring purposes.
         expiredRequests: [{
-          description: "greater than 15 expired orders in 60 minutes",
+          description: "greater than 20 expired orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
             period: 3600,
           },
           alarmConfig: {
-            threshold: 15,
+            threshold: 20,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",
           }
         }],
         slashedRequests: [{
-          description: "greater than 15 slashed orders in 60 minutes",
+          description: "greater than 20 slashed orders in 60 minutes",
           severity: Severity.SEV2,
           metricConfig: {
             period: 3600,
           },
           alarmConfig: {
-            threshold: 15,
+            threshold: 20,
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",
