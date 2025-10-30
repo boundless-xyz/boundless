@@ -60,7 +60,7 @@ verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 31134603
 boundless-market = "0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
-boundless-market-impl = "0x45bd2251fc26ee110b4b071041b7cc44a1edc6af"
+boundless-market-impl = "0xe57255c10291771a2e14f7eb257555ae82d78302"
 boundless-market-old-impl = "0x8d3d36400d0a8cf7cf217d28d366a0189f0850b6"
 collateral-token = "0xAA61bB7777bD01B684347961918f1E07fBbCe7CF"
 
