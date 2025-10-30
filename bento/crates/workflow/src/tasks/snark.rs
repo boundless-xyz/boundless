@@ -9,7 +9,7 @@ use risc0_zkvm::{InnerReceipt, ProverOpts, Receipt};
 use std::time::Instant;
 use workflow_common::{
     SnarkReq, SnarkResp,
-    metrics::{TASK_DURATION, TASK_OPERATIONS, helpers},
+    metrics::helpers,
     s3::{GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
 };
 
@@ -41,11 +41,11 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .compress(&opts, &receipt)
     {
         Ok(receipt) => {
-            TASK_OPERATIONS.with_label_values(&["snark", "compress", "success"]).inc();
+            helpers::record_task_operation("snark", "compress", "success", 0.0);
             receipt
         }
         Err(e) => {
-            TASK_OPERATIONS.with_label_values(&["snark", "compress", "error"]).inc();
+            helpers::record_task_operation("snark", "compress", "error", 0.0);
             return Err(e.context("groth16 compress failed"));
         }
     };
@@ -77,8 +77,12 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     }
 
     // Record total task duration and success
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task("snark", "complete", "success", start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "snark",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     Ok(SnarkResp { snark: job_id.to_string() })
 }

@@ -12,10 +12,7 @@ use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt};
 use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{
-    JoinReq,
-    metrics::{JOIN_DURATION, TASK_DURATION, helpers},
-};
+use workflow_common::{JoinReq, metrics::helpers};
 
 /// Run the join operation
 pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()> {
@@ -61,8 +58,7 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
         .join(&left_receipt, &right_receipt)
     {
         Ok(receipt) => {
-            JOIN_DURATION.observe(join_start.elapsed().as_secs_f64());
-            helpers::record_task(
+            helpers::record_task_operation(
                 "join",
                 "join_receipts",
                 "success",
@@ -106,8 +102,12 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete join receipt keys"))?;
 
     // Record total task duration and success
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task("join", "complete", "success", start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "join",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     Ok(())
 }

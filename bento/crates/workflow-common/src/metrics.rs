@@ -4,14 +4,17 @@
 // as found in the LICENSE-BSL file.
 
 use lazy_static::lazy_static;
-use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, Opts, register};
+use prometheus::{
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, register,
+};
 
 // Prometheus metrics for workflow execution
 lazy_static! {
     // Execution metrics
-    pub static ref EXECUTION_DURATION: Histogram = Histogram::with_opts(
+    pub static ref EXECUTION_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("execution_duration_seconds", "Duration of job execution in seconds")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0])
+            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0]),
+        &["job_type", "status"]
     ).unwrap();
 
     pub static ref SEGMENT_COUNT: IntCounter = IntCounter::new(
@@ -32,9 +35,10 @@ lazy_static! {
         &["task_type"]
     ).unwrap();
 
-    pub static ref TASK_PROCESSING_DURATION: Histogram = Histogram::with_opts(
+    pub static ref TASK_PROCESSING_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("task_processing_duration_seconds", "Duration of task processing")
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
+            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
+        &["task_type", "status"]
     ).unwrap();
 
     // Error metrics
@@ -53,9 +57,10 @@ lazy_static! {
         &["operation_type", "status"]
     ).unwrap();
 
-    pub static ref S3_OPERATION_DURATION: Histogram = Histogram::with_opts(
+    pub static ref S3_OPERATION_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("s3_operation_duration_seconds", "Duration of S3 operations")
-            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0])
+            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0]),
+        &["operation_type", "status"]
     ).unwrap();
 
     pub static ref REDIS_OPERATIONS: IntCounterVec = IntCounterVec::new(
@@ -63,9 +68,10 @@ lazy_static! {
         &["operation_type", "status"]
     ).unwrap();
 
-    pub static ref REDIS_OPERATION_DURATION: Histogram = Histogram::with_opts(
+    pub static ref REDIS_OPERATION_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("redis_operation_duration_seconds", "Duration of Redis operations")
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0])
+            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]),
+        &["operation_type", "status"]
     ).unwrap();
 
     // Database operation metrics
@@ -74,9 +80,10 @@ lazy_static! {
         &["operation_type", "status"]
     ).unwrap();
 
-    pub static ref DB_OPERATION_DURATION: Histogram = Histogram::with_opts(
+    pub static ref DB_OPERATION_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("db_operation_duration_seconds", "Duration of database operations")
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
+            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
+        &["operation_type", "status"]
     ).unwrap();
 
     pub static ref DB_CONNECTION_POOL_SIZE: IntGauge = IntGauge::new(
@@ -105,15 +112,17 @@ lazy_static! {
         "assumptions_total", "Total number of assumptions processed"
     ).unwrap();
 
-    pub static ref ASSUMPTION_PROCESSING_DURATION: Histogram = Histogram::with_opts(
+    pub static ref ASSUMPTION_PROCESSING_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("assumption_processing_duration_seconds", "Duration of assumption processing")
-            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
+            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        &["assumption_type", "status"]
     ).unwrap();
 
     // Resolve POVW specific metrics
-    pub static ref POVW_RESOLVE_DURATION: Histogram = Histogram::with_opts(
+    pub static ref POVW_RESOLVE_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("povw_resolve_duration_seconds", "Duration of POVW resolve operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0])
+            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0]),
+        &["operation_type", "status"]
     ).unwrap();
 
     pub static ref POVW_RESOLVE_OPERATIONS: IntCounterVec = IntCounterVec::new(
@@ -122,9 +131,10 @@ lazy_static! {
     ).unwrap();
 
     // General task metrics
-    pub static ref TASK_DURATION: Histogram = Histogram::with_opts(
+    pub static ref TASK_DURATION: HistogramVec = HistogramVec::new(
         HistogramOpts::new("task_duration_seconds", "Duration of task execution")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
+            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0]),
+        &["task_name", "status"]
     ).unwrap();
 
     pub static ref TASK_OPERATIONS: IntCounterVec = IntCounterVec::new(
@@ -132,41 +142,6 @@ lazy_static! {
         &["task_name", "operation_type", "status"]
     ).unwrap();
 
-    // Task-specific timing metrics
-    pub static ref PROVE_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("prove_duration_seconds", "Duration of prove operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
-    ).unwrap();
-
-    pub static ref JOIN_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("join_duration_seconds", "Duration of join operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
-    ).unwrap();
-
-    pub static ref JOIN_POVW_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("join_povw_duration_seconds", "Duration of POVW join operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
-    ).unwrap();
-
-    pub static ref LIFT_POVW_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("lift_povw_duration_seconds", "Duration of POVW lift operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
-    ).unwrap();
-
-    pub static ref KECCAK_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("keccak_duration_seconds", "Duration of keccak operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
-    ).unwrap();
-
-    pub static ref UNION_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("union_duration_seconds", "Duration of union operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
-    ).unwrap();
-
-    pub static ref RESOLVE_DURATION: Histogram = Histogram::with_opts(
-        HistogramOpts::new("resolve_duration_seconds", "Duration of resolve operations")
-            .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0])
-    ).unwrap();
 }
 
 /// Helper functions for common metric operations
@@ -188,25 +163,31 @@ pub mod helpers {
     /// Record S3 operation metrics
     pub fn record_s3_operation(operation_type: &str, status: &str, duration_seconds: f64) {
         S3_OPERATIONS.with_label_values(&[operation_type, status]).inc();
-        S3_OPERATION_DURATION.observe(duration_seconds);
+        S3_OPERATION_DURATION
+            .with_label_values(&[operation_type, status])
+            .observe(duration_seconds);
     }
 
     /// Record Redis operation metrics
     pub fn record_redis_operation(operation_type: &str, status: &str, duration_seconds: f64) {
         REDIS_OPERATIONS.with_label_values(&[operation_type, status]).inc();
-        REDIS_OPERATION_DURATION.observe(duration_seconds);
+        REDIS_OPERATION_DURATION
+            .with_label_values(&[operation_type, status])
+            .observe(duration_seconds);
     }
 
     /// Record task operation metrics
     pub fn record_task(task_name: &str, operation_type: &str, status: &str, duration_seconds: f64) {
         TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
-        TASK_DURATION.observe(duration_seconds);
+        TASK_DURATION.with_label_values(&[task_name, status]).observe(duration_seconds);
     }
 
     /// Record database operation metrics
     pub fn record_db_operation(operation_type: &str, status: &str, duration_seconds: f64) {
         DB_OPERATIONS.with_label_values(&[operation_type, status]).inc();
-        DB_OPERATION_DURATION.observe(duration_seconds);
+        DB_OPERATION_DURATION
+            .with_label_values(&[operation_type, status])
+            .observe(duration_seconds);
     }
 
     /// Update database connection pool metrics
@@ -214,6 +195,29 @@ pub mod helpers {
         DB_CONNECTION_POOL_SIZE.set(size);
         DB_CONNECTION_POOL_IDLE.set(idle);
         DB_CONNECTION_POOL_ACTIVE.set(active);
+    }
+
+    /// Record task operation metrics (consolidated function for all task operations)
+    pub fn record_task_operation(
+        task_name: &str,
+        operation_type: &str,
+        status: &str,
+        duration_seconds: f64,
+    ) {
+        TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
+        TASK_DURATION.with_label_values(&[task_name, status]).observe(duration_seconds);
+    }
+
+    /// Record execution duration
+    pub fn record_execution_duration(job_type: &str, status: &str, duration_seconds: f64) {
+        EXECUTION_DURATION.with_label_values(&[job_type, status]).observe(duration_seconds);
+    }
+
+    /// Record assumption processing duration
+    pub fn record_assumption_duration(assumption_type: &str, status: &str, duration_seconds: f64) {
+        ASSUMPTION_PROCESSING_DURATION
+            .with_label_values(&[assumption_type, status])
+            .observe(duration_seconds);
     }
 
     /// Initialize and register all metrics with the default registry
@@ -243,12 +247,5 @@ pub mod helpers {
         let _ = register(Box::new(POVW_RESOLVE_OPERATIONS.clone()));
         let _ = register(Box::new(TASK_DURATION.clone()));
         let _ = register(Box::new(TASK_OPERATIONS.clone()));
-        let _ = register(Box::new(PROVE_DURATION.clone()));
-        let _ = register(Box::new(JOIN_DURATION.clone()));
-        let _ = register(Box::new(JOIN_POVW_DURATION.clone()));
-        let _ = register(Box::new(LIFT_POVW_DURATION.clone()));
-        let _ = register(Box::new(KECCAK_DURATION.clone()));
-        let _ = register(Box::new(UNION_DURATION.clone()));
-        let _ = register(Box::new(RESOLVE_DURATION.clone()));
     }
 }

@@ -12,10 +12,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use risc0_zkvm::ProveKeccakRequest;
 use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{
-    KECCAK_RECEIPT_PATH, KeccakReq,
-    metrics::{KECCAK_DURATION, TASK_DURATION, TASK_OPERATIONS, helpers},
-};
+use workflow_common::{KECCAK_RECEIPT_PATH, KeccakReq, metrics::helpers};
 
 fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
     let chunks = input.chunks_exact(std::mem::size_of::<[u64; 25]>());
@@ -67,11 +64,11 @@ pub async fn keccak(
         .prove_keccak(&keccak_req)
     {
         Ok(receipt) => {
-            TASK_OPERATIONS.with_label_values(&["keccak", "prove_keccak", "success"]).inc();
+            helpers::record_task_operation("keccak", "prove_keccak", "success", 0.0);
             receipt
         }
         Err(e) => {
-            TASK_OPERATIONS.with_label_values(&["keccak", "prove_keccak", "error"]).inc();
+            helpers::record_task_operation("keccak", "prove_keccak", "error", 0.0);
             return Err(e.context("Failed to prove_keccak"));
         }
     };
@@ -106,9 +103,12 @@ pub async fn keccak(
         .map_err(|e| anyhow::anyhow!(e).context("Failed to delete keccak input path key"))?;
 
     // Record total task duration and success
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    KECCAK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task("keccak", "complete", "success", start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "keccak",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     Ok(())
 }

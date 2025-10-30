@@ -13,10 +13,7 @@ use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown};
 use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{
-    KECCAK_RECEIPT_PATH, ResolveReq,
-    metrics::{RESOLVE_DURATION, TASK_DURATION, TASK_OPERATIONS, helpers},
-};
+use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq, metrics::helpers};
 
 /// Run the resolve operation
 pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Result<Option<u64>> {
@@ -79,15 +76,21 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         .resolve(&conditional_receipt, &union_receipt)
                     {
                         Ok(receipt) => {
-                            TASK_OPERATIONS
-                                .with_label_values(&["resolve", "resolve_union", "success"])
-                                .inc();
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_union",
+                                "success",
+                                0.0,
+                            );
                             receipt
                         }
                         Err(e) => {
-                            TASK_OPERATIONS
-                                .with_label_values(&["resolve", "resolve_union", "error"])
-                                .inc();
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_union",
+                                "error",
+                                0.0,
+                            );
                             return Err(e.context("Failed to resolve the union receipt"));
                         }
                     };
@@ -119,15 +122,21 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         .resolve(&conditional_receipt, &assumption_receipt)
                     {
                         Ok(receipt) => {
-                            TASK_OPERATIONS
-                                .with_label_values(&["resolve", "resolve_assumption", "success"])
-                                .inc();
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_assumption",
+                                "success",
+                                0.0,
+                            );
                             receipt
                         }
                         Err(e) => {
-                            TASK_OPERATIONS
-                                .with_label_values(&["resolve", "resolve_assumption", "error"])
-                                .inc();
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_assumption",
+                                "error",
+                                0.0,
+                            );
                             return Err(e.context("Failed to resolve the conditional receipt"));
                         }
                     };
@@ -154,9 +163,12 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     .map_err(|e| anyhow::anyhow!("Failed to set root receipt key with expiry: {e}"))?;
 
     // Record total task duration and success
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    RESOLVE_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task("resolve", "complete", "success", start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "resolve",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     tracing::info!("Resolve operation completed successfully");
     Ok(assumptions_len)

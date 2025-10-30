@@ -12,10 +12,7 @@ use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
 use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{
-    JoinReq,
-    metrics::{TASK_DURATION, TASK_OPERATIONS, helpers},
-};
+use workflow_common::{JoinReq, metrics::helpers};
 
 /// Run a POVW join request
 pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()> {
@@ -68,7 +65,7 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
                 receipt
             }
             Err(e) => {
-                TASK_OPERATIONS.with_label_values(&["join_povw", "join_povw", "error"]).inc();
+                helpers::record_task_operation("join_povw", "join_povw", "error", 0.0);
                 return Err(e.context(
                         "POVW join method not available - POVW functionality requires RISC Zero POVW support",
                     ));
@@ -110,6 +107,11 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
     cleanup_result.map_err(|e| anyhow::anyhow!("Failed to delete POVW join receipt keys: {e}"))?;
 
     // Record total task duration and success
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "join_povw",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
     Ok(())
 }

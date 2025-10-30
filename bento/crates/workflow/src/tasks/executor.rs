@@ -27,9 +27,8 @@ use workflow_common::{
     AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
     JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
     metrics::{
-        ASSUMPTION_COUNT, ASSUMPTION_PROCESSING_DURATION, EXECUTION_DURATION, EXECUTION_ERRORS,
-        GUEST_FAULTS, S3_OPERATION_DURATION, S3_OPERATIONS, SEGMENT_COUNT,
-        TASK_PROCESSING_DURATION, TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES,
+        ASSUMPTION_COUNT, EXECUTION_ERRORS, GUEST_FAULTS, S3_OPERATIONS, SEGMENT_COUNT,
+        TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES, helpers,
     },
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
@@ -251,7 +250,12 @@ async fn process_task(
     };
 
     // Record task processing duration
-    TASK_PROCESSING_DURATION.observe(task_start.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "executor",
+        "task_execution",
+        "success",
+        task_start.elapsed().as_secs_f64(),
+    );
 
     Ok(())
 }
@@ -302,12 +306,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let elf_data = match agent.s3_client.read_buf_from_s3(&elf_key).await {
         Ok(data) => {
             S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
-            S3_OPERATION_DURATION.observe(s3_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation("write", "success", s3_start.elapsed().as_secs_f64());
             data
         }
         Err(e) => {
             S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
-            S3_OPERATION_DURATION.observe(s3_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation("write", "success", s3_start.elapsed().as_secs_f64());
             return Err(e);
         }
     };
@@ -330,12 +334,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let input_data = match agent.s3_client.read_buf_from_s3(&input_key).await {
         Ok(data) => {
             S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
-            S3_OPERATION_DURATION.observe(input_s3_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation("read", "success", input_s3_start.elapsed().as_secs_f64());
             data
         }
         Err(e) => {
             S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
-            S3_OPERATION_DURATION.observe(input_s3_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation("read", "success", input_s3_start.elapsed().as_secs_f64());
             return Err(e);
         }
     };
@@ -364,13 +368,19 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         let receipt_s3_start = Instant::now();
         let receipt_bytes = match agent.s3_client.read_buf_from_s3(&receipt_key).await {
             Ok(bytes) => {
-                S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
-                S3_OPERATION_DURATION.observe(receipt_s3_start.elapsed().as_secs_f64());
+                helpers::record_s3_operation(
+                    "read",
+                    "success",
+                    receipt_s3_start.elapsed().as_secs_f64(),
+                );
                 bytes
             }
             Err(e) => {
-                S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
-                S3_OPERATION_DURATION.observe(receipt_s3_start.elapsed().as_secs_f64());
+                helpers::record_s3_operation(
+                    "read",
+                    "error",
+                    receipt_s3_start.elapsed().as_secs_f64(),
+                );
                 return Err(e.context("Failed to download receipt from obj store"));
             }
         };
@@ -424,7 +434,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         .map_err(|e| anyhow::anyhow!(e).context("Failed to set assumption receipt key"))?;
 
         // Record assumption processing duration
-        ASSUMPTION_PROCESSING_DURATION.observe(assumption_start.elapsed().as_secs_f64());
+        helpers::record_assumption_duration(
+            "assumption_processing",
+            "success",
+            assumption_start.elapsed().as_secs_f64(),
+        );
     }
 
     // Set the exec limit in 1 million cycle increments
@@ -734,12 +748,18 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         .await
     {
         Ok(()) => {
-            S3_OPERATIONS.with_label_values(&["write", "success"]).inc();
-            S3_OPERATION_DURATION.observe(log_upload_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation(
+                "write",
+                "success",
+                log_upload_start.elapsed().as_secs_f64(),
+            );
         }
         Err(e) => {
-            S3_OPERATIONS.with_label_values(&["write", "error"]).inc();
-            S3_OPERATION_DURATION.observe(log_upload_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation(
+                "write",
+                "error",
+                log_upload_start.elapsed().as_secs_f64(),
+            );
             return Err(e.context("Failed to upload guest logs to object store"));
         }
     }
@@ -758,12 +778,18 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 .await
             {
                 Ok(()) => {
-                    S3_OPERATIONS.with_label_values(&["write", "success"]).inc();
-                    S3_OPERATION_DURATION.observe(journal_s3_start.elapsed().as_secs_f64());
+                    helpers::record_s3_operation(
+                        "write",
+                        "success",
+                        journal_s3_start.elapsed().as_secs_f64(),
+                    );
                 }
                 Err(e) => {
-                    S3_OPERATIONS.with_label_values(&["write", "error"]).inc();
-                    S3_OPERATION_DURATION.observe(journal_s3_start.elapsed().as_secs_f64());
+                    helpers::record_s3_operation(
+                        "write",
+                        "error",
+                        journal_s3_start.elapsed().as_secs_f64(),
+                    );
                     return Err(e.context("Failed to write journal to obj store"));
                 }
             }
@@ -807,7 +833,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     tracing::debug!("Done with all IO tasks");
 
     // Record total execution duration
-    EXECUTION_DURATION.observe(start_time.elapsed().as_secs_f64());
+    helpers::record_execution_duration(
+        "job_execution",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     let resp = ExecutorResp {
         segments: session.segment_count as u64,

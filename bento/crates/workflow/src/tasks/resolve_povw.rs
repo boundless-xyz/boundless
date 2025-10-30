@@ -14,9 +14,7 @@ use risc0_zkvm::{GenericReceipt, ReceiptClaim, SuccinctReceipt, Unknown, WorkCla
 use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{
-    KECCAK_RECEIPT_PATH, ResolveReq,
-    metrics::{POVW_RESOLVE_DURATION, RESOLVE_DURATION, TASK_DURATION, helpers},
-    s3::WORK_RECEIPTS_BUCKET_DIR,
+    KECCAK_RECEIPT_PATH, ResolveReq, metrics::helpers, s3::WORK_RECEIPTS_BUCKET_DIR,
 };
 
 /// Run the POVW resolve operation
@@ -233,10 +231,12 @@ pub async fn resolve_povw(
 
     tracing::info!("POVW resolve operation completed successfully");
     // Record total operation duration
-    POVW_RESOLVE_DURATION.observe(start_time.elapsed().as_secs_f64());
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    RESOLVE_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task("resolve_povw", "complete", "success", start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "resolve_povw",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     Ok(assumptions_len)
 }

@@ -12,10 +12,7 @@ use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
 use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{
-    ProveReq,
-    metrics::{LIFT_POVW_DURATION, PROVE_DURATION, TASK_DURATION, helpers},
-};
+use workflow_common::{ProveReq, metrics::helpers};
 
 /// Run a prove request
 pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<()> {
@@ -51,7 +48,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         Err(e) => return Err(e),
     };
     let prove_elapsed_time = prove_start.elapsed().as_secs_f64();
-    PROVE_DURATION.observe(prove_elapsed_time);
+    helpers::record_task_operation("prove", "prove_segment", "success", prove_elapsed_time);
 
     segment_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
@@ -78,12 +75,10 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         };
         let lift_povw_elapsed_time = lift_povw_start.elapsed().as_secs_f64();
 
-        LIFT_POVW_DURATION.observe(lift_povw_elapsed_time);
-
         lift_receipt
             .verify_integrity_with_context(&agent.verifier_ctx)
             .context("Failed to verify lift receipt integrity")?;
-        helpers::record_task("prove", "lift_povw", "success", lift_povw_elapsed_time);
+        helpers::record_task_operation("prove", "lift_povw", "success", lift_povw_elapsed_time);
 
         tracing::debug!("lifting complete {job_id} - {index}");
 
@@ -129,8 +124,12 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
     cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete segment key"))?;
 
     // Record total task duration and success
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
-    helpers::record_task("prove", "complete", "success", start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "prove",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     Ok(())
 }

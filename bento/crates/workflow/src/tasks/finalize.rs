@@ -9,10 +9,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use std::time::Instant;
-use workflow_common::{
-    FinalizeReq,
-    metrics::{TASK_DURATION, helpers},
-};
+use workflow_common::{FinalizeReq, metrics::helpers};
 // use aws_sdk_s3::primitives::ByteStream;
 use risc0_zkvm::{InnerReceipt, Receipt, ReceiptClaim, SuccinctReceipt};
 use uuid::Uuid;
@@ -88,7 +85,12 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
     }
 
     // Record total task duration and success
-    TASK_DURATION.observe(start_time.elapsed().as_secs_f64());
+    helpers::record_task_operation(
+        "finalize",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     Ok(())
 }
