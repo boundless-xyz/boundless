@@ -431,7 +431,8 @@ impl ProverGenerateConfig {
         display.note("  • 200 ZKC: Recommended for standard + large lists (large orders,higher rewards, higher risk)");
         display.note("  • 500 ZKC: Recommended for standard + large + XL lists (largest orders,highest rewards, highest risk)");
         display.note("");
-        display.note("Higher collateral enables higher-reward orders but increases slashing risks.");
+        display
+            .note("Higher collateral enables higher-reward orders but increases slashing risks.");
 
         let max_collateral = Text::new("Max collateral (ZKC):")
             .with_default(recommended_collateral)
@@ -465,7 +466,9 @@ impl ProverGenerateConfig {
 
         if chain_id != 8453 {
             display.note(&format!("⚠  Detected Chain ID: {}", chain_id));
-            display.note("    Market pricing analyis requires a Base Mainnet RPC URL (Chain ID: 8453)");
+            display.note(
+                "    Market pricing analyis requires a Base Mainnet RPC URL (Chain ID: 8453)",
+            );
             let continue_anyway = Confirm::new("Continue with this RPC anyway?")
                 .with_default(false)
                 .prompt()
@@ -869,10 +872,7 @@ impl ProverGenerateConfig {
 
         let choice = Select::new(
             "How would you like to set the peak performance?",
-            vec![
-                selection_strings::BENCHMARK_RUN_SUITE,
-                selection_strings::BENCHMARK_MANUAL_ENTRY,
-            ],
+            vec![selection_strings::BENCHMARK_RUN_SUITE, selection_strings::BENCHMARK_MANUAL_ENTRY],
         )
         .prompt()
         .context("Failed to get benchmark choice")?;
@@ -1317,7 +1317,10 @@ impl ProverGenerateConfig {
                 // File has already been modified with multiple GPUs
                 display.note("");
                 display.note("ℹ  The compose.yml GPU agents section has already been modified.");
-                display.note(&format!("   Found {} GPU agents in the existing file.", existing_gpu_count));
+                display.note(&format!(
+                    "   Found {} GPU agents in the existing file.",
+                    existing_gpu_count
+                ));
                 display.note("");
                 display.note("   To change GPU configuration:");
                 display.note("   1. Manually edit compose.yml");
@@ -1531,7 +1534,8 @@ impl ProverGenerateConfig {
             display.item_colored("   REWARD_ADDRESS", "✓ Already set", "green");
         } else {
             display.warning("   REWARD_ADDRESS env variable is not set.");
-            display.note("   This is required in order to receive ZKC mining rewards for your work.");
+            display
+                .note("   This is required in order to receive ZKC mining rewards for your work.");
             display.note("   (This does not effect the ETH market fees you receive from fulfilling proving requests.)");
             display.note("   Learn more: https://docs.boundless.network/zkc/mining/overview");
             display.note("");
