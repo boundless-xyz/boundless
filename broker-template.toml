@@ -1,4 +1,4 @@
-### [Disclaimer] #####
+### [Disclaimer] ###
 # IMPORTANT: Running the broker with these settings will likely result in your
 # broker not being able to lock or fulfill orders, and may even result in your
 # broker being slashed.
