@@ -21,14 +21,14 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Create public Application Load Balancer
         this.alb = new aws.lb.LoadBalancer("boundless-alb", {
-            name: `${this.config.stackName}-boundless-alb`,
+            name: `${this.config.stackName}-prover`,
             internal: false, // Public ALB
             loadBalancerType: "application",
             subnets: config.publicSubnetIds, // Use public subnets
             enableDeletionProtection: false,
             securityGroups: [config.securityGroupId],
             tags: {
-                Name: `${this.config.stackName}-boundless-alb`,
+                Name: `${this.config.stackName}-prover`,
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
@@ -36,7 +36,7 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Create target group for the manager instance
         this.targetGroup = new aws.lb.TargetGroup("boundless-tg", {
-            name: `${this.config.stackName}-boundless-tg`,
+            name: `${this.config.stackName}-prover`,
             port: 8081,
             protocol: "HTTP",
             vpcId: config.vpcId,
@@ -52,7 +52,7 @@ export class ApiGatewayComponent extends BaseComponent {
                 unhealthyThreshold: 2,
             },
             tags: {
-                Name: `${this.config.stackName}-boundless-tg`,
+                Name: `${this.config.stackName}-prover`,
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
@@ -78,7 +78,7 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Create WAF Web ACL with API key enforcement
         this.wafWebAcl = new aws.wafv2.WebAcl("boundless-waf", {
-            name: `${this.config.stackName}-boundless-waf`,
+            name: `${this.config.stackName}-prover`,
             description: "WAF for Boundless Bento API with API key enforcement",
             scope: "REGIONAL",
             defaultAction: {
