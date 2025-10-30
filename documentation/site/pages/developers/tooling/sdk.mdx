@@ -44,8 +44,10 @@ let client = Client::builder()
 
 <StripRustCodeComments>
 ```rust
+# use std::time::SystemTime;
 # use boundless_market::{Client, storage::storage_provider_from_env};
 # use alloy::signers::local::LocalSigner;
+# use std::borrow::Cow;
 # use url::Url;
 # async fn upload_program_and_input(rpc_url: Url) -> anyhow::Result<()> {
 # let client = Client::builder()
@@ -54,8 +56,9 @@ let client = Client::builder()
 #    .with_storage_provider(Some(storage_provider_from_env()?))
 #    .build()
 #    .await?;
-let program_url = client.upload_program(&std::fs::read("guest.bin")?).await?;
-let input_url = client.upload_input(&[0x41, 0x42, 0x43]).await?;
+let input = format!("{:?}", SystemTime::now());
+let program: Cow<'static, [u8]> = std::fs::read("guest.bin")?.into();
+let request = client.new_request().with_program(program).with_stdin(input.as_bytes());
 # Ok(())
 # }
 ```

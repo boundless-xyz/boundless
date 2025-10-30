@@ -287,12 +287,12 @@ Program inputs are uploaded to the same storage provider. This can be done manua
 <StripRustCodeComments>
 ```rust
 # use boundless_market::{Client, storage::storage_provider_from_env};
-# async fn upload_input(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+# async fn upload_input_bytes(input_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
 # let client = Client::builder()
 #   .with_storage_provider(Some(storage_provider_from_env()?))
 #   .build()
 #   .await?;
-let input_url = client.upload_input(&input_bytes).await?;
+let input_url = client.upload_input_bytes(&input_bytes).await?;
 # Ok(())
 # }
 ```

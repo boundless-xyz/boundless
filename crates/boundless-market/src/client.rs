@@ -50,6 +50,7 @@ use crate::{
         StorageProviderConfig,
     },
     util::NotProvided,
+    GuestEnv,
 };
 
 /// Builder for the [Client] with standard implementations for the required components.
@@ -631,8 +632,73 @@ where
             .context("Failed to upload program")?)
     }
 
-    /// Upload input to the storage provider.
-    pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError>
+    /// Upload program input to the storage provider.
+    ///
+    /// Boundless uses a structured input format for guest programs, defined by the [GuestEnv] struct.
+    ///
+    /// ```rust
+    /// # use boundless_market::client::Client;
+    /// # use boundless_market::GuestEnv;
+    /// # |client: Client| {
+    /// let input_bytes = b"Hello, world!";
+    /// let guest_env = GuestEnv::from_stdin(input_bytes);
+    /// client.upload_input(&guest_env);
+    /// # };
+    /// ```
+    pub async fn upload_input(&self, guest_env: &GuestEnv) -> Result<Url, ClientError>
+    where
+        St: StorageProvider,
+    {
+        let input = guest_env.encode().context("Failed to encode guest env")?;
+        Ok(self
+            .storage_provider
+            .as_ref()
+            .context("Storage provider not set")?
+            .upload_input(&input)
+            .await
+            .map_err(|_| anyhow!("Failed to upload input"))?)
+    }
+
+    /// Upload program input, with stdin set to the provided bytes array, to the storage provider.
+    ///
+    /// Boundless uses a structured input format for guest programs, defined by the [GuestEnv] struct.
+    ///
+    /// This method is a convenience method that creates a [GuestEnv] struct, where the provided bytes
+    /// are set as the stdin, and uploads it to the storage provider.
+    ///
+    /// ```rust
+    /// # use boundless_market::client::Client;
+    /// # use boundless_market::GuestEnv;
+    /// # |client: Client, stdin_bytes: &[u8]| {
+    /// client.upload_input_stdin(stdin_bytes);
+    /// # };
+    /// ```
+    pub async fn upload_input_stdin(&self, stdin_bytes: &[u8]) -> Result<Url, ClientError>
+    where
+        St: StorageProvider,
+    {
+        let guest_env = GuestEnv::from_stdin(stdin_bytes);
+        self.upload_input(&guest_env).await
+    }
+
+    /// Upload program input as the provided bytes array, to the storage provider.
+    ///
+    /// The bytes array _must_ be encoded using the scheme defined in [GuestEnv] in
+    /// order for the input to be used on Boundless.
+    ///
+    /// Note: Typically, you will want to use [`Self::upload_input`] or [`Self::upload_input_stdin`], which
+    /// handle encoding inputs into the structured format that is expected by Boundless provers.
+    ///
+    /// Note:
+    ///
+    /// ```rust
+    /// # use boundless_market::client::Client;
+    /// # use boundless_market::GuestEnv;
+    /// # |client: Client, input_bytes: &[u8]| {
+    /// client.upload_input_bytes(input_bytes);
+    /// # };
+    /// ```
+    pub async fn upload_input_bytes(&self, input_bytes: &[u8]) -> Result<Url, ClientError>
     where
         St: StorageProvider,
         <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
@@ -641,12 +707,12 @@ where
             .storage_provider
             .as_ref()
             .context("Storage provider not set")?
-            .upload_input(input)
+            .upload_input(input_bytes)
             .await
             .context("Failed to upload input")?)
     }
 
-    /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
+    /// Create a new request builder.
     pub fn new_request<Params>(&self) -> Params
     where
         R: RequestBuilder<Params>,
