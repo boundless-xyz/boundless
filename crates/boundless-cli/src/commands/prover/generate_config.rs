@@ -108,6 +108,7 @@ struct WizardConfig {
     max_concurrent_preflights: usize,
     max_concurrent_proofs: usize,
     peak_prove_khz: f64,
+    segment_size: u32,
     priority_requestor_lists: Vec<String>,
     max_collateral: String,
     min_mcycle_price: String,
@@ -227,6 +228,49 @@ impl ProverGenerateConfig {
                     .context("Failed to get GPU count")?;
                 input.parse::<usize>().context("Invalid number format")?
             }
+        };
+
+        // Detect GPU memory and segment size
+        let segment_size = if num_gpus > 0 {
+            match detect_gpu_memory() {
+                Ok(memory_mib) => {
+                    let memory_gb = (memory_mib as f64) / 1024.0;
+                    display.item_colored(
+                        "Min GPU memory",
+                        format!("{:.1} GB ({} MiB)", memory_gb, memory_mib),
+                        "cyan",
+                    );
+
+                    let recommended_segment_size = gpu_memory_to_segment_size(memory_mib);
+                    let memory_range = if memory_mib <= 8_192 {
+                        "≤8"
+                    } else if memory_mib <= 16_384 {
+                        "≤16"
+                    } else if memory_mib <= 20_480 {
+                        "≤20"
+                    } else {
+                        ">20"
+                    };
+                    display.item_colored(
+                        "Segment size (po2)",
+                        format!("{} (for {}GB VRAM)", recommended_segment_size, memory_range),
+                        "cyan",
+                    );
+                    display.note(
+                        "See: https://docs.boundless.network/provers/performance-optimization",
+                    );
+
+                    recommended_segment_size
+                }
+                Err(e) => {
+                    display.note(&format!("⚠  Could not detect GPU memory: {}", e));
+                    display.note("   Using default segment size (21)");
+                    21
+                }
+            }
+        } else {
+            display.note("⚠  No GPUs detected, using default segment size (21)");
+            21
         };
 
         // Step 3: Calculated Configuration
@@ -603,6 +647,7 @@ impl ProverGenerateConfig {
             max_concurrent_preflights,
             max_concurrent_proofs,
             peak_prove_khz,
+            segment_size,
             priority_requestor_lists,
             max_collateral,
             min_mcycle_price,
@@ -1310,6 +1355,9 @@ impl ProverGenerateConfig {
         // Update exec_agent replicas
         content = self.update_exec_agent_replicas(content, config.max_exec_agents)?;
 
+        // Update segment size
+        content = self.update_segment_size(content, config.segment_size)?;
+
         // Handle GPU agents
         if matches!(strategy, FileHandlingStrategy::ModifyExisting) {
             let existing_gpu_count = self.count_existing_gpu_agents(&content);
@@ -1385,6 +1433,13 @@ impl ProverGenerateConfig {
         }
 
         Ok(result.join("\n"))
+    }
+
+    fn update_segment_size(&self, content: String, segment_size: u32) -> Result<String> {
+        // Replace ${SEGMENT_SIZE:-21} with ${SEGMENT_SIZE:-<detected>}
+        let pattern = "${SEGMENT_SIZE:-21}";
+        let replacement = format!("${{SEGMENT_SIZE:-{}}}", segment_size);
+        Ok(content.replace(pattern, &replacement))
     }
 
     fn add_gpu_agents(&self, content: String, num_gpus: usize) -> Result<String> {
@@ -1583,6 +1638,40 @@ fn detect_gpus() -> Result<usize> {
             Ok(count)
         }
         _ => bail!("Could not detect GPUs automatically using `nvidia-smi --list-gpus`"),
+    }
+}
+
+// GPU memory detection
+fn detect_gpu_memory() -> Result<u32> {
+    let output = std::process::Command::new("nvidia-smi")
+        .arg("--query-gpu=memory.total")
+        .arg("--format=csv,noheader,nounits")
+        .output()
+        .context("Failed to execute nvidia-smi")?;
+
+    if !output.status.success() {
+        bail!("nvidia-smi memory query failed");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let min_memory = stdout
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .min()
+        .context("No GPU memory values found")?;
+
+    Ok(min_memory)
+}
+
+// Map GPU memory to segment size
+// Based on https://docs.boundless.network/provers/performance-optimization
+// Convert MiB to GB for comparison: 1 GB = 1024 MiB
+fn gpu_memory_to_segment_size(memory_mib: u32) -> u32 {
+    match memory_mib {
+        0..=8_192 => 19,       // <= 8GB
+        8_193..=16_384 => 20,  // <= 16GB
+        16_385..=20_480 => 21, // <= 20GB
+        _ => 22,               // > 20GB (including 40GB+)
     }
 }
 
