@@ -319,7 +319,8 @@ impl ProverGenerateConfig {
         display.separator();
         display.step(4, 7, "Performance Benchmarking");
 
-        let peak_prove_khz = self.get_peak_performance(display, global_config).await?.floor();
+        let peak_prove_khz =
+            self.get_peak_performance(display, global_config, segment_size).await?.floor();
         display.item_colored(
             "Setting `peak_prove_khz` to",
             format!("{:.0} kHz", peak_prove_khz),
@@ -905,6 +906,7 @@ impl ProverGenerateConfig {
         &self,
         display: &DisplayManager,
         global_config: &GlobalConfig,
+        segment_size: u32,
     ) -> Result<f64> {
         display.note("Configuration requires an estimate of the peak performance of your proving");
         display.note("cluster.");
@@ -942,6 +944,58 @@ impl ProverGenerateConfig {
                         .context("Failed to get confirmation")?;
 
                     if use_detected {
+                        // Warn about segment size configuration
+                        display.separator();
+                        display.warning("⚠  Important: Bento Segment Size Configuration");
+                        display.note("");
+                        display.note(&format!(
+                            "For accurate benchmark results, Bento must use segment size: {}",
+                            segment_size
+                        ));
+                        display.note("");
+                        display.note("To configure Bento with the correct segment size:");
+                        display.note("  Option 1: Set environment variable before starting Bento:");
+                        display.note(&format!("            export SEGMENT_SIZE={}", segment_size));
+                        display.note("            just bento up");
+                        display.note("");
+                        display.note(&format!(
+                            "  Option 2: Restart Bento after wizard generates compose.yml (segment size {})",
+                            segment_size
+                        ));
+                        display.note("            just bento down && just bento up");
+                        display.note("");
+
+                        let bento_configured = Confirm::new(
+                            "Have you configured Bento with the correct segment size?",
+                        )
+                        .with_default(false)
+                        .with_help_message(
+                            "Benchmark results will be inaccurate if segment size doesn't match",
+                        )
+                        .prompt()
+                        .context("Failed to get confirmation")?;
+
+                        if !bento_configured {
+                            display.note(
+                                "⚠  Proceeding with benchmark anyway. Results may not reflect optimal performance.",
+                            );
+                            let continue_anyway = Confirm::new("Continue with benchmark?")
+                                .with_default(false)
+                                .prompt()
+                                .context("Failed to get confirmation")?;
+                            if !continue_anyway {
+                                // Fall back to manual entry
+                                display.note("Falling back to manual performance entry...");
+                                let khz_str = Text::new("Peak performance (kHz):")
+                                    .with_default("100")
+                                    .with_help_message("You can update this later in broker.toml")
+                                    .prompt()
+                                    .context("Failed to get peak performance")?;
+                                return khz_str.parse::<f64>().context("Invalid performance value");
+                            }
+                        }
+
+                        display.separator();
                         display.status("Status", "Running benchmark", "yellow");
                         display.note("This may take several minutes...");
 
