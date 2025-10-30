@@ -27,8 +27,11 @@ bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
+colored = "2.1"
+dirs = "5.0"
 futures = { version = "0.3" }
 hex = { workspace = true }
+inquire = "0.7"
 libc = "0.2.159"
 num_enum = "0.7.4"
 reqwest = { workspace = true }
@@ -43,6 +46,7 @@ shadow-rs = { version = "1.1", default-features = false }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tabled = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+toml = "0.8"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
@@ -54,6 +58,7 @@ name = "boundless"
 name = "boundless-ffi"
 
 [dev-dependencies]
+alloy-node-bindings = { workspace = true }
 assert_cmd = "2.0"
 assert_fs = "1.1"
 boundless-market = { workspace = true }
@@ -63,6 +68,7 @@ predicates = "3.1"
 rand = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }
+tokio-test = "0.4"
 tracing-test = { workspace = true }
 
 [features]

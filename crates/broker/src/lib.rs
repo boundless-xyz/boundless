@@ -29,6 +29,7 @@ use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::OrderStreamClient,
+    override_gateway,
     selector::is_groth16_selector,
     Deployment,
 };
@@ -85,8 +86,10 @@ pub struct Args {
     pub rpc_url: Url,
 
     /// wallet key
-    #[clap(long, env)]
-    pub private_key: PrivateKeySigner,
+    ///
+    /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
+    #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
+    pub private_key: Option<PrivateKeySigner>,
 
     /// Boundless deployment configuration (contract addresses, etc.)
     #[clap(flatten, next_help_heading = "Boundless Deployment")]
@@ -540,10 +543,12 @@ where
             ));
         }
 
-        if let (Some(chain_id), Some(expected_chain_id)) = (manual.chain_id, expected.chain_id) {
+        if let (Some(chain_id), Some(expected_chain_id)) =
+            (manual.market_chain_id, expected.market_chain_id)
+        {
             if chain_id != expected_chain_id {
                 warnings.push(format!(
-                    "chain_id mismatch: configured={chain_id}, expected={expected_chain_id}"
+                    "market_chain_id mismatch: configured={chain_id}, expected={expected_chain_id}"
                 ));
             }
         }
@@ -657,7 +662,15 @@ where
                             image_id,
                             computed_id
                         );
-                        self.download_image(&contract_url, "contract").await?
+                        let program = match self.download_image(&contract_url, "contract").await {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                let overridden_url = override_gateway(&contract_url);
+                                tracing::debug!("Retrying with overridden URL: {overridden_url}");
+                                self.download_image(&overridden_url, "gateway fallback").await?
+                            }
+                        };
+                        program
                     }
                 }
                 Err(e) => {
@@ -666,7 +679,15 @@ where
                         image_label,
                         e
                     );
-                    self.download_image(&contract_url, "contract").await?
+                    let program = match self.download_image(&contract_url, "contract").await {
+                        Ok(bytes) => bytes,
+                        Err(_) => {
+                            let overridden_url = override_gateway(&contract_url);
+                            tracing::debug!("Retrying with overridden URL: {overridden_url}");
+                            self.download_image(&overridden_url, "gateway fallback").await?
+                        }
+                    };
+                    program
                 }
             }
         };
@@ -800,7 +821,7 @@ where
             self.provider.clone(),
             self.db.clone(),
             chain_monitor.clone(),
-            self.args.private_key.address(),
+            self.args.private_key.as_ref().expect("Private key must be set").address(),
             client.clone(),
             new_order_tx.clone(),
             order_state_tx.clone(),
@@ -826,7 +847,7 @@ where
             let offchain_market_monitor =
                 Arc::new(offchain_market_monitor::OffchainMarketMonitor::new(
                     client_clone,
-                    self.args.private_key.clone(),
+                    self.args.private_key.clone().expect("Private key must be set"),
                     new_order_tx.clone(),
                 ));
             let cloned_config = config.clone();
@@ -921,7 +942,8 @@ where
             Ok(())
         });
 
-        let prover_addr = self.args.private_key.address();
+        let prover_addr =
+            self.args.private_key.as_ref().expect("Private key must be set").address();
 
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
@@ -1210,7 +1232,7 @@ pub mod test_utils {
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
                 rpc_url,
-                private_key: ctx.prover_signer.clone(),
+                private_key: Some(ctx.prover_signer.clone()),
                 bento_api_url: None,
                 bonsai_api_key: None,
                 bonsai_api_url: None,
