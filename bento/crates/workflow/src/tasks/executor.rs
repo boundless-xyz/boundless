@@ -8,7 +8,7 @@ use crate::{
     redis::{self},
     tasks::{COPROC_CB_PATH, RECEIPT_PATH, SEGMENTS_PATH, read_image_id, serialize_obj},
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{anyhow, Context, Result, bail};
 use risc0_binfmt::PovwLogId;
 use risc0_zkvm::{
     CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
@@ -408,7 +408,8 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let index = segment.index;
             tracing::debug!("Starting write of index: {index}");
             let segment_key = format!("{segments_prefix_clone}:{index}");
-            let segment_vec = serialize_obj(&segment).expect("Failed to serialize the segment");
+            let segment_vec = serialize_obj(&segment)
+                .map_err(|e| anyhow!("[BENTO-EXEC-048] Failed to serialize the segment").context(e))?;
             redis::set_key_with_expiry(
                 &mut writer_conn,
                 &segment_key,
@@ -416,17 +417,18 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 Some(redis_ttl),
             )
             .await
-            .expect("Failed to set key with expiry");
+            .map_err(|e| anyhow!("[BENTO-EXEC-049] Failed to set key with expiry").context(e))?;
             tracing::debug!("Completed write of {index}");
 
             task_tx
                 .send(SenderType::Segment(index))
                 .await
-                .expect("failed to push task into task_tx");
+                .map_err(|e| anyhow!("[BENTO-EXEC-050] failed to push task into task_tx").context(e))?;
         }
         // Once the segments wraps up, close the task channel to signal completion to the follow up
         // task
         drop(task_tx);
+        Ok(())
     });
 
     let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
@@ -492,7 +494,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 SenderType::Segment(segment_index) => {
                     planner.enqueue_segment().expect("Failed to enqueue segment");
                     while let Some(tree_task) = planner.next_task() {
-                        process_task(
+                        if let Err(e) = process_task(
                             &args_copy,
                             &pool_copy,
                             &prove_stream,
@@ -507,9 +509,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             None,
                         )
                         .await
-                        .context(
-                            "[BENTO-EXEC-030] Failed to process task and insert into taskdb",
-                        )?;
+                        {
+                            tracing::error!(
+                                "[BENTO-EXEC-030] Failed to process task and insert into taskdb: {e:?}"
+                            );
+                            return Err(e);
+                        }
                     }
                 }
                 SenderType::Keccak(mut keccak_req) => {
@@ -522,13 +527,17 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                         Some(redis_ttl),
                     )
                     .await
-                    .context("[BENTO-EXEC-031] Failed to set key with expiry")?;
+                    .map_err(|e| {
+                        tracing::error!("[BENTO-EXEC-031] Failed to set key with expiry: {e:?}");
+                        anyhow::anyhow!("[BENTO-EXEC-031] Failed to set key with expiry").context(e)
+                    })?;
                     keccak_req.input.clear();
                     tracing::debug!("Wrote keccak input to redis");
 
-                    planner
-                        .enqueue_keccak()
-                        .context("[BENTO-EXEC-032] Failed to enqueue keccak")?;
+                    planner.enqueue_keccak().map_err(|e| {
+                        tracing::error!("[BENTO-EXEC-032] Failed to enqueue keccak: {e:?}");
+                        anyhow::anyhow!("[BENTO-EXEC-032] Failed to enqueue keccak").context(e)
+                    })?;
                     while let Some(tree_task) = planner.next_task() {
                         let req = KeccakReq {
                             claim_digest: keccak_req.claim_digest,
@@ -536,7 +545,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             po2: keccak_req.po2,
                         };
 
-                        process_task(
+                        if let Err(e) = process_task(
                             &args_copy,
                             &pool_copy,
                             &coproc_stream,
@@ -551,9 +560,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             Some(req),
                         )
                         .await
-                        .context(
-                            "[BENTO-EXEC-033] Failed to process task and insert into taskdb",
-                        )?;
+                        {
+                            tracing::error!(
+                                "[BENTO-EXEC-033] Failed to process task and insert into taskdb: {e:?}"
+                            );
+                            return Err(e);
+                        }
                     }
                 }
                 SenderType::Fault => {
@@ -566,7 +578,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         if !exec_only && !guest_fault {
             planner.finish().expect("Planner failed to finish()");
             while let Some(tree_task) = planner.next_task() {
-                process_task(
+                if let Err(e) = process_task(
                     &args_copy,
                     &pool_copy,
                     &prove_stream,
@@ -581,12 +593,18 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     None,
                 )
                 .await
-                .context("[BENTO-EXEC-034] Failed to process task and insert into taskdb")?;
+                {
+                    tracing::error!(
+                        "[BENTO-EXEC-034] Failed to process task and insert into taskdb: {e:?}"
+                    );
+                    return Err(e);
+                }
             }
         }
+        Ok(())
     });
 
-    tracing::info!("[BENTO-EXEC-035] Starting execution of job: {}", job_id);
+    tracing::info!("Starting execution of job: {}", job_id);
 
     // let file_stderr = NamedTempFile::new()?;
     let log_file = Arc::new(NamedTempFile::new()?);
@@ -710,15 +728,19 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // First join all tasks and collect results
     while let Some(res) = writer_tasks.join_next().await {
         match res {
-            Ok(()) => {
+            Ok(Ok(())) => {
                 if guest_fault {
                     bail!("[BENTO-EXEC-045] Ran into fault");
                 }
                 continue;
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 tracing::error!("[BENTO-EXEC-046] queue monitor sub task failed: {err:?}");
                 bail!(err);
+            }
+            Err(join_err) => {
+                tracing::error!("[BENTO-EXEC-046] task join error: {join_err:?}");
+                bail!(join_err);
             }
         }
     }

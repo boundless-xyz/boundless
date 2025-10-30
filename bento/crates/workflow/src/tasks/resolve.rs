@@ -126,6 +126,6 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     .await
     .context("[BENTO-RESOLVE-012] Failed to set root receipt key with expiry")?;
 
-    tracing::info!("[BENTO-RESOLVE-013] Resolve operation completed successfully");
+    tracing::info!("Resolve operation completed successfully");
     Ok(assumptions_len)
 }

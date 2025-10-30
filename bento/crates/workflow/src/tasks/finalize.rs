@@ -5,7 +5,7 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
+    redis::AsyncCommands,
     tasks::{RECUR_RECEIPT_PATH, deserialize_obj, read_image_id},
 };
 use anyhow::{Context, Result, bail};
