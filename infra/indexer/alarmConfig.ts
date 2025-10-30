@@ -597,19 +597,6 @@ export const alarmConfig: ChainStageAlarms = {
               datapointsToAlarm: 1,
               comparisonOperator: "GreaterThanOrEqualToThreshold",
             }
-          },
-          {
-            description: "greater than or equal to 3 expired orders in 60 minutes from signal_requestor",
-            severity: Severity.SEV1,
-            metricConfig: {
-              period: 3600,
-            },
-            alarmConfig: {
-              threshold: 3,
-              evaluationPeriods: 1,
-              datapointsToAlarm: 1,
-              comparisonOperator: "GreaterThanOrEqualToThreshold",
-            }
           }],
         },
         {

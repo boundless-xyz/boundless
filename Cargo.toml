@@ -46,6 +46,7 @@ requestor-lists = { path = "crates/requestor-lists" }
 
 async-stream = "0.3"
 alloy = { version = "1.0", default-features = false }
+alloy-node-bindings = { version = "1.0" }
 alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0", features = ["json"] }
 alloy-chains = "0.2.0"
