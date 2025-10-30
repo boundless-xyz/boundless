@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{initialize_fulfiller_from_config, OrderFulfilled};
+use crate::{OrderFulfilled, OrderFulfiller};
 use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::boundless_market::{FulfillmentTx, UnlockedRequest};
@@ -79,7 +79,7 @@ impl ProverFulfill {
         display.status("Status", "Initializing prover and fetching images", "yellow");
 
         // Initialize fulfiller with prover setup and image uploads
-        let fulfiller = initialize_fulfiller_from_config(&prover_config, &client).await?;
+        let fulfiller = OrderFulfiller::initialize_from_config(&prover_config, &client).await?;
 
         let fetch_order_jobs = self.request_ids.iter().enumerate().map(|(i, request_id)| {
             let client = client.clone();

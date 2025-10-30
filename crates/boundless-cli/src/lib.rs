@@ -35,7 +35,7 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
-use broker::provers::Prover;
+use broker::provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
@@ -100,99 +100,6 @@ impl OrderFulfilled {
             assessorReceipt: assessor_receipt,
         })
     }
-}
-
-/// Initialize an OrderFulfiller with prover setup and image uploads.
-///
-/// This function encapsulates the common pattern for setting up proving:
-/// 1. Configure the proving backend with health check
-/// 2. Instantiate the appropriate Prover (DefaultProver or Bonsai)
-/// 3. Fetch and upload assessor image with fallback URL
-/// 4. Fetch and upload set builder image with fallback URL
-/// 5. Create and return OrderFulfiller
-pub(crate) async fn initialize_fulfiller_from_config<P, St, R, Si>(
-    prover_config: &config::ProverConfig,
-    client: &boundless_market::Client<P, St, R, Si>,
-) -> Result<OrderFulfiller>
-where
-    P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
-{
-    use broker::provers::{Bonsai, DefaultProver as BrokerDefaultProver};
-
-    prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
-
-    let prover: Arc<dyn Prover + Send + Sync> = if prover_config.proving_backend.use_default_prover
-    {
-        if let Ok(url) = std::env::var("BONSAI_API_URL") {
-            tracing::info!("Default prover selected but BONSAI_API_URL is set, using Bonsai");
-            Arc::new(Bonsai::new(
-                broker::config::ConfigLock::default(),
-                &url,
-                &std::env::var("BONSAI_API_KEY")
-                    .clone()
-                    .unwrap_or_else(|_| "v1:reserved:50".to_string()),
-            )?)
-        } else {
-            Arc::new(BrokerDefaultProver::default())
-        }
-    } else {
-        Arc::new(Bonsai::new(
-            broker::config::ConfigLock::default(),
-            &prover_config.proving_backend.bento_api_url,
-            &prover_config
-                .proving_backend
-                .bento_api_key
-                .clone()
-                .unwrap_or_else(|| "v1:reserved:50".to_string()),
-        )?)
-    };
-
-    initialize_fulfiller(prover, client).await
-}
-
-/// Initialize an OrderFulfiller from a provided Prover instance.
-pub async fn initialize_fulfiller<P, St, R, Si>(
-    prover: Arc<dyn Prover + Send + Sync>,
-    client: &boundless_market::Client<P, St, R, Si>,
-) -> Result<OrderFulfiller>
-where
-    P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
-{
-    let domain = client.boundless_market.eip712_domain().await?;
-
-    let (assessor_image_id_bytes, assessor_url) = client.boundless_market.image_info().await?;
-    let (set_builder_image_id_bytes, set_builder_url) = client.set_verifier.image_info().await?;
-
-    let assessor_image_id = Digest::try_from(assessor_image_id_bytes.as_slice())?;
-    let set_builder_image_id = Digest::try_from(set_builder_image_id_bytes.as_slice())?;
-
-    tracing::debug!("Fetching Assessor program (ID: {})", assessor_image_id);
-    ensure_prover_has_image(
-        &prover,
-        "assessor",
-        assessor_image_id,
-        ASSESSOR_DEFAULT_IMAGE_URL,
-        &assessor_url,
-    )
-    .await?;
-
-    tracing::debug!("Fetching SetBuilder program (ID: {})", set_builder_image_id);
-    ensure_prover_has_image(
-        &prover,
-        "set builder",
-        set_builder_image_id,
-        SET_BUILDER_DEFAULT_IMAGE_URL,
-        &set_builder_url,
-    )
-    .await?;
-
-    OrderFulfiller::new(
-        prover,
-        set_builder_image_id,
-        assessor_image_id,
-        client.boundless_market.caller(),
-        domain,
-    )
 }
 
 /// Ensure prover has the specified image, downloading and uploading if needed.
@@ -331,6 +238,92 @@ impl OrderFulfiller {
             domain,
             supported_selectors,
         })
+    }
+
+    pub(crate) async fn initialize_from_config<P, St, R, Si>(
+        prover_config: &config::ProverConfig,
+        client: &boundless_market::Client<P, St, R, Si>,
+    ) -> Result<Self>
+    where
+        P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
+    {
+        prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
+
+        let prover: Arc<dyn Prover + Send + Sync> = if prover_config
+            .proving_backend
+            .use_default_prover
+        {
+            if let Ok(url) = std::env::var("BONSAI_API_URL") {
+                tracing::info!("Default prover selected but BONSAI_API_URL is set, using Bonsai");
+                Arc::new(Bonsai::new(
+                    broker::config::ConfigLock::default(),
+                    &url,
+                    &std::env::var("BONSAI_API_KEY")
+                        .clone()
+                        .unwrap_or_else(|_| "v1:reserved:50".to_string()),
+                )?)
+            } else {
+                Arc::new(BrokerDefaultProver::default())
+            }
+        } else {
+            Arc::new(Bonsai::new(
+                broker::config::ConfigLock::default(),
+                &prover_config.proving_backend.bento_api_url,
+                &prover_config
+                    .proving_backend
+                    .bento_api_key
+                    .clone()
+                    .unwrap_or_else(|| "v1:reserved:50".to_string()),
+            )?)
+        };
+
+        Self::initialize(prover, client).await
+    }
+
+    /// Initialize an OrderFulfiller from a provided Prover instance.
+    pub async fn initialize<P, St, R, Si>(
+        prover: Arc<dyn Prover + Send + Sync>,
+        client: &boundless_market::Client<P, St, R, Si>,
+    ) -> Result<Self>
+    where
+        P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
+    {
+        let domain = client.boundless_market.eip712_domain().await?;
+
+        let (assessor_image_id_bytes, assessor_url) = client.boundless_market.image_info().await?;
+        let (set_builder_image_id_bytes, set_builder_url) =
+            client.set_verifier.image_info().await?;
+
+        let assessor_image_id = Digest::try_from(assessor_image_id_bytes.as_slice())?;
+        let set_builder_image_id = Digest::try_from(set_builder_image_id_bytes.as_slice())?;
+
+        tracing::debug!("Fetching Assessor program (ID: {})", assessor_image_id);
+        ensure_prover_has_image(
+            &prover,
+            "assessor",
+            assessor_image_id,
+            ASSESSOR_DEFAULT_IMAGE_URL,
+            &assessor_url,
+        )
+        .await?;
+
+        tracing::debug!("Fetching SetBuilder program (ID: {})", set_builder_image_id);
+        ensure_prover_has_image(
+            &prover,
+            "set builder",
+            set_builder_image_id,
+            SET_BUILDER_DEFAULT_IMAGE_URL,
+            &set_builder_url,
+        )
+        .await?;
+
+        OrderFulfiller::new(
+            prover,
+            set_builder_image_id,
+            assessor_image_id,
+            client.boundless_market.caller(),
+            domain,
+        )
     }
 
     // Proves using the configured [Prover] with the given [image_id], [input], and [assumptions].
@@ -611,7 +604,6 @@ mod tests {
     };
     use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
     use boundless_test_utils::market::create_test_ctx;
-    use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
     use risc0_ethereum_contracts::selector::Selector;
     use std::sync::Arc;
 
@@ -650,7 +642,7 @@ mod tests {
         let (request, signature) =
             setup_proving_request_and_signature(&signer, Some(Selector::groth16_latest())).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let fulfiller = initialize_fulfiller(prover, &client).await.unwrap();
+        let fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }
@@ -665,7 +657,7 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let fulfiller = initialize_fulfiller(prover, &client).await.unwrap();
+        let fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }

@@ -2785,6 +2785,7 @@ dependencies = [
  "boundless-rewards",
  "boundless-test-utils",
  "boundless-zkc",
+ "broker",
  "chrono",
  "clap",
  "futures-util",

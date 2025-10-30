@@ -21,7 +21,7 @@ use alloy::{
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
-use boundless_cli::{initialize_fulfiller, OrderFulfilled};
+use boundless_cli::{OrderFulfilled, OrderFulfiller};
 use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
@@ -191,7 +191,7 @@ async fn test_slash_fulfilled() {
     let client =
         boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-    let prover = initialize_fulfiller(prover, &client).await.unwrap();
+    let prover = OrderFulfiller::initialize(prover, &client).await.unwrap();
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
     let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();
