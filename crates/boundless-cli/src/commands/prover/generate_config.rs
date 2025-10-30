@@ -478,8 +478,8 @@ impl ProverGenerateConfig {
             recommended_collateral
         ));
         display.note("  • 50 ZKC: Recommended for standard requestor list (lower risk)");
-        display.note("  • 200 ZKC: Recommended for standard + large lists (large orders,higher rewards, higher risk)");
-        display.note("  • 500 ZKC: Recommended for standard + large + XL lists (largest orders,highest rewards, highest risk)");
+        display.note("  • 200 ZKC: Recommended for standard + large lists (large orders, higher rewards, higher risk)");
+        display.note("  • 500 ZKC: Recommended for standard + large + XL lists (largest orders, highest rewards, highest risk)");
         display.note("");
         display
             .note("Higher collateral enables higher-reward orders but increases slashing risks.");
@@ -1687,10 +1687,10 @@ fn detect_gpu_memory() -> Result<u32> {
 // Convert MiB to GB for comparison: 1 GB = 1024 MiB
 fn gpu_memory_to_segment_size(memory_mib: u32) -> u32 {
     match memory_mib {
-        0..=8_192 => 19,       // <= 8GB
-        8_193..=16_384 => 20,  // <= 16GB
-        16_385..=20_480 => 21, // <= 20GB
-        _ => 22,               // > 20GB (including 40GB+)
+        0..=8_192 => 18,       // <= 8GB
+        8_193..=16_384 => 19,  // <= 16GB
+        16_385..=20_480 => 20, // <= 20GB
+        _ => 21,               // > 20GB (including 40GB+)
     }
 }
 
