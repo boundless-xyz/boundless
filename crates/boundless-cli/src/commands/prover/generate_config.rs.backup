@@ -20,7 +20,7 @@ use alloy::providers::Provider;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use clap::Args;
-use inquire::{Confirm, MultiSelect, Select, Text};
+use inquire::{Confirm, Select, Text};
 use rand::Rng;
 use url::Url;
 
@@ -53,12 +53,9 @@ const PRIORITY_REQUESTOR_LIST_STANDARD: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json";
 const PRIORITY_REQUESTOR_LIST_LARGE: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.large.json";
-const PRIORITY_REQUESTOR_LIST_XL: &str =
-    "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
 
-// Peak performance thresholds for enabling requestor lists (kHz)
+// Peak performance threshold for enabling large requestor list (kHz)
 const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
-const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
 
 // Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
 // orders locked by other provers that exceeded their lock timeout
@@ -156,7 +153,7 @@ impl ProverGenerateConfig {
         if let Some(backup_path) = self.backup_file(&self.compose_yml_file)? {
             display.item_colored("Backup saved", backup_path.display(), "cyan");
         }
-        self.generate_compose_yml(&config, compose_strategy, &display)?;
+        self.generate_compose_yml(&config, compose_strategy)?;
         display.item_colored("Created", self.compose_yml_file.display(), "green");
 
         display.separator();
@@ -299,25 +296,9 @@ impl ProverGenerateConfig {
             "  • Large list: For provers >{:.0} kHz (includes high-cycle orders)",
             LARGE_REQUESTOR_LIST_THRESHOLD_KHZ
         ));
-        display.note(&format!(
-            "  • XL list: For provers >{:.0} kHz (includes very high-cycle orders)",
-            XL_REQUESTOR_LIST_THRESHOLD_KHZ
-        ));
         display.note("");
 
-        // Determine recommended lists based on peak performance
-        let recommended_lists = if peak_prove_khz > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
-            display.note(&format!(
-                "Your cluster's peak performance of {:.0} kHz qualifies for XL orders.",
-                peak_prove_khz
-            ));
-            display.note("We recommend enabling the standard, large, and XL requestor lists.");
-            vec![
-                PRIORITY_REQUESTOR_LIST_STANDARD.to_string(),
-                PRIORITY_REQUESTOR_LIST_LARGE.to_string(),
-                PRIORITY_REQUESTOR_LIST_XL.to_string(),
-            ]
-        } else if peak_prove_khz > LARGE_REQUESTOR_LIST_THRESHOLD_KHZ {
+        let priority_requestor_lists = if peak_prove_khz > LARGE_REQUESTOR_LIST_THRESHOLD_KHZ {
             display.note(&format!(
                 "Your cluster's peak performance of {:.0} kHz qualifies for large orders.",
                 peak_prove_khz
@@ -336,79 +317,6 @@ impl ProverGenerateConfig {
             vec![PRIORITY_REQUESTOR_LIST_STANDARD.to_string()]
         };
 
-        display.note("");
-
-        // Ask for confirmation
-        let accept_recommendation = Confirm::new("Accept recommended priority lists?")
-            .with_default(true)
-            .with_help_message("You can customize the selection if needed")
-            .prompt()
-            .context("Failed to get confirmation")?;
-
-        let priority_requestor_lists = if accept_recommendation {
-            recommended_lists
-        } else {
-            // Build options for multi-select
-            let mut options = vec![];
-            let mut default_indices = vec![];
-
-            // Always include standard
-            options.push("Standard list (for all provers)");
-            default_indices.push(0); // Standard is always selected by default
-
-            // Add large if qualified
-            if peak_prove_khz > LARGE_REQUESTOR_LIST_THRESHOLD_KHZ {
-                options.push("Large list (high-cycle orders, requires >4000 kHz)");
-                if recommended_lists.len() >= 2 {
-                    default_indices.push(1);
-                }
-            }
-
-            // Add XL if qualified
-            if peak_prove_khz > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
-                options.push("XL list (very high-cycle orders, requires >10000 kHz)");
-                if recommended_lists.len() >= 3 {
-                    default_indices.push(2);
-                }
-            }
-
-            let selected = MultiSelect::new("Select priority requestor lists to enable:", options)
-                .with_default(&default_indices)
-                .with_help_message("Space to select/deselect, Enter to confirm")
-                .prompt()
-                .context("Failed to get list selection")?;
-
-            // Convert selections to URLs
-            let mut result = vec![];
-            for choice in selected {
-                match choice {
-                    "Standard list (for all provers)" => {
-                        result.push(PRIORITY_REQUESTOR_LIST_STANDARD.to_string());
-                    }
-                    "Large list (high-cycle orders, requires >4000 kHz)" => {
-                        result.push(PRIORITY_REQUESTOR_LIST_LARGE.to_string());
-                    }
-                    "XL list (very high-cycle orders, requires >10000 kHz)" => {
-                        result.push(PRIORITY_REQUESTOR_LIST_XL.to_string());
-                    }
-                    _ => {}
-                }
-            }
-
-            if result.is_empty() {
-                display.warning("⚠  No lists selected. At least the standard list is recommended.");
-                let continue_anyway = Confirm::new("Continue without any priority lists?")
-                    .with_default(false)
-                    .prompt()
-                    .context("Failed to get confirmation")?;
-                if !continue_anyway {
-                    bail!("Configuration cancelled by user");
-                }
-            }
-
-            result
-        };
-
         for list in &priority_requestor_lists {
             display.item_colored("  List", list, "cyan");
         }
@@ -417,19 +325,14 @@ impl ProverGenerateConfig {
         display.separator();
         display.step(6, 7, "Collateral Configuration");
 
-        let recommended_collateral = match priority_requestor_lists.len() {
-            1 => "50",
-            2 => "200",
-            _ => "500",
-        };
+        let recommended_collateral = if priority_requestor_lists.len() > 1 { "200" } else { "50" };
 
         display.note(&format!(
             "We recommend a max collateral of {} ZKC for your configuration.",
             recommended_collateral
         ));
         display.note("  • 50 ZKC: Recommended for standard requestor list (lower risk)");
-        display.note("  • 200 ZKC: Recommended for standard + large lists (large orders,higher rewards, higher risk)");
-        display.note("  • 500 ZKC: Recommended for standard + large + XL lists (largest orders,highest rewards, highest risk)");
+        display.note("  • 200 ZKC: Recommended for standard + large lists (higher rewards, higher risk)");
         display.note("");
         display.note("Higher collateral enables higher-reward orders but increases slashing risks.");
 
@@ -463,9 +366,16 @@ impl ProverGenerateConfig {
             .await
             .context("Failed to query chain ID from RPC provider")?;
 
+        if chain_id == 1 {
+            display.note("⚠  Detected Ethereum Mainnet (Chain ID: 1)");
+            display.note("   Boundless Market is deployed on Base Mainnet (Chain ID: 8453)");
+            display.note("   Please use a Base Mainnet RPC URL instead.");
+            bail!("Incorrect chain detected: Ethereum Mainnet. Base Mainnet required.");
+        }
+
         if chain_id != 8453 {
             display.note(&format!("⚠  Detected Chain ID: {}", chain_id));
-            display.note("    Market pricing analyis requires a Base Mainnet RPC URL (Chain ID: 8453)");
+            display.note("   Boundless Market is deployed on Base Mainnet (Chain ID: 8453)");
             let continue_anyway = Confirm::new("Continue with this RPC anyway?")
                 .with_default(false)
                 .prompt()
@@ -529,9 +439,6 @@ impl ProverGenerateConfig {
                 .note("priced competitively such that you will be able to lock and fulfill orders");
             display.note("for ETH rewards in the market.");
             display.note("");
-            display.note("Example: If set to 0.00000001 ETH/Mcycle, a 1000 Mcycle order must");
-            display.note("         offer at least 0.00001 ETH for your broker to accept it.");
-            display.note("");
 
             Text::new("Press Enter to accept or enter custom price:")
                 .with_default(&format!("{:.10}", pricing.percentile_25))
@@ -540,7 +447,7 @@ impl ProverGenerateConfig {
                 .context("Failed to get price")?
         } else {
             // Fallback to manual entry if query failed
-            Text::new("Minimum price per mcycle (ETH):")
+            Text::new("Minimum price per megacycle (ETH):")
                 .with_default("0.00000001")
                 .with_help_message("You can update this later in broker.toml")
                 .prompt()
@@ -550,14 +457,14 @@ impl ProverGenerateConfig {
         // Collateral token pricing
         display.separator();
         display.note("");
-        display.note("Collateral Token Pricing:");
+        display.note("Collateral Token Pricing (Proof Races):");
         display.note("");
         display.note("When another prover fails to fulfill their locked order within the timeout,");
         display.note("they are slashed. A portion of their collateral (in ZKC) becomes available");
         display.note("as a reward for any prover who can fulfill that order in a 'proof race'.");
         display.note("");
         display.note("The setting below controls the minimum ZKC reward your broker will accept");
-        display.note("to participate in these proof races.");
+        display.note("to participate in these proof races (competing to fulfill slashed orders).");
         display.note("");
         display.note("Example: If set to 0.0005 ZKC/Mcycle, a 1000 Mcycle slashed order must");
         display.note("         offer at least 0.5 ZKC reward for your broker to compete for it.");
@@ -1277,21 +1184,10 @@ impl ProverGenerateConfig {
         Ok(())
     }
 
-    fn count_existing_gpu_agents(&self, content: &str) -> usize {
-        let mut count = 0;
-        for line in content.lines() {
-            if line.starts_with("  gpu_prove_agent") && line.ends_with(":") {
-                count += 1;
-            }
-        }
-        count
-    }
-
     fn generate_compose_yml(
         &self,
         config: &WizardConfig,
         strategy: FileHandlingStrategy,
-        display: &DisplayManager,
     ) -> Result<()> {
         // We use string manipulation instead of YAML parsing libraries because
         // compose.yml uses YAML anchors (&) and aliases (*) which are
@@ -1310,29 +1206,9 @@ impl ProverGenerateConfig {
         // Update exec_agent replicas
         content = self.update_exec_agent_replicas(content, config.max_exec_agents)?;
 
-        // Handle GPU agents
-        if matches!(strategy, FileHandlingStrategy::ModifyExisting) {
-            let existing_gpu_count = self.count_existing_gpu_agents(&content);
-            if existing_gpu_count > 1 {
-                // File has already been modified with multiple GPUs
-                display.note("");
-                display.note("ℹ  The compose.yml GPU agents section has already been modified.");
-                display.note(&format!("   Found {} GPU agents in the existing file.", existing_gpu_count));
-                display.note("");
-                display.note("   To change GPU configuration:");
-                display.note("   1. Manually edit compose.yml");
-                display.note("   2. Add/remove gpu_prove_agentN sections as needed");
-                display.note("   3. Each agent should have a unique device_ids value");
-                display.note("");
-            } else if config.num_gpus > 1 {
-                // Only add GPU agents if file has the default single GPU
-                content = self.add_gpu_agents(content, config.num_gpus)?;
-            }
-        } else {
-            // Generating new file - add GPU agents as needed
-            if config.num_gpus > 1 {
-                content = self.add_gpu_agents(content, config.num_gpus)?;
-            }
+        // Add additional GPU agents if needed
+        if config.num_gpus > 1 {
+            content = self.add_gpu_agents(content, config.num_gpus)?;
         }
 
         // Write to file
@@ -1531,8 +1407,8 @@ impl ProverGenerateConfig {
             display.item_colored("   REWARD_ADDRESS", "✓ Already set", "green");
         } else {
             display.warning("   REWARD_ADDRESS env variable is not set.");
-            display.note("   This is required in order to receive ZKC mining rewards for your work.");
-            display.note("   (This does not effect the ETH market fees you receive from fulfilling proving requests.)");
+            display.note("   This is required in order to receive ZK mining rewards for your work.");
+            display.note("   (This does not effect the ETH market fees you receive from fulfilling proving requests.");
             display.note("   Learn more: https://docs.boundless.network/zkc/mining/overview");
             display.note("");
             display.note("   Option 1: export REWARD_ADDRESS=<reward_address>");
