@@ -320,7 +320,7 @@ where
                     mcycle_price,
                     config_min_mcycle_price,
                 }) => {
-                    tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", format_ether(mcycle_price), format_ether(config_min_mcycle_price));
+                    tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", format_collateral(mcycle_price), format_collateral(config_min_mcycle_price));
                     order.total_cycles = Some(total_cycles);
                     order.target_timestamp = Some(lock_expire_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);

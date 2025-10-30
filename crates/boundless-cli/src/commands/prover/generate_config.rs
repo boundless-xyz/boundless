@@ -61,6 +61,18 @@ const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
 // orders locked by other provers that exceeded their lock timeout
 const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.0005";
 
+mod selection_strings {
+    // Benchmark performance options
+    pub const BENCHMARK_RUN_SUITE: &str =
+        "Run the Boundless benchmark suite (requires a Bento instance running)";
+    pub const BENCHMARK_MANUAL_ENTRY: &str = "Manually set peak performance (in kHz)";
+
+    // File handling strategy options
+    pub const FILE_MODIFY_EXISTING: &str = "Modify existing";
+    pub const FILE_GENERATE_NEW: &str = "Generate new";
+    pub const FILE_CANCEL: &str = "Cancel";
+}
+
 #[derive(Debug, Clone)]
 struct MarketPricing {
     median: f64,
@@ -723,15 +735,15 @@ impl ProverGenerateConfig {
         let choice = Select::new(
             "How would you like to set the peak performance?",
             vec![
-                "Run the Boundless benchmark suite (requires a Bento instance running)",
-                "Manually set peak performance (in kHz)",
+                selection_strings::BENCHMARK_RUN_SUITE,
+                selection_strings::BENCHMARK_MANUAL_ENTRY,
             ],
         )
         .prompt()
         .context("Failed to get benchmark choice")?;
 
         match choice {
-            "Run the Boundless benchmark suite" => {
+            selection_strings::BENCHMARK_RUN_SUITE => {
                 // Get RPC URL before running benchmark
                 display.separator();
                 display.status("Status", "Checking RPC configuration", "yellow");
@@ -832,7 +844,7 @@ impl ProverGenerateConfig {
 
                 khz_str.parse::<f64>().context("Invalid performance value")
             }
-            "Manually set peak performance (in kHz)" => {
+            selection_strings::BENCHMARK_MANUAL_ENTRY => {
                 let khz_str = Text::new("Peak performance (kHz):")
                     .with_default("100")
                     .with_help_message("You can update this later in broker.toml")
@@ -1286,7 +1298,11 @@ impl ProverGenerateConfig {
             "yellow",
         );
 
-        let options = vec!["Modify existing", "Generate new", "Cancel"];
+        let options = vec![
+            selection_strings::FILE_MODIFY_EXISTING,
+            selection_strings::FILE_GENERATE_NEW,
+            selection_strings::FILE_CANCEL,
+        ];
 
         let choice =
             Select::new(&format!("What would you like to do with {}?", file_type), options)
@@ -1295,9 +1311,9 @@ impl ProverGenerateConfig {
                 .context("Failed to get file handling choice")?;
 
         match choice {
-            "Modify existing" => Ok(FileHandlingStrategy::ModifyExisting),
-            "Generate new" => Ok(FileHandlingStrategy::GenerateNew),
-            "Cancel" => {
+            selection_strings::FILE_MODIFY_EXISTING => Ok(FileHandlingStrategy::ModifyExisting),
+            selection_strings::FILE_GENERATE_NEW => Ok(FileHandlingStrategy::GenerateNew),
+            selection_strings::FILE_CANCEL => {
                 bail!("Configuration cancelled by user");
             }
             _ => unreachable!(),

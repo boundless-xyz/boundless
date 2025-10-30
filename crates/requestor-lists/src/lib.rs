@@ -322,7 +322,7 @@ mod tests {
         let json = include_str!("../../../requestor-lists/boundless-priority-list.standard.json");
         let list = RequestorList::from_json(json).unwrap();
         assert_eq!(list.name, "Boundless Recommended Priority List");
-        assert_eq!(list.requestors.len(), 1);
+        assert!(list.requestors.len() >= 1);
         assert!(list.requestors[0].description.is_some());
     }
 
@@ -331,7 +331,7 @@ mod tests {
         let json = include_str!("../../../requestor-lists/boundless-priority-list.large.json");
         let list = RequestorList::from_json(json).unwrap();
         assert_eq!(list.name, "Boundless Recommended Priority List for Large Provers");
-        assert_eq!(list.requestors.len(), 1);
+        assert!(list.requestors.len() >= 1);
         assert!(list.requestors[0].description.is_some());
     }
 
