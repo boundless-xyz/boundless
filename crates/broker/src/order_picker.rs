@@ -191,12 +191,18 @@ enum OrderPricingOutcome {
         target_timestamp_secs: u64,
         // TODO handle checking what time the lock should occur before, when estimating proving time.
         expiry_secs: u64,
+        target_mcycle_price: U256,
+        max_mcycle_price: U256,
+        config_min_mcycle_price: U256,
+        current_mcycle_price: U256,
     },
     // Do not lock the order, but consider proving and fulfilling it after the lock expires
     ProveAfterLockExpire {
         total_cycles: u64,
         lock_expire_timestamp_secs: u64,
         expiry_secs: u64,
+        mcycle_price: U256,
+        config_min_mcycle_price: U256,
     },
     // Do not accept engage order
     Skip {
@@ -277,15 +283,27 @@ where
             };
 
             match pricing_result {
-                Ok(Lock { total_cycles, target_timestamp_secs, expiry_secs }) => {
+                Ok(Lock {
+                    total_cycles,
+                    target_timestamp_secs,
+                    expiry_secs,
+                    target_mcycle_price,
+                    max_mcycle_price,
+                    current_mcycle_price,
+                    config_min_mcycle_price,
+                }) => {
                     order.total_cycles = Some(total_cycles);
                     order.target_timestamp = Some(target_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);
 
                     tracing::info!(
-                        "Order {order_id} scheduled for lock attempt in {}s (timestamp: {}), when price threshold met",
+                        "Order {order_id} scheduled for lock attempt in {}s (timestamp: {}), when price exceeds: {} ETH/Mcycle (config min price: {} ETH/Mcycle, current price: {} ETH/Mcycle, max price: {} ETH/Mcycle)",
                         target_timestamp_secs.saturating_sub(now_timestamp()),
                         target_timestamp_secs,
+                        format_ether(target_mcycle_price),
+                        format_ether(config_min_mcycle_price),
+                        format_ether(current_mcycle_price),
+                        format_ether(max_mcycle_price),
                     );
 
                     self.priced_orders_tx
@@ -299,8 +317,10 @@ where
                     total_cycles,
                     lock_expire_timestamp_secs,
                     expiry_secs,
+                    mcycle_price,
+                    config_min_mcycle_price,
                 }) => {
-                    tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs}");
+                    tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", format_ether(mcycle_price), format_ether(config_min_mcycle_price));
                     order.total_cycles = Some(total_cycles);
                     order.target_timestamp = Some(lock_expire_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);
@@ -851,11 +871,14 @@ where
             });
         }
 
+        let target_mcycle_price;
+        let current_mcycle_price = order.request.offer.price_at(now_timestamp()).unwrap();
         let target_timestamp_secs = if mcycle_price_min >= config_min_mcycle_price {
             tracing::info!(
                 "Selecting order {order_id} at price {} - ASAP",
-                format_ether(U256::from(order.request.offer.minPrice))
+                format_ether(current_mcycle_price)
             );
+            target_mcycle_price = mcycle_price_min;
             0 // Schedule the lock ASAP
         } else {
             let target_min_price = config_min_mcycle_price
@@ -867,6 +890,7 @@ where
                 format_ether(target_min_price)
             );
 
+            target_mcycle_price = target_min_price;
             order
                 .request
                 .offer
@@ -876,7 +900,15 @@ where
 
         let expiry_secs = order.request.offer.rampUpStart + order.request.offer.lockTimeout as u64;
 
-        Ok(Lock { total_cycles: proof_res.stats.total_cycles, target_timestamp_secs, expiry_secs })
+        Ok(Lock {
+            total_cycles: proof_res.stats.total_cycles,
+            target_timestamp_secs,
+            expiry_secs,
+            target_mcycle_price,
+            max_mcycle_price: mcycle_price_max,
+            current_mcycle_price,
+            config_min_mcycle_price,
+        })
     }
 
     /// Evaluate if a lock expired order is worth picking based on how much of the slashed collateral token we can recover
@@ -926,6 +958,8 @@ where
             lock_expire_timestamp_secs: order.request.offer.rampUpStart
                 + order.request.offer.lockTimeout as u64,
             expiry_secs: order.request.offer.rampUpStart + order.request.offer.timeout as u64,
+            mcycle_price: mcycle_price_in_collateral_tokens,
+            config_min_mcycle_price: config_min_mcycle_price_collateral_tokens,
         })
     }
 

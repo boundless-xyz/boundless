@@ -27,7 +27,7 @@ use url::Url;
 use super::benchmark::ProverBenchmark;
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
-use crate::display::DisplayManager;
+use crate::display::{obscure_url, DisplayManager};
 use boundless_market::client::ClientBuilder;
 use boundless_market::contracts::{RequestId, RequestInput, RequestInputType};
 use boundless_market::GuestEnv;
@@ -47,6 +47,19 @@ const MARKET_PRICE_BLOCKS_TO_QUERY: u64 = 30000;
 
 // Chunk size for querying events to avoid RPC limits
 const EVENT_QUERY_CHUNK_SIZE: u64 = 500;
+
+// Priority requestor list URLs
+const PRIORITY_REQUESTOR_LIST_STANDARD: &str =
+    "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json";
+const PRIORITY_REQUESTOR_LIST_LARGE: &str =
+    "https://requestors.boundless.network/boundless-recommended-priority-list.large.json";
+
+// Peak performance threshold for enabling large requestor list (kHz)
+const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
+
+// Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
+// orders locked by other provers that exceeded their lock timeout
+const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.00005";
 
 #[derive(Debug, Clone)]
 struct MarketPricing {
@@ -98,9 +111,9 @@ impl ProverGenerateConfig {
         let display = DisplayManager::new();
 
         display.header("Boundless Prover Configuration Wizard");
-        display.note(
-            "This wizard helps you create Broker and Bento configuration files, customized for your prover setup, that allow you to compete in the market and earn rewards.",
-        );
+        display.note("This wizard helps you create Broker and Bento configuration files,");
+        display.note("customized for your prover setup, that allow you to compete in the");
+        display.note("market and earn rewards.");
         display.separator();
 
         // Check file handling strategy
@@ -112,7 +125,7 @@ impl ProverGenerateConfig {
         display.separator();
 
         // Run wizard to collect configuration
-        let config = self.run_wizard(&display, broker_strategy, global_config).await?;
+        let config = self.run_wizard(&display, global_config).await?;
 
         display.separator();
         display.header("Generating Configuration Files");
@@ -121,7 +134,7 @@ impl ProverGenerateConfig {
         if let Some(backup_path) = self.backup_file(&self.broker_toml_file)? {
             display.item_colored("Backup saved", backup_path.display(), "cyan");
         }
-        self.generate_broker_toml(&config, broker_strategy)?;
+        self.generate_broker_toml(&config, broker_strategy, &display)?;
         display.item_colored("Created", self.broker_toml_file.display(), "green");
 
         // Backup and generate compose.yml
@@ -137,34 +150,11 @@ impl ProverGenerateConfig {
         Ok(())
     }
 
-    fn parse_existing_broker_toml(&self) -> Result<Option<toml::Value>> {
-        if !self.broker_toml_file.exists() {
-            return Ok(None);
-        }
-
-        let content = std::fs::read_to_string(&self.broker_toml_file)
-            .context("Failed to read existing broker.toml")?;
-        let parsed: toml::Value =
-            toml::from_str(&content).context("Failed to parse existing broker.toml")?;
-        Ok(Some(parsed))
-    }
-
     async fn run_wizard(
         &self,
         display: &DisplayManager,
-        broker_strategy: FileHandlingStrategy,
         global_config: &GlobalConfig,
     ) -> Result<WizardConfig> {
-        // Try to parse existing config if modifying
-        let existing_config = match broker_strategy {
-            FileHandlingStrategy::ModifyExisting => self.parse_existing_broker_toml()?,
-            FileHandlingStrategy::GenerateNew => None,
-        };
-
-        // if existing_config.is_some() {
-        //     display.note("📄 Using values from existing broker.toml as defaults");
-        //     display.separator();
-        // }
         // Step 1: Machine configuration
         display.step(1, 7, "Machine Configuration");
 
@@ -195,25 +185,15 @@ impl ProverGenerateConfig {
             }
         }
 
-        let num_threads = detect_cpu_threads()?;
-        display.item_colored("Detected", format!("{} CPU threads", num_threads), "cyan");
+        let detected_threads = detect_cpu_threads()?;
+        display.item_colored("Detected", format!("{} CPU threads", detected_threads), "cyan");
 
-        let use_detected_threads = Confirm::new("Use this value?")
-            .with_default(true)
+        let input = Text::new("How many CPU threads do you want to use?")
+            .with_default(&detected_threads.to_string())
             .prompt()
-            .context("Failed to get confirmation")?;
-
-        let num_threads = if !use_detected_threads {
-            let input = Text::new("How many CPU threads?")
-                .with_default(&num_threads.to_string())
-                .prompt()
-                .context("Failed to get CPU thread count")?;
-            let override_threads = input.parse::<usize>().context("Invalid number format")?;
-            display.item_colored("Using", format!("{} CPU threads", override_threads), "green");
-            override_threads
-        } else {
-            num_threads
-        };
+            .context("Failed to get CPU thread count")?;
+        let num_threads = input.parse::<usize>().context("Invalid number format")?;
+        display.item_colored("Using", format!("{} CPU threads", num_threads), "green");
 
         // Step 2: GPU configuration
         display.separator();
@@ -296,23 +276,29 @@ impl ProverGenerateConfig {
             .note("prioritize for proving. Requestors on these lists are considered more likely");
         display
             .note("to request useful work with profitable pricing, and thus are prioritized over");
-        display.note(
-            "other requestors. Boundless Networks maintains a recommended list of requestors that",
-        );
-        display.note("will be enabled by default.");
+        display.note("other requestors.");
+        display.note("");
+        display.note("Boundless Networks maintains a recommended list of requestors that");
+        display.note("will be enabled based on your cluster's peak performance.");
         display.note("");
 
-        let priority_requestor_lists = if peak_prove_khz > 4000.0 {
-            display.note(&format!("Based on your cluster's peak performance of {:.0} kHz, we recommend enabling the standard and large requestor lists", peak_prove_khz));
+        let priority_requestor_lists = if peak_prove_khz > LARGE_REQUESTOR_LIST_THRESHOLD_KHZ {
+            display.note(&format!(
+                "Based on your cluster's peak performance of {:.0} kHz, we recommend",
+                peak_prove_khz
+            ));
+            display.note("enabling the standard and large requestor lists.");
             vec![
-                "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json".to_string(),
-                "https://requestors.boundless.network/boundless-recommended-priority-list.large.json".to_string(),
+                PRIORITY_REQUESTOR_LIST_STANDARD.to_string(),
+                PRIORITY_REQUESTOR_LIST_LARGE.to_string(),
             ]
         } else {
-            display.note(&format!("Based on your cluster's peak performance of {:.0} kHz, we recommend enabling the standard requestor list", peak_prove_khz));
-            vec![
-                "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json".to_string(),
-            ]
+            display.note(&format!(
+                "Based on your cluster's peak performance of {:.0} kHz, we recommend",
+                peak_prove_khz
+            ));
+            display.note("enabling the standard requestor list.");
+            vec![PRIORITY_REQUESTOR_LIST_STANDARD.to_string()]
         };
 
         for list in &priority_requestor_lists {
@@ -363,18 +349,20 @@ impl ProverGenerateConfig {
                 display.item_colored(
                     "Median price",
                     format!(
-                        "{:.10} ETH/Mcycle ({} Gwei/Mcycle)",
+                        "{:.10} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
                         pricing.median,
-                        pricing.median * 1e9
+                        pricing.median * 1e9,
+                        pricing.median * 1e12
                     ),
                     "cyan",
                 );
                 display.item_colored(
                     "25th percentile",
                     format!(
-                        "{:.10} ETH/Mcycle ({} Gwei/Mcycle)",
+                        "{:.10} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
                         pricing.percentile_25,
-                        pricing.percentile_25 * 1e9
+                        pricing.percentile_25 * 1e9,
+                        pricing.percentile_25 * 1e12
                     ),
                     "cyan",
                 );
@@ -391,15 +379,17 @@ impl ProverGenerateConfig {
         let min_mcycle_price = if let Some(pricing) = market_pricing {
             display.note("");
             display.note(&format!(
-                "Recommended minimum price: {:.10} ETH/Mcycle ({} Gwei/Mcycle)",
+                "Recommended minimum price: {:.10} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
                 pricing.percentile_25,
-                pricing.percentile_25 * 1e9
+                pricing.percentile_25 * 1e9,
+                pricing.percentile_25 * 1e12
             ));
             display.note("");
             display
                 .note("This value is computed based on recent market prices. It ensures you are");
-            display.note("priced competitively such that you will be able to lock and fulfill orders for ETH rewards");
-            display.note("in the market.");
+            display
+                .note("priced competitively such that you will be able to lock and fulfill orders");
+            display.note("for ETH rewards in the market.");
             display.note("");
 
             Text::new("Press Enter to accept or enter custom price:")
@@ -410,15 +400,51 @@ impl ProverGenerateConfig {
         } else {
             // Fallback to manual entry if query failed
             Text::new("Minimum price per megacycle (ETH):")
-                .with_default("0.0000005")
+                .with_default("0.00000001")
                 .with_help_message("You can update this later in broker.toml")
                 .prompt()
                 .context("Failed to get price")?
         };
 
-        let min_mcycle_price_collateral_token = "0.0001".to_string();
+        // Collateral token pricing
+        display.separator();
+        display.note("");
+        display.note("Collateral Token Pricing:");
+        display.note("");
+        display.note("When a prover locks an order but fails to fulfill it within the timeout,");
+        display.note("they are slashed. A portion of their collateral (in ZKC) is used to");
+        display.note("incentivize other provers to fulfill the order in a 'proof race'.");
+        display.note("");
+        display.note(&format!(
+            "Default minimum price: {} ZKC/Mcycle",
+            DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN
+        ));
+        display.note("");
 
-        display.item_colored("Min price", format!("{} ETH/Mcycle", min_mcycle_price), "green");
+        let min_mcycle_price_collateral_token =
+            Text::new("Minimum price per megacycle in collateral token (ZKC):")
+                .with_default(DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN)
+                .with_help_message("You can update this later in broker.toml")
+                .prompt()
+                .context("Failed to get collateral token price")?;
+
+        display.item_colored(
+            "Collateral price",
+            format!("{} ZKC/Mcycle", min_mcycle_price_collateral_token),
+            "green",
+        );
+
+        let price_f64 = min_mcycle_price.parse::<f64>().unwrap_or(0.0);
+        display.item_colored(
+            "Min price",
+            format!(
+                "{} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
+                min_mcycle_price,
+                price_f64 * 1e9,
+                price_f64 * 1e12
+            ),
+            "green",
+        );
 
         Ok(WizardConfig {
             num_threads,
@@ -560,7 +586,7 @@ impl ProverGenerateConfig {
         // Build map of fulfilled requests with their block timestamps
         let mut fulfilled_map: HashMap<U256, u64> = HashMap::new();
         for (event, log_meta) in &fulfilled_logs {
-            let request_id: U256 = event.requestId.into();
+            let request_id: U256 = event.requestId;
             if let Some(block_timestamp) = log_meta.block_timestamp {
                 fulfilled_map.insert(request_id, block_timestamp);
             }
@@ -570,7 +596,7 @@ impl ProverGenerateConfig {
         let mut prices_per_mcycle: Vec<f64> = Vec::new();
 
         for (event, log_meta) in &locked_logs {
-            let request_id: U256 = event.requestId.into();
+            let request_id: U256 = event.requestId;
             let requestor = RequestId::from_lossy(event.request.id).addr;
 
             // Filter: only priority requestors
@@ -688,10 +714,17 @@ impl ProverGenerateConfig {
         display.note("Configuration requires an estimate of the peak performance of your proving");
         display.note("cluster.");
         display.note("");
+        display.note("Boundless provides a benchmarking suite for estimating your cluster's");
+        display.note("peak performance.");
+        display.warning("The benchmark suite requires access to a running Bento proving cluster.");
+        display.note("");
 
         let choice = Select::new(
             "How would you like to set the peak performance?",
-            vec!["Run the Boundless benchmark suite", "Manually set peak performance (in kHz)"],
+            vec![
+                "Run the Boundless benchmark suite (requires a Bento instance running)",
+                "Manually set peak performance (in kHz)",
+            ],
         )
         .prompt()
         .context("Failed to get benchmark choice")?;
@@ -864,7 +897,7 @@ impl ProverGenerateConfig {
 
                 if let Ok(loaded_config) = full_config.load_from_files() {
                     if let Some(rpc_url) = loaded_config.prover_rpc_url {
-                        display.item_colored("RPC URL", &rpc_url, "green");
+                        display.item_colored("RPC URL", obscure_url(rpc_url.as_ref()), "green");
                         return Ok(rpc_url);
                     }
                 }
@@ -875,13 +908,14 @@ impl ProverGenerateConfig {
         if let Ok(rpc_url) = std::env::var("PROVER_RPC_URL") {
             let url =
                 rpc_url.parse::<Url>().context("Invalid PROVER_RPC_URL environment variable")?;
-            display.item_colored("RPC URL", &url, "green");
+            display.item_colored("RPC URL", obscure_url(url.as_ref()), "green");
             return Ok(url);
         }
 
         // No RPC URL found, prompt user
         display.note("⚠  No RPC URL configured for prover");
-        display.note("An RPC URL is required to fetch benchmark request data from the blockchain.");
+        display.note("An RPC URL is required to fetch benchmark request data from the");
+        display.note("blockchain.");
         display.note("");
 
         let rpc_url =
@@ -889,7 +923,7 @@ impl ProverGenerateConfig {
 
         let url = rpc_url.parse::<Url>().context("Invalid RPC URL format")?;
 
-        display.item_colored("RPC URL", &url, "green");
+        display.item_colored("RPC URL", obscure_url(url.as_ref()), "green");
         Ok(url)
     }
 
@@ -943,6 +977,7 @@ impl ProverGenerateConfig {
         &self,
         config: &WizardConfig,
         strategy: FileHandlingStrategy,
+        display: &DisplayManager,
     ) -> Result<()> {
         // Load source (template or existing file)
         let source = match strategy {
@@ -980,7 +1015,7 @@ impl ProverGenerateConfig {
 
         // Strip disclaimer section (from template)
         let cleaned_prefix =
-            Self::strip_tagged_section(&current_prefix, "### [Disclaimer] #####", "### [End] ###");
+            Self::strip_tagged_section(&current_prefix, "### [Disclaimer] ###", "### [End] ###");
 
         // Strip any existing CLI wizard metadata (from previous runs)
         let cleaned_prefix = Self::strip_tagged_section(
@@ -1054,16 +1089,41 @@ impl ProverGenerateConfig {
                 *item = toml_edit::value(config.max_concurrent_preflights as i64);
             }
 
-            // Update min_mcycle_price with market analysis comment
+            // Update min_mcycle_price
             if let Some(item) = market.get_mut("min_mcycle_price") {
-                let comment = format!(
-                    "\n# Set based on market pricing analysis on {}\n",
-                    Utc::now().format("%Y-%m-%d")
-                );
-                if let Some(value) = item.as_value_mut() {
-                    value.decor_mut().set_prefix(comment);
+                let should_update = match strategy {
+                    FileHandlingStrategy::ModifyExisting => {
+                        // Get existing price and compare with recommended price
+                        let existing_price_str = item.as_str().unwrap_or("0");
+                        let existing_price = existing_price_str.parse::<f64>().unwrap_or(0.0);
+                        let recommended_price =
+                            config.min_mcycle_price.parse::<f64>().unwrap_or(0.0);
+
+                        if existing_price <= recommended_price && existing_price > 0.0 {
+                            // Existing price is already competitive, don't raise it
+                            display.note("");
+                            display.note(&format!(
+                                "Your min_mcycle_price is already priced competitively at {} ETH/Mcycle. Not modifying.",
+                                existing_price_str
+                            ));
+                            display.note("");
+                            false
+                        } else {
+                            // Recommended price is lower (more competitive), update it
+                            true
+                        }
+                    }
+                    FileHandlingStrategy::GenerateNew => true,
+                };
+
+                if should_update {
+                    *item = toml_edit::value(config.min_mcycle_price.clone());
                 }
-                *item = toml_edit::value(config.min_mcycle_price.clone());
+            }
+
+            // Update min_mcycle_price_collateral_token
+            if let Some(item) = market.get_mut("min_mcycle_price_collateral_token") {
+                *item = toml_edit::value(config.min_mcycle_price_collateral_token.clone());
             }
         }
 
@@ -1133,7 +1193,7 @@ impl ProverGenerateConfig {
             // Track if we're in the deploy subsection
             if in_exec_agent && line.trim().starts_with("deploy:") {
                 in_deploy = true;
-            } else if in_deploy && !line.starts_with("    ") && line.trim().len() > 0 {
+            } else if in_deploy && !line.starts_with("    ") && !line.trim().is_empty() {
                 // Exit deploy section if we hit a line at same or lower indentation
                 in_deploy = false;
             }
@@ -1292,7 +1352,10 @@ impl ProverGenerateConfig {
         if reward_address_set {
             display.item_colored("   REWARD_ADDRESS", "✓ Already set", "green");
         } else {
-            display.note("   export REWARD_ADDRESS=<reward_address>");
+            display.warning("   REWARD_ADDRESS env variable is not set.");
+            display.note("   This is required for the prover to receive rewards!");
+            display.note("   Option 1: export REWARD_ADDRESS=<reward_address>");
+            display.note("   Option 2: Set POVW_LOG_ID in compose.yml to your reward address");
         }
 
         display.note("");

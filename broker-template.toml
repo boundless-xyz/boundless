@@ -20,7 +20,7 @@
 # cycle count, and the current price of the order, the broker computes the
 # current price per mega-cycle being offered for the order. This value is compared to the
 # `min_mcycle_price` to determine if the order should be locked.
-min_mcycle_price = "0.0000005"
+min_mcycle_price = "0.00000001"
 
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
 # to attempt to fulfill an order in the case that the order was locked by another prover
