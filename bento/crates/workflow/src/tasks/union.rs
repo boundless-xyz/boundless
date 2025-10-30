@@ -51,8 +51,8 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
         .context("[BENTO-UNION-005] Failed to verify union receipt integrity")?;
 
     // send result to redis
-    let union_result = serialize_obj(&unioned)
-        .context("[BENTO-UNION-006] Failed to serialize union receipt")?;
+    let union_result =
+        serialize_obj(&unioned).context("[BENTO-UNION-006] Failed to serialize union receipt")?;
     let output_key = format!("{keccak_receipts_prefix}:{}", request.idx);
     redis::set_key_with_expiry(&mut conn, &output_key, union_result, Some(agent.args.redis_ttl))
         .await

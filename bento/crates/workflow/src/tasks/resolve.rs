@@ -25,7 +25,9 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
     let mut conn = agent.redis_pool.get().await?;
     let receipt: Vec<u8> = conn.get::<_, Vec<u8>>(&root_receipt_key).await.with_context(|| {
-        format!("[BENTO-RESOLVE-001] segment data not found for root receipt key: {root_receipt_key}")
+        format!(
+            "[BENTO-RESOLVE-001] segment data not found for root receipt key: {root_receipt_key}"
+        )
     })?;
 
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
@@ -40,7 +42,9 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                 let assumptions = guest_output
                     .assumptions
                     .as_value()
-                    .context("[BENTO-RESOLVE-002] Failed unwrap the assumptions of the guest output")?
+                    .context(
+                        "[BENTO-RESOLVE-002] Failed unwrap the assumptions of the guest output",
+                    )?
                     .iter();
 
                 tracing::debug!("Resolving {} assumption(s)", assumptions.len());
@@ -83,10 +87,9 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                     }
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
-                    let assumption_bytes: Vec<u8> = conn
-                        .get(&assumption_key)
-                        .await
-                        .context("[BENTO-RESOLVE-007] corroborating receipt not found: key {assumption_key}")?;
+                    let assumption_bytes: Vec<u8> = conn.get(&assumption_key).await.context(
+                        "[BENTO-RESOLVE-007] corroborating receipt not found: key {assumption_key}",
+                    )?;
 
                     let assumption_receipt: SuccinctReceipt<Unknown> =
                         deserialize_obj(&assumption_bytes).with_context(|| {

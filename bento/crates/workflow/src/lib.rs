@@ -222,7 +222,8 @@ impl Agent {
             || args.task_stream == COPROC_WORK_TYPE
         {
             let opts = ProverOpts::default();
-            let prover = get_prover_server(&opts).context("[BENTO-WF-102] Failed to initialize prover server")?;
+            let prover = get_prover_server(&opts)
+                .context("[BENTO-WF-102] Failed to initialize prover server")?;
             Some(prover)
         } else {
             None
@@ -254,7 +255,8 @@ impl Agent {
     /// the process is terminated. It also handles retries / failures depending on the
     /// [Self::process_work] result
     pub async fn poll_work(&self) -> Result<()> {
-        let term_sig = Self::create_sig_monitor().context("[BENTO-WF-103] Failed to create signal hook")?;
+        let term_sig =
+            Self::create_sig_monitor().context("[BENTO-WF-103] Failed to create signal hook")?;
 
         // Enables task retry management background thread, good for 1-2 aux workers to run in the
         // cluster
@@ -421,7 +423,9 @@ impl Agent {
                     .context("[BENTO-WF-118] Failed to serialize POVW join response")?
                 } else {
                     serde_json::to_value(
-                        tasks::join::join(self, &task.job_id, &req).await.context("[BENTO-WF-119] Join failed")?,
+                        tasks::join::join(self, &task.job_id, &req)
+                            .await
+                            .context("[BENTO-WF-119] Join failed")?,
                     )
                     .context("[BENTO-WF-120] Failed to serialize join response")?
                 }
@@ -463,7 +467,9 @@ impl Agent {
             )
             .context("[BENTO-WF-130] failed to serialize keccak response")?,
             TaskType::Union(req) => serde_json::to_value(
-                tasks::union::union(self, &task.job_id, &req).await.context("[BENTO-WF-131] Union failed")?,
+                tasks::union::union(self, &task.job_id, &req)
+                    .await
+                    .context("[BENTO-WF-131] Union failed")?,
             )
             .context("[BENTO-WF-132] failed to serialize union response")?,
         };

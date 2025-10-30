@@ -65,12 +65,10 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
         .with_context(|| format!("Journal data not found for key ID: {image_key}"))?;
     let image_id = read_image_id(&image_id_string)?;
 
-    rollup_receipt
-        .verify(image_id)
-        .context("[BENTO-FINALIZE-001] Receipt verification failed")?;
+    rollup_receipt.verify(image_id).context("[BENTO-FINALIZE-001] Receipt verification failed")?;
 
     if !matches!(rollup_receipt.inner, InnerReceipt::Succinct(_)) {
-    bail!("[BENTO-FINALIZE-002] rollup_receipt is not Succinct")
+        bail!("[BENTO-FINALIZE-002] rollup_receipt is not Succinct")
     }
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");

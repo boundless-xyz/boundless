@@ -85,7 +85,8 @@ async fn process_task(
                 // it feels like a order of operations issue with trying to keep the
                 // executor unblocked as it flushes segments before knowing the
                 // planners internal index counter.
-                index: segment_index.context("[BENTO-EXEC-004] INVALID STATE: segment task without segment index")?
+                index: segment_index
+                    .context("[BENTO-EXEC-004] INVALID STATE: segment task without segment index")?
                     as usize,
             }))
             .context("[BENTO-EXEC-005] Failed to serialize prove task-type")?;
@@ -307,7 +308,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     // validate image id
     let computed_id = compute_image_id(&elf_data)?;
     if image_id != computed_id {
-        bail!("[BENTO-EXEC-019] User supplied imageId does not match generated ID: {image_id} - {computed_id}");
+        bail!(
+            "[BENTO-EXEC-019] User supplied imageId does not match generated ID: {image_id} - {computed_id}"
+        );
     }
 
     // Fetch array of Receipts
@@ -350,7 +353,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     let claim = inner_receipt.claim.digest().to_string();
                     (inner_receipt.into_unknown(), claim)
                 } else {
-                    bail!("[BENTO-EXEC-022] Failed to extract receipt from InnerAssumptionReceipt, not succinct");
+                    bail!(
+                        "[BENTO-EXEC-022] Failed to extract receipt from InnerAssumptionReceipt, not succinct"
+                    );
                 }
             }
         };
@@ -502,7 +507,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             None,
                         )
                         .await
-                        .context("[BENTO-EXEC-030] Failed to process task and insert into taskdb")?;
+                        .context(
+                            "[BENTO-EXEC-030] Failed to process task and insert into taskdb",
+                        )?;
                     }
                 }
                 SenderType::Keccak(mut keccak_req) => {
@@ -519,7 +526,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     keccak_req.input.clear();
                     tracing::debug!("Wrote keccak input to redis");
 
-                    planner.enqueue_keccak().context("[BENTO-EXEC-032] Failed to enqueue keccak")?;
+                    planner
+                        .enqueue_keccak()
+                        .context("[BENTO-EXEC-032] Failed to enqueue keccak")?;
                     while let Some(tree_task) = planner.next_task() {
                         let req = KeccakReq {
                             claim_digest: keccak_req.claim_digest,
@@ -542,7 +551,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             Some(req),
                         )
                         .await
-                        .context("[BENTO-EXEC-033] Failed to process task and insert into taskdb")?;
+                        .context(
+                            "[BENTO-EXEC-033] Failed to process task and insert into taskdb",
+                        )?;
                     }
                 }
                 SenderType::Fault => {
@@ -570,7 +581,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     None,
                 )
                 .await
-                    .context("[BENTO-EXEC-034] Failed to process task and insert into taskdb")?;
+                .context("[BENTO-EXEC-034] Failed to process task and insert into taskdb")?;
             }
         }
     });
