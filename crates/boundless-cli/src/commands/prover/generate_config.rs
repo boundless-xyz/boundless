@@ -358,7 +358,7 @@ impl ProverGenerateConfig {
         // Determine recommended lists based on peak performance
         let recommended_lists = if peak_prove_khz > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
             display.note(&format!(
-                "Your cluster's peak performance of {:.0} kHz qualifies for XL orders.",
+                "Your cluster's peak performance of {:.0} kHz qualifies for the XL requestor list.",
                 peak_prove_khz
             ));
             display.note("We recommend enabling the standard, large, and XL requestor lists.");
@@ -369,7 +369,7 @@ impl ProverGenerateConfig {
             ]
         } else if peak_prove_khz > LARGE_REQUESTOR_LIST_THRESHOLD_KHZ {
             display.note(&format!(
-                "Your cluster's peak performance of {:.0} kHz qualifies for large orders.",
+                "Your cluster's peak performance of {:.0} kHz qualifies for the large requestor list.",
                 peak_prove_khz
             ));
             display.note("We recommend enabling both the standard and large requestor lists.");
@@ -379,7 +379,7 @@ impl ProverGenerateConfig {
             ]
         } else {
             display.note(&format!(
-                "Your cluster's peak performance of {:.0} kHz is suitable for standard orders.",
+                "Your cluster's peak performance of {:.0} kHz is suitable for the standard requestor list.",
                 peak_prove_khz
             ));
             display.note("We recommend enabling the standard requestor list.");
@@ -389,7 +389,7 @@ impl ProverGenerateConfig {
         display.note("");
 
         // Ask for confirmation
-        let accept_recommendation = Confirm::new("Accept recommended priority lists?")
+        let accept_recommendation = Confirm::new("Accept recommended priority list(s)?")
             .with_default(true)
             .with_help_message("You can customize the selection if needed")
             .prompt()
