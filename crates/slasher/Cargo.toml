@@ -31,4 +31,5 @@ boundless-test-utils = { workspace = true }
 futures-util = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 tracing-test = { workspace = true }
+broker = { workspace = true }
 

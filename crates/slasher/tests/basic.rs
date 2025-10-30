@@ -21,14 +21,16 @@ use alloy::{
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
-use boundless_cli::OrderFulfilled;
+use boundless_cli::{initialize_fulfiller, OrderFulfilled};
 use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
-use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
+use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::create_test_ctx;
+use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use futures_util::StreamExt;
+use std::sync::Arc;
 
 async fn create_order(
     signer: &impl Signer,
@@ -186,14 +188,10 @@ async fn test_slash_fulfilled() {
     // Do the operations that should trigger the slash
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
-    let domain = ctx.customer_market.eip712_domain().await.unwrap();
-    let prover = boundless_cli::DefaultProver::new(
-        SET_BUILDER_ELF.to_vec(),
-        ASSESSOR_GUEST_ELF.to_vec(),
-        ctx.customer_signer.address(),
-        domain,
-    )
-    .unwrap();
+    let client =
+        boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+    let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
+    let prover = initialize_fulfiller(prover, &client).await.unwrap();
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
     let order_fulfilled = OrderFulfilled::new(fill, root_receipt, assessor_receipt).unwrap();

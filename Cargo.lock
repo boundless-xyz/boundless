@@ -2927,6 +2927,7 @@ dependencies = [
  "boundless-cli",
  "boundless-market",
  "boundless-test-utils",
+ "broker",
  "clap",
  "futures-util",
  "hex",

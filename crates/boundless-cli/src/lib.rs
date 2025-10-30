@@ -110,7 +110,7 @@ impl OrderFulfilled {
 /// 3. Fetch and upload assessor image with fallback URL
 /// 4. Fetch and upload set builder image with fallback URL
 /// 5. Create and return OrderFulfiller
-pub async fn initialize_fulfiller<P, St, R, Si>(
+pub(crate) async fn initialize_fulfiller_from_config<P, St, R, Si>(
     prover_config: &config::ProverConfig,
     client: &boundless_market::Client<P, St, R, Si>,
 ) -> Result<OrderFulfiller>
@@ -147,6 +147,17 @@ where
         )?)
     };
 
+    initialize_fulfiller(prover, client).await
+}
+
+/// Initialize an OrderFulfiller from a provided Prover instance.
+pub async fn initialize_fulfiller<P, St, R, Si>(
+    prover: Arc<dyn Prover + Send + Sync>,
+    client: &boundless_market::Client<P, St, R, Si>,
+) -> Result<OrderFulfiller>
+where
+    P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
+{
     let domain = client.boundless_market.eip712_domain().await?;
 
     let (assessor_image_id_bytes, assessor_url) = client.boundless_market.image_info().await?;
@@ -591,14 +602,15 @@ pub mod test_common;
 mod tests {
     use super::*;
     use alloy::{
+        node_bindings::Anvil,
         primitives::{FixedBytes, Signature, U256},
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-        UNSPECIFIED_SELECTOR,
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements, UNSPECIFIED_SELECTOR,
     };
-    use boundless_test_utils::guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF};
+    use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
+    use boundless_test_utils::market::create_test_ctx;
     use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
     use risc0_ethereum_contracts::selector::Selector;
     use std::sync::Arc;
@@ -630,35 +642,15 @@ mod tests {
     #[tokio::test]
     #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     async fn test_fulfill_with_selector() {
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let client =
+            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
         let signer = PrivateKeySigner::random();
         let (request, signature) =
             setup_proving_request_and_signature(&signer, Some(Selector::groth16_latest())).await;
-
-        let domain = eip712_domain(Address::ZERO, 1);
-
-        // Compute image IDs
-        let set_builder_image_id = compute_image_id(SET_BUILDER_ELF).unwrap();
-        let assessor_image_id = compute_image_id(ASSESSOR_GUEST_ELF).unwrap();
-
-        // Create prover and upload images
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        prover
-            .upload_image(&set_builder_image_id.to_string(), SET_BUILDER_ELF.to_vec())
-            .await
-            .unwrap();
-        prover
-            .upload_image(&assessor_image_id.to_string(), ASSESSOR_GUEST_ELF.to_vec())
-            .await
-            .unwrap();
-
-        let fulfiller = OrderFulfiller::new(
-            prover,
-            set_builder_image_id,
-            assessor_image_id,
-            Address::ZERO,
-            domain,
-        )
-        .expect("failed to create fulfiller");
+        let fulfiller = initialize_fulfiller(prover, &client).await.unwrap();
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }
@@ -666,34 +658,14 @@ mod tests {
     #[tokio::test]
     #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     async fn test_fulfill() {
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let client =
+            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
-
-        let domain = eip712_domain(Address::ZERO, 1);
-
-        // Compute image IDs
-        let set_builder_image_id = compute_image_id(SET_BUILDER_ELF).unwrap();
-        let assessor_image_id = compute_image_id(ASSESSOR_GUEST_ELF).unwrap();
-
-        // Create prover and upload images
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        prover
-            .upload_image(&set_builder_image_id.to_string(), SET_BUILDER_ELF.to_vec())
-            .await
-            .unwrap();
-        prover
-            .upload_image(&assessor_image_id.to_string(), ASSESSOR_GUEST_ELF.to_vec())
-            .await
-            .unwrap();
-
-        let fulfiller = OrderFulfiller::new(
-            prover,
-            set_builder_image_id,
-            assessor_image_id,
-            Address::ZERO,
-            domain,
-        )
-        .expect("failed to create fulfiller");
+        let fulfiller = initialize_fulfiller(prover, &client).await.unwrap();
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }
