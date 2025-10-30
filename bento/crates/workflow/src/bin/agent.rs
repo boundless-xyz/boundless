@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
     tracing::info!("Successful agent startup! Worker type: {task_stream}");
 
     // Start metrics server in background
-    let metrics_port = std::env::var("METRICS_PORT")
+    let metrics_port = std::env::var("PROMETHEUS_METRICS_PORT")
         .unwrap_or_else(|_| "9090".to_string())
         .parse::<u16>()
         .unwrap_or(9090);
