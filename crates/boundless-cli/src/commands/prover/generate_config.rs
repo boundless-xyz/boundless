@@ -25,7 +25,7 @@ use rand::Rng;
 use url::Url;
 
 use super::benchmark::ProverBenchmark;
-use crate::commands::prover::benchmark::{BenchmarkResult};
+use crate::commands::prover::benchmark::BenchmarkResult;
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
