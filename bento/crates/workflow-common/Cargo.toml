@@ -16,3 +16,5 @@ aws-sdk-s3 = { workspace = true }
 bincode = { workspace = true }
 risc0-zkvm = { workspace = true }
 serde = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+strum_macros = { workspace = true }

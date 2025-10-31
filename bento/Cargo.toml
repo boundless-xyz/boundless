@@ -36,6 +36,8 @@ sample-guest-methods = { path = "crates/sample-guest/methods" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sqlx = { version = "0.8", default-features = false }
+strum = { version = "0.27" }
+strum_macros = "0.27"
 taskdb = { path = "crates/taskdb" }
 tempfile = "3.10"
 thiserror = "1.0"

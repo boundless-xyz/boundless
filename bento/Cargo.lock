@@ -7153,6 +7153,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "sqlx",
+ "strum",
  "taskdb",
  "tempfile",
  "tokio",
@@ -7171,6 +7172,8 @@ dependencies = [
  "bincode",
  "risc0-zkvm",
  "serde",
+ "strum",
+ "strum_macros",
 ]
 
 [[package]]

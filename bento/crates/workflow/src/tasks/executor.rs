@@ -17,14 +17,15 @@ use risc0_zkvm::{
 use sqlx::postgres::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
+use strum::AsRefStr;
 use taskdb::planner::{
     Planner,
     task::{Command as TaskCmd, Task},
 };
 use tempfile::NamedTempFile;
 use workflow_common::{
-    AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
-    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
+    CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, ProveReq, ResolveReq,
+    SnarkReq, TaskStream, UnionReq,
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
@@ -424,42 +425,34 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         drop(task_tx);
     });
 
-    let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
+    let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, TaskStream::Aux.as_ref())
         .await
         .context("Failed to get AUX stream")?
         .with_context(|| format!("Customer {} missing aux stream", request.user_id))?;
 
-    let prove_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, PROVE_WORK_TYPE)
-        .await
-        .context("Failed to get GPU Prove stream")?
-        .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
+    let prove_stream =
+        taskdb::get_stream(&agent.db_pool, &request.user_id, TaskStream::Prove.as_ref())
+            .await
+            .context("Failed to get GPU Prove stream")?
+            .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
 
-    let join_stream = if std::env::var("JOIN_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+    let join_stream =
+        taskdb::get_stream(&agent.db_pool, &request.user_id, TaskStream::Join.as_ref())
             .await
             .context("Failed to get GPU Join stream")?
-            .with_context(|| format!("Customer {} missing gpu join stream", request.user_id))?
-    } else {
-        prove_stream
-    };
+            .with_context(|| format!("Customer {} missing gpu join stream", request.user_id))?;
 
-    let union_stream = if std::env::var("UNION_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
+    let union_stream =
+        taskdb::get_stream(&agent.db_pool, &request.user_id, TaskStream::Union.as_ref())
             .await
             .context("Failed to get GPU Union stream")?
-            .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?
-    } else {
-        prove_stream
-    };
+            .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?;
 
-    let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
-        taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
+    let coproc_stream =
+        taskdb::get_stream(&agent.db_pool, &request.user_id, TaskStream::Coproc.as_ref())
             .await
             .context("Failed to get GPU Coproc stream")?
-            .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?
-    } else {
-        prove_stream
-    };
+            .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?;
 
     let job_id_copy = *job_id;
     let pool_copy = agent.db_pool.clone();

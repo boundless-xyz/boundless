@@ -6,9 +6,7 @@
 use anyhow::{Context, Result};
 use sqlx::PgPool;
 use uuid::Uuid;
-use workflow_common::{
-    AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, ExecutorResp, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
-};
+use workflow_common::{ExecutorResp, TaskStream};
 
 /// Extract reserved value from api_key string
 /// Format: "v1:reserved:N" where N is a positive number (e.g., "v1:reserved:5" or "v1:reserved:10")
@@ -28,62 +26,66 @@ pub async fn get_or_create_streams(
     user_id: &str,
 ) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid)> {
     let reserved = extract_reserved(user_id);
-    let aux_stream = if let Some(res) = taskdb::get_stream(pool, user_id, AUX_WORK_TYPE)
+    let aux_stream = if let Some(res) = taskdb::get_stream(pool, user_id, TaskStream::Aux.as_ref())
         .await
         .context("Failed to get aux stream")?
     {
         res
     } else {
         tracing::info!("Creating a new aux stream for key: {user_id}");
-        taskdb::create_stream(pool, AUX_WORK_TYPE, reserved, 1.0, user_id)
+        taskdb::create_stream(pool, TaskStream::Aux.as_ref(), reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb aux stream")?
     };
 
-    let exec_stream = if let Some(res) = taskdb::get_stream(pool, user_id, EXEC_WORK_TYPE)
-        .await
-        .context("Failed to get exec stream")?
+    let exec_stream = if let Some(res) =
+        taskdb::get_stream(pool, user_id, TaskStream::Execute.as_ref())
+            .await
+            .context("Failed to get exec stream")?
     {
         res
     } else {
         tracing::info!("Creating a new cpu stream for key: {user_id}");
-        taskdb::create_stream(pool, EXEC_WORK_TYPE, reserved, 1.0, user_id)
+        taskdb::create_stream(pool, TaskStream::Execute.as_ref(), reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb exec stream")?
     };
 
-    let gpu_prove_stream = if let Some(res) = taskdb::get_stream(pool, user_id, PROVE_WORK_TYPE)
-        .await
-        .context("Failed to get gpu prove stream")?
+    let gpu_prove_stream = if let Some(res) =
+        taskdb::get_stream(pool, user_id, TaskStream::Prove.as_ref())
+            .await
+            .context("Failed to get gpu prove stream")?
     {
         res
     } else {
         tracing::info!("Creating a new gpu stream for key: {user_id}");
-        taskdb::create_stream(pool, PROVE_WORK_TYPE, reserved, 1.0, user_id)
+        taskdb::create_stream(pool, TaskStream::Prove.as_ref(), reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu prove stream")?
     };
 
-    let gpu_coproc_stream = if let Some(res) = taskdb::get_stream(pool, user_id, COPROC_WORK_TYPE)
-        .await
-        .context("Failed to get gpu prove stream")?
+    let gpu_coproc_stream = if let Some(res) =
+        taskdb::get_stream(pool, user_id, TaskStream::Coproc.as_ref())
+            .await
+            .context("Failed to get gpu prove stream")?
     {
         res
     } else {
         tracing::info!("Creating a new gpu stream for key: {user_id}");
-        taskdb::create_stream(pool, COPROC_WORK_TYPE, reserved, 1.0, user_id)
+        taskdb::create_stream(pool, TaskStream::Coproc.as_ref(), reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu coproc stream")?
     };
 
-    let gpu_join_stream = if let Some(res) = taskdb::get_stream(pool, user_id, JOIN_WORK_TYPE)
-        .await
-        .context("Failed to get gpu join stream")?
+    let gpu_join_stream = if let Some(res) =
+        taskdb::get_stream(pool, user_id, TaskStream::Join.as_ref())
+            .await
+            .context("Failed to get gpu join stream")?
     {
         res
     } else {
         tracing::info!("Creating a new gpu join stream for key: {user_id}");
-        taskdb::create_stream(pool, JOIN_WORK_TYPE, reserved, 1.0, user_id)
+        taskdb::create_stream(pool, TaskStream::Join.as_ref(), reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu join stream")?
     };

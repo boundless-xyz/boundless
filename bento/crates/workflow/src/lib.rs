@@ -22,15 +22,12 @@ use std::{
 };
 use taskdb::ReadyTask;
 use tokio::time;
-use workflow_common::{COPROC_WORK_TYPE, TaskType};
+use workflow_common::{TaskStream, TaskType};
 
 mod redis;
 mod tasks;
 
-pub use workflow_common::{
-    AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
-    SNARK_TIMEOUT_DEFAULT, s3::S3Client,
-};
+pub use workflow_common::{SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT, s3::S3Client};
 
 /// Workflow agent
 ///
@@ -43,7 +40,7 @@ pub struct Args {
     ///
     /// ex: `cpu`, `prove`, `join`, `snark`, etc
     #[arg(env, short, long)]
-    pub task_stream: String,
+    pub task_streams: String,
 
     /// Polling internal between tasks
     ///
@@ -179,6 +176,7 @@ pub struct Agent {
     prover: Option<Rc<dyn ProverServer>>,
     /// risc0 verifier context
     verifier_ctx: VerifierContext,
+    task_streams: Vec<TaskStream>,
 }
 
 impl Agent {
@@ -191,6 +189,15 @@ impl Agent {
     ///
     /// Starts any connection pools and establishes the agents configs
     pub async fn new(args: Args) -> Result<Self> {
+        // split task streams by comma
+        let task_streams: Vec<TaskStream> = args
+            .task_streams
+            .split(',')
+            .map(|s| s.trim())
+            .map(|s| s.parse().expect("Failed to parse task types"))
+            .collect();
+        let needs_prover = task_streams.iter().any(|ts| ts.needs_prover());
+
         // Validate POVW environment variables at startup
         if let Ok(log_id) = std::env::var("POVW_LOG_ID") {
             risc0_binfmt::PovwLogId::from_str(&log_id)
@@ -217,10 +224,7 @@ impl Agent {
         .context("Failed to initialize s3 client / bucket")?;
 
         let verifier_ctx = VerifierContext::default();
-        let prover = if args.task_stream == PROVE_WORK_TYPE
-            || args.task_stream == JOIN_WORK_TYPE
-            || args.task_stream == COPROC_WORK_TYPE
-        {
+        let prover = if needs_prover {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts).context("Failed to initialize prover server")?;
             Some(prover)
@@ -236,6 +240,7 @@ impl Agent {
             args,
             prover,
             verifier_ctx,
+            task_streams,
         })
     }
 
@@ -280,7 +285,7 @@ impl Agent {
         }
 
         // Enable stuck task maintenance for aux workers
-        if self.args.task_stream == AUX_WORK_TYPE {
+        if self.task_streams.contains(&TaskStream::Aux) {
             let term_sig_copy = term_sig.clone();
             let db_pool_copy = self.db_pool.clone();
             let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
@@ -319,8 +324,11 @@ impl Agent {
             });
         }
 
+        let task_streams: Vec<String> =
+            self.task_streams.iter().map(TaskStream::to_string).collect();
+
         while !term_sig.load(Ordering::Relaxed) {
-            let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
+            let task = taskdb::request_work_multi(&self.db_pool, &task_streams)
                 .await
                 .context("Failed to request_work")?;
             let Some(task) = task else {

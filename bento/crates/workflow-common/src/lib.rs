@@ -3,28 +3,58 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
+use strum::{AsRefStr, Display, EnumString};
+
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
 pub mod s3;
 
-/// Aux worker stream identifier
-pub const AUX_WORK_TYPE: &str = "aux";
+// /// Aux worker stream identifier
+// pub const AUX_WORK_TYPE: &str = "aux";
 
-/// Executor worker stream identifier
-pub const EXEC_WORK_TYPE: &str = "exec";
+// /// Executor worker stream identifier
+// pub const EXEC_WORK_TYPE: &str = "exec";
 
-/// prove+lift worker stream identifier
-pub const PROVE_WORK_TYPE: &str = "prove";
+// /// prove+lift worker stream identifier
+// pub const PROVE_WORK_TYPE: &str = "prove";
 
-/// keccak/coproc worker stream identifier
-pub const COPROC_WORK_TYPE: &str = "coproc";
+// /// keccak/coproc worker stream identifier
+// pub const COPROC_WORK_TYPE: &str = "coproc";
+
+// /// join worker stream identifier
+// pub const JOIN_WORK_TYPE: &str = "join";
+
+// /// union worker stream identifier
+// pub const UNION_WORK_TYPE: &str = "union";
 
 /// Keccak receipts directory for job dir
 pub const KECCAK_RECEIPT_PATH: &str = "keccak_receipts";
 
-/// join worker stream identifier
-pub const JOIN_WORK_TYPE: &str = "join";
+#[derive(Debug, Display, EnumString, AsRefStr, Clone, Copy, PartialEq, Eq)]
+pub enum TaskStream {
+    #[strum(serialize = "aux")]
+    Aux,
+    #[strum(serialize = "exec")]
+    Execute,
+    #[strum(serialize = "prove")]
+    Prove,
+    #[strum(serialize = "join")]
+    Join,
+    #[strum(serialize = "union")]
+    Union,
+    #[strum(serialize = "coproc")]
+    Coproc,
+}
+
+impl TaskStream {
+    pub fn needs_prover(&self) -> bool {
+        matches!(
+            self,
+            TaskStream::Prove | TaskStream::Join | TaskStream::Union | TaskStream::Coproc
+        )
+    }
+}
 
 pub const SNARK_RETRIES_DEFAULT: i32 = 3;
 pub const SNARK_TIMEOUT_DEFAULT: i32 = 60;
@@ -170,23 +200,6 @@ pub enum TaskType {
     Keccak(KeccakReq),
     /// Union task
     Union(UnionReq),
-}
-
-impl TaskType {
-    /// Converts a task type to its string representation
-    #[must_use]
-    pub fn to_job_type_str(&self) -> String {
-        match &self {
-            Self::Executor(_) => "executor".into(),
-            Self::Prove(_) => "prove-lift".into(),
-            Self::Join(_) => "join".into(),
-            Self::Resolve(_) => "resolve".into(),
-            Self::Finalize(_) => "finalize".into(),
-            Self::Snark(_) => "snark".into(),
-            Self::Keccak(_) => "keccak".into(),
-            Self::Union(_) => "union".into(),
-        }
-    }
 }
 
 #[cfg(test)]

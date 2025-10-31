@@ -184,9 +184,23 @@ pub async fn request_work(
     pool: &PgPool,
     worker_type: &str,
 ) -> Result<Option<ReadyTask>, TaskDbErr> {
-    let res = sqlx::query_as!(ReadyTaskRaw, "SELECT * FROM request_work($1)", worker_type)
-        .fetch_optional(pool)
-        .await?;
+    let worker_types = &[worker_type];
+    let res =
+        sqlx::query_as!(ReadyTaskRaw, "SELECT * FROM request_work($1)", worker_types as &[&str])
+            .fetch_optional(pool)
+            .await?;
+
+    if let Some(task) = res { Ok(task.get()) } else { Ok(None) }
+}
+
+pub async fn request_work_multi(
+    pool: &PgPool,
+    worker_types: &[String],
+) -> Result<Option<ReadyTask>, TaskDbErr> {
+    let res =
+        sqlx::query_as!(ReadyTaskRaw, "SELECT * FROM request_work($1)", worker_types as &[String])
+            .fetch_optional(pool)
+            .await?;
 
     if let Some(task) = res { Ok(task.get()) } else { Ok(None) }
 }
