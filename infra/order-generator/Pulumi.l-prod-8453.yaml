@@ -2,7 +2,7 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEeNvekCQ9dM5taQDHpN1l8AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNDIM1SGm/ictEijdAgEQgDvsCQZr5cfGenUgQsK1qfHoCx+vB9/lmSuxYUKXFA9gASVTl8tNuy8hMC6jn0Lwbp6LVndEkYbzYe9eYg==
 config:
   order-generator-base:ETH_RPC_URL:
-    secure: v1:UWKahVYfQMHlSj/5:srW5XQ49v8PXiu+7CmiQE3IB7UzRSE924iHHB/KIWnvvFYdGnMoqFXH3If+GiIi2SkwVI8FOQw4k4dQNWYSRTB2vD0dMJXyOA5AN
+    secure: v1:x/TtO7El9l7huYbi:ThHbD7xB2UClhMtuVS20evJd9AtYhEOXPs/FRnka+YxDVWlAbh0f+ptv03EVCCLUz/HlV7VOmHQyFHIO4wxagXtne9YDcNfMe8dHhUJ958fb5K+OgMYoCpuAV4Dsl/vTuLrJL+UmnoMere0BcLfPzg==
   order-generator-base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   order-generator-onchain:PRIVATE_KEY:
     secure: v1:rmBL4NkfXRYo6SLG:ImsHzoSfEtXMVctmwZB0QnlTCRux+1AiejvN9ut8MKEwTt/bD+WaoOGMpdbf6gM52y/6kLr5lkD0E5qnpL32qYUUvSTie2TVWHO/hozpIao=
@@ -23,8 +23,8 @@ config:
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: info
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-offchain:MAX_PRICE_PER_MCYCLE: "0.00000002"
-  order-generator-onchain:MAX_PRICE_PER_MCYCLE: "0.000000025"
+  order-generator-offchain:MAX_PRICE_PER_MCYCLE: "0.00000003"
+  order-generator-onchain:MAX_PRICE_PER_MCYCLE: "0.00000003"
   order-generator-base:ORDER_STREAM_URL: https://base-mainnet.boundless.network
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_JWT:

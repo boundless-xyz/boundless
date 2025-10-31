@@ -51,4 +51,4 @@ config:
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-base:ETH_RPC_URL:
-    secure: v1:YP+CF2BqS/NX4+su:z/scpjNuzYkYYISmGxH9BEq3AO5gwfeR+v3EdCuIfbJWXxwPpc7mZtd/H6v6QeL/jZQt+1Nn/nYgMTJMDeRsB39sNO8v2bG8QZQO
+    secure: v1:7O6m336P0g3ziaFC:CTmzggzb9qhX5GPZsSc8HfIoYW0Ef07gVMvI2xh3Udnz/z7b4LRezN8oLRg1IP01VakRSuXV2FC+TaFyxMLumMqaYL9Fe3EcUbyag4fGU/+U8GpjJfaMvAqiombg/xjREqL9LFJKANB1qTo+2CoQMw==

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, process::Command};
 
 // Contracts to copy to the artificats folder for. If the contract is a directory, all .sol files in the directory.
 const CONTRACTS_TO_COPY: [&str; 3] = ["IBoundlessMarket.sol", "IHitPoints.sol", "types"];
@@ -285,5 +285,27 @@ fn main() {
 
     if target_os != "zkvm" {
         generate_contracts_rust_file();
+
+        if Path::new("../../.git").exists() {
+            println!("cargo:rerun-if-changed=.git/HEAD");
+            println!("cargo:rerun-if-changed=.git/refs/heads");
+
+            // Fetch short Git commit hash
+            let output = Command::new("git").args(["rev-parse", "--short", "HEAD"]).output();
+
+            match output {
+                Ok(output) if output.status.success() => {
+                    let git_hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    println!("cargo:rustc-env=BOUNDLESS_GIT_HASH={}", git_hash);
+                }
+                _ => {
+                    println!("cargo:warning=Failed to get Git hash; using 'unknown'");
+                    println!("cargo:rustc-env=BOUNDLESS_GIT_HASH=unknown");
+                }
+            }
+        } else {
+            println!("cargo:warning=No .git dir; setting BOUNDLESS_GIT_HASH=unknown");
+            println!("cargo:rustc-env=BOUNDLESS_GIT_HASH=unknown");
+        }
     }
 }

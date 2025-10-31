@@ -36,6 +36,10 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         bail!("failed to create groth16 receipt");
     }
 
+    receipt
+        .verify_integrity_with_context(&agent.verifier_ctx)
+        .context("Failed to verify compressed snark receipt")?;
+
     let key = &format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
     tracing::debug!("Uploading snark receipt to S3: {key}");
 

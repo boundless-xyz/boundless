@@ -58,6 +58,9 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
         .context("Failed to set redis key for union receipt")?;
 
     tracing::debug!("Union complete {job_id} - {}", request.left);
+    conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key])
+        .await
+        .context("Failed to delete union receipt keys")?;
 
     Ok(())
 }

@@ -185,9 +185,7 @@ where
             provider.clone(),
             provider.default_signer_address(),
         );
-        if let Some(txn_timeout) = txn_timeout_opt {
-            market = market.with_timeout(Duration::from_secs(txn_timeout));
-        }
+        market = market.with_timeout(Duration::from_secs(txn_timeout_opt));
         {
             let config = config.lock_all()?;
 
@@ -875,7 +873,7 @@ where
                             OrderMonitorConfig {
                                 min_deadline: config.market.min_deadline,
                                 peak_prove_khz: config.market.peak_prove_khz,
-                                max_concurrent_proofs: config.market.max_concurrent_proofs,
+                                max_concurrent_proofs: Some(config.market.max_concurrent_proofs),
                                 additional_proof_cycles: config.market.additional_proof_cycles,
                                 batch_buffer_time_secs: config.batcher.block_deadline_buffer_secs,
                                 order_commitment_priority: config.market.order_commitment_priority,
@@ -1347,7 +1345,7 @@ pub(crate) mod tests {
         }
 
         // Set unlimited capacity in config
-        ctx.config.load_write().unwrap().market.max_concurrent_proofs = None;
+        ctx.config.load_write().unwrap().market.max_concurrent_proofs = u32::MAX;
 
         // Process all orders with unlimited capacity
         let filtered_orders = ctx
@@ -1585,7 +1583,7 @@ pub(crate) mod tests {
     #[traced_test]
     async fn test_multiple_orders_khz_capacity() {
         let mut ctx = setup_om_test_context().await;
-        ctx.config.load_write().unwrap().market.max_concurrent_proofs = None;
+        ctx.config.load_write().unwrap().market.max_concurrent_proofs = u32::MAX;
 
         // Create multiple orders with increasing cycle counts to test gas allocation
         let mut orders = Vec::new();

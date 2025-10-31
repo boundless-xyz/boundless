@@ -93,6 +93,10 @@ html {
   @apply scroll-smooth;
 }
 
+:root {
+  --vocs-content_width: calc(85ch + (var(--vocs-content_horizontalPadding) * 2));
+}
+
 .vocs_Sidebar_section:first-child {
   @apply sticky top-[61px] bg-[var(--vocs-color_backgroundDark)];
 }

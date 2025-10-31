@@ -29,3 +29,5 @@ config:
   distributor:STAKE_TOP_UP_AMOUNT: "10"
   distributor:ETH_RPC_URL:
     secure: v1:E1WuDwMATaOQ6GEE:y8KpEhqaQwjYWkPUmoYNGjuJZTMXmoXcnGyZcECvwkoHjbtA5og5ShcIRcEw2InPOagemm79RIvUAKIWlRthzqBlPXY6gL9eRxwQ
+  distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.5"
+  distributor:DISTRIBUTOR_STAKE_ALERT_THRESHOLD: "200.0"

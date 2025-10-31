@@ -58,29 +58,7 @@ export = () => {
       bucket: bucket.id,
       policy: domain
         ? pulumi.all([bucket.arn, originAccessIdentity!.iamArn]).apply(([arn, oaiArn]: [string, string]) =>
-            pulumi.jsonStringify({
-              Version: '2012-10-17',
-              Statement: [
-                {
-                  Sid: 'PublicReadGetObject',
-                  Effect: 'Allow',
-                  Principal: '*',
-                  Action: 's3:GetObject',
-                  Resource: pulumi.interpolate`${arn}/*`,
-                },
-                {
-                  Sid: 'CloudFrontReadGetObject',
-                  Effect: 'Allow',
-                  Principal: {
-                    AWS: oaiArn,
-                  },
-                  Action: 's3:GetObject',
-                  Resource: pulumi.interpolate`${arn}/*`,
-                },
-              ],
-            })
-          )
-        : pulumi.jsonStringify({
+          pulumi.jsonStringify({
             Version: '2012-10-17',
             Statement: [
               {
@@ -88,10 +66,32 @@ export = () => {
                 Effect: 'Allow',
                 Principal: '*',
                 Action: 's3:GetObject',
-                Resource: pulumi.interpolate`${bucket.arn}/*`,
+                Resource: pulumi.interpolate`${arn}/*`,
+              },
+              {
+                Sid: 'CloudFrontReadGetObject',
+                Effect: 'Allow',
+                Principal: {
+                  AWS: oaiArn,
+                },
+                Action: 's3:GetObject',
+                Resource: pulumi.interpolate`${arn}/*`,
               },
             ],
-          }),
+          })
+        )
+        : pulumi.jsonStringify({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Sid: 'PublicReadGetObject',
+              Effect: 'Allow',
+              Principal: '*',
+              Action: 's3:GetObject',
+              Resource: pulumi.interpolate`${bucket.arn}/*`,
+            },
+          ],
+        }),
     },
     {
       dependsOn: [
@@ -126,10 +126,23 @@ export = () => {
     { dependsOn: [bucketPolicy] }
   );
 
+  new aws.s3.BucketObject(
+    `${serviceName}-boundless-recommended-priority-list-extra-large`,
+    {
+      bucket: bucket.id,
+      key: 'boundless-recommended-priority-list.extra-large.json',
+      source: new pulumi.asset.FileAsset('../../requestor-lists/boundless-priority-list.extra-large.json'),
+      contentType: 'application/json',
+      cacheControl: 'no-cache, no-store, must-revalidate',
+    },
+    { dependsOn: [bucketPolicy] }
+  );
+
   let outputs: any = {
     bucketName: bucket.id,
     listUrl: pulumi.interpolate`https://${bucket.bucketRegionalDomainName}/boundless-recommended-priority-list.standard.json`,
     listUrlLarge: pulumi.interpolate`https://${bucket.bucketRegionalDomainName}/boundless-recommended-priority-list.large.json`,
+    listUrlExtraLarge: pulumi.interpolate`https://${bucket.bucketRegionalDomainName}/boundless-recommended-priority-list.extra-large.json`,
   };
 
   // If custom domain is configured, create ACM cert and CloudFront distribution
@@ -220,6 +233,7 @@ export = () => {
       cloudfrontDistributionId: distribution.id,
       customDomainUrl: pulumi.interpolate`https://${domain}/boundless-recommended-priority-list.standard.json`,
       customDomainUrlLarge: pulumi.interpolate`https://${domain}/boundless-recommended-priority-list.large.json`,
+      customDomainUrlExtraLarge: pulumi.interpolate`https://${domain}/boundless-recommended-priority-list.extra-large.json`,
     };
   }
 

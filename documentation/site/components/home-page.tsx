@@ -6,6 +6,7 @@ const navigation = [
     links: [
       ["Build a Program", "/developers/tutorials/build"],
       ["Proof Lifecycle", "/developers/proof-lifecycle"],
+      ["Set up the Auction", "/developers/tutorials/auction"],
       ["Request a Proof", "/developers/tutorials/request"],
       ["Tracking a Request", "developers/tutorials/tracking"],
       ["Use a Proof", "developers/tutorials/use"],

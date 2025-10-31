@@ -28,10 +28,20 @@ use boundless_market::{
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
 use tracing_subscriber::fmt::format::FmtSpan;
+use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+
+    // Backward compatibility: allow RPC_URL when PROVER_RPC_URL is not set
+    if std::env::var("PROVER_RPC_URL").is_err() {
+        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
+            args.rpc_url =
+                Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
+            tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+        }
+    }
     let config = Config::load(&args.config_file).await?;
 
     if args.log_json {
@@ -48,7 +58,17 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let wallet = EthereumWallet::from(args.private_key.clone());
+    // Handle private key fallback: PROVER_PRIVATE_KEY -> PRIVATE_KEY
+    let private_key = args
+        .private_key
+        .clone()
+        .or_else(|| std::env::var("PRIVATE_KEY").ok().and_then(|key| key.parse().ok()))
+        .context(
+            "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
+        )?;
+    args.private_key = Some(private_key.clone());
+
+    let wallet = EthereumWallet::from(private_key.clone());
 
     let retry_layer = RetryBackoffLayer::new_with_policy(
         args.rpc_retry_max,
@@ -98,7 +118,7 @@ async fn main() -> Result<()> {
 
         tracing::info!("pre-depositing {deposit_amount} stake tokens into the market contract");
         boundless_market
-            .deposit_collateral_with_permit(*deposit_amount, &args.private_key)
+            .deposit_collateral_with_permit(*deposit_amount, &private_key)
             .await
             .context("Failed to deposit to market")?;
     }

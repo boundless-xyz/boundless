@@ -113,7 +113,7 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd documentation && bun run check
+    cd documentation && bun install && bun run check
     dprint check
     forge fmt --check
 
@@ -251,6 +251,7 @@ localnet action="up": check-deps
         sed -i.bak "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
         sed -i.bak "s/^export HIT_POINTS_ADDRESS=.*/export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
         sed -i.bak "s/^export RPC_URL=.*/export RPC_URL=\"http:\/\/localhost:$ANVIL_PORT\"/" .env.localnet
+        sed -i.bak "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
         
@@ -294,13 +295,13 @@ localnet action="up": check-deps
                 --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
                 --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
             
-            echo "Depositing stake using boundless CLI..."
+            echo "Depositing collateral using boundless CLI..."
             RPC_URL=http://localhost:$ANVIL_PORT \
             PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
             BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
             SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
             VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
-            ./target/debug/boundless account deposit-stake 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
+            ./target/debug/boundless account deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
             
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
             if [ ! -f broker.toml ]; then
@@ -415,9 +416,12 @@ bento action="up" env_file="" compose_flags="" detached="true":
         exit 1
     fi
 
-# Run the broker service with a bento cluster for proving.
-broker action="up" env_file="" detached="true":
+# Run all components of a boundless prover (bento, broker, miner)
+# Set BOUNDLESS_MINING=false to disable mining (e.g., BOUNDLESS_MINING=false just prover)
+prover action="up" env_file="" detached="true":
     #!/usr/bin/env bash
+    BOUNDLESS_MINING="${BOUNDLESS_MINING:-true}"
+
     # Check if broker.toml exists, if not create it from template
     if [ ! -f broker.toml ]; then
         echo "Creating broker.toml from template..."
@@ -425,38 +429,26 @@ broker action="up" env_file="" detached="true":
         echo "broker.toml created successfully."
     fi
 
-    just bento "{{action}}" "{{env_file}}" "--profile broker" "{{detached}}"
-
-# Run the mining service with a bento cluster
-mine action="up":
-    #!/usr/bin/env bash
-    if ! command -v docker &> /dev/null; then
-        echo "Error: Docker command is not available. Please make sure you have docker in your PATH."
-        exit 1
-    fi
-
-    if ! docker compose version &> /dev/null; then
-        echo "Error: Docker compose command is not available. Please make sure you have docker in your PATH."
-        exit 1
-    fi
-
-    if [ "{{action}}" = "up" ]; then
-        echo "Starting mining service"
-        docker compose --profile miner up -d --build miner
-        echo "Mining service has been started."
-    elif [ "{{action}}" = "down" ]; then
-        echo "Stopping mining service"
-        if docker compose --profile miner stop miner; then
-            echo "Mining service has been stopped."
-        else
-            echo "Error: Failed to stop mining service."
-            exit 1
-        fi
+    if [ "{{action}}" = "logs" ]; then
+        # Ignore mining process logs by default
+        PROFILE_FLAGS="--profile broker"
+    elif [ "{{action}}" = "down" ] || [ "{{action}}" = "clean" ]; then
+        # Always include miner profile when shutting down to ensure no lingering mining process
+        PROFILE_FLAGS="--profile broker --profile miner"
+    elif [ "$BOUNDLESS_MINING" = "false" ]; then
+        PROFILE_FLAGS="--profile broker"
     else
-        echo "Unknown action: {{action}}"
-        echo "Available actions: up, down"
-        exit 1
+        PROFILE_FLAGS="--profile broker --profile miner"
     fi
+
+    just bento "{{action}}" "{{env_file}}" "$PROFILE_FLAGS" "{{detached}}"
+
+# Deprecated: Use 'just prover' instead
+broker action="up" env_file="" detached="true":
+    #!/usr/bin/env bash
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
+    just prover "{{action}}" "{{env_file}}" "{{detached}}"
+    echo "Warning: 'just broker' is deprecated. Use 'just prover' instead." >&2
 
 # Run the setup script
 bento-setup:

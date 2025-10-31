@@ -285,7 +285,7 @@ pub async fn create_test_ctx_with_rpc_url(
 
     Ok(TestCtx {
         deployment: Deployment::builder()
-            .chain_id(anvil.chain_id())
+            .market_chain_id(anvil.chain_id())
             .boundless_market_address(boundless_market_addr)
             .verifier_router_address(verifier_addr)
             .set_verifier_address(set_verifier_addr)

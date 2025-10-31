@@ -104,6 +104,14 @@ pub(crate) async fn websocket_handler(
         );
     }
 
+    // Parse message to log version and git hash
+    let version_info = auth_msg.version_info();
+    tracing::info!(
+        "Client {client_addr} connected with version: {}, git hash: {}",
+        version_info.version,
+        version_info.git_hash
+    );
+
     // Rotate the customer nonce
     state.db.set_nonce(client_addr).await.context("Failed to update customer nonce")?;
 
