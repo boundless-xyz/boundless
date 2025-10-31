@@ -31,74 +31,103 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
     let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&receipt)?;
 
-    let mut assumptions_len: Option<u64> = None;
-    if conditional_receipt.claim.clone().as_value()?.output.is_some() {
-        if let Some(guest_output) =
-            conditional_receipt.claim.clone().as_value()?.output.as_value()?
-        {
-            if !guest_output.assumptions.is_empty() {
-                let assumptions = guest_output
-                    .assumptions
-                    .as_value()
-                    .context("Failed unwrap the assumptions of the guest output")?
-                    .iter();
+    // Step 1: Extract assumption claims (no prover needed yet)
+    let (assumption_claims, assumptions_len) = {
+        let mut assumptions_len: Option<u64> = None;
+        let mut assumption_claims: Vec<String> = Vec::new();
 
-                tracing::debug!("Resolving {} assumption(s)", assumptions.len());
-                assumptions_len =
-                    Some(assumptions.len().try_into().context("Failed to convert to u64")?);
+        if conditional_receipt.claim.clone().as_value()?.output.is_some() {
+            if let Some(guest_output) =
+                conditional_receipt.claim.clone().as_value()?.output.as_value()?
+            {
+                if !guest_output.assumptions.is_empty() {
+                    let assumptions = guest_output
+                        .assumptions
+                        .as_value()
+                        .context("Failed unwrap the assumptions of the guest output")?
+                        .iter();
 
-                let mut union_claim = String::new();
-                if let Some(idx) = request.union_max_idx {
-                    let union_root_receipt_key =
-                        format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{idx}");
-                    tracing::debug!(
-                        "Deserializing union_root_receipt_key: {union_root_receipt_key}"
-                    );
-                    let union_receipt: Vec<u8> = conn.get(&union_root_receipt_key).await?;
-                    let union_receipt: SuccinctReceipt<Unknown> =
-                        deserialize_obj(&union_receipt)
-                            .context("Failed to deserialize to SuccinctReceipt<Unknown> type")?;
-                    union_claim = union_receipt.claim.digest().to_string();
+                    tracing::debug!("Resolving {} assumption(s)", assumptions.len());
+                    assumptions_len =
+                        Some(assumptions.len().try_into().context("Failed to convert to u64")?);
 
-                    // Resolve union receipt
-                    tracing::debug!("Resolving union claim digest: {union_claim}");
-                    conditional_receipt = agent
-                        .prover
-                        .as_ref()
-                        .context("Missing prover from resolve task")?
-                        .resolve(&conditional_receipt, &union_receipt)
-                        .context("Failed to resolve the union receipt")?;
+                    // Collect all assumption claims
+                    assumption_claims = assumptions
+                        .map(|a| a.as_value().map(|v| v.claim.to_string()))
+                        .collect::<Result<Vec<_>, _>>()?;
                 }
-
-                for assumption in assumptions {
-                    let assumption_claim = assumption.as_value()?.claim.to_string();
-                    if assumption_claim.eq(&union_claim) {
-                        tracing::debug!("Skipping already resolved union claim: {union_claim}");
-                        continue;
-                    }
-                    let assumption_key = format!("{receipts_key}:{assumption_claim}");
-                    tracing::debug!("Deserializing assumption with key: {assumption_key}");
-                    let assumption_bytes: Vec<u8> = conn
-                        .get(&assumption_key)
-                        .await
-                        .context("corroborating receipt not found: key {assumption_key}")?;
-
-                    let assumption_receipt: SuccinctReceipt<Unknown> =
-                        deserialize_obj(&assumption_bytes).with_context(|| {
-                            format!("could not deserialize assumption receipt: {assumption_key}")
-                        })?;
-
-                    // Resolve
-                    conditional_receipt = agent
-                        .prover
-                        .as_ref()
-                        .context("Missing prover from resolve task")?
-                        .resolve(&conditional_receipt, &assumption_receipt)
-                        .context("Failed to resolve the conditional receipt")?;
-                }
-                tracing::debug!("Resolve complete for job_id: {job_id}");
             }
         }
+
+        (assumption_claims, assumptions_len)
+    };
+
+    // Step 2: Fetch all receipts from Redis (no prover held)
+    let (union_receipt_opt, assumption_receipts) = {
+        let mut union_receipt_opt: Option<SuccinctReceipt<Unknown>> = None;
+        let mut assumption_receipts: Vec<SuccinctReceipt<Unknown>> = Vec::new();
+        let mut union_claim = String::new();
+
+        // Fetch union receipt if needed
+        if let Some(idx) = request.union_max_idx {
+            let union_root_receipt_key =
+                format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{idx}");
+            tracing::debug!(
+                "Deserializing union_root_receipt_key: {union_root_receipt_key}"
+            );
+            let union_receipt_bytes: Vec<u8> = conn.get(&union_root_receipt_key).await?;
+            let union_receipt: SuccinctReceipt<Unknown> =
+                deserialize_obj(&union_receipt_bytes)
+                    .context("Failed to deserialize to SuccinctReceipt<Unknown> type")?;
+            union_claim = union_receipt.claim.digest().to_string();
+            union_receipt_opt = Some(union_receipt);
+        }
+
+        // Fetch all assumption receipts
+        for assumption_claim in &assumption_claims {
+            if assumption_claim.eq(&union_claim) {
+                tracing::debug!("Skipping already resolved union claim: {union_claim}");
+                continue;
+            }
+            let assumption_key = format!("{receipts_key}:{assumption_claim}");
+            tracing::debug!("Deserializing assumption with key: {assumption_key}");
+            let assumption_bytes: Vec<u8> = conn
+                .get(&assumption_key)
+                .await
+                .context("corroborating receipt not found: key {assumption_key}")?;
+
+            let assumption_receipt: SuccinctReceipt<Unknown> =
+                deserialize_obj(&assumption_bytes).with_context(|| {
+                    format!("could not deserialize assumption receipt: {assumption_key}")
+                })?;
+            assumption_receipts.push(assumption_receipt);
+        }
+
+        (union_receipt_opt, assumption_receipts)
+    };
+
+    // Step 3: Perform all prover operations without awaits
+    if assumptions_len.is_some() {
+        let prover = agent.create_prover();
+
+        // Resolve union receipt if present
+        if let Some(union_receipt) = &union_receipt_opt {
+            let union_claim = union_receipt.claim.digest().to_string();
+            tracing::debug!("Resolving union claim digest: {union_claim}");
+            conditional_receipt = prover
+                .resolve(&conditional_receipt, union_receipt)
+                .context("Failed to resolve the union receipt")?;
+        }
+
+        // Resolve all assumption receipts
+        for assumption_receipt in &assumption_receipts {
+            conditional_receipt = prover
+                .resolve(&conditional_receipt, assumption_receipt)
+                .context("Failed to resolve the conditional receipt")?;
+        }
+
+        drop(prover);
+        tracing::debug!("Resolve complete for job_id: {job_id}");
     }
 
     // Write out the resolved receipt

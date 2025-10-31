@@ -24,21 +24,24 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
 
     tracing::debug!("performing identity predicate on receipt, {job_id}");
 
-    let opts = ProverOpts::groth16();
-    let snark_receipt = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from resolve task")?
-        .compress(&opts, &receipt)
-        .context("groth16 compress failed")?;
+    let snark_receipt = {
+        let verifier_ctx = agent.create_verifier_ctx();
+        let prover = agent.create_prover();
+        let opts = ProverOpts::groth16();
+        let snark_receipt = prover
+            .compress(&opts, &receipt)
+            .context("groth16 compress failed")?;
 
-    if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
-        bail!("failed to create groth16 receipt");
-    }
+        if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
+            bail!("failed to create groth16 receipt");
+        }
 
-    receipt
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify compressed snark receipt")?;
+        receipt
+            .verify_integrity_with_context(&verifier_ctx)
+            .context("Failed to verify compressed snark receipt")?;
+
+        snark_receipt
+    };
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
     tracing::debug!("Uploading snark receipt to S3: {key}");

@@ -10,10 +10,9 @@
 use crate::redis::RedisPool;
 use anyhow::{Context, Result};
 use clap::Parser;
-use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
+use risc0_zkvm::{ProverOpts, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
-    rc::Rc,
     str::FromStr,
     sync::{
         Arc,
@@ -21,7 +20,7 @@ use std::{
     },
 };
 use taskdb::ReadyTask;
-use tokio::time;
+use tokio::{sync::Semaphore, time};
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
 
 mod redis;
@@ -161,6 +160,12 @@ pub struct Args {
     /// How often to clean up completed jobs
     #[clap(env, long, default_value_t = 60 * 60)]
     cleanup_poll_interval: u64,
+
+    /// Maximum number of concurrent prove tasks (for GPU parallelization)
+    ///
+    /// This allows multiple segments to be fetched in parallel while GPU proving is serialized
+    #[clap(env, long)]
+    prove_concurrency: Option<usize>,
 }
 
 /// Core agent context to hold all optional clients / pools and state
@@ -175,16 +180,31 @@ pub struct Agent {
     pub s3_client: S3Client,
     /// all configuration params:
     args: Args,
-    /// risc0 Prover server
-    prover: Option<Rc<dyn ProverServer>>,
-    /// risc0 verifier context
-    verifier_ctx: VerifierContext,
+    /// Semaphore for GPU serialization (1 permit = only one GPU operation at a time)
+    pub gpu_semaphore: Arc<Semaphore>,
 }
 
 impl Agent {
     /// Check if POVW is enabled for this agent instance
     pub fn is_povw_enabled(&self) -> bool {
         std::env::var("POVW_LOG_ID").is_ok()
+    }
+
+    /// Create a verifier context
+    ///
+    /// This creates a new verifier context each time it's called to avoid Send/Sync issues
+    /// with storing it in the Agent struct.
+    pub fn create_verifier_ctx(&self) -> VerifierContext {
+        VerifierContext::default()
+    }
+
+    /// Create a prover instance with default options
+    ///
+    /// This creates a new prover each time it's called to avoid Send/Sync issues
+    /// with storing the prover in the Agent struct.
+    pub fn create_prover(&self) -> std::rc::Rc<dyn risc0_zkvm::ProverServer> {
+        let opts = ProverOpts::default();
+        get_prover_server(&opts).expect("Failed to get prover server")
     }
 
     /// Initialize the [Agent] from the [Args] config params
@@ -216,26 +236,13 @@ impl Agent {
         .await
         .context("Failed to initialize s3 client / bucket")?;
 
-        let verifier_ctx = VerifierContext::default();
-        let prover = if args.task_stream == PROVE_WORK_TYPE
-            || args.task_stream == JOIN_WORK_TYPE
-            || args.task_stream == COPROC_WORK_TYPE
-        {
-            let opts = ProverOpts::default();
-            let prover = get_prover_server(&opts).context("Failed to initialize prover server")?;
-            Some(prover)
-        } else {
-            None
-        };
-
         Ok(Self {
             db_pool,
             segment_po2: args.segment_po2,
             redis_pool,
             s3_client,
             args,
-            prover,
-            verifier_ctx,
+            gpu_semaphore: Arc::new(Semaphore::new(1)),
         })
     }
 
@@ -253,7 +260,7 @@ impl Agent {
     /// This function will poll for work and dispatch to the [Self::process_work] function until
     /// the process is terminated. It also handles retries / failures depending on the
     /// [Self::process_work] result
-    pub async fn poll_work(&self) -> Result<()> {
+    pub async fn poll_work(self: &Arc<Self>) -> Result<()> {
         let term_sig = Self::create_sig_monitor().context("Failed to create signal hook")?;
 
         // Enables task retry management background thread, good for 1-2 aux workers to run in the
@@ -319,75 +326,115 @@ impl Agent {
             });
         }
 
-        while !term_sig.load(Ordering::Relaxed) {
-            let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
-                .await
-                .context("Failed to request_work")?;
-            let Some(task) = task else {
-                time::sleep(time::Duration::from_secs(self.args.poll_time)).await;
-                continue;
-            };
+        // Determine concurrency: prove workers default to 2, others to 1 (sequential)
+        let num_workers = self.args.prove_concurrency.unwrap_or(
+            if self.args.task_stream == PROVE_WORK_TYPE { 2 } else { 1 }
+        );
 
-            if let Err(err) = self.process_work(&task).await {
-                let mut err_str = format!("{:#}", err);
-                if !err_str.contains("stopped intentionally due to session limit")
-                    && !err_str.contains("Session limit exceeded")
-                {
-                    tracing::error!("Failure during task processing: {err_str}");
-                }
+        tracing::info!("Starting {} worker task(s)", num_workers);
 
-                if task.max_retries > 0 {
-                    // If the next retry would exceed the limit, set a final error now
-                    if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
-                        "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
-                    )
-                    .bind(task.job_id)
-                    .bind(&task.task_id)
-                    .fetch_optional(&self.db_pool)
-                    .await
-                    .context("Failed to read current retries")?
-                        && current_retries + 1 > task.max_retries {
-                            // Prevent massive errors from being reported to the DB
-                            err_str.truncate(1024);
-                            let final_err = if err_str.is_empty() {
-                                "retry max hit".to_string()
-                            } else {
-                                format!("retry max hit: {}", err_str)
-                            };
-                            taskdb::update_task_failed(
-                                &self.db_pool,
-                                &task.job_id,
-                                &task.task_id,
-                                &final_err,
-                            )
-                            .await
-                            .context("Failed to report task failure")?;
+        // Spawn concurrent worker tasks
+        let mut worker_handles = Vec::new();
+        for worker_id in 0..num_workers {
+            let agent = self.clone();
+            let term_sig = term_sig.clone();
+
+            let handle = tokio::spawn(async move {
+                tracing::info!("Worker {} started", worker_id);
+                while !term_sig.load(Ordering::Relaxed) {
+                    let task = match taskdb::request_work(&agent.db_pool, &agent.args.task_stream).await {
+                        Ok(Some(task)) => task,
+                        Ok(None) => {
+                            time::sleep(time::Duration::from_secs(agent.args.poll_time)).await;
                             continue;
                         }
+                        Err(e) => {
+                            tracing::error!("Worker {} failed to request work: {:#}", worker_id, e);
+                            time::sleep(time::Duration::from_secs(agent.args.poll_time)).await;
+                            continue;
+                        }
+                    };
 
-                    if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
-                        .await
-                        .context("Failed to update task retries")?
-                    {
-                        tracing::info!("update_task_retried failed: {}", task.job_id);
+                    if let Err(err) = agent.process_work(&task).await {
+                        if let Err(e) = agent.handle_task_error(&task, err).await {
+                            tracing::error!("Worker {} failed to handle task error: {:#}", worker_id, e);
+                        }
                     }
-                } else {
+                }
+                tracing::info!("Worker {} shutting down", worker_id);
+            });
+
+            worker_handles.push(handle);
+        }
+
+        // Wait for all workers to complete
+        for handle in worker_handles {
+            if let Err(e) = handle.await {
+                tracing::error!("Worker task panicked: {:#}", e);
+            }
+        }
+
+        tracing::warn!("Handled SIGTERM, shutting down...");
+
+        Ok(())
+    }
+
+    /// Handle task processing errors with retry logic
+    async fn handle_task_error(&self, task: &ReadyTask, err: anyhow::Error) -> Result<()> {
+        let mut err_str = format!("{:#}", err);
+        if !err_str.contains("stopped intentionally due to session limit")
+            && !err_str.contains("Session limit exceeded")
+        {
+            tracing::error!("Failure during task processing: {err_str}");
+        }
+
+        if task.max_retries > 0 {
+            // If the next retry would exceed the limit, set a final error now
+            if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
+                "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
+            )
+            .bind(task.job_id)
+            .bind(&task.task_id)
+            .fetch_optional(&self.db_pool)
+            .await
+            .context("Failed to read current retries")?
+                && current_retries + 1 > task.max_retries {
                     // Prevent massive errors from being reported to the DB
                     err_str.truncate(1024);
+                    let final_err = if err_str.is_empty() {
+                        "retry max hit".to_string()
+                    } else {
+                        format!("retry max hit: {}", err_str)
+                    };
                     taskdb::update_task_failed(
                         &self.db_pool,
                         &task.job_id,
                         &task.task_id,
-                        &err_str,
+                        &final_err,
                     )
                     .await
                     .context("Failed to report task failure")?;
+                    return Ok(());
                 }
-                continue;
-            }
-        }
-        tracing::warn!("Handled SIGTERM, shutting down...");
 
+            if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
+                .await
+                .context("Failed to update task retries")?
+            {
+                tracing::info!("update_task_retried failed: {}", task.job_id);
+            }
+        } else {
+            // Prevent massive errors from being reported to the DB
+            err_str.truncate(1024);
+            taskdb::update_task_failed(
+                &self.db_pool,
+                &task.job_id,
+                &task.task_id,
+                &err_str,
+            )
+            .await
+            .context("Failed to report task failure")?;
+        }
         Ok(())
     }
 

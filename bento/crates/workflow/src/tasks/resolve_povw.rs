@@ -39,105 +39,145 @@ pub async fn resolve_povw(
         deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&receipt)
             .context("Failed to deserialize as POVW receipt")?;
 
-    // Unwrap the POVW receipt to get the ReceiptClaim for processing
-    let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
-        agent.prover.as_ref().unwrap().unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
+    // Step 1: Unwrap POVW receipt and extract assumption claims (without holding prover across awaits)
+    let (assumption_claims, assumptions_len_opt) = {
+        let temp_prover = agent.create_prover();
+        let conditional_receipt: SuccinctReceipt<ReceiptClaim> =
+            temp_prover.unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
+        // Drop prover immediately
+        drop(temp_prover);
 
-    let mut assumptions_len: Option<u64> = None;
-    if conditional_receipt.claim.clone().as_value()?.output.is_some() {
-        if let Some(guest_output) =
-            conditional_receipt.claim.clone().as_value()?.output.as_value()?
-        {
-            if !guest_output.assumptions.is_empty() {
-                let assumptions = guest_output
-                    .assumptions
-                    .as_value()
-                    .context("Failed unwrap the assumptions of the guest output")?
-                    .iter();
+        let mut assumptions_len_opt: Option<u64> = None;
+        let mut assumption_claims: Vec<String> = Vec::new();
 
-                tracing::debug!("Resolving {} assumption(s)", assumptions.len());
-                assumptions_len =
-                    Some(assumptions.len().try_into().context("Failed to convert to u64")?);
+        if conditional_receipt.claim.clone().as_value()?.output.is_some() {
+            if let Some(guest_output) =
+                conditional_receipt.claim.clone().as_value()?.output.as_value()?
+            {
+                if !guest_output.assumptions.is_empty() {
+                    let assumptions = guest_output
+                        .assumptions
+                        .as_value()
+                        .context("Failed unwrap the assumptions of the guest output")?
+                        .iter();
 
-                let mut union_claim = String::new();
-                if let Some(idx) = request.union_max_idx {
-                    let union_root_receipt_key =
-                        format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{idx}");
-                    tracing::debug!(
-                        "Deserializing union_root_receipt_key: {union_root_receipt_key}"
-                    );
-                    let union_receipt: Vec<u8> = conn.get(&union_root_receipt_key).await?;
+                    tracing::debug!("Resolving {} assumption(s)", assumptions.len());
+                    assumptions_len_opt =
+                        Some(assumptions.len().try_into().context("Failed to convert to u64")?);
 
-                    // Debug: Check the size and content of the union receipt
-                    tracing::debug!("Union receipt size: {} bytes", union_receipt.len());
-                    if union_receipt.is_empty() {
-                        return Err(anyhow::anyhow!(
-                            "Union receipt is empty for key: {}",
-                            union_root_receipt_key
-                        ));
-                    }
-
-                    let union_receipt: SuccinctReceipt<Unknown> = deserialize_obj(&union_receipt)
-                        .with_context(|| {
-                        format!(
-                            "Failed to deserialize union receipt (size: {} bytes) from key: {}",
-                            union_receipt.len(),
-                            union_root_receipt_key
-                        )
-                    })?;
-                    union_claim = union_receipt.claim.digest().to_string();
-
-                    // Resolve union receipt
-                    tracing::debug!("Resolving union claim digest: {union_claim}");
-                    conditional_receipt = agent
-                        .prover
-                        .as_ref()
-                        .context("Missing prover from resolve task")?
-                        .resolve(&conditional_receipt, &union_receipt)
-                        .context("Failed to resolve the union receipt")?;
+                    // Collect all assumption claims
+                    assumption_claims = assumptions
+                        .map(|a| a.as_value().map(|v| v.claim.to_string()))
+                        .collect::<Result<Vec<_>, _>>()?;
                 }
-
-                for assumption in assumptions {
-                    let assumption_claim = assumption.as_value()?.claim.to_string();
-                    if assumption_claim.eq(&union_claim) {
-                        tracing::debug!("Skipping already resolved union claim: {union_claim}");
-                        continue;
-                    }
-                    let assumption_key = format!("{receipts_key}:{assumption_claim}");
-                    tracing::debug!("Deserializing assumption with key: {assumption_key}");
-                    let assumption_bytes: Vec<u8> = conn
-                        .get(&assumption_key)
-                        .await
-                        .context("corroborating receipt not found: key {assumption_key}")?;
-
-                    // Debug: Check the size and content of the assumption receipt
-                    tracing::debug!(
-                        "Assumption receipt size: {} bytes for key: {}",
-                        assumption_bytes.len(),
-                        assumption_key
-                    );
-                    if assumption_bytes.is_empty() {
-                        return Err(anyhow::anyhow!(
-                            "Assumption receipt is empty for key: {}",
-                            assumption_key
-                        ));
-                    }
-
-                    let assumption_receipt = deserialize_obj(&assumption_bytes)
-                        .with_context(|| format!("Failed to deserialize assumption receipt (size: {} bytes) from key: {}", assumption_bytes.len(), assumption_key))?;
-
-                    // Resolve
-                    conditional_receipt = agent
-                        .prover
-                        .as_ref()
-                        .context("Missing prover from resolve task")?
-                        .resolve(&conditional_receipt, &assumption_receipt)
-                        .context("Failed to resolve the conditional receipt")?;
-                }
-                tracing::debug!("Resolve complete for job_id: {job_id}");
             }
         }
-    }
+
+        (assumption_claims, assumptions_len_opt)
+    };
+
+    // Step 2: Fetch all receipts from Redis (no prover held)
+    let (union_receipt_opt, assumption_receipts) = {
+        let mut union_receipt_opt: Option<SuccinctReceipt<Unknown>> = None;
+        let mut assumption_receipts: Vec<SuccinctReceipt<Unknown>> = Vec::new();
+        let mut union_claim = String::new();
+
+        // Fetch union receipt if needed
+        if let Some(idx) = request.union_max_idx {
+            let union_root_receipt_key =
+                format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{idx}");
+            tracing::debug!(
+                "Deserializing union_root_receipt_key: {union_root_receipt_key}"
+            );
+            let union_receipt_bytes: Vec<u8> = conn.get(&union_root_receipt_key).await?;
+
+            // Debug: Check the size and content of the union receipt
+            tracing::debug!("Union receipt size: {} bytes", union_receipt_bytes.len());
+            if union_receipt_bytes.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Union receipt is empty for key: {}",
+                    union_root_receipt_key
+                ));
+            }
+
+            let union_receipt: SuccinctReceipt<Unknown> = deserialize_obj(&union_receipt_bytes)
+                .with_context(|| {
+                format!(
+                    "Failed to deserialize union receipt (size: {} bytes) from key: {}",
+                    union_receipt_bytes.len(),
+                    union_root_receipt_key
+                )
+            })?;
+            union_claim = union_receipt.claim.digest().to_string();
+            union_receipt_opt = Some(union_receipt);
+        }
+
+        // Fetch all assumption receipts
+        for assumption_claim in &assumption_claims {
+            if assumption_claim.eq(&union_claim) {
+                tracing::debug!("Skipping already resolved union claim: {union_claim}");
+                continue;
+            }
+            let assumption_key = format!("{receipts_key}:{assumption_claim}");
+            tracing::debug!("Deserializing assumption with key: {assumption_key}");
+            let assumption_bytes: Vec<u8> = conn
+                .get(&assumption_key)
+                .await
+                .context("corroborating receipt not found: key {assumption_key}")?;
+
+            // Debug: Check the size and content of the assumption receipt
+            tracing::debug!(
+                "Assumption receipt size: {} bytes for key: {}",
+                assumption_bytes.len(),
+                assumption_key
+            );
+            if assumption_bytes.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Assumption receipt is empty for key: {}",
+                    assumption_key
+                ));
+            }
+
+            let assumption_receipt = deserialize_obj(&assumption_bytes)
+                .with_context(|| format!("Failed to deserialize assumption receipt (size: {} bytes) from key: {}", assumption_bytes.len(), assumption_key))?;
+            assumption_receipts.push(assumption_receipt);
+        }
+
+        (union_receipt_opt, assumption_receipts)
+    };
+
+    // Now perform all prover operations without awaits
+    let conditional_receipt = {
+        let prover = agent.create_prover();
+
+        // Unwrap the POVW receipt to get the ReceiptClaim for processing
+        let mut conditional_receipt: SuccinctReceipt<ReceiptClaim> =
+            prover.unwrap_povw(&povw_receipt).context("POVW unwrap failed")?;
+
+        // Resolve union receipt if present
+        if let Some(union_receipt) = &union_receipt_opt {
+            let union_claim = union_receipt.claim.digest().to_string();
+            tracing::debug!("Resolving union claim digest: {union_claim}");
+            conditional_receipt = prover
+                .resolve(&conditional_receipt, union_receipt)
+                .context("Failed to resolve the union receipt")?;
+        }
+
+        // Resolve all assumption receipts
+        for assumption_receipt in &assumption_receipts {
+            conditional_receipt = prover
+                .resolve(&conditional_receipt, assumption_receipt)
+                .context("Failed to resolve the conditional receipt")?;
+        }
+
+        if assumptions_len_opt.is_some() {
+            tracing::debug!("Resolve complete for job_id: {job_id}");
+        }
+
+        conditional_receipt
+    }; // prover is dropped here
+
+    let assumptions_len = assumptions_len_opt;
 
     // Write out the resolved receipt
     tracing::debug!("Serializing resolved receipt");

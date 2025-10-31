@@ -35,23 +35,25 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     let right_receipt =
         deserialize_obj(&right_receipt_bytes).context("Failed to deserialize right receipt")?;
 
-    // run union
-    tracing::debug!("Union {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
+    let union_result = {
+        let verifier_ctx = agent.create_verifier_ctx();
 
-    let unioned = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from union prove task")?
-        .union(&left_receipt, &right_receipt)
-        .context("Failed to union on left/right receipt")?
-        .into_unknown();
+        // run union
+        tracing::debug!("Union {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
-    unioned
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify union receipt integrity")?;
+        let prover = agent.create_prover();
+        let unioned = prover
+            .union(&left_receipt, &right_receipt)
+            .context("Failed to union on left/right receipt")?
+            .into_unknown();
 
-    // send result to redis
-    let union_result = serialize_obj(&unioned).context("Failed to serialize union receipt")?;
+        unioned
+            .verify_integrity_with_context(&verifier_ctx)
+            .context("Failed to verify union receipt integrity")?;
+
+        serialize_obj(&unioned).context("Failed to serialize union receipt")?
+    };
+
     let output_key = format!("{keccak_receipts_prefix}:{}", request.idx);
     redis::set_key_with_expiry(&mut conn, &output_key, union_result, Some(agent.args.redis_ttl))
         .await

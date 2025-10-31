@@ -38,34 +38,36 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
         deserialize_obj::<SuccinctReceipt<WorkClaim<ReceiptClaim>>>(&right_receipt_bytes)?,
     );
 
-    left_receipt
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify left receipt integrity")?;
-    right_receipt
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify right receipt integrity")?;
+    // Perform all prover operations in a scope to ensure they're dropped before awaits
+    let povw_receipt_asset = {
+        let verifier_ctx = agent.create_verifier_ctx();
 
-    tracing::debug!("Starting POVW join of receipts {} and {}", request.left, request.right);
+        left_receipt
+            .verify_integrity_with_context(&verifier_ctx)
+            .context("Failed to verify left receipt integrity")?;
+        right_receipt
+            .verify_integrity_with_context(&verifier_ctx)
+            .context("Failed to verify right receipt integrity")?;
 
-    // Use POVW-specific join - this is required for POVW functionality
-    let joined_receipt = if let Some(prover) = agent.prover.as_ref() {
-        prover.join_povw(&left_receipt, &right_receipt).context(
+        tracing::debug!("Starting POVW join of receipts {} and {}", request.left, request.right);
+
+        // Use POVW-specific join - this is required for POVW functionality
+        let prover = agent.create_prover();
+        let joined_receipt = prover.join_povw(&left_receipt, &right_receipt).context(
             "POVW join method not available - POVW functionality requires RISC Zero POVW support",
-        )?
-    } else {
-        return Err(anyhow::anyhow!("No prover available for join task"));
-    };
+        )?;
 
-    joined_receipt
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify joined POVW receipt integrity")?;
+        joined_receipt
+            .verify_integrity_with_context(&verifier_ctx)
+            .context("Failed to verify joined POVW receipt integrity")?;
 
-    tracing::debug!("Completed POVW join: {} and {}", request.left, request.right);
+        tracing::debug!("Completed POVW join: {} and {}", request.left, request.right);
+
+        serialize_obj(&joined_receipt).context("Failed to serialize joined POVW receipt")?
+    }; // prover and verifier_ctx are dropped here
 
     // Store the joined POVW receipt (this is what finalization will need to unwrap)
     let povw_output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.idx);
-    let povw_receipt_asset =
-        serialize_obj(&joined_receipt).context("Failed to serialize joined POVW receipt")?;
 
     redis::set_key_with_expiry(
         &mut conn,

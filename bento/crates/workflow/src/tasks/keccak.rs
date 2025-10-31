@@ -51,17 +51,18 @@ pub async fn keccak(
 
     tracing::debug!("Keccak proving {}", request.claim_digest);
 
-    let keccak_receipt = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from keccak prove task")?
-        .prove_keccak(&keccak_req)
-        .context("Failed to prove_keccak")?;
-
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{task_id}");
-    let keccak_receipt_bytes =
-        serialize_obj(&keccak_receipt).context("Failed to serialize keccak receipt")?;
+
+    // Perform all prover operations in a scope to ensure they're dropped before awaits
+    let keccak_receipt_bytes = {
+        let prover = agent.create_prover();
+        let keccak_receipt = prover
+            .prove_keccak(&keccak_req)
+            .context("Failed to prove_keccak")?;
+
+        serialize_obj(&keccak_receipt).context("Failed to serialize keccak receipt")?
+    }; // prover is dropped here
 
     redis::set_key_with_expiry(
         &mut conn,

@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::sync::Arc;
 use tracing_subscriber::filter::EnvFilter;
 use workflow::{Agent, Args};
 
@@ -24,5 +25,6 @@ async fn main() -> Result<()> {
     tracing::info!("Successful agent startup! Worker type: {task_stream}");
 
     // Poll until agent is signaled to exit:
+    let agent = Arc::new(agent);
     agent.poll_work().await.context("Exiting agent polling")
 }
