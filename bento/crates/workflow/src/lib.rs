@@ -418,6 +418,9 @@ impl Agent {
                     .context("Prove failed")?,
             )
             .context("Failed to serialize prove response")?,
+            TaskType::Lift(_) => {
+                unimplemented!("Lift task type is not yet implemented");
+            }
             TaskType::Join(req) => {
                 // Route to POVW or regular join based on agent POVW setting
                 if self.is_povw_enabled() {

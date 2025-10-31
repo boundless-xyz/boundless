@@ -17,7 +17,6 @@ use risc0_zkvm::{
 use sqlx::postgres::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
-use strum::AsRefStr;
 use taskdb::planner::{
     Planner,
     task::{Command as TaskCmd, Task},
@@ -49,6 +48,7 @@ async fn process_task(
     join_stream: &Uuid,
     union_stream: &Uuid,
     aux_stream: &Uuid,
+    lift_stream: &Uuid,
     job_id: &Uuid,
     tree_task: &Task,
     segment_index: Option<u32>,
@@ -57,6 +57,9 @@ async fn process_task(
     keccak_req: Option<KeccakReq>,
 ) -> Result<()> {
     match tree_task.command {
+        TaskCmd::Lift => {
+            unimplemented!("Lift task processing is not yet implemented");
+        }
         TaskCmd::Keccak => {
             let keccak_req = keccak_req.context("keccak_req returned None")?;
             let prereqs = serde_json::json!([]);
@@ -454,6 +457,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .context("Failed to get GPU Coproc stream")?
             .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?;
 
+    let lift_stream =
+        taskdb::get_stream(&agent.db_pool, &request.user_id, TaskStream::Lift.as_ref())
+            .await
+            .context("Failed to get GPU Lift stream")?
+            .with_context(|| format!("Customer {} missing gpu lift stream", request.user_id))?;
+
     let job_id_copy = *job_id;
     let pool_copy = agent.db_pool.clone();
     let assumptions = request.assumptions.clone();
@@ -487,6 +496,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &join_stream,
                             &union_stream,
                             &aux_stream,
+                            &lift_stream,
                             &job_id_copy,
                             tree_task,
                             Some(segment_index),
@@ -527,6 +537,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &join_stream,
                             &union_stream,
                             &aux_stream,
+                            &lift_stream,
                             &job_id_copy,
                             tree_task,
                             None,
@@ -555,6 +566,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     &join_stream,
                     &union_stream,
                     &aux_stream,
+                    &lift_stream,
                     &job_id_copy,
                     tree_task,
                     None,

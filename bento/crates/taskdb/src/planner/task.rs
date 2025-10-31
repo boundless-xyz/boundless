@@ -12,6 +12,7 @@ pub enum Command {
     Join,
     Segment,
     Union,
+    Lift,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -13,6 +13,7 @@ pub(crate) mod finalize;
 pub(crate) mod join;
 pub(crate) mod join_povw;
 pub(crate) mod keccak;
+pub(crate) mod lift;
 pub(crate) mod prove;
 pub(crate) mod resolve;
 pub(crate) mod resolve_povw;

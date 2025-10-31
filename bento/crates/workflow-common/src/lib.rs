@@ -45,13 +45,19 @@ pub enum TaskStream {
     Union,
     #[strum(serialize = "coproc")]
     Coproc,
+    #[strum(serialize = "lift")]
+    Lift,
 }
 
 impl TaskStream {
     pub fn needs_prover(&self) -> bool {
         matches!(
             self,
-            TaskStream::Prove | TaskStream::Join | TaskStream::Union | TaskStream::Coproc
+            TaskStream::Prove
+                | TaskStream::Join
+                | TaskStream::Union
+                | TaskStream::Coproc
+                | TaskStream::Lift
         )
     }
 }
@@ -109,9 +115,16 @@ pub struct ExecutorResp {
     pub povw_job_number: Option<String>,
 }
 
-/// prove + lift task definition
+/// prove  
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProveReq {
+    /// Segment index
+    pub index: usize,
+}
+
+/// lift task definition
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LiftReq {
     /// Segment index
     pub index: usize,
 }
@@ -186,8 +199,10 @@ pub struct KeccakReq {
 pub enum TaskType {
     /// Executor task
     Executor(ExecutorReq),
-    /// rv32im Prove + lift task
+    /// rv32im Prove
     Prove(ProveReq),
+    /// rv32im Lift
+    Lift(LiftReq),
     /// Join task
     Join(JoinReq),
     /// Resolve task

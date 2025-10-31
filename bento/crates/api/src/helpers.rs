@@ -24,7 +24,7 @@ pub fn extract_reserved(api_key: &str) -> i32 {
 pub async fn get_or_create_streams(
     pool: &PgPool,
     user_id: &str,
-) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid)> {
+) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid, Uuid, Uuid)> {
     let reserved = extract_reserved(user_id);
     let aux_stream = if let Some(res) = taskdb::get_stream(pool, user_id, TaskStream::Aux.as_ref())
         .await
@@ -67,7 +67,7 @@ pub async fn get_or_create_streams(
     let gpu_coproc_stream = if let Some(res) =
         taskdb::get_stream(pool, user_id, TaskStream::Coproc.as_ref())
             .await
-            .context("Failed to get gpu prove stream")?
+            .context("Failed to get gpu coproc stream")?
     {
         res
     } else {
@@ -90,7 +90,40 @@ pub async fn get_or_create_streams(
             .context("Failed to create taskdb gpu join stream")?
     };
 
-    Ok((aux_stream, exec_stream, gpu_prove_stream, gpu_coproc_stream, gpu_join_stream))
+    let gpu_union_stream = if let Some(res) =
+        taskdb::get_stream(pool, user_id, TaskStream::Union.as_ref())
+            .await
+            .context("Failed to get gpu union stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new gpu union stream for key: {user_id}");
+        taskdb::create_stream(pool, TaskStream::Union.as_ref(), reserved, 1.0, user_id)
+            .await
+            .context("Failed to create taskdb gpu union stream")?
+    };
+
+    let gpu_lift_stream = if let Some(res) =
+        taskdb::get_stream(pool, user_id, TaskStream::Lift.as_ref())
+            .await
+            .context("Failed to get gpu lift stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new gpu lift stream for key: {user_id}");
+        taskdb::create_stream(pool, TaskStream::Lift.as_ref(), reserved, 1.0, user_id)
+            .await
+            .context("Failed to create taskdb gpu lift stream")?
+    };
+    Ok((
+        aux_stream,
+        exec_stream,
+        gpu_prove_stream,
+        gpu_coproc_stream,
+        gpu_join_stream,
+        gpu_union_stream,
+        gpu_lift_stream,
+    ))
 }
 
 pub async fn get_exec_stats(pool: &PgPool, job_id: &Uuid) -> Result<ExecutorResp> {
