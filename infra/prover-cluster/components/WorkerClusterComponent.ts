@@ -2,7 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
 import {LaunchTemplateComponent, LaunchTemplateConfig} from "./LaunchTemplateComponent";
 import {AutoScalingGroupComponent, AutoScalingGroupConfig} from "./AutoScalingGroupComponent";
-import {MetricAlarmComponent} from "./MetricAlarmComponent";
+import {MetricAlarmComponent, ProverMetricAlarmComponent} from "./MetricAlarmComponent";
 
 export interface WorkerClusterConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -24,7 +24,7 @@ export class WorkerClusterComponent extends BaseComponent {
     public readonly proverAsg: AutoScalingGroupComponent;
     public readonly executionAsg: AutoScalingGroupComponent;
     public readonly auxAsg: AutoScalingGroupComponent;
-    public readonly proverAlarms: MetricAlarmComponent;
+    public readonly proverAlarms: ProverMetricAlarmComponent;
     public readonly executionAlarms: MetricAlarmComponent;
     public readonly auxAlarms: MetricAlarmComponent;
 
@@ -73,11 +73,12 @@ export class WorkerClusterComponent extends BaseComponent {
         return new AutoScalingGroupComponent(asgConfig);
     }
 
-    private createProverAlarms(config: WorkerClusterConfig): MetricAlarmComponent {
-        return new MetricAlarmComponent({
+    private createProverAlarms(config: WorkerClusterConfig): ProverMetricAlarmComponent {
+        return new ProverMetricAlarmComponent({
             ...config,
             serviceName: "bento-prover-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/prover`,
+            alarmDimensions: {AutoScalingGroupName: this.proverAsg.autoScalingGroup.name}
         });
     }
 
@@ -109,6 +110,7 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-execution-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/execution`,
+            alarmDimensions: {AutoScalingGroupName: this.executionAsg.autoScalingGroup.name}
         });
     }
 
@@ -140,6 +142,7 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-aux-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/aux`,
+            alarmDimensions: {AutoScalingGroupName: this.auxAsg.autoScalingGroup.name}
         });
     }
 }

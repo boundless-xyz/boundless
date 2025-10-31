@@ -7,21 +7,33 @@ export interface MetricAlarmConfig extends BaseComponentConfig {
     serviceName: string,
     logGroupName: string,
     alertsTopicArns: string[];
+    alarmDimensions: { [key: string]: pulumi.Input<string> };
 }
 
 // Creates and manages general metric filters and alarms that can be common to multiple components
 export class MetricAlarmComponent extends BaseComponent {
     public readonly logGroup: pulumi.Output<aws.cloudwatch.LogGroup>
+    public readonly metricFilters: { [key: string]: aws.cloudwatch.LogMetricFilter }
+    public readonly metricAlarms: { [key: string]: aws.cloudwatch.MetricAlarm }
 
     constructor(config: MetricAlarmConfig) {
         super(config, "boundless-bento");
 
+        this.logGroup = this.createOrImportLogGroup(config)
+        this.metricFilters = {}
+        this.metricAlarms = {}
+        this.createCommonMetricAlarms(config)
+    }
+
+    // Attempts to import an existing log group which may have been created automatically by existing
+    // services, or creates a new one
+    private createOrImportLogGroup = (config: MetricAlarmConfig): pulumi.Output<aws.cloudwatch.LogGroup> => {
         // Try to get an existing log group
         const existingLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
             name: config.logGroupName,
         }).catch(() => undefined));
 
-        this.logGroup = existingLogGroup.apply(existing => {
+        return existingLogGroup.apply(existing => {
             if (existing) {
                 // Import the existing log group into a LogGroup resource
                 return new aws.cloudwatch.LogGroup(`${config.serviceName}-log-group`, {
@@ -40,31 +52,76 @@ export class MetricAlarmComponent extends BaseComponent {
                     Project: "boundless-bento-cluster",
                 }
             });
-        });
-
-        this.createMetricAlarms(config)
+        })
     }
 
-    protected createLogMetricFilter = (
+    // Creates a log metric filter (depends on the log group to exist)
+    // or returns a previously created one
+    protected createLogMetricFilterOnce = (
         config: MetricAlarmConfig,
         pattern: string,
         metricName: string,
-        severity?: Severity,
     ): aws.cloudwatch.LogMetricFilter => {
+        const filterName = `${config.stackName}-${config.serviceName}-${metricName}-filter`
+
+        // Return an existing metric filter
+        if (this.metricFilters[filterName]) {
+            return this.metricFilters[filterName]
+        }
+
         // Generate a metric by filtering for the error code
-        return new aws.cloudwatch.LogMetricFilter(`${config.serviceName}-${metricName}-${severity}-filter`, {
-            name: `${config.serviceName}-${metricName}-${severity}-${config.stackName}-filter`,
+        const newFilter = new aws.cloudwatch.LogMetricFilter(`${config.serviceName}-${metricName}-filter`, {
+            name: filterName,
             logGroupName: config.logGroupName,
             metricTransformation: {
-                namespace: `Boundless/Services/${config.serviceName}/${config.stackName}`,
-                name: `${config.serviceName}-${metricName}-${severity}-${config.stackName}`,
+                namespace: `Boundless/Services/${config.stackName}/${config.serviceName}`,
+                name: `${config.stackName}-${config.serviceName}-${metricName}`,
                 value: '1',
                 defaultValue: '0',
             },
             pattern: pattern,
         }, {dependsOn: this.logGroup});
+
+        this.metricFilters[filterName] = newFilter
+        return newFilter
     };
 
+    protected createMetricAlarm = (
+        config: MetricAlarmConfig,
+        metricName: string,
+        severity?: Severity,
+        alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
+        description?: string
+    ): aws.cloudwatch.MetricAlarm => {
+        const alarmName = `${config.stackName}-${config.serviceName}-${metricName}-${severity}`
+
+        // The basic alarm configuration needs either a metricQueries configuration or
+        // (namespace, statistic, dimensions, metricName) supplied
+        const newAlarm = new aws.cloudwatch.MetricAlarm(`${config.serviceName}-${metricName}-${severity}-alarm`, {
+            name: alarmName,
+            threshold: 1,
+            comparisonOperator: 'GreaterThanOrEqualToThreshold',
+            evaluationPeriods: 1,
+            datapointsToAlarm: 1,
+            treatMissingData: 'notBreaching',
+            alarmDescription: `${severity} ${metricName} ${config.stackName} ${description ?? ''}`,
+            actionsEnabled: true,
+            alarmActions: config.alertsTopicArns ?? [],
+            tags: {
+                Name: `${config.stackName}-${config.serviceName}-${metricName}-${severity}`,
+                Environment: this.config.environment,
+                Project: "boundless-bento-cluster",
+            },
+            ...alarmConfig
+        });
+
+        this.metricAlarms[alarmName] = newAlarm
+        return newAlarm
+    };
+
+    // Create an error code alarm based on a metric filter
+    // These will by default populate a metricQueries attribute, possibly augmented by the
+    // supplied metricConfig
     protected createErrorCodeAlarm = (
         config: MetricAlarmConfig,
         pattern: string,
@@ -75,44 +132,140 @@ export class MetricAlarmComponent extends BaseComponent {
         description?: string
     ): aws.cloudwatch.MetricAlarm => {
         // Generate a metric by filtering for the error code
-        this.createLogMetricFilter(config, pattern, metricName, severity);
+        this.createLogMetricFilterOnce(config, pattern, metricName);
+
+        // Error code alarms (for broker) are set to use metric queries by default
+        const metricQueryConfig = [
+            {
+                id: 'm1',
+                metric: {
+                    namespace: `Boundless/Services/${config.stackName}/${config.serviceName}`,
+                    metricName: `${config.stackName}-${config.serviceName}-${metricName}`,
+                    period: 60,
+                    stat: 'Sum',
+                    ...metricConfig
+                },
+                returnData: true,
+            },
+        ]
+
+        if (alarmConfig) {
+            alarmConfig['metricQueries'] = metricQueryConfig
+        } else {
+            alarmConfig = {
+                metricQueries: metricQueryConfig
+            }
+        }
 
         // Create an alarm for the metric
-        return new aws.cloudwatch.MetricAlarm(`${config.serviceName}-${metricName}-${severity}-alarm`, {
-            name: `${config.serviceName}-${metricName}-${severity}-${config.stackName}`,
-            metricQueries: [
-                {
-                    id: 'm1',
-                    metric: {
-                        namespace: `Boundless/Services/${config.serviceName}/${config.stackName}`,
-                        metricName: `${config.serviceName}-${metricName}-${severity}-${config.stackName}`,
-                        period: 60,
-                        stat: 'Sum',
-                        ...metricConfig
-                    },
-                    returnData: true,
-                },
-            ],
-            threshold: 1,
-            comparisonOperator: 'GreaterThanOrEqualToThreshold',
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            treatMissingData: 'notBreaching',
-            alarmDescription: `${severity} ${metricName} ${config.stackName} ${description ?? ''}`,
-            actionsEnabled: true,
-            alarmActions: config.alertsTopicArns ?? [],
-            tags: {
-                Name: `${config.serviceName}-${metricName}-${severity}-${config.stackName}`,
-                Environment: this.config.environment,
-                Project: "boundless-bento-cluster",
-            },
-            ...alarmConfig
-        });
+        return this.createMetricAlarm(config, metricName, severity, alarmConfig, description);
     };
 
-    private createMetricAlarms = (config: MetricAlarmConfig): void => {
+    private createCommonMetricAlarms = (config: MetricAlarmConfig): void => {
+
+        this.createMetricAlarm(config, 'cpu-util', Severity.SEV2, {
+            metricName: "CPUUtilization",
+            namespace: "AWS/EC2",
+            statistic: "Maximum",
+            dimensions: config.alarmDimensions,
+            period: 60,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            threshold: 75,
+            comparisonOperator: "GreaterThanThreshold",
+        }, 'CPU utilization is greater than 75% for 20 consecutive minutes.')
+
+        this.createMetricAlarm(config, 'memory-util', Severity.SEV2, {
+            metricName: 'mem_used_percent',
+            namespace: `Boundless/Services/${config.stackName}/${config.serviceName}`,
+            period: 60,
+            dimensions: config.alarmDimensions,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 80,
+        }, 'Memory utilization is greater than 80% for 20 consecutive minutes.')
+
+        this.createMetricAlarm(config, 'disk-util', Severity.SEV2, {
+            metricName: 'disk_used_percent',
+            namespace: `Boundless/Services/${config.stackName}/${config.serviceName}`,
+            period: 60,
+            dimensions: config.alarmDimensions,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 80,
+        }, 'Disk utilization is greater than 80% for 20 consecutive minutes.')
+    };
+}
+
+export class ProverMetricAlarmComponent extends MetricAlarmComponent {
+    constructor(config: MetricAlarmConfig) {
+        super(config);
+        this.createProverMetricAlarms(config)
+    }
+
+    private createProverMetricAlarms = (config: MetricAlarmConfig): void => {
+        this.createMetricAlarm(config, 'gpu-memory-util', Severity.SEV2, {
+            metricQueries: [
+                {
+                    id: "e1",
+                    label: "GPU memory utilization",
+                    returnData: true,
+                    expression: "100*(m1/m2)"
+                },
+                {
+                    id: "m1",
+                    returnData: false,
+                    metric: {
+                        namespace: `Boundless/Services/${config.stackName}/${config.serviceName}`,
+                        metricName: "nvidia_smi_memory_used",
+                        period: 60,
+                        stat: "Maximum",
+                        dimensions: config.alarmDimensions,
+                    }
+                },
+                {
+                    id: "m2",
+                    returnData: false,
+                    metric: {
+                        namespace: `Boundless/Services/${config.stackName}/${config.serviceName}`,
+                        metricName: "nvidia_smi_memory_total",
+                        period: 60,
+                        stat: "Maximum",
+                        dimensions: config.alarmDimensions,
+                    }
+                }
+            ],
+            threshold: 95,
+            comparisonOperator: 'GreaterThanOrEqualToThreshold',
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+        }, 'GPU memory utilization is greater than 95% for 20 consecutive minutes.')
+    }
+}
+
+export interface ManagerMetricAlarmConfig extends MetricAlarmConfig {
+    chainId: string
+}
+
+// Creates and manages metric filters and alarms that are specific to the manager component
+export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
+
+    constructor(config: ManagerMetricAlarmConfig) {
+        // The superclass will create the alarms that are common to all components
+        super(config);
+        this.createManagerMetricAlarms(config)
+    }
+
+    private createManagerMetricAlarms = (config: ManagerMetricAlarmConfig): void => {
+
         // Unexpected error threshold for entire broker.
         const brokerUnexpectedErrorThreshold = 5;
+        const supervisorUnexpectedErrorThreshold = 5;
+        // Unexpected error threshold for individual services.
+        const serviceUnexpectedErrorThreshold = 2;
+        const serviceUnexpectedErrorThresholdSev1 = 3;
 
         // Alarms across the entire prover.
         // Note: AWS has a limit of 5 filter patterns containing regex for each log group
@@ -131,28 +284,6 @@ export class MetricAlarmComponent extends BaseComponent {
         // Matches on any ERROR log that does NOT contain an error code. Ensures we don't miss any errors.
         // Don't match on INTERNAL_ERROR which is sometimes returned by our dependencies e.g. Bonsai on retryable errors.
         this.createErrorCodeAlarm(config, 'ERROR -"[B-" -"INTERNAL_ERROR"', 'error-without-code', Severity.SEV2);
-
-    };
-}
-
-export interface ManagerMetricAlarmConfig extends MetricAlarmConfig {
-    chainId: string
-}
-
-// Creates and manages metric filters and alarms that are specific to the manager component
-export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
-
-    constructor(config: ManagerMetricAlarmConfig) {
-        super(config);
-        this.createManagerMetricAlarms(config)
-    }
-
-    private createManagerMetricAlarms = (config: ManagerMetricAlarmConfig): void => {
-        // Unexpected error threshold for entire broker.
-        const supervisorUnexpectedErrorThreshold = 5;
-        // Unexpected error threshold for individual services.
-        const serviceUnexpectedErrorThreshold = 2;
-        const serviceUnexpectedErrorThresholdSev1 = 3;
 
         // Alarms for low balances. Once breached, the log continues on every tx, so we use a 6 hour period
         // to prevent noise from the alarm being triggered multiple times.
@@ -214,7 +345,9 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         }, {period: 300});
 
         // 2 unexpected storage errors triggers a SEV2 alarm
-        this.createErrorCodeAlarm(config, '"[B-STR-500]"', 'storage-unexpected-error', Severity.SEV2, {threshold: 2});
+        this.createErrorCodeAlarm(config, '"[B-STR-500]"', 'storage-unexpected-error', Severity.SEV2, {
+            threshold: 2,
+        });
 
         //
         // Market Monitor
@@ -224,8 +357,8 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
             threshold: 3,
         }, {period: 300});
 
-        // 10 event polling errors within 30 minutes in the market monitor triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-MM-501]"', 'market-monitor-event-polling-error', Severity.SEV1, {
+        // 10 event polling errors within 30 minutes in the market monitor triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-MM-501]"', 'market-monitor-event-polling-error-frequent', Severity.SEV2, {
             threshold: 10,
         }, {period: 1800});
 
@@ -235,10 +368,12 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         }, {period: 900});
 
         // Any 2 unexpected errors within 30 minutes in the market monitor triggers a SEV2 alarm.
-        this.createErrorCodeAlarm(config, '"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2, {threshold: 2}, {period: 1800});
+        this.createErrorCodeAlarm(config, '"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2, {
+            threshold: 2
+        }, {period: 1800});
 
-        // 3 unexpected errors within 5 minutes in the market monitor triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV1, {
+        // 3 unexpected errors within 5 minutes in the market monitor triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-MM-500]"', 'market-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
         }, {period: 300});
 
@@ -257,8 +392,8 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
             threshold: 2,
         }, {period: 1800});
 
-        // 3 unexpected errors within 5 minutes in the chain monitor triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV1, {
+        // 3 unexpected errors within 5 minutes in the chain monitor triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-CHM-500]"', 'chain-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
         }, {period: 300});
 
@@ -266,13 +401,13 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // Off-chain Market Monitor
         //
 
-        // 10 websocket errors within 1 hour in the off-chain market monitor triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV1, {
+        // 10 websocket errors within 1 hour in the off-chain market monitor triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV2, {
             threshold: 10,
         }, {period: 3600});
 
         // 3 websocket errors within 15 minutes in the off-chain market monitor triggers a SEV2 alarm.
-        this.createErrorCodeAlarm(config, '"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV2, {
+        this.createErrorCodeAlarm(config, '"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error-frequent', Severity.SEV2, {
             threshold: 3,
         }, {period: 900});
 
@@ -281,8 +416,8 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
             threshold: 2,
         }, {period: 1800});
 
-        // 3 unexpected errors within 5 minutes in the off-chain market monitor triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error', Severity.SEV1, {
+        // 3 unexpected errors within 5 minutes in the off-chain market monitor triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
         }, {period: 300});
 
@@ -296,10 +431,10 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
 
         // Create a metric for errors when fetching images/inputs but don't alarm as could be user error.
         // Note: This is a pattern to match "[B-OP-001]" OR "[B-OP-002]"
-        this.createLogMetricFilter(config, '?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error');
+        this.createLogMetricFilterOnce(config, '?"[B-OP-001]" ?"[B-OP-002]"', 'order-picker-fetch-error');
 
-        // 3 unexpected errors within 5 minutes in the order picker triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-OP-500]"', 'order-picker-unexpected-error', Severity.SEV1, {
+        // 3 unexpected errors within 5 minutes in the order picker triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-OP-500]"', 'order-picker-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
         }, {period: 300});
 
@@ -316,17 +451,17 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
             threshold: 2,
         }, {period: 1800});
 
-        // 4 unexpected errors within 5 minutes in the order monitor triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-OM-500]"', 'order-monitor-unexpected-error', Severity.SEV1, {
+        // 4 unexpected errors within 5 minutes in the order monitor triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-OM-500]"', 'order-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 4,
         }, {period: 300});
 
         // Create metrics for scenarios where we fail to lock an order that we wanted to lock.
         // Don't alarm as this is expected behavior when another prover locked before us.
         // If we fail to lock an order because the tx fails for some reason.
-        this.createLogMetricFilter(config, '"[B-OM-007]"', 'order-monitor-lock-tx-failed');
+        this.createLogMetricFilterOnce(config, '"[B-OM-007]"', 'order-monitor-lock-tx-failed');
         // If we fail to lock an order because we saw an event indicating another prover locked before us.
-        this.createLogMetricFilter(config, '"[B-OM-009]"', 'order-monitor-already-locked');
+        this.createLogMetricFilterOnce(config, '"[B-OM-009]"', 'order-monitor-already-locked');
 
         // If we fail to lock an order twice within 2 hours because we don't have enough stake balance, SEV2.
         this.createErrorCodeAlarm(config, '"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2, {
@@ -353,8 +488,8 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
             threshold: serviceUnexpectedErrorThreshold,
         }, {period: 1800});
 
-        // 3 unexpected errors within 5 minutes in the prover triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV1, {
+        // 3 unexpected errors within 5 minutes in the prover triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-PRO-500]"', 'prover-unexpected-error-frequent', Severity.SEV2, {
             threshold: serviceUnexpectedErrorThresholdSev1,
         }, {period: 300});
 
@@ -375,8 +510,8 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
             threshold: serviceUnexpectedErrorThreshold,
         }, {period: 1800});
 
-        // 3 unexpected errors within 5 minutes in the aggregator triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV1, {
+        // 3 unexpected errors within 5 minutes in the aggregator triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-AGG-500]"', 'aggregator-unexpected-error-frequent', Severity.SEV2, {
             threshold: serviceUnexpectedErrorThresholdSev1,
         }, {period: 300});
 
@@ -391,7 +526,7 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
 
         // Track internal errors as a metric, but these errors are expected to happen occasionally.
         // and are retried and covered by other alarms.
-        this.createLogMetricFilter(config, '"[B-BON-008]"', 'proving-engine-internal-error');
+        this.createLogMetricFilterOnce(config, '"[B-BON-008]"', 'proving-engine-internal-error');
 
         //
         // Submitter
@@ -442,8 +577,8 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV2);
 
-        // 3 unexpected errors within 5 minutes in the submitter triggers a SEV1 alarm.
-        this.createErrorCodeAlarm(config, '"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV1, {
+        // 3 unexpected errors within 5 minutes in the submitter triggers a SEV2 alarm.
+        this.createErrorCodeAlarm(config, '"[B-SUB-500]"', 'submitter-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
         }, {period: 300});
 
