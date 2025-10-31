@@ -20,7 +20,7 @@ use alloy::providers::Provider;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use clap::Args;
-use inquire::{Confirm, MultiSelect, Select, Text};
+use inquire::{Confirm, Select, Text};
 use rand::Rng;
 use url::Url;
 
@@ -359,12 +359,11 @@ impl ProverGenerateConfig {
         display.note("");
 
         // Determine recommended lists based on peak performance
-        let recommended_lists = if peak_prove_khz > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
+        let priority_requestor_lists = if peak_prove_khz > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
             display.note(&format!(
-                "Your cluster's peak performance of {:.0} kHz qualifies for the XL requestor list.",
+                "Given your cluster's peak performance of {:.0} kHz, we recommend enabling the standard, large, and XL lists.",
                 peak_prove_khz
             ));
-            display.note("We recommend enabling the standard, large, and XL requestor lists.");
             vec![
                 PRIORITY_REQUESTOR_LIST_STANDARD.to_string(),
                 PRIORITY_REQUESTOR_LIST_LARGE.to_string(),
@@ -372,95 +371,22 @@ impl ProverGenerateConfig {
             ]
         } else if peak_prove_khz > LARGE_REQUESTOR_LIST_THRESHOLD_KHZ {
             display.note(&format!(
-                "Your cluster's peak performance of {:.0} kHz qualifies for the large requestor list.",
+                "Given your cluster's peak performance of {:.0} kHz, we recommend enabling the standard and large lists.",
                 peak_prove_khz
             ));
-            display.note("We recommend enabling both the standard and large requestor lists.");
             vec![
                 PRIORITY_REQUESTOR_LIST_STANDARD.to_string(),
                 PRIORITY_REQUESTOR_LIST_LARGE.to_string(),
             ]
         } else {
             display.note(&format!(
-                "Your cluster's peak performance of {:.0} kHz is suitable for the standard requestor list.",
+                "Given your cluster's peak performance of {:.0} kHz, we recommend enabling the standard list.",
                 peak_prove_khz
             ));
-            display.note("We recommend enabling the standard requestor list.");
             vec![PRIORITY_REQUESTOR_LIST_STANDARD.to_string()]
         };
 
         display.note("");
-
-        // Ask for confirmation
-        let accept_recommendation = Confirm::new("Accept recommended priority list(s)?")
-            .with_default(true)
-            .with_help_message("You can customize the selection if needed")
-            .prompt()
-            .context("Failed to get confirmation")?;
-
-        let priority_requestor_lists = if accept_recommendation {
-            recommended_lists
-        } else {
-            // Build options for multi-select
-            let mut options = vec![];
-            let mut default_indices = vec![];
-
-            // Always include standard
-            options.push("Standard list (for all provers)");
-            default_indices.push(0); // Standard is always selected by default
-
-            // Add large if qualified
-            if peak_prove_khz > LARGE_REQUESTOR_LIST_THRESHOLD_KHZ {
-                options.push("Large list (high-cycle orders, requires >4000 kHz)");
-                if recommended_lists.len() >= 2 {
-                    default_indices.push(1);
-                }
-            }
-
-            // Add XL if qualified
-            if peak_prove_khz > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
-                options.push("XL list (very high-cycle orders, requires >10000 kHz)");
-                if recommended_lists.len() >= 3 {
-                    default_indices.push(2);
-                }
-            }
-
-            let selected = MultiSelect::new("Select priority requestor lists to enable:", options)
-                .with_default(&default_indices)
-                .with_help_message("Space to select/deselect, Enter to confirm")
-                .prompt()
-                .context("Failed to get list selection")?;
-
-            // Convert selections to URLs
-            let mut result = vec![];
-            for choice in selected {
-                match choice {
-                    "Standard list (for all provers)" => {
-                        result.push(PRIORITY_REQUESTOR_LIST_STANDARD.to_string());
-                    }
-                    "Large list (high-cycle orders, requires >4000 kHz)" => {
-                        result.push(PRIORITY_REQUESTOR_LIST_LARGE.to_string());
-                    }
-                    "XL list (very high-cycle orders, requires >10000 kHz)" => {
-                        result.push(PRIORITY_REQUESTOR_LIST_XL.to_string());
-                    }
-                    _ => {}
-                }
-            }
-
-            if result.is_empty() {
-                display.warning("⚠  No lists selected. At least the standard list is recommended.");
-                let continue_anyway = Confirm::new("Continue without any priority lists?")
-                    .with_default(false)
-                    .prompt()
-                    .context("Failed to get confirmation")?;
-                if !continue_anyway {
-                    bail!("Configuration cancelled by user");
-                }
-            }
-
-            result
-        };
 
         for list in &priority_requestor_lists {
             display.item_colored("  List", list, "cyan");
@@ -1047,15 +973,7 @@ impl ProverGenerateConfig {
         display.note("This may take several minutes...");
 
         match self.run_benchmark(bento_url, rpc_url, global_config).await {
-            Ok(BenchmarkResult { worst_khz, worst_recommended_khz }) => {
-                display.item_colored("Benchmark result", format!("{:.2} kHz", worst_khz), "cyan");
-                display.item_colored(
-                    &format!("Adjusted ({:.0}%)", RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0),
-                    format!("{:.2} kHz", worst_recommended_khz),
-                    "cyan",
-                );
-                Some(worst_recommended_khz)
-            }
+            Ok(BenchmarkResult { worst_recommended_khz }) => Some(worst_recommended_khz),
             Err(e) => {
                 display.note(&format!("⚠  Benchmark failed: {}", e));
                 display.note("Falling back to manual input...");
