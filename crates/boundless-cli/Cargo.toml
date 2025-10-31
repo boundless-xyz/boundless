@@ -23,6 +23,7 @@ boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
+broker = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }

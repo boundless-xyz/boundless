@@ -28,6 +28,7 @@ url = { workspace = true }
 [dev-dependencies]
 boundless-cli = { workspace = true }
 boundless-test-utils = { workspace = true }
+broker = { workspace = true }
 futures-util = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 tracing-test = { workspace = true }
