@@ -199,7 +199,28 @@ export class MetricAlarmComponent extends BaseComponent {
     };
 }
 
-export class ProverMetricAlarmComponent extends MetricAlarmComponent {
+export class WorkerClusterAlarmComponent extends MetricAlarmComponent {
+    constructor(config: MetricAlarmConfig) {
+        super(config);
+        this.createAutoScalingGroupAlarms(config)
+    }
+
+    private createAutoScalingGroupAlarms = (config: MetricAlarmConfig): void => {
+        this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
+            metricName: 'GroupInServiceInstances',
+            namespace: `AWS/AutoScaling`,
+            period: 60,
+            dimensions: config.alarmDimensions,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 0,
+            comparisonOperator: 'LessThanOrEqualToThreshold'
+        }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+    }
+}
+
+export class ProverMetricAlarmComponent extends WorkerClusterAlarmComponent {
     constructor(config: MetricAlarmConfig) {
         super(config);
         this.createProverMetricAlarms(config)

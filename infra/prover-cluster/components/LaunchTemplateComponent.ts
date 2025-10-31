@@ -121,6 +121,15 @@ echo "COMPONENT_TYPE=${componentType}" >> /etc/environment
 /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
 /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
+# Add CloudWatch agent configuration that is manager-specific
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json << 'EOF'
+{
+  "metrics": {
+    "aggregation_dimensions": [["InstanceId"]]
+  }
+}
+EOF
+
 # Ethereum configuration
 echo "RPC_URL=${rpcUrl}" >> /etc/environment
 echo "PRIVATE_KEY=${privKey}" >> /etc/environment
