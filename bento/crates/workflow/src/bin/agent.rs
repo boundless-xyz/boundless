@@ -14,15 +14,15 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let task_stream = args.task_stream.clone();
-    let agent = Agent::new(args).await.context("Failed to initialize Agent")?;
+    let agent = Agent::new(args).await.context("[BENTO-AGENT-001] Failed to initialize Agent")?;
 
     sqlx::migrate!("../taskdb/migrations")
         .run(&agent.db_pool)
         .await
-        .context("Failed to run migrations")?;
+        .context("[BENTO-AGENT-002] Failed to run migrations")?;
 
     tracing::info!("Successful agent startup! Worker type: {task_stream}");
 
     // Poll until agent is signaled to exit:
-    agent.poll_work().await.context("Exiting agent polling")
+    agent.poll_work().await.context("[BENTO-AGENT-003] Exiting agent polling")
 }
