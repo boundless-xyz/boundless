@@ -79,6 +79,11 @@ build {
     destination = "/tmp/vector.yaml"
   }
 
+  provisioner "file" {
+    source = "./config_files/cloudwatch-agent.json"
+    destination = "/tmp/cloudwatch-agent.json"
+  }
+
   # Copy service files first
   provisioner "file" {
     source = "./service_files/bento-api.service"

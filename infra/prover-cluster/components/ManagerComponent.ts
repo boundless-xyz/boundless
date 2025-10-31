@@ -74,6 +74,7 @@ export class ManagerComponent extends BaseComponent {
             ...config,
             serviceName: "bento-manager",
             logGroupName: `/boundless/bento/${config.stackName}/manager`,
+            alarmDimensions: {InstanceId: this.instance.id},
         });
     }
 }
