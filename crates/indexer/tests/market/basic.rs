@@ -33,7 +33,7 @@ use boundless_test_utils::{
     guests::{ECHO_ID, ECHO_PATH},
     market::create_test_ctx,
 };
-use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
+use broker::provers::DefaultProver as BrokerDefaultProver;
 use sqlx::Row;
 
 async fn create_order(
