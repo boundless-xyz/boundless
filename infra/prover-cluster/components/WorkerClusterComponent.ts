@@ -2,7 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
 import {LaunchTemplateComponent, LaunchTemplateConfig} from "./LaunchTemplateComponent";
 import {AutoScalingGroupComponent, AutoScalingGroupConfig} from "./AutoScalingGroupComponent";
-import {MetricAlarmComponent, ProverMetricAlarmComponent} from "./MetricAlarmComponent";
+import {ProverMetricAlarmComponent, WorkerClusterAlarmComponent} from "./MetricAlarmComponent";
 
 export interface WorkerClusterConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -25,8 +25,8 @@ export class WorkerClusterComponent extends BaseComponent {
     public readonly executionAsg: AutoScalingGroupComponent;
     public readonly auxAsg: AutoScalingGroupComponent;
     public readonly proverAlarms: ProverMetricAlarmComponent;
-    public readonly executionAlarms: MetricAlarmComponent;
-    public readonly auxAlarms: MetricAlarmComponent;
+    public readonly executionAlarms: WorkerClusterAlarmComponent;
+    public readonly auxAlarms: WorkerClusterAlarmComponent;
 
     constructor(config: WorkerClusterConfig) {
         super(config, "boundless-bento");
@@ -105,8 +105,8 @@ export class WorkerClusterComponent extends BaseComponent {
         return new AutoScalingGroupComponent(asgConfig);
     }
 
-    private createExecutionAlarms(config: WorkerClusterConfig): MetricAlarmComponent {
-        return new MetricAlarmComponent({
+    private createExecutionAlarms(config: WorkerClusterConfig): WorkerClusterAlarmComponent {
+        return new WorkerClusterAlarmComponent({
             ...config,
             serviceName: "bento-execution-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/execution`,
@@ -137,8 +137,8 @@ export class WorkerClusterComponent extends BaseComponent {
         return new AutoScalingGroupComponent(asgConfig);
     }
 
-    private createAuxAlarms(config: WorkerClusterConfig): MetricAlarmComponent {
-        return new MetricAlarmComponent({
+    private createAuxAlarms(config: WorkerClusterConfig): WorkerClusterAlarmComponent {
+        return new WorkerClusterAlarmComponent({
             ...config,
             serviceName: "bento-aux-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/aux`,
