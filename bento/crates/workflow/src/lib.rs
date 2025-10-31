@@ -225,7 +225,7 @@ impl Agent {
         .context("Failed to initialize s3 client / bucket")?;
 
         let verifier_ctx = VerifierContext::default();
-        let prover = if args.task_stream == PROVE_WORK_TYPE
+        let prover: Option<Rc<dyn ProverServer>> = if args.task_stream == PROVE_WORK_TYPE
             || args.task_stream == JOIN_WORK_TYPE
             || args.task_stream == COPROC_WORK_TYPE
         {
@@ -407,21 +407,34 @@ impl Agent {
         let task_type: TaskType = serde_json::from_value(task.task_def.clone())
             .with_context(|| format!("Invalid task_def: {}:{}", task.job_id, task.task_id))?;
 
+        enum TaskProcessResult {
+            Completed(serde_json::Value),
+            Deferred,
+        }
+
         // run the task
         let res = match task_type {
-            TaskType::Executor(req) => serde_json::to_value(
-                tasks::executor::executor(self, &task.job_id, &req)
-                    .await
-                    .context("Executor failed")?,
+            TaskType::Executor(req) => TaskProcessResult::Completed(
+                serde_json::to_value(
+                    tasks::executor::executor(self, &task.job_id, &req)
+                        .await
+                        .context("Executor failed")?,
+                )
+                .context("Failed to serialize executor response")?,
+            ),
+            TaskType::Prove(req) => match tasks::prove::prover(
+                self,
+                &task.job_id,
+                &task.task_id,
+                &req,
+                task.max_retries,
             )
-            .context("Failed to serialize executor response")?,
-            TaskType::Prove(req) => serde_json::to_value(
-                tasks::prove::prover(self, &task.job_id, &task.task_id, &req)
-                    .await
-                    .context("Prove failed")?,
-            )
-            .context("Failed to serialize prove response")?,
-            TaskType::Join(req) => {
+            .await
+            .context("Prove failed")?
+            {
+                tasks::prove::ProverOutcome::Deferred => TaskProcessResult::Deferred,
+            },
+            TaskType::Join(req) => TaskProcessResult::Completed({
                 // Route to POVW or regular join based on agent POVW setting
                 if self.is_povw_enabled() {
                     serde_json::to_value(
@@ -436,8 +449,8 @@ impl Agent {
                     )
                     .context("Failed to serialize join response")?
                 }
-            }
-            TaskType::Resolve(req) => {
+            }),
+            TaskType::Resolve(req) => TaskProcessResult::Completed({
                 // Route to POVW or regular resolve based on agent POVW setting
                 if self.is_povw_enabled() {
                     serde_json::to_value(
@@ -454,34 +467,47 @@ impl Agent {
                     )
                     .context("Failed to serialize resolve response")?
                 }
-            }
-            TaskType::Finalize(req) => serde_json::to_value(
-                tasks::finalize::finalize(self, &task.job_id, &req)
-                    .await
-                    .context("Finalize failed")?,
-            )
-            .context("Failed to serialize finalize response")?,
-            TaskType::Snark(req) => serde_json::to_value(
-                tasks::snark::stark2snark(self, &task.job_id.to_string(), &req)
-                    .await
-                    .context("Snark failed")?,
-            )
-            .context("failed to serialize snark response")?,
-            TaskType::Keccak(req) => serde_json::to_value(
-                tasks::keccak::keccak(self, &task.job_id, &task.task_id, &req)
-                    .await
-                    .context("Keccak failed")?,
-            )
-            .context("failed to serialize keccak response")?,
-            TaskType::Union(req) => serde_json::to_value(
-                tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
-            )
-            .context("failed to serialize union response")?,
+            }),
+            TaskType::Finalize(req) => TaskProcessResult::Completed(
+                serde_json::to_value(
+                    tasks::finalize::finalize(self, &task.job_id, &req)
+                        .await
+                        .context("Finalize failed")?,
+                )
+                .context("Failed to serialize finalize response")?,
+            ),
+            TaskType::Snark(req) => TaskProcessResult::Completed(
+                serde_json::to_value(
+                    tasks::snark::stark2snark(self, &task.job_id.to_string(), &req)
+                        .await
+                        .context("Snark failed")?,
+                )
+                .context("failed to serialize snark response")?,
+            ),
+            TaskType::Keccak(req) => TaskProcessResult::Completed(
+                serde_json::to_value(
+                    tasks::keccak::keccak(self, &task.job_id, &task.task_id, &req)
+                        .await
+                        .context("Keccak failed")?,
+                )
+                .context("failed to serialize keccak response")?,
+            ),
+            TaskType::Union(req) => TaskProcessResult::Completed(
+                serde_json::to_value(
+                    tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
+                )
+                .context("failed to serialize union response")?,
+            ),
         };
 
-        taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, res)
-            .await
-            .context("Failed to report task done")?;
+        match res {
+            TaskProcessResult::Completed(output) => {
+                taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, output)
+                    .await
+                    .context("Failed to report task done")?;
+            }
+            TaskProcessResult::Deferred => return Ok(()),
+        }
 
         Ok(())
     }

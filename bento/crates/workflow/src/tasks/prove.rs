@@ -5,17 +5,34 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
+    redis::{self, RedisPool},
     tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
+use risc0_zkvm::{
+    ProverOpts, ReceiptClaim, SegmentReceipt, SuccinctReceipt, VerifierContext, WorkClaim,
+    get_prover_server,
+};
+use serde_json::Value;
+use sqlx::{PgPool, query_scalar};
 use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{ProveReq, metrics::helpers};
 
+/// Result of scheduling a prove task.
+pub enum ProverOutcome {
+    /// All follow-up work (lift, DB update) has been offloaded and will complete asynchronously.
+    Deferred,
+}
+
 /// Run a prove request
-pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<()> {
+pub async fn prover(
+    agent: &Agent,
+    job_id: &Uuid,
+    task_id: &str,
+    request: &ProveReq,
+    max_retries: i32,
+) -> Result<ProverOutcome> {
     let start_time = Instant::now();
     let index = request.index;
     let mut conn = agent.redis_pool.get().await?;
@@ -57,79 +74,274 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
     helpers::record_task("prove", "prove_segment", "success", prove_elapsed_time);
 
     tracing::debug!("Completed proof: {job_id} - {index}");
+    let segment_receipt_bytes = serialize_obj(&segment_receipt)
+        .context("Failed to serialize segment receipt for background lift")?;
+    drop(conn);
 
-    tracing::debug!("lifting {job_id} - {index}");
-
+    // Background the lift, Redis write, and DB update so prover can move to next job
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
+    let db_pool = agent.db_pool.clone();
+    let redis_pool = agent.redis_pool.clone();
+    let is_povw = agent.is_povw_enabled();
+    let redis_ttl = agent.args.redis_ttl;
+    let job_id_clone = *job_id;
+    let task_id_string = task_id.to_owned();
 
-    if agent.is_povw_enabled() {
-        let lift_povw_start = Instant::now();
-        let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = match agent
-            .prover
-            .as_ref()
-            .context("Missing prover from resolve task")?
-            .lift_povw(&segment_receipt)
-        {
-            Ok(receipt) => receipt,
-            Err(e) => return Err(e),
-        };
-        let lift_povw_elapsed_time = lift_povw_start.elapsed().as_secs_f64();
+    let background_ctx = OffloadContext {
+        redis_pool,
+        db_pool,
+        job_id: job_id_clone,
+        task_id: task_id_string,
+        segment_key,
+        output_key,
+        redis_ttl,
+        is_povw,
+        max_retries,
+        start_time,
+    };
 
-        lift_receipt
-            .verify_integrity_with_context(&agent.verifier_ctx)
-            .context("Failed to verify lift receipt integrity")?;
-        helpers::record_task_operation("prove", "lift_povw", "success", lift_povw_elapsed_time);
+    tokio::spawn(async move {
+        if let Err(err) = offload_lift_and_finalize(background_ctx, segment_receipt_bytes).await {
+            tracing::error!(
+                "Background prove completion failed for job {job_id_clone}: {:#}",
+                err
+            );
+        }
+    });
 
-        tracing::debug!("lifting complete {job_id} - {index}");
+    Ok(ProverOutcome::Deferred)
+}
 
-        // Write out lifted POVW receipt
-        let lift_asset =
-            serialize_obj(&lift_receipt).expect("Failed to serialize the POVW segment");
-        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
+struct OffloadContext {
+    redis_pool: RedisPool,
+    db_pool: PgPool,
+    job_id: Uuid,
+    task_id: String,
+    segment_key: String,
+    output_key: String,
+    redis_ttl: u64,
+    is_povw: bool,
+    max_retries: i32,
+    start_time: Instant,
+}
+
+async fn offload_lift_and_finalize(
+    ctx: OffloadContext,
+    segment_receipt_bytes: Vec<u8>,
+) -> Result<()> {
+    let OffloadContext {
+        redis_pool,
+        db_pool,
+        job_id,
+        task_id,
+        segment_key,
+        output_key,
+        redis_ttl,
+        is_povw,
+        max_retries,
+        start_time,
+    } = ctx;
+
+    let job_id_for_logs = job_id;
+    let task_id_for_logs = task_id.clone();
+    let db_pool_clone = db_pool.clone();
+
+    let result = perform_lift_write_and_finalize(
+        redis_pool,
+        db_pool,
+        job_id,
+        task_id.clone(),
+        segment_key,
+        output_key,
+        redis_ttl,
+        is_povw,
+        start_time,
+        segment_receipt_bytes,
+    )
+    .await;
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            helpers::record_task_operation(
+                "prove",
+                "complete",
+                "error",
+                start_time.elapsed().as_secs_f64(),
+            );
+
+            let err_msg = format!("{:#}", err);
+            if let Err(db_err) = handle_prove_failure(
+                db_pool_clone,
+                job_id_for_logs,
+                task_id,
+                max_retries,
+                err_msg.clone(),
+            )
             .await
-            .context("Failed to set POVW receipt key with expiry")?;
-    } else {
-        let lift_receipt: SuccinctReceipt<ReceiptClaim> = match agent
-            .prover
-            .as_ref()
-            .context("Missing prover from resolve task")?
-            .lift(&segment_receipt)
-        {
-            Ok(receipt) => receipt,
-            Err(e) => return Err(e),
-        };
-
-        lift_receipt
-            .verify_integrity_with_context(&agent.verifier_ctx)
-            .context("Failed to verify lift receipt integrity")?;
-
-        tracing::debug!("lifting complete {job_id} - {index}");
-
-        // Write out lifted regular receipt
-        let lift_asset = serialize_obj(&lift_receipt).expect("Failed to serialize the segment");
-        redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
-            .await
-            .context("Failed to set receipt key with expiry")?;
+            {
+                tracing::error!(
+                    "Failed to record prove failure for {job_id_for_logs}:{task_id_for_logs}: {:#}",
+                    db_err
+                );
+            }
+            tracing::warn!(
+                "Prove lift/write failed for {job_id_for_logs}:{task_id_for_logs}: {err_msg}"
+            );
+            Ok(())
+        }
     }
+}
 
-    // Clean up segment
-    let cleanup_start = Instant::now();
-    let cleanup_result = conn.unlink::<_, ()>(&segment_key).await;
-    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    helpers::record_redis_operation(
-        "unlink",
-        cleanup_status,
-        cleanup_start.elapsed().as_secs_f64(),
-    );
-    cleanup_result.map_err(|e| anyhow::anyhow!(e).context("Failed to delete segment key"))?;
+async fn perform_lift_write_and_finalize(
+    redis_pool: RedisPool,
+    db_pool: PgPool,
+    job_id: Uuid,
+    task_id: String,
+    segment_key: String,
+    output_key: String,
+    redis_ttl: u64,
+    is_povw: bool,
+    start_time: Instant,
+    segment_receipt_bytes: Vec<u8>,
+) -> Result<()> {
+    let lift_label = if is_povw { "lift_povw" } else { "lift" };
+    let lift_start = Instant::now();
+    let job_id_for_logs = job_id;
+    let task_id_for_logs = task_id.clone();
 
-    // Record total task duration and success
+    let lift_result = tokio::task::spawn_blocking(move || {
+        run_lift(is_povw, segment_receipt_bytes, job_id_for_logs, task_id_for_logs)
+    })
+    .await
+    .context("Background lift task panicked")?;
+
+    let (_op_type, lift_asset) = match lift_result {
+        Ok((label, asset)) => {
+            helpers::record_task_operation(
+                "prove",
+                label,
+                "success",
+                lift_start.elapsed().as_secs_f64(),
+            );
+            tracing::debug!("lifting complete {job_id} - {task_id}");
+            (label, asset)
+        }
+        Err(err) => {
+            helpers::record_task_operation(
+                "prove",
+                lift_label,
+                "error",
+                lift_start.elapsed().as_secs_f64(),
+            );
+            return Err(err);
+        }
+    };
+
+    let mut conn = redis_pool
+        .get()
+        .await
+        .context("Failed to get Redis connection for background prove completion")?;
+    redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(redis_ttl))
+        .await
+        .context("Failed to persist lifted receipt in Redis")?;
+    redis::unlink_key(&mut conn, &segment_key)
+        .await
+        .context("Failed to delete segment key after lift")?;
+
+    taskdb::update_task_done(&db_pool, &job_id, &task_id, Value::Null)
+        .await
+        .context("Failed to report prove task completion")?;
+
     helpers::record_task_operation(
         "prove",
         "complete",
         "success",
         start_time.elapsed().as_secs_f64(),
     );
+    Ok(())
+}
+
+fn run_lift(
+    is_povw: bool,
+    segment_receipt_bytes: Vec<u8>,
+    job_id: Uuid,
+    task_id: String,
+) -> Result<(&'static str, Vec<u8>)> {
+    let prover = get_prover_server(&ProverOpts::default())
+        .context("Failed to create prover server for background lift")?;
+    let verifier_ctx = VerifierContext::default();
+    let segment_receipt: SegmentReceipt = deserialize_obj(&segment_receipt_bytes)
+        .context("Failed to deserialize segment receipt in background lift")?;
+
+    if is_povw {
+        tracing::debug!("lifting {job_id} - {task_id}");
+        let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = prover
+            .lift_povw(&segment_receipt)
+            .context("Failed to lift POVW receipt in background")?;
+        lift_receipt
+            .verify_integrity_with_context(&verifier_ctx)
+            .context("Failed to verify lifted POVW receipt integrity")?;
+        let serialized = serialize_obj(&lift_receipt)
+            .context("Failed to serialize lifted POVW receipt")?;
+        Ok(("lift_povw", serialized))
+    } else {
+        tracing::debug!("lifting {job_id} - {task_id}");
+        let lift_receipt: SuccinctReceipt<ReceiptClaim> = prover
+            .lift(&segment_receipt)
+            .context("Failed to lift receipt in background")?;
+        lift_receipt
+            .verify_integrity_with_context(&verifier_ctx)
+            .context("Failed to verify lifted receipt integrity")?;
+        let serialized =
+            serialize_obj(&lift_receipt).context("Failed to serialize lifted receipt")?;
+        Ok(("lift", serialized))
+    }
+}
+
+async fn handle_prove_failure(
+    db_pool: PgPool,
+    job_id: Uuid,
+    task_id: String,
+    max_retries: i32,
+    mut err_str: String,
+) -> Result<()> {
+    if err_str.is_empty() {
+        err_str = "unknown prove failure".to_string();
+    }
+    err_str.truncate(1024);
+
+    if max_retries > 0 {
+        let current_retries = query_scalar::<_, i32>(
+            "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
+        )
+        .bind(job_id)
+        .bind(&task_id)
+        .fetch_optional(&db_pool)
+        .await
+        .context("Failed to read current retries for prove task")?;
+
+        if let Some(current) = current_retries {
+            if current + 1 > max_retries {
+                let final_err = format!("retry max hit: {err_str}");
+                taskdb::update_task_failed(&db_pool, &job_id, &task_id, &final_err)
+                    .await
+                    .context("Failed to report prove failure")?;
+                return Ok(());
+            }
+        }
+
+        if !taskdb::update_task_retry(&db_pool, &job_id, &task_id)
+            .await
+            .context("Failed to update prove retries")?
+        {
+            tracing::info!("update_task_retry no-op for {job_id}:{task_id}");
+        }
+    } else {
+        taskdb::update_task_failed(&db_pool, &job_id, &task_id, &err_str)
+            .await
+            .context("Failed to report prove failure without retries")?;
+    }
 
     Ok(())
 }

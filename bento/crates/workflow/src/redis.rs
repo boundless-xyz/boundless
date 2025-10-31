@@ -16,6 +16,7 @@ pub fn create_pool(redis_url: &str) -> Result<RedisPool> {
 }
 
 /// Function to set a key with an optional expiry using a pipeline
+#[tracing::instrument(skip(conn, value), fields(key = %key))]
 pub async fn set_key_with_expiry<T>(
     conn: &mut deadpool_redis::Connection,
     key: &str,
@@ -42,6 +43,7 @@ where
     result
 }
 
+#[tracing::instrument(skip(conn), fields(key = %key))]
 pub async fn get_key<T>(conn: &mut deadpool_redis::Connection, key: &str) -> RedisResult<T>
 where
     T: FromRedisValue + Send + Sync + 'static,
@@ -51,5 +53,15 @@ where
     let elapsed = redis_start.elapsed().as_secs_f64();
     let status = if result.is_ok() { "success" } else { "error" };
     helpers::record_redis_operation("get", status, elapsed);
+    result
+}
+
+#[tracing::instrument(skip(conn), fields(key = %key))]
+pub async fn unlink_key(conn: &mut deadpool_redis::Connection, key: &str) -> RedisResult<()> {
+    let redis_start = Instant::now();
+    let result = conn.unlink::<_, ()>(key).await;
+    let elapsed = redis_start.elapsed().as_secs_f64();
+    let status = if result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation("unlink", status, elapsed);
     result
 }
