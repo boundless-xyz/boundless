@@ -1,7 +1,8 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
-import { LaunchTemplateComponent, LaunchTemplateConfig } from "./LaunchTemplateComponent";
+import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
+import {LaunchTemplateComponent, LaunchTemplateConfig} from "./LaunchTemplateComponent";
+import {ManagerMetricAlarmComponent} from "./MetricAlarmComponent";
 
 export interface ManagerComponentConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -21,11 +22,13 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     setVerifierAddress: string;
     collateralTokenAddress: string;
     chainId: string;
+    alertsTopicArns: string[];
 }
 
 export class ManagerComponent extends BaseComponent {
     public readonly instance: aws.ec2.Instance;
     public readonly launchTemplate: LaunchTemplateComponent;
+    public readonly metricAlarms: ManagerMetricAlarmComponent;
 
     constructor(config: ManagerComponentConfig) {
         super(config, "boundless-bento");
@@ -38,6 +41,7 @@ export class ManagerComponent extends BaseComponent {
 
         this.launchTemplate = new LaunchTemplateComponent(launchTemplateConfig);
         this.instance = this.createManagerInstance(config);
+        this.metricAlarms = this.createManagerAlarms(config);
     }
 
     private createManagerInstance(config: ManagerComponentConfig): aws.ec2.Instance {
@@ -62,6 +66,15 @@ export class ManagerComponent extends BaseComponent {
                 Project: `${this.config.stackName}-prover`,
                 "ssm:bootstrap": "manager",
             },
+        });
+    }
+
+    private createManagerAlarms(config: ManagerComponentConfig): ManagerMetricAlarmComponent {
+        return new ManagerMetricAlarmComponent({
+            ...config,
+            serviceName: "bento-manager",
+            logGroupName: `/boundless/bento/${config.stackName}/manager`,
+            alarmDimensions: {InstanceId: this.instance.id},
         });
     }
 }
