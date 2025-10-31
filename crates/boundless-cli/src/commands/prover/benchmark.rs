@@ -35,10 +35,17 @@ pub struct ProverBenchmark {
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
 }
-const RECOMMENDED_PEAK_PROVE_KHZ_FACTOR: f64 = 0.75;
+pub const RECOMMENDED_PEAK_PROVE_KHZ_FACTOR: f64 = 0.75;
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkResult {
+    pub worst_khz: f64,
+    pub worst_recommended_khz: f64,
+}
+
 impl ProverBenchmark {
     /// Run the benchmark command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<f64> {
+    pub async fn run(&self, global_config: &GlobalConfig) -> Result<BenchmarkResult> {
         let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
@@ -235,7 +242,7 @@ impl ProverBenchmark {
             display.item_colored("Time", format!("{:.2}s", worst_time), "yellow");
         }
 
-        Ok(worst_recommended_khz)
+        Ok(BenchmarkResult { worst_khz, worst_recommended_khz })
     }
 }
 

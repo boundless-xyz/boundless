@@ -25,6 +25,7 @@ use rand::Rng;
 use url::Url;
 
 use super::benchmark::ProverBenchmark;
+use crate::commands::prover::benchmark::{BenchmarkResult, RECOMMENDED_PEAK_PROVE_KHZ_FACTOR};
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
@@ -131,6 +132,8 @@ impl ProverGenerateConfig {
         display.note("customized for your prover setup, that allow you to compete in the");
         display.note("market and earn rewards.");
         display.separator();
+        display.info("For the best experience, ensure you have setup your system with the correct dependencies before continuing.");
+        display.info("See https://docs.boundless.network/provers/quick-start#install-dependencies for more information.");
 
         // Check file handling strategy
         let broker_strategy =
@@ -477,9 +480,12 @@ impl ProverGenerateConfig {
             "We recommend a max collateral of {} ZKC for your configuration.",
             recommended_collateral
         ));
-        display.note("  • 50 ZKC: Recommended for standard requestor list (lower risk)");
-        display.note("  • 200 ZKC: Recommended for standard + large lists (large orders, higher rewards, higher risk)");
-        display.note("  • 500 ZKC: Recommended for standard + large + XL lists (largest orders, highest rewards, highest risk)");
+        display.note("  • 50 ZKC: Recommended for the standard requestor list");
+        display.note("    (lower risk)");
+        display.note("  • 200 ZKC: Recommended for standard + large lists");
+        display.note("    (large orders, higher rewards, higher risk)");
+        display.note("  • 500 ZKC: Recommended for standard + large + XL lists");
+        display.note("    (largest orders, highest rewards, highest risk)");
         display.note("");
         display
             .note("Higher collateral enables higher-reward orders but increases slashing risks.");
@@ -919,7 +925,8 @@ impl ProverGenerateConfig {
         display.note("Boundless provides a benchmarking suite for estimating your cluster's");
         display.note("peak performance.");
         display.warning("The benchmark suite requires access to a running Bento proving cluster.");
-        display.note("See https://docs.boundless.network/provers/quick-start#running-a-test-proof for information on how to run Bento.");
+        display.note("For information on how to run Bento, see:");
+        display.note("https://docs.boundless.network/provers/quick-start#running-a-test-proof");
         display.note("");
 
         let choice = Select::new(
@@ -949,34 +956,17 @@ impl ProverGenerateConfig {
                         .context("Failed to get confirmation")?;
 
                     if use_detected {
-                        display.separator();
-                        display.note(&format!(
-                            "Reminder: Ensure Bento is running with SEGMENT_SIZE={} for accurate results",
-                            segment_size
-                        ));
-                        display.separator();
-                        display.status("Status", "Running benchmark", "yellow");
-                        display.note("This may take several minutes...");
-
-                        match self.run_benchmark(default_bento_url, &rpc_url, global_config).await {
-                            Ok(khz) => {
-                                let adjusted_khz = khz * 0.75;
-                                display.item_colored(
-                                    "Benchmark result",
-                                    format!("{:.2} kHz", khz),
-                                    "cyan",
-                                );
-                                display.item_colored(
-                                    "Adjusted (75%)",
-                                    format!("{:.2} kHz", adjusted_khz),
-                                    "cyan",
-                                );
-                                return Ok(adjusted_khz);
-                            }
-                            Err(e) => {
-                                display.note(&format!("⚠  Benchmark failed: {}", e));
-                                display.note("Falling back to manual input...");
-                            }
+                        if let Some(khz) = self
+                            .try_run_benchmark_and_display(
+                                default_bento_url,
+                                &rpc_url,
+                                global_config,
+                                display,
+                                segment_size,
+                            )
+                            .await
+                        {
+                            return Ok(khz);
                         }
                     }
                 }
@@ -999,34 +989,17 @@ impl ProverGenerateConfig {
                         .context("Failed to get Bento URL")?;
 
                     if check_bento_health(&bento_url).await.is_ok() {
-                        display.separator();
-                        display.note(&format!(
-                            "Reminder: Ensure Bento is running with SEGMENT_SIZE={} for accurate results",
-                            segment_size
-                        ));
-                        display.separator();
-                        display.status("Status", "Running benchmark", "yellow");
-                        display.note("This may take several minutes...");
-
-                        match self.run_benchmark(&bento_url, &rpc_url, global_config).await {
-                            Ok(khz) => {
-                                let adjusted_khz = khz * 0.75;
-                                display.item_colored(
-                                    "Benchmark result",
-                                    format!("{:.2} kHz", khz),
-                                    "cyan",
-                                );
-                                display.item_colored(
-                                    "Adjusted (75%)",
-                                    format!("{:.2} kHz", adjusted_khz),
-                                    "cyan",
-                                );
-                                return Ok(adjusted_khz);
-                            }
-                            Err(e) => {
-                                display.note(&format!("⚠  Benchmark failed: {}", e));
-                                display.note("Falling back to manual input...");
-                            }
+                        if let Some(khz) = self
+                            .try_run_benchmark_and_display(
+                                &bento_url,
+                                &rpc_url,
+                                global_config,
+                                display,
+                                segment_size,
+                            )
+                            .await
+                        {
+                            return Ok(khz);
                         }
                     } else {
                         display.note(&format!("⚠  Could not connect to Bento at {}", bento_url));
@@ -1056,12 +1029,47 @@ impl ProverGenerateConfig {
         }
     }
 
+    async fn try_run_benchmark_and_display(
+        &self,
+        bento_url: &str,
+        rpc_url: &Url,
+        global_config: &GlobalConfig,
+        display: &DisplayManager,
+        segment_size: u32,
+    ) -> Option<f64> {
+        display.separator();
+        display.note(&format!(
+            "Reminder: Ensure Bento is running with SEGMENT_SIZE={} for accurate results",
+            segment_size
+        ));
+        display.separator();
+        display.status("Status", "Running benchmark", "yellow");
+        display.note("This may take several minutes...");
+
+        match self.run_benchmark(bento_url, rpc_url, global_config).await {
+            Ok(BenchmarkResult { worst_khz, worst_recommended_khz }) => {
+                display.item_colored("Benchmark result", format!("{:.2} kHz", worst_khz), "cyan");
+                display.item_colored(
+                    &format!("Adjusted ({:.0}%)", RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0),
+                    format!("{:.2} kHz", worst_recommended_khz),
+                    "cyan",
+                );
+                Some(worst_recommended_khz)
+            }
+            Err(e) => {
+                display.note(&format!("⚠  Benchmark failed: {}", e));
+                display.note("Falling back to manual input...");
+                None
+            }
+        }
+    }
+
     async fn run_benchmark(
         &self,
         bento_url: &str,
         rpc_url: &Url,
         global_config: &GlobalConfig,
-    ) -> Result<f64> {
+    ) -> Result<BenchmarkResult> {
         // Use the hardcoded test request ID for benchmarking
         // TODO: use a representative request ID for benchmarking. This is a OG order of ~500M cycles.
         let request_id = "0xc197ebe12c7bcf1d9f3b415342bdbc795425335c01379fa6"
@@ -1610,7 +1618,8 @@ impl ProverGenerateConfig {
             display.warning("   REWARD_ADDRESS env variable is not set.");
             display
                 .note("   This is required in order to receive ZKC mining rewards for your work.");
-            display.note("   (This does not effect the ETH market fees you receive from fulfilling proving requests.)");
+            display.note("   (This does not effect the ETH market fees you receive from");
+            display.note("    fulfilling proving requests.)");
             display.note("   Learn more: https://docs.boundless.network/zkc/mining/overview");
             display.note("");
             display.note("   Option 1: export REWARD_ADDRESS=<reward_address>");
@@ -1697,7 +1706,7 @@ fn gpu_memory_to_segment_size(memory_mib: u32) -> u32 {
 // Bento health check
 async fn check_bento_health(bento_url: &str) -> Result<()> {
     let url = Url::parse(bento_url).context("Invalid Bento URL")?;
-    let health_url = url.join("health").context("Failed to construct health check URL")?;
+    let health_url = url.join("health").context("Failed to construct hebalth check URL")?;
 
     reqwest::get(health_url.clone())
         .await
