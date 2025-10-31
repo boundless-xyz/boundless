@@ -10,8 +10,8 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::{
-    ProverOpts, ReceiptClaim, SegmentReceipt, SuccinctReceipt, VerifierContext, WorkClaim,
-    get_prover_server,
+    DEFAULT_MAX_PO2, ProverOpts, ReceiptClaim, SegmentReceipt, SuccinctReceipt, VerifierContext,
+    WorkClaim, get_prover_server,
 };
 use serde_json::Value;
 use sqlx::{PgPool, query_scalar};
@@ -87,6 +87,8 @@ pub async fn prover(
     let job_id_clone = *job_id;
     let task_id_string = task_id.to_owned();
 
+    let max_segment_po2 = std::cmp::max(agent.segment_po2 as usize, DEFAULT_MAX_PO2);
+
     let background_ctx = OffloadContext {
         redis_pool,
         db_pool,
@@ -98,14 +100,12 @@ pub async fn prover(
         is_povw,
         max_retries,
         start_time,
+        max_segment_po2,
     };
 
     tokio::spawn(async move {
         if let Err(err) = offload_lift_and_finalize(background_ctx, segment_receipt_bytes).await {
-            tracing::error!(
-                "Background prove completion failed for job {job_id_clone}: {:#}",
-                err
-            );
+            tracing::error!("Background prove completion failed for job {job_id_clone}: {:#}", err);
         }
     });
 
@@ -123,6 +123,7 @@ struct OffloadContext {
     is_povw: bool,
     max_retries: i32,
     start_time: Instant,
+    max_segment_po2: usize,
 }
 
 async fn offload_lift_and_finalize(
@@ -140,6 +141,7 @@ async fn offload_lift_and_finalize(
         is_povw,
         max_retries,
         start_time,
+        max_segment_po2,
     } = ctx;
 
     let job_id_for_logs = job_id;
@@ -157,6 +159,7 @@ async fn offload_lift_and_finalize(
         is_povw,
         start_time,
         segment_receipt_bytes,
+        max_segment_po2,
     )
     .await;
 
@@ -204,6 +207,7 @@ async fn perform_lift_write_and_finalize(
     is_povw: bool,
     start_time: Instant,
     segment_receipt_bytes: Vec<u8>,
+    max_segment_po2: usize,
 ) -> Result<()> {
     let lift_label = if is_povw { "lift_povw" } else { "lift" };
     let lift_start = Instant::now();
@@ -211,7 +215,7 @@ async fn perform_lift_write_and_finalize(
     let task_id_for_logs = task_id.clone();
 
     let lift_result = tokio::task::spawn_blocking(move || {
-        run_lift(is_povw, segment_receipt_bytes, job_id_for_logs, task_id_for_logs)
+        run_lift(is_povw, segment_receipt_bytes, job_id_for_logs, task_id_for_logs, max_segment_po2)
     })
     .await
     .context("Background lift task panicked")?;
@@ -267,8 +271,10 @@ fn run_lift(
     segment_receipt_bytes: Vec<u8>,
     job_id: Uuid,
     task_id: String,
+    max_segment_po2: usize,
 ) -> Result<(&'static str, Vec<u8>)> {
-    let prover = get_prover_server(&ProverOpts::default())
+    let prover_opts = ProverOpts::from_max_po2(max_segment_po2);
+    let prover = get_prover_server(&prover_opts)
         .context("Failed to create prover server for background lift")?;
     let verifier_ctx = VerifierContext::default();
     let segment_receipt: SegmentReceipt = deserialize_obj(&segment_receipt_bytes)
@@ -282,14 +288,13 @@ fn run_lift(
         lift_receipt
             .verify_integrity_with_context(&verifier_ctx)
             .context("Failed to verify lifted POVW receipt integrity")?;
-        let serialized = serialize_obj(&lift_receipt)
-            .context("Failed to serialize lifted POVW receipt")?;
+        let serialized =
+            serialize_obj(&lift_receipt).context("Failed to serialize lifted POVW receipt")?;
         Ok(("lift_povw", serialized))
     } else {
         tracing::debug!("lifting {job_id} - {task_id}");
-        let lift_receipt: SuccinctReceipt<ReceiptClaim> = prover
-            .lift(&segment_receipt)
-            .context("Failed to lift receipt in background")?;
+        let lift_receipt: SuccinctReceipt<ReceiptClaim> =
+            prover.lift(&segment_receipt).context("Failed to lift receipt in background")?;
         lift_receipt
             .verify_integrity_with_context(&verifier_ctx)
             .context("Failed to verify lifted receipt integrity")?;

@@ -33,6 +33,7 @@ redis = { workspace = true, features = ["tokio-rustls-comp", "tokio-comp"] }
 risc0-binfmt = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = false, features = [
     "prove",
+    "unstable",
 ] }
 serde = { workspace = true }
 serde_json = { workspace = true }

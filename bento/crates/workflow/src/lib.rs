@@ -10,7 +10,7 @@
 use crate::redis::RedisPool;
 use anyhow::{Context, Result};
 use clap::Parser;
-use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
+use risc0_zkvm::{DEFAULT_MAX_PO2, ProverOpts, ProverServer, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
     rc::Rc,
@@ -229,7 +229,8 @@ impl Agent {
             || args.task_stream == JOIN_WORK_TYPE
             || args.task_stream == COPROC_WORK_TYPE
         {
-            let opts = ProverOpts::default();
+            let max_segment_po2 = std::cmp::max(args.segment_po2 as usize, DEFAULT_MAX_PO2);
+            let opts = ProverOpts::from_max_po2(max_segment_po2);
             let prover = get_prover_server(&opts).context("Failed to initialize prover server")?;
             Some(prover)
         } else {
