@@ -7,15 +7,11 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tracing_subscriber::filter::EnvFilter;
 use workflow::{Agent, Args};
-use prometheus_exporter::{self};
-use std::net::SocketAddr;
+use workflow_common::metrics::helpers::start_metrics_exporter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
-
-    // Initialize and register all metrics with the default Prometheus registry
-    workflow_common::metrics::helpers::init();
 
     let args = Args::parse();
     let task_stream = args.task_stream.clone();
@@ -26,15 +22,9 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to run migrations")?;
 
-    let metrics_addr = std::env::var("PROMETHEUS_METRICS_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0".to_string())
-        .parse::<SocketAddr>()
-        .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 9090)));
-
     // Start metrics server in background
-    tracing::info!("Starting metrics server on address {}", metrics_addr);
     tokio::spawn(async move {
-        if let Err(e) = prometheus_exporter::start(metrics_addr) {
+        if let Err(e) = start_metrics_exporter() {
             tracing::error!("Failed to start metrics server: {}", e);
         }
     });

@@ -4,8 +4,9 @@
 // as found in the LICENSE-BSL file.
 
 use lazy_static::lazy_static;
+use prometheus::core::Collector;
 use prometheus::{
-    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, register,
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts,
 };
 
 // Prometheus metrics for workflow execution
@@ -141,13 +142,43 @@ lazy_static! {
         Opts::new("task_operations_total", "Total number of task operations by type and status"),
         &["task_name", "operation_type", "status"]
     ).unwrap();
-
+    pub static ref COMPLETED_JOBS_METRICS: IntCounterVec = IntCounterVec::new(
+        Opts::new("completed_jobs_total", "Total number of completed jobs by type"),
+        &["job_type"]
+    ).unwrap();
 }
 
 /// Helper functions for common metric operations
 pub mod helpers {
     use super::*;
+    use anyhow::Result;
+    use std::net::SocketAddr;
     use std::time::Instant;
+
+    /// Register all metrics with the default Prometheus registry.
+    /// This function is used to register the metrics with the default Prometheus registry.
+    pub fn register_collector<C>(collector: &C) -> std::result::Result<(), prometheus::Error>
+    where
+        C: Collector + Clone + 'static,
+    {
+        prometheus::default_registry().register(Box::new(collector.clone())).or_else(
+            |err| match err {
+                prometheus::Error::AlreadyReg { .. } => Ok(()),
+                other => Err(other),
+            },
+        )
+    }
+
+    pub fn start_metrics_exporter() -> Result<()> {
+        let metrics_addr = std::env::var("PROMETHEUS_METRICS_ADDR")
+            .unwrap_or_else(|_| "0.0.0.0:9090".to_string())
+            .parse::<SocketAddr>()
+            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 9090)));
+
+        prometheus_exporter::start(metrics_addr)
+            .map_err(|e| anyhow::anyhow!("Failed to start metrics exporter: {e:?}"))?;
+        Ok(())
+    }
 
     /// Record the duration of an operation with error handling
     pub fn record_operation_duration<F, T, E>(histogram: &Histogram, operation: F) -> Result<T, E>
@@ -162,6 +193,12 @@ pub mod helpers {
 
     /// Record S3 operation metrics
     pub fn record_s3_operation(operation_type: &str, status: &str, duration_seconds: f64) {
+        register_collector(&*S3_OPERATIONS).unwrap_or_else(|e| {
+            tracing::error!("Failed to register S3 operations metrics: {e:?}");
+        });
+        register_collector(&*S3_OPERATION_DURATION).unwrap_or_else(|e| {
+            tracing::error!("Failed to register S3 operation duration metrics: {e:?}");
+        });
         S3_OPERATIONS.with_label_values(&[operation_type, status]).inc();
         S3_OPERATION_DURATION
             .with_label_values(&[operation_type, status])
@@ -170,6 +207,12 @@ pub mod helpers {
 
     /// Record Redis operation metrics
     pub fn record_redis_operation(operation_type: &str, status: &str, duration_seconds: f64) {
+        register_collector(&*REDIS_OPERATIONS).unwrap_or_else(|e| {
+            tracing::error!("Failed to register Redis operations metrics: {e:?}");
+        });
+        register_collector(&*REDIS_OPERATION_DURATION).unwrap_or_else(|e| {
+            tracing::error!("Failed to register Redis operation duration metrics: {e:?}");
+        });
         REDIS_OPERATIONS.with_label_values(&[operation_type, status]).inc();
         REDIS_OPERATION_DURATION
             .with_label_values(&[operation_type, status])
@@ -178,6 +221,12 @@ pub mod helpers {
 
     /// Record task operation metrics
     pub fn record_task(task_name: &str, operation_type: &str, status: &str, duration_seconds: f64) {
+        register_collector(&*TASK_OPERATIONS).unwrap_or_else(|e| {
+            tracing::error!("Failed to register task operations metrics: {e:?}");
+        });
+        register_collector(&*TASK_DURATION).unwrap_or_else(|e| {
+            tracing::error!("Failed to register task duration metrics: {e:?}");
+        });
         TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
         TASK_DURATION
             .with_label_values(&[task_name, operation_type, status])
@@ -186,6 +235,12 @@ pub mod helpers {
 
     /// Record database operation metrics
     pub fn record_db_operation(operation_type: &str, status: &str, duration_seconds: f64) {
+        register_collector(&*DB_OPERATIONS).unwrap_or_else(|e| {
+            tracing::error!("Failed to register database operations metrics: {e:?}");
+        });
+        register_collector(&*DB_OPERATION_DURATION).unwrap_or_else(|e| {
+            tracing::error!("Failed to register database operation duration metrics: {e:?}");
+        });
         DB_OPERATIONS.with_label_values(&[operation_type, status]).inc();
         DB_OPERATION_DURATION
             .with_label_values(&[operation_type, status])
@@ -194,6 +249,15 @@ pub mod helpers {
 
     /// Update database connection pool metrics
     pub fn update_db_pool_metrics(size: i64, idle: i64, active: i64) {
+        register_collector(&*DB_CONNECTION_POOL_SIZE).unwrap_or_else(|e| {
+            tracing::error!("Failed to register database connection pool size metrics: {e:?}");
+        });
+        register_collector(&*DB_CONNECTION_POOL_IDLE).unwrap_or_else(|e| {
+            tracing::error!("Failed to register database connection pool idle metrics: {e:?}");
+        });
+        register_collector(&*DB_CONNECTION_POOL_ACTIVE).unwrap_or_else(|e| {
+            tracing::error!("Failed to register database connection pool active metrics: {e:?}");
+        });
         DB_CONNECTION_POOL_SIZE.set(size);
         DB_CONNECTION_POOL_IDLE.set(idle);
         DB_CONNECTION_POOL_ACTIVE.set(active);
@@ -206,6 +270,9 @@ pub mod helpers {
         status: &str,
         duration_seconds: f64,
     ) {
+        register_collector(&*TASK_OPERATIONS).unwrap_or_else(|e| {
+            tracing::error!("Failed to register task operations metrics: {e:?}");
+        });
         TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
         TASK_DURATION
             .with_label_values(&[task_name, operation_type, status])
@@ -214,42 +281,26 @@ pub mod helpers {
 
     /// Record execution duration
     pub fn record_execution_duration(job_type: &str, status: &str, duration_seconds: f64) {
+        register_collector(&*EXECUTION_DURATION).unwrap_or_else(|e| {
+            tracing::error!("Failed to register execution duration metrics: {e:?}");
+        });
         EXECUTION_DURATION.with_label_values(&[job_type, status]).observe(duration_seconds);
     }
 
     /// Record assumption processing duration
     pub fn record_assumption_duration(assumption_type: &str, status: &str, duration_seconds: f64) {
+        register_collector(&*ASSUMPTION_PROCESSING_DURATION).unwrap_or_else(|e| {
+            tracing::error!("Failed to register assumption processing duration metrics: {e:?}");
+        });
         ASSUMPTION_PROCESSING_DURATION
             .with_label_values(&[assumption_type, status])
             .observe(duration_seconds);
     }
-
-    /// Initialize and register all metrics with the default registry
-    pub fn init() {
-        let _ = register(Box::new(EXECUTION_DURATION.clone()));
-        let _ = register(Box::new(SEGMENT_COUNT.clone()));
-        let _ = register(Box::new(USER_CYCLES.clone()));
-        let _ = register(Box::new(TOTAL_CYCLES.clone()));
-        let _ = register(Box::new(TASKS_CREATED.clone()));
-        let _ = register(Box::new(TASK_PROCESSING_DURATION.clone()));
-        let _ = register(Box::new(EXECUTION_ERRORS.clone()));
-        let _ = register(Box::new(GUEST_FAULTS.clone()));
-        let _ = register(Box::new(S3_OPERATIONS.clone()));
-        let _ = register(Box::new(S3_OPERATION_DURATION.clone()));
-        let _ = register(Box::new(REDIS_OPERATIONS.clone()));
-        let _ = register(Box::new(REDIS_OPERATION_DURATION.clone()));
-        let _ = register(Box::new(DB_OPERATIONS.clone()));
-        let _ = register(Box::new(DB_OPERATION_DURATION.clone()));
-        let _ = register(Box::new(DB_CONNECTION_POOL_SIZE.clone()));
-        let _ = register(Box::new(DB_CONNECTION_POOL_IDLE.clone()));
-        let _ = register(Box::new(DB_CONNECTION_POOL_ACTIVE.clone()));
-        let _ = register(Box::new(SEGMENT_QUEUE_SIZE.clone()));
-        let _ = register(Box::new(TASK_QUEUE_SIZE_GAUGE.clone()));
-        let _ = register(Box::new(ASSUMPTION_COUNT.clone()));
-        let _ = register(Box::new(ASSUMPTION_PROCESSING_DURATION.clone()));
-        let _ = register(Box::new(POVW_RESOLVE_DURATION.clone()));
-        let _ = register(Box::new(POVW_RESOLVE_OPERATIONS.clone()));
-        let _ = register(Box::new(TASK_DURATION.clone()));
-        let _ = register(Box::new(TASK_OPERATIONS.clone()));
+    /// Record completed jobs metrics
+    pub fn record_completed_jobs_garbage_collection_metrics(count: u64) {
+        register_collector(&*COMPLETED_JOBS_METRICS).unwrap_or_else(|e| {
+            tracing::error!("Failed to register completed jobs metrics: {e:?}");
+        });
+        COMPLETED_JOBS_METRICS.with_label_values(&["garbage_collection"]).inc_by(count);
     }
 }

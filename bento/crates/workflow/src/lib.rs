@@ -565,6 +565,9 @@ impl Agent {
             let cleared_count = taskdb::clear_completed_jobs(&db_pool).await?;
             if cleared_count > 0 {
                 tracing::info!("Cleared {} completed jobs", cleared_count);
+                workflow_common::metrics::helpers::record_completed_jobs_garbage_collection_metrics(
+                    cleared_count as u64,
+                );
             }
 
             // Sleep before next cleanup
