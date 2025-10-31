@@ -355,10 +355,21 @@ impl Agent {
                         }
                     };
 
-                    if let Err(err) = agent.process_work(&task).await {
-                        if let Err(e) = agent.handle_task_error(&task, err).await {
-                            tracing::error!("Worker {} failed to handle task error: {:#}", worker_id, e);
-                        }
+                    // Offload mixed/possibly-blocking work to the blocking thread pool
+                    let agent_for_work = agent.clone();
+                    let worker_id_copy = worker_id;
+                    let task_for_work = task;
+                    if let Err(join_err) = tokio::task::spawn_blocking(move || {
+                        let handle = tokio::runtime::Handle::current();
+                        handle.block_on(async move {
+                            if let Err(err) = agent_for_work.process_work(&task_for_work).await {
+                                if let Err(e) = agent_for_work.handle_task_error(&task_for_work, err).await {
+                                    tracing::error!("Worker {} failed to handle task error: {:#}", worker_id_copy, e);
+                                }
+                            }
+                        })
+                    }).await {
+                        tracing::error!("Worker {} process_work join error: {:#}", worker_id, join_err);
                     }
                 }
                 tracing::info!("Worker {} shutting down", worker_id);
