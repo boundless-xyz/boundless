@@ -348,7 +348,7 @@ pulumi stack rm <stack-name>
 ## Configuration Reference
 
 | Key                      | Description                    | Required |
-|--------------------------|--------------------------------|----------|
+| ------------------------ | ------------------------------ | -------- |
 | `environment`            | Environment name               | Yes      |
 | `gitBranch`              | Git branch to use              | Yes      |
 | `segmentSize`            | Bento segment size             | Yes      |
@@ -361,7 +361,7 @@ pulumi stack rm <stack-name>
 ## Instance Types
 
 | Component   | Instance Type | Count | vCPUs | Memory |
-|-------------|---------------|-------|-------|--------|
+| ----------- | ------------- | ----- | ----- | ------ |
 | Broker      | t3.medium     | 1     | 2     | 4 GB   |
 | Bento API   | Fargate       | 1     | 1     | 2 GB   |
 | Exec Agents | r7iz.2xlarge  | 1     | 8     | 64 GB  |
@@ -372,7 +372,7 @@ pulumi stack rm <stack-name>
 ## Outputs
 
 | Output                  | Description                   |
-|-------------------------|-------------------------------|
+| ----------------------- | ----------------------------- |
 | `brokerInstanceArn`     | Broker Auto Scaling Group ARN |
 | `bentoAPIServiceArn`    | Bento API ECS service ARN     |
 | `bentoAPIUrl`           | Bento API internal URL        |
