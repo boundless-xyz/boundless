@@ -6,8 +6,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use tracing_subscriber::filter::EnvFilter;
-use workflow::metrics_server;
 use workflow::{Agent, Args};
+use prometheus_exporter::{self};
+use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,20 +26,19 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to run migrations")?;
 
-    tracing::info!("Successful agent startup! Worker type: {task_stream}");
+    let metrics_addr = std::env::var("PROMETHEUS_METRICS_ADDR")
+        .unwrap_or_else(|_| "0.0.0.0".to_string())
+        .parse::<SocketAddr>()
+        .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 9090)));
 
     // Start metrics server in background
-    let metrics_port = std::env::var("PROMETHEUS_METRICS_PORT")
-        .unwrap_or_else(|_| "9090".to_string())
-        .parse::<u16>()
-        .unwrap_or(9090);
-
+    tracing::info!("Starting metrics server on address {}", metrics_addr);
     tokio::spawn(async move {
-        if let Err(e) = metrics_server::start_metrics_server(metrics_port).await {
-            tracing::error!("Metrics server error: {}", e);
+        if let Err(e) = prometheus_exporter::start(metrics_addr) {
+            tracing::error!("Failed to start metrics server: {}", e);
         }
     });
 
-    // Poll until agent is signaled to exit:
+    tracing::info!("Successful agent startup! Worker type: {task_stream}");
     agent.poll_work().await.context("Exiting agent polling")
 }

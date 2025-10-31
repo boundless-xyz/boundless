@@ -23,9 +23,6 @@ use std::{
 use taskdb::ReadyTask;
 use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
-
-/// Metrics server for exposing Prometheus metrics
-pub mod metrics_server;
 mod redis;
 mod tasks;
 
