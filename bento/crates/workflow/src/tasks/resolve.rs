@@ -5,17 +5,19 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
+    redis::{self},
     tasks::{RECEIPT_PATH, RECUR_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, Unknown};
+use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq};
+use workflow_common::{KECCAK_RECEIPT_PATH, ResolveReq, metrics::helpers};
 
 /// Run the resolve operation
 pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Result<Option<u64>> {
+    let start_time = Instant::now();
     let max_idx = &request.max_idx;
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{RECEIPT_PATH}");
@@ -24,8 +26,10 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     tracing::debug!("Starting resolve for job_id: {job_id}, max_idx: {max_idx}");
 
     let mut conn = agent.redis_pool.get().await?;
-    let receipt: Vec<u8> = conn.get::<_, Vec<u8>>(&root_receipt_key).await.with_context(|| {
-        format!("segment data not found for root receipt key: {root_receipt_key}")
+    // Get root receipt using Redis helper
+    let receipt: Vec<u8> = redis::get_key(&mut conn, &root_receipt_key).await.map_err(|e| {
+        anyhow::anyhow!(e)
+            .context(format!("segment data not found for root receipt key: {root_receipt_key}"))
     })?;
 
     tracing::debug!("Root receipt size: {} bytes", receipt.len());
@@ -54,7 +58,10 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                     tracing::debug!(
                         "Deserializing union_root_receipt_key: {union_root_receipt_key}"
                     );
-                    let union_receipt: Vec<u8> = conn.get(&union_root_receipt_key).await?;
+                    let union_receipt: Vec<u8> =
+                        redis::get_key(&mut conn, &union_root_receipt_key).await.context(
+                            format!("Failed to get union receipt: {union_root_receipt_key}"),
+                        )?;
                     let union_receipt: SuccinctReceipt<Unknown> =
                         deserialize_obj(&union_receipt)
                             .context("Failed to deserialize to SuccinctReceipt<Unknown> type")?;
@@ -62,12 +69,31 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
                     // Resolve union receipt
                     tracing::debug!("Resolving union claim digest: {union_claim}");
-                    conditional_receipt = agent
+                    conditional_receipt = match agent
                         .prover
                         .as_ref()
                         .context("Missing prover from resolve task")?
                         .resolve(&conditional_receipt, &union_receipt)
-                        .context("Failed to resolve the union receipt")?;
+                    {
+                        Ok(receipt) => {
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_union",
+                                "success",
+                                0.0,
+                            );
+                            receipt
+                        }
+                        Err(e) => {
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_union",
+                                "error",
+                                0.0,
+                            );
+                            return Err(e.context("Failed to resolve the union receipt"));
+                        }
+                    };
                 }
 
                 for assumption in assumptions {
@@ -78,10 +104,10 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                     }
                     let assumption_key = format!("{receipts_key}:{assumption_claim}");
                     tracing::debug!("Deserializing assumption with key: {assumption_key}");
-                    let assumption_bytes: Vec<u8> = conn
-                        .get(&assumption_key)
-                        .await
-                        .context("corroborating receipt not found: key {assumption_key}")?;
+                    let assumption_bytes: Vec<u8> =
+                        redis::get_key(&mut conn, &assumption_key).await.context(format!(
+                            "corroborating receipt not found: key {assumption_key}"
+                        ))?;
 
                     let assumption_receipt: SuccinctReceipt<Unknown> =
                         deserialize_obj(&assumption_bytes).with_context(|| {
@@ -89,12 +115,31 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                         })?;
 
                     // Resolve
-                    conditional_receipt = agent
+                    conditional_receipt = match agent
                         .prover
                         .as_ref()
                         .context("Missing prover from resolve task")?
                         .resolve(&conditional_receipt, &assumption_receipt)
-                        .context("Failed to resolve the conditional receipt")?;
+                    {
+                        Ok(receipt) => {
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_assumption",
+                                "success",
+                                0.0,
+                            );
+                            receipt
+                        }
+                        Err(e) => {
+                            helpers::record_task_operation(
+                                "resolve",
+                                "resolve_assumption",
+                                "error",
+                                0.0,
+                            );
+                            return Err(e.context("Failed to resolve the conditional receipt"));
+                        }
+                    };
                 }
                 tracing::debug!("Resolve complete for job_id: {job_id}");
             }
@@ -106,6 +151,7 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
     let serialized_asset =
         serialize_obj(&conditional_receipt).context("Failed to serialize resolved receipt")?;
 
+    // Store resolved receipt using Redis helper
     tracing::debug!("Writing resolved receipt to Redis key: {root_receipt_key}");
     redis::set_key_with_expiry(
         &mut conn,
@@ -114,7 +160,15 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
         Some(agent.args.redis_ttl),
     )
     .await
-    .context("Failed to set root receipt key with expiry")?;
+    .map_err(|e| anyhow::anyhow!("Failed to set root receipt key with expiry: {e}"))?;
+
+    // Record total task duration and success
+    helpers::record_task_operation(
+        "resolve",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     tracing::info!("Resolve operation completed successfully");
     Ok(assumptions_len)

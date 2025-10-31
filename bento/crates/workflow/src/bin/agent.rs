@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tracing_subscriber::filter::EnvFilter;
 use workflow::{Agent, Args};
+use workflow_common::metrics::helpers::start_metrics_exporter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,8 +22,13 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to run migrations")?;
 
-    tracing::info!("Successful agent startup! Worker type: {task_stream}");
+    // Start metrics server in background
+    tokio::spawn(async move {
+        if let Err(e) = start_metrics_exporter() {
+            tracing::error!("Failed to start metrics server: {}", e);
+        }
+    });
 
-    // Poll until agent is signaled to exit:
+    tracing::info!("Successful agent startup! Worker type: {task_stream}");
     agent.poll_work().await.context("Exiting agent polling")
 }

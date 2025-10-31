@@ -6,6 +6,7 @@
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
 
+pub mod metrics;
 pub mod s3;
 
 /// Aux worker stream identifier

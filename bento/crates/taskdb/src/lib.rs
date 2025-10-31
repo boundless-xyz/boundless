@@ -11,6 +11,7 @@ use sqlx::{
 };
 use thiserror::Error;
 
+pub mod metrics_wrapper;
 pub mod planner;
 
 #[derive(Error, Debug)]
@@ -164,7 +165,8 @@ pub async fn create_task(
     max_retries: i32,
     timeout_secs: i32,
 ) -> Result<(), TaskDbErr> {
-    sqlx::query!(
+    let start = std::time::Instant::now();
+    let result = sqlx::query!(
         "CALL create_task($1, $2, $3, $4, $5, $6, $7)",
         job_id,
         task_id,
@@ -175,8 +177,16 @@ pub async fn create_task(
         timeout_secs,
     )
     .execute(pool)
-    .await?;
+    .await;
 
+    let duration = start.elapsed().as_secs_f64();
+    let status = match &result {
+        Ok(_) => "success",
+        Err(_) => "error",
+    };
+    workflow_common::metrics::helpers::record_db_operation("create_task", status, duration);
+
+    result?;
     Ok(())
 }
 
@@ -184,10 +194,19 @@ pub async fn request_work(
     pool: &PgPool,
     worker_type: &str,
 ) -> Result<Option<ReadyTask>, TaskDbErr> {
+    let start = std::time::Instant::now();
     let res = sqlx::query_as!(ReadyTaskRaw, "SELECT * FROM request_work($1)", worker_type)
         .fetch_optional(pool)
-        .await?;
+        .await;
 
+    let duration = start.elapsed().as_secs_f64();
+    let status = match &res {
+        Ok(_) => "success",
+        Err(_) => "error",
+    };
+    workflow_common::metrics::helpers::record_db_operation("request_work", status, duration);
+
+    let res = res?;
     if let Some(task) = res { Ok(task.get()) } else { Ok(None) }
 }
 
@@ -197,9 +216,24 @@ pub async fn update_task_done(
     task_id: &str,
     output: JsonValue,
 ) -> Result<bool, TaskDbErr> {
-    sqlx::query!("SELECT * FROM update_task_done($1, $2, $3) as updated", job_id, task_id, output)
-        .fetch_one(pool)
-        .await?
+    let start = std::time::Instant::now();
+    let result = sqlx::query!(
+        "SELECT * FROM update_task_done($1, $2, $3) as updated",
+        job_id,
+        task_id,
+        output
+    )
+    .fetch_one(pool)
+    .await;
+
+    let duration = start.elapsed().as_secs_f64();
+    let status = match &result {
+        Ok(_) => "success",
+        Err(_) => "error",
+    };
+    workflow_common::metrics::helpers::record_db_operation("update_task_done", status, duration);
+
+    result?
         .updated
         .ok_or(TaskDbErr::InternalErr("update_task_done failed to return FOUND result".into()))
 }
