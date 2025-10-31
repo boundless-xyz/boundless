@@ -25,7 +25,7 @@ use rand::Rng;
 use url::Url;
 
 use super::benchmark::ProverBenchmark;
-use crate::commands::prover::benchmark::{BenchmarkResult, RECOMMENDED_PEAK_PROVE_KHZ_FACTOR};
+use crate::commands::prover::benchmark::{BenchmarkResult};
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
@@ -973,7 +973,7 @@ impl ProverGenerateConfig {
         display.note("This may take several minutes...");
 
         match self.run_benchmark(bento_url, rpc_url, global_config).await {
-            Ok(BenchmarkResult { worst_recommended_khz }) => Some(worst_recommended_khz),
+            Ok(BenchmarkResult { worst_recommended_khz, .. }) => Some(worst_recommended_khz),
             Err(e) => {
                 display.note(&format!("⚠  Benchmark failed: {}", e));
                 display.note("Falling back to manual input...");
