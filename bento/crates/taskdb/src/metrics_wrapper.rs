@@ -3,6 +3,7 @@
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
+use std::future::Future;
 use std::time::Instant;
 use workflow_common::metrics::helpers;
 
@@ -11,12 +12,12 @@ pub struct DbMetricsWrapper;
 
 impl DbMetricsWrapper {
     /// Execute a query and record metrics
-    pub async fn execute_query<F, T, E>(operation_type: &str, query_fn: F) -> Result<T, E>
+    pub async fn execute_query<Fut, T, E>(operation_type: &str, query_fn: Fut) -> Result<T, E>
     where
-        F: FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send>>,
+        Fut: Future<Output = Result<T, E>>,
     {
         let start = Instant::now();
-        let result = query_fn().await;
+        let result = query_fn.await;
         let duration = start.elapsed().as_secs_f64();
 
         let status = match &result {
@@ -31,7 +32,7 @@ impl DbMetricsWrapper {
     /// Execute a query that returns a single row
     pub async fn fetch_one<F, T, E>(operation_type: &str, query_fn: F) -> Result<T, E>
     where
-        F: FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send>>,
+        F: Future<Output = Result<T, E>>,
     {
         Self::execute_query(operation_type, query_fn).await
     }
@@ -39,8 +40,7 @@ impl DbMetricsWrapper {
     /// Execute a query that returns multiple rows
     pub async fn fetch_all<F, T, E>(operation_type: &str, query_fn: F) -> Result<Vec<T>, E>
     where
-        F: FnOnce()
-            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<T>, E>> + Send>>,
+        F: Future<Output = Result<Vec<T>, E>>,
     {
         Self::execute_query(operation_type, query_fn).await
     }
@@ -48,9 +48,7 @@ impl DbMetricsWrapper {
     /// Execute a query that returns an optional row
     pub async fn fetch_optional<F, T, E>(operation_type: &str, query_fn: F) -> Result<Option<T>, E>
     where
-        F: FnOnce() -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<Option<T>, E>> + Send>,
-        >,
+        F: Future<Output = Result<Option<T>, E>>,
     {
         Self::execute_query(operation_type, query_fn).await
     }
@@ -58,7 +56,7 @@ impl DbMetricsWrapper {
     /// Execute a query that returns a scalar value
     pub async fn fetch_scalar<F, T, E>(operation_type: &str, query_fn: F) -> Result<T, E>
     where
-        F: FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send>>,
+        F: Future<Output = Result<T, E>>,
     {
         Self::execute_query(operation_type, query_fn).await
     }
@@ -69,9 +67,7 @@ impl DbMetricsWrapper {
         query_fn: F,
     ) -> Result<sqlx::postgres::PgQueryResult, E>
     where
-        F: FnOnce() -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<sqlx::postgres::PgQueryResult, E>> + Send>,
-        >,
+        F: Future<Output = Result<sqlx::postgres::PgQueryResult, E>>,
     {
         Self::execute_query(operation_type, query_fn).await
     }
@@ -79,7 +75,7 @@ impl DbMetricsWrapper {
     /// Execute a transaction
     pub async fn transaction<F, T, E>(operation_type: &str, query_fn: F) -> Result<T, E>
     where
-        F: FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send>>,
+        F: Future<Output = Result<T, E>>,
     {
         Self::execute_query(operation_type, query_fn).await
     }
@@ -89,7 +85,7 @@ impl DbMetricsWrapper {
 #[macro_export]
 macro_rules! db_operation {
     ($operation_type:expr, $query:expr) => {
-        DbMetricsWrapper::execute_query($operation_type, || Box::pin($query))
+        DbMetricsWrapper::execute_query($operation_type, Box::pin($query))
     };
 }
 
@@ -97,7 +93,7 @@ macro_rules! db_operation {
 #[macro_export]
 macro_rules! db_fetch_one {
     ($operation_type:expr, $query:expr) => {
-        DbMetricsWrapper::fetch_one($operation_type, || Box::pin($query))
+        DbMetricsWrapper::fetch_one($operation_type, Box::pin($query))
     };
 }
 
@@ -105,7 +101,7 @@ macro_rules! db_fetch_one {
 #[macro_export]
 macro_rules! db_fetch_all {
     ($operation_type:expr, $query:expr) => {
-        DbMetricsWrapper::fetch_all($operation_type, || Box::pin($query))
+        DbMetricsWrapper::fetch_all($operation_type, Box::pin($query))
     };
 }
 
@@ -113,7 +109,7 @@ macro_rules! db_fetch_all {
 #[macro_export]
 macro_rules! db_fetch_optional {
     ($operation_type:expr, $query:expr) => {
-        DbMetricsWrapper::fetch_optional($operation_type, || Box::pin($query))
+        DbMetricsWrapper::fetch_optional($operation_type, Box::pin($query))
     };
 }
 
@@ -121,6 +117,6 @@ macro_rules! db_fetch_optional {
 #[macro_export]
 macro_rules! db_execute {
     ($operation_type:expr, $query:expr) => {
-        DbMetricsWrapper::execute($operation_type, || Box::pin($query))
+        DbMetricsWrapper::execute($operation_type, Box::pin($query))
     };
 }

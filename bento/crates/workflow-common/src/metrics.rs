@@ -153,7 +153,51 @@ pub mod helpers {
     use super::*;
     use anyhow::Result;
     use std::net::SocketAddr;
+    use std::sync::Mutex;
     use std::time::Instant;
+
+    lazy_static! {
+        static ref METRICS_EXPORTER: Mutex<Option<prometheus_exporter::Exporter>> =
+            Mutex::new(None);
+    }
+
+    fn register_or_log<C>(metric_name: &str, collector: &C)
+    where
+        C: Collector + Clone + 'static,
+    {
+        if let Err(e) = register_collector(collector) {
+            tracing::error!("Failed to register {metric_name} metrics: {e:?}");
+        }
+    }
+
+    fn register_static_metrics() {
+        register_or_log("execution_duration_seconds", &*EXECUTION_DURATION);
+        register_or_log("segments_total", &*SEGMENT_COUNT);
+        register_or_log("user_cycles_total", &*USER_CYCLES);
+        register_or_log("total_cycles_total", &*TOTAL_CYCLES);
+        register_or_log("tasks_created_total", &*TASKS_CREATED);
+        register_or_log("task_processing_duration_seconds", &*TASK_PROCESSING_DURATION);
+        register_or_log("errors_total", &*EXECUTION_ERRORS);
+        register_or_log("guest_faults_total", &*GUEST_FAULTS);
+        register_or_log("s3_operations_total", &*S3_OPERATIONS);
+        register_or_log("s3_operation_duration_seconds", &*S3_OPERATION_DURATION);
+        register_or_log("redis_operations_total", &*REDIS_OPERATIONS);
+        register_or_log("redis_operation_duration_seconds", &*REDIS_OPERATION_DURATION);
+        register_or_log("db_operations_total", &*DB_OPERATIONS);
+        register_or_log("db_operation_duration_seconds", &*DB_OPERATION_DURATION);
+        register_or_log("db_connection_pool_size", &*DB_CONNECTION_POOL_SIZE);
+        register_or_log("db_connection_pool_idle", &*DB_CONNECTION_POOL_IDLE);
+        register_or_log("db_connection_pool_active", &*DB_CONNECTION_POOL_ACTIVE);
+        register_or_log("segment_queue_size", &*SEGMENT_QUEUE_SIZE);
+        register_or_log("task_queue_size", &*TASK_QUEUE_SIZE_GAUGE);
+        register_or_log("assumptions_total", &*ASSUMPTION_COUNT);
+        register_or_log("assumption_processing_duration_seconds", &*ASSUMPTION_PROCESSING_DURATION);
+        register_or_log("povw_resolve_duration_seconds", &*POVW_RESOLVE_DURATION);
+        register_or_log("povw_resolve_operations_total", &*POVW_RESOLVE_OPERATIONS);
+        register_or_log("task_duration_seconds", &*TASK_DURATION);
+        register_or_log("task_operations_total", &*TASK_OPERATIONS);
+        register_or_log("completed_jobs_total", &*COMPLETED_JOBS_METRICS);
+    }
 
     /// Register all metrics with the default Prometheus registry.
     /// This function is used to register the metrics with the default Prometheus registry.
@@ -170,13 +214,23 @@ pub mod helpers {
     }
 
     pub fn start_metrics_exporter() -> Result<()> {
+        let mut exporter_guard = METRICS_EXPORTER
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock metrics exporter guard: {e}"))?;
+
+        if exporter_guard.is_some() {
+            return Ok(());
+        }
+
         let metrics_addr = std::env::var("PROMETHEUS_METRICS_ADDR")
             .unwrap_or_else(|_| "0.0.0.0:9090".to_string())
             .parse::<SocketAddr>()
             .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 9090)));
 
-        prometheus_exporter::start(metrics_addr)
+        let exporter = prometheus_exporter::start(metrics_addr)
             .map_err(|e| anyhow::anyhow!("Failed to start metrics exporter: {e:?}"))?;
+        register_static_metrics();
+        *exporter_guard = Some(exporter);
         Ok(())
     }
 
@@ -191,14 +245,71 @@ pub mod helpers {
         result
     }
 
+    /// Execute an async operation with automatic S3 metrics recording.
+    /// Uses a tracing span for automatic duration tracking.
+    pub async fn with_s3_metrics<F, Fut, T>(operation_type: &str, operation: F) -> anyhow::Result<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<T>>,
+    {
+        let span =
+            tracing::span!(tracing::Level::DEBUG, "s3_operation", operation = operation_type);
+        let _guard = span.entered();
+        let start = Instant::now();
+        let result = operation().await;
+        let duration = start.elapsed().as_secs_f64();
+        let status = if result.is_ok() { "success" } else { "error" };
+        record_s3_operation(operation_type, status, duration);
+        result
+    }
+
+    pub async fn with_redis_metrics<F, Fut, T, E>(
+        operation_type: &str,
+        operation: F,
+    ) -> std::result::Result<T, E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = std::result::Result<T, E>>,
+    {
+        let span =
+            tracing::span!(tracing::Level::DEBUG, "redis_operation", operation = operation_type);
+        let _guard = span.entered();
+        let start = Instant::now();
+        let result = operation().await;
+        let duration = start.elapsed().as_secs_f64();
+        let status = if result.is_ok() { "success" } else { "error" };
+        record_redis_operation(operation_type, status, duration);
+        result
+    }
+
+    pub async fn with_task_metrics<F, Fut, T>(
+        task_name: &str,
+        operation_type: &str,
+        operation: F,
+    ) -> anyhow::Result<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<T>>,
+    {
+        let span = tracing::span!(
+            tracing::Level::DEBUG,
+            "task_operation",
+            task = task_name,
+            operation = operation_type
+        );
+        let _guard = span.entered();
+        let start = Instant::now();
+        let result = operation().await;
+        let duration = start.elapsed().as_secs_f64();
+        let status = if result.is_ok() { "success" } else { "error" };
+        record_task_operation(task_name, operation_type, status, duration);
+        result
+    }
+
     /// Record S3 operation metrics
     pub fn record_s3_operation(operation_type: &str, status: &str, duration_seconds: f64) {
-        register_collector(&*S3_OPERATIONS).unwrap_or_else(|e| {
-            tracing::error!("Failed to register S3 operations metrics: {e:?}");
-        });
-        register_collector(&*S3_OPERATION_DURATION).unwrap_or_else(|e| {
-            tracing::error!("Failed to register S3 operation duration metrics: {e:?}");
-        });
+        register_or_log("s3_operations_total", &*S3_OPERATIONS);
+        register_or_log("s3_operation_duration_seconds", &*S3_OPERATION_DURATION);
         S3_OPERATIONS.with_label_values(&[operation_type, status]).inc();
         S3_OPERATION_DURATION
             .with_label_values(&[operation_type, status])
@@ -207,12 +318,8 @@ pub mod helpers {
 
     /// Record Redis operation metrics
     pub fn record_redis_operation(operation_type: &str, status: &str, duration_seconds: f64) {
-        register_collector(&*REDIS_OPERATIONS).unwrap_or_else(|e| {
-            tracing::error!("Failed to register Redis operations metrics: {e:?}");
-        });
-        register_collector(&*REDIS_OPERATION_DURATION).unwrap_or_else(|e| {
-            tracing::error!("Failed to register Redis operation duration metrics: {e:?}");
-        });
+        register_or_log("redis_operations_total", &*REDIS_OPERATIONS);
+        register_or_log("redis_operation_duration_seconds", &*REDIS_OPERATION_DURATION);
         REDIS_OPERATIONS.with_label_values(&[operation_type, status]).inc();
         REDIS_OPERATION_DURATION
             .with_label_values(&[operation_type, status])
@@ -221,26 +328,13 @@ pub mod helpers {
 
     /// Record task operation metrics
     pub fn record_task(task_name: &str, operation_type: &str, status: &str, duration_seconds: f64) {
-        register_collector(&*TASK_OPERATIONS).unwrap_or_else(|e| {
-            tracing::error!("Failed to register task operations metrics: {e:?}");
-        });
-        register_collector(&*TASK_DURATION).unwrap_or_else(|e| {
-            tracing::error!("Failed to register task duration metrics: {e:?}");
-        });
-        TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
-        TASK_DURATION
-            .with_label_values(&[task_name, operation_type, status])
-            .observe(duration_seconds);
+        record_task_operation(task_name, operation_type, status, duration_seconds);
     }
 
     /// Record database operation metrics
     pub fn record_db_operation(operation_type: &str, status: &str, duration_seconds: f64) {
-        register_collector(&*DB_OPERATIONS).unwrap_or_else(|e| {
-            tracing::error!("Failed to register database operations metrics: {e:?}");
-        });
-        register_collector(&*DB_OPERATION_DURATION).unwrap_or_else(|e| {
-            tracing::error!("Failed to register database operation duration metrics: {e:?}");
-        });
+        register_or_log("db_operations_total", &*DB_OPERATIONS);
+        register_or_log("db_operation_duration_seconds", &*DB_OPERATION_DURATION);
         DB_OPERATIONS.with_label_values(&[operation_type, status]).inc();
         DB_OPERATION_DURATION
             .with_label_values(&[operation_type, status])
@@ -249,15 +343,9 @@ pub mod helpers {
 
     /// Update database connection pool metrics
     pub fn update_db_pool_metrics(size: i64, idle: i64, active: i64) {
-        register_collector(&*DB_CONNECTION_POOL_SIZE).unwrap_or_else(|e| {
-            tracing::error!("Failed to register database connection pool size metrics: {e:?}");
-        });
-        register_collector(&*DB_CONNECTION_POOL_IDLE).unwrap_or_else(|e| {
-            tracing::error!("Failed to register database connection pool idle metrics: {e:?}");
-        });
-        register_collector(&*DB_CONNECTION_POOL_ACTIVE).unwrap_or_else(|e| {
-            tracing::error!("Failed to register database connection pool active metrics: {e:?}");
-        });
+        register_or_log("db_connection_pool_size", &*DB_CONNECTION_POOL_SIZE);
+        register_or_log("db_connection_pool_idle", &*DB_CONNECTION_POOL_IDLE);
+        register_or_log("db_connection_pool_active", &*DB_CONNECTION_POOL_ACTIVE);
         DB_CONNECTION_POOL_SIZE.set(size);
         DB_CONNECTION_POOL_IDLE.set(idle);
         DB_CONNECTION_POOL_ACTIVE.set(active);
@@ -270,9 +358,8 @@ pub mod helpers {
         status: &str,
         duration_seconds: f64,
     ) {
-        register_collector(&*TASK_OPERATIONS).unwrap_or_else(|e| {
-            tracing::error!("Failed to register task operations metrics: {e:?}");
-        });
+        register_or_log("task_operations_total", &*TASK_OPERATIONS);
+        register_or_log("task_duration_seconds", &*TASK_DURATION);
         TASK_OPERATIONS.with_label_values(&[task_name, operation_type, status]).inc();
         TASK_DURATION
             .with_label_values(&[task_name, operation_type, status])
@@ -281,26 +368,20 @@ pub mod helpers {
 
     /// Record execution duration
     pub fn record_execution_duration(job_type: &str, status: &str, duration_seconds: f64) {
-        register_collector(&*EXECUTION_DURATION).unwrap_or_else(|e| {
-            tracing::error!("Failed to register execution duration metrics: {e:?}");
-        });
+        register_or_log("execution_duration_seconds", &*EXECUTION_DURATION);
         EXECUTION_DURATION.with_label_values(&[job_type, status]).observe(duration_seconds);
     }
 
     /// Record assumption processing duration
     pub fn record_assumption_duration(assumption_type: &str, status: &str, duration_seconds: f64) {
-        register_collector(&*ASSUMPTION_PROCESSING_DURATION).unwrap_or_else(|e| {
-            tracing::error!("Failed to register assumption processing duration metrics: {e:?}");
-        });
+        register_or_log("assumption_processing_duration_seconds", &*ASSUMPTION_PROCESSING_DURATION);
         ASSUMPTION_PROCESSING_DURATION
             .with_label_values(&[assumption_type, status])
             .observe(duration_seconds);
     }
     /// Record completed jobs metrics
     pub fn record_completed_jobs_garbage_collection_metrics(count: u64) {
-        register_collector(&*COMPLETED_JOBS_METRICS).unwrap_or_else(|e| {
-            tracing::error!("Failed to register completed jobs metrics: {e:?}");
-        });
+        register_or_log("completed_jobs_total", &*COMPLETED_JOBS_METRICS);
         COMPLETED_JOBS_METRICS.with_label_values(&["garbage_collection"]).inc_by(count);
     }
 }
