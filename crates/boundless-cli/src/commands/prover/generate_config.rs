@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use clap::Args;
+use futures::future::try_join_all;
 use inquire::{Confirm, Select, Text};
 use rand::Rng;
 use url::Url;
@@ -690,8 +692,6 @@ impl ProverGenerateConfig {
             chunk_start = chunk_end + 1;
         }
 
-        display.note(&format!("Found {} locked orders", locked_logs.len()));
-
         // Query RequestFulfilled events in chunks
         let mut fulfilled_logs = Vec::new();
         let mut chunk_start = start_block;
@@ -714,14 +714,109 @@ impl ProverGenerateConfig {
             chunk_start = chunk_end + 1;
         }
 
+        display.note(&format!("Found {} locked orders", locked_logs.len()));
         display.note(&format!("Found {} fulfilled orders", fulfilled_logs.len()));
 
-        // Build map of fulfilled requests with their block timestamps
+        // Build map of fulfilled requests with their block numbers
         let mut fulfilled_map: HashMap<U256, u64> = HashMap::new();
         for (event, log_meta) in &fulfilled_logs {
             let request_id: U256 = event.requestId;
-            if let Some(block_timestamp) = log_meta.block_timestamp {
-                fulfilled_map.insert(request_id, block_timestamp);
+            if let Some(block_number) = log_meta.block_number {
+                fulfilled_map.insert(request_id, block_number);
+            }
+        }
+
+        // Check if all logs have block_timestamp available. Some RPC providers don't return
+        // timestamps for eth_getLogs queries.
+        let all_logs_have_timestamp = fulfilled_logs.iter().all(|(_, log_meta)| {
+            log_meta.block_number.is_some() && log_meta.block_timestamp.is_some()
+        }) && locked_logs.iter().all(|(_, log_meta)| {
+            log_meta.block_number.is_some() && log_meta.block_timestamp.is_some()
+        });
+
+        // Build block_timestamps map
+        let mut block_timestamps: HashMap<u64, u64> = HashMap::new();
+
+        if all_logs_have_timestamp {
+            // Use timestamps directly from log metadata - no RPC calls needed
+            for (_, log_meta) in &fulfilled_logs {
+                if let (Some(block_num), Some(timestamp)) =
+                    (log_meta.block_number, log_meta.block_timestamp)
+                {
+                    block_timestamps.insert(block_num, timestamp);
+                }
+            }
+            for (_, log_meta) in &locked_logs {
+                if let (Some(block_num), Some(timestamp)) =
+                    (log_meta.block_number, log_meta.block_timestamp)
+                {
+                    block_timestamps.insert(block_num, timestamp);
+                }
+            }
+        } else {
+            // Some logs are missing timestamps, fetch them via concurrent RPC calls
+            // Collect unique block numbers from both event types
+            let mut block_numbers = HashSet::new();
+            for (_, log_meta) in &fulfilled_logs {
+                if let Some(block_num) = log_meta.block_number {
+                    block_numbers.insert(block_num);
+                }
+            }
+            for (_, log_meta) in &locked_logs {
+                if let Some(block_num) = log_meta.block_number {
+                    block_numbers.insert(block_num);
+                }
+            }
+
+            if !block_numbers.is_empty() {
+                let block_numbers: Vec<_> = block_numbers.into_iter().collect();
+                let min_block = block_numbers.iter().min().copied().unwrap_or(0);
+                let max_block = block_numbers.iter().max().copied().unwrap_or(0);
+
+                display.note(&format!(
+                    "Querying block timestamps for blocks {} to {} ({} blocks)",
+                    min_block,
+                    max_block,
+                    block_numbers.len()
+                ));
+
+                tracing::debug!(
+                    "Fetching timestamps for {} blocks using concurrent requests",
+                    block_numbers.len()
+                );
+
+                // Fetch timestamps for blocks using concurrent futures
+                // Process in chunks to avoid overwhelming the RPC
+                const CHUNK_SIZE: usize = 100;
+                for chunk in block_numbers.chunks(CHUNK_SIZE) {
+                    let provider = client.provider();
+                    let futures: Vec<_> = chunk
+                        .iter()
+                        .map(|&block_num| {
+                            let provider = provider.clone();
+                            async move {
+                                let block = provider
+                                    .get_block_by_number(BlockNumberOrTag::Number(block_num))
+                                    .await?;
+                                Ok::<_, anyhow::Error>((block_num, block))
+                            }
+                        })
+                        .collect();
+
+                    let results = try_join_all(futures).await?;
+
+                    // Process results
+                    for (block_num, block) in results {
+                        match block {
+                            Some(block) => {
+                                block_timestamps.insert(block_num, block.header.timestamp);
+                            }
+                            None => {
+                                bail!("Block {} not found", block_num);
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -737,15 +832,23 @@ impl ProverGenerateConfig {
                 continue;
             }
 
-            // Filter: only fulfilled orders
-            let fulfilled_timestamp = match fulfilled_map.get(&request_id) {
+            // Filter: only fulfilled orders - get block number and then timestamp
+            let fulfilled_block_number = match fulfilled_map.get(&request_id) {
+                Some(&block_num) => block_num,
+                None => continue,
+            };
+            let fulfilled_timestamp = match block_timestamps.get(&fulfilled_block_number) {
                 Some(&timestamp) => timestamp,
                 None => continue,
             };
 
-            // Get block timestamp for locked order from log metadata
-            let lock_timestamp = match log_meta.block_timestamp {
-                Some(ts) => ts,
+            // Get block timestamp for locked order from fetched timestamps
+            let lock_block_number = match log_meta.block_number {
+                Some(block_num) => block_num,
+                None => continue,
+            };
+            let lock_timestamp = match block_timestamps.get(&lock_block_number) {
+                Some(&timestamp) => timestamp,
                 None => continue,
             };
 
