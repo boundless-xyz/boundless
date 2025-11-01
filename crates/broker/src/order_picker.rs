@@ -718,7 +718,7 @@ where
                     let required_price_per_mcycle =
                         available_eth.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
                     format!(
-                        "mcycle_price currently {} ETH/Mcycle, order required <= {} ETH/Mcycle",
+                        "min_mcycle_price is set to {} ETH/Mcycle, order requires min_mcycle_price less than {} ETH/Mcycle",
                         format_ether(*mcycle_price_eth),
                         format_ether(required_price_per_mcycle)
                     )

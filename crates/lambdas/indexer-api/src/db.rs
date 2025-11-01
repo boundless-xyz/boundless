@@ -13,12 +13,16 @@
 // limitations under the License.
 
 use anyhow::Result;
-use boundless_indexer::db::rewards::{RewardsDb, RewardsDbObj};
+use boundless_indexer::db::{
+    market::{AnyDb, DbObj as MarketDbObj},
+    rewards::{RewardsDb, RewardsDbObj},
+};
 use std::sync::Arc;
 
 /// Application state containing database connections
 pub struct AppState {
     pub rewards_db: RewardsDbObj,
+    pub market_db: MarketDbObj,
 }
 
 impl AppState {
@@ -30,8 +34,12 @@ impl AppState {
         let rewards_db = RewardsDb::new(database_url).await?;
         let rewards_db: RewardsDbObj = Arc::new(rewards_db);
 
+        // Create market database connection (same database, different trait)
+        let market_db = AnyDb::new(database_url).await?;
+        let market_db: MarketDbObj = Arc::new(market_db);
+
         tracing::info!("Database connection established");
 
-        Ok(Self { rewards_db })
+        Ok(Self { rewards_db, market_db })
     }
 }

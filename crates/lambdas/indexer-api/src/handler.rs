@@ -26,7 +26,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::db::AppState;
 use crate::openapi::ApiDoc;
-use crate::routes::{delegations, povw, staking};
+use crate::routes::{delegations, market, povw, staking};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -71,6 +71,7 @@ fn api_v1_routes(state: Arc<AppState>) -> Router {
         .nest("/staking", staking::routes())
         .nest("/povw", povw::routes())
         .nest("/delegations", delegations::routes())
+        .nest("/market", market::routes())
         .with_state(state)
 }
 

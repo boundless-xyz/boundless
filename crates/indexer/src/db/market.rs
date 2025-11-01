@@ -36,6 +36,18 @@ pub struct TxMetadata {
     pub block_timestamp: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct HourlyMarketSummary {
+    pub hour_timestamp: i64,
+    pub total_fulfilled: i64,
+    pub unique_provers_locking_requests: i64,
+    pub unique_requesters_submitting_requests: i64,
+    pub total_fees_locked: String,
+    pub total_collateral_locked: String,
+    pub p50_fees_locked: String,
+    pub percentile_fees_locked: Vec<u8>,
+}
+
 impl TxMetadata {
     pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64) -> Self {
         Self { tx_hash, from, block_number, block_timestamp }
@@ -44,6 +56,8 @@ impl TxMetadata {
 
 #[async_trait]
 pub trait IndexerDb {
+    fn pool(&self) -> &AnyPool;
+
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
 
@@ -157,6 +171,17 @@ pub trait IndexerDb {
         &self,
         timestamp: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), DbError>;
+
+    async fn upsert_hourly_market_summary(
+        &self,
+        summary: HourlyMarketSummary,
+    ) -> Result<(), DbError>;
+
+    async fn get_hourly_market_summaries(
+        &self,
+        start_timestamp: i64,
+        end_timestamp: i64,
+    ) -> Result<Vec<HourlyMarketSummary>, DbError>;
 }
 
 pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
@@ -191,6 +216,10 @@ impl AnyDb {
 
 #[async_trait]
 impl IndexerDb for AnyDb {
+    fn pool(&self) -> &AnyPool {
+        &self.pool
+    }
+
     async fn get_last_block(&self) -> Result<Option<u64>, DbError> {
         let res = sqlx::query("SELECT block FROM last_block WHERE id = $1")
             .bind(SQL_BLOCK_KEY)
@@ -765,6 +794,89 @@ impl IndexerDb for AnyDb {
             .await?;
 
         Ok(())
+    }
+
+    async fn upsert_hourly_market_summary(
+        &self,
+        summary: HourlyMarketSummary,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO hourly_market_summary (
+                hour_timestamp,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                unique_requesters_submitting_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                p50_fees_locked,
+                percentile_fees_locked,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            ON CONFLICT (hour_timestamp) DO UPDATE SET
+                total_fulfilled = EXCLUDED.total_fulfilled,
+                unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
+                unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
+                total_fees_locked = EXCLUDED.total_fees_locked,
+                total_collateral_locked = EXCLUDED.total_collateral_locked,
+                p50_fees_locked = EXCLUDED.p50_fees_locked,
+                percentile_fees_locked = EXCLUDED.percentile_fees_locked,
+                updated_at = NOW()",
+        )
+        .bind(summary.hour_timestamp)
+        .bind(summary.total_fulfilled)
+        .bind(summary.unique_provers_locking_requests)
+        .bind(summary.unique_requesters_submitting_requests)
+        .bind(summary.total_fees_locked)
+        .bind(summary.total_collateral_locked)
+        .bind(summary.p50_fees_locked)
+        .bind(summary.percentile_fees_locked)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_hourly_market_summaries(
+        &self,
+        start_timestamp: i64,
+        end_timestamp: i64,
+    ) -> Result<Vec<HourlyMarketSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT
+                hour_timestamp,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                unique_requesters_submitting_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                p50_fees_locked,
+                percentile_fees_locked
+            FROM hourly_market_summary
+            WHERE hour_timestamp >= $1 AND hour_timestamp <= $2
+            ORDER BY hour_timestamp DESC",
+        )
+        .bind(start_timestamp)
+        .bind(end_timestamp)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let summaries = rows
+            .into_iter()
+            .map(|row| HourlyMarketSummary {
+                hour_timestamp: row.get("hour_timestamp"),
+                total_fulfilled: row.get("total_fulfilled"),
+                unique_provers_locking_requests: row.get("unique_provers_locking_requests"),
+                unique_requesters_submitting_requests: row.get(
+                    "unique_requesters_submitting_requests",
+                ),
+                total_fees_locked: row.get("total_fees_locked"),
+                total_collateral_locked: row.get("total_collateral_locked"),
+                p50_fees_locked: row.get("p50_fees_locked"),
+                percentile_fees_locked: row.get("percentile_fees_locked"),
+            })
+            .collect();
+
+        Ok(summaries)
     }
 }
 

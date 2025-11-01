@@ -23,6 +23,14 @@ use sqlx::{
 };
 use std::pin::Pin;
 use thiserror::Error as ThisError;
+use utoipa::ToSchema;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
 
 /// Order DB Errors
 #[derive(ThisError, Debug)]
@@ -50,11 +58,12 @@ pub enum OrderDbErr {
     JsonErr(#[from] serde_json::Error),
 }
 
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug)]
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, ToSchema)]
 pub struct DbOrder {
     pub id: i64,
     #[sqlx(rename = "order_data", json)]
     pub order: Order,
+    #[schema(value_type = Option<String>)]
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -270,6 +279,83 @@ impl OrderDb {
                         .await?
                 }
             };
+
+        Ok(rows)
+    }
+
+    /// List orders with cursor-based pagination and flexible filtering (v2)
+    ///
+    /// Provides cursor-based pagination using (created_at, id) tuples for stable ordering.
+    /// Supports filtering by timestamp ranges (before/after) and bidirectional sorting.
+    pub async fn list_orders_v2(
+        &self,
+        cursor: Option<(DateTime<Utc>, i64)>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<DateTime<Utc>>,
+        after: Option<DateTime<Utc>>,
+    ) -> Result<Vec<DbOrder>, OrderDbErr> {
+        let mut conditions = Vec::new();
+        let mut bind_count = 0;
+
+        let cursor_condition = match (cursor, sort) {
+            (Some((_ts, _id)), SortDirection::Asc) => {
+                bind_count += 2;
+                Some(format!("(created_at, id) > (${}, ${})", bind_count - 1, bind_count))
+            }
+            (Some((_ts, _id)), SortDirection::Desc) => {
+                bind_count += 2;
+                Some(format!("(created_at, id) < (${}, ${})", bind_count - 1, bind_count))
+            }
+            (None, _) => None,
+        };
+
+        if let Some(cond) = cursor_condition {
+            conditions.push(cond);
+        }
+
+        if let Some(_) = after {
+            bind_count += 1;
+            conditions.push(format!("created_at > ${}", bind_count));
+        }
+
+        if let Some(_) = before {
+            bind_count += 1;
+            conditions.push(format!("created_at < ${}", bind_count));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let order_clause = match sort {
+            SortDirection::Asc => "ORDER BY created_at ASC, id ASC",
+            SortDirection::Desc => "ORDER BY created_at DESC, id DESC",
+        };
+
+        bind_count += 1;
+        let query_str =
+            format!("SELECT * FROM orders {} {} LIMIT ${}", where_clause, order_clause, bind_count);
+
+        let mut query = sqlx::query_as::<_, DbOrder>(&query_str);
+
+        if let Some((ts, id)) = cursor {
+            query = query.bind(ts).bind(id);
+        }
+
+        if let Some(ts) = after {
+            query = query.bind(ts);
+        }
+
+        if let Some(ts) = before {
+            query = query.bind(ts);
+        }
+
+        query = query.bind(limit);
+
+        let rows = query.fetch_all(&self.pool).await?;
 
         Ok(rows)
     }
@@ -507,5 +593,126 @@ mod tests {
                 .unwrap();
 
         assert!(db_nonce.is_some());
+    }
+
+    #[sqlx::test]
+    async fn list_orders_v2_basic(pool: PgPool) {
+        let db = OrderDb::from_pool(pool).await.unwrap();
+
+        let order1 = create_order(U256::from(1)).await;
+        let order2 = create_order(U256::from(2)).await;
+        let order3 = create_order(U256::from(3)).await;
+
+        let id1 = db.add_order(order1).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let id2 = db.add_order(order2).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let id3 = db.add_order(order3).await.unwrap();
+
+        let orders = db.list_orders_v2(None, 10, SortDirection::Desc, None, None).await.unwrap();
+        assert_eq!(orders.len(), 3);
+        assert_eq!(orders[0].id, id3);
+        assert_eq!(orders[1].id, id2);
+        assert_eq!(orders[2].id, id1);
+
+        let orders_asc =
+            db.list_orders_v2(None, 10, SortDirection::Asc, None, None).await.unwrap();
+        assert_eq!(orders_asc.len(), 3);
+        assert_eq!(orders_asc[0].id, id1);
+        assert_eq!(orders_asc[1].id, id2);
+        assert_eq!(orders_asc[2].id, id3);
+    }
+
+    #[sqlx::test]
+    async fn list_orders_v2_cursor_pagination(pool: PgPool) {
+        let db = OrderDb::from_pool(pool).await.unwrap();
+
+        let order1 = create_order(U256::from(1)).await;
+        let order2 = create_order(U256::from(2)).await;
+        let order3 = create_order(U256::from(3)).await;
+
+        db.add_order(order1).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        db.add_order(order2).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        db.add_order(order3).await.unwrap();
+
+        let first_page =
+            db.list_orders_v2(None, 2, SortDirection::Desc, None, None).await.unwrap();
+        assert_eq!(first_page.len(), 2);
+
+        let cursor_ts = first_page[1].created_at.unwrap();
+        let cursor_id = first_page[1].id;
+
+        let second_page =
+            db.list_orders_v2(Some((cursor_ts, cursor_id)), 2, SortDirection::Desc, None, None)
+                .await
+                .unwrap();
+        assert_eq!(second_page.len(), 1);
+        assert_ne!(second_page[0].id, first_page[0].id);
+        assert_ne!(second_page[0].id, first_page[1].id);
+    }
+
+    #[sqlx::test]
+    async fn list_orders_v2_timestamp_filters(pool: PgPool) {
+        let db = OrderDb::from_pool(pool).await.unwrap();
+
+        let order1 = create_order(U256::from(1)).await;
+        db.add_order(order1).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let middle_time = Utc::now();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let order2 = create_order(U256::from(2)).await;
+        db.add_order(order2).await.unwrap();
+
+        let after_orders =
+            db.list_orders_v2(None, 10, SortDirection::Desc, None, Some(middle_time))
+                .await
+                .unwrap();
+        assert_eq!(after_orders.len(), 1);
+        assert_eq!(after_orders[0].order.request.id, U256::from(2));
+
+        let before_orders =
+            db.list_orders_v2(None, 10, SortDirection::Desc, Some(middle_time), None)
+                .await
+                .unwrap();
+        assert_eq!(before_orders.len(), 1);
+        assert_eq!(before_orders[0].order.request.id, U256::from(1));
+    }
+
+    #[sqlx::test]
+    async fn list_orders_v2_range_query(pool: PgPool) {
+        let db = OrderDb::from_pool(pool).await.unwrap();
+
+        let order1 = create_order(U256::from(1)).await;
+        db.add_order(order1).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let start_time = Utc::now();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order2 = create_order(U256::from(2)).await;
+        db.add_order(order2).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order3 = create_order(U256::from(3)).await;
+        db.add_order(order3).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let end_time = Utc::now();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let order4 = create_order(U256::from(4)).await;
+        db.add_order(order4).await.unwrap();
+
+        let range_orders = db
+            .list_orders_v2(None, 10, SortDirection::Asc, Some(end_time), Some(start_time))
+            .await
+            .unwrap();
+        assert_eq!(range_orders.len(), 2);
+        assert_eq!(range_orders[0].order.request.id, U256::from(2));
+        assert_eq!(range_orders[1].order.request.id, U256::from(3));
     }
 }

@@ -14,7 +14,13 @@
 
 use std::{cmp::min, collections::HashMap, sync::Arc};
 
-use crate::db::{AnyDb, DbError, DbObj, TxMetadata};
+use crate::{
+    db::{
+        market::{AnyDb, HourlyMarketSummary},
+        DbError, DbObj, TxMetadata,
+    },
+    market::pricing::{compute_percentiles, encode_percentiles_to_bytes, price_at_time},
+};
 use ::boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
     EIP712DomainSaltless, RequestId,
@@ -23,7 +29,7 @@ use ::boundless_market::order_stream_client::OrderStreamClient;
 use alloy::{
     eips::BlockNumberOrTag,
     network::{Ethereum, TransactionResponse},
-    primitives::{Address, B256},
+    primitives::{Address, B256, U256},
     providers::{
         fillers::{ChainIdFiller, FillProvider, JoinFill},
         Identity, Provider, ProviderBuilder, RootProvider,
@@ -32,7 +38,9 @@ use alloy::{
     signers::local::PrivateKeySigner,
     transports::{RpcError, TransportErrorKind},
 };
+use std::str::FromStr;
 use anyhow::{anyhow, Context};
+use sqlx::Row;
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
@@ -230,6 +238,9 @@ where
         self.clear_cache();
 
         self.update_last_processed_block(to).await?;
+
+        // Aggregate hourly market data after processing blocks
+        self.aggregate_hourly_market_data().await?;
 
         Ok(())
     }
@@ -725,6 +736,169 @@ where
         }
 
         Ok(())
+    }
+
+    async fn aggregate_hourly_market_data(&self) -> Result<(), ServiceError> {
+        tracing::info!("Aggregating hourly market data for past 12 hours");
+
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| ServiceError::Error(anyhow!("Failed to get current time: {}", e)))?
+            .as_secs() as i64;
+
+        // Calculate 12 hours ago
+        let twelve_hours_ago = current_time - (12 * 3600);
+
+        // Truncate to hour boundaries
+        let start_hour = (twelve_hours_ago / 3600) * 3600;
+        let current_hour = (current_time / 3600) * 3600;
+
+        tracing::debug!(
+            "Aggregating hours from {} to {} (12 hour window)",
+            start_hour,
+            current_hour
+        );
+
+        // Process each hour
+        for hour_ts in (start_hour..=current_hour).step_by(3600) {
+            let summary = self.compute_hourly_summary(hour_ts).await?;
+            self.db.upsert_hourly_market_summary(summary).await?;
+        }
+
+        tracing::info!("Hourly market data aggregation completed");
+        Ok(())
+    }
+
+    async fn compute_hourly_summary(
+        &self,
+        hour_timestamp: i64,
+    ) -> Result<HourlyMarketSummary, ServiceError> {
+        let hour_end = hour_timestamp + 3600;
+
+        // 1. Count total fulfilled in this hour
+        let total_fulfilled: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM request_fulfilled_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(hour_timestamp)
+        .bind(hour_end)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_fulfilled: {}", e)))?;
+
+        // 2. Count unique provers who locked requests in this hour
+        let unique_provers: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT prover_address) FROM request_locked_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(hour_timestamp)
+        .bind(hour_end)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_provers: {}", e)))?;
+
+        // 3. Count unique requesters who submitted requests in this hour
+        let unique_requesters: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT client_address) FROM proof_requests
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(hour_timestamp)
+        .bind(hour_end)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_requesters: {}", e)))?;
+
+        // 4. Get all locks in this hour with pricing info
+        let locks = sqlx::query(
+            "SELECT
+                pr.min_price,
+                pr.max_price,
+                pr.bidding_start,
+                pr.ramp_up_period,
+                pr.lock_end,
+                pr.lock_collateral,
+                rle.block_timestamp as lock_timestamp
+             FROM request_locked_events rle
+             JOIN proof_requests pr ON rle.request_digest = pr.request_digest
+             WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2",
+        )
+        .bind(hour_timestamp)
+        .bind(hour_end)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch locks: {}", e)))?;
+
+        // Compute fees and collateral
+        let mut total_fees = U256::ZERO;
+        let mut total_collateral = U256::ZERO;
+        let mut prices = Vec::new();
+
+        for row in locks {
+            let min_price_str: String = row.get("min_price");
+            let max_price_str: String = row.get("max_price");
+            let bidding_start: i64 = row.get("bidding_start");
+            let ramp_up_period: i32 = row.get("ramp_up_period");
+            let lock_end: i64 = row.get("lock_end");
+            let lock_collateral_str: String = row.get("lock_collateral");
+            let lock_timestamp: i64 = row.get("lock_timestamp");
+
+            let min_price = U256::from_str(&min_price_str)
+                .map_err(|e| ServiceError::Error(anyhow!("Failed to parse min_price: {}", e)))?;
+            let max_price = U256::from_str(&max_price_str)
+                .map_err(|e| ServiceError::Error(anyhow!("Failed to parse max_price: {}", e)))?;
+            let lock_collateral = U256::from_str(&lock_collateral_str)
+                .map_err(|e| ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e)))?;
+
+            // Compute lock_timeout from lock_end and bidding_start
+            let lock_timeout = (lock_end - bidding_start) as u32;
+
+            // Compute price at lock time
+            let price = price_at_time(
+                min_price,
+                max_price,
+                bidding_start as u64,
+                ramp_up_period as u32,
+                lock_timeout,
+                lock_timestamp as u64,
+            );
+
+            total_fees += price;
+            total_collateral += lock_collateral;
+            prices.push(price);
+        }
+
+        // Compute percentiles
+        let p50 = if !prices.is_empty() {
+            let mut sorted_prices = prices.clone();
+            compute_percentiles(&mut sorted_prices, &[50])[0]
+        } else {
+            U256::ZERO
+        };
+
+        let percentiles = if !prices.is_empty() {
+            let mut sorted_prices = prices;
+            compute_percentiles(&mut sorted_prices, &[10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+        } else {
+            vec![U256::ZERO; 10]
+        };
+
+        let percentiles_blob = encode_percentiles_to_bytes(&percentiles);
+
+        // Format U256 values as zero-padded 78-character strings (matching rewards pattern)
+        fn format_u256(value: U256) -> String {
+            format!("{:0>78}", value)
+        }
+
+        Ok(HourlyMarketSummary {
+            hour_timestamp,
+            total_fulfilled,
+            unique_provers_locking_requests: unique_provers,
+            unique_requesters_submitting_requests: unique_requesters,
+            total_fees_locked: format_u256(total_fees),
+            total_collateral_locked: format_u256(total_collateral),
+            p50_fees_locked: format_u256(p50),
+            percentile_fees_locked: percentiles_blob,
+        })
     }
 
     async fn current_block(&self) -> Result<u64, ServiceError> {

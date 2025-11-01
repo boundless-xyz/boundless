@@ -30,7 +30,8 @@ use utoipa::OpenApi;
         (name = "Health", description = "Health check endpoints"),
         (name = "Staking", description = "Staking position and history endpoints"),
         (name = "PoVW", description = "Proof of Verifiable Work rewards endpoints"),
-        (name = "Delegations", description = "Vote and reward delegation endpoints")
+        (name = "Delegations", description = "Vote and reward delegation endpoints"),
+        (name = "Market", description = "Market activity aggregates and statistics")
     ),
     paths(
         // Health check
@@ -61,6 +62,8 @@ use utoipa::OpenApi;
         crate::routes::delegations::get_reward_delegations_by_epoch,
         crate::routes::delegations::get_reward_delegation_history_by_address,
         crate::routes::delegations::get_reward_delegation_by_address_and_epoch,
+        // Market endpoints
+        crate::routes::market::get_market_aggregates,
     ),
     components(schemas(
         // Response models
@@ -94,6 +97,11 @@ use utoipa::OpenApi;
         EpochDelegationSummary,
         VoteDelegationSummaryStats,
         RewardDelegationSummaryStats,
+
+        // Market types
+        crate::routes::market::MarketAggregatesParams,
+        crate::routes::market::MarketAggregateEntry,
+        crate::routes::market::MarketAggregatesResponse,
     ))
 )]
 pub struct ApiDoc;
