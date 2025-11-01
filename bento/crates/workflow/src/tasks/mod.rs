@@ -20,6 +20,9 @@ pub(crate) mod resolve_povw;
 pub(crate) mod snark;
 pub(crate) mod union;
 
+/// Segment Receipts key prefix
+pub(crate) const SEGMENT_RECEIPT_PATH: &str = "segment_receipts";
+
 /// Recursion receipts key prefix
 pub(crate) const RECUR_RECEIPT_PATH: &str = "recursion_receipts";
 

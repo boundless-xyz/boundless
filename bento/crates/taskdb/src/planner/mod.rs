@@ -80,10 +80,6 @@ impl core::fmt::Debug for Planner {
                     stack.push((indent + 2, task.depends_on[0]));
                     stack.push((indent + 2, task.depends_on[1]));
                 }
-                Command::Lift => {
-                    // write!(f, "{:?} Lift", task.task_number)?;
-                    unimplemented!("Lift task debug formatting is not yet implemented");
-                }
             }
         }
 

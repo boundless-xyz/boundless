@@ -1,7 +1,7 @@
 use crate::{
     Agent,
     redis::{self, AsyncCommands},
-    tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
+    tasks::{RECUR_RECEIPT_PATH, SEGMENT_RECEIPT_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
@@ -9,34 +9,20 @@ use uuid::Uuid;
 use workflow_common::LiftReq;
 
 /// Run a prove request
-pub async fn lifter(agent: &Agent, job_id: &Uuid, request: &LiftReq) -> Result<()> {
+pub async fn lifter(agent: &Agent, job_id: &Uuid, task_id: &str, request: &LiftReq) -> Result<()> {
     let index = request.index;
+    tracing::debug!("Starting lifting {job_id} - {index}");
+
     let mut conn = agent.redis_pool.get().await?;
     let job_prefix = format!("job:{job_id}");
-    let segment_key = format!("{job_prefix}:{SEGMENTS_PATH}:{index}");
+    let receipt_key = format!("{job_prefix}:{SEGMENT_RECEIPT_PATH}:{index}");
 
-    tracing::debug!("Starting proof of idx: {job_id} - {index}");
     let segment_vec: Vec<u8> = conn
-        .get::<_, Vec<u8>>(&segment_key)
+        .get::<_, Vec<u8>>(&receipt_key)
         .await
-        .with_context(|| format!("segment data not found for segment key: {segment_key}"))?;
-    let segment =
+        .with_context(|| format!("receipt data not found for receipt key: {receipt_key}"))?;
+    let segment_receipt =
         deserialize_obj(&segment_vec).context("Failed to deserialize segment data from redis")?;
-
-    let segment_receipt = agent
-        .prover
-        .as_ref()
-        .context("Missing prover from prove task")?
-        .prove_segment(&agent.verifier_ctx, &segment)
-        .context("Failed to prove segment")?;
-
-    segment_receipt
-        .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify segment receipt integrity")?;
-
-    tracing::debug!("Completed proof: {job_id} - {index}");
-
-    tracing::debug!("lifting {job_id} - {index}");
 
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
 
@@ -78,7 +64,7 @@ pub async fn lifter(agent: &Agent, job_id: &Uuid, request: &LiftReq) -> Result<(
         redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
             .await?;
     }
-    conn.unlink::<_, ()>(&segment_key).await.context("Failed to delete segment key")?;
+    conn.unlink::<_, ()>(&receipt_key).await.context("Failed to delete receipt key")?;
 
     Ok(())
 }

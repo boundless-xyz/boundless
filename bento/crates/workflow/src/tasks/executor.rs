@@ -23,8 +23,8 @@ use taskdb::planner::{
 };
 use tempfile::NamedTempFile;
 use workflow_common::{
-    CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, ProveReq, ResolveReq,
-    SnarkReq, TaskStream, UnionReq,
+    CompressType, ExecutorReq, ExecutorResp, FinalizeReq, JoinReq, KeccakReq, LiftReq, ProveReq,
+    ResolveReq, SnarkReq, TaskStream, UnionReq,
     s3::{
         ELF_BUCKET_DIR, EXEC_LOGS_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
         RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR,
@@ -57,9 +57,6 @@ async fn process_task(
     keccak_req: Option<KeccakReq>,
 ) -> Result<()> {
     match tree_task.command {
-        TaskCmd::Lift => {
-            unimplemented!("Lift task processing is not yet implemented");
-        }
         TaskCmd::Keccak => {
             let keccak_req = keccak_req.context("keccak_req returned None")?;
             let prereqs = serde_json::json!([]);
@@ -98,7 +95,7 @@ async fn process_task(
             // because it should be able to start asap since the segment should already
             // be flushed at this point
             let prereqs = serde_json::json!([]);
-            let task_name = format!("{}", tree_task.task_number);
+            let task_name = format!("prove-{}", tree_task.task_number);
 
             taskdb::create_task(
                 pool,
@@ -112,6 +109,25 @@ async fn process_task(
             )
             .await
             .context("create_task failure during segment creation")?;
+
+            let task_def = serde_json::to_value(TaskType::Lift(LiftReq {
+                index: segment_index.context("INVALID STATE: lift task without segment index")?
+                    as usize,
+            }))?;
+            let prereqs = serde_json::json!([task_name]);
+            let lift_name = format!("{}", tree_task.task_number);
+            taskdb::create_task(
+                pool,
+                job_id,
+                &lift_name,
+                lift_stream,
+                &task_def,
+                &prereqs,
+                args.prove_retries,
+                args.prove_timeout,
+            )
+            .await
+            .context("create_task failure during lift creation")?;
         }
         TaskCmd::Join => {
             let task_def = serde_json::to_value(TaskType::Join(JoinReq {
