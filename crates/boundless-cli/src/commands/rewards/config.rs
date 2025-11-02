@@ -17,7 +17,7 @@ use clap::Args;
 
 use crate::commands::config_display::{
     address_from_pk, display_not_configured, display_rpc_url, display_tip,
-    get_private_key_with_source, normalize_network_name, ModuleType,
+    get_private_key_with_source, get_rpc_url_with_source, normalize_network_name, ModuleType,
 };
 use crate::commands::rewards::State;
 use crate::config::GlobalConfig;
@@ -70,7 +70,11 @@ impl RewardsConfigCmd {
 
         if let Some(ref sec) = secrets {
             if let Some(rewards_sec) = sec.rewards_networks.get(&rewards.network) {
-                display_rpc_url(&display, rewards_sec.rpc_url.as_deref());
+                let (rpc_url, rpc_source) = get_rpc_url_with_source(
+                    module.rpc_url_env_var(),
+                    rewards_sec.rpc_url.as_deref(),
+                );
+                display_rpc_url(&display, rpc_url, rpc_source);
 
                 // Display staking address
                 let (staking_pk, staking_pk_source) = get_private_key_with_source(

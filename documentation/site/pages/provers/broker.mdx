@@ -47,28 +47,76 @@ You can omit the `PRIVATE_KEY` environment variable here and specify your `walle
 
 ### Settings in Broker.toml
 
-:::tip[See all broker.toml settings]
-To see all the possible settings in `broker.toml`, please refer to [broker-template.toml](https://github.com/boundless-xyz/boundless/blob/main/broker-template.toml) in the Boundless monorepo.
-:::
-
 :::warning[Warning]
 Quotation marks matter in TOML so please pay particular attention to the quotation marks for config values.
 :::
 
-Below are some `broker.toml` settings:
+Below are all `broker.toml` settings organized by section:
 
-| setting                  | initial value | description                                                                                                    |
-| ------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
-| mcycle\_price            | `".001"`      | The price (in native token of target market) of proving 1M cycles.                                             |
-| assumption\_price        | `"0.1"`       | Currently unused.                                                                                              |
-| peak\_prove\_khz         | `500`         | This should correspond to the maximum number of cycles per second (in kHz) your proving backend can operate - see [Benchmarking Bento](#benchmarking-bento). |
-| min\_deadline            | `150`         | This is a minimum number of blocks before the requested job expiration that Broker will attempt to lock a job. |
-| lookback\_blocks         | `100`         | This is used on Broker initialization, and sets the number of blocks to look back for candidate proofs.        |
-| max\_collateral          | `"0.5"`       | The maximum amount used to lock in a job for any single order.                                                 |
-| skip\_preflight\_ids     | `[]`          | A list of `imageID`s that the Broker should skip preflight checks in format `["0xID1","0xID2"]`.               |
-| max\_file\_size          | `50_000_000`  | The maximum guest image size in bytes that the Broker will accept.                                             |
-| allow\_client\_addresses | `["0x1234..."]` | Optional whitelist of requestor addresses. When defined, only requests from these requestor addresses will be processed. Use format `["0xAddress1", "0xAddress2"]`. |
-| lockin\_priority\_gas    | `100`         | Additional gas to add to the base price when locking in collateral on a contract to increase priority.         |
+#### [market] Settings
+
+| Setting | Description |
+| ------- | ----------- |
+| min\_mcycle\_price | The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker to attempt to lock an order, denominated in the native token (e.g. ETH). Orders are preflighted to determine the number of cycles required to prove the order. Based on this cycle count, and the current price of the order, the broker computes the current price per mega-cycle being offered for the order. This value is compared to the min_mcycle_price to determine if the order should be locked. |
+| min\_mcycle\_price\_collateral\_token | The minimum price per mega-cycle for the broker to attempt to fulfill an order in the case that the order was locked by another prover but not fulfilled within the lock timeout. If an order is locked by a prover, but not fulfilled within the lock timeout, that prover is slashed by the amount of collateral specified in the order. A portion of this collateral is then used to incentivize other provers to fulfill the order. This determines the minimum price per mega-cycle in collateral token (ZKC) that must be offered for the broker to attempt to fulfill these orders. Note: attempting to fulfill these orders is a 'proof race' where the first prover to fulfill the order is rewarded with the collateral. |
+| priority\_requestor\_addresses | Optional priority requestor addresses that can bypass the mcycle limit and max input size limit. If enabled, the order will be preflighted without constraints. |
+| priority\_requestor\_lists | URLs to fetch requestor priority lists from. Requestor priority lists specify requestors that the broker should prioritize for proving. Requestors on these lists are considered more likely to request useful work with profitable pricing. Priority requestors are prioritized when there is a surplus of demand: their requests will be preflighted first, locked first (in situations where multiple orders exceed minimum lock pricing), and configuration for max_mcycle_limit and max_file_size will be skipped. These lists will be periodically refreshed and merged with priority_requestor_addresses. |
+| peak\_prove\_khz | Estimated peak performance of the proving cluster, in kHz. Used to estimate proving capacity and accept only as much work as your prover cluster can handle. Estimates can be derived from benchmarking using the Boundless CLI. See [Benchmarking Bento](#benchmarking-bento). |
+| max\_mcycle\_limit | Optional max cycles (in mcycles). Orders over this max_cycles will be skipped after preflight. |
+| max\_journal\_bytes | Max journal size in bytes. Orders that produce a journal larger than this size in preflight will be skipped. Since journals must be posted onchain to complete an order, an excessively large journal may prevent completion of a request. |
+| min\_deadline | Min seconds left before the deadline to consider bidding on a request. If there is not enough time left before the deadline, the prover may not be able to complete proving of the request and finalize the batch for publishing before expiration. |
+| lookback\_blocks | On startup, the number of blocks to look back for possible open orders. |
+| max\_collateral | Maximum collateral amount, denominated in the Boundless collateral token, that the broker will use to lock orders. Requests that require a higher collateral amount than this will be skipped. |
+| max\_file\_size | Max input / image file size allowed for downloading from request URLs. |
+| max\_fetch\_retries | Max retries for fetching input / image contents from URLs. |
+| assessor\_default\_image\_url | Default URL for assessor image. This URL will be tried first before falling back to the image URL from the boundless market contract. |
+| set\_builder\_default\_image\_url | Default URL for set builder image. This URL will be tried first before falling back to the image URL from the set verifier contract. |
+| max\_concurrent\_proofs | Maximum number of concurrent proofs that can be processed at once. Used to limit proof tasks spawned to prevent overwhelming the system. |
+| max\_concurrent\_preflights | Maximum number of orders to concurrently preflight. Used to limit preflight tasks spawned to prevent overwhelming the system. |
+| order\_pricing\_priority | Determines how orders are prioritized for pricing. Options: "random" (process orders in random order), "observation_time" (FIFO), "shortest_expiry" (earliest deadline), "price" (highest ETH payment), "cycle_price" (highest ETH price per cycle, default). |
+| order\_commitment\_priority | Determines how orders are prioritized when committing to prove them. Options: "random" (process orders in random order, default), "shortest_expiry" (process orders by shortest expiry first). |
+| max\_critical\_task\_retries | Max critical task retries on recoverable failures. The broker service has a number of subtasks. Some are considered critical. If a task fails, it will be retried, but after this number of retries, the process will exit. |
+| allow\_client\_addresses | Optional allow list for customer address. If enabled, all requests from clients not in the allow list are skipped. |
+| deny\_requestor\_addresses | Optional deny list for requestor address. If enabled, all requests from clients in the deny list are skipped. |
+| lockin\_priority\_gas | Optional additional gas to add to the transaction for lockinRequest, good for increasing the priority if competing with multiple provers during the same block. |
+| balance\_warn\_threshold | Optional balance warning threshold (in native token). If the submitter balance drops below this the broker will issue warning logs. |
+| balance\_error\_threshold | Optional balance error threshold (in native token). If the submitter balance drops below this the broker will issue error logs. |
+| collateral\_balance\_warn\_threshold | Optional collateral balance warning threshold (in collateral tokens). If the collateral balance drops below this the broker will issue warning logs. |
+| collateral\_balance\_error\_threshold | Optional collateral balance error threshold (in collateral tokens). If the collateral balance drops below this the broker will issue error logs. |
+| cache\_dir | Optional cache directory for storing downloaded images and inputs. If not set, files will be re-downloaded every time. |
+| lockin\_gas\_estimate | Gas estimate for lockin call. Used for estimating the gas costs associated with an order during pricing. If not set a conservative default will be used. |
+| fulfill\_gas\_estimate | Gas estimate for fulfill call. Used for estimating the gas costs associated with an order during pricing. If not set a conservative default will be used. |
+| groth16\_verify\_gas\_estimate | Gas estimate for proof verification using the RiscZeroGroth16Verifier. Used for estimating the gas costs associated with an order during pricing. If not set a conservative default will be used. |
+
+#### [prover] Settings
+
+| Setting | Description |
+| ------- | ----------- |
+| status\_poll\_retry\_count | Number of retries to poll for proving status. Provides a little durability for transient failures. |
+| status\_poll\_ms | Polling interval to monitor proving status (in millisecs). |
+| req\_retry\_count | Number of retries to query a prover backend for on failures. Used for API requests to a prover backend, creating sessions, preflighting, uploading images, etc. Provides a little durability for transient failures. |
+| req\_retry\_sleep\_ms | Number of milliseconds to sleep between retries. |
+| proof\_retry\_count | Number of retries for running the entire proof generation process. This is separate from the request retry count, as the proving process is a multi-step process involving multiple API calls to create a proof job and then polling for the proof job to complete. |
+| proof\_retry\_sleep\_ms | Number of milliseconds to sleep between proof retries. |
+| set\_builder\_guest\_path | Set builder guest program (ELF) path. When using a durable deploy, set this to the published current SOT guest program path on the system. |
+| assessor\_set\_guest\_path | Assessor ELF path. |
+| reaper\_interval\_secs | Interval for checking expired committed orders (in seconds). This is the interval at which the ReaperTask will check for expired orders and mark them as failed. If not set, it defaults to 60 seconds. |
+| reaper\_grace\_period\_secs | Grace period before marking expired orders as failed (in seconds). This provides a buffer time after an order expires before the reaper marks it as failed. This helps prevent race conditions with the aggregator that might be processing the order. If not set, it defaults to 10800 seconds (3 hours). |
+
+#### [batcher] Settings
+
+| Setting | Description |
+| ------- | ----------- |
+| batch\_max\_time | Max batch duration before publishing (in seconds). |
+| min\_batch\_size | Batch size (in proofs) before publishing. |
+| block\_deadline\_buffer\_secs | Batch blocktime buffer. Number of seconds before the lowest block deadline in the order batch to flush the batch. This should be approximately snark_proving_time * 2. |
+| txn\_timeout | Timeout, in seconds for transaction confirmations. |
+| single\_txn\_fulfill | Use the single TXN submission that batches submit_merkle / fulfill_batch into a single transaction. Requires the `submitRootAndFulfill` method be present on the deployed contract. |
+| withdraw | Whether to withdraw from the prover balance when fulfilling. |
+| batch\_poll\_time\_ms | Polling time, in milliseconds. The time between polls for new orders to aggregate and how often to check for batch finalize conditions. |
+| batch\_max\_journal\_bytes | Max combined journal size (in bytes) that once exceeded will trigger a publish. |
+| batch\_max\_fees | Max batch fees (in ETH) before publishing. |
+| max\_submission\_attempts | Number of attempts to make to submit a batch before abandoning. |
 
 
 ## Broker Operation
@@ -252,7 +300,7 @@ just broker
 
 Once your broker is running, there are a few methods to optimize the lock-in rate. These methods are aimed at making your broker service more competitive in the market through different means:
 
-1. Decreasing the `mcycle_price` would tune your Broker to bid at lower prices for proofs.
+1. Decreasing the `min_mcycle_price` would tune your Broker to bid at lower prices for proofs.
 2. Increasing `lockin_priority_gas` expedites your market operations by consuming more gas which could help outrun other bidders.
 
 ### Tuning Service Settings
