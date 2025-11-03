@@ -54,7 +54,11 @@ export PRIVATE_KEY=""
 export RPC_URL=""
 ```
 
-This is the private key to the wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using an [Alchemy](https://alchemy.com) endpoint for the network you want to prove on.
+This is the private key to the wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using either [Alchemy](https://alchemy.com) or [Quicknode](https://www.quicknode.com/) paid RPC endpoints.
+
+:::warning
+Note that the free RPC plans from either provider *will not* work for longer than a few hours, and therefore this may cause a prover to get slashed, if free RPC limits are hit, after some orders are locked.
+:::
 
 ## Running a Test Proof
 
@@ -105,14 +109,23 @@ First, install the Boundless CLI (the Boundless CLI is separate to the Bento CLI
 cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.1 --bin boundless
 ```
 
-Once installed, run `boundless` to check it has been installed properly.
+Once installed, run `boundless` to check it has been installed properly:
 
+![Boundless CLI Homescreen](/boundless_cli_main.png)
 
+### Run the Prover Setup Wizard
 
+To run the prover setup wizard, run:
 
+```bash
+boundless prover generate-config
+```
 
+and an interactive prompt will appear:
 
+![Boundless CLI Prover Setup Wizard](/prover-setup-wizard.png)
 
+Answer the questions as required, based on your setup and requirements. Once finished, the broker.toml and compose.yml files will be created/edited.
 
 ## Running the Broker
 
