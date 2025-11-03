@@ -92,8 +92,7 @@ async fn test_e2e() {
 
     println!("{exe_path} {args:?}");
 
-    let client =
-        boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+    let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
     let prover = OrderFulfiller::initialize(Arc::new(BrokerDefaultProver::default()), &client)
         .await
         .unwrap();
@@ -228,8 +227,7 @@ async fn test_monitoring() {
 
     println!("{exe_path} {args:?}");
 
-    let client =
-        boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+    let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
     let prover = OrderFulfiller::initialize(Arc::new(BrokerDefaultProver::default()), &client)
         .await
         .unwrap();
