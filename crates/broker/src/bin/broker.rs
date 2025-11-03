@@ -28,10 +28,20 @@ use boundless_market::{
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
 use tracing_subscriber::fmt::format::FmtSpan;
+use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = Args::parse();
+
+    // Backward compatibility: allow RPC_URL when PROVER_RPC_URL is not set
+    if std::env::var("PROVER_RPC_URL").is_err() {
+        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
+            args.rpc_url =
+                Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
+            tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+        }
+    }
     let config = Config::load(&args.config_file).await?;
 
     if args.log_json {

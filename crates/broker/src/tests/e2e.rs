@@ -110,10 +110,10 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     }
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
-    config.market.mcycle_price = "0.00001".into();
-    config.market.mcycle_price_collateral_token = "0.0".into();
+    config.market.min_mcycle_price = "0.00001".into();
+    config.market.min_mcycle_price_collateral_token = "0.0".into();
     config.market.min_deadline = min_deadline;
-    config.batcher.min_batch_size = Some(min_batch_size);
+    config.batcher.min_batch_size = min_batch_size;
     config.write(config_file.path()).await.unwrap();
     config_file
 }

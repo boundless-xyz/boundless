@@ -146,34 +146,34 @@ Therefore, to use *$ZKC* as proving collateral, provers have to first [bridge *$
 With the [environment variables](/provers/quick-start#setup-environment-variables) set, you can now deposit *$ZKC* tokens as collateral to your account balance:
 
 ```bash [Terminal]
-boundless account deposit-collateral 10
+boundless account deposit-collateral 50
 ```
 
-### Start Broker
+### Start Prover
 
-You can now start broker (which runs both bento + broker i.e. the full proving stack!):
+You can now start the prover (which runs both bento + broker i.e. the full proving stack!):
 
 ```bash [Terminal]
-just broker
+just prover
 ```
 
 To check the proving logs, you can use:
 
 ```bash [Terminal]
-just broker logs
+just prover logs
 ```
 ### Stop Broker
 
 To stop broker, you can run:
 
 ```bash [Terminal]
-just broker down
+just prover down
 ```
 
 Or remove all volumes and data from the service:
 
 ```bash [Terminal]
-just broker clean
+just prover clean
 ```
 
 ## Configuring Broker
@@ -188,11 +188,11 @@ cp .env.broker-template .env.broker
 
 After which, you can use a text editor to adjust the environment variables as required.
 
-To run broker with a custom environment file:
+To run prover with a custom environment file:
 
 ```bash [Terminal]
-just broker up ./.env.broker
-just broker down ./.env.broker
+just prover up ./.env.broker
+just prover down ./.env.broker
 ```
 
 ### Broker.toml

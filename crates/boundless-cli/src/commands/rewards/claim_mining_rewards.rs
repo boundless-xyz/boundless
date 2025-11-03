@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{
@@ -142,14 +142,14 @@ impl RewardsClaimMiningRewards {
         let search_limit_time = SystemTime::now()
             .checked_sub(self.days * 24 * HOUR)
             .context("Invalid number of days")?;
-        let lower_limit_block_number = block_number_near_timestamp(
-            &provider,
-            latest_block_number,
-            search_limit_time,
-            Some(HOUR),
-        )
-        .await
-        .context("Failed to determine the block number for the event search limit")?;
+        let search_limit_timestamp = search_limit_time
+            .duration_since(UNIX_EPOCH)
+            .context("Failed to convert search limit time to timestamp")?
+            .as_secs();
+        let lower_limit_block_number =
+            block_number_near_timestamp(&provider, latest_block_number, search_limit_timestamp)
+                .await
+                .context("Failed to determine the block number for the event search limit")?;
         tracing::debug!("Event search will use a lower limit of block {lower_limit_block_number}");
 
         let povw_accounting =
