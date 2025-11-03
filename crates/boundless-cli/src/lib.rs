@@ -600,7 +600,8 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use boundless_market::contracts::{
-        Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements, UNSPECIFIED_SELECTOR,
+        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        UNSPECIFIED_SELECTOR,
     };
     use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
     use boundless_test_utils::market::create_test_ctx;
@@ -642,7 +643,8 @@ mod tests {
         let (request, signature) =
             setup_proving_request_and_signature(&signer, Some(Selector::groth16_latest())).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }
@@ -657,7 +659,8 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
-        let fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        fulfiller.domain = eip712_domain(Address::ZERO, 1);
 
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }
