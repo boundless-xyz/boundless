@@ -52,6 +52,10 @@ For a more in depth information see [the recursive proving docs](https://dev.ris
 
 ### Redis
 
+:::tip
+For optimal performance, the machine running TaskDB should be co-located with the GPUs i.e. in the same datacenter.
+:::
+
 In order to share intermediate files (such as segments) between workers, Redis is used as a fast intermediary. Bento writes to Redis for fast cross machine file access and provides a high bandwidth backbone for sharing data between nodes and workers.
 
 :::warning[Warning]
@@ -61,6 +65,10 @@ We recommend a high memory node for the Redis container as well as active monito
 :::
 
 ### TaskDB
+
+:::tip
+For optimal performance, the machine running TaskDB should be co-located with the GPUs i.e. in the same datacenter.
+:::
 
 TaskDB is the center of how Bento schedules and prioritizes work. It provides the ability to create a job which will contain many tasks, each with different actions in a stream of work. This stream is ordered by priority and dependencies. TaskDB's core job is to correctly emit work to agents via long polling in the right order and priority. As segments stream out of the executor, TaskDB delegates the work plan such that GPU nodes can start proving before the executor completes.
 
