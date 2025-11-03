@@ -11,6 +11,7 @@ x-base-environment: &base-environment
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
+
 x-agent-common: &agent-common
   runtime: nvidia
   build:
@@ -185,8 +186,10 @@ services:
     <<: *agent-common
     mem_limit: 4G
     cpus: 4
-    entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
-
+    entrypoint: /app/agent -t prove,coproc --redis-ttl ${REDIS_TTL:-57600}
+    environment:
+      <<: *base-environment
+      RUST_LOG: ${RUST_LOG:-info,workflow=debug,agent=debug}
     # comment-out if running in CPU proving mode
     deploy:
       resources:
@@ -196,7 +199,35 @@ services:
               # TODO: how to scale this with N gpus?
               device_ids: ["0"]
               capabilities: [gpu]
+              
+  
+  gpu_lift_join_union_agent0:
+    <<: *agent-common
+    mem_limit: 4G
+    cpus: 4
+    entrypoint: /app/agent -t lift,join,union --redis-ttl ${REDIS_TTL:-57600}
+    environment:
+      <<: *base-environment
+      RUST_LOG: ${RUST_LOG:-info,workflow=debug,agent=debug}
+      
+  gpu_join_union_agent0:
+    <<: *agent-common
+    mem_limit: 4G
+    cpus: 4
+    entrypoint: /app/agent -t join,union --redis-ttl ${REDIS_TTL:-57600}
+    environment:
+      <<: *base-environment
+      RUST_LOG: ${RUST_LOG:-info,workflow=debug,agent=debug}
 
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # TODO: how to scale this with N gpus?
+              device_ids: ["0"]
+              capabilities: [gpu]
+              
   rest_api:
     build:
       context: .
@@ -262,6 +293,10 @@ services:
 #     RPC_URL: ${RPC_URL_2}
 #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
+  adminer:
+    image: adminer
+    ports:
+      - "8085:8080"
 
   miner:
     build:
