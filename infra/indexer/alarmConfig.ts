@@ -56,14 +56,14 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0x2624B8Bb6526CDcBAe94A25505ebc0C653B87eD8",
           submissionRate: [
             {
-              description: "no submitted orders in 60 minutes from og_offchain",
+              description: "no submitted orders for two consecutive hours from og_offchain",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 threshold: 1,
                 comparisonOperator: "LessThanThreshold",
                 treatMissingData: "breaching"
@@ -89,15 +89,15 @@ export const alarmConfig: ChainStageAlarms = {
             }
           ],
           expiredRequests: [{
-            description: "greater than or equal to 3 expired orders in 60 minutes from og_offchain",
+            description: "greater than or equal to 3 expired orders for two consecutive hours from og_offchain",
             severity: Severity.SEV2,
             metricConfig: {
               period: 3600,
             },
             alarmConfig: {
               threshold: 3,
-              evaluationPeriods: 1,
-              datapointsToAlarm: 1,
+              evaluationPeriods: 2,
+              datapointsToAlarm: 2,
               comparisonOperator: "GreaterThanOrEqualToThreshold",
             }
           }],
@@ -107,14 +107,14 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0xf353bDA16a83399C11E09615Ee7ac326a5a08Ccf",
           submissionRate: [
             {
-              description: "no submitted orders in 60 minutes from kailua_order_generator",
+              description: "no submitted orders for two consecutive hours from kailua_order_generator",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 threshold: 1,
                 comparisonOperator: "LessThanThreshold",
                 treatMissingData: "breaching"
@@ -143,14 +143,14 @@ export const alarmConfig: ChainStageAlarms = {
           address: "0x2B0E9678b8db1DD44980802754beFFd89eD3c495",
           submissionRate: [
             {
-              description: "no submitted orders in 60 minutes from og_onchain",
+              description: "no submitted orders for two consecutive hours from og_onchain",
               severity: Severity.SEV2,
               metricConfig: {
                 period: 3600
               },
               alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
+                evaluationPeriods: 2,
+                datapointsToAlarm: 2,
                 threshold: 1,
                 comparisonOperator: "LessThanThreshold",
                 treatMissingData: "breaching"
@@ -176,15 +176,15 @@ export const alarmConfig: ChainStageAlarms = {
             }
           ],
           expiredRequests: [{
-            description: "greater than or equal to 3 expired orders in 60 minutes from og_onchain",
+            description: "greater than or equal to 3 expired orders for two consecutive hours from og_onchain",
             severity: Severity.SEV2,
             metricConfig: {
               period: 3600,
             },
             alarmConfig: {
               threshold: 3,
-              evaluationPeriods: 1,
-              datapointsToAlarm: 1,
+              evaluationPeriods: 2,
+              datapointsToAlarm: 2,
               comparisonOperator: "GreaterThanOrEqualToThreshold",
             }
           }]
@@ -202,15 +202,15 @@ export const alarmConfig: ChainStageAlarms = {
       ],
       topLevel: {
         fulfilledRequests: [{
-          description: "less than 2 fulfilled orders in 60 minutes",
+          description: "less than 2 fulfilled orders for two consecutive hours",
           severity: Severity.SEV2,
           metricConfig: {
             period: 3600
           },
           alarmConfig: {
             threshold: 2,
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
+            evaluationPeriods: 2,
+            datapointsToAlarm: 2,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching"
           }
