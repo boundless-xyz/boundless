@@ -1,220 +1,82 @@
+### [Disclaimer] ###
+# IMPORTANT: Running the broker with these settings will likely result in your
+# broker not being able to lock or fulfill orders, and may even result in your
+# broker being slashed.
+#
+# We strongly recommend using the Boundless CLI's `boundless prover
+# generate-config` command to generate a broker.toml file that is tailored to
+# your specific setup.
+#
+# Additionally, refer to documentation:
+# https://docs.boundless.network/provers/broker#settings-in-brokertoml
+### [End] ###
+
 [market]
-# Mega-cycle price, denominated in the native token (e.g. ETH).
+# The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
+# to attempt to lock an order, denominated in the native token (e.g. ETH).
 #
-# This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
-# execution took, as calculated by running the request in preflight. This is one of the inputs to
-# decide the minimum price to accept for a request.
-mcycle_price = "0.0000005"
-# Mega-cycle price, denominated in the Boundless collateral token.
+# Orders are preflighted (https://docs.boundless.network/provers/terminology#preflight)
+# to determine the number of cycles required to prove the order. Based on this
+# cycle count, and the current price of the order, the broker computes the
+# current price per mega-cycle being offered for the order. This value is compared to the
+# `min_mcycle_price` to determine if the order should be locked.
+min_mcycle_price = "0.00000001"
+
+# The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
+# to attempt to fulfill an order in the case that the order was locked by another prover
+# but not fulfilled within the lock timeout.
 #
-# Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
-# order when paid in collateral tokens, as is the case for orders with an expired lock.
-mcycle_price_collateral_token = "0.0001"
-# Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
+# If an order is locked by a prover, but not fulfilled within the lock timeout,
+# that prover is slashed by the amount of collateral specified in the order. A
+# portion of this collateral is then used to incentivize other provers to
+# fulfill the order. `min_mcycle_price_collateral_token` determines the minimum
+# price per mega-cycle in collateral token (ZKC) that must be offered by the prover 
+# for the broker to attempt to fulfill these orders.
 #
-# If enabled, the order will be preflighted without constraints.
-priority_requestor_addresses = [
-	"0x48268bE6235A23eb7b67356469362869D5d0293f",
-	"0x0466ACfc0F27bBA9fBB7A8508f576527e81E83Bd",
-]
-# URLs to fetch requestor priority lists from.
-#
-# These lists will be periodically refreshed and merged with priority_requestor_addresses.
-# Boundless provides curated lists of requestors known to request useful work with profitable pricing:
-# - standard: General purpose requests with competitive pricing, that should be suitable for smaller clusters ~2-3 GPUs.
-# - large: Larger computation requests with competitive pricing, that should be suitable for large clusters ~10+ GPUs.
-# You can also add your own lists, or lists maintained by others.
-#priority_requestor_lists = [
-#	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
-#	"https://requestors.boundless.network/boundless-recommended-priority-list.large.json",
-#]
+# Note: attempting to fulfill these orders is a 'proof race' where the first prover
+# to fulfill the order is rewarded with the collateral.
+min_mcycle_price_collateral_token = "0.00005"
+
 # Estimated peak performance of the proving cluster, in kHz.
 #
-# Used to estimate proving capacity and accept only as much work as the prover can handle. Estimates
-# can be derived from benchmarking using Bento CLI or from data based on fulfilling market orders.
-# For more information, see https://docs.beboundless.xyz/provers/broker#benchmarking-bento
+# Used to estimate proving capacity and accept only as much work as your prover
+# cluster can handle. Estimates can be derived from benchmarking using the
+# Boundless CLI. For more information, see:
+# https://docs.beboundless.xyz/provers/broker#benchmarking-bento
 peak_prove_khz = 100
-# Optional max cycles (in mcycles)
-#
-# Orders over this max_cycles will be skipped after preflight
-max_mcycle_limit = 8000
-# Max journal size in bytes
-#
-# Orders that produce a journal larger than this size in preflight will be skipped. Since journals
-# must be posted onchain to complete an order, an excessively large journal may prevent completion
-# of a request.
-max_journal_bytes = 10000
-# Min seconds left before the deadline to consider bidding on a request.
-# 
-# If there is not enough time left before the deadline, the prover may not be able to complete
-# proving of the request and finalize the batch for publishing before expiration.
-min_deadline = 300
-# On startup, the number of blocks to look back for possible open orders.
-lookback_blocks = 300 # 300 blocks ~ 1 hour @ 12s block times
-# Max collateral amount, denominated in the Boundless collateral token.
-#
-# Requests that require a higher collateral amount than this will not be considered.
-max_collateral = "25" # ZKC
-# Max input / image file size allowed for downloading from request URLs.
-max_file_size = 50_000_000
-# Max retries for fetching input / image contents from URLs
-#max_fetch_retries = 2
-# Default URL for assessor image
-# This URL will be tried first before falling back to the image URL from the boundless market contract.
-#assessor_default_image_url = "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
-# Default URL for set builder image  
-# This URL will be tried first before falling back to the image URL from the set verifier contract.
-#set_builder_default_image_url = "https://signal-artifacts.beboundless.xyz/v2/set-builder/guest.bin"
-# Max concurrent locks
-#
-# Maximum number of concurrent proofs that can be processed at once
-max_concurrent_proofs = 2
-# Maximum number of orders to concurrently work on pricing
-#
-# Used to limit pricing tasks spawned to prevent overwhelming the system
-#max_concurrent_preflights = 4
-# Order pricing priority mode
-#
-# Determines how orders are prioritized for pricing. Options:
-# - "random": Process orders in random order to distribute competition among provers
-# - "observation_time": Process orders in the order they were observed (FIFO)
-# - "shortest_expiry": Process orders by shortest expiry first (earliest deadline)
-# - "price": Process orders by highest ETH payment, then fulfill-after-lock-expire random weighted by collateral reward
-# - "cycle_price": Process orders by highest ETH price per cycle, then fulfill-after-lock-expire random weighted by collateral reward (default)
-#order_pricing_priority = "cycle_price"
-# Order commitment priority mode
-#
-# Determines how orders are prioritized when committing to prove them. Options:
-# - "random": Process orders in random order to distribute competition among provers (default)
-# - "shortest_expiry": Process orders by shortest expiry first (lock expiry for lock-and-fulfill orders, request expiry for others)
-#order_commitment_priority = "random"
-# Max critical task retries on recoverable failures.
-#
-# The broker service has a number of subtasks. Some are considered critical. If a task fails, it
-# will be retried, but after this number of retries, the process will exit.
-max_critical_task_retries = 10
-# Optional allow list for customer address.
-#
-# If enabled, all requests from clients not in the allow list are skipped.
-#allow_client_addresses = []
-# Optional deny list for requestor address.
-#
-# If enabled, all requests from clients in the deny list are skipped.
-#deny_requestor_addresses = []
-# lockRequest priority gas
-#
-# Optional additional gas to add to the transaction for lockinRequest, good
-# for increasing the priority if competing with multiple provers during the
-# same block
-#lockin_priority_gas = 100
-# Optional balance warning threshold (in native token)
-#
-# If the submitter balance drops below this the broker will issue warning logs
-balance_warn_threshold = "0.1"
-# Optional balance error threshold (in native token)
-#
-# If the submitter balance drops below this the broker will issue error logs
-balance_error_threshold = "0.05"
-# Optional collateral balance warning threshold (in collateral tokens)
-#
-# If the collateral balance drops below this the broker will issue warning logs
-collateral_balance_warn_threshold = "10"
-# Optional collateral balance error threshold (in collateral tokens)
-#
-# If the collateral balance drops below this the broker will issue error logs
-collateral_balance_error_threshold = "5"
-# Optional cache directory for storing downloaded images and inputs
-#
-# If not set, files will be re-downloaded every time
-#cache_dir = "./cache"
-# Gas estimate for lockin call
-#
-# Used for estimating the gas costs associated with an order during pricing. If not set a
-# conservative default will be used.
-#lockin_gas_estimate = 200000
-# Gas estimate for fulfill call
-#
-# Used for estimating the gas costs associated with an order during pricing. If not set a
-# conservative default will be used.
-#fulfill_gas_estimate = 750000
-# Gas estimate for proof verification using the RiscZeroGroth16Verifier
-#
-# Used for estimating the gas costs associated with an order during pricing. If not set a
-# conservative default will be used.
-#groth16_verify_gas_estimate = 250000
 
-[prover]
-# Number of retries to poll for proving status.
+# Requestor priority lists specify requestors that the broker should
+# prioritize for proving. Requestors on these lists are considered more likely
+# to request useful work with profitable pricing, and thus are prioritized over
+# requestors not on these lists.
 #
-# Provides a little durability for transient failures.
-status_poll_retry_count = 3
-# Polling interval to monitor proving status (in millisecs)
-status_poll_ms = 1000
-# Number of retries to query a prover backend for on failures.
-#
-# Used for API requests to a prover backend, creating sessions, preflighting, uploading images, etc.
-# Provides a little durability for transient failures.
-req_retry_count = 3
-# Number of milliseconds to sleep between retries.
-req_retry_sleep_ms = 500
-# Number of retries to for running the entire proof generation process
-#
-# This is separate from the request retry count, as the proving process
-# is a multi-step process involving multiple API calls to create a proof
-# job and then polling for the proof job to complete.
-proof_retry_count = 1
-# Number of milliseconds to sleep between proof retries.
-proof_retry_sleep_ms = 500
-# Set builder guest program (ELF) path
-#
-# When using a durable deploy, set this to the published current SOT guest
-# program path on the system
-#set_builder_guest_path = "./target/riscv-guest/guest-set-builder/set-builder/riscv32im-risc0-zkvm-elf/release/set-builder.bin"
-# Assessor ELF path
-#assessor_set_guest_path = "./target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin"
-# Interval for checking expired committed orders (in seconds)
-#
-# This is the interval at which the ReaperTask will check for expired orders and mark them as failed.
-# If not set, it defaults to 60 seconds.
-#reaper_interval_secs = 60
-# Grace period before marking expired orders as failed (in seconds)
-#
-# This provides a buffer time after an order expires before the reaper marks it as failed.
-# This helps prevent race conditions with the aggregator that might be processing the order.
-# If not set, it defaults to 10800 seconds (3 hours).
-# reaper_grace_period_secs = 10800
+# Priority requestors are prioritized when there is a surplus of demand, and skip 
+# various limits that are typically applied to all requestors:
+# 1. Their requests will be preflighted first.
+# 2. Their requests will be locked first (in situations where multiple orders
+#    exceed minimum lock pricing).
+# 3. Configuration for `max_mcycle_limit` and `max_file_size` will be skipped.
+priority_requestor_lists = [
+	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+]
 
-[batcher]
-# Max batch duration before publishing (in seconds)
-batch_max_time = 1000
-# Batch size (in proofs) before publishing
-min_batch_size = 1
-# Batch blocktime buffer
+# Maximum collateral amount, denominated in the Boundless collateral token,
+# that the broker will use to lock orders.
 #
-# Number of seconds before the lowest block deadline in the order batch
-# to flush the batch. This should be approximately snark_proving_time * 2
-block_deadline_buffer_secs = 180
-# Timeout, in seconds for transaction confirmations
-txn_timeout = 45
-# Use the single TXN submission that batches submit_merkle / fulfill_batch into
-#
-# A single transaction. Requires the `submitRootAndFulfill` method
-# be present on the deployed contract
-single_txn_fulfill = true
-# Whether to withdraw from the prover balance when fulfilling
-withdraw = false
-# Polling time, in milliseconds
-#
-# The time between polls for new orders to aggregate and how often to check for batch finalize
-# conditions
-#batch_poll_time_ms = 500
-# Max combined journal size (in bytes) that once exceeded will trigger a publish
-#batch_max_journal_bytes = 10000
-# max batch fees (in ETH) before publishing
-#batch_max_fees = "0.1"
-# Number of attempts to make to submit a batch before abandoning
-#max_submission_attempts = 2
+# Requests that require a higher collateral amount than this will be skipped.
+max_collateral = "200" # ZKC
 
-# Optional config, only needed if using bonsai to set the zkVM version header. Not necessary when
-# using Bento as the prover.
-# bonsai_r0_zkvm_ver = "2.3.0"
+# Maximum number of orders to concurrently preflight.
+#
+# Used to limit preflight tasks spawned to prevent overwhelming the system.
+# We recommend using the Boundless CLI's `boundless prover generate-config`
+# to help configure this value.
+#
+# Refer to the broker configuration documentation for more information:
+# https://docs.boundless.network/provers/broker#settings-in-brokertoml
+max_concurrent_preflights = 2
+
+# Maximum number of concurrent proofs that can be processed at once.
+#
+# Used to limit proof tasks spawned to prevent overwhelming the system.
+max_concurrent_proofs = 1
