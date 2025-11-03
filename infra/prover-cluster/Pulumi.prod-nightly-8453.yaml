@@ -31,3 +31,5 @@ config:
   prover-cluster:collateralTokenAddress: "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
   prover-cluster:taskDBusername:
     secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=
+  prover-cluster:apiKey:
+    secure: v1:cQTlzOGOQeKDgN3q:xi9tY9JD1CKOjVZhxbnSczW3xiHs4dg+Ioi11z1lYiLkzuITbQQaqljkXtujYP/U1hirI5CLD7OzpOQ=

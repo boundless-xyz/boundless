@@ -58,5 +58,9 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
 
     tracing::debug!("Join Complete {job_id} - {}", request.left);
 
+    conn.unlink::<_, ()>(&[&left_path_key, &right_path_key])
+        .await
+        .context("Failed to delete join receipt keys")?;
+
     Ok(())
 }
