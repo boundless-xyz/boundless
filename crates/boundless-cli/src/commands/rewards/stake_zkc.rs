@@ -42,7 +42,7 @@ use crate::{
 /// Stake ZKC tokens with optional dry-run to estimate rewards
 #[derive(Args, Clone, Debug)]
 pub struct RewardsStakeZkc {
-    /// Amount of ZKC to stake
+    /// Amount of ZKC to stake (e.g., "10" for 10 ZKC, "1.5" for 1.5 ZKC)
     #[clap(value_parser = parse_ether)]
     pub amount: U256,
 
