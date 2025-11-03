@@ -14,11 +14,17 @@
 
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy_node_bindings::AnvilInstance;
-use assert_cmd::Command;
+use assert_cmd::assert::OutputAssertExt;
 use boundless_market::deployments::Deployment as MarketDeployment;
 use boundless_zkc::deployments::Deployment as ZkcDeployment;
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use lazy_static::lazy_static;
+use std::{borrow::Cow, collections::HashMap, path::PathBuf, process::Command, sync::Arc};
 use tokio::sync::Mutex;
+
+lazy_static! {
+    static ref BOUNDLESS_BIN_PATH: PathBuf =
+        escargot::CargoBuild::new().bin("boundless").run().unwrap().path().to_path_buf();
+}
 
 // Anvil's pre-funded accounts with private keys
 pub const ANVIL_ACCOUNTS: &[(&str, &str)] = &[
@@ -225,7 +231,7 @@ impl BoundlessCmd {
     }
 
     pub fn assert(self) -> assert_cmd::assert::Assert {
-        let mut cmd = Command::cargo_bin("boundless").unwrap();
+        let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
         cmd.args(&self.args);
         for (key, value) in self.env_vars {
             cmd.env(key, value);
@@ -236,7 +242,7 @@ impl BoundlessCmd {
     }
 
     pub async fn output(self) -> std::process::Output {
-        let mut cmd = Command::cargo_bin("boundless").unwrap();
+        let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
         cmd.args(&self.args);
         for (key, value) in self.env_vars {
             cmd.env(key, value);

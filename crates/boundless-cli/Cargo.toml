@@ -66,6 +66,8 @@ assert_cmd = "2.0"
 assert_fs = "1.1"
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true, features = ["povw"] }
+escargot = "0.5"
+lazy_static = "1"
 order-stream = { workspace = true }
 predicates = "3.1"
 rand = { workspace = true }

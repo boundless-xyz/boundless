@@ -44,8 +44,10 @@ assert_cmd = "2.0"
 boundless-cli = { workspace = true }
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true }
+escargot = "0.5"
 futures-util = { workspace = true }
 indexer-monitor = { path = "../lambdas/indexer-monitor" }
+lazy_static = "1"
 order-stream = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 sqlx = { workspace = true, features = ["postgres"] }

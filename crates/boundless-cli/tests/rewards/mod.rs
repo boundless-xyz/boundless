@@ -14,11 +14,20 @@
 
 //! Common test utilities for rewards integration tests.
 
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use boundless_test_utils::povw::make_work_claim;
+use lazy_static::lazy_static;
 use risc0_povw::PovwLogId;
 use risc0_zkvm::{FakeReceipt, GenericReceipt, ReceiptClaim, WorkClaim};
+
+lazy_static! {
+    static ref BOUNDLESS_BIN_PATH: PathBuf =
+        escargot::CargoBuild::new().bin("boundless").run().unwrap().path().to_path_buf();
+}
 
 /// Make a fake work receipt with the given log ID and a random job number, encode it, and save it to a file.
 pub fn make_fake_work_receipt_file(
@@ -78,5 +87,5 @@ impl RewardsEnv {
 
 /// Helper to create a Command for the boundless CLI
 pub fn cli_cmd() -> anyhow::Result<assert_cmd::Command> {
-    Ok(assert_cmd::Command::cargo_bin("boundless")?)
+    Ok(Command::new(&*BOUNDLESS_BIN_PATH).into())
 }

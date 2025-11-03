@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{process::Command, time::Duration};
-
-use assert_cmd::Command as AssertCommand;
+use std::{path::PathBuf, process::Command, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
@@ -33,7 +31,13 @@ use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
     market::create_test_ctx,
 };
+use lazy_static::lazy_static;
 use sqlx::Row;
+
+lazy_static! {
+    static ref INDEXER_BIN_PATH: PathBuf =
+        escargot::CargoBuild::new().bin("market-indexer").run().unwrap().path().to_path_buf();
+}
 
 async fn create_order(
     signer: &impl Signer,
@@ -73,8 +77,13 @@ async fn test_e2e() {
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Use assert_cmd to find the binary path
-    let cmd = AssertCommand::cargo_bin("market-indexer")
-        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let bin = escargot::CargoBuild::new()
+        .bin("market-indexer")
+        .run()
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.")
+        .path()
+        .to_path_buf();
+    let cmd = Command::new(bin);
     let exe_path = cmd.get_program().to_string_lossy().to_string();
     let args = [
         "--rpc-url",
@@ -211,8 +220,7 @@ async fn test_monitoring() {
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Use assert_cmd to find the binary path
-    let cmd = AssertCommand::cargo_bin("market-indexer")
-        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let cmd = Command::new(&*INDEXER_BIN_PATH);
     let exe_path = cmd.get_program().to_string_lossy().to_string();
     let args = [
         "--rpc-url",
@@ -481,8 +489,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     order_stream_client.submit_request(&req3, &ctx.customer_signer).await.unwrap();
 
     // Start market indexer with order stream URL
-    let cmd = AssertCommand::cargo_bin("market-indexer")
-        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let cmd = Command::new(&*INDEXER_BIN_PATH);
     let exe_path = cmd.get_program().to_string_lossy().to_string();
     let args = [
         "--rpc-url",

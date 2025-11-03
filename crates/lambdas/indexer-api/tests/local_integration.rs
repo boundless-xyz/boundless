@@ -14,13 +14,14 @@
 
 //! Test utilities for local integration tests
 
-use assert_cmd::Command;
+use lazy_static::lazy_static;
 use reqwest::Client;
 use serde::Deserialize;
 use std::{
     env,
     net::TcpListener,
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
     time::Duration,
 };
@@ -30,6 +31,16 @@ use tokio::{
     sync::OnceCell,
 };
 use tracing::{debug, info};
+
+lazy_static! {
+    static ref REWARDS_BIN_PATH: PathBuf =
+        escargot::CargoBuild::new().bin("rewards-indexer").run().unwrap().path().to_path_buf();
+}
+
+lazy_static! {
+    static ref SERVER_BIN_PATH: PathBuf =
+        escargot::CargoBuild::new().bin("local-server").run().unwrap().path().to_path_buf();
+}
 
 // Test modules
 #[path = "local_integration/povw.rs"]
@@ -150,7 +161,7 @@ impl SharedTestEnv {
         info!("Using database at {}", db_path.display());
 
         // Use assert_cmd to get the path to the binary
-        let cmd = Command::cargo_bin("rewards-indexer")?;
+        let cmd = Command::new(&*REWARDS_BIN_PATH);
         let program = cmd.get_program();
 
         // Build command with tokio
@@ -268,7 +279,7 @@ impl SharedTestEnv {
         info!("Starting API server on port {} with database {}", port, db_path.display());
 
         // Use assert_cmd to get the path to the binary
-        let cmd = Command::cargo_bin("local-server")?;
+        let cmd = Command::new(&*SERVER_BIN_PATH);
         let program = cmd.get_program();
 
         // Build command with tokio

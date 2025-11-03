@@ -61,6 +61,8 @@ utoipa-swagger-ui = { version = "8", features = ["axum"] }
 [dev-dependencies]
 # Command assertion for integration tests
 assert_cmd = "2.0"
+escargot = "0.5"
+lazy_static = "1"
 # Random number generation for tests
 rand = "0.8"
 # HTTP client for integration tests

@@ -12,18 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use assert_cmd::Command;
+use std::{path::PathBuf, process::Command};
+
+use assert_cmd::assert::OutputAssertExt;
+use lazy_static::lazy_static;
 use predicates::prelude::*;
+
+lazy_static! {
+    static ref BOUNDLESS_BIN_PATH: PathBuf =
+        escargot::CargoBuild::new().bin("boundless").run().unwrap().path().to_path_buf();
+}
 
 #[test]
 fn test_help_command() {
-    let mut cmd = Command::cargo_bin("boundless").unwrap();
+    let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
     cmd.arg("--help").assert().success().stdout(predicate::str::contains("Commands:"));
 }
 
 #[test]
 fn test_requestor_commands_available() {
-    let mut cmd = Command::cargo_bin("boundless").unwrap();
+    let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
     cmd.arg("requestor")
         .arg("--help")
         .assert()
@@ -35,7 +43,7 @@ fn test_requestor_commands_available() {
 
 #[test]
 fn test_prover_commands_available() {
-    let mut cmd = Command::cargo_bin("boundless").unwrap();
+    let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
     cmd.arg("prover")
         .arg("--help")
         .assert()
@@ -47,7 +55,7 @@ fn test_prover_commands_available() {
 
 #[test]
 fn test_rewards_commands_available() {
-    let mut cmd = Command::cargo_bin("boundless").unwrap();
+    let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
     cmd.arg("rewards")
         .arg("--help")
         .assert()
@@ -60,7 +68,7 @@ fn test_rewards_commands_available() {
 
 #[test]
 fn test_setup_commands_available() {
-    let mut cmd = Command::cargo_bin("boundless").unwrap();
+    let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
     cmd.arg("requestor")
         .arg("setup")
         .arg("--help")
@@ -71,6 +79,6 @@ fn test_setup_commands_available() {
 
 #[test]
 fn test_version_command() {
-    let mut cmd = Command::cargo_bin("boundless").unwrap();
+    let mut cmd = Command::new(&*BOUNDLESS_BIN_PATH);
     cmd.arg("--version").assert().success().stdout(predicate::str::contains("boundless"));
 }
