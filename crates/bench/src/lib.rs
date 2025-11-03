@@ -525,10 +525,10 @@ mod tests {
         }
         config.prover.status_poll_ms = 1000;
         config.prover.req_retry_count = 3;
-        config.market.mcycle_price = "0.00001".into();
-        config.market.mcycle_price_collateral_token = "0.0".into();
+        config.market.min_mcycle_price = "0.00001".into();
+        config.market.min_mcycle_price_collateral_token = "0.0".into();
         config.market.min_deadline = min_deadline;
-        config.batcher.min_batch_size = Some(min_batch_size);
+        config.batcher.min_batch_size = min_batch_size;
         config.write(config_file.path()).await.unwrap();
         config_file
     }

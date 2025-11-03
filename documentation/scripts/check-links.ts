@@ -6,15 +6,16 @@ const IGNORED_URL_PREFIXES = new Set([
   "https://etherscan.io",
   "https://polygonscan.com",
   "https://zkevm.polygonscan.com",
-  "https://basescan.org", 
-  "https://arbiscan.io", 
-  "https://snowtrace.io", 
+  "https://basescan.org",
+  "https://arbiscan.io",
+  "https://snowtrace.io",
   "https://lineascan.build",
   "https://crates.io",
   "https://ethereum.org",
   "https://staking.boundless.network",
   "https://app.aragon.org",
-  "https://docs.alchemy.com/"
+  "https://docs.alchemy.com/",
+  "https://guild.xyz"
 ]);
 
 async function checkRemoteUrl(url: string): Promise<boolean> {

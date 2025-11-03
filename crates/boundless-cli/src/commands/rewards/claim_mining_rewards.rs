@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{
@@ -49,11 +49,11 @@ const HOUR: Duration = Duration::from_secs(60 * 60);
 /// Claim mining rewards associated with submitted work log updates
 #[derive(Args, Clone, Debug)]
 pub struct RewardsClaimMiningRewards {
-    /// Work log ID for the reward claim (defaults to reward address from config)
+    /// Reward address for the claim (defaults to reward address from config)
     ///
-    /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
-    /// the claim can be done for any log ID and does not require authorization.
-    #[arg(long = "log-id")]
+    /// State for submitted updates is retrieved from the chain using this address. Note that initiating
+    /// the claim can be done for any address and does not require authorization.
+    #[arg(long = "reward-address")]
     log_id: Option<PovwLogId>,
 
     /// URL for an Ethereum Beacon chain (i.e. consensus chain) API
@@ -101,7 +101,7 @@ impl RewardsClaimMiningRewards {
         } else if let Some(reward_addr) = rewards_config.reward_address {
             reward_addr.into()
         } else {
-            bail!("No log ID provided and no reward address configured.\n\nTo configure: run 'boundless rewards setup' and set a reward address\nOr provide --log-id parameter")
+            bail!("No reward address provided and no reward address configured.\n\nTo configure: run 'boundless rewards setup' and set a reward address\nOr provide --reward-address parameter")
         };
 
         let display = DisplayManager::new();
@@ -142,14 +142,14 @@ impl RewardsClaimMiningRewards {
         let search_limit_time = SystemTime::now()
             .checked_sub(self.days * 24 * HOUR)
             .context("Invalid number of days")?;
-        let lower_limit_block_number = block_number_near_timestamp(
-            &provider,
-            latest_block_number,
-            search_limit_time,
-            Some(HOUR),
-        )
-        .await
-        .context("Failed to determine the block number for the event search limit")?;
+        let search_limit_timestamp = search_limit_time
+            .duration_since(UNIX_EPOCH)
+            .context("Failed to convert search limit time to timestamp")?
+            .as_secs();
+        let lower_limit_block_number =
+            block_number_near_timestamp(&provider, latest_block_number, search_limit_timestamp)
+                .await
+                .context("Failed to determine the block number for the event search limit")?;
         tracing::debug!("Event search will use a lower limit of block {lower_limit_block_number}");
 
         let povw_accounting =
