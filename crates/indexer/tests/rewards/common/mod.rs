@@ -71,6 +71,7 @@ async fn initialize_test_db() -> TestDbState {
     let config = RewardsIndexerServiceConfig {
         interval: Duration::from_secs(600),
         retries: 3,
+        batch_size: 500,
         start_block: None,
         end_block: Some(END_BLOCK),
         end_epoch: Some(END_EPOCH),

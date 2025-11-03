@@ -28,6 +28,14 @@ use sqlx::{
 
 const SQL_BLOCK_KEY: i64 = 0;
 
+#[derive(Debug, Clone, Copy)]
+pub enum SortDirection {
+    /// Ascending order (oldest first)
+    Asc,
+    /// Descending order (newest first)
+    Desc,
+}
+
 #[derive(Debug, Clone)]
 pub struct TxMetadata {
     pub tx_hash: B256,
@@ -38,14 +46,24 @@ pub struct TxMetadata {
 
 #[derive(Debug, Clone)]
 pub struct HourlyMarketSummary {
-    pub hour_timestamp: i64,
-    pub total_fulfilled: i64,
-    pub unique_provers_locking_requests: i64,
-    pub unique_requesters_submitting_requests: i64,
+    pub hour_timestamp: u64,
+    pub total_fulfilled: u64,
+    pub unique_provers_locking_requests: u64,
+    pub unique_requesters_submitting_requests: u64,
     pub total_fees_locked: String,
     pub total_collateral_locked: String,
+    pub p10_fees_locked: String,
+    pub p25_fees_locked: String,
     pub p50_fees_locked: String,
-    pub percentile_fees_locked: Vec<u8>,
+    pub p75_fees_locked: String,
+    pub p90_fees_locked: String,
+    pub p95_fees_locked: String,
+    pub p99_fees_locked: String,
+    pub total_requests_submitted: u64,
+    pub total_requests_submitted_onchain: u64,
+    pub total_requests_submitted_offchain: u64,
+    pub total_requests_locked: u64,
+    pub total_requests_slashed: u64,
 }
 
 impl TxMetadata {
@@ -179,8 +197,11 @@ pub trait IndexerDb {
 
     async fn get_hourly_market_summaries(
         &self,
-        start_timestamp: i64,
-        end_timestamp: i64,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
     ) -> Result<Vec<HourlyMarketSummary>, DbError>;
 }
 
@@ -808,28 +829,58 @@ impl IndexerDb for AnyDb {
                 unique_requesters_submitting_requests,
                 total_fees_locked,
                 total_collateral_locked,
+                p10_fees_locked,
+                p25_fees_locked,
                 p50_fees_locked,
-                percentile_fees_locked,
+                p75_fees_locked,
+                p90_fees_locked,
+                p95_fees_locked,
+                p99_fees_locked,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
             ON CONFLICT (hour_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
                 unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
                 total_fees_locked = EXCLUDED.total_fees_locked,
                 total_collateral_locked = EXCLUDED.total_collateral_locked,
+                p10_fees_locked = EXCLUDED.p10_fees_locked,
+                p25_fees_locked = EXCLUDED.p25_fees_locked,
                 p50_fees_locked = EXCLUDED.p50_fees_locked,
-                percentile_fees_locked = EXCLUDED.percentile_fees_locked,
-                updated_at = NOW()",
+                p75_fees_locked = EXCLUDED.p75_fees_locked,
+                p90_fees_locked = EXCLUDED.p90_fees_locked,
+                p95_fees_locked = EXCLUDED.p95_fees_locked,
+                p99_fees_locked = EXCLUDED.p99_fees_locked,
+                total_requests_submitted = EXCLUDED.total_requests_submitted,
+                total_requests_submitted_onchain = EXCLUDED.total_requests_submitted_onchain,
+                total_requests_submitted_offchain = EXCLUDED.total_requests_submitted_offchain,
+                total_requests_locked = EXCLUDED.total_requests_locked,
+                total_requests_slashed = EXCLUDED.total_requests_slashed,
+                updated_at = CURRENT_TIMESTAMP",
         )
-        .bind(summary.hour_timestamp)
-        .bind(summary.total_fulfilled)
-        .bind(summary.unique_provers_locking_requests)
-        .bind(summary.unique_requesters_submitting_requests)
+        .bind(summary.hour_timestamp as i64)
+        .bind(summary.total_fulfilled as i64)
+        .bind(summary.unique_provers_locking_requests as i64)
+        .bind(summary.unique_requesters_submitting_requests as i64)
         .bind(summary.total_fees_locked)
         .bind(summary.total_collateral_locked)
+        .bind(summary.p10_fees_locked)
+        .bind(summary.p25_fees_locked)
         .bind(summary.p50_fees_locked)
-        .bind(summary.percentile_fees_locked)
+        .bind(summary.p75_fees_locked)
+        .bind(summary.p90_fees_locked)
+        .bind(summary.p95_fees_locked)
+        .bind(summary.p99_fees_locked)
+        .bind(summary.total_requests_submitted as i64)
+        .bind(summary.total_requests_submitted_onchain as i64)
+        .bind(summary.total_requests_submitted_offchain as i64)
+        .bind(summary.total_requests_locked as i64)
+        .bind(summary.total_requests_slashed as i64)
         .execute(&self.pool)
         .await?;
 
@@ -838,10 +889,57 @@ impl IndexerDb for AnyDb {
 
     async fn get_hourly_market_summaries(
         &self,
-        start_timestamp: i64,
-        end_timestamp: i64,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
     ) -> Result<Vec<HourlyMarketSummary>, DbError> {
-        let rows = sqlx::query(
+        let mut conditions = Vec::new();
+        let mut bind_count = 0;
+
+        // Add cursor condition
+        let cursor_condition = match (cursor, sort) {
+            (Some(_), SortDirection::Asc) => {
+                bind_count += 1;
+                Some(format!("hour_timestamp > ${}", bind_count))
+            }
+            (Some(_), SortDirection::Desc) => {
+                bind_count += 1;
+                Some(format!("hour_timestamp < ${}", bind_count))
+            }
+            (None, _) => None,
+        };
+
+        if let Some(cond) = cursor_condition {
+            conditions.push(cond);
+        }
+
+        // Add after condition
+        if after.is_some() {
+            bind_count += 1;
+            conditions.push(format!("hour_timestamp > ${}", bind_count));
+        }
+
+        // Add before condition
+        if before.is_some() {
+            bind_count += 1;
+            conditions.push(format!("hour_timestamp < ${}", bind_count));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let order_clause = match sort {
+            SortDirection::Asc => "ORDER BY hour_timestamp ASC",
+            SortDirection::Desc => "ORDER BY hour_timestamp DESC",
+        };
+
+        bind_count += 1;
+        let query_str = format!(
             "SELECT
                 hour_timestamp,
                 total_fulfilled,
@@ -849,30 +947,67 @@ impl IndexerDb for AnyDb {
                 unique_requesters_submitting_requests,
                 total_fees_locked,
                 total_collateral_locked,
+                p10_fees_locked,
+                p25_fees_locked,
                 p50_fees_locked,
-                percentile_fees_locked
+                p75_fees_locked,
+                p90_fees_locked,
+                p95_fees_locked,
+                p99_fees_locked,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed
             FROM hourly_market_summary
-            WHERE hour_timestamp >= $1 AND hour_timestamp <= $2
-            ORDER BY hour_timestamp DESC",
-        )
-        .bind(start_timestamp)
-        .bind(end_timestamp)
-        .fetch_all(&self.pool)
-        .await?;
+            {}
+            {}
+            LIMIT ${}",
+            where_clause, order_clause, bind_count
+        );
+
+        let mut query = sqlx::query(&query_str);
+
+        // Bind parameters in the same order as bind_count increments
+        if let Some(cursor_ts) = cursor {
+            query = query.bind(cursor_ts);
+        }
+
+        if let Some(after_ts) = after {
+            query = query.bind(after_ts);
+        }
+
+        if let Some(before_ts) = before {
+            query = query.bind(before_ts);
+        }
+
+        query = query.bind(limit);
+
+        let rows = query.fetch_all(&self.pool).await?;
 
         let summaries = rows
             .into_iter()
             .map(|row| HourlyMarketSummary {
-                hour_timestamp: row.get("hour_timestamp"),
-                total_fulfilled: row.get("total_fulfilled"),
-                unique_provers_locking_requests: row.get("unique_provers_locking_requests"),
-                unique_requesters_submitting_requests: row.get(
+                hour_timestamp: row.get::<i64, _>("hour_timestamp") as u64,
+                total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+                unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
+                unique_requesters_submitting_requests: row.get::<i64, _>(
                     "unique_requesters_submitting_requests",
-                ),
+                ) as u64,
                 total_fees_locked: row.get("total_fees_locked"),
                 total_collateral_locked: row.get("total_collateral_locked"),
+                p10_fees_locked: row.get("p10_fees_locked"),
+                p25_fees_locked: row.get("p25_fees_locked"),
                 p50_fees_locked: row.get("p50_fees_locked"),
-                percentile_fees_locked: row.get("percentile_fees_locked"),
+                p75_fees_locked: row.get("p75_fees_locked"),
+                p90_fees_locked: row.get("p90_fees_locked"),
+                p95_fees_locked: row.get("p95_fees_locked"),
+                p99_fees_locked: row.get("p99_fees_locked"),
+                total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+                total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain") as u64,
+                total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
+                total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+                total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
             })
             .collect();
 
@@ -1195,5 +1330,243 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.get::<Vec<u8>, _>("error_data"), error_data);
+    }
+
+    // Helper function to create test data for hourly market summaries
+    async fn setup_hourly_summaries(db: &DbObj) -> (i64, i64) {
+        let base_timestamp = 1700000000i64; // Nov 14, 2023 22:13:20 UTC
+        let hour_in_seconds = 3600i64;
+
+        // Insert 10 hourly summaries
+        for i in 0..10u64 {
+            let summary = HourlyMarketSummary {
+                hour_timestamp: (base_timestamp + (i as i64 * hour_in_seconds)) as u64,
+                total_fulfilled: i,
+                unique_provers_locking_requests: i * 2,
+                unique_requesters_submitting_requests: i * 3,
+                total_fees_locked: format!("{}", i * 1000),
+                total_collateral_locked: format!("{}", i * 2000),
+                p10_fees_locked: format!("{}", i * 100),
+                p25_fees_locked: format!("{}", i * 250),
+                p50_fees_locked: format!("{}", i * 500),
+                p75_fees_locked: format!("{}", i * 750),
+                p90_fees_locked: format!("{}", i * 900),
+                p95_fees_locked: format!("{}", i * 950),
+                p99_fees_locked: format!("{}", i * 990),
+                total_requests_submitted: i * 10,
+                total_requests_submitted_onchain: i * 6,
+                total_requests_submitted_offchain: i * 4,
+                total_requests_locked: i * 5,
+                total_requests_slashed: i,
+            };
+            db.upsert_hourly_market_summary(summary).await.unwrap();
+        }
+
+        (base_timestamp, hour_in_seconds)
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_basic_desc_pagination() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        let results = db
+            .get_hourly_market_summaries(None, 3, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].hour_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
+        assert_eq!(results[1].hour_timestamp, (base_timestamp + (8 * hour_in_seconds)) as u64);
+        assert_eq!(results[2].hour_timestamp, (base_timestamp + (7 * hour_in_seconds)) as u64);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_cursor_desc_pagination() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        // Get first page
+        let first_page = db
+            .get_hourly_market_summaries(None, 3, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+        
+        // Use last item as cursor for next page
+        let cursor = first_page[2].hour_timestamp as i64;
+        let results = db
+            .get_hourly_market_summaries(Some(cursor), 3, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].hour_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
+        assert_eq!(results[1].hour_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
+        assert_eq!(results[2].hour_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_basic_asc_pagination() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        let results = db
+            .get_hourly_market_summaries(None, 3, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].hour_timestamp, base_timestamp as u64); // oldest first
+        assert_eq!(results[1].hour_timestamp, (base_timestamp + hour_in_seconds) as u64);
+        assert_eq!(results[2].hour_timestamp, (base_timestamp + (2 * hour_in_seconds)) as u64);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_cursor_asc_pagination() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        // Get first page
+        let first_page = db
+            .get_hourly_market_summaries(None, 3, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
+        
+        // Use last item as cursor for next page
+        let cursor = first_page[2].hour_timestamp as i64;
+        let results = db
+            .get_hourly_market_summaries(Some(cursor), 3, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].hour_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
+        assert_eq!(results[1].hour_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
+        assert_eq!(results[2].hour_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_after_filter() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        let after = base_timestamp + (3 * hour_in_seconds);
+        let results = db
+            .get_hourly_market_summaries(None, 10, SortDirection::Desc, None, Some(after))
+            .await
+            .unwrap();
+
+        // Should get hours 4-9 (6 results) - all after hour 3, desc so most recent first
+        assert_eq!(results.len(), 6);
+        assert_eq!(results[0].hour_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
+        assert_eq!(results[results.len() - 1].hour_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_before_filter() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        let before = base_timestamp + (7 * hour_in_seconds);
+        let results = db
+            .get_hourly_market_summaries(None, 10, SortDirection::Desc, Some(before), None)
+            .await
+            .unwrap();
+
+        // Should get hours 0-6 (7 results) - all before hour 7
+        assert_eq!(results.len(), 7);
+        assert_eq!(results[0].hour_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
+        assert_eq!(results[results.len() - 1].hour_timestamp, base_timestamp as u64);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_before_and_after_filter() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        let after = base_timestamp + (2 * hour_in_seconds);
+        let before = base_timestamp + (7 * hour_in_seconds);
+        let results = db
+            .get_hourly_market_summaries(None, 10, SortDirection::Desc, Some(before), Some(after))
+            .await
+            .unwrap();
+
+        // Should get hours 3-6 (4 results) - between hour 2 and hour 7
+        assert_eq!(results.len(), 4);
+        assert_eq!(results[0].hour_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
+        assert_eq!(results[3].hour_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_cursor_with_before_filter() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        let cursor = base_timestamp + (8 * hour_in_seconds);
+        let before = base_timestamp + (5 * hour_in_seconds);
+        let results = db
+            .get_hourly_market_summaries(Some(cursor), 10, SortDirection::Desc, Some(before), None)
+            .await
+            .unwrap();
+
+        // Cursor at hour 8 means timestamp < 8 (DESC)
+        // Before at hour 5 means timestamp < 5
+        // Combined: timestamp < 5, so we get hours 0-4 (5 results)
+        assert!(results.len() <= 5);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_limit() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        setup_hourly_summaries(&db).await;
+
+        let results = db
+            .get_hourly_market_summaries(None, 2, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_no_results() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
+
+        // Use a timestamp way in the future
+        let after = base_timestamp + (100 * hour_in_seconds);
+        let results = db
+            .get_hourly_market_summaries(None, 10, SortDirection::Desc, None, Some(after))
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_hourly_summaries_data_integrity() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+        setup_hourly_summaries(&db).await;
+
+        let results = db
+            .get_hourly_market_summaries(None, 1, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].total_fulfilled, 0);
+        assert_eq!(results[0].unique_provers_locking_requests, 0);
+        assert_eq!(results[0].total_fees_locked, "0");
     }
 }

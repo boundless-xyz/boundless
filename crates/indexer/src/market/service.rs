@@ -12,20 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::min, collections::HashMap, sync::Arc};
+use std::{cmp::min, collections::{HashMap, HashSet}, sync::Arc};
 
 use crate::{
     db::{
         market::{AnyDb, HourlyMarketSummary},
         DbError, DbObj, TxMetadata,
     },
-    market::pricing::{compute_percentiles, encode_percentiles_to_bytes, price_at_time},
+    market::pricing::compute_percentiles,
 };
+use ::boundless_market::contracts::pricing::price_at_time;
 use ::boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
-    EIP712DomainSaltless, RequestId,
+    EIP712DomainSaltless, IBoundlessMarket, RequestId,
 };
-use ::boundless_market::order_stream_client::OrderStreamClient;
+use ::boundless_market::order_stream_client::{OrderStreamClient, SortDirection};
 use alloy::{
     eips::BlockNumberOrTag,
     network::{Ethereum, TransactionResponse},
@@ -34,18 +35,21 @@ use alloy::{
         fillers::{ChainIdFiller, FillProvider, JoinFill},
         Identity, Provider, ProviderBuilder, RootProvider,
     },
-    rpc::types::Log,
+    rpc::types::{Filter, Log},
     signers::local::PrivateKeySigner,
+    sol_types::SolEvent,
     transports::{RpcError, TransportErrorKind},
 };
 use std::str::FromStr;
 use anyhow::{anyhow, Context};
+use futures_util::future::try_join_all;
 use sqlx::Row;
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
 
-const MAX_BATCH_SIZE: u64 = 500;
+const SECONDS_PER_HOUR: u64 = 3600;
+const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 6;
 
 type ProviderWallet = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
 
@@ -76,11 +80,14 @@ pub enum ServiceError {
 #[derive(Clone)]
 pub struct IndexerService<P> {
     pub boundless_market: BoundlessMarketService<P>,
+    pub provider: P,
     pub db: DbObj,
     pub domain: EIP712DomainSaltless,
     pub config: IndexerServiceConfig,
     // Mapping from transaction hash to TxMetadata
-    pub cache: HashMap<B256, TxMetadata>,
+    pub tx_hash_to_metadata: HashMap<B256, TxMetadata>,
+    // Mapping from block number to timestamp
+    pub block_num_to_timestamp: HashMap<u64, u64>,
     // Optional order stream client for fetching off-chain orders
     pub order_stream_client: Option<OrderStreamClient>,
 }
@@ -89,6 +96,7 @@ pub struct IndexerService<P> {
 pub struct IndexerServiceConfig {
     pub interval: Duration,
     pub retries: u32,
+    pub batch_size: u64,
 }
 
 impl IndexerService<ProviderWallet> {
@@ -108,9 +116,9 @@ impl IndexerService<ProviderWallet> {
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
         let domain = boundless_market.eip712_domain().await?;
-        let cache = HashMap::new();
+        let tx_hash_to_metadata = HashMap::new();
 
-        Ok(Self { boundless_market, db, domain, config, cache, order_stream_client: None })
+        Ok(Self { boundless_market, provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client: None })
     }
 
     pub async fn new_with_order_stream(
@@ -130,7 +138,7 @@ impl IndexerService<ProviderWallet> {
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
         let domain = boundless_market.eip712_domain().await?;
-        let cache = HashMap::new();
+        let tx_hash_to_metadata = HashMap::new();
         let chain_id = provider
             .get_chain_id()
             .await
@@ -138,7 +146,7 @@ impl IndexerService<ProviderWallet> {
         let order_stream_client =
             Some(OrderStreamClient::new(order_stream_url, boundless_market_address, chain_id));
 
-        Ok(Self { boundless_market, db, domain, config, cache, order_stream_client })
+        Ok(Self { boundless_market, provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client })
     }
 }
 
@@ -146,65 +154,45 @@ impl<P> IndexerService<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    pub async fn run(&mut self, starting_block: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn run(&mut self, starting_block: Option<u64>, end_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
 
         let mut from_block: u64 = self.starting_block(starting_block).await?;
-        tracing::info!("Starting indexer at block {}", from_block);
+        
+        // Validate end_block if provided
+        if let Some(end) = end_block {
+            if end < from_block {
+                return Err(ServiceError::Error(anyhow::anyhow!(
+                    "End block {} is less than starting block {}",
+                    end,
+                    from_block
+                )));
+            }
+            let current_block = self.current_block().await?;
+            if end > current_block {
+                return Err(ServiceError::Error(anyhow::anyhow!(
+                    "End block {} is greater than current block {}",
+                    end,
+                    current_block
+                )));
+            }
+            tracing::info!("Starting indexer at block {} (will stop at block {})", from_block, end);
+        } else {
+            tracing::info!("Starting indexer at block {}", from_block);
+        }
 
         let mut attempt = 0;
         loop {
             interval.tick().await;
 
-            match self.current_block().await {
+            // Determine the maximum block we can process up to
+            let max_block = match self.current_block().await {
                 Ok(to_block) => {
-                    if to_block < from_block {
-                        continue;
-                    }
-
-                    // cap to at most 500 blocks per batch
-                    let batch_end = min(to_block, from_block.saturating_add(MAX_BATCH_SIZE));
-
-                    tracing::info!("Processing blocks from {} to {}", from_block, batch_end);
-
-                    match self.process_blocks(from_block, batch_end).await {
-                        Ok(_) => {
-                            attempt = 0;
-                            from_block = batch_end + 1;
-                        }
-                        Err(e) => match e {
-                            // Irrecoverable errors
-                            ServiceError::DatabaseError(_)
-                            | ServiceError::MaxRetries
-                            | ServiceError::RequestNotExpired
-                            | ServiceError::Error(_) => {
-                                tracing::error!(
-                                    "Failed to process blocks from {} to {}: {:?}",
-                                    from_block,
-                                    batch_end,
-                                    e
-                                );
-                                return Err(e);
-                            }
-                            // Recoverable errors
-                            ServiceError::BoundlessMarketError(_)
-                            | ServiceError::EventQueryError(_)
-                            | ServiceError::RpcError(_) => {
-                                attempt += 1;
-                                // exponential backoff with a maximum delay of 120 seconds
-                                let delay =
-                                    std::time::Duration::from_secs(2u64.pow(attempt - 1).min(120));
-                                tracing::warn!(
-                                    "Failed to process blocks from {} to {}: {:?}, attempt number {}, retrying in {}s",
-                                    from_block,
-                                    batch_end,
-                                    e,
-                                    attempt,
-                                    delay.as_secs()
-                                );
-                                tokio::time::sleep(delay).await;
-                            }
-                        },
+                    // If end_block is specified, use the minimum of current block and end_block
+                    if let Some(end) = end_block {
+                        min(to_block, end)
+                    } else {
+                        to_block
                     }
                 }
                 Err(e) => {
@@ -214,8 +202,80 @@ where
                         e,
                         attempt
                     );
+                    if attempt > self.config.retries {
+                        tracing::error!("Aborting after {} consecutive attempts", attempt);
+                        return Err(ServiceError::MaxRetries);
+                    }
+                    continue;
                 }
+            };
+
+            if max_block < from_block {
+                // If we've reached the end_block and processed everything, exit
+                if let Some(end) = end_block {
+                    if from_block > end {
+                        tracing::info!("Reached end block {}, exiting", end);
+                        return Ok(());
+                    }
+                }
+                continue;
             }
+
+            // cap to at most batch_size blocks per batch, but also respect end_block
+            let batch_end = min(max_block, from_block.saturating_add(self.config.batch_size));
+
+            tracing::info!("Processing blocks from {} to {}", from_block, batch_end);
+
+            let start = std::time::Instant::now();
+            match self.process_blocks(from_block, batch_end).await {
+                Ok(_) => {
+                    tracing::info!("process_blocks completed in {:?}", start.elapsed());
+                    attempt = 0;
+                    from_block = batch_end + 1;
+                    
+                    // If we've reached or passed the end_block, exit
+                    if let Some(end) = end_block {
+                        if from_block > end {
+                            tracing::info!("Reached end block {}, exiting", end);
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(e) => match e {
+                    // Irrecoverable errors
+                    ServiceError::DatabaseError(_)
+                    | ServiceError::MaxRetries
+                    | ServiceError::RequestNotExpired
+                    | ServiceError::Error(_) => {
+                        tracing::error!(
+                            "Failed to process blocks from {} to {}: {:?}",
+                            from_block,
+                            batch_end,
+                            e
+                        );
+                        return Err(e);
+                    }
+                    // Recoverable errors
+                    ServiceError::BoundlessMarketError(_)
+                    | ServiceError::EventQueryError(_)
+                    | ServiceError::RpcError(_) => {
+                        attempt += 1;
+                        // exponential backoff with a maximum delay of 120 seconds
+                        let delay =
+                            std::time::Duration::from_secs(2u64.pow(attempt - 1).min(120));
+                        tracing::warn!(
+                            "Failed to process blocks from {} to {}: {:?}, attempt number {}, retrying in {}s",
+                            from_block,
+                            batch_end,
+                            e,
+                            attempt,
+                            delay.as_secs()
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                },
+            }
+            
             if attempt > self.config.retries {
                 tracing::error!("Aborting after {} consecutive attempts", attempt);
                 return Err(ServiceError::MaxRetries);
@@ -224,23 +284,31 @@ where
     }
 
     async fn process_blocks(&mut self, from: u64, to: u64) -> Result<(), ServiceError> {
-        self.process_request_submitted_events(from, to).await?;
-        self.process_request_submitted_offchain().await?;
-        self.process_locked_events(from, to).await?;
-        self.process_proof_delivered_events(from, to).await?;
-        self.process_fulfilled_events(from, to).await?;
-        self.process_callback_failed_events(from, to).await?;
-        self.process_slashed_events(from, to).await?;
-        self.process_deposit_events(from, to).await?;
-        self.process_withdrawal_events(from, to).await?;
-        self.process_collateral_deposit_events(from, to).await?;
-        self.process_collateral_withdrawal_events(from, to).await?;
-        self.clear_cache();
+        // Fetch all relevant logs once with a single filter
+        let logs = self.fetch_logs(from, to).await?;
 
+        // Batch fetch all transactions and blocks in parallel and populate cache
+        self.fetch_tx_metadata(&logs).await?;
+
+        // Process each event type by filtering the logs
+        self.process_request_submitted_events(&logs).await?;
+        self.process_request_submitted_offchain(to).await?;
+        self.process_locked_events(&logs).await?;
+        self.process_proof_delivered_events(&logs).await?;
+        self.process_fulfilled_events(&logs).await?;
+        self.process_callback_failed_events(&logs).await?;
+        self.process_slashed_events(&logs).await?;
+        self.process_deposit_events(&logs).await?;
+        self.process_withdrawal_events(&logs).await?;
+        self.process_collateral_deposit_events(&logs).await?;
+        self.process_collateral_withdrawal_events(&logs).await?;
+        
         self.update_last_processed_block(to).await?;
 
         // Aggregate hourly market data after processing blocks
         self.aggregate_hourly_market_data().await?;
+
+        self.clear_cache();
 
         Ok(())
     }
@@ -250,32 +318,76 @@ where
     }
 
     async fn update_last_processed_block(&self, block_number: u64) -> Result<(), ServiceError> {
-        Ok(self.db.set_last_block(block_number).await?)
+        let start = std::time::Instant::now();
+        self.db.set_last_block(block_number).await?;
+        tracing::info!("update_last_processed_block completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    async fn fetch_logs(&self, from: u64, to: u64) -> Result<Vec<Log>, ServiceError> {
+        let start = std::time::Instant::now();
+        
+        let filter = Filter::new()
+            .address(*self.boundless_market.instance().address())
+            .from_block(from)
+            .to_block(to)
+            .event_signature(vec![
+                IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH,
+                IBoundlessMarket::RequestLocked::SIGNATURE_HASH,
+                IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
+                IBoundlessMarket::ProofDelivered::SIGNATURE_HASH,
+                IBoundlessMarket::ProverSlashed::SIGNATURE_HASH,
+                IBoundlessMarket::Deposit::SIGNATURE_HASH,
+                IBoundlessMarket::Withdrawal::SIGNATURE_HASH,
+                IBoundlessMarket::CollateralDeposit::SIGNATURE_HASH,
+                IBoundlessMarket::CollateralWithdrawal::SIGNATURE_HASH,
+                IBoundlessMarket::CallbackFailed::SIGNATURE_HASH,
+            ]);
+
+        tracing::info!(
+            "Fetching logs from block {} to block {}",
+            from,
+            to
+        );
+
+        let logs = self.boundless_market.instance().provider().get_logs(&filter).await?;
+
+        tracing::debug!(
+            "Fetched {} total logs from block {} to block {}",
+            logs.len(),
+            from,
+            to
+        );
+
+        tracing::info!("fetch_logs completed in {:?} [got {} logs]", start.elapsed(), logs.len());
+        Ok(logs)
     }
 
     async fn process_request_submitted_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .RequestSubmitted_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for RequestSubmitted events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} request submitted events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} request submitted events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::RequestSubmitted>()
+                .context("Failed to decode RequestSubmitted log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
 
             tracing::debug!(
                 "Processing request submitted event for request: 0x{:x} [block: {}, timestamp: {}]",
@@ -297,47 +409,63 @@ where
             self.db.add_request_submitted_event(request_digest, event.requestId, &metadata).await?;
         }
 
+        tracing::info!("process_request_submitted_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
-    async fn process_request_submitted_offchain(&mut self) -> Result<(), ServiceError> {
+    async fn process_request_submitted_offchain(&mut self, max_block: u64) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        
         let Some(order_stream_client) = &self.order_stream_client else {
             return Ok(());
         };
 
         let last_processed = self.db.get_last_order_stream_timestamp().await?;
 
-        let current_block = self.current_block().await?;
-        let block_timestamp = self.block_timestamp(current_block).await?;
+        // Get the block timestamp for the max block to use as upper bound for order filtering
+        let block_timestamp = self.block_timestamp(max_block).await?;
 
         tracing::debug!(
-            "Processing offchain orders. Last processed timestamp: {:?}",
+            "Processing offchain orders up to block {} (timestamp: {}). Last processed timestamp: {:?}",
+            max_block,
+            block_timestamp,
             last_processed
         );
 
-        const MAX_ORDERS_PER_BATCH: u64 = 100;
-        let mut after = last_processed;
+        const MAX_ORDERS_PER_BATCH: u64 = 500;
+        let mut cursor: Option<String> = None;
         let mut latest_timestamp = last_processed;
         let mut total_orders = 0;
 
+        // Convert block timestamp to DateTime and add 1 second to include orders at block_timestamp
+        // (before parameter is exclusive, uses <)
+        let before_timestamp = chrono::DateTime::from_timestamp(block_timestamp as i64 + 1, 0)
+            .ok_or_else(|| ServiceError::Error(anyhow!("Invalid block timestamp")))?;
+
         loop {
-            let orders = order_stream_client
-                .list_orders_by_creation(after, MAX_ORDERS_PER_BATCH)
+            let response = order_stream_client
+                .list_orders_v2(
+                    cursor.clone(),
+                    Some(MAX_ORDERS_PER_BATCH),
+                    Some(SortDirection::Asc),
+                    Some(before_timestamp),
+                    last_processed,
+                )
                 .await
                 .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch orders: {}", e)))?;
 
-            if orders.is_empty() {
+            if response.orders.is_empty() {
                 break;
             }
 
-            tracing::debug!("Fetched {} orders from order stream", orders.len());
+            tracing::debug!("Fetched {} orders from order stream", response.orders.len());
 
-            for order_data in &orders {
+            for order_data in &response.orders {
                 let request = &order_data.order.request;
                 let request_digest = order_data.order.request_digest;
 
                 if self.db.has_proof_request(request_digest).await? {
-                    tracing::debug!(
+                    tracing::warn!(
                         "Skipping order 0x{:x} - already exists in database",
                         request.id
                     );
@@ -345,8 +473,10 @@ where
                 }
 
                 let request_id = RequestId::from_lossy(request.id);
+                // Off-chain orders have no associated on-chain transaction, so use sentinel values:
+                // tx_hash = B256::ZERO, block_number = 0, block_timestamp = 0
                 let metadata =
-                    TxMetadata::new(B256::ZERO, request_id.addr, current_block, block_timestamp);
+                    TxMetadata::new(B256::ZERO, request_id.addr, 0, 0);
 
                 self.db
                     .add_proof_request(request_digest, request.clone(), &metadata, "offchain")
@@ -360,11 +490,13 @@ where
                 total_orders += 1;
             }
 
-            if (orders.len() as u64) < MAX_ORDERS_PER_BATCH {
+            // Check if there are more pages to fetch
+            if !response.has_more {
                 break;
             }
 
-            after = orders.last().map(|o| o.created_at);
+            // Update cursor for next page
+            cursor = response.next_cursor;
         }
 
         if total_orders > 0 {
@@ -375,32 +507,35 @@ where
             self.db.set_last_order_stream_timestamp(ts).await?;
         }
 
+        tracing::info!("process_request_submitted_offchain completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_locked_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .RequestLocked_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for RequestLocked events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::RequestLocked::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} locked events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} locked events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::RequestLocked>()
+                .context("Failed to decode RequestLocked log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing request locked event for request: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
@@ -417,44 +552,40 @@ where
                     event.requestId
                 ))?;
 
-            // Check if we've already seen this request (from RequestSubmitted event)
-            // If not, it must have been submitted off-chain. We add it to the database.
-            let request_exists = self.db.has_proof_request(request_digest).await?;
-            if !request_exists {
-                tracing::debug!("Detected request locked for unseen request. Likely submitted off-chain: 0x{:x}", event.requestId);
-                self.db.add_proof_request(request_digest, request, &metadata, "offchain").await?;
-            }
             self.db
                 .add_request_locked_event(request_digest, event.requestId, event.prover, &metadata)
                 .await?;
         }
 
+        tracing::info!("process_locked_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_proof_delivered_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .ProofDelivered_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for ProofDelivered events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::ProofDelivered::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} proof delivered events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} proof delivered events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::ProofDelivered>()
+                .context("Failed to decode ProofDelivered log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing proof delivered event for request: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
@@ -472,32 +603,35 @@ where
             self.db.add_fulfillment(event.fulfillment, event.prover, &metadata).await?;
         }
 
+        tracing::info!("process_proof_delivered_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_fulfilled_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .RequestFulfilled_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for RequestFulfilled events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} fulfilled events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} fulfilled events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::RequestFulfilled>()
+                .context("Failed to decode RequestFulfilled log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing fulfilled event for request: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
@@ -509,32 +643,35 @@ where
                 .await?;
         }
 
+        tracing::info!("process_fulfilled_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_slashed_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .ProverSlashed_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for ProverSlashed events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::ProverSlashed::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} slashed events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} slashed events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::ProverSlashed>()
+                .context("Failed to decode ProverSlashed log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing slashed event for request: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
@@ -552,32 +689,35 @@ where
                 .await?;
         }
 
+        tracing::info!("process_slashed_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_deposit_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .Deposit_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for Deposit events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::Deposit::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} deposit events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} deposit events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::Deposit>()
+                .context("Failed to decode Deposit log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
                 event.account,
@@ -587,32 +727,35 @@ where
             self.db.add_deposit_event(event.account, event.value, &metadata).await?;
         }
 
+        tracing::info!("process_deposit_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_withdrawal_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .Withdrawal_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for Withdrawal events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::Withdrawal::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} withdrawal events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} withdrawal events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::Withdrawal>()
+                .context("Failed to decode Withdrawal log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
                 event.account,
@@ -622,32 +765,35 @@ where
             self.db.add_withdrawal_event(event.account, event.value, &metadata).await?;
         }
 
+        tracing::info!("process_withdrawal_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_collateral_deposit_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .CollateralDeposit_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for CollateralDeposit events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::CollateralDeposit::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} collateral deposit events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} collateral deposit events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::CollateralDeposit>()
+                .context("Failed to decode CollateralDeposit log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing collateral deposit event for account: 0x{:x} [block: {}, timestamp: {}]",
                 event.account,
@@ -657,32 +803,35 @@ where
             self.db.add_collateral_deposit_event(event.account, event.value, &metadata).await?;
         }
 
+        tracing::info!("process_collateral_deposit_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_collateral_withdrawal_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .CollateralWithdrawal_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for CollateralWithdrawal events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::CollateralWithdrawal::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} collateral withdrawal events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} collateral withdrawal events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::CollateralWithdrawal>()
+                .context("Failed to decode CollateralWithdrawal log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing collateral withdrawal event for account: 0x{:x} [block: {}, timestamp: {}]",
                 event.account,
@@ -692,32 +841,35 @@ where
             self.db.add_collateral_withdrawal_event(event.account, event.value, &metadata).await?;
         }
 
+        tracing::info!("process_collateral_withdrawal_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn process_callback_failed_events(
         &mut self,
-        from_block: u64,
-        to_block: u64,
+        all_logs: &[Log],
     ) -> Result<(), ServiceError> {
-        let event_filter = self
-            .boundless_market
-            .instance()
-            .CallbackFailed_filter()
-            .from_block(from_block)
-            .to_block(to_block);
+        let start = std::time::Instant::now();
+        
+        // Filter logs for CallbackFailed events
+        let logs: Vec<_> = all_logs
+            .iter()
+            .filter(|log| {
+                log.topic0()
+                    .map(|t| t == &IBoundlessMarket::CallbackFailed::SIGNATURE_HASH)
+                    .unwrap_or(false)
+            })
+            .collect();
 
-        // Query the logs for the event
-        let logs = event_filter.query().await?;
-        tracing::debug!(
-            "Found {} callback failed events from block {} to block {}",
-            logs.len(),
-            from_block,
-            to_block
-        );
+        tracing::debug!("Found {} callback failed events", logs.len());
 
-        for (event, log_data) in logs {
-            let metadata = self.fetch_tx_metadata(log_data).await?;
+        for log in logs {
+            let decoded = log
+                .log_decode::<IBoundlessMarket::CallbackFailed>()
+                .context("Failed to decode CallbackFailed log")?;
+            let event = decoded.inner.data;
+
+            let metadata = self.get_tx_metadata(log.clone()).await?;
             tracing::debug!(
                 "Processing callback failed event for request: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
@@ -735,80 +887,137 @@ where
                 .await?;
         }
 
+        tracing::info!("process_callback_failed_events completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn aggregate_hourly_market_data(&self) -> Result<(), ServiceError> {
-        tracing::info!("Aggregating hourly market data for past 12 hours");
+        let start = std::time::Instant::now();
+        
+        tracing::debug!("Aggregating hourly market data for past {} hours", HOURLY_AGGREGATION_RECOMPUTE_HOURS);
 
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| ServiceError::Error(anyhow!("Failed to get current time: {}", e)))?
-            .as_secs() as i64;
+        // Get current time from the latest block timestamp instead of system time
+        let block = self
+            .provider
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
 
-        // Calculate 12 hours ago
-        let twelve_hours_ago = current_time - (12 * 3600);
+        let current_time = block.header.timestamp;
+
+        // Calculate hours ago based on configured recompute window
+        let hours_ago = current_time - (HOURLY_AGGREGATION_RECOMPUTE_HOURS * SECONDS_PER_HOUR);
 
         // Truncate to hour boundaries
-        let start_hour = (twelve_hours_ago / 3600) * 3600;
-        let current_hour = (current_time / 3600) * 3600;
+        let start_hour = (hours_ago / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+        let current_hour = (current_time / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
 
         tracing::debug!(
-            "Aggregating hours from {} to {} (12 hour window)",
+            "Aggregating hours from {} to {} ({} hour window). Up to block timestamp: {}",
             start_hour,
-            current_hour
+            current_hour,
+            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
+            current_time
         );
 
         // Process each hour
-        for hour_ts in (start_hour..=current_hour).step_by(3600) {
+        for hour_ts in (start_hour..=current_hour).step_by(SECONDS_PER_HOUR as usize) {
             let summary = self.compute_hourly_summary(hour_ts).await?;
             self.db.upsert_hourly_market_summary(summary).await?;
         }
 
-        tracing::info!("Hourly market data aggregation completed");
+        tracing::info!("aggregate_hourly_market_data completed in {:?}", start.elapsed());
         Ok(())
     }
 
     async fn compute_hourly_summary(
         &self,
-        hour_timestamp: i64,
+        hour_timestamp: u64,
     ) -> Result<HourlyMarketSummary, ServiceError> {
-        let hour_end = hour_timestamp + 3600;
+        let hour_end = hour_timestamp.saturating_add(SECONDS_PER_HOUR);
+        tracing::debug!("Computing hourly summary for hour {} to {}", hour_timestamp, hour_end);
 
         // 1. Count total fulfilled in this hour
-        let total_fulfilled: i64 = sqlx::query_scalar(
+        let total_fulfilled = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM request_fulfilled_events
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp)
-        .bind(hour_end)
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
         .fetch_one(self.db.pool())
         .await
-        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_fulfilled: {}", e)))?;
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_fulfilled: {}", e)))? as u64;
 
         // 2. Count unique provers who locked requests in this hour
-        let unique_provers: i64 = sqlx::query_scalar(
+        let unique_provers = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(DISTINCT prover_address) FROM request_locked_events
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp)
-        .bind(hour_end)
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
         .fetch_one(self.db.pool())
         .await
-        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_provers: {}", e)))?;
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_provers: {}", e)))? as u64;
 
         // 3. Count unique requesters who submitted requests in this hour
-        let unique_requesters: i64 = sqlx::query_scalar(
+        let unique_requesters = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(DISTINCT client_address) FROM proof_requests
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp)
-        .bind(hour_end)
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
         .fetch_one(self.db.pool())
         .await
-        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_requesters: {}", e)))?;
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_requesters: {}", e)))? as u64;
 
-        // 4. Get all locks in this hour with pricing info
+        // 4. Count total requests submitted in this hour
+        let total_requests_submitted = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM proof_requests
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_submitted: {}", e)))? as u64;
+
+        // 5. Count total requests submitted onchain in this hour
+        let total_requests_submitted_onchain = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_submitted_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_submitted_onchain: {}", e)))? as u64;
+
+        // 6. Calculate offchain requests
+        let total_requests_submitted_offchain = total_requests_submitted - total_requests_submitted_onchain;
+
+        // 7. Count total requests locked in this hour
+        let total_requests_locked = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_locked_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_locked: {}", e)))? as u64;
+
+        // 8. Count total requests slashed in this hour
+        let total_requests_slashed = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM prover_slashed_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_slashed: {}", e)))? as u64;
+
+        // 9. Get all locks in this hour with pricing info
         let locks = sqlx::query(
             "SELECT
                 pr.min_price,
@@ -822,8 +1031,8 @@ where
              JOIN proof_requests pr ON rle.request_digest = pr.request_digest
              WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2",
         )
-        .bind(hour_timestamp)
-        .bind(hour_end)
+        .bind(hour_timestamp as i64)
+        .bind(hour_end as i64)
         .fetch_all(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch locks: {}", e)))?;
@@ -850,7 +1059,7 @@ where
                 .map_err(|e| ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e)))?;
 
             // Compute lock_timeout from lock_end and bidding_start
-            let lock_timeout = (lock_end - bidding_start) as u32;
+            let lock_timeout = (lock_end.saturating_sub(bidding_start)) as u32;
 
             // Compute price at lock time
             let price = price_at_time(
@@ -867,22 +1076,13 @@ where
             prices.push(price);
         }
 
-        // Compute percentiles
-        let p50 = if !prices.is_empty() {
-            let mut sorted_prices = prices.clone();
-            compute_percentiles(&mut sorted_prices, &[50])[0]
-        } else {
-            U256::ZERO
-        };
-
+        // Compute percentiles: p10, p25, p50, p75, p90, p95, p99
         let percentiles = if !prices.is_empty() {
             let mut sorted_prices = prices;
-            compute_percentiles(&mut sorted_prices, &[10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+            compute_percentiles(&mut sorted_prices, &[10, 25, 50, 75, 90, 95, 99])
         } else {
-            vec![U256::ZERO; 10]
+            vec![U256::ZERO; 7]
         };
-
-        let percentiles_blob = encode_percentiles_to_bytes(&percentiles);
 
         // Format U256 values as zero-padded 78-character strings (matching rewards pattern)
         fn format_u256(value: U256) -> String {
@@ -896,8 +1096,18 @@ where
             unique_requesters_submitting_requests: unique_requesters,
             total_fees_locked: format_u256(total_fees),
             total_collateral_locked: format_u256(total_collateral),
-            p50_fees_locked: format_u256(p50),
-            percentile_fees_locked: percentiles_blob,
+            p10_fees_locked: format_u256(percentiles[0]),
+            p25_fees_locked: format_u256(percentiles[1]),
+            p50_fees_locked: format_u256(percentiles[2]),
+            p75_fees_locked: format_u256(percentiles[3]),
+            p90_fees_locked: format_u256(percentiles[4]),
+            p95_fees_locked: format_u256(percentiles[5]),
+            p99_fees_locked: format_u256(percentiles[6]),
+            total_requests_submitted,
+            total_requests_submitted_onchain,
+            total_requests_submitted_offchain,
+            total_requests_locked,
+            total_requests_slashed,
         })
     }
 
@@ -928,32 +1138,146 @@ where
     }
 
     fn clear_cache(&mut self) {
-        self.cache.clear();
+        self.tx_hash_to_metadata.clear();
+        self.block_num_to_timestamp.clear();
     }
 
-    // Fetch (and cache) metadata for a tx
-    // Check if the transaction is already in the cache
-    // If it is, use the cached tx metadata
-    // Otherwise, fetch the transaction from the provider and cache it
-    // This is to avoid making multiple calls to the provider for the same transaction
-    // as delivery events may be emitted in a batch
-    async fn fetch_tx_metadata(&mut self, log: Log) -> Result<TxMetadata, ServiceError> {
-        let tx_hash = log.transaction_hash.context("Transaction hash not found")?;
-        if let Some(meta) = self.cache.get(&tx_hash) {
-            return Ok(meta.clone());
+    // Batch fetch transaction metadata in parallel and populate the cache
+    // Collects transaction hashes from logs, fetches transactions and block timestamps in parallel
+    // Updates tx_hash_to_metadata and block_num_to_timestamp maps in the service object
+    async fn fetch_tx_metadata(
+        &mut self,
+        logs: &[Log],
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        
+        // Step 0: Collect unique transaction hashes from all logs
+        let mut tx_hashes = HashSet::new();
+        for log in logs {
+            if let Some(tx_hash) = log.transaction_hash {
+                tx_hashes.insert(tx_hash);
+            }
         }
-        let tx = self
-            .boundless_market
-            .instance()
-            .provider()
-            .get_transaction_by_hash(tx_hash)
-            .await?
-            .context(anyhow!("Transaction not found: {}", hex::encode(tx_hash)))?;
-        let bn = tx.block_number.context("block number not found")?;
-        let ts =
-            if let Some(ts) = log.block_timestamp { ts } else { self.block_timestamp(bn).await? };
-        let meta = TxMetadata::new(tx_hash, tx.from(), bn, ts);
-        self.cache.insert(tx_hash, meta.clone());
+
+        if tx_hashes.is_empty() {
+            tracing::debug!("No transaction hashes found in logs");
+            tracing::info!("fetch_tx_metadata completed in {:?}", start.elapsed());
+            return Ok(());
+        }
+
+        // Filter out transactions we already have in cache
+        let missing_hashes: Vec<B256> = tx_hashes
+            .iter()
+            .filter(|&&tx_hash| !self.tx_hash_to_metadata.contains_key(&tx_hash))
+            .copied()
+            .collect();
+
+        if missing_hashes.is_empty() {
+            tracing::debug!("All {} transaction hashes already in cache", tx_hashes.len());
+            tracing::info!("fetch_tx_metadata completed in {:?}", start.elapsed());
+            return Ok(());
+        }
+
+        tracing::debug!(
+            "Fetching {} transactions in parallel ({} already cached)",
+            missing_hashes.len(),
+            tx_hashes.len() - missing_hashes.len()
+        );
+
+        // Step 1: Fetch all transactions in parallel and store in a map
+        let mut tx_map: HashMap<B256, _> = HashMap::new();
+        const CHUNK_SIZE: usize = 100;
+        for chunk in missing_hashes.chunks(CHUNK_SIZE) {
+            let futures: Vec<_> = chunk
+                .iter()
+                .map(|&tx_hash| {
+                    let provider = self.boundless_market.instance().provider();
+                    async move {
+                        let tx = provider.get_transaction_by_hash(tx_hash).await?;
+                        Ok::<_, ServiceError>((tx_hash, tx))
+                    }
+                })
+                .collect();
+
+            let results = try_join_all(futures).await?;
+            for (tx_hash, tx_result) in results {
+                match tx_result {
+                    Some(tx) => {
+                        tx_map.insert(tx_hash, tx);
+                    }
+                    None => {
+                        return Err(ServiceError::Error(anyhow!(
+                            "Transaction {} not found",
+                            hex::encode(tx_hash)
+                        )));
+                    }
+                }
+            }
+        }
+
+        // Step 2: Build a set of unique block numbers from all transactions
+        let mut block_numbers = HashSet::new();
+        for tx in tx_map.values() {
+            if let Some(bn) = tx.block_number {
+                block_numbers.insert(bn);
+            }
+        }
+
+        // Step 3: Fetch block timestamps in parallel and update service map
+        if !block_numbers.is_empty() {
+            let block_numbers_vec: Vec<u64> = block_numbers.into_iter().collect();
+            
+            // Fetch all blocks from RPC in parallel (chunked)
+            for chunk in block_numbers_vec.chunks(CHUNK_SIZE) {
+                let block_futures: Vec<_> = chunk
+                    .iter()
+                    .map(|&block_num| {
+                        let provider = self.boundless_market.instance().provider();
+                        async move {
+                            let block = provider
+                                .get_block_by_number(BlockNumberOrTag::Number(block_num))
+                                .await?;
+                            Ok::<_, ServiceError>((block_num, block))
+                        }
+                    })
+                    .collect();
+                
+                let block_results = try_join_all(block_futures).await?;
+                for (block_num, block_result) in block_results {
+                    if let Some(block) = block_result {
+                        let ts = block.header.timestamp;
+                        self.block_num_to_timestamp.insert(block_num, ts);
+                    }
+                }
+            }
+        }
+
+        // Step 4: Build final map from tx_hash to TxMetadata and update service map
+        for (tx_hash, tx) in tx_map {
+            let bn = tx.block_number.context("block number not found")?;
+            
+            // Get timestamp from service block_timestamps map
+            let ts = self.block_num_to_timestamp.get(&bn).copied().context(anyhow!("Block {} timestamp not found in map", bn))?;
+            
+            let meta = TxMetadata::new(tx_hash, tx.from(), bn, ts);
+            self.tx_hash_to_metadata.insert(tx_hash, meta);
+        }
+
+        tracing::debug!(
+            "Successfully fetched {} transactions and {} block timestamps",
+            missing_hashes.len(),
+            self.block_num_to_timestamp.len()
+        );
+
+        tracing::info!("fetch_tx_metadata completed in {:?} [got {} transactions and {} block timestamps]", start.elapsed(), missing_hashes.len(), self.block_num_to_timestamp.len());
+        Ok(())
+    }
+
+    // Get transaction metadata for a single log (lookup from cache populated by fetch_tx_metadata)
+    async fn get_tx_metadata(&mut self, log: Log) -> Result<TxMetadata, ServiceError> {
+        let tx_hash = log.transaction_hash.context("Transaction hash not found")?;
+        let meta = self.tx_hash_to_metadata.get(&tx_hash).cloned().ok_or_else(|| ServiceError::Error(anyhow!("Transaction not found: {}", hex::encode(tx_hash))))?;
+
         Ok(meta)
     }
 

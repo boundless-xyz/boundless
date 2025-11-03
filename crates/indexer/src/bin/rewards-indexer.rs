@@ -64,6 +64,10 @@ struct RewardsIndexerArgs {
     #[clap(long, default_value = "3")]
     retries: u32,
 
+    /// Number of blocks to process in each batch.
+    #[clap(long, default_value = "500")]
+    batch_size: u64,
+
     /// Whether to log in JSON format.
     #[clap(long, env, default_value_t = false)]
     log_json: bool,
@@ -92,6 +96,7 @@ async fn main() -> Result<()> {
     let config = RewardsIndexerServiceConfig {
         interval: Duration::from_secs(args.interval),
         retries: args.retries,
+        batch_size: args.batch_size,
         start_block: args.start_block,
         end_block: args.end_block,
         end_epoch: args.end_epoch,

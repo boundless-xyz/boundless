@@ -5,9 +5,19 @@ CREATE TABLE IF NOT EXISTS hourly_market_summary (
   unique_requesters_submitting_requests   BIGINT NOT NULL,
   total_fees_locked                       TEXT NOT NULL,
   total_collateral_locked                 TEXT NOT NULL,
+  p10_fees_locked                         TEXT NOT NULL,
+  p25_fees_locked                         TEXT NOT NULL,
   p50_fees_locked                         TEXT NOT NULL,
-  percentile_fees_locked                  BYTEA NOT NULL,
-  updated_at                              TIMESTAMP DEFAULT NOW()
+  p75_fees_locked                         TEXT NOT NULL,
+  p90_fees_locked                         TEXT NOT NULL,
+  p95_fees_locked                         TEXT NOT NULL,
+  p99_fees_locked                         TEXT NOT NULL,
+  total_requests_submitted                BIGINT NOT NULL,
+  total_requests_submitted_onchain        BIGINT NOT NULL,
+  total_requests_submitted_offchain       BIGINT NOT NULL,
+  total_requests_locked                   BIGINT NOT NULL,
+  total_requests_slashed                  BIGINT NOT NULL,
+  updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_hourly_market_timestamp ON hourly_market_summary(hour_timestamp DESC);

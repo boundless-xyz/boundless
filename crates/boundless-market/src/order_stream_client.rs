@@ -416,8 +416,15 @@ impl OrderStreamClient {
     /// * `cursor` - Opaque cursor string from previous response for pagination
     /// * `limit` - Maximum number of orders to return
     /// * `sort` - Sort direction (Asc for oldest first, Desc for newest first)
-    /// * `before` - Optional timestamp to filter orders created before this time
-    /// * `after` - Optional timestamp to filter orders created after this time
+    /// * `before` - Optional timestamp to filter orders created before this time (EXCLUSIVE: `created_at < before`)
+    /// * `after` - Optional timestamp to filter orders created after this time (EXCLUSIVE: `created_at > after`)
+    ///
+    /// # Boundary Semantics
+    /// Both `before` and `after` parameters use exclusive comparison operators:
+    /// - `before`: Returns orders where `created_at < before` (does NOT include orders at the exact timestamp)
+    /// - `after`: Returns orders where `created_at > after` (does NOT include orders at the exact timestamp)
+    ///
+    /// To include orders at a specific timestamp boundary, add/subtract a small time delta (e.g., 1 second).
     pub async fn list_orders_v2(
         &self,
         cursor: Option<String>,

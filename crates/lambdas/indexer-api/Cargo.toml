@@ -19,6 +19,7 @@ release = false
 alloy = { workspace = true, default-features = false }
 anyhow = { workspace = true }
 aws-config = { version = "1.6", features = ["behavior-version-latest"] }
+base64 = "0.22"
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }

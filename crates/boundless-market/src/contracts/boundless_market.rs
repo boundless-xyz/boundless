@@ -1854,26 +1854,14 @@ impl Offer {
 
     /// Calculates the price at the given time, in seconds since the UNIX epoch.
     pub fn price_at(&self, timestamp: u64) -> Result<U256, MarketError> {
-        let max_price = U256::from(self.maxPrice);
-        let min_price = U256::from(self.minPrice);
-
-        if timestamp < self.rampUpStart {
-            return Ok(self.minPrice);
-        }
-
-        if timestamp > self.lock_deadline() {
-            return Ok(U256::ZERO);
-        }
-
-        if timestamp < self.rampUpStart + self.rampUpPeriod as u64 {
-            let rise = max_price - min_price;
-            let run = U256::from(self.rampUpPeriod);
-            let delta = U256::from(timestamp) - U256::from(self.rampUpStart);
-
-            Ok(min_price + (delta * rise) / run)
-        } else {
-            Ok(max_price)
-        }
+        Ok(crate::contracts::pricing::price_at_time(
+            U256::from(self.minPrice),
+            U256::from(self.maxPrice),
+            self.rampUpStart,
+            self.rampUpPeriod,
+            self.lockTimeout,
+            timestamp,
+        ))
     }
 
     /// UNIX timestamp after which the request is considered completely expired.

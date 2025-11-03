@@ -46,6 +46,7 @@ use crate::db::rewards::{
 pub struct RewardsIndexerServiceConfig {
     pub interval: Duration,
     pub retries: u32,
+    pub batch_size: u64,
     pub start_block: Option<u64>,
     pub end_block: Option<u64>,
     pub end_epoch: Option<u64>,

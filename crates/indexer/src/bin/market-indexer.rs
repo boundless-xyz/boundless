@@ -36,12 +36,18 @@ struct MainArgs {
     /// Starting block number.
     #[clap(long)]
     start_block: Option<u64>,
+    /// Ending block number (if set, indexer will process up to this block and exit).
+    #[clap(long)]
+    end_block: Option<u64>,
     /// Interval in seconds between checking for new events.
     #[clap(long, default_value = "3")]
     interval: u64,
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
+    /// Number of blocks to process in each batch.
+    #[clap(long, default_value = "500")]
+    batch_size: u64,
     /// Whether to log in JSON format.
     #[clap(long, env, default_value_t = false)]
     log_json: bool,
@@ -66,11 +72,10 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let args = MainArgs::parse();
-
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(args.interval),
         retries: args.retries,
+        batch_size: args.batch_size,
     };
 
     let mut indexer_service = if let Some(order_stream_url) = args.order_stream_url {
@@ -96,7 +101,18 @@ async fn main() -> Result<()> {
         .await?
     };
 
-    if let Err(err) = indexer_service.run(args.start_block).await {
+    // If end_block is specified, run once and exit
+    if args.end_block.is_some() {
+        tracing::info!("Running indexer once (end-block specified)");
+        if let Err(err) = indexer_service.run(args.start_block, args.end_block).await {
+            bail!("FATAL: Error running the indexer: {err}");
+        }
+        tracing::info!("Indexer completed successfully");
+        return Ok(());
+    }
+
+    // Otherwise, run in the normal loop (existing behavior)
+    if let Err(err) = indexer_service.run(args.start_block, None).await {
         bail!("FATAL: Error running the indexer: {err}");
     }
 
