@@ -53,9 +53,9 @@ async fn create_order(
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
             rampUpStart: now - 3,
-            timeout: 12,
+            timeout: 24,
             rampUpPeriod: 1,
-            lockTimeout: 12,
+            lockTimeout: 24,
             lockCollateral: U256::from(0),
         },
     );
