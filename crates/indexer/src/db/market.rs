@@ -42,6 +42,7 @@ pub struct TxMetadata {
     pub from: Address,
     pub block_number: u64,
     pub block_timestamp: u64,
+    pub transaction_index: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -67,8 +68,8 @@ pub struct HourlyMarketSummary {
 }
 
 impl TxMetadata {
-    pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64) -> Self {
-        Self { tx_hash, from, block_number, block_timestamp }
+    pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64, transaction_index: u64) -> Self {
+        Self { tx_hash, from, block_number, block_timestamp, transaction_index }
     }
 }
 
@@ -306,14 +307,16 @@ impl IndexerDb for AnyDb {
                 tx_hash, 
                 block_number, 
                 from_address, 
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4)
+                block_timestamp,
+                transaction_index
+            ) VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (tx_hash) DO NOTHING",
         )
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(format!("{:x}", metadata.from))
         .bind(metadata.block_timestamp as i64)
+        .bind(metadata.transaction_index as i64)
         .execute(&self.pool)
         .await?;
 
@@ -1068,7 +1071,7 @@ mod tests {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
         db.add_tx(&metadata).await.unwrap();
 
@@ -1088,7 +1091,7 @@ mod tests {
 
         let request_digest = B256::ZERO;
         let request = generate_request(0, &Address::ZERO);
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
         db.add_proof_request(request_digest, request.clone(), &metadata, "onchain").await.unwrap();
 
         // Verify proof request was added
@@ -1108,7 +1111,7 @@ mod tests {
         let request_digest = B256::ZERO;
         let non_existent_digest = B256::from([1; 32]);
         let request = generate_request(0, &Address::ZERO);
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
         // Initially, both digests should not exist
         assert!(!db.has_proof_request(request_digest).await.unwrap());
         assert!(!db.has_proof_request(non_existent_digest).await.unwrap());
@@ -1126,7 +1129,7 @@ mod tests {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
         let receipt = AssessorReceipt {
             prover: Address::ZERO,
@@ -1151,7 +1154,7 @@ mod tests {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
         let fill = Fulfillment {
             requestDigest: B256::ZERO,
@@ -1181,7 +1184,7 @@ mod tests {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
         let request_digest = B256::ZERO;
         let request_id = U256::from(1);
@@ -1231,7 +1234,7 @@ mod tests {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
         let request_id = U256::from(1);
         let burn_value = U256::from(100);
@@ -1268,7 +1271,7 @@ mod tests {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
         let account = Address::ZERO;
         let value = U256::from(100);
@@ -1315,7 +1318,7 @@ mod tests {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
         let request_id = U256::from(1);
         let callback_address = Address::ZERO;

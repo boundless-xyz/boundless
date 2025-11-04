@@ -54,6 +54,9 @@ struct MainArgs {
     /// Optional URL of the order stream API for off-chain order indexing.
     #[clap(long, env)]
     order_stream_url: Option<Url>,
+    /// Optional cache storage URI (e.g., file:///path/to/cache or s3://bucket-name).
+    #[clap(long, env)]
+    cache_uri: Option<String>,
 }
 
 #[tokio::main]
@@ -76,6 +79,7 @@ async fn main() -> Result<()> {
         interval: Duration::from_secs(args.interval),
         retries: args.retries,
         batch_size: args.batch_size,
+        cache_uri: args.cache_uri.clone(),
     };
 
     let mut indexer_service = if let Some(order_stream_url) = args.order_stream_url {

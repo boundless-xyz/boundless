@@ -34,12 +34,13 @@ usage() {
     echo "                                     end_block: stop at this block (optional)"
     echo "                                     batch_size: blocks per batch (default: 500)"
     echo ""
-    echo "  run-market-indexer <db_file> [duration] [start_block] [end_block] [batch_size]"
+    echo "  run-market-indexer <db_file> [duration] [start_block] [end_block] [batch_size] [cache_dir]"
     echo "                                     Run market-indexer to populate SQLite database"
     echo "                                     duration: seconds to run (default: 120)"
     echo "                                     start_block: block to start from (optional)"
     echo "                                     end_block: stop at this block (optional)"
     echo "                                     batch_size: blocks per batch (default: 500)"
+    echo "                                     cache_dir: directory for cache file storage (optional)"
     echo ""
     echo "  run-api <port> <db_file>          Run API server with debug logging"
     echo ""
@@ -210,6 +211,7 @@ run_market_indexer() {
     local start_block="$3"
     local end_block="$4"
     local batch_size="$5"
+    local cache_dir="$6"
 
     check_rpc_url "market"
 
@@ -222,6 +224,23 @@ run_market_indexer() {
     # Convert to absolute path if relative
     if [[ ! "$db_file" = /* ]]; then
         db_file="$(pwd)/$db_file"
+    fi
+
+    # Handle cache directory if provided
+    local cache_uri=""
+    if [ ! -z "$cache_dir" ]; then
+        # Convert to absolute path if relative
+        if [[ ! "$cache_dir" = /* ]]; then
+            cache_dir="$(pwd)/$cache_dir"
+        fi
+        
+        # Create cache directory if it doesn't exist
+        if [ ! -d "$cache_dir" ]; then
+            echo -e "${GREEN}Creating cache directory: $cache_dir${NC}"
+            mkdir -p "$cache_dir"
+        fi
+        
+        cache_uri="file://$cache_dir"
     fi
 
     # Clean up existing database
@@ -250,6 +269,9 @@ run_market_indexer() {
     if [ ! -z "$batch_size" ]; then
         echo "Batch size: $batch_size"
     fi
+    if [ ! -z "$cache_uri" ]; then
+        echo "Cache directory: $cache_dir"
+    fi
     echo ""
 
     # Build command with optional parameters
@@ -257,7 +279,7 @@ run_market_indexer() {
     cmd="$cmd --rpc-url \"$MARKET_RPC_URL\""
     cmd="$cmd --boundless-market-address \"$BOUNDLESS_MARKET_ADDRESS\""
     cmd="$cmd --db \"sqlite:$db_file\""
-    cmd="$cmd --interval 3"
+    cmd="$cmd --interval 1"
 
     if [ ! -z "$start_block" ]; then
         cmd="$cmd --start-block $start_block"
@@ -267,6 +289,9 @@ run_market_indexer() {
     fi
     if [ ! -z "$batch_size" ]; then
         cmd="$cmd --batch-size $batch_size"
+    fi
+    if [ ! -z "$cache_uri" ]; then
+        cmd="$cmd --cache-uri \"$cache_uri\""
     fi
 
     # Run the indexer in background

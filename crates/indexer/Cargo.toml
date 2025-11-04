@@ -19,9 +19,10 @@ name = "rewards-indexer"
 path = "src/bin/rewards-indexer.rs"
 
 [dependencies]
-alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "serde"] }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
@@ -32,6 +33,7 @@ futures-util = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
