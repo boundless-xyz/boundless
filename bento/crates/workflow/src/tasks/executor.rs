@@ -8,7 +8,7 @@ use crate::{
     redis::{self},
     tasks::{COPROC_CB_PATH, RECEIPT_PATH, SEGMENTS_PATH, read_image_id, serialize_obj},
 };
-use anyhow::{anyhow, Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use risc0_binfmt::PovwLogId;
 use risc0_zkvm::{
     CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
@@ -408,8 +408,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let index = segment.index;
             tracing::debug!("Starting write of index: {index}");
             let segment_key = format!("{segments_prefix_clone}:{index}");
-            let segment_vec = serialize_obj(&segment)
-                .map_err(|e| anyhow!("[BENTO-EXEC-048] Failed to serialize the segment").context(e))?;
+            let segment_vec = serialize_obj(&segment).map_err(|e| {
+                anyhow!("[BENTO-EXEC-048] Failed to serialize the segment").context(e)
+            })?;
             redis::set_key_with_expiry(
                 &mut writer_conn,
                 &segment_key,
@@ -420,10 +421,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             .map_err(|e| anyhow!("[BENTO-EXEC-049] Failed to set key with expiry").context(e))?;
             tracing::debug!("Completed write of {index}");
 
-            task_tx
-                .send(SenderType::Segment(index))
-                .await
-                .map_err(|e| anyhow!("[BENTO-EXEC-050] failed to push task into task_tx").context(e))?;
+            task_tx.send(SenderType::Segment(index)).await.map_err(|e| {
+                anyhow!("[BENTO-EXEC-050] failed to push task into task_tx").context(e)
+            })?;
         }
         // Once the segments wraps up, close the task channel to signal completion to the follow up
         // task
