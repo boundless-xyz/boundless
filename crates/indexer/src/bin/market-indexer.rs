@@ -17,6 +17,7 @@ use std::time::Duration;
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
+use boundless_indexer::market::service::TransactionFetchStrategy;
 use clap::Parser;
 use url::Url;
 
@@ -57,6 +58,9 @@ struct MainArgs {
     /// Optional cache storage URI (e.g., file:///path/to/cache or s3://bucket-name).
     #[clap(long, env)]
     cache_uri: Option<String>,
+    /// Transaction fetching strategy: "block-receipts" (default, more efficient) or "tx-by-hash" (fallback).
+    #[clap(long, env, default_value = "block-receipts")]
+    tx_fetch_strategy: String,
 }
 
 #[tokio::main]
@@ -75,11 +79,21 @@ async fn main() -> Result<()> {
             .init();
     }
 
+    let tx_fetch_strategy = match args.tx_fetch_strategy.as_str() {
+        "block-receipts" => TransactionFetchStrategy::BlockReceipts,
+        "tx-by-hash" => TransactionFetchStrategy::TransactionByHash,
+        _ => bail!(
+            "Invalid tx_fetch_strategy: {}. Use 'block-receipts' or 'tx-by-hash'",
+            args.tx_fetch_strategy
+        ),
+    };
+
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(args.interval),
         retries: args.retries,
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),
+        tx_fetch_strategy,
     };
 
     let mut indexer_service = if let Some(order_stream_url) = args.order_stream_url {

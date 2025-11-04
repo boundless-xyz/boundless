@@ -51,7 +51,7 @@ const SECONDS_PER_HOUR: u64 = 3600;
 const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 6;
 const GET_BLOCK_RECEIPTS_CHUNK_SIZE: usize = 250;
 const GET_BLOCK_BY_NUMBER_CHUNK_SIZE: usize = 250;
-const BLOCK_QUERY_SLEEP: u64 = 3;
+const BLOCK_QUERY_SLEEP: u64 = 1;
 
 /// Event signatures for market events that are indexed.
 const MARKET_EVENT_SIGNATURES: &[B256] = &[
@@ -116,12 +116,21 @@ pub struct IndexerService<P, ANP> {
     pub chain_id: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum TransactionFetchStrategy {
+    /// Use eth_getBlockReceipts - more efficient, fewer RPC calls
+    BlockReceipts,
+    /// Use eth_getTransactionByHash - compatible with all providers
+    TransactionByHash,
+}
+
 #[derive(Clone)]
 pub struct IndexerServiceConfig {
     pub interval: Duration,
     pub retries: u32,
     pub batch_size: u64,
     pub cache_uri: Option<String>,
+    pub tx_fetch_strategy: TransactionFetchStrategy,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {
@@ -1298,6 +1307,40 @@ where
             tx_hashes.len() - missing_hashes.len()
         );
 
+        // Fetch transaction metadata using the configured strategy
+        match self.config.tx_fetch_strategy {
+            TransactionFetchStrategy::BlockReceipts => {
+                self.fetch_tx_metadata_via_block_receipts(logs, &missing_hashes).await?;
+            }
+            TransactionFetchStrategy::TransactionByHash => {
+                self.fetch_tx_metadata_via_tx_by_hash(&missing_hashes).await?;
+            }
+        }
+
+        tracing::debug!(
+            "Successfully fetched {} transactions and {} block timestamps",
+            missing_hashes.len(),
+            self.block_num_to_timestamp.len()
+        );
+
+        // Save to cache if enabled
+        if let Some(cache) = &self.cache_storage {
+            if let Err(e) = cache.put_tx_metadata(self.chain_id, from, to, MARKET_EVENT_SIGNATURES, &self.tx_hash_to_metadata).await {
+                tracing::warn!("Failed to cache tx metadata for block {} to {}: {}", from, to, e);
+            }
+        }
+
+        tracing::info!("fetch_tx_metadata completed in {:?} [got {} transactions and {} block timestamps]", start.elapsed(), missing_hashes.len(), self.block_num_to_timestamp.len());
+        Ok(())
+    }
+
+    // Fetch transaction metadata using eth_getBlockReceipts (optimized, fewer RPC calls)
+    async fn fetch_tx_metadata_via_block_receipts(
+        &mut self,
+        logs: &[Log],
+        missing_hashes: &[B256],
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
         // Step 1: Group transaction hashes by block number (from logs)
         let mut block_to_tx_hashes: HashMap<u64, Vec<B256>> = HashMap::new();
         for log in logs {
@@ -1352,7 +1395,7 @@ where
         }
 
         // Verify we got all the transactions we expected
-        for &tx_hash in &missing_hashes {
+        for &tx_hash in missing_hashes.iter() {
             if !receipt_map.contains_key(&tx_hash) {
                 return Err(ServiceError::Error(anyhow!(
                     "Transaction {} receipt not found",
@@ -1408,7 +1451,7 @@ where
         }
 
         // Step 5: Build final map from tx_hash to TxMetadata and update service map
-        for &tx_hash in &missing_hashes {
+        for &tx_hash in missing_hashes.iter() {
             let (from, tx_index, bn) = receipt_map.get(&tx_hash)
                 .copied()
                 .context(anyhow!("Receipt not found for transaction {}", hex::encode(tx_hash)))?;
@@ -1421,20 +1464,107 @@ where
             self.tx_hash_to_metadata.insert(tx_hash, meta);
         }
 
-        tracing::debug!(
-            "Successfully fetched {} transactions and {} block timestamps",
-            missing_hashes.len(),
-            self.block_num_to_timestamp.len()
-        );
+        tracing::info!("fetch_tx_metadata_via_block_receipts completed in {:?}", start.elapsed());
+        Ok(())
+    }
 
-        // Save to cache if enabled
-        if let Some(cache) = &self.cache_storage {
-            if let Err(e) = cache.put_tx_metadata(self.chain_id, from, to, MARKET_EVENT_SIGNATURES, &self.tx_hash_to_metadata).await {
-                tracing::warn!("Failed to cache tx metadata for block {} to {}: {}", from, to, e);
+    // Fetch transaction metadata using eth_getTransactionByHash (fallback method)
+    async fn fetch_tx_metadata_via_tx_by_hash(
+        &mut self,
+        missing_hashes: &[B256],
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        // Step 1: Fetch all transactions in parallel and store in a map
+        let mut tx_map: HashMap<B256, _> = HashMap::new();
+        
+        for chunk in missing_hashes.chunks(GET_BLOCK_RECEIPTS_CHUNK_SIZE) {
+            let futures: Vec<_> = chunk
+                .iter()
+                .map(|&tx_hash| {
+                    let provider = self.boundless_market.instance().provider();
+                    async move {
+                        let tx = provider.get_transaction_by_hash(tx_hash).await?;
+                        Ok::<_, ServiceError>((tx_hash, tx))
+                    }
+                })
+                .collect();
+
+            let start = std::time::Instant::now();
+            let results = try_join_all(futures).await?;
+            tracing::info!("Got {} transactions in {:?}", results.len(), start.elapsed());
+            for (tx_hash, tx_result) in results {
+                match tx_result {
+                    Some(tx) => {
+                        tx_map.insert(tx_hash, tx);
+                    }
+                    None => {
+                        return Err(ServiceError::Error(anyhow!(
+                            "Transaction {} not found",
+                            hex::encode(tx_hash)
+                        )));
+                    }
+                }
             }
         }
 
-        tracing::info!("fetch_tx_metadata completed in {:?} [got {} transactions and {} block timestamps]", start.elapsed(), missing_hashes.len(), self.block_num_to_timestamp.len());
+        // Step 2: Build a set of unique block numbers from all transactions
+        let mut block_numbers = HashSet::new();
+        for tx in tx_map.values() {
+            if let Some(bn) = tx.block_number {
+                block_numbers.insert(bn);
+            }
+        }
+
+        // Sleep in between the above transaction calls and the below block calls to reduce rate limiting risk.
+        tokio::time::sleep(Duration::from_secs(BLOCK_QUERY_SLEEP)).await;
+
+        // Step 3: Fetch block timestamps in parallel and update service map
+        if !block_numbers.is_empty() {
+            let block_numbers_vec: Vec<u64> = block_numbers.into_iter().collect();
+            
+            // Fetch all blocks from RPC in parallel (chunked)
+            for chunk in block_numbers_vec.chunks(GET_BLOCK_BY_NUMBER_CHUNK_SIZE) {
+                let block_futures: Vec<_> = chunk
+                    .iter()
+                    .map(|&block_num| {
+                        let provider = self.boundless_market.instance().provider();
+                        async move {
+                            let block = provider
+                                .get_block_by_number(BlockNumberOrTag::Number(block_num))
+                                .await?;
+                            Ok::<_, ServiceError>((block_num, block))
+                        }
+                    })
+                    .collect();
+                
+                let start = std::time::Instant::now();
+                let block_results = try_join_all(block_futures).await?;
+                tracing::info!("Got {} blocks in {:?}", block_results.len(), start.elapsed());
+                for (block_num, block_result) in block_results {
+                    if let Some(block) = block_result {
+                        let ts = block.header.timestamp;
+                        self.block_num_to_timestamp.insert(block_num, ts);
+                    }
+                }
+            }
+        }
+
+        // Step 4: Build final map from tx_hash to TxMetadata and update service map
+        for (tx_hash, tx) in tx_map {
+            let bn = tx.block_number.context("block number not found")?;
+            let tx_index = tx.transaction_index.context(
+                anyhow!("Transaction index not found for transaction {}", hex::encode(tx_hash))
+            )?;
+            
+            // Get timestamp from service block_timestamps map
+            let ts = self.block_num_to_timestamp.get(&bn).copied().context(anyhow!("Block {} timestamp not found in map", bn))?;
+            
+            let from = tx.inner.signer();
+            let meta = TxMetadata::new(tx_hash, from, bn, ts, tx_index);
+            self.tx_hash_to_metadata.insert(tx_hash, meta);
+        }
+
+        tracing::info!("fetch_tx_metadata_via_tx_by_hash completed in {:?}", start.elapsed());
         Ok(())
     }
 

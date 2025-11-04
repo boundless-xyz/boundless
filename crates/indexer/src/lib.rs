@@ -19,3 +19,4 @@ pub mod test_utils;
 
 // Re-export for backwards compatibility
 pub use market::{IndexerService, IndexerServiceConfig, ServiceError};
+pub use market::service::TransactionFetchStrategy;

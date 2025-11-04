@@ -914,3 +914,250 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     cli_process.kill().unwrap();
     order_stream_handle.abort();
 }
+
+#[tokio::test]
+#[traced_test]
+async fn test_both_tx_fetch_strategies_produce_same_results() {
+    let anvil = Anvil::new().spawn();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Create two separate test databases - one for each strategy
+    let test_db_receipts = TestDb::new().await.unwrap();
+    let test_db_tx_by_hash = TestDb::new().await.unwrap();
+
+    let rpc_url = anvil.endpoint_url();
+
+    // Get prover for fulfillment
+    let prover = DefaultProver::new(
+        SET_BUILDER_ELF.to_vec(),
+        ASSESSOR_GUEST_ELF.to_vec(),
+        ctx.prover_signer.address(),
+        ctx.customer_market.eip712_domain().await.unwrap(),
+    )
+    .unwrap();
+
+    // Get current timestamp
+    let now = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+
+    // Submit and fulfill 1 request to have some transactions to test
+    let (request, client_sig) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        1,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+
+    ctx.customer_market.deposit(U256::from(1)).await.unwrap();
+    ctx.customer_market
+        .submit_request_with_signature(&request, client_sig.clone())
+        .await
+        .unwrap();
+    ctx.prover_market
+        .lock_request(&request, client_sig.clone(), None)
+        .await
+        .unwrap();
+
+    let (fill, root_receipt, assessor_receipt) =
+        prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
+    let order_fulfilled =
+        OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+    ctx.prover_market
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
+        )
+        .await
+        .unwrap();
+
+    // Mine a couple more blocks to ensure transactions are visible to indexers
+    let provider = ctx.customer_provider.clone();
+    provider.anvil_mine(Some(2), None).await.unwrap();
+
+    // Get the current block number to use as end block for both indexers
+    let end_block = provider.get_block_number().await.unwrap();
+    let end_block_str = end_block.to_string();
+
+    // Run indexer with block-receipts strategy
+    let cmd1 = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd1.get_program().to_string_lossy().to_string();
+    
+    let args_receipts = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db_receipts.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "3",
+        "--batch-size",
+        "100",
+        "--tx-fetch-strategy",
+        "block-receipts",
+        "--start-block",
+        "0",
+        "--end-block",
+        &end_block_str,
+    ];
+
+    println!("Running indexer with block-receipts strategy: {exe_path} {args_receipts:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut cli_process_receipts =
+        Command::new(&exe_path).args(args_receipts).spawn().unwrap();
+
+    // Wait for the indexer to process events
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    cli_process_receipts.kill().ok(); // Kill if still running
+    
+    // Wait a moment for cleanup
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Run indexer with tx-by-hash strategy
+    let args_tx_by_hash = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db_tx_by_hash.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "3",
+        "--batch-size",
+        "100",
+        "--tx-fetch-strategy",
+        "tx-by-hash",
+        "--start-block",
+        "0",
+        "--end-block",
+        &end_block_str,
+    ];
+
+    println!("Running indexer with tx-by-hash strategy: {exe_path} {args_tx_by_hash:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut cli_process_tx_by_hash =
+        Command::new(&exe_path).args(args_tx_by_hash).spawn().unwrap();
+
+    // Wait for the indexer to process events
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    cli_process_tx_by_hash.kill().ok(); // Kill if still running
+    
+    // Wait a moment for cleanup
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Now compare the results from both databases
+    // 1. Compare transaction count
+    let count_receipts: i64 = sqlx::query("SELECT COUNT(*) as count FROM transactions")
+        .fetch_one(&test_db_receipts.pool)
+        .await
+        .unwrap()
+        .get("count");
+
+    let count_tx_by_hash: i64 = sqlx::query("SELECT COUNT(*) as count FROM transactions")
+        .fetch_one(&test_db_tx_by_hash.pool)
+        .await
+        .unwrap()
+        .get("count");
+
+    assert_eq!(
+        count_receipts, count_tx_by_hash,
+        "Transaction counts should match between strategies"
+    );
+    assert!(count_receipts > 0, "Expected at least some transactions to be indexed");
+
+    // 2. Compare transactions table data (tx_hash, from_address, block_number, block_timestamp, transaction_index)
+    let txs_receipts: Vec<(String, String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT tx_hash, from_address, block_number, block_timestamp, transaction_index FROM transactions ORDER BY tx_hash",
+    )
+    .fetch_all(&test_db_receipts.pool)
+    .await
+    .unwrap();
+
+    let txs_tx_by_hash: Vec<(String, String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT tx_hash, from_address, block_number, block_timestamp, transaction_index FROM transactions ORDER BY tx_hash",
+    )
+    .fetch_all(&test_db_tx_by_hash.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        txs_receipts.len(),
+        txs_tx_by_hash.len(),
+        "Should have same number of transactions"
+    );
+
+    // Compare each transaction
+    for (i, (tx_receipts, tx_tx_by_hash)) in
+        txs_receipts.iter().zip(txs_tx_by_hash.iter()).enumerate()
+    {
+        assert_eq!(
+            tx_receipts.0, tx_tx_by_hash.0,
+            "Transaction {} tx_hash should match",
+            i
+        );
+        assert_eq!(
+            tx_receipts.1, tx_tx_by_hash.1,
+            "Transaction {} from_address should match",
+            i
+        );
+        assert_eq!(
+            tx_receipts.2, tx_tx_by_hash.2,
+            "Transaction {} block_number should match",
+            i
+        );
+        assert_eq!(
+            tx_receipts.3, tx_tx_by_hash.3,
+            "Transaction {} block_timestamp should match",
+            i
+        );
+        assert_eq!(
+            tx_receipts.4, tx_tx_by_hash.4,
+            "Transaction {} transaction_index should match",
+            i
+        );
+    }
+
+    // 3. Compare proof requests count
+    let count_requests_receipts: i64 =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
+            .fetch_one(&test_db_receipts.pool)
+            .await
+            .unwrap()
+            .get("count");
+
+    let count_requests_tx_by_hash: i64 =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
+            .fetch_one(&test_db_tx_by_hash.pool)
+            .await
+            .unwrap()
+            .get("count");
+
+    assert_eq!(
+        count_requests_receipts, count_requests_tx_by_hash,
+        "Proof request counts should match between strategies"
+    );
+    assert_eq!(
+        count_requests_receipts, 1,
+        "Expected 1 proof request to be indexed"
+    );
+}
