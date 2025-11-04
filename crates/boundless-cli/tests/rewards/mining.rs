@@ -351,7 +351,7 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
     println!("Running claim command");
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "claim-mining-rewards", "--log-id", &format!("{:#x}", log_id)]);
+    cmd.args(["rewards", "claim-mining-rewards", "--reward-address", &format!("{:#x}", log_id)]);
 
     let result = cmd.assert().success().stdout(contains("Reward claim completed"));
     println!("claim command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
@@ -483,7 +483,7 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     println!("Running claim command");
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "claim-mining-rewards", "--log-id", &format!("{:#x}", log_id)]);
+    cmd.args(["rewards", "claim-mining-rewards", "--reward-address", &format!("{:#x}", log_id)]);
 
     let result = cmd
         .assert()

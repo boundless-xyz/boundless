@@ -44,6 +44,7 @@ assert_cmd = "2.0"
 boundless-cli = { workspace = true }
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true }
+broker = { workspace = true }
 futures-util = { workspace = true }
 indexer-monitor = { path = "../lambdas/indexer-monitor" }
 order-stream = { workspace = true }
