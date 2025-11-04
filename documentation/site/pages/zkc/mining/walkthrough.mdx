@@ -19,7 +19,7 @@ To do this, provers must use the [Boundless CLI](/zkc/mining/enable#make-sure-to
 Once provers have run some jobs, they can create a new "state" file from work proofs stored in Bento using `prepare-mining`:
 
 ```bash
-boundless rewards prepare-mining --new ${REWARD_ADDRESS} --state-file ${STATE_FILE_LOCATION} --from-bento
+boundless rewards prepare-mining --new ${REWARD_ADDRESS} --state-file ${STATE_FILE_LOCATION}
 ```
 
 where `${STATE_FILE_LOCATION}` is something like: `~/folder/state.bin`.
@@ -39,7 +39,7 @@ In this scenario, a new rewards address must be specified for Bento, and Bento s
 Provers only specify the `--new ${REWARD_ADDRESS}` flag once, this is necessary to create the state file for that specific rewards address. Once the state file is created, provers can run `prepare-mining` and specify the state file location directly:
 
 ```bash
-boundless rewards prepare-mining --state-file ${STATE_FILE_LOCATION} --from-bento
+boundless rewards prepare-mining --state-file ${STATE_FILE_LOCATION}
 ```
 
 or add the mining state file location to the rewards module config by running:
@@ -51,7 +51,7 @@ boundless rewards setup
 which would store the state file location, such that provers can simply run:
 
 ```bash
-boundless rewards prepare-mining --from-bento
+boundless rewards prepare-mining
 ```
 
 from now on. If the state file location changes, make sure to update the location in the config by running `boundless rewards setup` again.
