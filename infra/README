@@ -16,7 +16,8 @@ Now deploy the sample project to check everything is working:
 
 1. `cd infra/sample`
 2. `pulumi login --local && pulumi stack init dev`
-3. `pulumi up`
+3. `pulumi install`
+4. `pulumi up`
 
 # Creating a new project
 
