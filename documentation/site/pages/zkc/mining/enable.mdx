@@ -27,11 +27,8 @@ Follow the instructions [here](https://www.rust-lang.org/tools/install).
 
 ## Make sure to have the Boundless CLI installed
 
-Provers use the Boundless CLI to stake $ZKC, prepare work log updates, and submit them onchain. To install the Boundless CLI (and build with CUDA support), run:
+Provers use the Boundless CLI to stake $ZKC, prepare work log updates, and submit them onchain. To install the Boundless CLI (and build with CUDA support), see the [installation instructions](/developers/tooling/cli#installation).
 
-```bash
-cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
-```
 
 ## Install the latest version of Foundry
 
@@ -68,7 +65,7 @@ x-base-environment: &base-environment
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
-  POVW_LOG_ID: "0x1234...5678" // [!code hl] [!code focus]
+  REWARD_ADDRESS: "0x1234...5678" // [!code hl] [!code focus]
 ```
 
 ## *Optional but highly recommended*: Delegate Reward Power to Reward Address
@@ -93,7 +90,7 @@ will start both the broker and Bento.
 
 ## Generate Proofs + Submit Work Proofs Onchain
 
-Once Bento is running, provers can run proving jobs as normal. Bento will now create a work proof for every proving job; a work proof cryptographically proves how much work Bento has done (in [cycles](https://dev.risczero.com/terminology#clock-cycles)). 
+Once Bento is running, provers can run proving jobs as normal. Bento will now create a work proof for every proving job; a work proof cryptographically proves how much work Bento has done (in [cycles](https://dev.risczero.com/terminology#clock-cycles)).
 
 Using the Boundless CLI, provers aggregate these work proofs and submit the aggregated work proof *at least once* per [reward epoch](/zkc/quick-start#how-do-zkc-rewards-work) to be eligible for that epoch's mining rewards. This process is documented in [Mining + Claiming Rewards](/zkc/mining/claiming-rewards).
 

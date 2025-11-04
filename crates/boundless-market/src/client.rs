@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -191,8 +191,8 @@ impl<St, Si> ClientBuilder<St, Si> {
             )?;
 
         // Check that the chain ID is matches the deployment, to avoid misconfigurations.
-        if deployment.chain_id.map(|id| id != chain_id).unwrap_or(false) {
-            bail!("provided deployment does not match chain_id reported by RPC provider: {chain_id} != {}", deployment.chain_id.unwrap());
+        if deployment.market_chain_id.map(|id| id != chain_id).unwrap_or(false) {
+            bail!("RPC url does not match specified Boundless deployment: {chain_id} (RPC) != {} (Boundless)", deployment.market_chain_id.unwrap());
         }
 
         // Build the contract instances.
@@ -508,10 +508,11 @@ where
             deployment: Deployment {
                 boundless_market_address: *boundless_market.instance().address(),
                 set_verifier_address: *set_verifier.instance().address(),
-                chain_id: None,
+                market_chain_id: None,
                 order_stream_url: None,
                 collateral_token_address: None,
                 verifier_router_address: None,
+                deployment_block: None,
             },
             boundless_market,
             set_verifier,

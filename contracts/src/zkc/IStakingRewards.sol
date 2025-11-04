@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,12 @@ interface IStakingRewards {
     /// @param epochs The epochs to claim rewards for
     /// @return amount The amount of rewards claimed
     function claimRewards(uint256[] calldata epochs) external returns (uint256 amount);
+
+    /// @notice Claim rewards for the given epochs and send to a recipient
+    /// @param epochs The epochs to claim rewards for
+    /// @param recipient The address to receive the minted rewards
+    /// @return amount The amount of rewards claimed
+    function claimRewardsToRecipient(uint256[] calldata epochs, address recipient) external returns (uint256);
 
     /// @notice Calculate the rewards a user is owed for the given epochs. If the epoch has not ended yet, it will return zero rewards.
     /// @param user The user address

@@ -1,0 +1,13 @@
+{
+  "name": "Boundless Recommended Priority List for XL Provers",
+  "description": "List of recommended priority requestors for provers capable of >10000 kHz proving cluster performance.",
+  "schemaVersion": {
+    "major": 1,
+    "minor": 0
+  },
+  "version": {
+    "major": 1,
+    "minor": 0
+  },
+  "requestors": []
+}

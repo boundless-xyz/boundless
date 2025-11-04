@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -30,10 +30,10 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
             format!("failed to get receipts for keys: {left_receipt_key}, {right_receipt_key}")
         })?;
 
-    let left_receipt =
-        deserialize_obj(&left_receipt_bytes).context("Failed to deserialize left receipt")?;
-    let right_receipt =
-        deserialize_obj(&right_receipt_bytes).context("Failed to deserialize right receipt")?;
+    let left_receipt = deserialize_obj(&left_receipt_bytes)
+        .context("[BENTO-UNION-001] Failed to deserialize left receipt")?;
+    let right_receipt = deserialize_obj(&right_receipt_bytes)
+        .context("[BENTO-UNION-002] Failed to deserialize right receipt")?;
 
     // run union
     tracing::debug!("Union {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
@@ -41,26 +41,27 @@ pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<(
     let unioned = agent
         .prover
         .as_ref()
-        .context("Missing prover from union prove task")?
+        .context("[BENTO-UNION-003] Missing prover from union prove task")?
         .union(&left_receipt, &right_receipt)
-        .context("Failed to union on left/right receipt")?
+        .context("[BENTO-UNION-004] Failed to union on left/right receipt")?
         .into_unknown();
 
     unioned
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify union receipt integrity")?;
+        .context("[BENTO-UNION-005] Failed to verify union receipt integrity")?;
 
     // send result to redis
-    let union_result = serialize_obj(&unioned).context("Failed to serialize union receipt")?;
+    let union_result =
+        serialize_obj(&unioned).context("[BENTO-UNION-006] Failed to serialize union receipt")?;
     let output_key = format!("{keccak_receipts_prefix}:{}", request.idx);
     redis::set_key_with_expiry(&mut conn, &output_key, union_result, Some(agent.args.redis_ttl))
         .await
-        .context("Failed to set redis key for union receipt")?;
+        .context("[BENTO-UNION-007] Failed to set redis key for union receipt")?;
 
     tracing::debug!("Union complete {job_id} - {}", request.left);
     conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key])
         .await
-        .context("Failed to delete union receipt keys")?;
+        .context("[BENTO-UNION-008] Failed to delete union receipt keys")?;
 
     Ok(())
 }

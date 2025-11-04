@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -156,16 +156,14 @@ where
                                 };
 
                                 // Check if we've exceeded max retries
-                                if let Some(max) = max_retries {
-                                    if retry_count >= max {
-                                        // We manually log the fault code rather than rendering the SupervisorErr::Recover
-                                        // code so that we indicate we are now in a hard fault state after exhausting retries.
-                                        tracing::error!(
-                                            "{} Exceeded maximum retries ({max}) for task",
-                                            FAULT_CODE
-                                        );
-                                        anyhow::bail!("Exceeded maximum retries for task");
-                                    }
+                                if retry_count >= max_retries {
+                                    // We manually log the fault code rather than rendering the SupervisorErr::Recover
+                                    // code so that we indicate we are now in a hard fault state after exhausting retries.
+                                    tracing::error!(
+                                        "{} Exceeded maximum retries ({max_retries}) for task",
+                                        FAULT_CODE
+                                    );
+                                    anyhow::bail!("Exceeded maximum retries for task");
                                 }
                             }
 
@@ -356,7 +354,7 @@ mod tests {
     async fn supervisor_with_retry_policy() {
         let task = Arc::new(TestTask::new());
         let config = ConfigLock::default();
-        config.load_write().unwrap().prover.max_critical_task_retries = Some(3);
+        config.load_write().unwrap().prover.max_critical_task_retries = 3;
 
         let supervisor_task = Supervisor::new(task.clone(), config, CancellationToken::new())
             .with_retry_policy(RetryPolicy {

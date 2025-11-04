@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,10 +16,12 @@ use crate::{
     config::{OrderCommitmentPriority, OrderPricingPriority},
     order_monitor::OrderMonitor,
     order_picker::OrderPicker,
-    OrderRequest,
+    FulfillmentType, OrderRequest,
 };
 
+use alloy::primitives::U256;
 use rand::seq::SliceRandom;
+use std::cmp::Reverse;
 use std::sync::Arc;
 
 /// Unified priority mode for both pricing and commitment
@@ -28,8 +30,8 @@ enum UnifiedPriorityMode {
     Random,
     TimeOrdered,
     ShortestExpiry,
-    LockPrice,
-    LockCyclePrice,
+    Price,
+    CyclePrice,
 }
 
 impl From<OrderPricingPriority> for UnifiedPriorityMode {
@@ -47,8 +49,8 @@ impl From<OrderCommitmentPriority> for UnifiedPriorityMode {
         match mode {
             OrderCommitmentPriority::Random => UnifiedPriorityMode::Random,
             OrderCommitmentPriority::ShortestExpiry => UnifiedPriorityMode::ShortestExpiry,
-            OrderCommitmentPriority::LockPrice => UnifiedPriorityMode::LockPrice,
-            OrderCommitmentPriority::LockCyclePrice => UnifiedPriorityMode::LockCyclePrice,
+            OrderCommitmentPriority::Price => UnifiedPriorityMode::Price,
+            OrderCommitmentPriority::CyclePrice => UnifiedPriorityMode::CyclePrice,
         }
     }
 }
@@ -80,15 +82,11 @@ fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
 where
     T: AsRef<OrderRequest>,
 {
-    use crate::FulfillmentType;
-
-    fn sort_lock_then_by<T, F, K>(orders: &mut [T], key: F)
+    fn sort_lock_then_by<T, F>(orders: &mut [T], key: F)
     where
         T: AsRef<OrderRequest>,
-        F: Fn(&OrderRequest) -> K,
-        K: Ord,
+        F: Fn(&OrderRequest) -> U256,
     {
-        // Group lock-capable orders first, sort them by key (descending), then shuffle expired.
         orders.sort_by(|a, b| {
             let a_ref = a.as_ref();
             let b_ref = b.as_ref();
@@ -101,16 +99,16 @@ where
                 (false, true) => std::cmp::Ordering::Less,
                 (true, false) => std::cmp::Ordering::Greater,
                 (false, false) => {
-                    // Both lock-capable: order by key descending
+                    // Both lockable: order by key descending
                     let a_key = key(a_ref);
                     let b_key = key(b_ref);
                     b_key.cmp(&a_key)
                 }
+                // Expired orders sorted with weighted randomness below.
                 (true, true) => std::cmp::Ordering::Equal,
             }
         });
 
-        // Shuffle only the expired orders section
         let expired_start = orders
             .iter()
             .position(|order| {
@@ -119,9 +117,19 @@ where
             .unwrap_or(orders.len());
 
         if expired_start < orders.len() {
-            orders[expired_start..].shuffle(&mut rand::rng());
+            use rand::Rng;
+            let mut rng = rand::rng();
+
+            // Sort expired orders with weighted randomness, higher values first.
+            orders[expired_start..].sort_by_key(|order| {
+                let value = key(order.as_ref());
+                // Add randomness to ordering relative to the pricing function.
+                Reverse(value.saturating_mul(U256::from(rng.random_range(1..=5))))
+            });
         }
     }
+
+    let now = crate::now_timestamp();
 
     match mode {
         UnifiedPriorityMode::Random => orders.shuffle(&mut rand::rng()),
@@ -131,20 +139,25 @@ where
         UnifiedPriorityMode::ShortestExpiry => {
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
-        UnifiedPriorityMode::LockPrice => {
-            let now = crate::now_timestamp();
-            sort_lock_then_by(orders, |o| o.request.offer.price_at(now).unwrap_or_default());
+        UnifiedPriorityMode::Price => {
+            sort_lock_then_by(orders, |o| total_reward_amount(o, now));
         }
-        UnifiedPriorityMode::LockCyclePrice => {
-            let now = crate::now_timestamp();
+        UnifiedPriorityMode::CyclePrice => {
             sort_lock_then_by(orders, |o| {
-                let payment = o.request.offer.price_at(now).unwrap_or_default();
-                match o.total_cycles {
-                    Some(cycles) if cycles > 0 => payment / alloy::primitives::U256::from(cycles),
-                    _ => alloy::primitives::U256::ZERO,
-                }
+                let amount = total_reward_amount(o, now);
+                o.total_cycles
+                    .and_then(|cycles| amount.checked_div(U256::from(cycles)))
+                    .unwrap_or_default()
             });
         }
+    }
+}
+
+fn total_reward_amount(order: &OrderRequest, now: u64) -> U256 {
+    if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire) {
+        order.request.offer.collateral_reward_if_locked_and_not_fulfilled()
+    } else {
+        order.request.offer.price_at(now).unwrap_or_default()
     }
 }
 
@@ -767,8 +780,8 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 1,
                 bidding_start: base_time,
-                min_price: alloy::primitives::U256::from(1u64),
-                max_price: alloy::primitives::U256::from(30u64),
+                min_price: U256::from(1u64),
+                max_price: U256::from(30u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -781,8 +794,8 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 2,
                 bidding_start: base_time,
-                min_price: alloy::primitives::U256::from(1u64),
-                max_price: alloy::primitives::U256::from(10u64),
+                min_price: U256::from(1u64),
+                max_price: U256::from(10u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -795,8 +808,8 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 3,
                 bidding_start: base_time,
-                min_price: alloy::primitives::U256::from(1u64),
-                max_price: alloy::primitives::U256::from(20u64),
+                min_price: U256::from(1u64),
+                max_price: U256::from(20u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -810,6 +823,7 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 4,
                 bidding_start: base_time,
+                lock_collateral: U256::from(50u64),
                 lock_timeout: 100,
                 timeout: 500,
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
@@ -822,6 +836,7 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 5,
                 bidding_start: base_time,
+                lock_collateral: U256::from(30u64),
                 lock_timeout: 100,
                 timeout: 600,
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
@@ -833,16 +848,13 @@ mod tests {
         // Verify ordering for LockPrice
         let mut orders =
             vec![lock_30.clone(), lock_10.clone(), lock_20.clone(), exp_a.clone(), exp_b.clone()];
-        sort_orders_by_priority_and_mode(
-            &mut orders,
-            None,
-            OrderCommitmentPriority::LockPrice.into(),
-        );
+
+        sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
 
         // First 3 must be lock-capable, ordered by price desc (30, 20, 10)
-        assert_eq!(orders[0].request.offer.maxPrice, alloy::primitives::U256::from(30u64));
-        assert_eq!(orders[1].request.offer.maxPrice, alloy::primitives::U256::from(20u64));
-        assert_eq!(orders[2].request.offer.maxPrice, alloy::primitives::U256::from(10u64));
+        assert_eq!(orders[0].request.offer.maxPrice, U256::from(30u64));
+        assert_eq!(orders[1].request.offer.maxPrice, U256::from(20u64));
+        assert_eq!(orders[2].request.offer.maxPrice, U256::from(10u64));
         assert!(matches!(
             orders[0].fulfillment_type,
             FulfillmentType::LockAndFulfill | FulfillmentType::FulfillWithoutLocking
@@ -860,9 +872,11 @@ mod tests {
         assert_eq!(orders[3].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
         assert_eq!(orders[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
 
-        // The expired tail should be randomized across runs
+        // The expired tail should be randomized across runs, but higher collateral should appear first more often
         let mut tails = HashSet::new();
-        for _ in 0..15 {
+        let mut exp_a_first_count = 0;
+        let iterations = 50;
+        for _ in 0..iterations {
             let mut test_orders = vec![
                 lock_30.clone(),
                 lock_10.clone(),
@@ -873,11 +887,21 @@ mod tests {
             sort_orders_by_priority_and_mode(
                 &mut test_orders,
                 None,
-                OrderCommitmentPriority::LockPrice.into(),
+                OrderCommitmentPriority::Price.into(),
             );
             tails.insert((test_orders[3].request.id, test_orders[4].request.id));
+            if test_orders[3].request.id == exp_a.request.id {
+                exp_a_first_count += 1;
+            }
         }
         assert!(tails.len() > 1, "Expired orders should be shuffled in LockPrice mode");
+        // exp_a has higher collateral (50 vs 30), so should appear first more than half the time
+        assert!(
+            exp_a_first_count > iterations / 2,
+            "Higher collateral order should appear first more often: {} out of {}",
+            exp_a_first_count,
+            iterations
+        );
     }
 
     #[tokio::test]
@@ -892,8 +916,8 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 10,
                 bidding_start: base_time,
-                min_price: alloy::primitives::U256::from(1u64),
-                max_price: alloy::primitives::U256::from(900u64),
+                min_price: U256::from(1u64),
+                max_price: U256::from(900u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -908,8 +932,8 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 11,
                 bidding_start: base_time,
-                min_price: alloy::primitives::U256::from(1u64),
-                max_price: alloy::primitives::U256::from(1000u64),
+                min_price: U256::from(1u64),
+                max_price: U256::from(1000u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -924,8 +948,8 @@ mod tests {
             .generate_next_order(OrderParams {
                 order_index: 12,
                 bidding_start: base_time,
-                min_price: alloy::primitives::U256::from(1u64),
-                max_price: alloy::primitives::U256::from(1200u64),
+                min_price: U256::from(1u64),
+                max_price: U256::from(1200u64),
                 lock_timeout: 10_000,
                 timeout: 20_000,
                 fulfillment_type: FulfillmentType::LockAndFulfill,
@@ -936,37 +960,42 @@ mod tests {
         let lock_c = std::sync::Arc::new(lock_c);
 
         // Expired fulfillment orders
-        let exp_a = ctx
+        let mut exp_a = *ctx
             .generate_next_order(OrderParams {
                 order_index: 13,
                 bidding_start: base_time,
+                lock_collateral: U256::from(100u64),
                 lock_timeout: 100,
                 timeout: 500,
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 ..Default::default()
             })
             .await;
-        let exp_a = std::sync::Arc::new(*exp_a);
+        exp_a.total_cycles = Some(10);
+        let exp_a = std::sync::Arc::new(exp_a);
 
-        let exp_b = ctx
+        let mut exp_b = *ctx
             .generate_next_order(OrderParams {
                 order_index: 14,
                 bidding_start: base_time,
+                lock_collateral: U256::from(40u64),
                 lock_timeout: 100,
                 timeout: 600,
                 fulfillment_type: FulfillmentType::FulfillAfterLockExpire,
                 ..Default::default()
             })
             .await;
-        let exp_b = std::sync::Arc::new(*exp_b);
+        exp_b.total_cycles = Some(10);
+        let exp_b = std::sync::Arc::new(exp_b);
 
-        // Verify ordering for LockCyclePrice: B (30), A (10), C (6)
+        // Verify ordering for CyclePrice: B (30), A (10), C (6)
         let mut orders =
             vec![lock_a.clone(), lock_b.clone(), lock_c.clone(), exp_a.clone(), exp_b.clone()];
+
         sort_orders_by_priority_and_mode(
             &mut orders,
             None,
-            OrderCommitmentPriority::LockCyclePrice.into(),
+            OrderCommitmentPriority::CyclePrice.into(),
         );
 
         assert_eq!(orders[0].request.id, lock_b.request.id);
@@ -989,18 +1018,30 @@ mod tests {
         assert_eq!(orders[3].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
         assert_eq!(orders[4].fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
 
-        // The expired tail should be randomized across runs
+        // The expired tail should be randomized across runs, but higher collateral should appear first more often
         let mut tails = HashSet::new();
-        for _ in 0..15 {
+        let mut exp_a_first_count = 0;
+        let iterations = 50;
+        for _ in 0..iterations {
             let mut test_orders =
                 vec![lock_a.clone(), lock_b.clone(), lock_c.clone(), exp_a.clone(), exp_b.clone()];
             sort_orders_by_priority_and_mode(
                 &mut test_orders,
                 None,
-                OrderCommitmentPriority::LockCyclePrice.into(),
+                OrderCommitmentPriority::CyclePrice.into(),
             );
             tails.insert((test_orders[3].request.id, test_orders[4].request.id));
+            if test_orders[3].request.id == exp_a.request.id {
+                exp_a_first_count += 1;
+            }
         }
-        assert!(tails.len() > 1, "Expired orders should be shuffled in LockCyclePrice mode");
+        assert!(tails.len() > 1, "Expired orders should be shuffled in CyclePrice mode");
+        // exp_a has higher collateral (100 vs 40), so should appear first more than half the time
+        assert!(
+            exp_a_first_count > iterations / 2,
+            "Higher collateral order should appear first more often: {} out of {}",
+            exp_a_first_count,
+            iterations
+        );
     }
 }
