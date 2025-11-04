@@ -28,6 +28,10 @@ struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
+    /// Optional URL of the Ethereum RPC endpoint for get_logs calls.
+    /// If not provided, uses the main rpc_url for all operations.
+    #[clap(long, env)]
+    logs_rpc_url: Option<Url>,
     /// Address of the BoundlessMarket contract.
     #[clap(short, long, env)]
     boundless_market_address: Address,
@@ -96,10 +100,13 @@ async fn main() -> Result<()> {
         tx_fetch_strategy,
     };
 
+    let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
+
     let mut indexer_service = if let Some(order_stream_url) = args.order_stream_url {
         tracing::info!("Initializing market indexer with order stream at: {}", order_stream_url);
         IndexerService::new_with_order_stream(
             args.rpc_url.clone(),
+            logs_rpc_url.clone(),
             &PrivateKeySigner::random(),
             args.boundless_market_address,
             &args.db,
@@ -111,6 +118,7 @@ async fn main() -> Result<()> {
         tracing::info!("Initializing market indexer without order stream");
         IndexerService::new(
             args.rpc_url.clone(),
+            logs_rpc_url,
             &PrivateKeySigner::random(),
             args.boundless_market_address,
             &args.db,

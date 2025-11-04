@@ -101,6 +101,8 @@ pub struct IndexerService<P, ANP> {
     // Any network provider enables us to call get_block_receipts for any network, not just Ethereum.
     // E.g. for OP it contains logic to support L1 -> L2 deposit receipts in the response for get_block_receipts.
     pub any_network_provider: ANP,
+    // Provider dedicated to get_logs calls
+    pub logs_provider: P,
     pub db: DbObj,
     pub domain: EIP712DomainSaltless,
     pub config: IndexerServiceConfig,
@@ -136,6 +138,7 @@ pub struct IndexerServiceConfig {
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {
     pub async fn new(
         rpc_url: Url,
+        logs_rpc_url: Url,
         private_key: &PrivateKeySigner,
         boundless_market_address: Address,
         db_conn: &str,
@@ -150,6 +153,10 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             .disable_recommended_fillers()
             .filler(ChainIdFiller::default())
             .connect_http(rpc_url.clone());
+        let logs_provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .connect_http(logs_rpc_url);
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
@@ -176,11 +183,12 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             None
         };
 
-        Ok(Self { boundless_market, provider, any_network_provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client: None, cache_storage, chain_id })
+        Ok(Self { boundless_market, provider, any_network_provider, logs_provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client: None, cache_storage, chain_id })
     }
 
     pub async fn new_with_order_stream(
         rpc_url: Url,
+        logs_rpc_url: Url,
         private_key: &PrivateKeySigner,
         boundless_market_address: Address,
         db_conn: &str,
@@ -196,6 +204,10 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             .disable_recommended_fillers()
             .filler(ChainIdFiller::default())
             .connect_http(rpc_url.clone());
+        let logs_provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .filler(ChainIdFiller::default())
+            .connect_http(logs_rpc_url);
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
         let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
@@ -224,7 +236,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             None
         };
 
-        Ok(Self { boundless_market, any_network_provider, provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client, cache_storage, chain_id })
+        Ok(Self { boundless_market, any_network_provider, provider, logs_provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client, cache_storage, chain_id })
     }
 }
 
@@ -440,7 +452,7 @@ where
             to
         );
 
-        let logs = self.boundless_market.instance().provider().get_logs(&filter).await?;
+        let logs = self.logs_provider.get_logs(&filter).await?;
 
         tracing::debug!(
             "Fetched {} total logs from block {} to block {}",
