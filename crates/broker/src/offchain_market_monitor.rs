@@ -84,9 +84,9 @@ impl OffchainMarketMonitor {
                     match order_data {
                         Some(order_data) => {
                             tracing::info!(
-                                "Detected new order with stream id {:x}, request id: {:x}",
+                                "Detected new off-chain request with request id: 0x{:x} (stream id {:x})",
+                                order_data.order.request.id,
                                 order_data.id,
-                                order_data.order.request.id
                             );
 
                             let new_order = OrderRequest::new(

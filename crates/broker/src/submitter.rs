@@ -130,20 +130,16 @@ where
             provider.clone(),
             provider.default_signer_address(),
         );
-        if let Some(txn_timeout) = txn_timeout_opt {
-            tracing::debug!("Setting market timeout to {}", txn_timeout);
-            market = market.with_timeout(Duration::from_secs(txn_timeout));
-        }
+        tracing::debug!("Setting market timeout to {}", txn_timeout_opt);
+        market = market.with_timeout(Duration::from_secs(txn_timeout_opt));
 
         let mut set_verifier = SetVerifierService::new(
             set_verifier_addr,
             provider.clone(),
             provider.default_signer_address(),
         );
-        if let Some(txn_timeout) = txn_timeout_opt {
-            tracing::debug!("Setting set verifier timeout to {}", txn_timeout);
-            set_verifier = set_verifier.with_timeout(Duration::from_secs(txn_timeout));
-        }
+        tracing::debug!("Setting set verifier timeout to {}", txn_timeout_opt);
+        set_verifier = set_verifier.with_timeout(Duration::from_secs(txn_timeout_opt));
 
         let prover_address = provider.default_signer_address();
 

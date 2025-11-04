@@ -20,7 +20,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .s3_client
         .read_from_s3(&receipt_key)
         .await
-        .context("Failed to download receipt from obj store")?;
+        .context("[BENTO-SNARK-001] Failed to download receipt from obj store")?;
 
     tracing::debug!("performing identity predicate on receipt, {job_id}");
 
@@ -28,17 +28,17 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     let snark_receipt = agent
         .prover
         .as_ref()
-        .context("Missing prover from resolve task")?
+        .context("[BENTO-SNARK-002] Missing prover from resolve task")?
         .compress(&opts, &receipt)
-        .context("groth16 compress failed")?;
+        .context("[BENTO-SNARK-003] groth16 compress failed")?;
 
     if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
-        bail!("failed to create groth16 receipt");
+        bail!("[BENTO-SNARK-004] failed to create groth16 receipt");
     }
 
     receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify compressed snark receipt")?;
+        .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
     tracing::debug!("Uploading snark receipt to S3: {key}");
@@ -47,7 +47,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .s3_client
         .write_to_s3(key, snark_receipt)
         .await
-        .context("Failed to upload final receipt to obj store")?;
+        .context("[BENTO-SNARK-006] Failed to upload final receipt to obj store")?;
 
     Ok(SnarkResp { snark: job_id.to_string() })
 }

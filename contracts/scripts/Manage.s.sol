@@ -221,45 +221,43 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
 
             newImpl = Upgrades.getImplementationAddress(marketAddress);
             console2.log("Upgraded Boundless Market implementation to: ", newImpl);
+
+            // Verify the upgrade
+            BoundlessMarket upgradedMarket = BoundlessMarket(marketAddress);
+            require(
+                upgradedMarket.VERIFIER() == IRiscZeroVerifier(deploymentConfig.verifier),
+                "upgraded market verifier does not match"
+            );
+            (bytes32 assessorId, string memory upgradedGuestUrl) = upgradedMarket.imageInfo();
+            require(assessorId == deploymentConfig.assessorImageId, "upgraded market assessor image ID does not match");
+            require(
+                keccak256(bytes(upgradedGuestUrl)) == keccak256(bytes(deploymentConfig.assessorGuestUrl)),
+                "upgraded market assessor guest URL does not match"
+            );
+            require(
+                upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
+                "upgraded market stake token does not match"
+            );
+            require(
+                upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin2),
+                "upgraded market admin does not match the admin"
+            );
+            address boundlessMarketImpl = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
+            console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
+            console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
+            console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
+            console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
+            console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
+            console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
+            console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
         }
         vm.stopBroadcast();
-
-        // Verify the upgrade
-        BoundlessMarket upgradedMarket = BoundlessMarket(marketAddress);
-        require(
-            upgradedMarket.VERIFIER() == IRiscZeroVerifier(deploymentConfig.verifier),
-            "upgraded market verifier does not match"
-        );
-        (bytes32 assessorId, string memory upgradedGuestUrl) = upgradedMarket.imageInfo();
-        require(assessorId == deploymentConfig.assessorImageId, "upgraded market assessor image ID does not match");
-        require(
-            keccak256(bytes(upgradedGuestUrl)) == keccak256(bytes(deploymentConfig.assessorGuestUrl)),
-            "upgraded market assessor guest URL does not match"
-        );
-        require(
-            upgradedMarket.COLLATERAL_TOKEN_CONTRACT() == deploymentConfig.collateralToken,
-            "upgraded market stake token does not match"
-        );
-        require(
-            upgradedMarket.hasRole(upgradedMarket.ADMIN_ROLE(), deploymentConfig.admin2),
-            "upgraded market admin does not match the admin"
-        );
-
-        address boundlessMarketImpl = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
-
-        console2.log("Upgraded BoundlessMarket admin is %s", deploymentConfig.admin);
-        console2.log("Upgraded BoundlessMarket proxy contract at %s", marketAddress);
-        console2.log("Upgraded BoundlessMarket impl contract at %s", boundlessMarketImpl);
-        console2.log("Upgraded BoundlessMarket collateral token contract at %s", deploymentConfig.collateralToken);
-        console2.log("Upgraded BoundlessMarket verifier contract at %s", deploymentConfig.verifier);
-        console2.log("Upgraded BoundlessMarket assessor image ID %s", Strings.toHexString(uint256(assessorId), 32));
-        console2.log("Upgraded BoundlessMarket assessor guest URL %s", upgradedGuestUrl);
 
         string[] memory args = new string[](6);
         args[0] = "python3";
         args[1] = "contracts/update_deployment_toml.py";
         args[2] = "--boundless-market-impl";
-        args[3] = Strings.toHexString(boundlessMarketImpl);
+        args[3] = Strings.toHexString(newImpl);
         args[4] = "--boundless-market-old-impl";
         args[5] = Strings.toHexString(currentImplementation);
 

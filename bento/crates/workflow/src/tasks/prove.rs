@@ -25,19 +25,19 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         .get::<_, Vec<u8>>(&segment_key)
         .await
         .with_context(|| format!("segment data not found for segment key: {segment_key}"))?;
-    let segment =
-        deserialize_obj(&segment_vec).context("Failed to deserialize segment data from redis")?;
+    let segment = deserialize_obj(&segment_vec)
+        .context("[BENTO-PROVE-001] Failed to deserialize segment data from redis")?;
 
     let segment_receipt = agent
         .prover
         .as_ref()
-        .context("Missing prover from prove task")?
+        .context("[BENTO-PROVE-002] Missing prover from prove task")?
         .prove_segment(&agent.verifier_ctx, &segment)
-        .context("Failed to prove segment")?;
+        .context("[BENTO-PROVE-003] Failed to prove segment")?;
 
     segment_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify segment receipt integrity")?;
+        .context("[BENTO-PROVE-004] Failed to verify segment receipt integrity")?;
 
     tracing::debug!("Completed proof: {job_id} - {index}");
 
@@ -49,13 +49,13 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = agent
             .prover
             .as_ref()
-            .context("Missing prover from resolve task")?
+            .context("[BENTO-PROVE-005] Missing prover from resolve task")?
             .lift_povw(&segment_receipt)
-            .with_context(|| format!("Failed to POVW lift segment {index}"))?;
+            .with_context(|| format!("[BENTO-PROVE-006] Failed to POVW lift segment {index}"))?;
 
         lift_receipt
             .verify_integrity_with_context(&agent.verifier_ctx)
-            .context("Failed to verify lift receipt integrity")?;
+            .context("[BENTO-PROVE-007] Failed to verify lift receipt integrity")?;
 
         tracing::debug!("lifting complete {job_id} - {index}");
 
@@ -68,13 +68,13 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         let lift_receipt: SuccinctReceipt<ReceiptClaim> = agent
             .prover
             .as_ref()
-            .context("Missing prover from resolve task")?
+            .context("[BENTO-PROVE-008] Missing prover from resolve task")?
             .lift(&segment_receipt)
-            .with_context(|| format!("Failed to lift segment {index}"))?;
+            .with_context(|| format!("[BENTO-PROVE-009] Failed to lift segment {index}"))?;
 
         lift_receipt
             .verify_integrity_with_context(&agent.verifier_ctx)
-            .context("Failed to verify lift receipt integrity")?;
+            .context("[BENTO-PROVE-010] Failed to verify lift receipt integrity")?;
 
         tracing::debug!("lifting complete {job_id} - {index}");
 
@@ -83,6 +83,9 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         redis::set_key_with_expiry(&mut conn, &output_key, lift_asset, Some(agent.args.redis_ttl))
             .await?;
     }
+    conn.unlink::<_, ()>(&segment_key)
+        .await
+        .context("[BENTO-PROVE-011] Failed to delete segment key")?;
 
     Ok(())
 }

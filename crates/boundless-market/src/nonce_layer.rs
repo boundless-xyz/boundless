@@ -88,13 +88,16 @@ where
         let semaphore = self.get_account_semaphore(from_address).await;
         let _permit = semaphore.acquire().await.unwrap();
 
-        // Fetch the pending nonce if not already set
+        // Fetch the max between latest and pending nonce if not already set.
+        // We use the max to avoid stale responses from the RPC when querying pending nonce.
         if request.nonce.is_none() {
+            let latest_nonce = self.inner.get_transaction_count(from_address).latest().await?;
             let pending_nonce = self.inner.get_transaction_count(from_address).pending().await?;
-            request.nonce = Some(pending_nonce);
+            let next_nonce = std::cmp::max(latest_nonce, pending_nonce);
+            request.nonce = Some(next_nonce);
             tracing::trace!(
                 "NonceProvider::send_with_nonce_management - set nonce {} for address: {}",
-                pending_nonce,
+                next_nonce,
                 from_address
             );
         }

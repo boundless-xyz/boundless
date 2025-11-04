@@ -28,28 +28,28 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
             || format!("failed to get receipts for keys: {left_path_key}, {right_path_key}"),
         )?;
 
-    let left_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&left_receipt).context("Failed to deserialize left receipt")?;
-    let right_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&right_receipt).context("Failed to deserialize right receipt")?;
+    let left_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&left_receipt)
+        .context("[BENTO-JOIN-001] Failed to deserialize left receipt")?;
+    let right_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&right_receipt)
+        .context("[BENTO-JOIN-002] Failed to deserialize right receipt")?;
 
     left_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify left receipt integrity")?;
+        .context("[BENTO-JOIN-003] Failed to verify left receipt integrity")?;
     right_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify right receipt integrity")?;
+        .context("[BENTO-JOIN-004] Failed to verify right receipt integrity")?;
 
     tracing::trace!("Joining {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
     let joined = agent
         .prover
         .as_ref()
-        .context("Missing prover from join task")?
+        .context("[BENTO-JOIN-005] Missing prover from join task")?
         .join(&left_receipt, &right_receipt)?;
     joined
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify join receipt integrity")?;
+        .context("[BENTO-JOIN-006] Failed to verify join receipt integrity")?;
 
     let join_result = serialize_obj(&joined).expect("Failed to serialize the segment");
     let output_key = format!("{recur_receipts_prefix}:{}", request.idx);
@@ -57,6 +57,10 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
         .await?;
 
     tracing::debug!("Join Complete {job_id} - {}", request.left);
+
+    conn.unlink::<_, ()>(&[&left_path_key, &right_path_key])
+        .await
+        .context("[BENTO-JOIN-007] Failed to delete join receipt keys")?;
 
     Ok(())
 }

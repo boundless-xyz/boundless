@@ -14,8 +14,8 @@
 
 //! Commands within the Boundless CLI
 
-// TODO(victor): Move the main command groups (e.g. prove, request, account) to modules under this
-// one.
-
-pub mod povw;
-pub mod zkc;
+pub mod config_display;
+pub mod prover;
+pub mod requestor;
+pub mod rewards;
+pub mod setup;

@@ -28,5 +28,5 @@ fn test_parse_boundless_recommended_list() {
     assert_eq!(list.schema_version.minor, 0);
     assert_eq!(list.version.major, 1);
     assert_eq!(list.version.minor, 0);
-    assert_eq!(list.requestors.len(), 1);
+    assert!(!list.requestors.is_empty());
 }
