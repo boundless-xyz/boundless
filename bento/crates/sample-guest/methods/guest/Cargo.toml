@@ -8,7 +8,7 @@ edition = "2024"
 [dependencies]
 bytemuck = "1.13"
 # risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable"] }
-risc0-zkvm = { git = "https://github.com/ec2/risc0.git", rev = "cc2e65783859419dcb3ae98cf962f35987ced671", default-features = false, features = [
+risc0-zkvm = { git = "https://github.com/boundless-xyz/risc0.git", rev = "ca25189da495cafdea67b8f00bc435d1ff41a58b", default-features = false, features = [
     "std",
     "unstable",
 ] }
