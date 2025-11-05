@@ -2663,7 +2663,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",
@@ -2681,7 +2681,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-bench"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2709,9 +2709,10 @@ dependencies = [
 
 [[package]]
 name = "boundless-cli"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
+ "alloy-node-bindings",
  "anyhow",
  "assert_cmd",
  "assert_fs",
@@ -2724,13 +2725,18 @@ dependencies = [
  "boundless-rewards",
  "boundless-test-utils",
  "boundless-zkc",
+ "broker",
  "bytemuck",
  "chrono",
  "clap",
  "clap_complete",
+ "colored",
+ "dirs 5.0.1",
  "futures",
  "hex",
+ "inquire",
  "libc",
+ "num_cpus",
  "num_enum",
  "order-stream",
  "predicates",
@@ -2750,6 +2756,9 @@ dependencies = [
  "tempfile",
  "test-log",
  "tokio",
+ "tokio-test",
+ "toml 0.8.23",
+ "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber 0.3.20",
  "tracing-test",
@@ -2758,7 +2767,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-distributor"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2778,7 +2787,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-indexer"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2790,6 +2799,7 @@ dependencies = [
  "boundless-rewards",
  "boundless-test-utils",
  "boundless-zkc",
+ "broker",
  "chrono",
  "clap",
  "futures-util",
@@ -2811,7 +2821,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2856,7 +2866,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2876,7 +2886,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-povw"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2909,7 +2919,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-rewards"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2924,7 +2934,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2932,6 +2942,7 @@ dependencies = [
  "boundless-cli",
  "boundless-market",
  "boundless-test-utils",
+ "broker",
  "clap",
  "futures-util",
  "hex",
@@ -2948,7 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",
@@ -2983,7 +2994,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3003,7 +3014,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3067,7 +3078,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -3457,6 +3468,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "colored"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
+dependencies = [
+ "lazy_static",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3686,6 +3707,31 @@ name = "crossbeam-utils"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
+
+[[package]]
+name = "crossterm"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e64e6c0fbe2c17357405f7c758c1ef960fce08bdfb2c03d88d2a18d7e09c4b67"
+dependencies = [
+ "bitflags 1.3.2",
+ "crossterm_winapi",
+ "libc",
+ "mio 0.8.11",
+ "parking_lot 0.12.4",
+ "signal-hook",
+ "signal-hook-mio",
+ "winapi",
+]
+
+[[package]]
+name = "crossterm_winapi"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acdd7c62a3665c7f6830a51635d9ac9b23ed385797f70a83bb8bafe9c572ab2b"
+dependencies = [
+ "winapi",
+]
 
 [[package]]
 name = "crunchy"
@@ -4081,7 +4127,16 @@ version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.5.0",
+]
+
+[[package]]
+name = "dirs"
+version = "5.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
+dependencies = [
+ "dirs-sys 0.4.1",
 ]
 
 [[package]]
@@ -4090,7 +4145,7 @@ version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.5.0",
 ]
 
 [[package]]
@@ -4101,6 +4156,18 @@ checksum = "b98cf8ebf19c3d1b223e151f99a4f9f0690dca41414773390fc824184ac833e1"
 dependencies = [
  "cfg-if",
  "dirs-sys-next",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users 0.4.6",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -4145,7 +4212,7 @@ checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
 name = "doc-test"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",
@@ -4899,6 +4966,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
+name = "fuzzy-matcher"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54614a3312934d066701a80f20f15fa3b56d67ac7722b39eea5b4c9dd1d66c94"
+dependencies = [
+ "thread_local",
+]
+
+[[package]]
+name = "fxhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "gdbstub"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5075,7 +5160,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5093,7 +5178,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5747,7 +5832,7 @@ checksum = "4ee796ad498c8d9a1d68e477df8f754ed784ef875de1414ebdaf169f70a6a784"
 
 [[package]]
 name = "indexer-api"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5778,7 +5863,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-monitor"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5849,6 +5934,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "inquire"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fddf93031af70e75410a2511ec04d49e758ed2f26dad3404a934e0fb45cc12a"
+dependencies = [
+ "bitflags 2.9.4",
+ "crossterm",
+ "dyn-clone",
+ "fuzzy-matcher",
+ "fxhash",
+ "newline-converter",
+ "once_cell",
+ "unicode-segmentation",
+ "unicode-width 0.1.14",
 ]
 
 [[package]]
@@ -6823,6 +6925,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "newline-converter"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47b6b097ecb1cbfed438542d16e84fd7ad9b0c76c8a65b7f9039212a3d14dc7f"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "no_std_strings"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7208,7 +7319,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -8180,7 +8291,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "requestor-lists"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "reqwest",
@@ -8569,7 +8680,7 @@ dependencies = [
  "anyhow",
  "cargo_metadata",
  "derive_builder",
- "dirs",
+ "dirs 6.0.0",
  "docker-generate",
  "hex",
  "risc0-binfmt",
@@ -9856,6 +9967,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-mio"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
+dependencies = [
+ "libc",
+ "mio 0.8.11",
+ "signal-hook",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10697,6 +10829,19 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "tokio-test"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures-core",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

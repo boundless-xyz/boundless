@@ -1,5 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
-import { LaunchBasePipeline, LaunchPipelineConfig } from "./l-base";
+import { LaunchDefaultPipeline, LaunchPipelineConfig } from "./l-base";
 import { BasePipelineArgs } from "./base";
 
 interface LProverPipelineArgs extends BasePipelineArgs { }
@@ -30,7 +30,7 @@ const config: LaunchPipelineConfig = {
   ]
 };
 
-export class LProverPipeline extends LaunchBasePipeline {
+export class LProverPipeline extends LaunchDefaultPipeline {
   constructor(name: string, args: LProverPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
     super(`boundless:pipelines:l-proverPipeline`, name, config, args, opts);
   }

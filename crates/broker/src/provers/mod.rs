@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,6 +103,33 @@ pub struct ProofResult {
 /// Encode inputs for Prover::upload_slice()
 pub fn encode_input(input: &impl serde::Serialize) -> Result<Vec<u8>, anyhow::Error> {
     Ok(GuestEnv::builder().write(input)?.stdin)
+}
+
+/// Verify a Groth16 compressed receipt
+///
+/// This helper fetches the compressed receipt, deserializes it, and verifies its integrity.
+/// Used by both aggregator and proving services to validate Groth16 proofs before submission.
+pub(crate) async fn verify_groth16_receipt(
+    prover: &ProverObj,
+    proof_id: &str,
+) -> Result<(), ProverError> {
+    tracing::trace!("Verifying Groth16 receipt locally for proof_id: {proof_id}");
+
+    let receipt_bytes = prover
+        .get_compressed_receipt(proof_id)
+        .await?
+        .ok_or_else(|| ProverError::NotFound(format!("Groth16 receipt not found: {proof_id}")))?;
+
+    let receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
+        ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
+    })?;
+
+    receipt.verify_integrity_with_context(&Default::default()).map_err(|e| {
+        ProverError::ProverInternalError(format!("Groth16 verification failed: {e}"))
+    })?;
+
+    tracing::debug!("Groth16 verification passed for proof_id: {proof_id}");
+    Ok(())
 }
 
 #[async_trait]

@@ -1,7 +1,7 @@
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFOcFJCvMT28oLfkp4sh8o4AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMgyWx4oZKLBsfdMb3AgEQgDttrAKl4dgLv7aEB+wk0pcurQyT6uGSNg6ESJ76JygyQInWiCilDGvxSGw0XPuqFQ1I35PRxoO6AYuixA==
 config:
-  prover-cluster:boundlessAmiName: "boundless-v1.0.1-ubuntu-24.04-nvidia-*"
+  prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu*"
   base:BASE_STACK: organization/bootstrap/services-staging
   prover-cluster:environment: staging
   prover-cluster:managerInstanceType: t3a.2xlarge
@@ -27,3 +27,5 @@ config:
   prover-cluster:setVerifierAddress: "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
   prover-cluster:boundlessMarketAddress: "0xc211b581cB62e3a6D396A592Bab34979E1bBBA7D"
   prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
+  prover-cluster:apiKey:
+    secure: v1:FyNeOBaCcx4NK4kW:AHX2im2Tb1TlkNJ2aQOtlhG5/8JdImlcbNU49JA4RwLWcYL1Hz9mSKNdQwuCo+bVlgtn2YJjCyLcbMw=

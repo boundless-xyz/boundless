@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,6 +103,14 @@ pub(crate) async fn websocket_handler(
             (StatusCode::UNAUTHORIZED, format!("Authentication error: {err:?}")).into_response()
         );
     }
+
+    // Parse message to log version and git hash
+    let version_info = auth_msg.version_info();
+    tracing::info!(
+        "Client {client_addr} connected with version: {}, git hash: {}",
+        version_info.version,
+        version_info.git_hash
+    );
 
     // Rotate the customer nonce
     state.db.set_nonce(client_addr).await.context("Failed to update customer nonce")?;

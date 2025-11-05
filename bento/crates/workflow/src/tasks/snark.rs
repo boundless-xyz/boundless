@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -20,7 +20,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .s3_client
         .read_from_s3(&receipt_key)
         .await
-        .context("Failed to download receipt from obj store")?;
+        .context("[BENTO-SNARK-001] Failed to download receipt from obj store")?;
 
     tracing::debug!("performing identity predicate on receipt, {job_id}");
 
@@ -63,19 +63,22 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
             )
         }
     };
-
     if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
-        bail!("failed to create groth16 receipt");
+        bail!("[BENTO-SNARK-004] failed to create groth16 receipt");
     }
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{bucket_dir}/{job_id}.bincode");
+    // receipt
+    //     .verify_integrity_with_context(&agent.verifier_ctx)
+    //     .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
+
     tracing::debug!("Uploading snark receipt to S3: {key}");
 
     agent
         .s3_client
         .write_to_s3(key, snark_receipt)
         .await
-        .context("Failed to upload final receipt to obj store")?;
+        .context("[BENTO-SNARK-006] Failed to upload final receipt to obj store")?;
 
     Ok(SnarkResp { snark: job_id.to_string() })
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -95,27 +95,60 @@ impl AggregatorService {
         })
     }
 
+    async fn validate_and_extract_claim(&self, proof_id: &str) -> Result<ReceiptClaim> {
+        let receipt = self
+            .prover
+            .get_receipt(proof_id)
+            .await
+            .with_context(|| format!("Failed to fetch receipt for {proof_id}"))?
+            .with_context(|| format!("Receipt not found for {proof_id}"))?;
+
+        receipt
+            .verify_integrity_with_context(&Default::default())
+            .with_context(|| format!("Receipt verification failed for {proof_id}"))?;
+
+        let claim = receipt
+            .claim()
+            .with_context(|| format!("Failed to get claim for {proof_id}"))?
+            .value()
+            .with_context(|| format!("Failed to extract claim value for {proof_id}"))?;
+
+        Ok(claim)
+    }
+
     async fn prove_set_builder(
         &self,
         aggregation_state: Option<&AggregationState>,
         proofs: &[String],
         finalize: bool,
     ) -> Result<AggregationState> {
-        // TODO(#268): Handle failure to get an individual order.
         let mut claims = Vec::<ReceiptClaim>::with_capacity(proofs.len());
+        let mut valid_proof_ids = Vec::<String>::with_capacity(proofs.len());
+
+        // Verify each proof and collect only valid ones
         for proof_id in proofs {
-            let receipt = self
-                .prover
-                .get_receipt(proof_id)
-                .await
-                .with_context(|| format!("Failed to get proof receipt for {proof_id}"))?
-                .with_context(|| format!("Proof receipt not found for {proof_id}"))?;
-            let claim = receipt
-                .claim()
-                .with_context(|| format!("Receipt for {proof_id} missing claim"))?
-                .value()
-                .with_context(|| format!("Receipt for {proof_id} claims pruned"))?;
-            claims.push(claim);
+            match self.validate_and_extract_claim(proof_id).await {
+                Ok(claim) => {
+                    claims.push(claim);
+                    valid_proof_ids.push(proof_id.clone());
+                }
+                Err(e) => {
+                    tracing::error!("Error fetching proof from batch: {e:?}, excluding");
+                }
+            }
+        }
+
+        if claims.is_empty() {
+            anyhow::bail!("No valid proofs found in batch");
+        }
+
+        if valid_proof_ids.len() < proofs.len() {
+            tracing::warn!(
+                "Excluded {} invalid proofs from batch. Valid: {}/{}",
+                proofs.len() - valid_proof_ids.len(),
+                valid_proof_ids.len(),
+                proofs.len()
+            );
         }
 
         let input = aggregation_state
@@ -128,7 +161,7 @@ impl AggregatorService {
         let assumption_ids: Vec<String> = aggregation_state
             .map(|s| s.proof_id.clone())
             .into_iter()
-            .chain(proofs.iter().cloned())
+            .chain(valid_proof_ids.iter().cloned())
             .collect();
 
         let input_data =
@@ -145,29 +178,66 @@ impl AggregatorService {
         // TODO: Need to set a timeout here to handle stuck or even just alert on delayed proving if
         // the proving cluster is overloaded
 
-        tracing::debug!("Starting proving of set-builder");
-        let proof_res = self
-            .prover
-            .prove_and_monitor_stark(
-                &self.set_builder_guest_id.to_string(),
-                &input_id,
-                assumption_ids,
-            )
-            .await
-            .context("Failed to prove set-builder")?;
-        tracing::debug!(
-            "Set-builder proof complete, proof id: {} cycles: {} time: {}",
-            proof_res.id,
-            proof_res.stats.total_cycles,
-            proof_res.elapsed_time
-        );
+        let (retry_count, sleep_ms) = {
+            let config = self.config.lock_all().context("Failed to lock config")?;
+            (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
+        };
 
-        let journal = self
-            .prover
-            .get_journal(&proof_res.id)
-            .await
-            .with_context(|| format!("Failed to get set-builder journal from {}", proof_res.id))?
-            .with_context(|| format!("set-builder journal missing from {}", proof_res.id))?;
+        tracing::debug!("Starting proving of set-builder");
+        let (proof_res, journal) = retry(
+            retry_count,
+            sleep_ms,
+            || async {
+                let proof_res = self
+                    .prover
+                    .prove_and_monitor_stark(
+                        &self.set_builder_guest_id.to_string(),
+                        &input_id,
+                        assumption_ids.clone(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        provers::ProverError::ProverInternalError(format!(
+                            "Failed to prove set-builder: {e}"
+                        ))
+                    })?;
+
+                tracing::debug!(
+                    "Set-builder proof complete, proof id: {} cycles: {} time: {}",
+                    proof_res.id,
+                    proof_res.stats.total_cycles,
+                    proof_res.elapsed_time
+                );
+
+                let receipt = self
+                    .prover
+                    .get_receipt(&proof_res.id)
+                    .await
+                    .map_err(|e| {
+                        provers::ProverError::ProverInternalError(format!(
+                            "Failed to get receipt for set-builder: {e}"
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        provers::ProverError::NotFound(format!(
+                            "Receipt missing for set-builder: {}",
+                            proof_res.id
+                        ))
+                    })?;
+
+                receipt.verify(self.set_builder_guest_id).map_err(|e| {
+                    provers::ProverError::ProverInternalError(format!(
+                        "Set builder proof produced invalid receipt: {e}"
+                    ))
+                })?;
+
+                let journal = receipt.journal.bytes;
+
+                Ok::<_, provers::ProverError>((proof_res, journal))
+            },
+            "set_builder_prove_and_get_journal",
+        )
+        .await?;
 
         let guest_state = GuestState::decode(&journal).context("Failed to decode guest output")?;
         let claim_digests = aggregation_state
@@ -316,17 +386,16 @@ impl AggregatorService {
         };
 
         // Check that the min batch size is not greater than the max concurrent proofs
-        let conf_batch_size = match (conf_batch_size, conf_max_concurrent_proofs) {
-            (Some(batch_size), Some(max_concurrent)) if batch_size > max_concurrent => {
-                tracing::warn!(
-                    "Configured min_batch_size ({}) exceeds max_concurrent_proofs ({}). \
-                     Setting min_batch_size to max_concurrent_proofs.",
-                    batch_size,
-                    max_concurrent
-                );
-                Some(max_concurrent)
-            }
-            (batch_size, _) => batch_size,
+        let conf_batch_size = if conf_batch_size > conf_max_concurrent_proofs {
+            tracing::warn!(
+                "Configured min_batch_size ({}) exceeds max_concurrent_proofs ({}). \
+                 Setting min_batch_size to max_concurrent_proofs.",
+                conf_batch_size,
+                conf_max_concurrent_proofs
+            );
+            conf_max_concurrent_proofs
+        } else {
+            conf_batch_size
         };
 
         // Skip finalization checks if we have nothing in this batch
@@ -339,21 +408,19 @@ impl AggregatorService {
         // Finalize the batch whenever it exceeds a target size.
         // Add any pending jobs into the batch along with the finalization run.
         let batch_size = batch.orders.len() + pending_orders.len();
-        if let Some(batch_target_size) = conf_batch_size {
-            if batch_size >= batch_target_size as usize {
-                tracing::debug!(
-                    "Finalizing batch {batch_id}: size target hit {} - {}",
-                    batch_size,
-                    batch_target_size
-                );
-                return Ok(true);
-            } else {
-                tracing::debug!(
-                    "Batch {batch_id} below size target hit {} - {}",
-                    batch_size,
-                    batch_target_size
-                );
-            }
+        if batch_size >= conf_batch_size as usize {
+            tracing::debug!(
+                "Finalizing batch {batch_id}: size target hit {} - {}",
+                batch_size,
+                conf_batch_size
+            );
+            return Ok(true);
+        } else {
+            tracing::debug!(
+                "Batch {batch_id} below size target hit {} - {}",
+                batch_size,
+                conf_batch_size
+            );
         }
 
         // Finalize the batch if the journal size is already above the max
@@ -377,18 +444,16 @@ impl AggregatorService {
         }
 
         // Finalize the batch whenever the current batch exceeds a certain age (e.g. one hour).
-        if let Some(batch_time) = conf_batch_time {
-            let time_delta = Utc::now() - batch.start_time;
-            if time_delta.num_seconds() as u64 >= batch_time {
-                tracing::debug!(
-                    "Finalizing batch {batch_id}: time limit hit {} - {}",
-                    time_delta.num_seconds(),
-                    batch.start_time
-                );
-                return Ok(true);
-            } else {
-                tracing::debug!("Batch {batch_id} below time limit");
-            }
+        let time_delta = Utc::now() - batch.start_time;
+        if time_delta.num_seconds() as u64 >= conf_batch_time {
+            tracing::debug!(
+                "Finalizing batch {batch_id}: time limit hit {} - {}",
+                time_delta.num_seconds(),
+                batch.start_time
+            );
+            return Ok(true);
+        } else {
+            tracing::debug!("Batch {batch_id} below time limit");
         }
 
         // Finalize whenever a batch hits the target fee total.
@@ -616,8 +681,12 @@ impl AggregatorService {
             let compress_proof_id = match retry(
                 retry_count,
                 sleep_ms,
-                || async { self.prover.compress(&aggregation_proof_id).await },
-                "compress",
+                || async {
+                    let proof_id = self.prover.compress(&aggregation_proof_id).await?;
+                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                    Ok::<String, provers::ProverError>(proof_id)
+                },
+                "compress_and_verify",
             )
             .await
             {
@@ -721,7 +790,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
         }
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
@@ -879,7 +948,8 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
+            config.market.max_concurrent_proofs = 2;
         }
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
@@ -1052,7 +1122,7 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
             config.batcher.batch_max_fees = Some("0.1".into());
         }
 
@@ -1160,7 +1230,8 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(2);
+            config.batcher.min_batch_size = 2;
+            config.market.max_concurrent_proofs = 2;
             config.batcher.block_deadline_buffer_secs = 100;
         }
 
@@ -1275,7 +1346,8 @@ mod tests {
         let config = ConfigLock::default();
         {
             let mut config = config.load_write().unwrap();
-            config.batcher.min_batch_size = Some(10);
+            config.batcher.min_batch_size = 10;
+            config.market.max_concurrent_proofs = 10;
             // set config such that the batch max journal size is exceeded
             // if two ECHO sized journals are included in a batch
             config.market.max_journal_bytes = 20;

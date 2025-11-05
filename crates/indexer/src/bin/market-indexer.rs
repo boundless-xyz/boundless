@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ struct MainArgs {
     #[clap(long)]
     start_block: Option<u64>,
     /// Interval in seconds between checking for new events.
-    #[clap(long, default_value = "5")]
+    #[clap(long, default_value = "3")]
     interval: u64,
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]

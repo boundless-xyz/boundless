@@ -35,6 +35,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       // to avoid adding the cert to the load balancer before the cert is ready.
       disableCert: boolean;
       boundlessAlertsTopicArns?: string[];
+      premiumApiKey?: pulumi.Output<string>;
+      standardRateLimit: number;
+      premiumRateLimit: number;
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -58,6 +61,9 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       bypassAddrs,
       boundlessAlertsTopicArns,
       disableCert,
+      premiumApiKey,
+      standardRateLimit,
+      premiumRateLimit,
     } = args;
 
     const stackName = pulumi.getStack();
@@ -248,7 +254,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
 
     const rds = new aws.rds.Instance(`${serviceName}-rds`, {
       engine: 'postgres',
-      engineVersion: '17.2',
+      engineVersion: '17.4',
       identifier: `${serviceName}-rds`,
       dbName: rdsDbName,
       username: rdsUser,
@@ -265,6 +271,137 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       storageType: 'gp3',
     }, { protect: isStaging ? false : true });
 
+    // Build WAF rules with tiered rate limiting
+    const wafRules: aws.types.input.wafv2.WebAclRule[] = [
+      // IP Reputation - AWS managed
+      {
+        name: 'ip-rep',
+        priority: 0,
+        statement: {
+          managedRuleGroupStatement: {
+            name: 'AWSManagedRulesAmazonIpReputationList',
+            vendorName: 'AWS',
+          },
+        },
+        overrideAction: {
+          none: {},
+        },
+        visibilityConfig: {
+          cloudwatchMetricsEnabled: true,
+          metricName: 'ip-rep-rule',
+          sampledRequestsEnabled: true,
+        },
+      },
+    ];
+
+    // Premium rate limit rule (only if API key is configured)
+    if (premiumApiKey) {
+      wafRules.push({
+        name: 'premium-rate-limit',
+        priority: 1,
+        action: {
+          block: {
+            customResponse: {
+              responseCode: 429,
+              customResponseBodyKey: 'rate-limit-body',
+              responseHeaders: [
+                {
+                  name: 'Retry-After',
+                  value: '60',
+                },
+              ],
+            },
+          },
+        },
+        statement: {
+          rateBasedStatement: {
+            aggregateKeyType: 'IP',
+            limit: premiumRateLimit,
+            evaluationWindowSec: 300,
+            scopeDownStatement: {
+              byteMatchStatement: {
+                searchString: premiumApiKey,
+                fieldToMatch: {
+                  singleHeader: {
+                    name: 'x-api-key',
+                  },
+                },
+                textTransformations: [
+                  {
+                    priority: 0,
+                    type: 'NONE',
+                  },
+                ],
+                positionalConstraint: 'EXACTLY',
+              },
+            },
+          },
+        },
+        visibilityConfig: {
+          cloudwatchMetricsEnabled: true,
+          metricName: 'premium-rate-limit-rule',
+          sampledRequestsEnabled: true,
+        },
+      });
+    }
+
+    // Standard rate limit rule (for users without API key or with invalid key)
+    wafRules.push({
+      name: 'standard-rate-limit',
+      priority: premiumApiKey ? 2 : 1,
+      action: {
+        block: {
+          customResponse: {
+            responseCode: 429,
+            customResponseBodyKey: 'rate-limit-body',
+            responseHeaders: [
+              {
+                name: 'Retry-After',
+                value: '60',
+              },
+            ],
+          },
+        },
+      },
+      statement: {
+        rateBasedStatement: {
+          aggregateKeyType: 'IP',
+          limit: standardRateLimit,
+          evaluationWindowSec: 300,
+          scopeDownStatement: premiumApiKey
+            ? {
+              notStatement: {
+                statements: [
+                  {
+                    byteMatchStatement: {
+                      searchString: premiumApiKey,
+                      fieldToMatch: {
+                        singleHeader: {
+                          name: 'x-api-key',
+                        },
+                      },
+                      textTransformations: [
+                        {
+                          priority: 0,
+                          type: 'NONE',
+                        },
+                      ],
+                      positionalConstraint: 'EXACTLY',
+                    },
+                  },
+                ],
+              },
+            }
+            : undefined,
+        },
+      },
+      visibilityConfig: {
+        cloudwatchMetricsEnabled: true,
+        metricName: 'standard-rate-limit-rule',
+        sampledRequestsEnabled: true,
+      },
+    });
+
     const webAcl = new aws.wafv2.WebAcl(`${serviceName}-acl`, {
       defaultAction: {
         allow: {},
@@ -278,79 +415,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
           contentType: 'APPLICATION_JSON',
         },
       ],
-      rules: [
-        // IP Reputation - AWS managed
-        {
-          name: 'ip-rep',
-          priority: 1,
-          statement: {
-            managedRuleGroupStatement: {
-              name: 'AWSManagedRulesAmazonIpReputationList',
-              vendorName: 'AWS',
-            },
-          },
-          overrideAction: {
-            none: {},
-          },
-          visibilityConfig: {
-            cloudwatchMetricsEnabled: true,
-            metricName: 'ip-rep-rule',
-            sampledRequestsEnabled: true,
-          },
-        },
-        // Rate limiter by IP
-        {
-          name: 'rate-limit',
-          priority: 2,
-          action: {
-            block: {
-              customResponse: {
-                responseCode: 429,
-                customResponseBodyKey: 'rate-limit-body',
-                responseHeaders: [
-                  {
-                    name: 'Retry-After',
-                    value: '60',
-                  },
-                ],
-              },
-            },
-          },
-          statement: {
-            rateBasedStatement: {
-              aggregateKeyType: 'IP',
-              limit: 500,
-              evaluationWindowSec: 300,
-              scopeDownStatement: {
-                notStatement: {
-                  statements: [
-                    {
-                      byteMatchStatement: {
-                        searchString: '/api/v1/health',
-                        fieldToMatch: {
-                          uriPath: {},
-                        },
-                        textTransformations: [
-                          {
-                            priority: 0,
-                            type: 'NONE',
-                          },
-                        ],
-                        positionalConstraint: 'EXACTLY',
-                      },
-                    },
-                  ],
-                },
-              },
-            },
-          },
-          visibilityConfig: {
-            cloudwatchMetricsEnabled: true,
-            metricName: 'rate-limit-rule',
-            sampledRequestsEnabled: true,
-          },
-        },
-      ],
+      rules: wafRules,
       scope: 'REGIONAL',
       visibilityConfig: {
         cloudwatchMetricsEnabled: true,

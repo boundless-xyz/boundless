@@ -14,7 +14,8 @@ variable "aws_region" {
 
 variable "instance_type" {
   type    = string
-  default = "c7a.4xlarge"
+  default = "c7a.8xlarge"  # Increased for CUDA builds
+  description = "EC2 instance type for building the AMI"
 }
 
 variable "service_account_ids" {
@@ -42,10 +43,16 @@ source "amazon-ebs" "boundless" {
   }
   ssh_username = "ubuntu"
 
+  # Increase wait time for AMI to be ready
+  aws_polling {
+    delay_seconds = 30
+    max_attempts  = 1200
+  }
+
   # Increase root volume size to 100GB
   launch_block_device_mappings {
     device_name = "/dev/sda1"
-    volume_size = 40
+    volume_size = 100
     volume_type = "gp3"
     delete_on_termination = true
   }
@@ -67,6 +74,11 @@ build {
   provisioner "file" {
     source = "./config_files/vector.yaml"
     destination = "/tmp/vector.yaml"
+  }
+
+  provisioner "file" {
+    source = "./config_files/cloudwatch-agent.json"
+    destination = "/tmp/cloudwatch-agent.json"
   }
 
   # Copy service files first

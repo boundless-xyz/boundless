@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,12 +24,16 @@ pub use alloy_chains::NamedChain;
 // NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
 #[non_exhaustive]
 #[derive(Clone, Debug, Builder, Args)]
-#[group(requires = "boundless_market_address", requires = "set_verifier_address")]
+#[group(
+    id = "market_deployment",
+    requires = "boundless_market_address",
+    requires = "set_verifier_address"
+)]
 pub struct Deployment {
     /// EIP-155 chain ID of the network.
-    #[clap(long, env)]
+    #[clap(long = "market-chain-id", env = "MARKET_CHAIN_ID")]
     #[builder(setter(into, strip_option), default)]
-    pub chain_id: Option<u64>,
+    pub market_chain_id: Option<u64>,
 
     /// Address of the [BoundlessMarket] contract.
     ///
@@ -73,6 +77,12 @@ pub struct Deployment {
     #[clap(long, env, long_help = "URL for the offchain order stream service")]
     #[builder(setter(into, strip_option), default)]
     pub order_stream_url: Option<Cow<'static, str>>,
+
+    /// Block number when the BoundlessMarket contract was deployed.
+    /// Used as a starting point for event queries.
+    #[clap(skip)]
+    #[builder(setter(strip_option), default)]
+    pub deployment_block: Option<u64>,
 }
 
 impl Deployment {
@@ -100,39 +110,42 @@ impl Deployment {
     /// Check if the collateral token supports permit.
     /// Some chain's bridged tokens do not support permit, for example Base.
     pub fn collateral_token_supports_permit(&self) -> bool {
-        collateral_token_supports_permit(self.chain_id.unwrap())
+        self.market_chain_id.map(collateral_token_supports_permit).unwrap_or(false)
     }
 }
 
 // TODO(#654): Ensure consistency with deployment.toml and with docs
 /// [Deployment] for the Sepolia testnet.
 pub const SEPOLIA: Deployment = Deployment {
-    chain_id: Some(NamedChain::Sepolia as u64),
+    market_chain_id: Some(NamedChain::Sepolia as u64),
     boundless_market_address: address!("0xc211b581cb62e3a6d396a592bab34979e1bbba7d"),
     verifier_router_address: Some(address!("0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187")),
     set_verifier_address: address!("0xcb9D14347b1e816831ECeE46EC199144F360B55c"),
     collateral_token_address: Some(address!("0xb4FC69A452D09D2662BD8C3B5BB756902260aE28")),
     order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.boundless.network")),
+    deployment_block: None,
 };
 
 /// [Deployment] for the Base mainnet.
 pub const BASE: Deployment = Deployment {
-    chain_id: Some(NamedChain::Base as u64),
+    market_chain_id: Some(NamedChain::Base as u64),
     boundless_market_address: address!("0xfd152dadc5183870710fe54f939eae3ab9f0fe82"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
     collateral_token_address: Some(address!("0xAA61bB7777bD01B684347961918f1E07fBbCe7CF")),
     order_stream_url: Some(Cow::Borrowed("https://base-mainnet.boundless.network")),
+    deployment_block: Some(35060420),
 };
 
 /// [Deployment] for the Base Sepolia.
 pub const BASE_SEPOLIA: Deployment = Deployment {
-    chain_id: Some(NamedChain::BaseSepolia as u64),
+    market_chain_id: Some(NamedChain::BaseSepolia as u64),
     boundless_market_address: address!("0x56da3786061c82214d18e634d2817e86ad42d7ce"),
     verifier_router_address: Some(address!("0x0b144e07a0826182b6b59788c34b32bfa86fb711")),
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
     collateral_token_address: Some(address!("0x8d4dA4b7938471A919B08F941461b2ed1679d7bb")),
     order_stream_url: Some(Cow::Borrowed("https://base-sepolia.boundless.network")),
+    deployment_block: Some(30570944),
 };
 
 /// Check if the collateral token supports permit.
