@@ -36,7 +36,7 @@ use axum::{
 use boundless_market::order_stream_client::OrderData;
 use boundless_market::order_stream_client::{
     AuthMsg, ErrMsg, Order, OrderError, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
-    ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
+    ORDER_LIST_PATH_V2, ORDER_SUBMISSION_PATH, ORDER_WS_PATH,
 };
 use clap::Parser;
 use reqwest::Url;
@@ -56,7 +56,8 @@ mod ws;
 
 use api::{
     __path_find_orders_by_request_id, __path_get_nonce, __path_health, __path_list_orders,
-    __path_submit_order, find_orders_by_request_id, get_nonce, health, list_orders, submit_order,
+    __path_list_orders_v2, __path_submit_order, find_orders_by_request_id, get_nonce, health,
+    list_orders, list_orders_v2, submit_order,
 };
 use order_db::OrderDb;
 use ws::{__path_websocket_handler, start_broadcast_task, websocket_handler, ConnectionsMap};
@@ -424,6 +425,7 @@ const MAX_ORDER_SIZE: usize = 100 * 1024; // 100 KiB
     paths(
         submit_order,
         list_orders,
+        list_orders_v2,
         find_orders_by_request_id,
         get_nonce,
         health,
@@ -447,6 +449,7 @@ pub fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route(ORDER_SUBMISSION_PATH, post(submit_order).layer(body_size_limit))
         .route(ORDER_LIST_PATH, get(list_orders))
+        .route(ORDER_LIST_PATH_V2, get(list_orders_v2))
         .route(&format!("{ORDER_LIST_PATH}/{{request_id}}"), get(find_orders_by_request_id))
         .route(&format!("{AUTH_GET_NONCE}{{addr}}"), get(get_nonce))
         .route(ORDER_WS_PATH, get(websocket_handler))
@@ -540,6 +543,7 @@ mod tests {
         order_stream_client::{order_stream, OrderStreamClient},
     };
     use boundless_test_utils::market::{create_test_ctx, TestCtx};
+    use sqlx::types::chrono::Utc;
 
     use futures_util::StreamExt;
     use reqwest::Url;
@@ -637,6 +641,45 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Comprehensive test helper that sets up server, client, and test environment
+    async fn setup_server_and_client(
+        pool: PgPool,
+    ) -> (
+        OrderStreamClient,
+        Arc<AppState>,
+        TestCtx<impl Provider + WalletProvider + Clone + 'static>,
+        AnvilInstance,
+        JoinHandle<Result<()>>,
+        SocketAddr,
+    ) {
+        // Create listener
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Setup test environment with 20 second ping time
+        let (app_state, ctx, anvil) = setup_test_env(pool, 20, Some(&listener)).await;
+
+        // Create client
+        let client = OrderStreamClient::new(
+            Url::parse(&format!("http://{addr}")).unwrap(),
+            app_state.config.market_address,
+            app_state.chain_id,
+        );
+
+        // Spawn server (clone app_state so we can return it)
+        let app_state_clone = app_state.clone();
+        let server_handle = tokio::spawn(async move {
+            self::run_from_parts(app_state_clone, listener).await
+        });
+
+        // Wait for health
+        wait_for_server_health(&client, &addr, 5).await;
+
+        (client, app_state, ctx, anvil, server_handle, addr)
     }
 
     #[sqlx::test]
@@ -817,24 +860,8 @@ mod tests {
 
     #[sqlx::test]
     async fn test_list_orders_with_sort(pool: PgPool) {
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
-            .await
-            .unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        let (app_state, ctx, _anvil) = setup_test_env(pool, 20, Some(&listener)).await;
-
-        let client = OrderStreamClient::new(
-            Url::parse(&format!("http://{addr}")).unwrap(),
-            app_state.config.market_address,
-            app_state.chain_id,
-        );
-
-        let server_handle = tokio::spawn(async move {
-            self::run_from_parts(app_state, listener).await.unwrap();
-        });
-
-        wait_for_server_health(&client, &addr, 5).await;
+        let (client, _app_state, ctx, _anvil, server_handle, addr) =
+            setup_server_and_client(pool).await;
 
         let order1 = client
             .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
@@ -883,6 +910,291 @@ mod tests {
         let orders_after: Vec<OrderData> = response_after.json().await.unwrap();
         assert_eq!(orders_after.len(), 1);
         assert_eq!(orders_after[0].order.request.id, order3.request.id);
+
+        server_handle.abort();
+    }
+
+    #[sqlx::test]
+    async fn test_list_orders_v2_cursor_pagination(pool: PgPool) {
+        use boundless_market::order_stream_client::SortDirection;
+
+        let (client, _app_state, ctx, _anvil, server_handle, _addr) =
+            setup_server_and_client(pool).await;
+
+        let order1 = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order2 = client
+            .submit_request(&new_request(2, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order3 = client
+            .submit_request(&new_request(3, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        let first_page = client
+            .list_orders_v2(None, Some(2), Some(SortDirection::Desc), None, None)
+            .await
+            .unwrap();
+        assert_eq!(first_page.orders.len(), 2);
+        assert_eq!(first_page.orders[0].order.request.id, order3.request.id);
+        assert_eq!(first_page.orders[1].order.request.id, order2.request.id);
+        assert!(first_page.orders[0].created_at > first_page.orders[1].created_at);
+        assert!(first_page.has_more);
+        assert!(first_page.next_cursor.is_some());
+
+        let second_page = client
+            .list_orders_v2(first_page.next_cursor, Some(2), Some(SortDirection::Desc), None, None)
+            .await
+            .unwrap();
+        assert_eq!(second_page.orders.len(), 1);
+        assert_eq!(second_page.orders[0].order.request.id, order1.request.id);
+        assert!(!second_page.has_more);
+        assert!(second_page.next_cursor.is_none());
+
+        server_handle.abort();
+    }
+
+    #[sqlx::test]
+    async fn test_list_orders_v2_timestamp_filters(pool: PgPool) {
+        use boundless_market::order_stream_client::SortDirection;
+
+        let (client, _app_state, ctx, _anvil, server_handle, _addr) =
+            setup_server_and_client(pool).await;
+
+        let order1 = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let middle_time = Utc::now();
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        let order2 = client
+            .submit_request(&new_request(2, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        let after_orders = client
+            .list_orders_v2(None, Some(10), Some(SortDirection::Desc), None, Some(middle_time))
+            .await
+            .unwrap();
+        assert_eq!(after_orders.orders.len(), 1);
+        assert_eq!(after_orders.orders[0].order.request.id, order2.request.id);
+
+        let before_orders = client
+            .list_orders_v2(None, Some(10), Some(SortDirection::Desc), Some(middle_time), None)
+            .await
+            .unwrap();
+        assert_eq!(before_orders.orders.len(), 1);
+        assert_eq!(before_orders.orders[0].order.request.id, order1.request.id);
+
+        server_handle.abort();
+    }
+
+    #[sqlx::test]
+    async fn test_list_orders_v2_bidirectional_sort(pool: PgPool) {
+        use boundless_market::order_stream_client::SortDirection;
+
+        let (client, _app_state, ctx, _anvil, server_handle, _addr) =
+            setup_server_and_client(pool).await;
+
+        let order1 = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order2 = client
+            .submit_request(&new_request(2, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order3 = client
+            .submit_request(&new_request(3, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        let orders_asc = client
+            .list_orders_v2(None, Some(10), Some(SortDirection::Asc), None, None)
+            .await
+            .unwrap();
+        assert_eq!(orders_asc.orders.len(), 3);
+        assert_eq!(orders_asc.orders[0].order.request.id, order1.request.id);
+        assert_eq!(orders_asc.orders[1].order.request.id, order2.request.id);
+        assert_eq!(orders_asc.orders[2].order.request.id, order3.request.id);
+
+        let orders_desc = client
+            .list_orders_v2(None, Some(10), Some(SortDirection::Desc), None, None)
+            .await
+            .unwrap();
+        assert_eq!(orders_desc.orders.len(), 3);
+        assert_eq!(orders_desc.orders[0].order.request.id, order3.request.id);
+        assert_eq!(orders_desc.orders[1].order.request.id, order2.request.id);
+        assert_eq!(orders_desc.orders[2].order.request.id, order1.request.id);
+
+        server_handle.abort();
+    }
+
+    #[sqlx::test]
+    async fn test_cursor_isolation_with_concurrent_inserts_desc(pool: PgPool) {
+        use boundless_market::order_stream_client::SortDirection;
+
+        let (client, _app_state, ctx, _anvil, server_handle, _addr) =
+            setup_server_and_client(pool).await;
+
+        // Submit initial orders
+        let order1 = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order2 = client
+            .submit_request(&new_request(2, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order3 = client
+            .submit_request(&new_request(3, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Get the first page with a limit of 2 (descending order, so order3 and order2)
+        let first_page = client
+            .list_orders_v2(None, Some(2), Some(SortDirection::Desc), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(first_page.orders.len(), 2);
+        assert_eq!(first_page.orders[0].order.request.id, order3.request.id);
+        assert_eq!(first_page.orders[1].order.request.id, order2.request.id);
+        assert!(first_page.has_more);
+        assert!(first_page.next_cursor.is_some());
+
+        // NOW submit new orders AFTER we got the cursor but BEFORE using it
+        let order4 = client
+            .submit_request(&new_request(4, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order5 = client
+            .submit_request(&new_request(5, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Use the cursor to get the next page
+        // This should ONLY return order1, NOT the newly inserted order4 or order5
+        let second_page = client
+            .list_orders_v2(first_page.next_cursor.clone(), Some(10), Some(SortDirection::Desc), None, None)
+            .await
+            .unwrap();
+
+        // We should only get order1, not the new orders 4 and 5
+        assert_eq!(second_page.orders.len(), 1);
+        assert_eq!(second_page.orders[0].order.request.id, order1.request.id);
+        assert!(!second_page.has_more);
+
+        // Verify that the new orders exist but weren't returned by the cursor query
+        let all_orders = client
+            .list_orders_v2(None, Some(10), Some(SortDirection::Desc), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(all_orders.orders.len(), 5);
+        assert_eq!(all_orders.orders[0].order.request.id, order5.request.id);
+        assert_eq!(all_orders.orders[1].order.request.id, order4.request.id);
+        assert_eq!(all_orders.orders[2].order.request.id, order3.request.id);
+        assert_eq!(all_orders.orders[3].order.request.id, order2.request.id);
+        assert_eq!(all_orders.orders[4].order.request.id, order1.request.id);
+
+        server_handle.abort();
+    }
+
+    #[sqlx::test]
+    async fn test_cursor_isolation_with_concurrent_inserts_asc(pool: PgPool) {
+        use boundless_market::order_stream_client::SortDirection;
+
+        let (client, _app_state, ctx, _anvil, server_handle, _addr) =
+            setup_server_and_client(pool).await;
+
+        // Submit initial orders
+        let order1 = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order2 = client
+            .submit_request(&new_request(2, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order3 = client
+            .submit_request(&new_request(3, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order4 = client
+            .submit_request(&new_request(4, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let order5 = client
+            .submit_request(&new_request(5, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Get the first page with ascending order (order1 and order2)
+        let first_page_asc = client
+            .list_orders_v2(None, Some(2), Some(SortDirection::Asc), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(first_page_asc.orders.len(), 2);
+        assert_eq!(first_page_asc.orders[0].order.request.id, order1.request.id);
+        assert_eq!(first_page_asc.orders[1].order.request.id, order2.request.id);
+
+        // Submit another new order BEFORE using the cursor
+        let order6 = client
+            .submit_request(&new_request(6, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Use cursor to get next page in ascending order
+        // In ascending order, the cursor returns all orders > cursor_point
+        // Since order6 was inserted after order2 (has a later timestamp), it WILL be included
+        let second_page_asc = client
+            .list_orders_v2(first_page_asc.next_cursor, Some(10), Some(SortDirection::Asc), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(second_page_asc.orders.len(), 4);
+        assert_eq!(second_page_asc.orders[0].order.request.id, order3.request.id);
+        assert_eq!(second_page_asc.orders[1].order.request.id, order4.request.id);
+        assert_eq!(second_page_asc.orders[2].order.request.id, order5.request.id);
+        assert_eq!(second_page_asc.orders[3].order.request.id, order6.request.id);
+
+        // Verify that order1 and order2 are not in the second page (already seen)
+        assert!(!second_page_asc.orders.iter().any(|o| o.order.request.id == order1.request.id));
+        assert!(!second_page_asc.orders.iter().any(|o| o.order.request.id == order2.request.id));
 
         server_handle.abort();
     }
