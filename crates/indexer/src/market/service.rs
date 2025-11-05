@@ -453,26 +453,36 @@ where
         // Batch fetch all transactions and blocks in parallel and populate cache
         self.fetch_tx_metadata(&logs, from, to).await?;
 
-        // Process each event type by filtering the logs
-        self.process_request_submitted_events(&logs).await?;
-        self.process_request_submitted_offchain(to).await?;
-        self.process_locked_events(&logs).await?;
-        self.process_proof_delivered_events(&logs).await?;
-        self.process_fulfilled_events(&logs).await?;
-        self.process_callback_failed_events(&logs).await?;
-        self.process_slashed_events(&logs).await?;
+        // Process each event type by filtering the logs and collect touched requests
+        let mut updated_requests = HashSet::new();
+
+        updated_requests.extend(self.process_request_submitted_events(&logs).await?);
+        updated_requests.extend(self.process_request_submitted_offchain(to).await?);
+        updated_requests.extend(self.process_locked_events(&logs).await?);
+        updated_requests.extend(self.process_proof_delivered_events(&logs).await?);
+        updated_requests.extend(self.process_fulfilled_events(&logs).await?);
+        updated_requests.extend(self.process_callback_failed_events(&logs).await?);
+        updated_requests.extend(self.process_slashed_events(&logs).await?);
+
         self.process_deposit_events(&logs).await?;
         self.process_withdrawal_events(&logs).await?;
         self.process_collateral_deposit_events(&logs).await?;
         self.process_collateral_withdrawal_events(&logs).await?;
-        
+
+        // Find requests that expired during this block range
+        updated_requests.extend(self.get_newly_expired_requests(from, to).await?);
+
+        // Update request statuses for all touched requests
+        self.update_request_statuses(updated_requests, to).await?;
+
+        // Update the last processed block. 
         self.update_last_processed_block(to).await?;
 
         // Aggregate market data at all time periods after processing blocks
-        self.aggregate_hourly_market_data().await?;
-        self.aggregate_daily_market_data().await?;
-        self.aggregate_weekly_market_data().await?;
-        self.aggregate_monthly_market_data().await?;
+        self.aggregate_hourly_market_data(to).await?;
+        self.aggregate_daily_market_data(to).await?;
+        self.aggregate_weekly_market_data(to).await?;
+        self.aggregate_monthly_market_data(to).await?;
 
         self.clear_cache();
 
@@ -488,6 +498,124 @@ where
         self.db.set_last_block(block_number).await?;
         tracing::info!("update_last_processed_block completed in {:?}", start.elapsed());
         Ok(())
+    }
+
+    fn compute_request_status(
+        &self,
+        req: crate::db::market::RequestWithEvents,
+        current_timestamp: u64,
+    ) -> crate::db::market::RequestStatus {
+        use crate::db::market::RequestStatus;
+
+        let request_status = if req.fulfilled_at.is_some() {
+            "fulfilled"
+        } else if req.slashed_at.is_some() {
+            "slashed"
+        } else if current_timestamp > req.expires_at {
+            "expired"
+        } else if req.locked_at.is_some() {
+            "locked"
+        } else {
+            "submitted"
+        };
+
+        let updated_at = [
+            req.submitted_at,
+            req.locked_at,
+            req.fulfilled_at,
+            req.slashed_at,
+        ]
+        .iter()
+        .filter_map(|&t| t)
+        .max()
+        .unwrap_or(req.created_at);
+
+        RequestStatus {
+            request_digest: req.request_digest,
+            request_id: req.request_id,
+            request_status: request_status.to_string(),
+            source: req.source,
+            client_address: req.client_address,
+            prover_address: req.prover_address,
+            created_at: req.created_at,
+            updated_at,
+            locked_at: req.locked_at,
+            fulfilled_at: req.fulfilled_at,
+            slashed_at: req.slashed_at,
+            submit_block: req.submit_block,
+            lock_block: req.lock_block,
+            fulfill_block: req.fulfill_block,
+            slashed_block: req.slashed_block,
+            min_price: req.min_price,
+            max_price: req.max_price,
+            lock_collateral: req.lock_collateral,
+            ramp_up_start: req.ramp_up_start,
+            ramp_up_period: req.ramp_up_period,
+            expires_at: req.expires_at,
+            lock_end: req.lock_end,
+            slash_recipient: req.slash_recipient,
+            slash_transferred_amount: req.slash_transferred_amount,
+            slash_burned_amount: req.slash_burned_amount,
+            cycles: req.cycles,
+            peak_prove_mhz: req.peak_prove_mhz,
+            effective_prove_mhz: req.effective_prove_mhz,
+            submit_tx_hash: req.submit_tx_hash,
+            lock_tx_hash: req.lock_tx_hash,
+            fulfill_tx_hash: req.fulfill_tx_hash,
+            slash_tx_hash: req.slash_tx_hash,
+            image_id: req.image_id,
+            image_url: req.image_url,
+            selector: req.selector,
+            predicate_type: req.predicate_type,
+            predicate_data: req.predicate_data,
+            input_type: req.input_type,
+            input_data: req.input_data,
+            fulfill_journal: req.fulfill_journal,
+            fulfill_seal: req.fulfill_seal,
+        }
+    }
+
+    async fn update_request_statuses(
+        &mut self,
+        request_digests: HashSet<B256>,
+        block_number: u64,
+    ) -> Result<(), ServiceError> {
+        if request_digests.is_empty() {
+            return Ok(());
+        }
+
+        let current_timestamp = self.block_timestamp(block_number).await?;
+
+        let start = std::time::Instant::now();
+
+        tracing::debug!("Updating statuses for {} requests based on block {} timestamp {}", request_digests.len(), block_number, current_timestamp);
+        
+        let requests_with_events = self.db.get_requests_with_events(&request_digests).await?;
+
+        let request_statuses: Vec<_> = requests_with_events
+            .into_iter()
+            .map(|req| self.compute_request_status(req, current_timestamp))
+            .collect();
+
+        self.db.upsert_request_statuses(&request_statuses).await?;
+
+        tracing::info!(
+            "update_request_statuses completed in {:?} [{} statuses updated]",
+            start.elapsed(),
+            request_statuses.len()
+        );
+
+        Ok(())
+    }
+
+    async fn get_newly_expired_requests(
+        &mut self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<HashSet<B256>, ServiceError> {
+        let from_timestamp = self.block_timestamp(from_block).await?;
+        let to_timestamp = self.block_timestamp(to_block).await?;
+        Ok(self.db.find_newly_expired_requests(from_timestamp, to_timestamp).await?)
     }
 
     async fn fetch_logs(&self, from: u64, to: u64) -> Result<Vec<Log>, ServiceError> {
@@ -550,9 +678,10 @@ where
     async fn process_request_submitted_events(
         &mut self,
         all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
-        
+        let mut touched_requests = HashSet::new();
+
         // Filter logs for RequestSubmitted events
         let logs: Vec<_> = all_logs
             .iter()
@@ -591,23 +720,26 @@ where
 
             self.db.add_proof_request(request_digest, request, &metadata, "onchain").await?;
             self.db.add_request_submitted_event(request_digest, event.requestId, &metadata).await?;
+
+            touched_requests.insert(request_digest);
         }
 
         tracing::info!("process_request_submitted_events completed in {:?}", start.elapsed());
-        Ok(())
+        Ok(touched_requests)
     }
 
-    async fn process_request_submitted_offchain(&mut self, max_block: u64) -> Result<(), ServiceError> {
+    async fn process_request_submitted_offchain(&mut self, max_block: u64) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
-        
-        let Some(order_stream_client) = &self.order_stream_client else {
-            return Ok(());
-        };
-
-        let last_processed = self.db.get_last_order_stream_timestamp().await?;
+        let mut touched_requests = HashSet::new();
 
         // Get the block timestamp for the max block to use as upper bound for order filtering
         let block_timestamp = self.block_timestamp(max_block).await?;
+
+        let Some(order_stream_client) = &self.order_stream_client else {
+            return Ok(touched_requests);
+        };
+
+        let last_processed = self.db.get_last_order_stream_timestamp().await?;
 
         tracing::debug!(
             "Processing offchain orders up to block {} (timestamp: {}). Last processed timestamp: {:?}",
@@ -666,6 +798,8 @@ where
                     .add_proof_request(request_digest, request.clone(), &metadata, "offchain")
                     .await?;
 
+                touched_requests.insert(request_digest);
+
                 let created_at = order_data.created_at;
                 if latest_timestamp.is_none() || latest_timestamp.unwrap() < created_at {
                     latest_timestamp = Some(created_at);
@@ -692,15 +826,16 @@ where
         }
 
         tracing::info!("process_request_submitted_offchain completed in {:?}", start.elapsed());
-        Ok(())
+        Ok(touched_requests)
     }
 
     async fn process_locked_events(
         &mut self,
         all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
-        
+        let mut touched_requests = HashSet::new();
+
         // Filter logs for RequestLocked events
         let logs: Vec<_> = all_logs
             .iter()
@@ -739,18 +874,21 @@ where
             self.db
                 .add_request_locked_event(request_digest, event.requestId, event.prover, &metadata)
                 .await?;
+
+            touched_requests.insert(request_digest);
         }
 
         tracing::info!("process_locked_events completed in {:?}", start.elapsed());
-        Ok(())
+        Ok(touched_requests)
     }
 
     async fn process_proof_delivered_events(
         &mut self,
         all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
-        
+        let mut touched_requests = HashSet::new();
+
         // Filter logs for ProofDelivered events
         let logs: Vec<_> = all_logs
             .iter()
@@ -777,26 +915,30 @@ where
                 metadata.block_timestamp
             );
 
+            let request_digest = event.fulfillment.requestDigest;
             self.db
                 .add_proof_delivered_event(
-                    event.fulfillment.requestDigest,
+                    request_digest,
                     event.requestId,
                     &metadata,
                 )
                 .await?;
             self.db.add_fulfillment(event.fulfillment, event.prover, &metadata).await?;
+
+            touched_requests.insert(request_digest);
         }
 
         tracing::info!("process_proof_delivered_events completed in {:?}", start.elapsed());
-        Ok(())
+        Ok(touched_requests)
     }
 
     async fn process_fulfilled_events(
         &mut self,
         all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
-        
+        let mut touched_requests = HashSet::new();
+
         // Filter logs for RequestFulfilled events
         let logs: Vec<_> = all_logs
             .iter()
@@ -825,18 +967,21 @@ where
             self.db
                 .add_request_fulfilled_event(event.requestDigest, event.requestId, &metadata)
                 .await?;
+
+            touched_requests.insert(event.requestDigest);
         }
 
         tracing::info!("process_fulfilled_events completed in {:?}", start.elapsed());
-        Ok(())
+        Ok(touched_requests)
     }
 
     async fn process_slashed_events(
         &mut self,
         all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
-        
+        let mut touched_requests = HashSet::new();
+
         // Filter logs for ProverSlashed events
         let logs: Vec<_> = all_logs
             .iter()
@@ -871,10 +1016,15 @@ where
                     &metadata,
                 )
                 .await?;
+
+            let request_digests = self.db.get_request_digests_by_request_id(event.requestId).await?;
+            for digest in request_digests {
+                touched_requests.insert(digest);
+            }
         }
 
         tracing::info!("process_slashed_events completed in {:?}", start.elapsed());
-        Ok(())
+        Ok(touched_requests)
     }
 
     async fn process_deposit_events(
@@ -1032,9 +1182,10 @@ where
     async fn process_callback_failed_events(
         &mut self,
         all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
-        
+        let mut touched_requests = HashSet::new();
+
         // Filter logs for CallbackFailed events
         let logs: Vec<_> = all_logs
             .iter()
@@ -1069,25 +1220,24 @@ where
                     &metadata,
                 )
                 .await?;
+
+            let request_digests = self.db.get_request_digests_by_request_id(event.requestId).await?;
+            for digest in request_digests {
+                touched_requests.insert(digest);
+            }
         }
 
         tracing::info!("process_callback_failed_events completed in {:?}", start.elapsed());
-        Ok(())
+        Ok(touched_requests)
     }
 
-    async fn aggregate_hourly_market_data(&self) -> Result<(), ServiceError> {
+    async fn aggregate_hourly_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
-        tracing::debug!("Aggregating hourly market data for past {} hours", HOURLY_AGGREGATION_RECOMPUTE_HOURS);
 
-        // Get current time from the latest block timestamp instead of system time
-        let block = self
-            .provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
+        // Get current time from the block timestamp
+        let current_time = self.block_timestamp(to_block).await?;
 
-        let current_time = block.header.timestamp;
+        tracing::debug!("Aggregating hourly market data for past {} hours from block {} timestamp {}", HOURLY_AGGREGATION_RECOMPUTE_HOURS, to_block, current_time);
 
         // Calculate hours ago based on configured recompute window
         let hours_ago = current_time - (HOURLY_AGGREGATION_RECOMPUTE_HOURS * SECONDS_PER_HOUR);
@@ -1114,19 +1264,13 @@ where
         Ok(())
     }
 
-    async fn aggregate_daily_market_data(&self) -> Result<(), ServiceError> {
+    async fn aggregate_daily_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
-        tracing::debug!("Aggregating daily market data for past {} days", DAILY_AGGREGATION_RECOMPUTE_DAYS);
 
-        // Get current time from the latest block timestamp
-        let block = self
-            .provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
+        // Get current time from the block timestamp
+        let current_time = self.block_timestamp(to_block).await?;
 
-        let current_time = block.header.timestamp;
+        tracing::debug!("Aggregating daily market data for past {} days from block {} timestamp {}", DAILY_AGGREGATION_RECOMPUTE_DAYS, to_block, current_time);
 
         // Get the current day start and calculate days ago
         let current_day_start = get_day_start(current_time);
@@ -1159,19 +1303,13 @@ where
         Ok(())
     }
 
-    async fn aggregate_weekly_market_data(&self) -> Result<(), ServiceError> {
+    async fn aggregate_weekly_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
-        tracing::debug!("Aggregating weekly market data for past {} weeks", WEEKLY_AGGREGATION_RECOMPUTE_WEEKS);
 
-        // Get current time from the latest block timestamp
-        let block = self
-            .provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
+        // Get current time from the block timestamp
+        let current_time = self.block_timestamp(to_block).await?;
 
-        let current_time = block.header.timestamp;
+        tracing::debug!("Aggregating weekly market data for past {} weeks from block {} timestamp {}", WEEKLY_AGGREGATION_RECOMPUTE_WEEKS, to_block, current_time);
 
         // Get the current week start and calculate weeks ago
         let current_week_start = get_week_start(current_time);
@@ -1204,19 +1342,13 @@ where
         Ok(())
     }
 
-    async fn aggregate_monthly_market_data(&self) -> Result<(), ServiceError> {
+    async fn aggregate_monthly_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
-        tracing::debug!("Aggregating monthly market data for past {} months", MONTHLY_AGGREGATION_RECOMPUTE_MONTHS);
 
-        // Get current time from the latest block timestamp
-        let block = self
-            .provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
+        // Get current time from the block timestamp
+        let current_time = self.block_timestamp(to_block).await?;
 
-        let current_time = block.header.timestamp;
+        tracing::debug!("Aggregating monthly market data for past {} months from block {} timestamp {}", MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, to_block, current_time);
 
         // Get the current month start and calculate months ago
         let current_month_start = get_month_start(current_time);
@@ -1449,10 +1581,20 @@ where
         Ok(self.boundless_market.instance().provider().get_block_number().await?)
     }
 
-    async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
+    async fn block_timestamp(&mut self, block_number: u64) -> Result<u64, ServiceError> {
+        // Check in-memory cache first
+        if let Some(ts) = self.block_num_to_timestamp.get(&block_number) {
+            return Ok(*ts);
+        }
+
+        // Check database
         let timestamp = self.db.get_block_timestamp(block_number).await?;
         let ts = match timestamp {
-            Some(ts) => ts,
+            Some(ts) => {
+                // Store in in-memory cache
+                self.block_num_to_timestamp.insert(block_number, ts);
+                ts
+            }
             None => {
                 tracing::debug!("Block timestamp not found in DB for block {}", block_number);
                 let ts = self
@@ -1465,6 +1607,8 @@ where
                     .header
                     .timestamp;
                 self.db.add_block(block_number, ts).await?;
+                // Store in in-memory cache
+                self.block_num_to_timestamp.insert(block_number, ts);
                 ts
             }
         };

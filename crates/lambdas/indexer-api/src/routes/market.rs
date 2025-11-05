@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::header,
     response::{IntoResponse, Response},
     routing::get,
@@ -31,11 +31,16 @@ use crate::{
     handler::{cache_control, handle_error},
     utils::{format_eth, format_zkc},
 };
-use boundless_indexer::db::market::SortDirection;
+use boundless_indexer::db::market::{RequestCursor, RequestSortField, RequestStatus, SortDirection};
 
 /// Create market routes
 pub fn routes() -> Router<Arc<AppState>> {
-    Router::new().route("/aggregates", get(get_market_aggregates))
+    Router::new()
+        .route("/aggregates", get(get_market_aggregates))
+        .route("/requests", get(list_requests))
+        .route("/requests/:request_id", get(get_requests_by_request_id))
+        .route("/requestors/:address/requests", get(list_requests_by_requestor))
+        .route("/provers/:address/requests", get(list_requests_by_prover))
 }
 
 const MAX_AGGREGATES: u64 = 1000;
@@ -383,4 +388,404 @@ fn format_timestamp_iso(timestamp: i64) -> String {
     DateTime::<Utc>::from_timestamp(timestamp, 0)
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
+}
+
+const MAX_REQUESTS: u32 = 100;
+const DEFAULT_REQUESTS_LIMIT: u32 = 20;
+
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
+pub struct RequestListParams {
+    /// Base64-encoded cursor from previous response for pagination
+    #[serde(default)]
+    cursor: Option<String>,
+
+    /// Limit of requests returned, max 100 (default 20)
+    #[serde(default)]
+    limit: Option<u32>,
+
+    /// Sort field: "updated_at" or "created_at" (default "updated_at")
+    #[serde(default)]
+    sort_by: Option<String>,
+}
+
+fn encode_request_cursor(cursor: &RequestCursor) -> Result<String, anyhow::Error> {
+    let json = serde_json::to_string(cursor)?;
+    Ok(BASE64.encode(json))
+}
+
+fn decode_request_cursor(cursor_str: &str) -> Result<RequestCursor, anyhow::Error> {
+    let json = BASE64.decode(cursor_str)?;
+    let cursor: RequestCursor = serde_json::from_slice(&json)?;
+    Ok(cursor)
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RequestStatusResponse {
+    /// Request digest (unique identifier)
+    pub request_digest: String,
+    /// Request ID (can be non-unique)
+    pub request_id: String,
+    /// Current status: submitted, locked, fulfilled, slashed, expired
+    pub request_status: String,
+    /// Source: onchain, offchain, unknown
+    pub source: String,
+    /// Client address
+    pub client_address: String,
+    /// Prover address (if locked)
+    pub prover_address: Option<String>,
+    /// Created timestamp (Unix)
+    pub created_at: i64,
+    /// Last updated timestamp (Unix)
+    pub updated_at: i64,
+    /// Locked timestamp (Unix)
+    pub locked_at: Option<i64>,
+    /// Fulfilled timestamp (Unix)
+    pub fulfilled_at: Option<i64>,
+    /// Slashed timestamp (Unix)
+    pub slashed_at: Option<i64>,
+    /// Submit block number
+    pub submit_block: Option<i64>,
+    /// Lock block number
+    pub lock_block: Option<i64>,
+    /// Fulfill block number
+    pub fulfill_block: Option<i64>,
+    /// Slashed block number
+    pub slashed_block: Option<i64>,
+    /// Minimum price (wei)
+    pub min_price: String,
+    /// Maximum price (wei)
+    pub max_price: String,
+    /// Lock collateral (wei)
+    pub lock_collateral: String,
+    /// Ramp up start timestamp
+    pub ramp_up_start: i64,
+    /// Ramp up period (seconds)
+    pub ramp_up_period: i64,
+    /// Expires at timestamp
+    pub expires_at: i64,
+    /// Lock end timestamp
+    pub lock_end: i64,
+    /// Slash recipient address
+    pub slash_recipient: Option<String>,
+    /// Slash transferred amount
+    pub slash_transferred_amount: Option<String>,
+    /// Slash burned amount
+    pub slash_burned_amount: Option<String>,
+    /// Cycles
+    pub cycles: Option<i64>,
+    /// Peak prove MHz
+    pub peak_prove_mhz: Option<i64>,
+    /// Effective prove MHz
+    pub effective_prove_mhz: Option<i64>,
+    /// Submit transaction hash
+    pub submit_tx_hash: Option<String>,
+    /// Lock transaction hash
+    pub lock_tx_hash: Option<String>,
+    /// Fulfill transaction hash
+    pub fulfill_tx_hash: Option<String>,
+    /// Slash transaction hash
+    pub slash_tx_hash: Option<String>,
+    /// Image ID
+    pub image_id: String,
+    /// Image URL
+    pub image_url: Option<String>,
+    /// Selector
+    pub selector: String,
+    /// Predicate type
+    pub predicate_type: String,
+    /// Predicate data (hex)
+    pub predicate_data: String,
+    /// Input type
+    pub input_type: String,
+    /// Input data (hex)
+    pub input_data: String,
+    /// Fulfillment journal (hex)
+    pub fulfill_journal: Option<String>,
+    /// Fulfillment seal (hex)
+    pub fulfill_seal: Option<String>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RequestListResponse {
+    pub data: Vec<RequestStatusResponse>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
+    RequestStatusResponse {
+        request_digest: format!("{:x}", status.request_digest),
+        request_id: status.request_id,
+        request_status: status.request_status,
+        source: status.source,
+        client_address: format!("{:x}", status.client_address),
+        prover_address: status.prover_address.map(|addr| format!("{:x}", addr)),
+        created_at: status.created_at as i64,
+        updated_at: status.updated_at as i64,
+        locked_at: status.locked_at.map(|t| t as i64),
+        fulfilled_at: status.fulfilled_at.map(|t| t as i64),
+        slashed_at: status.slashed_at.map(|t| t as i64),
+        submit_block: status.submit_block.map(|b| b as i64),
+        lock_block: status.lock_block.map(|b| b as i64),
+        fulfill_block: status.fulfill_block.map(|b| b as i64),
+        slashed_block: status.slashed_block.map(|b| b as i64),
+        min_price: status.min_price,
+        max_price: status.max_price,
+        lock_collateral: status.lock_collateral,
+        ramp_up_start: status.ramp_up_start as i64,
+        ramp_up_period: status.ramp_up_period as i64,
+        expires_at: status.expires_at as i64,
+        lock_end: status.lock_end as i64,
+        slash_recipient: status.slash_recipient.map(|addr| format!("{:x}", addr)),
+        slash_transferred_amount: status.slash_transferred_amount,
+        slash_burned_amount: status.slash_burned_amount,
+        cycles: status.cycles.map(|c| c as i64),
+        peak_prove_mhz: status.peak_prove_mhz.map(|m| m as i64),
+        effective_prove_mhz: status.effective_prove_mhz.map(|m| m as i64),
+        submit_tx_hash: status.submit_tx_hash.map(|h| format!("{:x}", h)),
+        lock_tx_hash: status.lock_tx_hash.map(|h| format!("{:x}", h)),
+        fulfill_tx_hash: status.fulfill_tx_hash.map(|h| format!("{:x}", h)),
+        slash_tx_hash: status.slash_tx_hash.map(|h| format!("{:x}", h)),
+        image_id: status.image_id,
+        image_url: status.image_url,
+        selector: status.selector,
+        predicate_type: status.predicate_type,
+        predicate_data: status.predicate_data,
+        input_type: status.input_type,
+        input_data: status.input_data,
+        fulfill_journal: status.fulfill_journal,
+        fulfill_seal: status.fulfill_seal,
+    }
+}
+
+/// GET /v1/market/requests
+/// Returns a paginated list of all requests
+#[utoipa::path(
+    get,
+    path = "/v1/market/requests",
+    tag = "Market",
+    params(RequestListParams),
+    responses(
+        (status = 200, description = "List of requests", body = RequestListResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn list_requests(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RequestListParams>,
+) -> Response {
+    match list_requests_impl(state, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=10"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn list_requests_impl(
+    state: Arc<AppState>,
+    params: RequestListParams,
+) -> anyhow::Result<RequestListResponse> {
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        Some(decode_request_cursor(cursor_str)?)
+    } else {
+        None
+    };
+
+    let limit = params.limit.unwrap_or(DEFAULT_REQUESTS_LIMIT).min(MAX_REQUESTS);
+
+    let sort_by = match params.sort_by.as_deref() {
+        Some("created_at") => RequestSortField::CreatedAt,
+        Some("updated_at") | None => RequestSortField::UpdatedAt,
+        _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
+    };
+
+    let (statuses, next_cursor) = state.market_db.list_requests(cursor, limit, sort_by).await?;
+
+    let data = statuses.into_iter().map(convert_request_status).collect();
+    let next_cursor_encoded = next_cursor.as_ref().map(|c| encode_request_cursor(c)).transpose()?;
+    let has_more = next_cursor.is_some();
+
+    Ok(RequestListResponse {
+        data,
+        next_cursor: next_cursor_encoded,
+        has_more,
+    })
+}
+
+/// GET /v1/market/requestors/:address/requests
+/// Returns requests submitted by a specific requestor
+#[utoipa::path(
+    get,
+    path = "/v1/market/requestors/{address}/requests",
+    tag = "Market",
+    params(
+        ("address" = String, Path, description = "Requestor address"),
+        RequestListParams
+    ),
+    responses(
+        (status = 200, description = "List of requests", body = RequestListResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn list_requests_by_requestor(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+    Query(params): Query<RequestListParams>,
+) -> Response {
+    match list_requests_by_requestor_impl(state, address, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=10"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn list_requests_by_requestor_impl(
+    state: Arc<AppState>,
+    address: String,
+    params: RequestListParams,
+) -> anyhow::Result<RequestListResponse> {
+    let client_address = Address::from_str(&address)?;
+
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        Some(decode_request_cursor(cursor_str)?)
+    } else {
+        None
+    };
+
+    let limit = params.limit.unwrap_or(DEFAULT_REQUESTS_LIMIT).min(MAX_REQUESTS);
+
+    let sort_by = match params.sort_by.as_deref() {
+        Some("created_at") => RequestSortField::CreatedAt,
+        Some("updated_at") | None => RequestSortField::UpdatedAt,
+        _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
+    };
+
+    let (statuses, next_cursor) = state
+        .market_db
+        .list_requests_by_requestor(client_address, cursor, limit, sort_by)
+        .await?;
+
+    let data = statuses.into_iter().map(convert_request_status).collect();
+    let next_cursor_encoded = next_cursor.as_ref().map(|c| encode_request_cursor(c)).transpose()?;
+    let has_more = next_cursor.is_some();
+
+    Ok(RequestListResponse {
+        data,
+        next_cursor: next_cursor_encoded,
+        has_more,
+    })
+}
+
+/// GET /v1/market/provers/:address/requests
+/// Returns requests fulfilled by a specific prover
+#[utoipa::path(
+    get,
+    path = "/v1/market/provers/{address}/requests",
+    tag = "Market",
+    params(
+        ("address" = String, Path, description = "Prover address"),
+        RequestListParams
+    ),
+    responses(
+        (status = 200, description = "List of requests", body = RequestListResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn list_requests_by_prover(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+    Query(params): Query<RequestListParams>,
+) -> Response {
+    match list_requests_by_prover_impl(state, address, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=10"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn list_requests_by_prover_impl(
+    state: Arc<AppState>,
+    address: String,
+    params: RequestListParams,
+) -> anyhow::Result<RequestListResponse> {
+    let prover_address = Address::from_str(&address)?;
+
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        Some(decode_request_cursor(cursor_str)?)
+    } else {
+        None
+    };
+
+    let limit = params.limit.unwrap_or(DEFAULT_REQUESTS_LIMIT).min(MAX_REQUESTS);
+
+    let sort_by = match params.sort_by.as_deref() {
+        Some("created_at") => RequestSortField::CreatedAt,
+        Some("updated_at") | None => RequestSortField::UpdatedAt,
+        _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
+    };
+
+    let (statuses, next_cursor) = state
+        .market_db
+        .list_requests_by_prover(prover_address, cursor, limit, sort_by)
+        .await?;
+
+    let data = statuses.into_iter().map(convert_request_status).collect();
+    let next_cursor_encoded = next_cursor.as_ref().map(|c| encode_request_cursor(c)).transpose()?;
+    let has_more = next_cursor.is_some();
+
+    Ok(RequestListResponse {
+        data,
+        next_cursor: next_cursor_encoded,
+        has_more,
+    })
+}
+
+/// GET /v1/market/requests/:request_id
+/// Returns all requests matching a specific request ID
+#[utoipa::path(
+    get,
+    path = "/v1/market/requests/{request_id}",
+    tag = "Market",
+    params(
+        ("request_id" = String, Path, description = "Request ID (hex)")
+    ),
+    responses(
+        (status = 200, description = "List of requests with this ID", body = Vec<RequestStatusResponse>),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn get_requests_by_request_id(
+    State(state): State<Arc<AppState>>,
+    Path(request_id): Path<String>,
+) -> Response {
+    match get_requests_by_request_id_impl(state, request_id).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_requests_by_request_id_impl(
+    state: Arc<AppState>,
+    request_id: String,
+) -> anyhow::Result<Vec<RequestStatusResponse>> {
+    let statuses = state.market_db.get_requests_by_request_id(&request_id).await?;
+    let data = statuses.into_iter().map(convert_request_status).collect();
+    Ok(data)
 }

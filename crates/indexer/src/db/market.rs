@@ -36,6 +36,14 @@ pub enum SortDirection {
     Desc,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum RequestSortField {
+    /// Sort by updated_at timestamp
+    UpdatedAt,
+    /// Sort by created_at timestamp
+    CreatedAt,
+}
+
 #[derive(Debug, Clone)]
 pub struct TxMetadata {
     pub tx_hash: B256,
@@ -72,6 +80,103 @@ pub type DailyMarketSummary = HourlyMarketSummary;
 pub type WeeklyMarketSummary = HourlyMarketSummary;
 pub type MonthlyMarketSummary = HourlyMarketSummary;
 
+#[derive(Debug, Clone)]
+pub struct RequestStatus {
+    pub request_digest: B256,
+    pub request_id: String,
+    pub request_status: String,
+    pub source: String,
+    pub client_address: Address,
+    pub prover_address: Option<Address>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub locked_at: Option<u64>,
+    pub fulfilled_at: Option<u64>,
+    pub slashed_at: Option<u64>,
+    pub submit_block: Option<u64>,
+    pub lock_block: Option<u64>,
+    pub fulfill_block: Option<u64>,
+    pub slashed_block: Option<u64>,
+    pub min_price: String,
+    pub max_price: String,
+    pub lock_collateral: String,
+    pub ramp_up_start: u64,
+    pub ramp_up_period: u64,
+    pub expires_at: u64,
+    pub lock_end: u64,
+    pub slash_recipient: Option<Address>,
+    pub slash_transferred_amount: Option<String>,
+    pub slash_burned_amount: Option<String>,
+    pub cycles: Option<u64>,
+    pub peak_prove_mhz: Option<u64>,
+    pub effective_prove_mhz: Option<u64>,
+    pub submit_tx_hash: Option<B256>,
+    pub lock_tx_hash: Option<B256>,
+    pub fulfill_tx_hash: Option<B256>,
+    pub slash_tx_hash: Option<B256>,
+    pub image_id: String,
+    pub image_url: Option<String>,
+    pub selector: String,
+    pub predicate_type: String,
+    pub predicate_data: String,
+    pub input_type: String,
+    pub input_data: String,
+    pub fulfill_journal: Option<String>,
+    pub fulfill_seal: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RequestCursor {
+    pub timestamp: u64,  // Either updated_at or created_at depending on sort_by
+    pub request_digest: String,
+}
+
+// Raw data fetched from database for status computation
+#[derive(Debug, Clone)]
+pub struct RequestWithEvents {
+    pub request_digest: B256,
+    pub request_id: String,
+    pub source: String,
+    pub client_address: Address,
+    pub created_at: u64,
+    pub submit_block: Option<u64>,
+    pub submit_tx_hash: Option<B256>,
+    pub min_price: String,
+    pub max_price: String,
+    pub lock_collateral: String,
+    pub ramp_up_start: u64,
+    pub ramp_up_period: u64,
+    pub expires_at: u64,
+    pub lock_end: u64,
+    pub image_id: String,
+    pub image_url: Option<String>,
+    pub selector: String,
+    pub predicate_type: String,
+    pub predicate_data: String,
+    pub input_type: String,
+    pub input_data: String,
+    // Event data
+    pub submitted_at: Option<u64>,
+    pub locked_at: Option<u64>,
+    pub lock_block: Option<u64>,
+    pub lock_tx_hash: Option<B256>,
+    pub prover_address: Option<Address>,
+    pub fulfilled_at: Option<u64>,
+    pub fulfill_block: Option<u64>,
+    pub fulfill_tx_hash: Option<B256>,
+    pub cycles: Option<u64>,
+    pub peak_prove_mhz: Option<u64>,
+    pub effective_prove_mhz: Option<u64>,
+    pub fulfill_journal: Option<String>,
+    pub fulfill_seal: Option<String>,
+    pub slashed_at: Option<u64>,
+    pub slashed_block: Option<u64>,
+    pub slash_tx_hash: Option<B256>,
+    pub slash_burned_amount: Option<String>,
+    pub slash_transferred_amount: Option<String>,
+    pub slash_recipient: Option<Address>,
+}
+
 impl TxMetadata {
     pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64, transaction_index: u64) -> Self {
         Self { tx_hash, from, block_number, block_timestamp, transaction_index }
@@ -99,6 +204,11 @@ pub trait IndexerDb {
     ) -> Result<(), DbError>;
 
     async fn has_proof_request(&self, request_digest: B256) -> Result<bool, DbError>;
+
+    async fn get_request_digests_by_request_id(
+        &self,
+        request_id: U256,
+    ) -> Result<Vec<B256>, DbError>;
 
     async fn add_assessor_receipt(
         &self,
@@ -251,6 +361,50 @@ pub trait IndexerDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<MonthlyMarketSummary>, DbError>;
+
+    async fn upsert_request_statuses(
+        &self,
+        statuses: &[RequestStatus],
+    ) -> Result<(), DbError>;
+
+    async fn get_requests_with_events(
+        &self,
+        request_digests: &std::collections::HashSet<B256>,
+    ) -> Result<Vec<RequestWithEvents>, DbError>;
+
+    async fn find_newly_expired_requests(
+        &self,
+        from_block_timestamp: u64,
+        to_block_timestamp: u64,
+    ) -> Result<std::collections::HashSet<B256>, DbError>;
+
+    async fn list_requests(
+        &self,
+        cursor: Option<RequestCursor>,
+        limit: u32,
+        sort_by: RequestSortField,
+    ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError>;
+
+    async fn list_requests_by_requestor(
+        &self,
+        client_address: Address,
+        cursor: Option<RequestCursor>,
+        limit: u32,
+        sort_by: RequestSortField,
+    ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError>;
+
+    async fn list_requests_by_prover(
+        &self,
+        prover_address: Address,
+        cursor: Option<RequestCursor>,
+        limit: u32,
+        sort_by: RequestSortField,
+    ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError>;
+
+    async fn get_requests_by_request_id(
+        &self,
+        request_id: &str,
+    ) -> Result<Vec<RequestStatus>, DbError>;
 }
 
 pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
@@ -377,6 +531,27 @@ impl IndexerDb for AnyDb {
             .await?;
 
         Ok(result.is_some())
+    }
+
+    async fn get_request_digests_by_request_id(
+        &self,
+        request_id: U256,
+    ) -> Result<Vec<B256>, DbError> {
+        let request_id_str = format!("{request_id:x}");
+        let rows = sqlx::query("SELECT request_digest FROM proof_requests WHERE request_id = $1")
+            .bind(&request_id_str)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut digests = Vec::new();
+        for row in rows {
+            let digest_str: String = row.try_get("request_digest")?;
+            let digest = B256::from_str(&digest_str)
+                .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
+            digests.push(digest);
+        }
+
+        Ok(digests)
     }
 
     async fn add_proof_request(
@@ -1001,6 +1176,515 @@ impl IndexerDb for AnyDb {
     ) -> Result<Vec<MonthlyMarketSummary>, DbError> {
         self.get_market_summaries_generic(cursor, limit, sort, before, after, "monthly_market_summary").await
     }
+
+    async fn upsert_request_statuses(
+        &self,
+        statuses: &[RequestStatus],
+    ) -> Result<(), DbError> {
+        for status in statuses {
+            sqlx::query(
+                "INSERT INTO request_status (
+                    request_digest, request_id, request_status, source, client_address, prover_address,
+                    created_at, updated_at, locked_at, fulfilled_at, slashed_at,
+                    submit_block, lock_block, fulfill_block, slashed_block,
+                    min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
+                    slash_recipient, slash_transferred_amount, slash_burned_amount,
+                    cycles, peak_prove_mhz, effective_prove_mhz,
+                    submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
+                    image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
+                    fulfill_journal, fulfill_seal
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                    $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
+                    $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
+                )
+                ON CONFLICT (request_digest) DO UPDATE SET
+                    request_status = EXCLUDED.request_status,
+                    prover_address = EXCLUDED.prover_address,
+                    updated_at = EXCLUDED.updated_at,
+                    locked_at = EXCLUDED.locked_at,
+                    fulfilled_at = EXCLUDED.fulfilled_at,
+                    slashed_at = EXCLUDED.slashed_at,
+                    lock_block = EXCLUDED.lock_block,
+                    fulfill_block = EXCLUDED.fulfill_block,
+                    slashed_block = EXCLUDED.slashed_block,
+                    lock_tx_hash = EXCLUDED.lock_tx_hash,
+                    fulfill_tx_hash = EXCLUDED.fulfill_tx_hash,
+                    slash_tx_hash = EXCLUDED.slash_tx_hash,
+                    slash_recipient = EXCLUDED.slash_recipient,
+                    slash_transferred_amount = EXCLUDED.slash_transferred_amount,
+                    slash_burned_amount = EXCLUDED.slash_burned_amount,
+                    cycles = EXCLUDED.cycles,
+                    peak_prove_mhz = EXCLUDED.peak_prove_mhz,
+                    effective_prove_mhz = EXCLUDED.effective_prove_mhz,
+                    fulfill_journal = EXCLUDED.fulfill_journal,
+                    fulfill_seal = EXCLUDED.fulfill_seal"
+            )
+            .bind(status.request_digest.to_string())
+            .bind(&status.request_id)
+            .bind(&status.request_status)
+            .bind(&status.source)
+            .bind(status.client_address.to_string())
+            .bind(status.prover_address.map(|a| a.to_string()))
+            .bind(status.created_at as i64)
+            .bind(status.updated_at as i64)
+            .bind(status.locked_at.map(|t| t as i64))
+            .bind(status.fulfilled_at.map(|t| t as i64))
+            .bind(status.slashed_at.map(|t| t as i64))
+            .bind(status.submit_block.map(|b| b as i64))
+            .bind(status.lock_block.map(|b| b as i64))
+            .bind(status.fulfill_block.map(|b| b as i64))
+            .bind(status.slashed_block.map(|b| b as i64))
+            .bind(&status.min_price)
+            .bind(&status.max_price)
+            .bind(&status.lock_collateral)
+            .bind(status.ramp_up_start as i64)
+            .bind(status.ramp_up_period as i64)
+            .bind(status.expires_at as i64)
+            .bind(status.lock_end as i64)
+            .bind(status.slash_recipient.map(|a| a.to_string()))
+            .bind(&status.slash_transferred_amount)
+            .bind(&status.slash_burned_amount)
+            .bind(status.cycles.map(|c| c as i64))
+            .bind(status.peak_prove_mhz.map(|m| m as i64))
+            .bind(status.effective_prove_mhz.map(|m| m as i64))
+            .bind(status.submit_tx_hash.map(|h| h.to_string()))
+            .bind(status.lock_tx_hash.map(|h| h.to_string()))
+            .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
+            .bind(status.slash_tx_hash.map(|h| h.to_string()))
+            .bind(&status.image_id)
+            .bind(&status.image_url)
+            .bind(&status.selector)
+            .bind(&status.predicate_type)
+            .bind(&status.predicate_data)
+            .bind(&status.input_type)
+            .bind(&status.input_data)
+            .bind(&status.fulfill_journal)
+            .bind(&status.fulfill_seal)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn get_requests_with_events(
+        &self,
+        request_digests: &std::collections::HashSet<B256>,
+    ) -> Result<Vec<RequestWithEvents>, DbError> {
+        if request_digests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut requests = Vec::new();
+
+        // Process requests individually since ANY array syntax doesn't work with AnyPool
+        for digest in request_digests {
+            let digest_str = digest.to_string();
+
+            let rows = sqlx::query(
+                "SELECT
+                    pr.request_digest,
+                    pr.request_id,
+                    pr.source,
+                    pr.client_address,
+                    pr.block_timestamp as created_at,
+                    pr.block_number as submit_block,
+                    pr.tx_hash as submit_tx_hash,
+                    pr.min_price,
+                    pr.max_price,
+                    pr.lock_collateral,
+                    pr.bidding_start as ramp_up_start,
+                    pr.ramp_up_period,
+                    pr.expires_at,
+                    pr.lock_end,
+                    pr.image_id,
+                    pr.image_url,
+                    pr.selector,
+                    pr.predicate_type,
+                    pr.predicate_data,
+                    pr.input_type,
+                    pr.input_data,
+                    rse.block_timestamp as submitted_at,
+                    rle.block_timestamp as locked_at,
+                    rle.block_number as lock_block,
+                    rle.tx_hash as lock_tx_hash,
+                    rle.prover_address,
+                    rfe.block_timestamp as fulfilled_at,
+                    rfe.block_number as fulfill_block,
+                    rfe.tx_hash as fulfill_tx_hash,
+                    f.seal as fulfill_seal,
+                    pse.block_timestamp as slashed_at,
+                    pse.block_number as slashed_block,
+                    pse.tx_hash as slash_tx_hash,
+                    pse.burn_value as slash_burned_amount,
+                    pse.transfer_value as slash_transferred_amount,
+                    pse.collateral_recipient as slash_recipient
+                FROM proof_requests pr
+                LEFT JOIN request_submitted_events rse ON rse.request_digest = pr.request_digest
+                LEFT JOIN request_locked_events rle ON rle.request_digest = pr.request_digest
+                LEFT JOIN request_fulfilled_events rfe ON rfe.request_digest = pr.request_digest
+                LEFT JOIN fulfillments f ON f.request_digest = pr.request_digest
+                LEFT JOIN prover_slashed_events pse ON pse.request_id = pr.request_id
+                WHERE pr.request_digest = $1"
+            )
+            .bind(&digest_str)
+            .fetch_all(&self.pool)
+            .await?;
+
+            // Should be at most one row since request_digest is unique
+            for row in rows {
+                let request_digest_str: String = row.get("request_digest");
+                let request_digest = B256::from_str(&request_digest_str)
+                    .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
+                let request_id: String = row.get("request_id");
+                let source: String = row.get("source");
+                let client_address_str: String = row.get("client_address");
+                let client_address = Address::from_str(&client_address_str)
+                    .map_err(|e| DbError::BadTransaction(format!("Invalid client_address: {}", e)))?;
+
+            let created_at: i64 = row.get("created_at");
+            let submit_block: Option<i64> = row.try_get("submit_block").ok();
+            let submit_tx_hash_str: Option<String> = row.try_get("submit_tx_hash").ok();
+            let submit_tx_hash = submit_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+
+            let min_price: String = row.get("min_price");
+            let max_price: String = row.get("max_price");
+            let lock_collateral: String = row.get("lock_collateral");
+            let ramp_up_start: i64 = row.get("ramp_up_start");
+            let ramp_up_period: i64 = row.get("ramp_up_period");
+            let expires_at: i64 = row.get("expires_at");
+            let lock_end: i64 = row.get("lock_end");
+
+            let image_id: String = row.get("image_id");
+            let image_url: Option<String> = row.try_get("image_url").ok();
+            let selector: String = row.get("selector");
+            let predicate_type: String = row.get("predicate_type");
+            let predicate_data: String = row.get("predicate_data");
+            let input_type: String = row.get("input_type");
+            let input_data: String = row.get("input_data");
+
+            // Event timestamps
+            let submitted_at: Option<i64> = row.try_get("submitted_at").ok();
+            let locked_at: Option<i64> = row.try_get("locked_at").ok();
+            let lock_block: Option<i64> = row.try_get("lock_block").ok();
+            let lock_tx_hash_str: Option<String> = row.try_get("lock_tx_hash").ok();
+            let lock_tx_hash = lock_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+
+            let prover_address_str: Option<String> = row.try_get("prover_address").ok();
+            let prover_address = prover_address_str.and_then(|s| Address::from_str(&s).ok());
+
+            let fulfilled_at: Option<i64> = row.try_get("fulfilled_at").ok();
+            let fulfill_block: Option<i64> = row.try_get("fulfill_block").ok();
+            let fulfill_tx_hash_str: Option<String> = row.try_get("fulfill_tx_hash").ok();
+            let fulfill_tx_hash = fulfill_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+
+            let fulfill_seal: Option<String> = row.try_get("fulfill_seal").ok();
+
+            let slashed_at: Option<i64> = row.try_get("slashed_at").ok();
+            let slashed_block: Option<i64> = row.try_get("slashed_block").ok();
+            let slash_tx_hash_str: Option<String> = row.try_get("slash_tx_hash").ok();
+            let slash_tx_hash = slash_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+            let slash_burned_amount_str: Option<String> = row.try_get("slash_burned_amount").ok();
+            let slash_transferred_amount_str: Option<String> = row.try_get("slash_transferred_amount").ok();
+            let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
+            let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
+
+            // Just return the raw data - status computation will happen in service layer
+            requests.push(RequestWithEvents {
+                request_digest,
+                request_id,
+                source,
+                client_address,
+                created_at: created_at as u64,
+                submit_block: submit_block.map(|b| b as u64),
+                submit_tx_hash,
+                min_price,
+                max_price,
+                lock_collateral,
+                ramp_up_start: ramp_up_start as u64,
+                ramp_up_period: ramp_up_period as u64,
+                expires_at: expires_at as u64,
+                lock_end: lock_end as u64,
+                image_id,
+                image_url,
+                selector,
+                predicate_type,
+                predicate_data,
+                input_type,
+                input_data,
+                submitted_at: submitted_at.map(|t| t as u64),
+                locked_at: locked_at.map(|t| t as u64),
+                lock_block: lock_block.map(|b| b as u64),
+                lock_tx_hash,
+                prover_address,
+                fulfilled_at: fulfilled_at.map(|t| t as u64),
+                fulfill_block: fulfill_block.map(|b| b as u64),
+                fulfill_tx_hash,
+                cycles: None,  // Will be populated in request_status table
+                peak_prove_mhz: None,  // Will be populated in request_status table
+                effective_prove_mhz: None,  // Will be populated in request_status table
+                fulfill_journal: None,  // Will be populated in request_status table
+                fulfill_seal,
+                slashed_at: slashed_at.map(|t| t as u64),
+                slashed_block: slashed_block.map(|b| b as u64),
+                slash_tx_hash,
+                slash_burned_amount: slash_burned_amount_str,
+                slash_transferred_amount: slash_transferred_amount_str,
+                slash_recipient,
+            });
+            }
+        }
+
+        Ok(requests)
+    }
+
+    async fn find_newly_expired_requests(
+        &self,
+        from_block_timestamp: u64,
+        to_block_timestamp: u64,
+    ) -> Result<std::collections::HashSet<B256>, DbError> {
+        let rows = sqlx::query(
+            "SELECT request_digest
+             FROM proof_requests pr
+             WHERE pr.expires_at > $1
+               AND pr.expires_at <= $2
+               AND NOT EXISTS (
+                   SELECT 1 FROM request_fulfilled_events rfe
+                   WHERE rfe.request_digest = pr.request_digest
+               )
+               "
+        )
+        .bind(from_block_timestamp as i64)
+        .bind(to_block_timestamp as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut expired = std::collections::HashSet::new();
+        for row in rows {
+            let digest_str: String = row.get("request_digest");
+            let digest = B256::from_str(&digest_str)
+                .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
+            expired.insert(digest);
+        }
+
+        Ok(expired)
+    }
+
+    async fn list_requests(
+        &self,
+        cursor: Option<RequestCursor>,
+        limit: u32,
+        sort_by: RequestSortField,
+    ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
+        let sort_field = match sort_by {
+            RequestSortField::UpdatedAt => "updated_at",
+            RequestSortField::CreatedAt => "created_at",
+        };
+
+        let rows = if let Some(c) = &cursor {
+            let query_str = format!(
+                "SELECT * FROM request_status
+                 WHERE {} < $1 OR ({} = $1 AND request_digest < $2)
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $3",
+                sort_field, sort_field, sort_field
+            );
+            sqlx::query(&query_str)
+                .bind(c.timestamp as i64)
+                .bind(&c.request_digest)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+        } else {
+            let query_str = format!(
+                "SELECT * FROM request_status
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $1",
+                sort_field
+            );
+            sqlx::query(&query_str)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+        };
+        let mut results = Vec::new();
+
+        for row in rows {
+            results.push(self.row_to_request_status(&row)?);
+        }
+
+        let next_cursor = if results.len() == limit as usize {
+            results.last().map(|r| {
+                let timestamp = match sort_by {
+                    RequestSortField::UpdatedAt => r.updated_at,
+                    RequestSortField::CreatedAt => r.created_at,
+                };
+                RequestCursor {
+                    timestamp,
+                    request_digest: r.request_digest.to_string(),
+                }
+            })
+        } else {
+            None
+        };
+
+        Ok((results, next_cursor))
+    }
+
+    async fn list_requests_by_requestor(
+        &self,
+        client_address: Address,
+        cursor: Option<RequestCursor>,
+        limit: u32,
+        sort_by: RequestSortField,
+    ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
+        let client_str = client_address.to_string();
+        let sort_field = match sort_by {
+            RequestSortField::UpdatedAt => "updated_at",
+            RequestSortField::CreatedAt => "created_at",
+        };
+
+        let rows = if let Some(c) = &cursor {
+            let query_str = format!(
+                "SELECT * FROM request_status
+                 WHERE client_address = $1
+                   AND ({} < $2 OR ({} = $2 AND request_digest < $3))
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $4",
+                sort_field, sort_field, sort_field
+            );
+            sqlx::query(&query_str)
+                .bind(&client_str)
+                .bind(c.timestamp as i64)
+                .bind(&c.request_digest)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+        } else {
+            let query_str = format!(
+                "SELECT * FROM request_status
+                 WHERE client_address = $1
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $2",
+                sort_field
+            );
+            sqlx::query(&query_str)
+                .bind(&client_str)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+        };
+        let mut results = Vec::new();
+
+        for row in rows {
+            results.push(self.row_to_request_status(&row)?);
+        }
+
+        let next_cursor = if results.len() == limit as usize {
+            results.last().map(|r| {
+                let timestamp = match sort_by {
+                    RequestSortField::UpdatedAt => r.updated_at,
+                    RequestSortField::CreatedAt => r.created_at,
+                };
+                RequestCursor {
+                    timestamp,
+                    request_digest: r.request_digest.to_string(),
+                }
+            })
+        } else {
+            None
+        };
+
+        Ok((results, next_cursor))
+    }
+
+    async fn list_requests_by_prover(
+        &self,
+        prover_address: Address,
+        cursor: Option<RequestCursor>,
+        limit: u32,
+        sort_by: RequestSortField,
+    ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
+        let prover_str = prover_address.to_string();
+        let sort_field = match sort_by {
+            RequestSortField::UpdatedAt => "updated_at",
+            RequestSortField::CreatedAt => "created_at",
+        };
+
+        let rows = if let Some(c) = &cursor {
+            let query_str = format!(
+                "SELECT * FROM request_status
+                 WHERE prover_address = $1
+                   AND ({} < $2 OR ({} = $2 AND request_digest < $3))
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $4",
+                sort_field, sort_field, sort_field
+            );
+            sqlx::query(&query_str)
+                .bind(&prover_str)
+                .bind(c.timestamp as i64)
+                .bind(&c.request_digest)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+        } else {
+            let query_str = format!(
+                "SELECT * FROM request_status
+                 WHERE prover_address = $1
+                 ORDER BY {} DESC, request_digest DESC
+                 LIMIT $2",
+                sort_field
+            );
+            sqlx::query(&query_str)
+                .bind(&prover_str)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+        };
+        let mut results = Vec::new();
+
+        for row in rows {
+            results.push(self.row_to_request_status(&row)?);
+        }
+
+        let next_cursor = if results.len() == limit as usize {
+            results.last().map(|r| {
+                let timestamp = match sort_by {
+                    RequestSortField::UpdatedAt => r.updated_at,
+                    RequestSortField::CreatedAt => r.created_at,
+                };
+                RequestCursor {
+                    timestamp,
+                    request_digest: r.request_digest.to_string(),
+                }
+            })
+        } else {
+            None
+        };
+
+        Ok((results, next_cursor))
+    }
+
+    async fn get_requests_by_request_id(
+        &self,
+        request_id: &str,
+    ) -> Result<Vec<RequestStatus>, DbError> {
+        let rows = sqlx::query(
+            "SELECT * FROM request_status
+             WHERE request_id = $1
+             ORDER BY updated_at DESC"
+        )
+        .bind(request_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(self.row_to_request_status(&row)?);
+        }
+
+        Ok(results)
+    }
 }
 
 impl AnyDb {
@@ -1206,6 +1890,78 @@ impl AnyDb {
             .collect();
 
         Ok(summaries)
+    }
+
+    fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError> {
+        let request_digest_str: String = row.get("request_digest");
+        let request_digest = B256::from_str(&request_digest_str)
+            .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
+
+        let client_address_str: String = row.get("client_address");
+        let client_address = Address::from_str(&client_address_str)
+            .map_err(|e| DbError::BadTransaction(format!("Invalid client_address: {}", e)))?;
+
+        let prover_address_str: Option<String> = row.try_get("prover_address").ok().flatten();
+        let prover_address = prover_address_str.and_then(|s| Address::from_str(&s).ok());
+
+        let submit_tx_hash_str: Option<String> = row.try_get("submit_tx_hash").ok().flatten();
+        let submit_tx_hash = submit_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+
+        let lock_tx_hash_str: Option<String> = row.try_get("lock_tx_hash").ok().flatten();
+        let lock_tx_hash = lock_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+
+        let fulfill_tx_hash_str: Option<String> = row.try_get("fulfill_tx_hash").ok().flatten();
+        let fulfill_tx_hash = fulfill_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+
+        let slash_tx_hash_str: Option<String> = row.try_get("slash_tx_hash").ok().flatten();
+        let slash_tx_hash = slash_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+
+        let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok().flatten();
+        let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
+
+        Ok(RequestStatus {
+            request_digest,
+            request_id: row.get("request_id"),
+            request_status: row.get("request_status"),
+            source: row.get("source"),
+            client_address,
+            prover_address,
+            created_at: row.get::<i64, _>("created_at") as u64,
+            updated_at: row.get::<i64, _>("updated_at") as u64,
+            locked_at: row.try_get::<Option<i64>, _>("locked_at").ok().flatten().map(|t| t as u64),
+            fulfilled_at: row.try_get::<Option<i64>, _>("fulfilled_at").ok().flatten().map(|t| t as u64),
+            slashed_at: row.try_get::<Option<i64>, _>("slashed_at").ok().flatten().map(|t| t as u64),
+            submit_block: row.try_get::<Option<i64>, _>("submit_block").ok().flatten().map(|b| b as u64),
+            lock_block: row.try_get::<Option<i64>, _>("lock_block").ok().flatten().map(|b| b as u64),
+            fulfill_block: row.try_get::<Option<i64>, _>("fulfill_block").ok().flatten().map(|b| b as u64),
+            slashed_block: row.try_get::<Option<i64>, _>("slashed_block").ok().flatten().map(|b| b as u64),
+            min_price: row.get("min_price"),
+            max_price: row.get("max_price"),
+            lock_collateral: row.get("lock_collateral"),
+            ramp_up_start: row.get::<i64, _>("ramp_up_start") as u64,
+            ramp_up_period: row.get::<i64, _>("ramp_up_period") as u64,
+            expires_at: row.get::<i64, _>("expires_at") as u64,
+            lock_end: row.get::<i64, _>("lock_end") as u64,
+            slash_recipient,
+            slash_transferred_amount: row.try_get("slash_transferred_amount").ok(),
+            slash_burned_amount: row.try_get("slash_burned_amount").ok(),
+            cycles: row.try_get::<Option<i64>, _>("cycles").ok().flatten().map(|c| c as u64),
+            peak_prove_mhz: row.try_get::<Option<i64>, _>("peak_prove_mhz").ok().flatten().map(|m| m as u64),
+            effective_prove_mhz: row.try_get::<Option<i64>, _>("effective_prove_mhz").ok().flatten().map(|m| m as u64),
+            submit_tx_hash,
+            lock_tx_hash,
+            fulfill_tx_hash,
+            slash_tx_hash,
+            image_id: row.get("image_id"),
+            image_url: row.try_get("image_url").ok(),
+            selector: row.get("selector"),
+            predicate_type: row.get("predicate_type"),
+            predicate_data: row.get("predicate_data"),
+            input_type: row.get("input_type"),
+            input_data: row.get("input_data"),
+            fulfill_journal: row.try_get("fulfill_journal").ok(),
+            fulfill_seal: row.try_get("fulfill_seal").ok(),
+        })
     }
 }
 
