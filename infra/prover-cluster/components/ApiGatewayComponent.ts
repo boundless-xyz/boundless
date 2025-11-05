@@ -76,6 +76,24 @@ export class ApiGatewayComponent extends BaseComponent {
             }],
         });
 
+        // Get VPC CIDR block to allow internal requests without API key
+        const vpc = config.vpcId.apply(id => aws.ec2.getVpc({ id }));
+        const vpcCidr = vpc.apply(v => v.cidrBlock);
+
+        // Create IP set for VPC CIDR
+        const vpcIpSet = new aws.wafv2.IpSet("boundless-vpc-ipset", {
+            name: `${this.config.stackName}-vpc`,
+            description: "IP set for VPC CIDR to allow internal requests",
+            scope: "REGIONAL",
+            ipAddressVersion: "IPV4",
+            addresses: vpcCidr.apply(cidr => [cidr]),
+            tags: {
+                Name: `${this.config.stackName}-prover-vpc-ipset`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
+        });
+
         // Create WAF Web ACL with API key enforcement
         this.wafWebAcl = new aws.wafv2.WebAcl("boundless-waf", {
             name: `${this.config.stackName}-prover`,
@@ -85,6 +103,23 @@ export class ApiGatewayComponent extends BaseComponent {
                 block: {}
             },
             rules: [
+                {
+                    name: "VpcRule",
+                    priority: 0,
+                    action: {
+                        allow: {}
+                    },
+                    statement: {
+                        ipSetReferenceStatement: {
+                            arn: vpcIpSet.arn
+                        }
+                    },
+                    visibilityConfig: {
+                        cloudwatchMetricsEnabled: true,
+                        metricName: "VpcRule",
+                        sampledRequestsEnabled: true
+                    }
+                },
                 {
                     name: "ApiKeyRule",
                     priority: 1,
