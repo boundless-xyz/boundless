@@ -4,7 +4,6 @@
 // as found in the LICENSE-BSL file.
 
 use anyhow::{Context, Result};
-use deadpool_redis::Connection;
 pub use deadpool_redis::{Config, Pool as RedisPool, Runtime, redis::AsyncCommands};
 use redis::{RedisResult, ToRedisArgs};
 
