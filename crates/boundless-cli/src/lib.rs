@@ -354,23 +354,6 @@ impl OrderFulfiller {
         Ok(proof_id)
     }
 
-    pub(crate) async fn shrink_bitvm2(&self, succinct_receipt: &Receipt) -> Result<Receipt> {
-        let prover = risc0_zkvm::default_prover();
-        if is_dev_mode() {
-            return Ok(succinct_receipt.clone());
-        }
-        if prover.get_name() == "bonsai" {
-            return shrink_bitvm2_with_bonsai(succinct_receipt).await;
-        }
-        let receipt = succinct_receipt.clone();
-        tokio::task::spawn_blocking(move || {
-            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
-            let seal = shrink_bitvm2::succinct_to_bitvm2(receipt.inner.succinct()?, journal)?;
-            shrink_bitvm2::finalize(journal, receipt.claim()?, &seal.try_into()?)
-        })
-        .await?
-    }
-
     // Finalizes the set builder.
     pub(crate) async fn finalize(
         &self,
@@ -569,7 +552,7 @@ impl OrderFulfiller {
                 // Compress the STARK proof to Groth16
                 let compressed_proof_id = self
                     .prover
-                    .shrink_bitvm2(&proof_ids[i])
+                    .shrink_blake3_groth16(&proof_ids[i])
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to compress order proof: {}", e))?;
 

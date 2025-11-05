@@ -2912,11 +2912,11 @@ pub(crate) mod tests {
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_compressed_receipt(proof_id).await
         }
-        async fn shrink_bitvm2(&self, _proof_id: &str) -> Result<String, ProverError> {
+        async fn shrink_blake3_groth16(&self, _proof_id: &str) -> Result<String, ProverError> {
             todo!("Shrink BitVM is not implemented yet");
         }
 
-        async fn get_bitvm2_receipt(
+        async fn get_blake3_groth16_receipt(
             &self,
             _proof_id: &str,
         ) -> Result<Option<Receipt>, ProverError> {

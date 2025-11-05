@@ -175,7 +175,7 @@ where
     async fn fetch_encode_shrink_seal(&self, bitvm2_proof_id: &str) -> Result<Vec<u8>> {
         let bitvm2_receipt = self
             .prover
-            .get_bitvm2_receipt(bitvm2_proof_id)
+            .get_blake3_groth16_receipt(bitvm2_proof_id)
             .await
             .context("Failed to fetch BitVM2 receipt")?
             .context("BitVM2 receipt missing")?;

@@ -115,7 +115,7 @@ impl ProvingService {
                             .context("Failed to compress proof")?,
                         CompressionType::ShrinkBitvm2 => self
                             .prover
-                            .shrink_bitvm2(stark_proof_id)
+                            .shrink_blake3_groth16(stark_proof_id)
                             .await
                             .context("Failed to shrink proof")?,
                         CompressionType::None => {

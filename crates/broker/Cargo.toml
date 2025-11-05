@@ -57,7 +57,6 @@ uuid = { workspace = true }
 
 num-bigint = { version = "0.4", features = ["std"] }
 num-traits = "0.2.19"
-shrink_bitvm2 = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
@@ -82,5 +81,4 @@ test-log = { workspace = true }
 
 [features]
 test-utils = ["dep:boundless-test-utils"]
-prove = ["shrink_bitvm2/prove"]
-cuda = ["shrink_bitvm2/cuda"]
+cuda = ["risc0-zkvm/cuda"]

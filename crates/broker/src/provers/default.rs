@@ -397,7 +397,7 @@ impl Prover for DefaultProver {
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
 
-    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
+    async fn shrink_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
         tracing::info!("Compressing proof Shrink bitvm2 {proof_id}");
         let receipt = self
             .get_receipt(proof_id)
@@ -412,34 +412,18 @@ impl Prover for DefaultProver {
         let proof_id = format!("snark_{}", Uuid::new_v4());
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
-        tracing::debug!("shrink bitvm2 identity_p254 for proof {proof_id}");
-
-        let compress_result: Result<Receipt, _> = tokio::task::spawn_blocking(move || {
-            tracing::debug!(
-                "r0vm does not currently support shrink_bitvm2, compressing will be done locally"
-            );
-            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into().map_err(|_| {
-                ProverError::UnexpectedError(anyhow!(
-                    "Failed to convert journal to [u8; 32] as expected for blake3 groth16",
-                ))
-            })?;
-
-            let succinct_receipt = receipt.inner.succinct().unwrap().clone();
-            let seal = shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, journal)
-                .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?;
-            shrink_bitvm2::finalize(
-                journal,
-                receipt.claim().map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?,
-                &seal.try_into().map_err(|_| {
-                    ProverError::UnexpectedError(anyhow!(
-                        "Failed to convert blake3 groth16 seal from json"
-                    ))
-                })?,
-            )
-            .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
-        })
-        .await
-        .unwrap();
+        // TODO: remove this workaround when default_prover().compress works for Bonsai
+        let compress_result = if default_prover().get_name() == "bonsai" {
+            let client = bonsai_sdk::non_blocking::Client::from_env(VERSION)?;
+            super::Bonsai::compress_blake3_groth16(&client, &receipt, &ProverConf::default()).await
+        } else {
+            tokio::task::spawn_blocking(move || {
+                default_prover().compress(&ProverOpts::blake3_groth16(), &receipt)
+            })
+            .await
+            .unwrap()
+            .map_err(ProverError::from)
+        };
 
         let compressed_bytes = compress_result
             .as_ref()
@@ -463,7 +447,10 @@ impl Prover for DefaultProver {
             }
         }
     }
-    async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+    async fn get_blake3_groth16_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
@@ -606,7 +593,7 @@ mod tests {
         let ProofResult { id: stark_id, .. } =
             prover.prove_and_monitor_stark(&image_id.to_string(), &input_id, vec![]).await.unwrap();
 
-        let snark_id = prover.shrink_bitvm2(&stark_id).await.unwrap();
+        let snark_id = prover.shrink_blake3_groth16(&stark_id).await.unwrap();
 
         // Fetch the compressed receipt
         let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
