@@ -132,6 +132,33 @@ pub(crate) async fn verify_groth16_receipt(
     Ok(())
 }
 
+/// Verify a Blake3 groth16 compressed receipt
+///
+/// This helper fetches the compressed receipt, deserializes it, and verifies its integrity.
+/// Used by both aggregator and proving services to validate Blake3 groth16 proofs before submission.
+pub(crate) async fn verify_blake3_groth16_receipt(
+    prover: &ProverObj,
+    proof_id: &str,
+) -> Result<(), ProverError> {
+    tracing::trace!("Verifying Blake3 Groth16 receipt locally for proof_id: {proof_id}");
+
+    let receipt_bytes = prover.get_blake3_groth16_receipt(proof_id).await?.ok_or_else(|| {
+        ProverError::NotFound(format!("Blake3 groth16 receipt not found: {proof_id}"))
+    })?;
+
+    let receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
+        ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
+    })?;
+    let inner =
+        receipt.inner.blake3_groth16().map_err(|e| ProverError::UnexpectedError(e.into()))?;
+    inner.verify_blake3_integrity().map_err(|e| {
+        ProverError::ProverInternalError(format!("Blake3 groth16 verification failed: {e}"))
+    })?;
+
+    tracing::debug!("Blake3 groth16 verification passed for proof_id: {proof_id}");
+    Ok(())
+}
+
 #[async_trait]
 pub trait Prover {
     async fn has_image(&self, image_id: &str) -> Result<bool, ProverError>;
