@@ -524,6 +524,9 @@ impl Agent {
         poll_interval: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
+            // Sleep before each check to avoid running on startup
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+
             tracing::debug!("Checking for stuck pending tasks...");
 
             // First check if there are any stuck tasks
@@ -549,9 +552,6 @@ impl Agent {
                     tracing::info!("Fixed {} stuck pending tasks", fixed_count);
                 }
             }
-
-            // Sleep before next check
-            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
         }
 
         Ok(())
@@ -567,15 +567,15 @@ impl Agent {
         poll_interval: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
+            // Sleep before each check to avoid running on startup
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+
             tracing::debug!("Cleaning up completed jobs...");
 
             let cleared_count = taskdb::clear_completed_jobs(&db_pool).await?;
             if cleared_count > 0 {
                 tracing::info!("Cleared {} completed jobs", cleared_count);
             }
-
-            // Sleep before next cleanup
-            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
         }
 
         Ok(())
