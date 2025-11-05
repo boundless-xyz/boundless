@@ -161,6 +161,14 @@ pub struct Args {
     /// How often to clean up completed jobs
     #[clap(env, long, default_value_t = 60 * 60)]
     cleanup_poll_interval: u64,
+
+    /// Disable cron to clean up completed jobs in taskdb.
+    #[clap(env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
+    disable_completed_cleanup: bool,
+
+    /// Disable cron to clean up stuck tasks in taskdb.
+    #[clap(env = "BENTO_DISABLE_STUCK_TASK_CLEANUP")]
+    disable_stuck_task_cleanup: bool,
 }
 
 /// Core agent context to hold all optional clients / pools and state
@@ -283,42 +291,46 @@ impl Agent {
 
         // Enable stuck task maintenance for aux workers
         if self.args.task_stream == AUX_WORK_TYPE {
-            let term_sig_copy = term_sig.clone();
-            let db_pool_copy = self.db_pool.clone();
-            let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
-            tokio::spawn(async move {
-                loop {
-                    if let Err(e) = Self::poll_for_stuck_tasks(
-                        term_sig_copy.clone(),
-                        db_pool_copy.clone(),
-                        stuck_tasks_interval,
-                    )
-                    .await
-                    {
-                        tracing::error!("[BENTO-WF-105] Stuck tasks cleanup failed: {:#}", e);
-                        time::sleep(time::Duration::from_secs(60)).await;
+            if !self.args.disable_stuck_task_cleanup {
+                let term_sig_copy = term_sig.clone();
+                let db_pool_copy = self.db_pool.clone();
+                let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
+                tokio::spawn(async move {
+                    loop {
+                        if let Err(e) = Self::poll_for_stuck_tasks(
+                            term_sig_copy.clone(),
+                            db_pool_copy.clone(),
+                            stuck_tasks_interval,
+                        )
+                        .await
+                        {
+                            tracing::error!("[BENTO-WF-105] Stuck tasks cleanup failed: {:#}", e);
+                            time::sleep(time::Duration::from_secs(60)).await;
+                        }
                     }
-                }
-            });
+                });
+            }
 
             // Enable completed job cleanup for aux workers
-            let term_sig_copy = term_sig.clone();
-            let db_pool_copy = self.db_pool.clone();
-            let cleanup_interval = self.args.cleanup_poll_interval;
-            tokio::spawn(async move {
-                loop {
-                    if let Err(e) = Self::poll_for_completed_job_cleanup(
-                        term_sig_copy.clone(),
-                        db_pool_copy.clone(),
-                        cleanup_interval,
-                    )
-                    .await
-                    {
-                        tracing::error!("[BENTO-WF-106] Completed job cleanup failed: {:#}", e);
-                        time::sleep(time::Duration::from_secs(cleanup_interval)).await;
+            if !self.args.disable_completed_cleanup {
+                let term_sig_copy = term_sig.clone();
+                let db_pool_copy = self.db_pool.clone();
+                let cleanup_interval = self.args.cleanup_poll_interval;
+                tokio::spawn(async move {
+                    loop {
+                        if let Err(e) = Self::poll_for_completed_job_cleanup(
+                            term_sig_copy.clone(),
+                            db_pool_copy.clone(),
+                            cleanup_interval,
+                        )
+                        .await
+                        {
+                            tracing::error!("[BENTO-WF-106] Completed job cleanup failed: {:#}", e);
+                            time::sleep(time::Duration::from_secs(cleanup_interval)).await;
+                        }
                     }
-                }
-            });
+                });
+            }
         }
 
         while !term_sig.load(Ordering::Relaxed) {
