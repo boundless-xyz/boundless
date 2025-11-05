@@ -82,7 +82,7 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Create IP set for VPC CIDR
         const vpcIpSet = new aws.wafv2.IpSet("boundless-vpc-ipset", {
-            name: `${this.config.stackName}-prover-vpc`,
+            name: `${this.config.stackName}-vpc`,
             description: "IP set for VPC CIDR to allow internal requests",
             scope: "REGIONAL",
             ipAddressVersion: "IPV4",
