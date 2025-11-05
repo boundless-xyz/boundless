@@ -38,11 +38,37 @@ pub fn routes() -> Router<Arc<AppState>> {
 const MAX_AGGREGATES: u64 = 1000;
 const DEFAULT_LIMIT: u64 = 100;
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AggregationGranularity {
+    Hourly,
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+impl Default for AggregationGranularity {
+    fn default() -> Self {
+        Self::Monthly
+    }
+}
+
+impl std::fmt::Display for AggregationGranularity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hourly => write!(f, "hourly"),
+            Self::Daily => write!(f, "daily"),
+            Self::Weekly => write!(f, "weekly"),
+            Self::Monthly => write!(f, "monthly"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct MarketAggregatesParams {
     /// Aggregation granularity: hourly, daily, weekly, or monthly
-    #[serde(default = "default_aggregation")]
-    aggregation: String,
+    #[serde(default)]
+    aggregation: AggregationGranularity,
 
     /// Base64-encoded cursor from previous response for pagination
     #[serde(default)]
@@ -63,10 +89,6 @@ pub struct MarketAggregatesParams {
     /// Unix timestamp to fetch aggregates after this time
     #[serde(default)]
     after: Option<i64>,
-}
-
-fn default_aggregation() -> String {
-    "hourly".to_string()
 }
 
 fn encode_cursor(timestamp: i64) -> Result<String, anyhow::Error> {
@@ -169,6 +191,8 @@ pub struct MarketAggregateEntry {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MarketAggregatesResponse {
+    /// The aggregation granularity used: hourly, daily, weekly, or monthly
+    pub aggregation: AggregationGranularity,
     pub data: Vec<MarketAggregateEntry>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
@@ -230,19 +254,6 @@ async fn get_market_aggregates_impl(
         params.after
     );
 
-    // Validate aggregation type
-    match params.aggregation.as_str() {
-        "hourly" | "daily" | "weekly" | "monthly" => {}
-        _ => {
-            anyhow::bail!("Invalid aggregation type. Must be one of: hourly, daily, weekly, monthly");
-        }
-    }
-
-    // For now, only support hourly - we'll add the other aggregations later
-    if params.aggregation != "hourly" {
-        anyhow::bail!("Only hourly aggregation is currently supported");
-    }
-
     // Parse cursor if provided
     let cursor = if let Some(cursor_str) = &params.cursor {
         Some(decode_cursor(cursor_str)?)
@@ -266,10 +277,26 @@ async fn get_market_aggregates_impl(
     // without needing a separate COUNT query. If we get limit+1 items back,
     // we know there are more results, and we discard the extra item.
     let limit_plus_one = limit_i64 + 1;
-    let mut summaries = state
-        .market_db
-        .get_hourly_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
-        .await?;
+    
+    // Route to appropriate database method based on aggregation type
+    let mut summaries = match params.aggregation {
+        AggregationGranularity::Hourly => state
+            .market_db
+            .get_hourly_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
+            .await?,
+        AggregationGranularity::Daily => state
+            .market_db
+            .get_daily_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
+            .await?,
+        AggregationGranularity::Weekly => state
+            .market_db
+            .get_weekly_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
+            .await?,
+        AggregationGranularity::Monthly => state
+            .market_db
+            .get_monthly_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
+            .await?,
+    };
 
     let has_more = summaries.len() > limit as usize;
     if has_more {
@@ -279,7 +306,7 @@ async fn get_market_aggregates_impl(
     // Generate next cursor if there are more results
     let next_cursor = if has_more && !summaries.is_empty() {
         let last_summary = summaries.last().unwrap();
-        Some(encode_cursor(last_summary.hour_timestamp)?)
+        Some(encode_cursor(last_summary.period_timestamp as i64)?)
     } else {
         None
     };
@@ -289,7 +316,7 @@ async fn get_market_aggregates_impl(
         .into_iter()
         .map(|summary| {
             // Format timestamp as ISO 8601 manually
-            let timestamp_iso = format_timestamp_iso(summary.hour_timestamp);
+            let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
 
             // Format values for display (convert from wei to ETH/USDC)
             let format_value = |s: &str| {
@@ -299,11 +326,11 @@ async fn get_market_aggregates_impl(
             };
 
             MarketAggregateEntry {
-                timestamp: summary.hour_timestamp,
+                timestamp: summary.period_timestamp as i64,
                 timestamp_iso,
-                total_fulfilled: summary.total_fulfilled,
-                unique_provers_locking_requests: summary.unique_provers_locking_requests,
-                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests,
+                total_fulfilled: summary.total_fulfilled as i64,
+                unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
+                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests as i64,
                 total_fees_locked: summary.total_fees_locked.clone(),
                 total_fees_locked_formatted: format_value(&summary.total_fees_locked),
                 total_collateral_locked: summary.total_collateral_locked.clone(),
@@ -322,16 +349,21 @@ async fn get_market_aggregates_impl(
                 p95_fees_locked_formatted: format_value(&summary.p95_fees_locked),
                 p99_fees_locked: summary.p99_fees_locked.clone(),
                 p99_fees_locked_formatted: format_value(&summary.p99_fees_locked),
-                total_requests_submitted: summary.total_requests_submitted,
-                total_requests_submitted_onchain: summary.total_requests_submitted_onchain,
-                total_requests_submitted_offchain: summary.total_requests_submitted_offchain,
-                total_requests_locked: summary.total_requests_locked,
-                total_requests_slashed: summary.total_requests_slashed,
+                total_requests_submitted: summary.total_requests_submitted as i64,
+                total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
+                total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
+                total_requests_locked: summary.total_requests_locked as i64,
+                total_requests_slashed: summary.total_requests_slashed as i64,
             }
         })
         .collect();
 
-    Ok(MarketAggregatesResponse { data, next_cursor, has_more })
+    Ok(MarketAggregatesResponse { 
+        aggregation: params.aggregation,
+        data, 
+        next_cursor, 
+        has_more 
+    })
 }
 
 /// Format Unix timestamp as ISO 8601 string (UTC)
