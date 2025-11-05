@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -85,9 +85,8 @@ fn encode_cursor(timestamp: DateTime<Utc>, id: i64) -> Result<String, AppError> 
 }
 
 fn decode_cursor(cursor_str: &str) -> Result<(DateTime<Utc>, i64), AppError> {
-    let json = BASE64
-        .decode(cursor_str)
-        .map_err(|_| AppError::QueryParamErr("cursor: invalid base64"))?;
+    let json =
+        BASE64.decode(cursor_str).map_err(|_| AppError::QueryParamErr("cursor: invalid base64"))?;
     let cursor_data: CursorData = serde_json::from_slice(&json)
         .map_err(|_| AppError::QueryParamErr("cursor: invalid format"))?;
     Ok((cursor_data.timestamp, cursor_data.id))
@@ -153,9 +152,14 @@ pub(crate) async fn list_orders(
             None
         };
 
-        state.db.list_orders_by_creation_desc(after_timestamp, limit).await.context("Failed to query DB")?
+        state
+            .db
+            .list_orders_by_creation_desc(after_timestamp, limit)
+            .await
+            .context("Failed to query DB")?
     } else {
-        let offset = i64::try_from(paging.offset.unwrap_or(0)).map_err(|_| AppError::QueryParamErr("offset"))?;
+        let offset = i64::try_from(paging.offset.unwrap_or(0))
+            .map_err(|_| AppError::QueryParamErr("offset"))?;
         state.db.list_orders(offset, limit).await.context("Failed to query DB")?
     };
 
@@ -176,12 +180,6 @@ const DEFAULT_LIMIT_V2: u64 = 100;
     )
 )]
 /// Returns a list of orders with cursor-based pagination and flexible filtering (v2).
-///
-/// Supports:
-/// - Cursor-based pagination for stable results during concurrent inserts
-/// - Bidirectional sorting (asc/desc by creation time)
-/// - Timestamp range filtering (before/after)
-/// - Default sort is descending (newest first)
 pub(crate) async fn list_orders_v2(
     State(state): State<Arc<AppState>>,
     paging: Query<PaginationV2>,
@@ -196,11 +194,8 @@ pub(crate) async fn list_orders_v2(
         _ => return Err(AppError::QueryParamErr("sort: must be 'asc' or 'desc'")),
     };
 
-    let cursor = if let Some(cursor_str) = &paging.cursor {
-        Some(decode_cursor(cursor_str)?)
-    } else {
-        None
-    };
+    let cursor =
+        if let Some(cursor_str) = &paging.cursor { Some(decode_cursor(cursor_str)?) } else { None };
 
     // Request one extra item to efficiently determine if more pages exist
     // without needing a separate COUNT query. If we get limit+1 items back,

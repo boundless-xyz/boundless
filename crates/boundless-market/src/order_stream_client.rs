@@ -453,8 +453,7 @@ impl OrderStreamClient {
     /// List orders with cursor-based pagination and flexible filtering (v2)
     ///
     /// Provides cursor-based pagination for stable results, bidirectional sorting,
-    /// and timestamp range filtering. This is the recommended method for paginating
-    /// through orders as it handles concurrent inserts correctly.
+    /// and timestamp range filtering.
     ///
     /// # Arguments
     /// * `cursor` - Opaque cursor string from previous response for pagination

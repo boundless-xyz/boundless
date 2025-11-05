@@ -672,9 +672,8 @@ mod tests {
 
         // Spawn server (clone app_state so we can return it)
         let app_state_clone = app_state.clone();
-        let server_handle = tokio::spawn(async move {
-            self::run_from_parts(app_state_clone, listener).await
-        });
+        let server_handle =
+            tokio::spawn(async move { self::run_from_parts(app_state_clone, listener).await });
 
         // Wait for health
         wait_for_server_health(&client, &addr, 5).await;
@@ -1098,7 +1097,13 @@ mod tests {
         // Use the cursor to get the next page
         // This should ONLY return order1, NOT the newly inserted order4 or order5
         let second_page = client
-            .list_orders_v2(first_page.next_cursor.clone(), Some(10), Some(SortDirection::Desc), None, None)
+            .list_orders_v2(
+                first_page.next_cursor.clone(),
+                Some(10),
+                Some(SortDirection::Desc),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1182,7 +1187,13 @@ mod tests {
         // In ascending order, the cursor returns all orders > cursor_point
         // Since order6 was inserted after order2 (has a later timestamp), it WILL be included
         let second_page_asc = client
-            .list_orders_v2(first_page_asc.next_cursor, Some(10), Some(SortDirection::Asc), None, None)
+            .list_orders_v2(
+                first_page_asc.next_cursor,
+                Some(10),
+                Some(SortDirection::Asc),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
