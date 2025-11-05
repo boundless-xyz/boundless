@@ -151,6 +151,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
             '--start-block',
             startBlock,
             '--log-json',
+            '--cache-uri',
+            pulumi.interpolate`s3://${infra.cacheBucket.bucket}`,
             ...(orderStreamUrl ? ['--order-stream-url', orderStreamUrl] : []),
           ],
           secrets: [
@@ -179,6 +181,10 @@ export class MarketIndexer extends pulumi.ComponentResource {
             {
               name: 'SECRET_HASH',
               value: infra.secretHash,
+            },
+            {
+              name: 'AWS_REGION',
+              value: 'us-west-2',
             },
           ],
         },

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloy::primitives::U256;
 use axum::{
     extract::{Query, State},
     http::header,
@@ -22,12 +23,13 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 use utoipa;
 
 use crate::{
     db::AppState,
     handler::{cache_control, handle_error},
+    utils::{format_eth, format_zkc},
 };
 use boundless_indexer::db::market::SortDirection;
 
@@ -319,12 +321,21 @@ async fn get_market_aggregates_impl(
             // Format timestamp as ISO 8601 manually
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
 
-            // Format values for display (convert from wei to ETH/USDC)
-            let format_value = |s: &str| {
-                // Parse as U256 and format
-                // For now, just return the raw string - proper formatting can be added later
-                s.to_string()
+            // Normalize padded strings by parsing as U256 and converting back to clean string
+            let normalize = |s: &str| -> String {
+                U256::from_str(s).map(|v| v.to_string()).unwrap_or_else(|_| "0".to_string())
             };
+
+            // Normalize all currency fields
+            let total_fees_locked = normalize(&summary.total_fees_locked);
+            let total_collateral_locked = normalize(&summary.total_collateral_locked);
+            let p10_fees_locked = normalize(&summary.p10_fees_locked);
+            let p25_fees_locked = normalize(&summary.p25_fees_locked);
+            let p50_fees_locked = normalize(&summary.p50_fees_locked);
+            let p75_fees_locked = normalize(&summary.p75_fees_locked);
+            let p90_fees_locked = normalize(&summary.p90_fees_locked);
+            let p95_fees_locked = normalize(&summary.p95_fees_locked);
+            let p99_fees_locked = normalize(&summary.p99_fees_locked);
 
             MarketAggregateEntry {
                 timestamp: summary.period_timestamp as i64,
@@ -332,24 +343,24 @@ async fn get_market_aggregates_impl(
                 total_fulfilled: summary.total_fulfilled as i64,
                 unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
                 unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests as i64,
-                total_fees_locked: summary.total_fees_locked.clone(),
-                total_fees_locked_formatted: format_value(&summary.total_fees_locked),
-                total_collateral_locked: summary.total_collateral_locked.clone(),
-                total_collateral_locked_formatted: format_value(&summary.total_collateral_locked),
-                p10_fees_locked: summary.p10_fees_locked.clone(),
-                p10_fees_locked_formatted: format_value(&summary.p10_fees_locked),
-                p25_fees_locked: summary.p25_fees_locked.clone(),
-                p25_fees_locked_formatted: format_value(&summary.p25_fees_locked),
-                p50_fees_locked: summary.p50_fees_locked.clone(),
-                p50_fees_locked_formatted: format_value(&summary.p50_fees_locked),
-                p75_fees_locked: summary.p75_fees_locked.clone(),
-                p75_fees_locked_formatted: format_value(&summary.p75_fees_locked),
-                p90_fees_locked: summary.p90_fees_locked.clone(),
-                p90_fees_locked_formatted: format_value(&summary.p90_fees_locked),
-                p95_fees_locked: summary.p95_fees_locked.clone(),
-                p95_fees_locked_formatted: format_value(&summary.p95_fees_locked),
-                p99_fees_locked: summary.p99_fees_locked.clone(),
-                p99_fees_locked_formatted: format_value(&summary.p99_fees_locked),
+                total_fees_locked: total_fees_locked.clone(),
+                total_fees_locked_formatted: format_eth(&total_fees_locked),
+                total_collateral_locked: total_collateral_locked.clone(),
+                total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                p10_fees_locked: p10_fees_locked.clone(),
+                p10_fees_locked_formatted: format_eth(&p10_fees_locked),
+                p25_fees_locked: p25_fees_locked.clone(),
+                p25_fees_locked_formatted: format_eth(&p25_fees_locked),
+                p50_fees_locked: p50_fees_locked.clone(),
+                p50_fees_locked_formatted: format_eth(&p50_fees_locked),
+                p75_fees_locked: p75_fees_locked.clone(),
+                p75_fees_locked_formatted: format_eth(&p75_fees_locked),
+                p90_fees_locked: p90_fees_locked.clone(),
+                p90_fees_locked_formatted: format_eth(&p90_fees_locked),
+                p95_fees_locked: p95_fees_locked.clone(),
+                p95_fees_locked_formatted: format_eth(&p95_fees_locked),
+                p99_fees_locked: p99_fees_locked.clone(),
+                p99_fees_locked_formatted: format_eth(&p99_fees_locked),
                 total_requests_submitted: summary.total_requests_submitted as i64,
                 total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
                 total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,

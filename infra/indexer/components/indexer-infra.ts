@@ -13,6 +13,7 @@ export interface IndexerInfraArgs {
 export class IndexerShared extends pulumi.ComponentResource {
   public readonly ecrRepository: awsx.ecr.Repository;
   public readonly ecrAuthToken: pulumi.Output<aws.ecr.GetAuthorizationTokenResult>;
+  public readonly cacheBucket: aws.s3.BucketV2;
   public readonly indexerSecurityGroup: aws.ec2.SecurityGroup;
   public readonly rdsSecurityGroupId: pulumi.Output<string>;
   public readonly dbUrlSecret: aws.secretsmanager.Secret;
@@ -46,6 +47,21 @@ export class IndexerShared extends pulumi.ComponentResource {
     this.ecrAuthToken = aws.ecr.getAuthorizationTokenOutput({
       registryId: this.ecrRepository.repository.registryId,
     });
+
+    this.cacheBucket = new aws.s3.BucketV2(`${serviceName}-cache`, {
+      bucket: `${serviceName}-cache`,
+    }, { parent: this });
+
+    new aws.s3.BucketServerSideEncryptionConfigurationV2(`${serviceName}-cache-encryption`, {
+      bucket: this.cacheBucket.id,
+      rules: [
+        {
+          applyServerSideEncryptionByDefault: {
+            sseAlgorithm: 'AES256',
+          },
+        },
+      ],
+    }, { parent: this });
 
     this.indexerSecurityGroup = new aws.ec2.SecurityGroup(`${serviceName}-sg`, {
       name: `${serviceName}-sg`,
@@ -197,6 +213,25 @@ export class IndexerShared extends pulumi.ComponentResource {
     this.taskRolePolicyAttachment = new aws.iam.RolePolicyAttachment(`${serviceName}-task-policy`, {
       role: this.taskRole.id,
       policyArn: dbSecretAccessPolicy.arn,
+    }, { parent: this });
+
+    new aws.iam.RolePolicy(`${serviceName}-task-s3-policy`, {
+      role: this.taskRole.id,
+      policy: this.cacheBucket.arn.apply((bucketArn) => JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['s3:GetObject', 's3:PutObject'],
+            Resource: `${bucketArn}/*`,
+          },
+          {
+            Effect: 'Allow',
+            Action: ['s3:ListBucket'],
+            Resource: bucketArn,
+          },
+        ],
+      })),
     }, { parent: this });
 
     this.rdsSecurityGroupId = rdsSecurityGroup.id;

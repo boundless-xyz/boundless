@@ -30,6 +30,21 @@ pub fn format_zkc(wei_str: &str) -> String {
     }
 }
 
+/// Format wei amount to human-readable ETH with commas
+/// Converts from 18 decimals to ETH units
+pub fn format_eth(wei_str: &str) -> String {
+    match U256::from_str(wei_str) {
+        Ok(wei) => {
+            // ETH has 18 decimals
+            let divisor = U256::from(10u64).pow(U256::from(18));
+            let eth = wei / divisor;
+            let formatted = format_with_commas_u256(eth);
+            format!("{} ETH", formatted)
+        }
+        Err(_) => "0 ETH".to_string(),
+    }
+}
+
 /// Format work amount to human-readable cycles with commas
 /// Work values are raw cycle counts (no decimals)
 pub fn format_cycles(cycles_str: &str) -> String {
@@ -91,6 +106,15 @@ mod tests {
         assert_eq!(format_zkc("788626950526189926000000"), "788,626 ZKC");
         assert_eq!(format_zkc("0"), "0 ZKC");
         assert_eq!(format_zkc("invalid"), "0 ZKC");
+    }
+
+    #[test]
+    fn test_format_eth() {
+        assert_eq!(format_eth("1000000000000000000000"), "1,000 ETH");
+        assert_eq!(format_eth("1500000000000000000000000"), "1,500,000 ETH");
+        assert_eq!(format_eth("788626950526189926000000"), "788,626 ETH");
+        assert_eq!(format_eth("0"), "0 ETH");
+        assert_eq!(format_eth("invalid"), "0 ETH");
     }
 
     #[test]
