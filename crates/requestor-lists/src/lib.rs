@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -322,7 +322,7 @@ mod tests {
         let json = include_str!("../../../requestor-lists/boundless-priority-list.standard.json");
         let list = RequestorList::from_json(json).unwrap();
         assert_eq!(list.name, "Boundless Recommended Priority List");
-        assert_eq!(list.requestors.len(), 1);
+        assert!(!list.requestors.is_empty());
         assert!(list.requestors[0].description.is_some());
     }
 
@@ -331,7 +331,7 @@ mod tests {
         let json = include_str!("../../../requestor-lists/boundless-priority-list.large.json");
         let list = RequestorList::from_json(json).unwrap();
         assert_eq!(list.name, "Boundless Recommended Priority List for Large Provers");
-        assert_eq!(list.requestors.len(), 1);
+        assert!(!list.requestors.is_empty());
         assert!(list.requestors[0].description.is_some());
     }
 

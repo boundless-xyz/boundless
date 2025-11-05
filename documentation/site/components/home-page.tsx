@@ -6,6 +6,7 @@ const navigation = [
     links: [
       ["Build a Program", "/developers/tutorials/build"],
       ["Proof Lifecycle", "/developers/proof-lifecycle"],
+      ["Set up the Auction", "/developers/tutorials/auction"],
       ["Request a Proof", "/developers/tutorials/request"],
       ["Tracking a Request", "developers/tutorials/tracking"],
       ["Use a Proof", "developers/tutorials/use"],
@@ -25,9 +26,8 @@ const navigation = [
     links: [
       ["Boundless Mainnet Explorer", "https://explorer.boundless.network/orders"],
       ["Boundless Testnet Explorer", "https://explorer.testnet.boundless.network/orders"],
-      ["Boundless CLI", "/developers/tooling/sdk"],
+      ["Boundless CLI", "/developers/tooling/cli"],
       ["Boundless SDK", "/developers/tooling/sdk"],
-      ["Bento CLI", "/developers/tooling/cli"],
     ],
   },
   {

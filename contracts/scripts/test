@@ -9,8 +9,8 @@ set -eo pipefail
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 REPO_ROOT_DIR="${SCRIPT_DIR:?}/../.."
 FOUNDRY_PROFILE=${FOUNDRY_PROFILE:-"deployment-test"}
-# 0xbb001d44 is the selector for ZKVM_V2.2, update when necessary
-SELECTOR=${SELECTOR:-"0xbb001d44"}
+# 0x73c457ba is the selector for ZKVM_V3.0, update when necessary
+SELECTOR=${SELECTOR:-"0x73c457ba"}
 RISC0_DEV_MODE=${RISC0_DEV_MODE:-"false"}
 if [[ "$RISC0_DEV_MODE" == "true" || "$RISC0_DEV_MODE" == "1" ]]; then
     echo "Running in RISC0 dev mode"

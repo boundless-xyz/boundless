@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ mod mock;
 mod pinata;
 mod s3;
 
-pub use fetch::fetch_url;
+pub use fetch::{fetch_url, override_gateway};
 pub use file::{TempFileStorageProvider, TempFileStorageProviderError};
 pub use mock::{MockStorageError, MockStorageProvider};
 pub use pinata::{PinataStorageProvider, PinataStorageProviderError};

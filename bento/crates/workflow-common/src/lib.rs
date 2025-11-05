@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -26,8 +26,8 @@ pub const KECCAK_RECEIPT_PATH: &str = "keccak_receipts";
 /// join worker stream identifier
 pub const JOIN_WORK_TYPE: &str = "join";
 
-pub const SNARK_RETRIES: i32 = 0;
-pub const SNARK_TIMEOUT: i32 = 60 * 2;
+pub const SNARK_RETRIES_DEFAULT: i32 = 3;
+pub const SNARK_TIMEOUT_DEFAULT: i32 = 60;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub enum CompressType {

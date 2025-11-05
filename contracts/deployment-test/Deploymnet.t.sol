@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -95,7 +95,7 @@ contract DeploymentTest is Test {
     }
 
     function testAdminIsSet() external view {
-        require(deployment.admin != address(0), "no admin address is set");
+        require(deployment.admin2 != address(0), "no admin address is set");
     }
 
     function testRouterIsDeployed() external view {
@@ -128,7 +128,7 @@ contract DeploymentTest is Test {
 
     function testBoundlessMarketOwner() external view {
         require(
-            BoundlessMarket(address(boundlessMarket)).hasRole(BoundlessMarket(address(boundlessMarket)).ADMIN_ROLE(), deployment.admin),
+            BoundlessMarket(address(boundlessMarket)).hasRole(BoundlessMarket(address(boundlessMarket)).ADMIN_ROLE(), deployment.admin2),
             "boundless market admin role does not match admin"
         );
     }
@@ -238,7 +238,7 @@ contract Client {
         return ProofRequest({
             id: RequestIdLibrary.from(wallet.addr, idx),
             requirements: defaultRequirements(),
-            imageUrl: "https://gateway.pinata.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu",
+            imageUrl: "https://gateway.beboundless.cloud/ipfs/bafkreie5vdnixfaiozgnqdfoev6akghj5ek3jftrsjt7uw2nnuiuegqsyu",
             input: Input({
                 inputType: InputType.Inline,
                 data: hex"0181a5737464696edc003553797374656d54696d65207b2074765f7365633a20313733383030343939382c2074765f6e7365633a20363235373837303030207d"

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,5 +28,5 @@ fn test_parse_boundless_recommended_list() {
     assert_eq!(list.schema_version.minor, 0);
     assert_eq!(list.version.major, 1);
     assert_eq!(list.version.minor, 0);
-    assert_eq!(list.requestors.len(), 1);
+    assert!(!list.requestors.is_empty());
 }

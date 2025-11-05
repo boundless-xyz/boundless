@@ -1,0 +1,134 @@
+import TimeCalculator from "../../../components/time-calculator";
+
+# Set up the Auction
+
+## Overview
+
+:::tip
+The Boundless monorepo has a template [request.yaml](https://github.com/boundless-xyz/boundless/blob/main/request.yaml) which specifies all possible request configuration variables. For testing, developers can use the [Boundless CLI to request a proof](/developers/tooling/cli#requesting-a-proof-via-the-boundless-cli).
+:::
+
+### Why is the auction important?
+
+Each request specifies a set of request parameters; these parameters specify the request ID, the proof requirements, the URL for the relevant guest program and its inputs, and *the auction parameters*.  
+
+This guide helps requestors understand, configure and optimize their requests via these *auction parameters*. Requestors, who understand these auction parameters, will be able to more effectively tailor their request auctions to current market conditions. This is essential for getting timely and cost-effective proofs. 
+
+### What are the auction parameters?
+
+The auction parameters determine how the auction is executed, and therefore how provers respond to the request. Concretely, they specify the parameters of the [reverse Dutch auction](https://en.wikipedia.org/wiki/Reverse_auction#Dutch_reverse_auctions). This is the mechanism by which the requestor and prover can agree upon a price, and helps ensure the requestor  receives the best price available from the market. 
+
+### Where are these auction parameters specified?
+
+The recommended method to request a proof is via the Boundless SDK (see [Request a Proof](/developers/tutorials/request)). The Boundless SDK sets some sensible defaults which should work for most testing purposes, however it is recommended to adjust the auction parameters via the [`with_offer()` method](/developers/tutorials/request#offer). 
+
+It is also possible to [request a proof directly using the CLI](/developers/tooling/cli#requesting-a-proof-via-the-boundless-cli). This requires a valid `request.yaml` file which specifies the auction parameters under `offer`. 
+
+### What auction parameters are configurable?
+
+| Parameter      | request.yaml name | Units   | Description                                                                                                                                                                                    |
+|----------------|-------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Ramp Up Start  | `rampUpStart`     | seconds  | This parameter specifies the time in seconds (after order creation) that the price starts ramping up from the minimum price (`min_price`) to the maximum price (`max_price`). Between order creation and this timestamp, provers can lock the order at the minimum price.   |
+| Ramp Up Period | `rampUpPeriod`    | blocks  | The duration of time period where the auction price increases linearly. Concretely, it is the number of blocks it takes for the price to increase from the minimum price (`min_price`) to the maximum price (`max_price`).|
+| Lock Timeout   | `lockTimeout`     | seconds | This timestamp is specified as an offset from `rampUpStart`. The maximum time a prover has to submit once the ramp up period has begun. Regardless of when the prover locks, they must submit the job onchain prior to this time (i.e. `rampUpStart` + `lockTimeout` after order creation), otherwise they will be slashed. |
+| Timeout        | `timeout`         | seconds | This timestamp is specified as an offset from `rampUpStart`. The total time after which the proof expires. After this time, if no provers have fulfilled the request, the request will stay *unfulfilled*.|
+| Min Price      | `minPrice`       | wei     | The floor price of the auction; this can be set to 0.|
+| Max Price      | `maxPrice`       | wei     | The ceiling price of the auction; the absolute maximum price the auction will reach. |
+| Collateral     | `lockCollateral`  | $ZKC     | Provers have to deposit *$ZKC* as [proving collateral](/zkc/collateral). This parameter specifies the exact amount of *$ZKC* a prover will lock as collateral when locking the order. If the prover does not fulfill the request before the primary prover deadline (the lock timeout), this collateral is slashed and 50% of the collateral becomes a bounty for secondary provers to claim upon successful proof fulfillment.                                            |
+
+## Example request walkthrough
+
+This sections walks through a typical proof request from the perspective of a requestor. It uses the recommendations listed [below](/developers/tutorials/auction#setting-optimal-auction-parameters) to set sensible auction parameters. Boundless is an open market and these static recommendations may not reflect the current state of the market. It is recommended to set auction parameters conservatively and adjust them, based on required latency and price, only once these test requests are being fulfilled regularly. 
+
+### Estimate relevant times based on program size
+
+For this example request, the guest program being proven is 500MCycles. To calculate the estimated execution and proving times, [this calculator](/developers/tutorials/auction#time-calculator) assumes an average market execution speed of 30MHz and an average market proving speed of 1MHz; these assumptions can be modified in the calculator under "Advanced Settings". Therefore, for 500MCycles, the estimated execution time is ~17 seconds (rounding up) and the estimated proving time is ~500 seconds. 
+
+### Setting latency sensitive parameters
+
+Using the table for [suggested latency sensitive parameters](/developers/tutorials/auction#latency-sensitive-parameters), the following parameters are set based on the estimated execution and proving time:
+
+- "Ramp Up Start" is set to `5 * 17s = 85s`.
+- "Ramp Up Period" is set to `10 x 17s = 170s ~= 85 blocks` (assuming Base mainnet blocktime is ~2 seconds).
+- "Lock Timeout" is set to `1.25 x 500s = 625s`.
+- "Timeout" is set to `3 x 500s = 1500s`.
+
+### Setting price sensitive parameters
+
+Using the table for [suggested price sensitive parameters](/developers/tutorials/auction#price-sensitive-parameters), the following parameters are set based on the estimated execution and proving time:
+
+- "Minimum Price" is set to 0.0001 ETH (`100000000000000 wei`), which is around $0.40 with 1 ETH = $4000.
+- "Maximum Price" is set to 0.00025 ETH (`250000000000000 wei`), which is around $1 with 1 ETH = $4000. This is about $0.2 ETH per GCycle.
+- "Lock Collateral" is set to `10 x maxPrice ~= $10 worth of ZKC` which is around 20 ZKC at $0.5 per ZKC. ZKC uses 18 decimal places like ETH, so 20 ZKC is specified with `20000000000000000000`.
+
+### Auction walkthrough
+
+These auction parameters can be set in the [request.yaml](https://github.com/boundless-xyz/boundless/blob/main/request.yaml) file, which is used when [requesting a proof with the CLI](/developers/tooling/cli#requesting-a-proof-via-the-boundless-cli). This is recommended only for testing purposes to get a feel for the sensitivity of each auction parameter on the request fulfillment rate. 
+
+Therefore, the example requests auction parameters are:
+
+```bash
+offer:
+    minPrice: 100000000000000 # 0.0001 ETH
+    maxPrice: 250000000000000 # 0.00025 ETH
+    lockCollateral: 20000000000000000000 # 20 ZKC
+    rampUpStart: 85 # seconds
+    rampUpPeriod: 85 # blocks
+    lockTimeout: 625 # 10 minutes 25 seconds
+    timeout:  1500 # 25 minutes
+```
+
+Once the request is submitted to the market, the auction will follow the auction parameters as specified in this diagram:
+
+![Offer Parameter Diagram](/request_diagram.png)
+
+- Once the request is processed, and the order is created, the order is surfaced to the market and the auction begins.
+- For 85 seconds (specified by `rampUpStart`), the order will be at the minimum price (`minPrice`). This time allows for provers to see the request, and run checks on the request (known as a preflight)[^1]. During this 85 second period, provers can lock the order at the minimum price (remember that, at any time, any prover locking the order successfully will close the auction).
+- At 85 seconds, the "ramp up period" begins. During this timeframe, the auction price grows linearly from the minimum price to the maximum price of 0.00025 ETH, over the span of 85 blocks (~170 seconds on Base mainnet).
+- After the "ramp up period", the price remains at the maximum price until the primary prover deadline (the "lock timeout" of 10 minutes 25 seconds since the ramp up start). 
+- If the prover who locked the order (the primary prover) does not fulfill by this deadline, they will be slashed. This means that they will lose their proving collateral for this order; 50% of it will be burned and 50% of it will go to a secondary prover. 
+- After the "lock timeout", a race amongst secondary provers begins. They have until the "timeout" (25 minutes from the ramp up start, or just under 15 minutes from the primary prover deadline) to fulfill the request otherwise the order expires. The first prover to win this race will receive 50% of the order's proving collateral as a reward; this reward is sent directly to the collateral balance of the winning secondary prover. 
+
+#### What should requestors know about provers?
+
+Provers can lock a request at any time before the "lock timeout". When a prover locks a request, they are agreeing to be paid the price set at the time of their bid. They are also agreeing to be slashed if they do not fulfill the request before the "lock timeout". In this case, if the request was locked but not fulfilled in time, the order is slashed and the prover loses their "lock collateral". Concretely, 50% of the "lock collateral" is burned and 50% is allocated to the first prover who fulfills the proof, after the "lock timeout" but before the "timeout"; this prover is known as the secondary prover. The reward for the winning secondary prover is sent directly to the collateral balance of the winning secondary prover. 
+
+## Setting optimal auction parameters
+
+### Time Calculator
+
+Based on current average execution and proving MHz, this calculator will estimate the execution and proving time of a request:
+
+<TimeCalculator />
+
+For the following recommendations, the estimated execution and proving times will be labelled as `estimated_execution_time` and `estimated_proving_time` respectively.
+
+The following two sections detail some recommended guidelines when setting the auction parameters. These guidelines are formulas, and they are to be taken with a pinch of salt. Please remember to start conservatively when tuning each parameter. Provers have to respond and some may set their pricing strategy based on each requestor's standard request profile. Therefore, it is recommended to change auction parameters in small increments during testing, and *only* change auction parameters again once proof fulfillment becomes stable.
+
+### Latency sensitive parameters
+
+Each requestor will have a different latency tolerance; some might be fine with receiving a proof on the scale of hours, whereas others will have more time-critical applications and require proof fulfillment on the scale of minutes. These latency requirements should dictate how requestors set the time-based auction parameters. 
+
+
+| Parameter      | Units   | Recommendation                       | Notes                                                                                                                                 |
+|----------------|---------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| Ramp Up Start  | seconds  | 5 x `estimated_execution_time` | This recommended time allows provers to see the order in the market, and increase the chances of provers having a free executor agent to preflight the order. If this is set lower, there is a chance that the request will be locked at a higher price as provers will only be able to bid after the auction has already started. This parameter is important, as the lock timeout and timeout are specified in seconds *after* the ramp up start timestamp. For example, setting it equal to 10 specifies 10 seconds in the future after order creation. If it is set to 0, the current UNIX timestamp, at order creation, will be used. |
+| Ramp Up Period | blocks  | 10 x `estimated_execution_time`| See [calculator](/developers/tutorials/auction#time-calculator).  |
+| Lock Timeout   | seconds | 1.25 x `estimated_proving _time` | See [calculator](/developers/tutorials/auction#time-calculator). |
+| Timeout        | seconds | 3 x `estimated_proving_time` | See [calculator](/developers/tutorials/auction#time-calculator). |
+
+### Price sensitive parameters
+
+The price of a request determines how competitively provers bid on the request, and therefore how quickly the request is locked. 
+
+| Parameter     | Units | Recommendation | Notes |
+|---------------|-------|----------------|-------|
+| Minimum Price | wei   | For testing purposes, set the minimum price to 0[^2]. To guarantee the lowest latency in both locking and fulfillment, it is recommended to set the minimum price as non-zero.    | As market demand and supply normalizes, competition will stabilize prices at non-zero.|
+| Maximum Price | wei   | It is recommended to test the `maxPrice` parameter by starting low, and bumping the value up only when requests are not locked whatsoever. | Setting a substantial price ensures requests are visible and attractive to provers. For testing purposes, the recommended lowest amount for the maximum price is $0.1 of ETH per GCycle (1 billion cycles).[^2] |
+| Lock Collateral | wei (*$ZKC*)   | 10 x `maxPrice` | Please note that, as of October 2025, setting the lock collateral to 10 x `maxPrice` may result in some larger requests (50GCycles+) not being locked due to the large amount of *$ZKC* required as lock collateral. For testing purposes, the recommended lowest amount for the lock collateral is 5 x `maxPrice`; the aim should always be to increase the `lockCollateral` to 10 x `maxPrice` once request fulfillment is stable. |
+
+[^1]: As of October 2025, some provers skip preflight to be more competitive. This is not recommended as it can lead an increased risk of slashing for provers.
+[^2]: This is accurate for October 2025.
+
+
+
