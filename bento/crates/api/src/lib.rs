@@ -29,7 +29,7 @@ use workflow_common::{
     SnarkReq as WorkflowSnarkReq, TaskType,
     s3::{
         ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
-        RECEIPT_BUCKET_DIR, S3Client, SHRINK_BITVM2_BUCKET_DIR, STARK_BUCKET_DIR,
+        RECEIPT_BUCKET_DIR, S3Client, SHRINK_BLAKE3_BUCKET_DIR, STARK_BUCKET_DIR,
         WORK_RECEIPTS_BUCKET_DIR,
     },
 };
@@ -622,8 +622,8 @@ async fn prove_groth16(
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
 
-const SHRINK_BITVM2_START_PATH: &str = "/shrink_bitvm2/create";
-async fn shrink_bitvm2(
+const SHRINK_BLAKE3_START_PATH: &str = "/shrink_blake3/create";
+async fn shrink_blake3(
     State(state): State<Arc<AppState>>,
     ExtractApiKey(api_key): ExtractApiKey,
     Json(start_req): Json<SnarkReq>,
@@ -635,7 +635,7 @@ async fn shrink_bitvm2(
 
     let task_def = serde_json::to_value(TaskType::Snark(WorkflowSnarkReq {
         receipt: start_req.session_id,
-        compress_type: CompressType::ShrinkBitvm2,
+        compress_type: CompressType::ShrinkBlake3,
     }))
     .context("Failed to serialize ExecutorReq")?;
 
@@ -652,8 +652,8 @@ async fn shrink_bitvm2(
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
 
-const SHRINK_BITVM2_STATUS_PATH: &str = "/shrink_bitvm2/status/:job_id";
-async fn shrink_bitvm2_status(
+const SHRINK_BLAKE3_STATUS_PATH: &str = "/shrink_blake3/status/:job_id";
+async fn shrink_blake3_status(
     State(state): State<Arc<AppState>>,
     ExtractApiKey(api_key): ExtractApiKey,
     Path(job_id): Path<Uuid>,
@@ -665,7 +665,7 @@ async fn shrink_bitvm2_status(
     let (error_msg, output) = match job_state {
         JobState::Running => (None, None),
         JobState::Done => {
-            (None, Some(format!("http://{hostname}/receipts/shrink_bitvm2/receipt/{job_id}")))
+            (None, Some(format!("http://{hostname}/receipts/shrink_blake3/receipt/{job_id}")))
         }
         JobState::Failed => (
             Some(
@@ -749,12 +749,12 @@ async fn groth16_download(
     Ok(receipt)
 }
 
-const GET_SHRINK_BITVM2_PATH: &str = "/receipts/shrink_bitvm2/receipt/:job_id";
-async fn shrink_bitvm2_download(
+const GET_SHRINK_BLAKE3_PATH: &str = "/receipts/shrink_blake3/receipt/:job_id";
+async fn shrink_blake3_download(
     State(state): State<Arc<AppState>>,
     Path(job_id): Path<Uuid>,
 ) -> Result<Vec<u8>, AppError> {
-    let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{SHRINK_BITVM2_BUCKET_DIR}/{job_id}.bincode");
+    let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{SHRINK_BLAKE3_BUCKET_DIR}/{job_id}.bincode");
     if !state
         .s3_client
         .object_exists(&receipt_key)
@@ -930,10 +930,10 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(GET_JOURNAL_PATH, get(preflight_journal))
         .route(SNARK_START_PATH, post(prove_groth16))
         .route(SNARK_STATUS_PATH, get(groth16_status))
-        .route(SHRINK_BITVM2_START_PATH, post(shrink_bitvm2))
-        .route(SHRINK_BITVM2_STATUS_PATH, get(shrink_bitvm2_status))
+        .route(SHRINK_BLAKE3_START_PATH, post(shrink_blake3))
+        .route(SHRINK_BLAKE3_STATUS_PATH, get(shrink_blake3_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
-        .route(GET_SHRINK_BITVM2_PATH, get(shrink_bitvm2_download))
+        .route(GET_SHRINK_BLAKE3_PATH, get(shrink_blake3_download))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
         .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .with_state(state)

@@ -222,7 +222,6 @@ dependencies = [
  "digest 0.10.7",
  "fnv",
  "merlin",
- "rayon",
  "sha2",
 ]
 
@@ -255,7 +254,6 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-integer",
  "num-traits",
- "rayon",
  "zeroize",
 ]
 
@@ -314,7 +312,6 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "paste",
- "rayon",
  "zeroize",
 ]
 
@@ -399,7 +396,6 @@ dependencies = [
  "ark-relations",
  "ark-serialize 0.5.0",
  "ark-std 0.5.0",
- "rayon",
 ]
 
 [[package]]
@@ -415,7 +411,6 @@ dependencies = [
  "educe",
  "fnv",
  "hashbrown 0.15.5",
- "rayon",
 ]
 
 [[package]]
@@ -479,7 +474,6 @@ dependencies = [
  "arrayvec",
  "digest 0.10.7",
  "num-bigint 0.4.6",
- "rayon",
 ]
 
 [[package]]
@@ -533,7 +527,6 @@ checksum = "246a225cc6131e9ee4f24619af0f19d67761fff15d7ccc22e42b80846e69449a"
 dependencies = [
  "num-traits",
  "rand 0.8.5",
- "rayon",
 ]
 
 [[package]]
@@ -1200,8 +1193,8 @@ dependencies = [
 
 [[package]]
 name = "bonsai-sdk"
-version = "1.4.1"
-source = "git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2#6ed3f0321638ae7eb9c097b8aa8becba3f4b1350"
+version = "1.4.2"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "duplicate",
  "maybe-async",
@@ -1764,15 +1757,6 @@ dependencies = [
 
 [[package]]
 name = "crypto-bigint"
-version = "0.5.2"
-source = "git+https://github.com/risc0/RustCrypto-crypto-bigint?tag=v0.5.2-risczero.0#8b30304277cfe553b51a78a0e693f48bbb059eb3"
-dependencies = [
- "getrandom 0.2.16",
- "subtle",
-]
-
-[[package]]
-name = "crypto-bigint"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
@@ -2218,6 +2202,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6866f3bfdf8207509a033af1a75a7b08abda06bbaaeae6669323fd5a097df2e9"
 dependencies = [
  "enum-map-derive",
+ "serde",
 ]
 
 [[package]]
@@ -4667,8 +4652,8 @@ checksum = "3df6368f71f205ff9c33c076d170dd56ebf68e8161c733c0caa07a7a5509ed53"
 
 [[package]]
 name = "risc0-binfmt"
-version = "3.0.2"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "borsh",
@@ -4688,8 +4673,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "3.0.3"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "4.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -4697,6 +4682,7 @@ dependencies = [
  "dirs",
  "docker-generate",
  "hex",
+ "rayon",
  "risc0-binfmt",
  "risc0-zkos-v1compat",
  "risc0-zkp",
@@ -4711,8 +4697,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-build-kernel"
-version = "2.0.1"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "2.0.2"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "cc",
  "directories",
@@ -4724,8 +4710,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak"
-version = "4.0.2"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4745,8 +4731,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak-sys"
-version = "4.0.1"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "cc",
  "cust",
@@ -4754,14 +4740,14 @@ dependencies = [
  "glob",
  "risc0-build-kernel",
  "risc0-core",
+ "risc0-sppark",
  "risc0-sys",
- "sppark",
 ]
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "4.0.2"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4770,6 +4756,7 @@ dependencies = [
  "downloader",
  "hex",
  "lazy-regex",
+ "liblzma",
  "metal",
  "rand 0.9.2",
  "rayon",
@@ -4785,20 +4772,20 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion-sys"
-version = "4.0.1"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "glob",
  "risc0-build-kernel",
  "risc0-core",
+ "risc0-sppark",
  "risc0-sys",
- "sppark",
 ]
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "4.0.2"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "bit-vec",
@@ -4829,9 +4816,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "risc0-circuit-rv32im-m3"
+version = "0.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "cfg-if",
+ "risc0-binfmt",
+ "risc0-circuit-rv32im",
+ "risc0-circuit-rv32im-m3-sys",
+ "risc0-sys",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-circuit-rv32im-m3-sys"
+version = "0.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
+dependencies = [
+ "cc",
+ "glob",
+ "risc0-build-kernel",
+ "risc0-sppark",
+ "risc0-sys",
+ "tracing",
+]
+
+[[package]]
 name = "risc0-circuit-rv32im-sys"
-version = "4.0.1"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "cc",
  "cust",
@@ -4839,14 +4857,14 @@ dependencies = [
  "glob",
  "risc0-build-kernel",
  "risc0-core",
+ "risc0-sppark",
  "risc0-sys",
- "sppark",
 ]
 
 [[package]]
 name = "risc0-core"
-version = "3.0.0"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "bytemuck",
  "nvtx",
@@ -4856,8 +4874,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "3.0.2"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -4869,6 +4887,7 @@ dependencies = [
  "cfg-if",
  "circom-witnesscalc",
  "hex",
+ "memmap2",
  "num-bigint 0.4.6",
  "num-traits",
  "risc0-binfmt",
@@ -4885,41 +4904,50 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16-sys"
-version = "0.1.0"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "0.2.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "blst",
  "risc0-build-kernel",
- "sppark",
+ "risc0-sppark",
+]
+
+[[package]]
+name = "risc0-sppark"
+version = "0.1.14"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
 name = "risc0-sys"
-version = "1.5.0"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "blst",
  "cust",
  "risc0-build-kernel",
- "sppark",
+ "risc0-sppark",
 ]
 
 [[package]]
 name = "risc0-zkos-v1compat"
-version = "2.2.0"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "2.2.1"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
  "risc0-zkvm-platform",
+ "sha2",
 ]
 
 [[package]]
 name = "risc0-zkp"
-version = "3.0.2"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "5.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "anyhow",
  "blake2",
@@ -4929,6 +4957,7 @@ dependencies = [
  "cust",
  "digest 0.10.7",
  "ff 0.13.1",
+ "generic-array",
  "hex",
  "hex-literal",
  "metal",
@@ -4949,15 +4978,18 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "3.0.3"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "4.0.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "addr2line",
  "anyhow",
  "bincode",
+ "blake3",
+ "bonsai-sdk",
  "borsh",
  "bytemuck",
  "bytes",
+ "cfg-if",
  "derive_more",
  "elf",
  "enum-map",
@@ -4978,6 +5010,7 @@ dependencies = [
  "risc0-circuit-keccak",
  "risc0-circuit-recursion",
  "risc0-circuit-rv32im",
+ "risc0-circuit-rv32im-m3",
  "risc0-core",
  "risc0-groth16",
  "risc0-zkos-v1compat",
@@ -4997,8 +5030,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm-platform"
-version = "2.2.0"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "2.3.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "bytemuck",
  "cfg-if",
@@ -5314,8 +5347,8 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "rzup"
-version = "0.5.1"
-source = "git+https://github.com/ec2/risc0.git?rev=193ebbb3ea5e7a73388cb97724c7581116c58839#193ebbb3ea5e7a73388cb97724c7581116c58839"
+version = "0.6.0"
+source = "git+https://github.com/ec2/risc0.git?rev=cc2e65783859419dcb3ae98cf962f35987ced671#cc2e65783859419dcb3ae98cf962f35987ced671"
 dependencies = [
  "hex",
  "rsa",
@@ -5628,35 +5661,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "shrink_bitvm2"
-version = "0.1.0"
-source = "git+https://github.com/ec2/shrink_bitvm2.git?rev=e3933355820e468a217387dd11fa0a1a0fc309ed#e3933355820e468a217387dd11fa0a1a0fc309ed"
-dependencies = [
- "anyhow",
- "ark-bn254",
- "ark-ff 0.5.0",
- "ark-groth16",
- "ark-serialize 0.5.0",
- "blake3",
- "circom-witnesscalc",
- "crypto-bigint 0.5.2",
- "hex",
- "num-bigint 0.4.6",
- "num-traits",
- "risc0-circuit-recursion",
- "risc0-groth16",
- "risc0-groth16-sys",
- "risc0-zkp",
- "risc0-zkvm",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tracing",
- "wtns-file",
-]
-
-[[package]]
 name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5763,16 +5767,6 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der 0.7.10",
-]
-
-[[package]]
-name = "sppark"
-version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bdc4f02f557e3037bbe2a379cac8be6e014a67beb7bf0996b536979392f6361"
-dependencies = [
- "cc",
- "which",
 ]
 
 [[package]]
@@ -7202,7 +7196,6 @@ dependencies = [
  "risc0-zkvm",
  "serde",
  "serde_json",
- "shrink_bitvm2",
  "signal-hook",
  "sqlx",
  "taskdb",
