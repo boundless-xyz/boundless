@@ -76,6 +76,10 @@ pulumi stack select <stack-name>
 pulumi config set aws:region us-west-2
 ```
 
+For dev deployments, either comment out the backend URL in `Pulumi.yaml`, or set the `PULUMI_BACKEND_URL` env var to
+keep
+the stack configuration local, for example with `PULUMI_BACKEND_URL="file://~"`.
+
 ### 3. Configure Required Values
 
 ```bash
