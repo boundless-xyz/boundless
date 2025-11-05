@@ -48,10 +48,82 @@ use tokio::time::Duration;
 use url::Url;
 
 const SECONDS_PER_HOUR: u64 = 3600;
+const SECONDS_PER_DAY: u64 = 86400;
+const SECONDS_PER_WEEK: u64 = 604800;
 const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 6;
+const DAILY_AGGREGATION_RECOMPUTE_DAYS: u64 = 6;
+const WEEKLY_AGGREGATION_RECOMPUTE_WEEKS: u64 = 6;
+const MONTHLY_AGGREGATION_RECOMPUTE_MONTHS: u64 = 6;
 const GET_BLOCK_RECEIPTS_CHUNK_SIZE: usize = 250;
 const GET_BLOCK_BY_NUMBER_CHUNK_SIZE: usize = 250;
 const BLOCK_QUERY_SLEEP: u64 = 1;
+
+/// Helper functions for calculating period boundaries
+/// Returns the start of the calendar day (00:00:00 UTC) for a given timestamp
+fn get_day_start(timestamp: u64) -> u64 {
+    (timestamp / SECONDS_PER_DAY) * SECONDS_PER_DAY
+}
+
+/// Returns the start of the calendar week (Monday 00:00:00 UTC) for a given timestamp
+/// Uses ISO 8601 standard where Monday is the first day of the week
+fn get_week_start(timestamp: u64) -> u64 {
+    use chrono::{Datelike, TimeZone, Utc, Weekday};
+    
+    let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
+    let weekday = dt.weekday();
+    
+    // Calculate days to subtract to get to Monday
+    let days_from_monday = match weekday {
+        Weekday::Mon => 0,
+        Weekday::Tue => 1,
+        Weekday::Wed => 2,
+        Weekday::Thu => 3,
+        Weekday::Fri => 4,
+        Weekday::Sat => 5,
+        Weekday::Sun => 6,
+    };
+    
+    let monday = dt - chrono::Duration::days(days_from_monday);
+    let monday_start = monday.date_naive().and_hms_opt(0, 0, 0).unwrap();
+    monday_start.and_utc().timestamp() as u64
+}
+
+/// Returns the start of the calendar month (1st day 00:00:00 UTC) for a given timestamp
+fn get_month_start(timestamp: u64) -> u64 {
+    use chrono::{Datelike, TimeZone, Utc};
+    
+    let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
+    let month_start = Utc
+        .with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0)
+        .unwrap();
+    month_start.timestamp() as u64
+}
+
+/// Returns the start of the next calendar day
+fn get_next_day(timestamp: u64) -> u64 {
+    get_day_start(timestamp) + SECONDS_PER_DAY
+}
+
+/// Returns the start of the next calendar week
+fn get_next_week(timestamp: u64) -> u64 {
+    get_week_start(timestamp) + SECONDS_PER_WEEK
+}
+
+/// Returns the start of the next calendar month
+fn get_next_month(timestamp: u64) -> u64 {
+    use chrono::{Datelike, TimeZone, Utc};
+    
+    let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
+    
+    // Add one month
+    let next_month = if dt.month() == 12 {
+        Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).unwrap()
+    } else {
+        Utc.with_ymd_and_hms(dt.year(), dt.month() + 1, 1, 0, 0, 0).unwrap()
+    };
+    
+    next_month.timestamp() as u64
+}
 
 /// Event signatures for market events that are indexed.
 const MARKET_EVENT_SIGNATURES: &[B256] = &[
@@ -396,8 +468,11 @@ where
         
         self.update_last_processed_block(to).await?;
 
-        // Aggregate hourly market data after processing blocks
+        // Aggregate market data at all time periods after processing blocks
         self.aggregate_hourly_market_data().await?;
+        self.aggregate_daily_market_data().await?;
+        self.aggregate_weekly_market_data().await?;
+        self.aggregate_monthly_market_data().await?;
 
         self.clear_cache();
 
@@ -1039,64 +1114,214 @@ where
         Ok(())
     }
 
+    async fn aggregate_daily_market_data(&self) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        
+        tracing::debug!("Aggregating daily market data for past {} days", DAILY_AGGREGATION_RECOMPUTE_DAYS);
+
+        // Get current time from the latest block timestamp
+        let block = self
+            .provider
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
+
+        let current_time = block.header.timestamp;
+
+        // Get the current day start and calculate days ago
+        let current_day_start = get_day_start(current_time);
+        
+        // Calculate which days to recompute
+        let mut periods = Vec::new();
+        let mut day_start = current_day_start;
+        for _ in 0..DAILY_AGGREGATION_RECOMPUTE_DAYS {
+            periods.push(day_start);
+            // Go back one day
+            day_start = day_start.saturating_sub(SECONDS_PER_DAY);
+        }
+        periods.reverse();
+
+        tracing::debug!(
+            "Aggregating {} days from {} to {}",
+            periods.len(),
+            periods.first().unwrap_or(&0),
+            current_day_start
+        );
+
+        // Process each day
+        for day_ts in periods {
+            let day_end = get_next_day(day_ts);
+            let summary = self.compute_period_summary(day_ts, day_end).await?;
+            self.db.upsert_daily_market_summary(summary).await?;
+        }
+
+        tracing::info!("aggregate_daily_market_data completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    async fn aggregate_weekly_market_data(&self) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        
+        tracing::debug!("Aggregating weekly market data for past {} weeks", WEEKLY_AGGREGATION_RECOMPUTE_WEEKS);
+
+        // Get current time from the latest block timestamp
+        let block = self
+            .provider
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
+
+        let current_time = block.header.timestamp;
+
+        // Get the current week start and calculate weeks ago
+        let current_week_start = get_week_start(current_time);
+        
+        // Calculate which weeks to recompute
+        let mut periods = Vec::new();
+        let mut week_start = current_week_start;
+        for _ in 0..WEEKLY_AGGREGATION_RECOMPUTE_WEEKS {
+            periods.push(week_start);
+            // Go back one week
+            week_start = week_start.saturating_sub(SECONDS_PER_WEEK);
+        }
+        periods.reverse();
+
+        tracing::debug!(
+            "Aggregating {} weeks from {} to {}",
+            periods.len(),
+            periods.first().unwrap_or(&0),
+            current_week_start
+        );
+
+        // Process each week
+        for week_ts in periods {
+            let week_end = get_next_week(week_ts);
+            let summary = self.compute_period_summary(week_ts, week_end).await?;
+            self.db.upsert_weekly_market_summary(summary).await?;
+        }
+
+        tracing::info!("aggregate_weekly_market_data completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    async fn aggregate_monthly_market_data(&self) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        
+        tracing::debug!("Aggregating monthly market data for past {} months", MONTHLY_AGGREGATION_RECOMPUTE_MONTHS);
+
+        // Get current time from the latest block timestamp
+        let block = self
+            .provider
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| ServiceError::Error(anyhow!("Failed to get latest block")))?;
+
+        let current_time = block.header.timestamp;
+
+        // Get the current month start and calculate months ago
+        let current_month_start = get_month_start(current_time);
+        
+        // Calculate which months to recompute
+        let mut periods = Vec::new();
+        let mut month_ts = current_month_start;
+        for _ in 0..MONTHLY_AGGREGATION_RECOMPUTE_MONTHS {
+            periods.push(month_ts);
+            // Go back one month - need to use chrono for proper month arithmetic
+            use chrono::{Datelike, TimeZone, Utc};
+            let dt = Utc.timestamp_opt(month_ts as i64, 0).unwrap();
+            let prev_month = if dt.month() == 1 {
+                Utc.with_ymd_and_hms(dt.year() - 1, 12, 1, 0, 0, 0).unwrap()
+            } else {
+                Utc.with_ymd_and_hms(dt.year(), dt.month() - 1, 1, 0, 0, 0).unwrap()
+            };
+            month_ts = prev_month.timestamp() as u64;
+        }
+        periods.reverse();
+
+        tracing::debug!(
+            "Aggregating {} months from {} to {}",
+            periods.len(),
+            periods.first().unwrap_or(&0),
+            current_month_start
+        );
+
+        // Process each month
+        for month_ts in periods {
+            let month_end = get_next_month(month_ts);
+            let summary = self.compute_period_summary(month_ts, month_end).await?;
+            self.db.upsert_monthly_market_summary(summary).await?;
+        }
+
+        tracing::info!("aggregate_monthly_market_data completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
     async fn compute_hourly_summary(
         &self,
         hour_timestamp: u64,
     ) -> Result<HourlyMarketSummary, ServiceError> {
         let hour_end = hour_timestamp.saturating_add(SECONDS_PER_HOUR);
-        tracing::debug!("Computing hourly summary for hour {} to {}", hour_timestamp, hour_end);
+        self.compute_period_summary(hour_timestamp, hour_end).await
+    }
 
-        // 1. Count total fulfilled in this hour
+    async fn compute_period_summary(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<HourlyMarketSummary, ServiceError> {
+        tracing::debug!("Computing period summary for {} to {}", period_start, period_end);
+
+        // 1. Count total fulfilled in this period
         let total_fulfilled = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM request_fulfilled_events
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_one(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_fulfilled: {}", e)))? as u64;
 
-        // 2. Count unique provers who locked requests in this hour
+        // 2. Count unique provers who locked requests in this period
         let unique_provers = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(DISTINCT prover_address) FROM request_locked_events
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_one(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_provers: {}", e)))? as u64;
 
-        // 3. Count unique requesters who submitted requests in this hour
+        // 3. Count unique requesters who submitted requests in this period
         let unique_requesters = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(DISTINCT client_address) FROM proof_requests
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_one(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch unique_requesters: {}", e)))? as u64;
 
-        // 4. Count total requests submitted in this hour
+        // 4. Count total requests submitted in this period
         let total_requests_submitted = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM proof_requests
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_one(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_submitted: {}", e)))? as u64;
 
-        // 5. Count total requests submitted onchain in this hour
+        // 5. Count total requests submitted onchain in this period
         let total_requests_submitted_onchain = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM request_submitted_events
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_one(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_submitted_onchain: {}", e)))? as u64;
@@ -1104,29 +1329,29 @@ where
         // 6. Calculate offchain requests
         let total_requests_submitted_offchain = total_requests_submitted - total_requests_submitted_onchain;
 
-        // 7. Count total requests locked in this hour
+        // 7. Count total requests locked in this period
         let total_requests_locked = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM request_locked_events
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_one(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_locked: {}", e)))? as u64;
 
-        // 8. Count total requests slashed in this hour
+        // 8. Count total requests slashed in this period
         let total_requests_slashed = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM prover_slashed_events
              WHERE block_timestamp >= $1 AND block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_one(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch total_requests_slashed: {}", e)))? as u64;
 
-        // 9. Get all locks in this hour with pricing info
+        // 9. Get all locks in this period with pricing info
         let locks = sqlx::query(
             "SELECT
                 pr.min_price,
@@ -1140,8 +1365,8 @@ where
              JOIN proof_requests pr ON rle.request_digest = pr.request_digest
              WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2",
         )
-        .bind(hour_timestamp as i64)
-        .bind(hour_end as i64)
+        .bind(period_start as i64)
+        .bind(period_end as i64)
         .fetch_all(self.db.pool())
         .await
         .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch locks: {}", e)))?;
@@ -1199,7 +1424,7 @@ where
         }
 
         Ok(HourlyMarketSummary {
-            hour_timestamp,
+            period_timestamp: period_start,
             total_fulfilled,
             unique_provers_locking_requests: unique_provers,
             unique_requesters_submitting_requests: unique_requesters,
@@ -1663,5 +1888,136 @@ mod tests {
         let current_block = 100;
         let block = find_starting_block(starting_block, last_processed, current_block);
         assert_eq!(block, 10);
+    }
+
+    #[test]
+    fn test_get_day_start() {
+        // Test various timestamps within a day
+        let day_start = 1700000000; // 2023-11-14 22:13:20 UTC
+        let day_start_aligned = (day_start / SECONDS_PER_DAY) * SECONDS_PER_DAY;
+        
+        // All times within the same day should return the same day start
+        assert_eq!(get_day_start(day_start), day_start_aligned);
+        assert_eq!(get_day_start(day_start + 3600), day_start_aligned); // +1 hour
+        assert_eq!(get_day_start(day_start + 86399), day_start_aligned); // last second of day
+        
+        // Next day should return different start
+        assert_eq!(get_day_start(day_start + 86400), day_start_aligned + SECONDS_PER_DAY);
+    }
+
+    #[test]
+    fn test_get_week_start() {
+        use chrono::{Datelike, TimeZone, Weekday};
+        
+        // Test that weeks start on Monday (ISO 8601)
+        // Using a known date: 2023-11-15 is a Wednesday
+        let wednesday = 1700000000; // 2023-11-15 00:00:00 UTC (approximately)
+        let week_start = get_week_start(wednesday);
+        
+        // Week start should be a Monday
+        let dt = chrono::Utc.timestamp_opt(week_start as i64, 0).unwrap();
+        assert_eq!(dt.weekday(), Weekday::Mon);
+        
+        // All days in the same week should return the same Monday
+        let thursday = wednesday + 86400;
+        let friday = wednesday + 2 * 86400;
+        assert_eq!(get_week_start(thursday), week_start);
+        assert_eq!(get_week_start(friday), week_start);
+        
+        // Sunday should still be in the same week (ISO 8601)
+        let sunday = week_start + 6 * 86400;
+        assert_eq!(get_week_start(sunday), week_start);
+        
+        // Next Monday should be a different week
+        let next_monday = week_start + 7 * 86400;
+        assert_eq!(get_week_start(next_monday), next_monday);
+    }
+
+    #[test]
+    fn test_get_month_start() {
+        use chrono::TimeZone;
+        
+        // Test mid-month timestamp
+        let mid_month = chrono::Utc.with_ymd_and_hms(2023, 11, 15, 12, 30, 45).unwrap();
+        let month_start = get_month_start(mid_month.timestamp() as u64);
+        
+        // Should return 1st of November at 00:00:00
+        let expected = chrono::Utc.with_ymd_and_hms(2023, 11, 1, 0, 0, 0).unwrap();
+        assert_eq!(month_start, expected.timestamp() as u64);
+        
+        // Test last day of month
+        let end_of_month = chrono::Utc.with_ymd_and_hms(2023, 11, 30, 23, 59, 59).unwrap();
+        assert_eq!(get_month_start(end_of_month.timestamp() as u64), month_start);
+        
+        // Test first day of month
+        let first_day = chrono::Utc.with_ymd_and_hms(2023, 11, 1, 0, 0, 0).unwrap();
+        assert_eq!(get_month_start(first_day.timestamp() as u64), month_start);
+    }
+
+    #[test]
+    fn test_get_next_day() {
+        let day_start = 1700000000;
+        let day_start_aligned = (day_start / SECONDS_PER_DAY) * SECONDS_PER_DAY;
+        
+        let next_day = get_next_day(day_start_aligned);
+        assert_eq!(next_day, day_start_aligned + SECONDS_PER_DAY);
+        
+        // Should work from any time within the day
+        let mid_day = day_start_aligned + 43200; // noon
+        assert_eq!(get_next_day(mid_day), day_start_aligned + SECONDS_PER_DAY);
+    }
+
+    #[test]
+    fn test_get_next_week() {
+        let wednesday = 1700000000;
+        let week_start = get_week_start(wednesday);
+        
+        let next_week = get_next_week(wednesday);
+        assert_eq!(next_week, week_start + SECONDS_PER_WEEK);
+        
+        // Should work from any day in the week
+        let friday = wednesday + 2 * 86400;
+        assert_eq!(get_next_week(friday), week_start + SECONDS_PER_WEEK);
+    }
+
+    #[test]
+    fn test_get_next_month() {
+        use chrono::TimeZone;
+        
+        // Test November -> December
+        let november = chrono::Utc.with_ymd_and_hms(2023, 11, 15, 12, 30, 45).unwrap();
+        let next_month = get_next_month(november.timestamp() as u64);
+        let expected_dec = chrono::Utc.with_ymd_and_hms(2023, 12, 1, 0, 0, 0).unwrap();
+        assert_eq!(next_month, expected_dec.timestamp() as u64);
+        
+        // Test December -> January (year rollover)
+        let december = chrono::Utc.with_ymd_and_hms(2023, 12, 20, 10, 0, 0).unwrap();
+        let next_month = get_next_month(december.timestamp() as u64);
+        let expected_jan = chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        assert_eq!(next_month, expected_jan.timestamp() as u64);
+    }
+
+    #[test]
+    fn test_month_boundaries() {
+        use chrono::TimeZone;
+        
+        // Test months with different numbers of days
+        // January (31 days)
+        let jan = chrono::Utc.with_ymd_and_hms(2024, 1, 31, 23, 59, 59).unwrap();
+        let next = get_next_month(jan.timestamp() as u64);
+        let expected_feb = chrono::Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
+        assert_eq!(next, expected_feb.timestamp() as u64);
+        
+        // February leap year (29 days)
+        let feb = chrono::Utc.with_ymd_and_hms(2024, 2, 29, 12, 0, 0).unwrap();
+        let next = get_next_month(feb.timestamp() as u64);
+        let expected_mar = chrono::Utc.with_ymd_and_hms(2024, 3, 1, 0, 0, 0).unwrap();
+        assert_eq!(next, expected_mar.timestamp() as u64);
+        
+        // February non-leap year (28 days)
+        let feb = chrono::Utc.with_ymd_and_hms(2023, 2, 28, 12, 0, 0).unwrap();
+        let next = get_next_month(feb.timestamp() as u64);
+        let expected_mar = chrono::Utc.with_ymd_and_hms(2023, 3, 1, 0, 0, 0).unwrap();
+        assert_eq!(next, expected_mar.timestamp() as u64);
     }
 }

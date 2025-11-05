@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS hourly_market_summary (
-  hour_timestamp                          BIGINT PRIMARY KEY,
+  period_timestamp                        BIGINT PRIMARY KEY,
   total_fulfilled                         BIGINT NOT NULL,
   unique_provers_locking_requests         BIGINT NOT NULL,
   unique_requesters_submitting_requests   BIGINT NOT NULL,
@@ -20,4 +20,4 @@ CREATE TABLE IF NOT EXISTS hourly_market_summary (
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_hourly_market_timestamp ON hourly_market_summary(hour_timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_hourly_market_period_timestamp ON hourly_market_summary(period_timestamp DESC);

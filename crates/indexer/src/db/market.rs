@@ -47,7 +47,7 @@ pub struct TxMetadata {
 
 #[derive(Debug, Clone)]
 pub struct HourlyMarketSummary {
-    pub hour_timestamp: u64,
+    pub period_timestamp: u64,
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
     pub unique_requesters_submitting_requests: u64,
@@ -66,6 +66,11 @@ pub struct HourlyMarketSummary {
     pub total_requests_locked: u64,
     pub total_requests_slashed: u64,
 }
+
+// Type aliases for different aggregation periods - they all use the same struct
+pub type DailyMarketSummary = HourlyMarketSummary;
+pub type WeeklyMarketSummary = HourlyMarketSummary;
+pub type MonthlyMarketSummary = HourlyMarketSummary;
 
 impl TxMetadata {
     pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64, transaction_index: u64) -> Self {
@@ -204,6 +209,48 @@ pub trait IndexerDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<HourlyMarketSummary>, DbError>;
+
+    async fn upsert_daily_market_summary(
+        &self,
+        summary: DailyMarketSummary,
+    ) -> Result<(), DbError>;
+
+    async fn get_daily_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<DailyMarketSummary>, DbError>;
+
+    async fn upsert_weekly_market_summary(
+        &self,
+        summary: WeeklyMarketSummary,
+    ) -> Result<(), DbError>;
+
+    async fn get_weekly_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<WeeklyMarketSummary>, DbError>;
+
+    async fn upsert_monthly_market_summary(
+        &self,
+        summary: MonthlyMarketSummary,
+    ) -> Result<(), DbError>;
+
+    async fn get_monthly_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<MonthlyMarketSummary>, DbError>;
 }
 
 pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
@@ -826,7 +873,7 @@ impl IndexerDb for AnyDb {
     ) -> Result<(), DbError> {
         sqlx::query(
             "INSERT INTO hourly_market_summary (
-                hour_timestamp,
+                period_timestamp,
                 total_fulfilled,
                 unique_provers_locking_requests,
                 unique_requesters_submitting_requests,
@@ -846,7 +893,7 @@ impl IndexerDb for AnyDb {
                 total_requests_slashed,
                 updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
-            ON CONFLICT (hour_timestamp) DO UPDATE SET
+            ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
                 unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
@@ -866,7 +913,7 @@ impl IndexerDb for AnyDb {
                 total_requests_slashed = EXCLUDED.total_requests_slashed,
                 updated_at = CURRENT_TIMESTAMP",
         )
-        .bind(summary.hour_timestamp as i64)
+        .bind(summary.period_timestamp as i64)
         .bind(summary.total_fulfilled as i64)
         .bind(summary.unique_provers_locking_requests as i64)
         .bind(summary.unique_requesters_submitting_requests as i64)
@@ -898,6 +945,150 @@ impl IndexerDb for AnyDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<HourlyMarketSummary>, DbError> {
+        self.get_market_summaries_generic(cursor, limit, sort, before, after, "hourly_market_summary").await
+    }
+
+    async fn upsert_daily_market_summary(
+        &self,
+        summary: DailyMarketSummary,
+    ) -> Result<(), DbError> {
+        self.upsert_market_summary_generic(summary, "daily_market_summary").await
+    }
+
+    async fn get_daily_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<DailyMarketSummary>, DbError> {
+        self.get_market_summaries_generic(cursor, limit, sort, before, after, "daily_market_summary").await
+    }
+
+    async fn upsert_weekly_market_summary(
+        &self,
+        summary: WeeklyMarketSummary,
+    ) -> Result<(), DbError> {
+        self.upsert_market_summary_generic(summary, "weekly_market_summary").await
+    }
+
+    async fn get_weekly_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<WeeklyMarketSummary>, DbError> {
+        self.get_market_summaries_generic(cursor, limit, sort, before, after, "weekly_market_summary").await
+    }
+
+    async fn upsert_monthly_market_summary(
+        &self,
+        summary: MonthlyMarketSummary,
+    ) -> Result<(), DbError> {
+        self.upsert_market_summary_generic(summary, "monthly_market_summary").await
+    }
+
+    async fn get_monthly_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<MonthlyMarketSummary>, DbError> {
+        self.get_market_summaries_generic(cursor, limit, sort, before, after, "monthly_market_summary").await
+    }
+}
+
+impl AnyDb {
+    // Generic helper for upserting market summaries to avoid code duplication
+    async fn upsert_market_summary_generic(
+        &self,
+        summary: HourlyMarketSummary,  // Can be any alias type
+        table_name: &str,
+    ) -> Result<(), DbError> {
+        let query_str = format!(
+            "INSERT INTO {} (
+                period_timestamp,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                unique_requesters_submitting_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                p10_fees_locked,
+                p25_fees_locked,
+                p50_fees_locked,
+                p75_fees_locked,
+                p90_fees_locked,
+                p95_fees_locked,
+                p99_fees_locked,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
+            ON CONFLICT (period_timestamp) DO UPDATE SET
+                total_fulfilled = EXCLUDED.total_fulfilled,
+                unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
+                unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
+                total_fees_locked = EXCLUDED.total_fees_locked,
+                total_collateral_locked = EXCLUDED.total_collateral_locked,
+                p10_fees_locked = EXCLUDED.p10_fees_locked,
+                p25_fees_locked = EXCLUDED.p25_fees_locked,
+                p50_fees_locked = EXCLUDED.p50_fees_locked,
+                p75_fees_locked = EXCLUDED.p75_fees_locked,
+                p90_fees_locked = EXCLUDED.p90_fees_locked,
+                p95_fees_locked = EXCLUDED.p95_fees_locked,
+                p99_fees_locked = EXCLUDED.p99_fees_locked,
+                total_requests_submitted = EXCLUDED.total_requests_submitted,
+                total_requests_submitted_onchain = EXCLUDED.total_requests_submitted_onchain,
+                total_requests_submitted_offchain = EXCLUDED.total_requests_submitted_offchain,
+                total_requests_locked = EXCLUDED.total_requests_locked,
+                total_requests_slashed = EXCLUDED.total_requests_slashed,
+                updated_at = CURRENT_TIMESTAMP",
+            table_name
+        );
+
+        sqlx::query(&query_str)
+            .bind(summary.period_timestamp as i64)
+            .bind(summary.total_fulfilled as i64)
+            .bind(summary.unique_provers_locking_requests as i64)
+            .bind(summary.unique_requesters_submitting_requests as i64)
+            .bind(summary.total_fees_locked)
+            .bind(summary.total_collateral_locked)
+            .bind(summary.p10_fees_locked)
+            .bind(summary.p25_fees_locked)
+            .bind(summary.p50_fees_locked)
+            .bind(summary.p75_fees_locked)
+            .bind(summary.p90_fees_locked)
+            .bind(summary.p95_fees_locked)
+            .bind(summary.p99_fees_locked)
+            .bind(summary.total_requests_submitted as i64)
+            .bind(summary.total_requests_submitted_onchain as i64)
+            .bind(summary.total_requests_submitted_offchain as i64)
+            .bind(summary.total_requests_locked as i64)
+            .bind(summary.total_requests_slashed as i64)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    // Generic helper for getting market summaries to avoid code duplication
+    async fn get_market_summaries_generic(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+        table_name: &str,
+    ) -> Result<Vec<HourlyMarketSummary>, DbError> {
         let mut conditions = Vec::new();
         let mut bind_count = 0;
 
@@ -905,11 +1096,11 @@ impl IndexerDb for AnyDb {
         let cursor_condition = match (cursor, sort) {
             (Some(_), SortDirection::Asc) => {
                 bind_count += 1;
-                Some(format!("hour_timestamp > ${}", bind_count))
+                Some(format!("period_timestamp > ${}", bind_count))
             }
             (Some(_), SortDirection::Desc) => {
                 bind_count += 1;
-                Some(format!("hour_timestamp < ${}", bind_count))
+                Some(format!("period_timestamp < ${}", bind_count))
             }
             (None, _) => None,
         };
@@ -921,13 +1112,13 @@ impl IndexerDb for AnyDb {
         // Add after condition
         if after.is_some() {
             bind_count += 1;
-            conditions.push(format!("hour_timestamp > ${}", bind_count));
+            conditions.push(format!("period_timestamp > ${}", bind_count));
         }
 
         // Add before condition
         if before.is_some() {
             bind_count += 1;
-            conditions.push(format!("hour_timestamp < ${}", bind_count));
+            conditions.push(format!("period_timestamp < ${}", bind_count));
         }
 
         let where_clause = if conditions.is_empty() {
@@ -937,14 +1128,14 @@ impl IndexerDb for AnyDb {
         };
 
         let order_clause = match sort {
-            SortDirection::Asc => "ORDER BY hour_timestamp ASC",
-            SortDirection::Desc => "ORDER BY hour_timestamp DESC",
+            SortDirection::Asc => "ORDER BY period_timestamp ASC",
+            SortDirection::Desc => "ORDER BY period_timestamp DESC",
         };
 
         bind_count += 1;
         let query_str = format!(
             "SELECT
-                hour_timestamp,
+                period_timestamp,
                 total_fulfilled,
                 unique_provers_locking_requests,
                 unique_requesters_submitting_requests,
@@ -962,11 +1153,11 @@ impl IndexerDb for AnyDb {
                 total_requests_submitted_offchain,
                 total_requests_locked,
                 total_requests_slashed
-            FROM hourly_market_summary
+            FROM {}
             {}
             {}
             LIMIT ${}",
-            where_clause, order_clause, bind_count
+            table_name, where_clause, order_clause, bind_count
         );
 
         let mut query = sqlx::query(&query_str);
@@ -991,7 +1182,7 @@ impl IndexerDb for AnyDb {
         let summaries = rows
             .into_iter()
             .map(|row| HourlyMarketSummary {
-                hour_timestamp: row.get::<i64, _>("hour_timestamp") as u64,
+                period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
                 total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
                 unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
                 unique_requesters_submitting_requests: row.get::<i64, _>(
@@ -1343,7 +1534,7 @@ mod tests {
         // Insert 10 hourly summaries
         for i in 0..10u64 {
             let summary = HourlyMarketSummary {
-                hour_timestamp: (base_timestamp + (i as i64 * hour_in_seconds)) as u64,
+                period_timestamp: (base_timestamp + (i as i64 * hour_in_seconds)) as u64,
                 total_fulfilled: i,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
@@ -1380,9 +1571,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].hour_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
-        assert_eq!(results[1].hour_timestamp, (base_timestamp + (8 * hour_in_seconds)) as u64);
-        assert_eq!(results[2].hour_timestamp, (base_timestamp + (7 * hour_in_seconds)) as u64);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
+        assert_eq!(results[1].period_timestamp, (base_timestamp + (8 * hour_in_seconds)) as u64);
+        assert_eq!(results[2].period_timestamp, (base_timestamp + (7 * hour_in_seconds)) as u64);
     }
 
     #[tokio::test]
@@ -1398,16 +1589,16 @@ mod tests {
             .unwrap();
         
         // Use last item as cursor for next page
-        let cursor = first_page[2].hour_timestamp as i64;
+        let cursor = first_page[2].period_timestamp as i64;
         let results = db
             .get_hourly_market_summaries(Some(cursor), 3, SortDirection::Desc, None, None)
             .await
             .unwrap();
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].hour_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
-        assert_eq!(results[1].hour_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
-        assert_eq!(results[2].hour_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
+        assert_eq!(results[1].period_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
+        assert_eq!(results[2].period_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
     }
 
     #[tokio::test]
@@ -1422,9 +1613,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].hour_timestamp, base_timestamp as u64); // oldest first
-        assert_eq!(results[1].hour_timestamp, (base_timestamp + hour_in_seconds) as u64);
-        assert_eq!(results[2].hour_timestamp, (base_timestamp + (2 * hour_in_seconds)) as u64);
+        assert_eq!(results[0].period_timestamp, base_timestamp as u64); // oldest first
+        assert_eq!(results[1].period_timestamp, (base_timestamp + hour_in_seconds) as u64);
+        assert_eq!(results[2].period_timestamp, (base_timestamp + (2 * hour_in_seconds)) as u64);
     }
 
     #[tokio::test]
@@ -1440,16 +1631,16 @@ mod tests {
             .unwrap();
         
         // Use last item as cursor for next page
-        let cursor = first_page[2].hour_timestamp as i64;
+        let cursor = first_page[2].period_timestamp as i64;
         let results = db
             .get_hourly_market_summaries(Some(cursor), 3, SortDirection::Asc, None, None)
             .await
             .unwrap();
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].hour_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
-        assert_eq!(results[1].hour_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
-        assert_eq!(results[2].hour_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
+        assert_eq!(results[1].period_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
+        assert_eq!(results[2].period_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
     }
 
     #[tokio::test]
@@ -1466,8 +1657,8 @@ mod tests {
 
         // Should get hours 4-9 (6 results) - all after hour 3, desc so most recent first
         assert_eq!(results.len(), 6);
-        assert_eq!(results[0].hour_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
-        assert_eq!(results[results.len() - 1].hour_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
+        assert_eq!(results[results.len() - 1].period_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
     }
 
     #[tokio::test]
@@ -1484,8 +1675,8 @@ mod tests {
 
         // Should get hours 0-6 (7 results) - all before hour 7
         assert_eq!(results.len(), 7);
-        assert_eq!(results[0].hour_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
-        assert_eq!(results[results.len() - 1].hour_timestamp, base_timestamp as u64);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
+        assert_eq!(results[results.len() - 1].period_timestamp, base_timestamp as u64);
     }
 
     #[tokio::test]
@@ -1503,8 +1694,200 @@ mod tests {
 
         // Should get hours 3-6 (4 results) - between hour 2 and hour 7
         assert_eq!(results.len(), 4);
-        assert_eq!(results[0].hour_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
-        assert_eq!(results[3].hour_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (6 * hour_in_seconds)) as u64);
+        assert_eq!(results[3].period_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
+    }
+
+    #[tokio::test]
+    async fn test_daily_summaries_basic() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = test_db.get_db();
+
+        let base_timestamp = 1700000000i64; // 2023-11-14
+        let day_in_seconds = 86400i64;
+
+        // Insert 5 daily summaries
+        for i in 0..5u64 {
+            let summary = DailyMarketSummary {
+                period_timestamp: (base_timestamp + (i as i64 * day_in_seconds)) as u64,
+                total_fulfilled: i * 10,
+                unique_provers_locking_requests: i * 2,
+                unique_requesters_submitting_requests: i * 3,
+                total_fees_locked: format!("{}", i * 1000),
+                total_collateral_locked: format!("{}", i * 2000),
+                p10_fees_locked: format!("{}", i * 100),
+                p25_fees_locked: format!("{}", i * 250),
+                p50_fees_locked: format!("{}", i * 500),
+                p75_fees_locked: format!("{}", i * 750),
+                p90_fees_locked: format!("{}", i * 900),
+                p95_fees_locked: format!("{}", i * 950),
+                p99_fees_locked: format!("{}", i * 990),
+                total_requests_submitted: i * 10,
+                total_requests_submitted_onchain: i * 6,
+                total_requests_submitted_offchain: i * 4,
+                total_requests_locked: i * 5,
+                total_requests_slashed: i,
+            };
+            db.upsert_daily_market_summary(summary).await.unwrap();
+        }
+
+        // Test retrieval
+        let results = db
+            .get_daily_market_summaries(None, 10, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 5);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (4 * day_in_seconds)) as u64);
+        assert_eq!(results[0].total_fulfilled, 40);
+        assert_eq!(results[4].period_timestamp, base_timestamp as u64);
+    }
+
+    #[tokio::test]
+    async fn test_weekly_summaries_basic() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = test_db.get_db();
+
+        let base_timestamp = 1700000000i64; // 2023-11-14
+        let week_in_seconds = 604800i64;
+
+        // Insert 4 weekly summaries
+        for i in 0..4u64 {
+            let summary = WeeklyMarketSummary {
+                period_timestamp: (base_timestamp + (i as i64 * week_in_seconds)) as u64,
+                total_fulfilled: i * 100,
+                unique_provers_locking_requests: i * 20,
+                unique_requesters_submitting_requests: i * 30,
+                total_fees_locked: format!("{}", i * 10000),
+                total_collateral_locked: format!("{}", i * 20000),
+                p10_fees_locked: format!("{}", i * 1000),
+                p25_fees_locked: format!("{}", i * 2500),
+                p50_fees_locked: format!("{}", i * 5000),
+                p75_fees_locked: format!("{}", i * 7500),
+                p90_fees_locked: format!("{}", i * 9000),
+                p95_fees_locked: format!("{}", i * 9500),
+                p99_fees_locked: format!("{}", i * 9900),
+                total_requests_submitted: i * 100,
+                total_requests_submitted_onchain: i * 60,
+                total_requests_submitted_offchain: i * 40,
+                total_requests_locked: i * 50,
+                total_requests_slashed: i * 5,
+            };
+            db.upsert_weekly_market_summary(summary).await.unwrap();
+        }
+
+        // Test retrieval
+        let results = db
+            .get_weekly_market_summaries(None, 10, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 4);
+        assert_eq!(results[0].period_timestamp, base_timestamp as u64);
+        assert_eq!(results[3].period_timestamp, (base_timestamp + (3 * week_in_seconds)) as u64);
+        assert_eq!(results[3].total_fulfilled, 300);
+    }
+
+    #[tokio::test]
+    async fn test_monthly_summaries_basic() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = test_db.get_db();
+
+        // Use actual month boundaries for testing
+        use chrono::TimeZone;
+        let jan = chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap().timestamp() as u64;
+        let feb = chrono::Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap().timestamp() as u64;
+        let mar = chrono::Utc.with_ymd_and_hms(2024, 3, 1, 0, 0, 0).unwrap().timestamp() as u64;
+
+        // Insert 3 monthly summaries
+        for (i, timestamp) in [jan, feb, mar].iter().enumerate() {
+            let i = i as u64;
+            let summary = MonthlyMarketSummary {
+                period_timestamp: *timestamp,
+                total_fulfilled: i * 1000,
+                unique_provers_locking_requests: i * 200,
+                unique_requesters_submitting_requests: i * 300,
+                total_fees_locked: format!("{}", i * 100000),
+                total_collateral_locked: format!("{}", i * 200000),
+                p10_fees_locked: format!("{}", i * 10000),
+                p25_fees_locked: format!("{}", i * 25000),
+                p50_fees_locked: format!("{}", i * 50000),
+                p75_fees_locked: format!("{}", i * 75000),
+                p90_fees_locked: format!("{}", i * 90000),
+                p95_fees_locked: format!("{}", i * 95000),
+                p99_fees_locked: format!("{}", i * 99000),
+                total_requests_submitted: i * 1000,
+                total_requests_submitted_onchain: i * 600,
+                total_requests_submitted_offchain: i * 400,
+                total_requests_locked: i * 500,
+                total_requests_slashed: i * 50,
+            };
+            db.upsert_monthly_market_summary(summary).await.unwrap();
+        }
+
+        // Test retrieval
+        let results = db
+            .get_monthly_market_summaries(None, 10, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].period_timestamp, mar);
+        assert_eq!(results[1].period_timestamp, feb);
+        assert_eq!(results[2].period_timestamp, jan);
+        assert_eq!(results[0].total_fulfilled, 2000); // March (index 2)
+    }
+
+    #[tokio::test]
+    async fn test_daily_summaries_cursor_pagination() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = test_db.get_db();
+
+        let base_timestamp = 1700000000i64;
+        let day_in_seconds = 86400i64;
+
+        // Insert 10 daily summaries
+        for i in 0..10u64 {
+            let summary = DailyMarketSummary {
+                period_timestamp: (base_timestamp + (i as i64 * day_in_seconds)) as u64,
+                total_fulfilled: i,
+                unique_provers_locking_requests: i * 2,
+                unique_requesters_submitting_requests: i * 3,
+                total_fees_locked: format!("{}", i * 1000),
+                total_collateral_locked: format!("{}", i * 2000),
+                p10_fees_locked: format!("{}", i * 100),
+                p25_fees_locked: format!("{}", i * 250),
+                p50_fees_locked: format!("{}", i * 500),
+                p75_fees_locked: format!("{}", i * 750),
+                p90_fees_locked: format!("{}", i * 900),
+                p95_fees_locked: format!("{}", i * 950),
+                p99_fees_locked: format!("{}", i * 990),
+                total_requests_submitted: i * 10,
+                total_requests_submitted_onchain: i * 6,
+                total_requests_submitted_offchain: i * 4,
+                total_requests_locked: i * 5,
+                total_requests_slashed: i,
+            };
+            db.upsert_daily_market_summary(summary).await.unwrap();
+        }
+
+        // Get first page
+        let first_page = db
+            .get_daily_market_summaries(None, 3, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(first_page.len(), 3);
+
+        // Use cursor to get next page
+        let cursor = first_page[2].period_timestamp as i64;
+        let second_page = db
+            .get_daily_market_summaries(Some(cursor), 3, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(second_page.len(), 3);
+        assert_eq!(second_page[0].period_timestamp, (base_timestamp + (6 * day_in_seconds)) as u64);
     }
 
     #[tokio::test]

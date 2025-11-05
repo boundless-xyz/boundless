@@ -20,6 +20,7 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use utoipa;
@@ -368,24 +369,7 @@ async fn get_market_aggregates_impl(
 
 /// Format Unix timestamp as ISO 8601 string (UTC)
 fn format_timestamp_iso(timestamp: i64) -> String {
-    // Simple ISO 8601 formatting: YYYY-MM-DDTHH:MM:SSZ
-    let secs_since_epoch = timestamp as u64;
-    let days_since_epoch = secs_since_epoch / 86400;
-    let secs_today = secs_since_epoch % 86400;
-
-    let hours = secs_today / 3600;
-    let minutes = (secs_today % 3600) / 60;
-    let seconds = secs_today % 60;
-
-    // Approximate date calculation (good enough for display)
-    // Using a simple algorithm: days since 1970-01-01
-    let year = 1970 + (days_since_epoch / 365);
-    let day_in_year = days_since_epoch % 365;
-    let month = (day_in_year / 30) + 1; // Rough approximation
-    let day = (day_in_year % 30) + 1;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month.min(12), day.clamp(1, 31), hours, minutes, seconds
-    )
+    DateTime::<Utc>::from_timestamp(timestamp, 0)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
 }

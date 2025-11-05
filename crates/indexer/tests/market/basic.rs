@@ -39,7 +39,7 @@ use tracing_test::traced_test;
 // Helper struct for hourly summary data
 #[derive(Debug)]
 struct HourlySummaryRow {
-    hour_timestamp: u64,
+    period_timestamp: u64,
     total_fulfilled: u64,
     unique_provers_locking_requests: u64,
     unique_requesters_submitting_requests: u64,
@@ -62,11 +62,11 @@ async fn count_hourly_summaries(pool: &AnyPool) -> i64 {
 
 async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
     let rows = sqlx::query(
-        "SELECT hour_timestamp, total_fulfilled, unique_provers_locking_requests,
+        "SELECT period_timestamp, total_fulfilled, unique_provers_locking_requests,
                 unique_requesters_submitting_requests, total_fees_locked, total_collateral_locked,
                 total_requests_submitted, total_requests_submitted_onchain,
                 total_requests_submitted_offchain, total_requests_locked, total_requests_slashed
-         FROM hourly_market_summary ORDER BY hour_timestamp ASC",
+         FROM hourly_market_summary ORDER BY period_timestamp ASC",
     )
     .fetch_all(pool)
     .await
@@ -74,7 +74,7 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
 
     rows.into_iter()
         .map(|row| HourlySummaryRow {
-            hour_timestamp: row.get::<i64, _>("hour_timestamp") as u64,
+            period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
             total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
             unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
             unique_requesters_submitting_requests: row.get::<i64, _>("unique_requesters_submitting_requests") as u64,
@@ -259,14 +259,14 @@ async fn test_e2e() {
     assert!(summary_count >= 1, "Expected at least one hourly summary, got {}", summary_count);
 
     let mut summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
-    // sort summaries descending by hour_timestamp
-    summaries.sort_by(|a, b| b.hour_timestamp.cmp(&a.hour_timestamp));
+    // sort summaries descending by period_timestamp
+    summaries.sort_by(|a, b| b.period_timestamp.cmp(&a.period_timestamp));
     let summary = &summaries[0];
     tracing::info!("summaries: {:?}", summaries);
 
     // Verify hour boundary alignment (timestamp should be divisible by 3600)
     assert_eq!(
-        summary.hour_timestamp % 3600,
+        summary.period_timestamp % 3600,
         0,
         "Hour timestamp should be aligned to hour boundary"
     );
@@ -516,7 +516,7 @@ async fn test_monitoring() {
     // Verify at least one hour has data
     let summary = &summaries[0];
     assert_eq!(
-        summary.hour_timestamp % 3600,
+        summary.period_timestamp % 3600,
         0,
         "Hour timestamp should be aligned to hour boundary"
     );
@@ -695,16 +695,16 @@ async fn test_aggregation_across_hours() {
     // Verify all hour timestamps are aligned to hour boundaries
     for summary in &summaries {
         assert_eq!(
-            summary.hour_timestamp % 3600,
+            summary.period_timestamp % 3600,
             0,
-            "Hour timestamp {} should be aligned to hour boundary",
-            summary.hour_timestamp
+            "Period timestamp {} should be aligned to hour boundary",
+            summary.period_timestamp
         );
     }
 
     // Verify hour timestamps are different (events are in different hours)
-    let hour1 = summaries[0].hour_timestamp;
-    let hour2 = summaries[1].hour_timestamp;
+    let hour1 = summaries[0].period_timestamp;
+    let hour2 = summaries[1].period_timestamp;
     assert_ne!(
         hour1, hour2,
         "Expected different hour timestamps for different hours"
@@ -745,14 +745,14 @@ async fn test_aggregation_across_hours() {
 
     // Check that our actual hour timestamps match the expected formula
     assert!(
-        summaries.iter().any(|s| s.hour_timestamp == expected_hour1),
-        "Expected to find hour timestamp {} computed from first order timestamp {}",
+        summaries.iter().any(|s| s.period_timestamp == expected_hour1),
+        "Expected to find period timestamp {} computed from first order timestamp {}",
         expected_hour1,
         now
     );
     assert!(
-        summaries.iter().any(|s| s.hour_timestamp == expected_hour2),
-        "Expected to find hour timestamp {} computed from second order timestamp {}",
+        summaries.iter().any(|s| s.period_timestamp == expected_hour2),
+        "Expected to find period timestamp {} computed from second order timestamp {}",
         expected_hour2,
         now2
     );
