@@ -21,7 +21,7 @@ use crate::{
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, Order,
+    utils, FulfillmentType, Order, ProverObj,
 };
 use alloy::{
     network::Ethereum,
@@ -145,6 +145,7 @@ pub struct RpcRetryConfig {
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
+    prover: Option<ProverObj>,
     chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     config: ConfigLock,
@@ -165,6 +166,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
+        prover: Option<ProverObj>,
         provider: Arc<P>,
         chain_monitor: Arc<ChainMonitorService<P>>,
         config: ConfigLock,
@@ -204,6 +206,7 @@ where
         }
         let monitor = Self {
             db,
+            prover,
             chain_monitor,
             block_time,
             config,
@@ -556,12 +559,18 @@ where
                                     );
                                 }
                             }
-                            // TODO(ec2): Delete input from prover
-                            if let Err(err) = self.db.insert_skipped_request(order).await {
+                            if let Some(prover) = &self.prover {
+                            if let Err(err) = self.db.insert_skipped_request_and_delete_input(order, prover).await {
                                 tracing::error!(
                                     "Failed to set DB failure state for order: {order_id} - {err:?}"
                                 );
                             }
+                            } else if let Err(err) = self.db.insert_skipped_request(order).await {
+                                tracing::error!(
+                                    "Failed to set DB failure state for order: {order_id} - {err:?}"
+                                );
+                            }
+
                         }
                     }
                     self.lock_and_prove_cache.invalidate(&order_id).await;
@@ -1129,6 +1138,7 @@ pub(crate) mod tests {
 
         let monitor = OrderMonitor::new(
             db.clone(),
+            None,
             provider.clone(),
             chain_monitor.clone(),
             config.clone(),
