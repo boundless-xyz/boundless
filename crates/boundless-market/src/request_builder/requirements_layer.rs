@@ -14,6 +14,7 @@
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::contracts::{Callback, Predicate, Requirements};
+use crate::selector::is_shrink_bitvm2_selector;
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
 use clap::Args;
@@ -155,10 +156,24 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         &self,
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
-        let predicate = params
-            .predicate
-            .clone()
-            .unwrap_or_else(|| Predicate::digest_match(image_id, journal.digest()));
+        let mut predicate = params.predicate.clone();
+
+        if let Some(selector) = &params.selector {
+            if is_shrink_bitvm2_selector(*selector) {
+                predicate = Some(params.predicate.clone().unwrap_or_else(|| {
+                    let blake3_claim_digest = shrink_bitvm2::ShrinkBitvm2ReceiptClaim::ok(
+                        image_id,
+                        journal.bytes.clone(),
+                    )
+                    .digest();
+                    Predicate::claim_digest_match(blake3_claim_digest)
+                }));
+            }
+        }
+
+        let predicate =
+            predicate.unwrap_or_else(|| Predicate::digest_match(image_id, journal.digest()));
+
         if let Some(params_image_id) = params.image_id {
             ensure!(
                 image_id == Digest::from(<[u8; 32]>::from(params_image_id)),

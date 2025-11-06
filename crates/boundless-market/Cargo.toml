@@ -45,6 +45,7 @@ risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }
 serde_json = { workspace = true }
+shrink_bitvm2 = { workspace = true, default-features = false }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }

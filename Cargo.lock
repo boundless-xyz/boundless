@@ -2851,6 +2851,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "shrink_bitvm2",
  "siwe",
  "tempfile",
  "thiserror 2.0.17",
