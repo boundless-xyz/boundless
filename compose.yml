@@ -178,6 +178,8 @@ services:
     cpus: 1
     environment:
       <<: *base-environment
+      # Default to 4 max client connections if not set (work, poll for requeue, completed cleanup, stuck tasks cleanup)
+      DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-4}
 
     entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
 
