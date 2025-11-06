@@ -86,7 +86,7 @@ export class ApiGatewayComponent extends BaseComponent {
         // Create separate target group for the internal ALB
         // AWS doesn't allow a target group to be associated with more than one load balancer
         this.internalTargetGroup = new aws.lb.TargetGroup("boundless-internal-tg", {
-            name: `${this.config.stackName}-prover-internal`,
+            name: `${this.config.stackName}-prove-internal`,
             port: 8081,
             protocol: "HTTP",
             vpcId: config.vpcId,
