@@ -189,12 +189,10 @@ where
         touched_requests.extend(slashed_events_digests);
         touched_requests.extend(expired_requests);
 
-        self.update_last_processed_block(to).await?;
-
-        // NEW: Update request statuses for touched requests
+        // Update request statuses for touched requests
         self.update_request_statuses(touched_requests, to).await?;
 
-        // Aggregate market data at all time periods after processing blocks
+        // Aggregate market data
         self.aggregate_hourly_market_data(to).await?;
         self.aggregate_daily_market_data(to).await?;
         self.aggregate_weekly_market_data(to).await?;

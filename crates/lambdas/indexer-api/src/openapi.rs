@@ -64,6 +64,10 @@ use utoipa::OpenApi;
         crate::routes::delegations::get_reward_delegation_by_address_and_epoch,
         // Market endpoints
         crate::routes::market::get_market_aggregates,
+        crate::routes::market::list_requests,
+        crate::routes::market::get_requests_by_request_id,
+        crate::routes::market::list_requests_by_requestor,
+        crate::routes::market::list_requests_by_prover,
     ),
     components(schemas(
         // Response models
@@ -102,6 +106,10 @@ use utoipa::OpenApi;
         crate::routes::market::MarketAggregatesParams,
         crate::routes::market::MarketAggregateEntry,
         crate::routes::market::MarketAggregatesResponse,
+        crate::routes::market::RequestListParams,
+        crate::routes::market::RequestStatusResponse,
+        crate::routes::market::RequestListResponse,
+        crate::routes::market::AggregationGranularity,
     ))
 )]
 pub struct ApiDoc;

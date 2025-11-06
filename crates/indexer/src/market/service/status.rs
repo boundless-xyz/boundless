@@ -113,7 +113,6 @@ where
         request_digests: HashSet<B256>,
         block_number: u64,
     ) -> Result<(), ServiceError> {
-        tracing::info!("update_request_statuses called with {} request digests for block {}", request_digests.len(), block_number);
         tracing::debug!("Request digests to update: {:?}", request_digests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());
 
         let current_timestamp = self.block_timestamp(block_number).await?;
@@ -130,18 +129,24 @@ where
             return Ok(());
         }
 
+        let start_get_requests_comprehensive = std::time::Instant::now();
         let requests_with_events = self.db.get_requests_comprehensive(&request_digests).await?;
-        tracing::info!("get_requests_comprehensive completed in {:?} [{} requests found]", start.elapsed(), requests_with_events.len());
+        tracing::info!("get_requests_comprehensive completed in {:?} [{} requests found]", start_get_requests_comprehensive.elapsed(), requests_with_events.len());
 
+        let start_compute_request_status = std::time::Instant::now();
         let request_statuses: Vec<_> = requests_with_events
             .into_iter()
             .map(|req| self.compute_request_status(req, current_timestamp))
             .collect();
 
-        tracing::info!("compute_request_status completed in {:?} [{} statuses computed]", start.elapsed(), request_statuses.len());
+        tracing::info!("compute_request_status completed in {:?} [{} statuses computed]", start_compute_request_status.elapsed(), request_statuses.len());
 
+        let start_upsert_request_statuses = std::time::Instant::now();
         self.db.upsert_request_statuses(&request_statuses).await?;
-        tracing::info!("upsert_request_statuses completed in {:?} [{} statuses upserted]", start.elapsed(), request_statuses.len());
+        tracing::info!("upsert_request_statuses completed in {:?} [{} statuses upserted]", start_upsert_request_statuses.elapsed(), request_statuses.len());
+        for request_status in request_statuses.clone() {
+            tracing::debug!("Updated request status for request_id: {:?}. New status: {:?}. Locked at: {:?}. Fulfilled at: {:?}. Slashed at: {:?}.", request_status.request_id, request_status.request_status, request_status.locked_at, request_status.fulfilled_at, request_status.slashed_at);
+        }
 
         tracing::info!(
             "update_request_statuses completed in {:?} [{} statuses updated]",

@@ -20,10 +20,18 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
         metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric>,
         alarmConfig?: Partial<aws.cloudwatch.MetricAlarmArgs>,
     }): void => {
+        // Hash description to ensure unique alarm name
+        const descriptionHash = (description ?? "")
+            .split("")
+            .reduce((acc, char) => {
+                return ((acc << 5) - acc + char.charCodeAt(0)) & 0xfffffff;
+            }, 5381)
+            .toString(16)
+            .substring(0, 4);
         const metricName = target ? `${baseMetricName}_${target.address}` : baseMetricName;
         const metricFullName = target ? `${metricName}_${target.name}` : metricName;
         new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricFullName}-${severity}-alarm`, {
-            name: `${serviceName}-${metricName}-${severity}`,
+            name: `${serviceName}-${metricName}-${descriptionHash}-${severity}`,
             metricQueries: [
                 {
                     id: "a",

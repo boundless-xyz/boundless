@@ -264,17 +264,46 @@ where
     ) -> Result<HourlyMarketSummary, ServiceError> {
         tracing::debug!("Computing period summary for {} to {}", period_start, period_end);
 
-        let total_fulfilled = self.db.get_period_fulfilled_count(period_start, period_end).await?;
-        let unique_provers = self.db.get_period_unique_provers(period_start, period_end).await?;
-        let unique_requesters = self.db.get_period_unique_requesters(period_start, period_end).await?;
-        let total_requests_submitted = self.db.get_period_total_requests_submitted(period_start, period_end).await?;
-        let total_requests_submitted_onchain = self.db.get_period_total_requests_submitted_onchain(period_start, period_end).await?;
+        // Execute all initial database queries in parallel
+        let (
+            total_fulfilled,
+            unique_provers,
+            unique_requesters,
+            total_requests_submitted,
+            total_requests_submitted_onchain,
+            total_requests_locked,
+            total_requests_slashed,
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            locks,
+        ) = tokio::join!(
+            self.db.get_period_fulfilled_count(period_start, period_end),
+            self.db.get_period_unique_provers(period_start, period_end),
+            self.db.get_period_unique_requesters(period_start, period_end),
+            self.db.get_period_total_requests_submitted(period_start, period_end),
+            self.db.get_period_total_requests_submitted_onchain(period_start, period_end),
+            self.db.get_period_total_requests_locked(period_start, period_end),
+            self.db.get_period_total_requests_slashed(period_start, period_end),
+            self.db.get_period_expired_count(period_start, period_end),
+            self.db.get_period_locked_and_expired_count(period_start, period_end),
+            self.db.get_period_locked_and_fulfilled_count(period_start, period_end),
+            self.db.get_period_lock_pricing_data(period_start, period_end),
+        );
+
+        // Unwrap all results
+        let total_fulfilled = total_fulfilled?;
+        let unique_provers = unique_provers?;
+        let unique_requesters = unique_requesters?;
+        let total_requests_submitted = total_requests_submitted?;
+        let total_requests_submitted_onchain = total_requests_submitted_onchain?;
         let total_requests_submitted_offchain = total_requests_submitted - total_requests_submitted_onchain;
-        let total_requests_locked = self.db.get_period_total_requests_locked(period_start, period_end).await?;
-        let total_requests_slashed = self.db.get_period_total_requests_slashed(period_start, period_end).await?;
-        let total_expired = self.db.get_period_expired_count(period_start, period_end).await?;
-        let total_locked_and_expired = self.db.get_period_locked_and_expired_count(period_start, period_end).await?;
-        let total_locked_and_fulfilled = self.db.get_period_locked_and_fulfilled_count(period_start, period_end).await?;
+        let total_requests_locked = total_requests_locked?;
+        let total_requests_slashed = total_requests_slashed?;
+        let total_expired = total_expired?;
+        let total_locked_and_expired = total_locked_and_expired?;
+        let total_locked_and_fulfilled = total_locked_and_fulfilled?;
+        let locks = locks?;
 
         let locked_orders_fulfillment_rate = {
             let total_locked_outcomes = total_locked_and_fulfilled + total_locked_and_expired;
@@ -301,7 +330,15 @@ where
                 .map_err(|e| ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e)))?;
 
             // Compute lock_timeout from lock_end and bidding_start
-            let lock_timeout = lock.lock_end.saturating_sub(lock.bidding_start) as u32;
+            // Use saturating conversion to handle edge case where timeout exceeds u32::MAX
+            let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.bidding_start);
+            let lock_timeout = u32::try_from(lock_timeout_u64).unwrap_or_else(|_| {
+                tracing::warn!(
+                    "Lock timeout {} exceeds u32::MAX for request, using u32::MAX as fallback",
+                    lock_timeout_u64
+                );
+                u32::MAX
+            });
 
             // Compute price at lock time
             let price = price_at_time(

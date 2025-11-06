@@ -14,11 +14,13 @@ export interface MarketIndexerArgs {
   dockerTag: string;
   boundlessAddress: string;
   ethRpcUrl: pulumi.Output<string>;
+  logsEthRpcUrl?: pulumi.Output<string>;
   startBlock: string;
   serviceMetricsNamespace: string;
   boundlessAlertsTopicArns?: string[];
   dockerRemoteBuilder?: string;
   orderStreamUrl?: pulumi.Output<string>;
+  orderStreamApiKey?: pulumi.Output<string>;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -34,11 +36,13 @@ export class MarketIndexer extends pulumi.ComponentResource {
       dockerTag,
       boundlessAddress,
       ethRpcUrl,
+      logsEthRpcUrl,
       startBlock,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns,
       dockerRemoteBuilder,
       orderStreamUrl,
+      orderStreamApiKey,
     } = args;
 
     const serviceName = name;
@@ -146,14 +150,20 @@ export class MarketIndexer extends pulumi.ComponentResource {
           command: [
             '--rpc-url',
             ethRpcUrl,
+            ...(logsEthRpcUrl ? ['--logs-rpc-url', logsEthRpcUrl] : []),
             '--boundless-market-address',
             boundlessAddress,
             '--start-block',
             startBlock,
+            '--tx-fetch-strategy',
+            'tx-by-hash',
+            '--order-stream-url',
+            "https://base-mainnet.boundless.network",
             '--log-json',
             '--cache-uri',
             pulumi.interpolate`s3://${infra.cacheBucket.bucket}`,
             ...(orderStreamUrl ? ['--order-stream-url', orderStreamUrl] : []),
+            ...(orderStreamApiKey ? ['--order-stream-api-key', orderStreamApiKey] : []),
           ],
           secrets: [
             {

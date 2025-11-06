@@ -15,7 +15,11 @@ export = () => {
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
+  const logsEthRpcUrl = isDev ? pulumi.output(getEnvVar("LOGS_ETH_RPC_URL")) : config.requireSecret('LOGS_ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
+  const orderStreamApiKey = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_API_KEY")) : config.requireSecret('ORDER_STREAM_API_KEY');
+  const orderStreamUrl = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) : config.getSecret('ORDER_STREAM_URL');
+
   const chainId = config.require('CHAIN_ID');
 
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
@@ -43,7 +47,6 @@ export = () => {
 
   const boundlessAddress = config.get('BOUNDLESS_ADDRESS');
   const startBlock = boundlessAddress ? config.require('START_BLOCK') : undefined;
-  const orderStreamUrl = config.getSecret('ORDER_STREAM_URL');
 
   const vezkcAddress = config.get('VEZKC_ADDRESS');
   const zkcAddress = config.get('ZKC_ADDRESS');
@@ -80,6 +83,8 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
       orderStreamUrl,
+      orderStreamApiKey,
+      logsEthRpcUrl,
     }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
@@ -127,7 +132,7 @@ export = () => {
 
 
   let api: IndexerApi | undefined;
-  if (shouldDeployRewards && rewardsIndexer) {
+  if (shouldDeployMarket && marketIndexer || shouldDeployRewards && rewardsIndexer) {
     api = new IndexerApi(indexerApiServiceName, {
       vpcId: vpcId,
       privSubNetIds: privSubNetIds,

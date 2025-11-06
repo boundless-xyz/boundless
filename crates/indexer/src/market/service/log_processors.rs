@@ -24,6 +24,57 @@ use alloy::rpc::types::Log;
 use alloy::sol_types::SolEvent;
 use anyhow::{anyhow, Context};
 use std::collections::HashSet;
+use std::time::Duration;
+
+async fn list_orders_v2_with_retry(
+    order_stream_client: &::boundless_market::order_stream_client::OrderStreamClient,
+    cursor: Option<String>,
+    limit: Option<u64>,
+    sort: Option<SortDirection>,
+    before: Option<chrono::DateTime<chrono::Utc>>,
+    after: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<::boundless_market::order_stream_client::ListOrdersV2Response, anyhow::Error> {
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY_MS: u64 = 1000;
+    const BACKOFF_MULTIPLIER: u64 = 2;
+    const MAX_DELAY_MS: u64 = 30000;
+
+    let mut last_error = None;
+
+    for attempt in 0..=MAX_RETRIES {
+        match order_stream_client.list_orders_v2(cursor.clone(), limit, sort, before, after).await {
+            Ok(resp) => {
+                if attempt > 0 {
+                    tracing::info!("Successfully fetched orders after {} retries", attempt);
+                }
+                return Ok(resp);
+            }
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < MAX_RETRIES {
+                    let delay_ms = std::cmp::min(
+                        INITIAL_DELAY_MS * BACKOFF_MULTIPLIER.pow(attempt),
+                        MAX_DELAY_MS
+                    );
+                    tracing::warn!(
+                        "Failed to fetch orders (attempt {}/{}): {}. Retrying in {}ms",
+                        attempt + 1,
+                        MAX_RETRIES + 1,
+                        last_error.as_ref().unwrap(),
+                        delay_ms
+                    );
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                }
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Failed to fetch orders after {} retries: {}",
+        MAX_RETRIES,
+        last_error.unwrap()
+    ))
+}
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -82,7 +133,7 @@ where
             touched_requests.insert(request_digest);
         }
 
-        tracing::info!("process_request_submitted_events completed in {:?} [found: {}, returning {} touched requests]", start.elapsed(), logs_len, touched_requests.len());
+        tracing::info!("process_request_submitted_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
         tracing::debug!("Touched requests: {:?}", touched_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());
         Ok(touched_requests)
     }
@@ -130,16 +181,16 @@ where
             .ok_or_else(|| ServiceError::Error(anyhow!("Invalid block timestamp")))?;
 
         loop {
-            let response = order_stream_client
-                .list_orders_v2(
-                    cursor.clone(),
-                    Some(MAX_ORDERS_PER_BATCH),
-                    Some(SortDirection::Asc),
-                    Some(before_timestamp),
-                    Some(after_timestamp),
-                )
-                .await
-                .map_err(|e| ServiceError::Error(anyhow!("Failed to fetch orders: {}", e)))?;
+            let response = list_orders_v2_with_retry(
+                order_stream_client,
+                cursor.clone(),
+                Some(MAX_ORDERS_PER_BATCH),
+                Some(SortDirection::Asc),
+                Some(before_timestamp),
+                Some(after_timestamp),
+            )
+            .await
+            .map_err(|e| ServiceError::Error(e))?;
 
             if response.orders.is_empty() {
                 break;
@@ -190,14 +241,14 @@ where
         }
 
         if total_orders > 0 {
-            tracing::info!("Processed {} offchain orders from order stream", total_orders);
+            tracing::info!("Processed {} offchain orders from order stream between block {} (timestamp: {}) and block {} (timestamp: {})", total_orders, from_block, from_block_timestamp, to_block, to_block_timestamp);
         }
 
         if let Some(ts) = latest_timestamp {
             self.db.set_last_order_stream_timestamp(ts).await?;
         }
 
-        tracing::info!("process_request_submitted_offchain completed in {:?} [found: {}, returning {} touched requests]", start.elapsed(), total_orders, touched_requests.len());
+        tracing::info!("process_request_submitted_offchain completed in {:?} [found: {}]", start.elapsed(), total_orders);
         tracing::debug!("Touched requests (offchain): {:?}", touched_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());
         Ok(touched_requests)
     }

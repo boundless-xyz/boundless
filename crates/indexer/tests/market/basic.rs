@@ -53,6 +53,10 @@ struct HourlySummaryRow {
     total_requests_submitted_offchain: u64,
     total_requests_locked: u64,
     total_requests_slashed: u64,
+    total_expired: u64,
+    total_locked_and_expired: u64,
+    total_locked_and_fulfilled: u64,
+    locked_orders_fulfillment_rate: Option<f32>,
 }
 
 async fn count_hourly_summaries(pool: &AnyPool) -> i64 {
@@ -68,7 +72,9 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
         "SELECT period_timestamp, total_fulfilled, unique_provers_locking_requests,
                 unique_requesters_submitting_requests, total_fees_locked, total_collateral_locked,
                 total_requests_submitted, total_requests_submitted_onchain,
-                total_requests_submitted_offchain, total_requests_locked, total_requests_slashed
+                total_requests_submitted_offchain, total_requests_locked, total_requests_slashed,
+                total_expired, total_locked_and_expired, total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate
          FROM hourly_market_summary ORDER BY period_timestamp ASC",
     )
     .fetch_all(pool)
@@ -88,6 +94,10 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
             total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
             total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
             total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+            total_expired: row.get::<i64, _>("total_expired") as u64,
+            total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+            total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+            locked_orders_fulfillment_rate: row.get::<Option<f64>, _>("locked_orders_fulfillment_rate").map(|v| v as f32),
         })
         .collect()
 }
@@ -327,6 +337,12 @@ async fn test_e2e() {
     assert!(!summary.total_fees_locked.is_empty(), "total_fees_locked should not be empty");
     assert!(!summary.total_collateral_locked.is_empty(), "total_collateral_locked should not be empty");
 
+    // Verify new expiration and fulfillment fields
+    assert_eq!(summary.total_expired, 0, "Expected 0 expired requests (request was fulfilled)");
+    assert_eq!(summary.total_locked_and_expired, 0, "Expected 0 locked and expired requests");
+    assert_eq!(summary.total_locked_and_fulfilled, 1, "Expected 1 locked and fulfilled request");
+    assert_eq!(summary.locked_orders_fulfillment_rate, Some(100.0), "Expected 100% fulfillment rate (1/1)");
+
     cli_process.kill().unwrap();
 }
 
@@ -545,6 +561,15 @@ async fn test_monitoring() {
     assert_eq!(total_requests_offchain, 0, "Expected 0 offchain requests");
     assert_eq!(total_locked, 2, "Expected 2 locked requests");
     assert_eq!(total_slashed, 1, "Expected 1 slashed request");
+
+    // Verify new expiration and fulfillment fields across all hours
+    let total_expired: u64 = summaries.iter().map(|s| s.total_expired).sum();
+    let total_locked_and_expired: u64 = summaries.iter().map(|s| s.total_locked_and_expired).sum();
+    let total_locked_and_fulfilled: u64 = summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
+
+    assert_eq!(total_expired, 1, "Expected 1 expired request (the slashed one)");
+    assert_eq!(total_locked_and_expired, 1, "Expected 1 locked and expired request");
+    assert_eq!(total_locked_and_fulfilled, 1, "Expected 1 locked and fulfilled request");
 
     // Verify at least one hour has data
     let summary = &summaries[0];
@@ -768,6 +793,41 @@ async fn test_aggregation_across_hours() {
     assert_eq!(total_requests_offchain, 0, "Expected 0 offchain requests");
     assert_eq!(total_locked, 2, "Expected 2 locked requests");
     assert_eq!(total_slashed, 0, "Expected 0 slashed requests");
+
+    //debug by printing proof_request table
+    let request_statuses = sqlx::query("SELECT * FROM request_status")
+        .fetch_all(&test_db.pool)
+        .await
+        .unwrap();
+    for request_status_row in request_statuses {
+        let request_status = test_db.db.row_to_request_status(&request_status_row).unwrap();
+        tracing::info!(
+            "Request status: request_digest: {}, request_id: {}, request_status: {}, source: {}, client_address: {}, locked_at: {:?}, lock_block: {:?}, lock_tx_hash: {:?}, lock_prover_address: {:?}, fulfilled_at: {:?}, fulfill_block: {:?}, fulfill_tx_hash: {:?}, fulfill_prover_address: {:?}",
+            request_status.request_digest,
+            request_status.request_id,
+            request_status.request_status,
+            request_status.source,
+            request_status.client_address,
+            request_status.locked_at,
+            request_status.lock_block,
+            request_status.lock_tx_hash,
+            request_status.lock_prover_address,
+            request_status.fulfilled_at,
+            request_status.fulfill_block,
+            request_status.fulfill_tx_hash,
+            request_status.fulfill_prover_address,
+        );
+    }
+
+    // Verify new expiration and fulfillment fields across all hours
+    let total_expired: u64 = summaries.iter().map(|s| s.total_expired).sum();
+    let total_locked_and_expired: u64 = summaries.iter().map(|s| s.total_locked_and_expired).sum();
+    let total_locked_and_fulfilled: u64 = summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
+
+    tracing::info!("Summaries: {:?}", summaries);
+    assert_eq!(total_expired, 0, "Expected 0 expired requests (both were fulfilled)");
+    assert_eq!(total_locked_and_expired, 0, "Expected 0 locked and expired requests");
+    assert_eq!(total_locked_and_fulfilled, 2, "Expected 2 locked and fulfilled requests");
 
     // Verify hour boundary formula: (timestamp / 3600) * 3600
     let expected_hour1 = (now / 3600) * 3600;

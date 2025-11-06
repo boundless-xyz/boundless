@@ -487,66 +487,91 @@ pub trait IndexerDb {
         request_id: &str,
     ) -> Result<Vec<RequestStatus>, DbError>;
 
+    /// Gets the count of fulfillment events in the half-open period [period_start, period_end).
+    /// Filters by `request_fulfilled_events.block_timestamp` (when the fulfillment event occurred on-chain).
     async fn get_period_fulfilled_count(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the count of unique prover addresses that locked requests in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     async fn get_period_unique_provers(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the count of unique requester addresses that submitted requests in the half-open period [period_start, period_end).
+    /// Filters by `proof_requests.block_timestamp` (when the request was created/submitted).
     async fn get_period_unique_requesters(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the total count of requests submitted (both on-chain and off-chain) in the half-open period [period_start, period_end).
+    /// Filters by `proof_requests.block_timestamp` (when the request was created/submitted).
     async fn get_period_total_requests_submitted(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the count of on-chain request submission events in the half-open period [period_start, period_end).
+    /// Filters by `request_submitted_events.block_timestamp` (when the submission event occurred on-chain).
     async fn get_period_total_requests_submitted_onchain(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the count of request lock events in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     async fn get_period_total_requests_locked(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the count of prover slash events in the half-open period [period_start, period_end).
+    /// Filters by `prover_slashed_events.block_timestamp` (when the slash event occurred on-chain).
     async fn get_period_total_requests_slashed(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets pricing data for all locked requests in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     async fn get_period_lock_pricing_data(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<Vec<LockPricingData>, DbError>;
 
+    /// Gets the count of requests that expired during the half-open period [period_start, period_end).
+    /// Filters by `request_status.expires_at` (when the request's deadline passed).
+    /// Note: These requests may have been submitted in an earlier period.
     async fn get_period_expired_count(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the count of locked requests that expired during the half-open period [period_start, period_end).
+    /// Filters by `request_status.expires_at` (when the request's deadline passed).
+    /// Note: These requests may have been locked in an earlier period.
     async fn get_period_locked_and_expired_count(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
 
+    /// Gets the count of locked requests that were fulfilled during the half-open period [period_start, period_end).
+    /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
+    /// Note: These requests may have been locked in an earlier period.
     async fn get_period_locked_and_fulfilled_count(
         &self,
         period_start: u64,
@@ -568,7 +593,7 @@ impl AnyDb {
         let opts = AnyConnectOptions::from_str(conn_str)?;
 
         let pool = AnyPoolOptions::new()
-            .max_connections(5)
+            .max_connections(7)
             .connect_with(opts)
             .await?;
 
@@ -1447,7 +1472,7 @@ impl IndexerDb for AnyDb {
         for digest in request_digests {
             let digest_str = format!("{:x}", digest);
 
-            tracing::debug!("Querying proof_requests for digest: {}", digest_str);
+            tracing::trace!("Querying proof_requests for digest: {}", digest_str);
 
             let rows = sqlx::query(
                 "SELECT
@@ -1616,6 +1641,7 @@ impl IndexerDb for AnyDb {
         Ok(requests)
     }
 
+    /// Finds requests that expired within the inclusive timestamp range [from_block_timestamp, to_block_timestamp].
     async fn find_newly_expired_requests(
         &self,
         from_block_timestamp: u64,
@@ -1624,7 +1650,7 @@ impl IndexerDb for AnyDb {
         let rows = sqlx::query(
             "SELECT request_digest
              FROM proof_requests pr
-             WHERE pr.expires_at > $1
+             WHERE pr.expires_at >= $1
                AND pr.expires_at <= $2
                AND NOT EXISTS (
                    SELECT 1 FROM request_fulfilled_events rfe
@@ -1864,6 +1890,8 @@ impl IndexerDb for AnyDb {
         Ok(results)
     }
 
+    /// Gets the count of fulfillment events in the half-open period [period_start, period_end).
+    /// Filters by `request_fulfilled_events.block_timestamp` (when the fulfillment event occurred on-chain).
     async fn get_period_fulfilled_count(
         &self,
         period_start: u64,
@@ -1880,6 +1908,8 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of unique prover addresses that locked requests in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     async fn get_period_unique_provers(
         &self,
         period_start: u64,
@@ -1896,6 +1926,8 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of unique requester addresses that submitted requests in the half-open period [period_start, period_end).
+    /// Filters by `proof_requests.block_timestamp` (when the request was created/submitted).
     async fn get_period_unique_requesters(
         &self,
         period_start: u64,
@@ -1912,6 +1944,8 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the total count of requests submitted (both on-chain and off-chain) in the half-open period [period_start, period_end).
+    /// Filters by `proof_requests.block_timestamp` (when the request was created/submitted).
     async fn get_period_total_requests_submitted(
         &self,
         period_start: u64,
@@ -1928,6 +1962,8 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of on-chain request submission events in the half-open period [period_start, period_end).
+    /// Filters by `request_submitted_events.block_timestamp` (when the submission event occurred on-chain).
     async fn get_period_total_requests_submitted_onchain(
         &self,
         period_start: u64,
@@ -1944,6 +1980,8 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of request lock events in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     async fn get_period_total_requests_locked(
         &self,
         period_start: u64,
@@ -1960,6 +1998,8 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of prover slash events in the half-open period [period_start, period_end).
+    /// Filters by `prover_slashed_events.block_timestamp` (when the slash event occurred on-chain).
     async fn get_period_total_requests_slashed(
         &self,
         period_start: u64,
@@ -1976,6 +2016,8 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets pricing data for all locked requests in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     async fn get_period_lock_pricing_data(
         &self,
         period_start: u64,
@@ -2023,6 +2065,9 @@ impl IndexerDb for AnyDb {
         Ok(results)
     }
 
+    /// Gets the count of requests that expired during the half-open period [period_start, period_end).
+    /// Filters by `request_status.expires_at` (when the request's deadline passed).
+    /// Note: These requests may have been submitted in an earlier period.
     async fn get_period_expired_count(
         &self,
         period_start: u64,
@@ -2040,6 +2085,9 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of locked requests that expired during the half-open period [period_start, period_end).
+    /// Filters by `request_status.expires_at` (when the request's deadline passed).
+    /// Note: These requests may have been locked in an earlier period.
     async fn get_period_locked_and_expired_count(
         &self,
         period_start: u64,
@@ -2058,6 +2106,9 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of locked requests that were fulfilled during the half-open period [period_start, period_end).
+    /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
+    /// Note: These requests may have been locked in an earlier period.
     async fn get_period_locked_and_fulfilled_count(
         &self,
         period_start: u64,
@@ -2296,14 +2347,14 @@ impl AnyDb {
                 total_expired: row.get::<i64, _>("total_expired") as u64,
                 total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
                 total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-                locked_orders_fulfillment_rate: row.get("locked_orders_fulfillment_rate"),
+                locked_orders_fulfillment_rate: row.get::<Option<f64>, _>("locked_orders_fulfillment_rate").map(|v| v as f32),
             })
             .collect();
 
         Ok(summaries)
     }
 
-    fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError> {
+    pub fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError> {
         let request_digest_str: String = row.get("request_digest");
         let request_digest = B256::from_str(&request_digest_str)
             .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
@@ -2732,6 +2783,10 @@ mod tests {
                 total_requests_submitted_offchain: i * 4,
                 total_requests_locked: i * 5,
                 total_requests_slashed: i,
+                total_expired: i,
+                total_locked_and_expired: i / 2,
+                total_locked_and_fulfilled: i,
+                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
             };
             db.upsert_hourly_market_summary(summary).await.unwrap();
         }
@@ -2907,6 +2962,10 @@ mod tests {
                 total_requests_submitted_offchain: i * 4,
                 total_requests_locked: i * 5,
                 total_requests_slashed: i,
+                total_expired: i,
+                total_locked_and_expired: i / 2,
+                total_locked_and_fulfilled: i * 10,
+                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }
@@ -2952,6 +3011,10 @@ mod tests {
                 total_requests_submitted_offchain: i * 40,
                 total_requests_locked: i * 50,
                 total_requests_slashed: i * 5,
+                total_expired: i * 10,
+                total_locked_and_expired: i * 5,
+                total_locked_and_fulfilled: i * 100,
+                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
             };
             db.upsert_weekly_market_summary(summary).await.unwrap();
         }
@@ -3001,6 +3064,10 @@ mod tests {
                 total_requests_submitted_offchain: i * 400,
                 total_requests_locked: i * 500,
                 total_requests_slashed: i * 50,
+                total_expired: i * 100,
+                total_locked_and_expired: i * 50,
+                total_locked_and_fulfilled: i * 1000,
+                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
             };
             db.upsert_monthly_market_summary(summary).await.unwrap();
         }
@@ -3047,6 +3114,10 @@ mod tests {
                 total_requests_submitted_offchain: i * 4,
                 total_requests_locked: i * 5,
                 total_requests_slashed: i,
+                total_expired: i,
+                total_locked_and_expired: i / 2,
+                total_locked_and_fulfilled: i,
+                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }

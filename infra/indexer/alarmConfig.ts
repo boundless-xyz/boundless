@@ -613,7 +613,7 @@ export const alarmConfig: ChainStageAlarms = {
           }],
         },
         {
-          name: "kailua_og_offchain",
+          name: "kailua_og_offchain_2",
           address: "0x89f12aba0bcda3e708b1129eb2557b96f57b0de6",
           submissionRate: [
             {
