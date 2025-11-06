@@ -3,6 +3,7 @@ encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFaRhyFHjBH4h7za4
 config:
   prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu*"
   base:BASE_STACK: organization/bootstrap/services-staging
+  base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   prover-cluster:environment: staging
   prover-cluster:chainId: "84532"
   prover-cluster:managerInstanceType: t3a.2xlarge

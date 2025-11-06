@@ -2,6 +2,8 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGA9yGzYmX18KEh3qL46b5UAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9oZ6wye2fTuMWV0GAgEQgDuEacQklGHw6WJN3N4UIAg9ChU4WeCn02cR3th7uPUpnjOJ6LMK9i1Fl8uP29fyw8O/lxuUeBZZi5E8MQ==
 config:
   base:BASE_STACK: organization/bootstrap/services-prod
+  base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-prod
+  base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu-24.04-nvidia-*"
   prover-cluster:boundlessBentoVersion: "nightly"
   prover-cluster:boundlessBrokerVersion: "nightly"
