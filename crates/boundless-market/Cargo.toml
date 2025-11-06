@@ -26,7 +26,17 @@ url = { workspace = true }
 # Host dependencies
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
 derive_builder = "0.20.2"
-alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy = { workspace = true, features = [
+    "network",
+    "node-bindings",
+    "rpc-types",
+    "providers",
+    "transports",
+    "sol-types",
+    "contract",
+    "signers",
+    "signer-local",
+] }
 async-stream = { workspace = true }
 async-trait = "0.1"
 aws-sdk-s3 = "1.34"
@@ -45,7 +55,7 @@ risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }
 serde_json = { workspace = true }
-shrink_bitvm2 = { workspace = true, default-features = false }
+blake3_groth16 = { workspace = true, default-features = false }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }

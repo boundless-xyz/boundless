@@ -2565,6 +2565,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3_groth16"
+version = "1.1.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "bincode",
+ "blake3",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
+ "circom-witnesscalc",
+ "crypto-bigint 0.5.2",
+ "guest-util",
+ "hex",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "risc0-binfmt",
+ "risc0-circuit-recursion",
+ "risc0-groth16",
+ "risc0-groth16-sys",
+ "risc0-zkp",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "test-log",
+ "tokio",
+ "tracing",
+ "wtns-file",
+]
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2718,6 +2752,7 @@ dependencies = [
  "assert_fs",
  "atomicwrites",
  "bincode",
+ "blake3_groth16",
  "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
@@ -2750,7 +2785,6 @@ dependencies = [
  "serde_json",
  "serde_yaml 0.9.34+deprecated",
  "shadow-rs",
- "shrink_bitvm2",
  "sqlx",
  "tabled",
  "tempfile",
@@ -2831,6 +2865,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "blake3_groth16",
  "boundless-test-utils",
  "bytemuck",
  "chrono",
@@ -2851,7 +2886,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "shrink_bitvm2",
  "siwe",
  "tempfile",
  "thiserror 2.0.17",
@@ -3027,6 +3061,7 @@ dependencies = [
  "aws-sdk-s3",
  "aws-smithy-http-client",
  "bincode",
+ "blake3_groth16",
  "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
@@ -3061,7 +3096,6 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sha2 0.10.9",
- "shrink_bitvm2",
  "sqlx",
  "temp-env",
  "tempfile",
@@ -9947,40 +9981,6 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
-
-[[package]]
-name = "shrink_bitvm2"
-version = "1.1.0"
-dependencies = [
- "anyhow",
- "ark-bn254",
- "ark-ff 0.5.0",
- "ark-groth16",
- "ark-serialize 0.5.0",
- "bincode",
- "blake3",
- "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
- "circom-witnesscalc",
- "crypto-bigint 0.5.2",
- "guest-util",
- "hex",
- "num-bigint 0.4.6",
- "num-traits",
- "risc0-binfmt",
- "risc0-circuit-recursion",
- "risc0-groth16",
- "risc0-groth16-sys",
- "risc0-zkp",
- "risc0-zkvm",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "test-log",
- "tokio",
- "tracing",
- "wtns-file",
-]
 
 [[package]]
 name = "signal-hook"

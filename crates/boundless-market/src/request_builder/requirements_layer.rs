@@ -161,7 +161,7 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         if let Some(selector) = &params.selector {
             if is_blake3_groth16_selector(*selector) {
                 predicate = Some(params.predicate.clone().unwrap_or_else(|| {
-                    let blake3_claim_digest = shrink_bitvm2::Blake3Groth16ReceiptClaim::ok(
+                    let blake3_claim_digest = blake3_groth16::Blake3Groth16ReceiptClaim::ok(
                         image_id,
                         journal.bytes.clone(),
                     )

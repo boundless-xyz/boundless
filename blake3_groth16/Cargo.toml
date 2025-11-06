@@ -1,5 +1,5 @@
 [package]
-name = "shrink_bitvm2"
+name = "blake3_groth16"
 version.workspace = true
 edition.workspace = true
 homepage.workspace = true
