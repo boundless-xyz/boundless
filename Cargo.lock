@@ -8638,7 +8638,7 @@ dependencies = [
 [[package]]
 name = "risc0-aggregation"
 version = "0.9.0"
-source = "git+https://github.com/ec2/risc0-ethereum.git?rev=2485d3a4ed6b7d0252198c1e8c08a8a63f230313#2485d3a4ed6b7d0252198c1e8c08a8a63f230313"
+source = "git+https://github.com/ec2/risc0-ethereum.git?rev=a5bf55285c5ea2e65de9c53421987449e2db046d#a5bf55285c5ea2e65de9c53421987449e2db046d"
 dependencies = [
  "alloy-primitives 1.4.0",
  "alloy-sol-types",
@@ -8862,7 +8862,7 @@ dependencies = [
 [[package]]
 name = "risc0-ethereum-contracts"
 version = "3.0.1"
-source = "git+https://github.com/ec2/risc0-ethereum.git?rev=2485d3a4ed6b7d0252198c1e8c08a8a63f230313#2485d3a4ed6b7d0252198c1e8c08a8a63f230313"
+source = "git+https://github.com/ec2/risc0-ethereum.git?rev=a5bf55285c5ea2e65de9c53421987449e2db046d#a5bf55285c5ea2e65de9c53421987449e2db046d"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",

@@ -52,7 +52,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
                 .context("failed to create p254 receipt")?;
             // TODO(ec2): Handle cpu vs gpu here?
             let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
-            let seal_json = shrink_bitvm2::shrink_wrap(&p254_receipt, journal)?;
+            let seal_json = shrink_bitvm2::shrink_wrap(&p254_receipt, journal).context("shrink blake3 groth16 failed")?;
             (
                 shrink_bitvm2::finalize(
                     journal,
@@ -68,6 +68,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     }
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{bucket_dir}/{job_id}.bincode");
+    // TODO(ec2): fixme
     // receipt
     //     .verify_integrity_with_context(&agent.verifier_ctx)
     //     .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
