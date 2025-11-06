@@ -35,33 +35,12 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
                 .context("groth16 compress failed")?,
             GROTH16_BUCKET_DIR,
         ),
-        CompressType::ShrinkBitvm2 => {
-            // First we compress a succinct receipt just to make sure we have a succinct receipt
-            let succinct_receipt = agent
-                .prover
-                .as_ref()
-                .context("Missing prover from resolve task")?
-                .compress(&ProverOpts::succinct(), &receipt)
-                .context("succinct compress failed")?;
-            let succinct_receipt = succinct_receipt.inner.succinct()?;
-            let p254_receipt = agent
-                .prover
-                .as_ref()
-                .context("Missing prover from resolve task")?
-                .identity_p254(succinct_receipt)
-                .context("failed to create p254 receipt")?;
-            // TODO(ec2): Handle cpu vs gpu here?
-            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
-            let seal_json = shrink_bitvm2::shrink_wrap(&p254_receipt, journal).context("shrink blake3 groth16 failed")?;
-            (
-                shrink_bitvm2::finalize(
-                    journal,
-                    p254_receipt.claim.clone(),
-                    &seal_json.try_into()?,
-                )?,
-                SHRINK_BITVM2_BUCKET_DIR,
-            )
-        }
+        CompressType::ShrinkBitvm2 => (
+            shrink_bitvm2::compress_bitvm2(&receipt)
+                .await
+                .context("shrink blake3 groth16 failed")?,
+            SHRINK_BITVM2_BUCKET_DIR,
+        ),
     };
     if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
         bail!("[BENTO-SNARK-004] failed to create groth16 receipt");
