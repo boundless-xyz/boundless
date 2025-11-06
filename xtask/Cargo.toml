@@ -1,0 +1,21 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+rlimit = "0.10.2"
+risc0-groth16-sys = { workspace = true, optional = true, features = [
+  "cuda",
+  "setup",
+] }
+tracing = { workspace = true }
+tracing-subscriber = {version = "0.3", features = ["env-filter"] }
+xshell = "0.2"
+
+[features]
+default = []
+cuda = ["dep:risc0-groth16-sys"]

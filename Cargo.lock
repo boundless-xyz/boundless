@@ -9081,6 +9081,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlimit"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7043b63bd0cd1aaa628e476b80e6d4023a3b50eb32789f2728908107bd0c793a"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "rlp"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9939,8 +9948,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shrink_bitvm2"
-version = "0.1.0"
-source = "git+https://github.com/ec2/shrink_bitvm2.git?rev=e3933355820e468a217387dd11fa0a1a0fc309ed#e3933355820e468a217387dd11fa0a1a0fc309ed"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -9953,6 +9961,7 @@ dependencies = [
  "hex",
  "num-bigint 0.4.6",
  "num-traits",
+ "risc0-binfmt",
  "risc0-circuit-recursion",
  "risc0-groth16",
  "risc0-groth16-sys",
@@ -12305,6 +12314,33 @@ name = "xmlparser"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
+
+[[package]]
+name = "xshell"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e7290c623014758632efe00737145b6867b66292c42167f2ec381eb566a373d"
+dependencies = [
+ "xshell-macros",
+]
+
+[[package]]
+name = "xshell-macros"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
+
+[[package]]
+name = "xtask"
+version = "1.1.0"
+dependencies = [
+ "clap",
+ "risc0-groth16-sys",
+ "rlimit",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+ "xshell",
+]
 
 [[package]]
 name = "xxhash-rust"
