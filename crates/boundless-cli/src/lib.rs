@@ -354,22 +354,22 @@ impl OrderFulfiller {
         Ok(proof_id)
     }
 
-    pub(crate) async fn shrink_bitvm2(&self, succinct_receipt: &Receipt) -> Result<Receipt> {
-        let prover = risc0_zkvm::default_prover();
-        if is_dev_mode() {
-            return Ok(succinct_receipt.clone());
-        }
-        if prover.get_name() == "bonsai" {
-            return shrink_bitvm2_with_bonsai(succinct_receipt).await;
-        }
-        let receipt = succinct_receipt.clone();
-        tokio::task::spawn_blocking(move || {
-            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
-            let seal = shrink_bitvm2::succinct_to_bitvm2(receipt.inner.succinct()?, journal)?;
-            shrink_bitvm2::finalize(journal, receipt.claim()?, &seal.try_into()?)
-        })
-        .await?
-    }
+    // pub(crate) async fn shrink_bitvm2(&self, succinct_receipt: &Receipt) -> Result<Receipt> {
+    //     let prover = risc0_zkvm::default_prover();
+    //     if is_dev_mode() {
+    //         return Ok(succinct_receipt.clone());
+    //     }
+    //     if prover.get_name() == "bonsai" {
+    //         return shrink_bitvm2_with_bonsai(succinct_receipt).await;
+    //     }
+    //     let receipt = succinct_receipt.clone();
+    //     tokio::task::spawn_blocking(move || {
+    //         let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into()?;
+    //         let seal = shrink_bitvm2::succinct_to_bitvm2(receipt.inner.succinct()?, journal)?;
+    //         shrink_bitvm2::finalize(journal, receipt.claim()?, &seal.try_into()?)
+    //     })
+    //     .await?
+    // }
 
     // Finalizes the set builder.
     pub(crate) async fn finalize(
@@ -575,7 +575,7 @@ impl OrderFulfiller {
 
                 let compressed_receipt_bytes = self
                     .prover
-                    .get_compressed_receipt(&compressed_proof_id)
+                    .get_bitvm2_receipt(&compressed_proof_id)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to get compressed order receipt: {}", e))?
                     .ok_or_else(|| anyhow::anyhow!("Compressed order receipt not found"))?;
@@ -620,34 +620,6 @@ impl OrderFulfiller {
 
         Ok((boundless_fills, root_receipt, assessor_receipt))
     }
-}
-
-async fn shrink_bitvm2_with_bonsai(succinct_receipt: &Receipt) -> Result<Receipt> {
-    todo!()
-    // let client = BonsaiClient::from_env(risc0_zkvm::VERSION)?;
-    // let encoded_receipt = bincode::serialize(succinct_receipt)?;
-    // let receipt_id = client.upload_receipt(encoded_receipt).await?;
-    // let snark_id = client.shrink_bitvm2(receipt_id).await?;
-    // loop {
-    //     let status = snark_id.status(&client).await?;
-    //     match status.status.as_ref() {
-    //         "RUNNING" => {
-    //             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    //             continue;
-    //         }
-    //         "SUCCEEDED" => {
-    //             let receipt_buf = client.download(&status.output.unwrap()).await?;
-    //             let snark_receipt: Receipt = bincode::deserialize(&receipt_buf)?;
-    //             return Ok(snark_receipt);
-    //         }
-    //         status_code => {
-    //             let err_msg = status.error_msg.unwrap_or_default();
-    //             return Err(anyhow::anyhow!(
-    //                 "snark proving failed with status {status_code}: {err_msg}"
-    //             ));
-    //         }
-    //     }
-    // }
 }
 
 // Returns `true` if the dev mode environment variable is enabled.
@@ -756,14 +728,9 @@ mod tests {
 
         let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
         let domain = eip712_domain(Address::ZERO, 1);
-        let prover = DefaultProver::new(
-            SET_BUILDER_ELF.to_vec(),
-            ASSESSOR_GUEST_ELF.to_vec(),
-            Address::ZERO,
-            domain,
-        )
-        .expect("failed to create prover");
-
-        prover.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+        let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
+        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        fulfiller.domain = eip712_domain(Address::ZERO, 1);
+        fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }
 }

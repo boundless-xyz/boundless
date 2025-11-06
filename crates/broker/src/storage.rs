@@ -82,9 +82,9 @@ pub(crate) async fn create_uri_handler(
 
     match uri.scheme() {
         "file" => {
-            if !is_dev_mode() {
-                return Err(StorageErr::UnsupportedScheme("file".to_string()));
-            }
+            // if !is_dev_mode() {
+            //     return Err(StorageErr::UnsupportedScheme("file".to_string()));
+            // }
             let max_size = if skip_max_size_check {
                 usize::MAX
             } else {
