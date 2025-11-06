@@ -26,10 +26,10 @@ hex.workspace = true
 num-bigint = { version = "0.4.5", features = ["std"] }
 num-traits = "0.2.19"
 risc0-binfmt = { version = "3.0.2", default-features = false }
-risc0-circuit-recursion = { workspace = true, default-features = false }
+risc0-circuit-recursion = { workspace = true }
 risc0-groth16 = { workspace = true }
 risc0-groth16-sys = { workspace = true, optional = true }
-risc0-zkp = { workspace = true, default-features = false }
+risc0-zkp = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["bonsai"] }
 serde.workspace = true
 serde_json.workspace = true
