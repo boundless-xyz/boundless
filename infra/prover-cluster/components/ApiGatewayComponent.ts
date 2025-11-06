@@ -127,8 +127,8 @@ export class ApiGatewayComponent extends BaseComponent {
         });
 
         // Create ALB listener for HTTP (port 80) on internal ALB
-        // Use deleteBeforeReplace to ensure old listener is removed before creating new one
-        // This is necessary if the old listener was using the wrong target group
+        // Use replaceOnChanges to force replacement when target group changes
+        // This is necessary because AWS won't allow updating a listener to use a different target group
         new aws.lb.Listener("boundless-internal-alb-listener", {
             loadBalancerArn: this.internalAlb.arn,
             port: 80,
@@ -139,6 +139,7 @@ export class ApiGatewayComponent extends BaseComponent {
             }],
         }, {
             dependsOn: [this.internalTargetGroup],
+            replaceOnChanges: ["defaultActions"],
             deleteBeforeReplace: true,
         });
 
