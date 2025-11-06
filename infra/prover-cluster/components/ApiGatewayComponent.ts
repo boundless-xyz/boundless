@@ -106,6 +106,10 @@ export class ApiGatewayComponent extends BaseComponent {
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
+        }, {
+            // Retain the old target group on delete to avoid conflicts during replacement
+            // The old target group can be manually deleted after the update completes
+            retainOnDelete: true,
         });
 
         // Register the manager instance as a target for the internal ALB
