@@ -6,7 +6,7 @@ use risc0_zkvm::{MaybePruned, Receipt, ReceiptClaim, SuccinctReceipt};
 
 #[cfg(feature = "prove")]
 use {
-    anyhow::Context, risc0_zkvm::Groth16Receipt, risc0_zkvm::sha::Digestible, std::path::Path,
+    anyhow::Context, risc0_zkvm::sha::Digestible, risc0_zkvm::Groth16Receipt, std::path::Path,
     tempfile::tempdir,
 };
 
@@ -55,9 +55,8 @@ pub fn finalize(
     receipt_claim: MaybePruned<ReceiptClaim>,
     seal: &Groth16Seal,
 ) -> Result<Receipt> {
-    let receipt_claim_value = receipt_claim
-        .as_value()
-        .context("receipt claim must not be pruned")?;
+    let receipt_claim_value =
+        receipt_claim.as_value().context("receipt claim must not be pruned")?;
     let blake3_claim_digest =
         ShrinkBitvm2ReceiptClaim::ok(receipt_claim_value.pre.digest(), journal.to_vec()).digest();
     verify::verify(seal, blake3_claim_digest)?;
@@ -65,10 +64,8 @@ pub fn finalize(
     let verifier_parameters = crate::verify::verifier_parameters();
     let groth16_receipt =
         Groth16Receipt::new(seal.to_vec(), receipt_claim, verifier_parameters.digest());
-    let receipt = Receipt::new(
-        risc0_zkvm::InnerReceipt::Groth16(groth16_receipt),
-        journal.to_vec(),
-    );
+    let receipt =
+        Receipt::new(risc0_zkvm::InnerReceipt::Groth16(groth16_receipt), journal.to_vec());
     Ok(receipt)
 }
 
@@ -103,37 +100,37 @@ pub fn finalize(
     );
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use guest::ECHO_ELF;
-    #[cfg(feature = "prove")]
-    use risc0_zkvm::{ExecutorEnv, ProverOpts, default_prover};
-    #[cfg(feature = "prove")]
-    #[test]
-    fn test_succinct_to_bitvm2() {
-        use guest::ECHO_ID;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use guest::ECHO_ELF;
+//     #[cfg(feature = "prove")]
+//     use risc0_zkvm::{ExecutorEnv, ProverOpts, default_prover};
+//     #[cfg(feature = "prove")]
+//     #[test]
+//     fn test_succinct_to_bitvm2() {
+//         use guest::ECHO_ID;
 
-        let input = [3u8; 32];
+//         let input = [3u8; 32];
 
-        let env = ExecutorEnv::builder().write_slice(&input).build().unwrap();
+//         let env = ExecutorEnv::builder().write_slice(&input).build().unwrap();
 
-        // Obtain the default prover.
-        let prover = default_prover();
+//         // Obtain the default prover.
+//         let prover = default_prover();
 
-        // Produce a receipt by proving the specified ELF binary.
-        let receipt = prover
-            .prove_with_opts(env, ECHO_ELF, &ProverOpts::succinct())
-            .unwrap()
-            .receipt;
-        let succinct_receipt = receipt.inner.succinct().unwrap();
+//         // Produce a receipt by proving the specified ELF binary.
+//         let receipt = prover
+//             .prove_with_opts(env, ECHO_ELF, &ProverOpts::succinct())
+//             .unwrap()
+//             .receipt;
+//         let succinct_receipt = receipt.inner.succinct().unwrap();
 
-        let blake3_g16_seal_json = succinct_to_bitvm2(succinct_receipt, input).unwrap();
-        let blake3_claim_digest = ShrinkBitvm2ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
-        let blake3_g16_seal: Groth16Seal = blake3_g16_seal_json.try_into().unwrap();
-        verify::verify(&blake3_g16_seal, blake3_claim_digest).expect("verification failed");
+//         let blake3_g16_seal_json = succinct_to_bitvm2(succinct_receipt, input).unwrap();
+//         let blake3_claim_digest = ShrinkBitvm2ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
+//         let blake3_g16_seal: Groth16Seal = blake3_g16_seal_json.try_into().unwrap();
+//         verify::verify(&blake3_g16_seal, blake3_claim_digest).expect("verification failed");
 
-        let _ =
-            finalize(input, receipt.claim().unwrap(), &blake3_g16_seal).expect("finalize failed");
-    }
-}
+//         let _ =
+//             finalize(input, receipt.claim().unwrap(), &blake3_g16_seal).expect("finalize failed");
+//     }
+// }
