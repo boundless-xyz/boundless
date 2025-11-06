@@ -275,16 +275,10 @@ where
                     tracing::info!("Order pricing cancelled during pricing for order {order_id}");
 
                     // Add the cancelled order to the database as skipped
-                    if let Err(e) = self.db.insert_skipped_request(&order).await {
+                    if let Err(e) = self.db.insert_skipped_request_and_delete_input(&order, &self.prover).await {
                         tracing::error!("Failed to add cancelled order to database: {e}");
                     }
-                    if let Some(input_id) = &order.input_id {
-                        if let Err(e) = self.prover.delete_input(input_id).await {
-                            tracing::error!(
-                                "Failed to delete input for skipped order {order_id}: {e:?}"
-                            );
-                        }
-                    }
+
                     return Ok(false);
                 }
             };
@@ -344,31 +338,19 @@ where
 
                     // Add the skipped order to the database
                     self.db
-                        .insert_skipped_request(&order)
+                        .insert_skipped_request_and_delete_input(&order, &self.prover)
                         .await
                         .context("Failed to add skipped order to database")?;
-                    if let Some(input_id) = &order.input_id {
-                        if let Err(e) = self.prover.delete_input(input_id).await {
-                            tracing::error!(
-                                "Failed to delete input for skipped order {order_id}: {e:?}"
-                            );
-                        }
-                    }
+
                     Ok(false)
                 }
                 Err(err) => {
                     tracing::warn!("Failed to price order {order_id}: {err}");
                     self.db
-                        .insert_skipped_request(&order)
+                        .insert_skipped_request_and_delete_input(&order, &self.prover)
                         .await
                         .context("Failed to skip failed priced order")?;
-                    if let Some(input_id) = &order.input_id {
-                        if let Err(e) = self.prover.delete_input(input_id).await {
-                            tracing::error!(
-                                "Failed to delete input for skipped order {order_id}: {e:?}"
-                            );
-                        }
-                    }
+
                     Ok(false)
                 }
             }

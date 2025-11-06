@@ -25,6 +25,7 @@ use thiserror::Error;
 
 use crate::{
     errors::{impl_coded_debug, CodedError},
+    provers::ProverObj,
     AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderRequest, OrderStatus,
     ProofRequest,
 };
@@ -125,6 +126,29 @@ pub struct AggregationOrder {
 #[async_trait]
 pub trait BrokerDb {
     async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
+    async fn insert_skipped_request_and_delete_input(
+        &self,
+        order_request: &OrderRequest,
+        prover: &ProverObj,
+    ) -> Result<(), DbError> {
+        self.insert_skipped_request(order_request).await?;
+        if let Some(input_id) = &order_request.input_id {
+            match prover.delete_input(input_id).await {
+                Ok(_) => tracing::info!(
+                    "Deleted input {} for skipped order {}",
+                    input_id,
+                    order_request.id()
+                ),
+                Err(e) => tracing::warn!(
+                    "Failed to delete input {} for skipped order {}: {}",
+                    input_id,
+                    order_request.id(),
+                    e
+                ),
+            }
+        }
+        Ok(())
+    }
     async fn insert_accepted_request(
         &self,
         order_request: &OrderRequest,
@@ -138,7 +162,52 @@ pub trait BrokerDb {
     ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
     async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
     async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError>;
+    async fn set_order_failure_and_delete_input(
+        &self,
+        id: &str,
+        failure_str: &'static str,
+        prover: &ProverObj,
+    ) -> Result<(), DbError> {
+        self.set_order_failure(id, failure_str).await?;
+        if let Some(order) = self.get_order(id).await? {
+            if let Some(input_id) = &order.input_id {
+                match prover.delete_input(input_id).await {
+                    Ok(_) => tracing::info!("Deleted input {} for failed order {}", input_id, id),
+                    Err(e) => tracing::warn!(
+                        "Failed to delete input {} for failed order {}: {}",
+                        input_id,
+                        id,
+                        e
+                    ),
+                }
+            }
+        }
+        Ok(())
+    }
     async fn set_order_complete(&self, id: &str) -> Result<(), DbError>;
+    async fn set_order_complete_and_delete_input(
+        &self,
+        id: &str,
+        prover: &ProverObj,
+    ) -> Result<(), DbError> {
+        self.set_order_complete(id).await?;
+        if let Some(order) = self.get_order(id).await? {
+            if let Some(input_id) = &order.input_id {
+                match prover.delete_input(input_id).await {
+                    Ok(_) => {
+                        tracing::info!("Deleted input {} for completed order {}", input_id, id)
+                    }
+                    Err(e) => tracing::warn!(
+                        "Failed to delete input {} for completed order {}: {}",
+                        input_id,
+                        id,
+                        e
+                    ),
+                }
+            }
+        }
+        Ok(())
+    }
     /// Get all orders that are committed to be prove and be fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
     /// Get all orders that are committed to be proved but have expired based on their expire_timestamp.
