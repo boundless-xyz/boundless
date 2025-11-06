@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS hourly_market_summary (
   total_requests_submitted_offchain       BIGINT NOT NULL,
   total_requests_locked                   BIGINT NOT NULL,
   total_requests_slashed                  BIGINT NOT NULL,
+  total_expired                           BIGINT NOT NULL DEFAULT 0,
+  total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
+  total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
+  locked_orders_fulfillment_rate          REAL,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

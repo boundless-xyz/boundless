@@ -59,6 +59,9 @@ struct MainArgs {
     /// Optional URL of the order stream API for off-chain order indexing.
     #[clap(long, env)]
     order_stream_url: Option<Url>,
+    /// Optional API key for authenticating with the order stream API.
+    #[clap(long, env)]
+    order_stream_api_key: Option<String>,
     /// Optional cache storage URI (e.g., file:///path/to/cache or s3://bucket-name).
     #[clap(long, env)]
     cache_uri: Option<String>,
@@ -103,7 +106,11 @@ async fn main() -> Result<()> {
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
 
     let mut indexer_service = if let Some(order_stream_url) = args.order_stream_url {
-        tracing::info!("Initializing market indexer with order stream at: {}", order_stream_url);
+        if args.order_stream_api_key.is_some() {
+            tracing::info!("Initializing market indexer with order stream at: {} (with API key)", order_stream_url);
+        } else {
+            tracing::info!("Initializing market indexer with order stream at: {}", order_stream_url);
+        }
         IndexerService::new_with_order_stream(
             args.rpc_url.clone(),
             logs_rpc_url.clone(),
@@ -112,6 +119,7 @@ async fn main() -> Result<()> {
             &args.db,
             config,
             order_stream_url,
+            args.order_stream_api_key,
         )
         .await?
     } else {

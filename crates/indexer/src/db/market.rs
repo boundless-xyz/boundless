@@ -18,7 +18,7 @@ use super::DbError;
 use alloy::primitives::{Address, B256, U256};
 use async_trait::async_trait;
 use boundless_market::contracts::{
-    AssessorReceipt, Fulfillment, FulfillmentDataType, PredicateType, ProofRequest,
+    AssessorReceipt, Fulfillment, FulfillmentDataType, Predicate, PredicateType, ProofRequest,
     RequestInputType,
 };
 use sqlx::{
@@ -42,6 +42,69 @@ pub enum RequestSortField {
     UpdatedAt,
     /// Sort by created_at timestamp
     CreatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestStatusType {
+    Submitted,
+    Locked,
+    Fulfilled,
+    Expired,
+}
+
+impl std::fmt::Display for RequestStatusType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RequestStatusType::Submitted => write!(f, "submitted"),
+            RequestStatusType::Locked => write!(f, "locked"),
+            RequestStatusType::Fulfilled => write!(f, "fulfilled"),
+            RequestStatusType::Expired => write!(f, "expired"),
+        }
+    }
+}
+
+impl FromStr for RequestStatusType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "submitted" => Ok(RequestStatusType::Submitted),
+            "locked" => Ok(RequestStatusType::Locked),
+            "fulfilled" => Ok(RequestStatusType::Fulfilled),
+            "expired" => Ok(RequestStatusType::Expired),
+            _ => Err(format!("Invalid request status: {}", s)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlashedStatus {
+    NotApplicable,
+    Pending,
+    Slashed,
+}
+
+impl std::fmt::Display for SlashedStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SlashedStatus::NotApplicable => write!(f, "N/A"),
+            SlashedStatus::Pending => write!(f, "pending"),
+            SlashedStatus::Slashed => write!(f, "slashed"),
+        }
+    }
+}
+
+impl FromStr for SlashedStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "N/A" => Ok(SlashedStatus::NotApplicable),
+            "pending" => Ok(SlashedStatus::Pending),
+            "slashed" => Ok(SlashedStatus::Slashed),
+            _ => Err(format!("Invalid slashed status: {}", s)),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +136,10 @@ pub struct HourlyMarketSummary {
     pub total_requests_submitted_offchain: u64,
     pub total_requests_locked: u64,
     pub total_requests_slashed: u64,
+    pub total_expired: u64,
+    pub total_locked_and_expired: u64,
+    pub total_locked_and_fulfilled: u64,
+    pub locked_orders_fulfillment_rate: Option<f32>,
 }
 
 // Type aliases for different aggregation periods - they all use the same struct
@@ -84,10 +151,12 @@ pub type MonthlyMarketSummary = HourlyMarketSummary;
 pub struct RequestStatus {
     pub request_digest: B256,
     pub request_id: String,
-    pub request_status: String,
+    pub request_status: RequestStatusType,
+    pub slashed_status: SlashedStatus,
     pub source: String,
     pub client_address: Address,
-    pub prover_address: Option<Address>,
+    pub lock_prover_address: Option<Address>,
+    pub fulfill_prover_address: Option<Address>,
     pub created_at: u64,
     pub updated_at: u64,
     pub locked_at: Option<u64>,
@@ -133,7 +202,7 @@ pub struct RequestCursor {
 
 // Raw data fetched from database for status computation
 #[derive(Debug, Clone)]
-pub struct RequestWithEvents {
+pub struct RequestComprehensive {
     pub request_digest: B256,
     pub request_id: String,
     pub source: String,
@@ -160,8 +229,9 @@ pub struct RequestWithEvents {
     pub locked_at: Option<u64>,
     pub lock_block: Option<u64>,
     pub lock_tx_hash: Option<B256>,
-    pub prover_address: Option<Address>,
+    pub lock_prover_address: Option<Address>,
     pub fulfilled_at: Option<u64>,
+    pub fulfill_prover_address: Option<Address>,
     pub fulfill_block: Option<u64>,
     pub fulfill_tx_hash: Option<B256>,
     pub cycles: Option<u64>,
@@ -175,6 +245,17 @@ pub struct RequestWithEvents {
     pub slash_burned_amount: Option<String>,
     pub slash_transferred_amount: Option<String>,
     pub slash_recipient: Option<Address>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LockPricingData {
+    pub min_price: String,
+    pub max_price: String,
+    pub bidding_start: u64,
+    pub ramp_up_period: u32,
+    pub lock_end: u64,
+    pub lock_collateral: String,
+    pub lock_timestamp: u64,
 }
 
 impl TxMetadata {
@@ -367,10 +448,10 @@ pub trait IndexerDb {
         statuses: &[RequestStatus],
     ) -> Result<(), DbError>;
 
-    async fn get_requests_with_events(
+    async fn get_requests_comprehensive(
         &self,
         request_digests: &std::collections::HashSet<B256>,
-    ) -> Result<Vec<RequestWithEvents>, DbError>;
+    ) -> Result<Vec<RequestComprehensive>, DbError>;
 
     async fn find_newly_expired_requests(
         &self,
@@ -405,6 +486,72 @@ pub trait IndexerDb {
         &self,
         request_id: &str,
     ) -> Result<Vec<RequestStatus>, DbError>;
+
+    async fn get_period_fulfilled_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_unique_provers(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_unique_requesters(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_total_requests_submitted(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_total_requests_submitted_onchain(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_total_requests_locked(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_total_requests_slashed(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_lock_pricing_data(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<Vec<LockPricingData>, DbError>;
+
+    async fn get_period_expired_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_locked_and_expired_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    async fn get_period_locked_and_fulfilled_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
 }
 
 pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
@@ -421,7 +568,6 @@ impl AnyDb {
         let opts = AnyConnectOptions::from_str(conn_str)?;
 
         let pool = AnyPoolOptions::new()
-            // you can tweak these per‐DB by inspecting opts.kind()
             .max_connections(5)
             .connect_with(opts)
             .await?;
@@ -561,6 +707,7 @@ impl IndexerDb for AnyDb {
         metadata: &TxMetadata,
         source: &str,
     ) -> Result<(), DbError> {
+        tracing::debug!("add_proof_request called for digest: 0x{:x}", request_digest);
         self.add_tx(metadata).await?;
         let predicate_type = match request.requirements.predicate.predicateType {
             PredicateType::DigestMatch => "DigestMatch",
@@ -574,6 +721,14 @@ impl IndexerDb for AnyDb {
             _ => return Err(DbError::BadTransaction("Invalid input type".to_string())),
         };
 
+        let image_id_str = match Predicate::try_from(request.requirements.predicate.clone()) {
+            Ok(predicate) => predicate.image_id()
+                .map(|digest| format!("{:x}", B256::from(<[u8; 32]>::from(digest))))
+                .unwrap_or_default(),
+            Err(_) => String::new(),
+        };
+
+        tracing::debug!("Executing INSERT for proof_request digest: 0x{:x}", request_digest);
         sqlx::query(
             "INSERT INTO proof_requests (
                 request_digest,
@@ -596,8 +751,10 @@ impl IndexerDb for AnyDb {
                 tx_hash,
                 block_number,
                 block_timestamp,
-                source
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                source,
+                image_id,
+                image_url
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
             ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{request_digest:x}"))
@@ -621,8 +778,11 @@ impl IndexerDb for AnyDb {
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
         .bind(source)
+        .bind(&image_id_str)
+        .bind(&request.imageUrl)
         .execute(&self.pool)
         .await?;
+        tracing::debug!("INSERT completed successfully for digest: 0x{:x}", request_digest);
         Ok(())
     }
 
@@ -676,8 +836,9 @@ impl IndexerDb for AnyDb {
                 seal,
                 tx_hash,
                 block_number,
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                block_timestamp,
+                transaction_index
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              ON CONFLICT (request_digest, tx_hash) DO NOTHING",
         )
         .bind(format!("{:x}", fill.requestDigest))
@@ -690,6 +851,7 @@ impl IndexerDb for AnyDb {
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
+        .bind(metadata.transaction_index as i64)
         .execute(&self.pool)
         .await?;
 
@@ -1184,7 +1346,7 @@ impl IndexerDb for AnyDb {
         for status in statuses {
             sqlx::query(
                 "INSERT INTO request_status (
-                    request_digest, request_id, request_status, source, client_address, prover_address,
+                    request_digest, request_id, request_status, slashed_status, source, client_address, lock_prover_address, fulfill_prover_address,
                     created_at, updated_at, locked_at, fulfilled_at, slashed_at,
                     submit_block, lock_block, fulfill_block, slashed_block,
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
@@ -1194,13 +1356,15 @@ impl IndexerDb for AnyDb {
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                    $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
-                    $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                    $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+                    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43
                 )
                 ON CONFLICT (request_digest) DO UPDATE SET
                     request_status = EXCLUDED.request_status,
-                    prover_address = EXCLUDED.prover_address,
+                    slashed_status = EXCLUDED.slashed_status,
+                    lock_prover_address = EXCLUDED.lock_prover_address,
+                    fulfill_prover_address = EXCLUDED.fulfill_prover_address,
                     updated_at = EXCLUDED.updated_at,
                     locked_at = EXCLUDED.locked_at,
                     fulfilled_at = EXCLUDED.fulfilled_at,
@@ -1222,10 +1386,12 @@ impl IndexerDb for AnyDb {
             )
             .bind(status.request_digest.to_string())
             .bind(&status.request_id)
-            .bind(&status.request_status)
+            .bind(status.request_status.to_string())
+            .bind(status.slashed_status.to_string())
             .bind(&status.source)
             .bind(status.client_address.to_string())
-            .bind(status.prover_address.map(|a| a.to_string()))
+            .bind(status.lock_prover_address.map(|a| a.to_string()))
+            .bind(status.fulfill_prover_address.map(|a| a.to_string()))
             .bind(status.created_at as i64)
             .bind(status.updated_at as i64)
             .bind(status.locked_at.map(|t| t as i64))
@@ -1267,10 +1433,10 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn get_requests_with_events(
+    async fn get_requests_comprehensive(
         &self,
         request_digests: &std::collections::HashSet<B256>,
-    ) -> Result<Vec<RequestWithEvents>, DbError> {
+    ) -> Result<Vec<RequestComprehensive>, DbError> {
         if request_digests.is_empty() {
             return Ok(Vec::new());
         }
@@ -1279,7 +1445,9 @@ impl IndexerDb for AnyDb {
 
         // Process requests individually since ANY array syntax doesn't work with AnyPool
         for digest in request_digests {
-            let digest_str = digest.to_string();
+            let digest_str = format!("{:x}", digest);
+
+            tracing::debug!("Querying proof_requests for digest: {}", digest_str);
 
             let rows = sqlx::query(
                 "SELECT
@@ -1308,10 +1476,11 @@ impl IndexerDb for AnyDb {
                     rle.block_timestamp as locked_at,
                     rle.block_number as lock_block,
                     rle.tx_hash as lock_tx_hash,
-                    rle.prover_address,
+                    rle.prover_address as lock_prover_address,
                     rfe.block_timestamp as fulfilled_at,
                     rfe.block_number as fulfill_block,
                     rfe.tx_hash as fulfill_tx_hash,
+                    f.prover_address as fulfill_prover_address,
                     f.seal as fulfill_seal,
                     pse.block_timestamp as slashed_at,
                     pse.block_number as slashed_block,
@@ -1330,6 +1499,12 @@ impl IndexerDb for AnyDb {
             .bind(&digest_str)
             .fetch_all(&self.pool)
             .await?;
+
+            tracing::debug!("Query returned {} rows for digest: {}", rows.len(), digest_str);
+
+            if rows.is_empty() {
+                tracing::warn!("No proof_request found for digest: {}", digest_str);
+            }
 
             // Should be at most one row since request_digest is unique
             for row in rows {
@@ -1370,10 +1545,12 @@ impl IndexerDb for AnyDb {
             let lock_tx_hash_str: Option<String> = row.try_get("lock_tx_hash").ok();
             let lock_tx_hash = lock_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
 
-            let prover_address_str: Option<String> = row.try_get("prover_address").ok();
-            let prover_address = prover_address_str.and_then(|s| Address::from_str(&s).ok());
+            let lock_prover_address_str: Option<String> = row.try_get("lock_prover_address").ok();
+            let lock_prover_address = lock_prover_address_str.and_then(|s| Address::from_str(&s).ok());
 
             let fulfilled_at: Option<i64> = row.try_get("fulfilled_at").ok();
+            let fulfill_prover_address_str: Option<String> = row.try_get("fulfill_prover_address").ok();
+            let fulfill_prover_address = fulfill_prover_address_str.and_then(|s| Address::from_str(&s).ok());
             let fulfill_block: Option<i64> = row.try_get("fulfill_block").ok();
             let fulfill_tx_hash_str: Option<String> = row.try_get("fulfill_tx_hash").ok();
             let fulfill_tx_hash = fulfill_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
@@ -1390,7 +1567,7 @@ impl IndexerDb for AnyDb {
             let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
             // Just return the raw data - status computation will happen in service layer
-            requests.push(RequestWithEvents {
+            requests.push(RequestComprehensive {
                 request_digest,
                 request_id,
                 source,
@@ -1416,8 +1593,9 @@ impl IndexerDb for AnyDb {
                 locked_at: locked_at.map(|t| t as u64),
                 lock_block: lock_block.map(|b| b as u64),
                 lock_tx_hash,
-                prover_address,
+                lock_prover_address,
                 fulfilled_at: fulfilled_at.map(|t| t as u64),
+                fulfill_prover_address,
                 fulfill_block: fulfill_block.map(|b| b as u64),
                 fulfill_tx_hash,
                 cycles: None,  // Will be populated in request_status table
@@ -1685,6 +1863,219 @@ impl IndexerDb for AnyDb {
 
         Ok(results)
     }
+
+    async fn get_period_fulfilled_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_fulfilled_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_unique_provers(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT prover_address) FROM request_locked_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_unique_requesters(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT client_address) FROM proof_requests
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_total_requests_submitted(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM proof_requests
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_total_requests_submitted_onchain(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_submitted_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_total_requests_locked(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_locked_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_total_requests_slashed(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM prover_slashed_events
+             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_lock_pricing_data(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<Vec<LockPricingData>, DbError> {
+        let rows = sqlx::query(
+            "SELECT
+                pr.min_price,
+                pr.max_price,
+                pr.bidding_start,
+                pr.ramp_up_period,
+                pr.lock_end,
+                pr.lock_collateral,
+                rle.block_timestamp as lock_timestamp
+             FROM request_locked_events rle
+             JOIN proof_requests pr ON rle.request_digest = pr.request_digest
+             WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let min_price: String = row.get("min_price");
+            let max_price: String = row.get("max_price");
+            let bidding_start: i64 = row.get("bidding_start");
+            let ramp_up_period: i32 = row.get("ramp_up_period");
+            let lock_end: i64 = row.get("lock_end");
+            let lock_collateral: String = row.get("lock_collateral");
+            let lock_timestamp: i64 = row.get("lock_timestamp");
+
+            results.push(LockPricingData {
+                min_price,
+                max_price,
+                bidding_start: bidding_start as u64,
+                ramp_up_period: ramp_up_period as u32,
+                lock_end: lock_end as u64,
+                lock_collateral,
+                lock_timestamp: lock_timestamp as u64,
+            });
+        }
+
+        Ok(results)
+    }
+
+    async fn get_period_expired_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_status
+             WHERE request_status = 'expired'
+             AND expires_at >= $1 AND expires_at < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_locked_and_expired_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_status
+             WHERE request_status = 'expired'
+             AND locked_at IS NOT NULL
+             AND expires_at >= $1 AND expires_at < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_locked_and_fulfilled_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_status
+             WHERE request_status = 'fulfilled'
+             AND locked_at IS NOT NULL
+             AND fulfilled_at IS NOT NULL
+             AND fulfilled_at >= $1 AND fulfilled_at < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
 }
 
 impl AnyDb {
@@ -1714,8 +2105,12 @@ impl AnyDb {
                 total_requests_submitted_offchain,
                 total_requests_locked,
                 total_requests_slashed,
+                total_expired,
+                total_locked_and_expired,
+                total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -1734,6 +2129,10 @@ impl AnyDb {
                 total_requests_submitted_offchain = EXCLUDED.total_requests_submitted_offchain,
                 total_requests_locked = EXCLUDED.total_requests_locked,
                 total_requests_slashed = EXCLUDED.total_requests_slashed,
+                total_expired = EXCLUDED.total_expired,
+                total_locked_and_expired = EXCLUDED.total_locked_and_expired,
+                total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 updated_at = CURRENT_TIMESTAMP",
             table_name
         );
@@ -1757,6 +2156,10 @@ impl AnyDb {
             .bind(summary.total_requests_submitted_offchain as i64)
             .bind(summary.total_requests_locked as i64)
             .bind(summary.total_requests_slashed as i64)
+            .bind(summary.total_expired as i64)
+            .bind(summary.total_locked_and_expired as i64)
+            .bind(summary.total_locked_and_fulfilled as i64)
+            .bind(summary.locked_orders_fulfillment_rate)
             .execute(&self.pool)
             .await?;
 
@@ -1836,7 +2239,11 @@ impl AnyDb {
                 total_requests_submitted_onchain,
                 total_requests_submitted_offchain,
                 total_requests_locked,
-                total_requests_slashed
+                total_requests_slashed,
+                total_expired,
+                total_locked_and_expired,
+                total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate
             FROM {}
             {}
             {}
@@ -1886,6 +2293,10 @@ impl AnyDb {
                 total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
                 total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
                 total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+                total_expired: row.get::<i64, _>("total_expired") as u64,
+                total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+                total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                locked_orders_fulfillment_rate: row.get("locked_orders_fulfillment_rate"),
             })
             .collect();
 
@@ -1901,8 +2312,11 @@ impl AnyDb {
         let client_address = Address::from_str(&client_address_str)
             .map_err(|e| DbError::BadTransaction(format!("Invalid client_address: {}", e)))?;
 
-        let prover_address_str: Option<String> = row.try_get("prover_address").ok().flatten();
-        let prover_address = prover_address_str.and_then(|s| Address::from_str(&s).ok());
+        let lock_prover_address_str: Option<String> = row.try_get("lock_prover_address").ok().flatten();
+        let lock_prover_address = lock_prover_address_str.and_then(|s| Address::from_str(&s).ok());
+
+        let fulfill_prover_address_str: Option<String> = row.try_get("fulfill_prover_address").ok().flatten();
+        let fulfill_prover_address = fulfill_prover_address_str.and_then(|s| Address::from_str(&s).ok());
 
         let submit_tx_hash_str: Option<String> = row.try_get("submit_tx_hash").ok().flatten();
         let submit_tx_hash = submit_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
@@ -1919,13 +2333,23 @@ impl AnyDb {
         let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok().flatten();
         let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
+        let request_status_str: String = row.get("request_status");
+        let request_status = RequestStatusType::from_str(&request_status_str)
+            .map_err(|e| DbError::BadTransaction(format!("Invalid request_status: {}", e)))?;
+
+        let slashed_status_str: String = row.get("slashed_status");
+        let slashed_status = SlashedStatus::from_str(&slashed_status_str)
+            .map_err(|e| DbError::BadTransaction(format!("Invalid slashed_status: {}", e)))?;
+
         Ok(RequestStatus {
             request_digest,
             request_id: row.get("request_id"),
-            request_status: row.get("request_status"),
+            request_status,
+            slashed_status,
             source: row.get("source"),
             client_address,
-            prover_address,
+            lock_prover_address,
+            fulfill_prover_address,
             created_at: row.get::<i64, _>("created_at") as u64,
             updated_at: row.get::<i64, _>("updated_at") as u64,
             locked_at: row.try_get::<Option<i64>, _>("locked_at").ok().flatten().map(|t| t as u64),

@@ -11,7 +11,7 @@
   "rust-analyzer.check.extraArgs": ["--target-dir=target/analyzer"],
   "rust-analyzer.linkedProjects": [
     "./Cargo.toml",
-    "./crates/boundless-cli/Cargo.toml",
+    "./crates/boundless-market/Cargo.toml",
     "./crates/indexer/Cargo.toml",
     "./crates/lambdas/indexer-api/Cargo.toml",
     // "./crates/guest/assessor/assessor-guest/Cargo.toml",

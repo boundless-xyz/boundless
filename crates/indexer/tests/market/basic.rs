@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{process::Command, time::Duration};
+use std::{process::Command, time::{Duration, SystemTime}};
 
 use assert_cmd::Command as AssertCommand;
 
@@ -24,7 +24,10 @@ use alloy::{
     signers::Signer,
 };
 use boundless_cli::{DefaultProver, OrderFulfilled};
-use boundless_indexer::test_utils::TestDb;
+use boundless_indexer::{
+    db::market::{RequestStatusType, SlashedStatus},
+    test_utils::TestDb,
+};
 use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
     Requirements,
@@ -109,6 +112,37 @@ async fn create_order(
             timeout: 12,
             rampUpPeriod: 1,
             lockTimeout: 12,
+            lockCollateral: U256::from(0),
+        },
+    );
+
+    let client_sig = req.sign_request(signer, contract_addr, chain_id).await.unwrap();
+
+    (req, client_sig.as_bytes().into())
+}
+
+async fn create_order_with_timeouts(
+    signer: &impl Signer,
+    signer_addr: Address,
+    order_id: u32,
+    contract_addr: Address,
+    chain_id: u64,
+    now: u64,
+    lock_timeout: u32,
+    timeout: u32,
+) -> (ProofRequest, Bytes) {
+    let req = ProofRequest::new(
+        RequestId::new(signer_addr, order_id),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: U256::from(0),
+            maxPrice: U256::from(1),
+            rampUpStart: now - 3,
+            timeout,
+            rampUpPeriod: 1,
+            lockTimeout: lock_timeout,
             lockCollateral: U256::from(0),
         },
     );
@@ -259,10 +293,9 @@ async fn test_e2e() {
     assert!(summary_count >= 1, "Expected at least one hourly summary, got {}", summary_count);
 
     let mut summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
-    // sort summaries descending by period_timestamp
+    // Sort summaries descending by period_timestamp
     summaries.sort_by(|a, b| b.period_timestamp.cmp(&a.period_timestamp));
     let summary = &summaries[0];
-    tracing::info!("summaries: {:?}", summaries);
 
     // Verify hour boundary alignment (timestamp should be divisible by 3600)
     assert_eq!(
@@ -672,9 +705,7 @@ async fn test_aggregation_across_hours() {
     provider.anvil_mine(Some(1), None).await.unwrap();
 
     // Wait for the events to be indexed and aggregated
-    tracing::info!("Waiting for the events to be indexed and aggregated. Current block number: {}, timestamp: {}", provider.get_block_number().await.unwrap(), provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap().header.timestamp);
     tokio::time::sleep(Duration::from_secs(4)).await;
-    tracing::info!("Events indexed and aggregated. Current block number: {}, timestamp: {}", provider.get_block_number().await.unwrap(), provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap().header.timestamp);
 
     // Check hourly aggregation across multiple hours
     let summary_count = count_hourly_summaries(&test_db.pool).await;
@@ -718,7 +749,6 @@ async fn test_aggregation_across_hours() {
         hour_diff
     );
 
-    tracing::info!("summaries: {:?}", summaries);
     // Total fulfilled across all hours should be 2
     let total_fulfilled_across_hours: u64 = summaries.iter().map(|s| s.total_fulfilled).sum();
     assert_eq!(
@@ -800,6 +830,26 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         anvil.chain_id(),
     );
 
+    
+    let mut now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let provider = ctx.customer_provider.clone();
+    let block_timestamp = provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap().header.timestamp;
+    let start_block = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await.unwrap().unwrap().header.number;
+
+    // For some reason initial anvil block timestamps is in the future. Our time must advance past the anvil block timestampbefore we submit our off chain orders, 
+    // since the indexer uses block timestmaps to filter the order stream to avoid re-processing orders from the past.
+    while now < block_timestamp {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        tracing::info!("Now: {}, anvil block timestamp: {}", now, block_timestamp);
+    }
+    tracing::info!("Block timestamp: {}", block_timestamp);
+    tracing::info!("Now: {}", now);
+
+
     let now = ctx
         .customer_provider
         .get_block_by_number(BlockNumberOrTag::Latest)
@@ -847,6 +897,21 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     .await;
     order_stream_client.submit_request(&req3, &ctx.customer_signer).await.unwrap();
 
+    let orders = order_stream_client.list_orders_v2(None, None, None, None, None).await.unwrap();
+    assert_eq!(orders.orders.len(), 3, "Expected 3 orders to be indexed");
+    tracing::info!("Orders: {:?}", orders);
+
+    let now_2 = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    provider.anvil_set_next_block_timestamp(now_2 + 10).await.unwrap();
+    provider.anvil_mine(Some(1), None).await.unwrap();
+    
     // Start market indexer with order stream URL
     let cmd = AssertCommand::cargo_bin("market-indexer")
         .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
@@ -864,6 +929,8 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         "1",
         "--order-stream-url",
         order_stream_url.as_str(),
+        "--start-block",
+        &start_block.to_string(),
     ];
 
     println!("{exe_path} {args:?}");
@@ -1160,4 +1227,502 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
         count_requests_receipts, 1,
         "Expected 1 proof request to be indexed"
     );
+}
+
+// Helper struct for request status data
+#[derive(Debug)]
+struct RequestStatusRow {
+    request_digest: String,
+    request_id: String,
+    request_status: String,
+    slashed_status: String,
+    source: String,
+    created_at: i64,
+    updated_at: i64,
+    locked_at: Option<i64>,
+    fulfilled_at: Option<i64>,
+    slashed_at: Option<i64>,
+    lock_end: i64,
+    slash_recipient: Option<String>,
+    slash_transferred_amount: Option<String>,
+    slash_burned_amount: Option<String>,
+}
+
+async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRow {
+    let row = sqlx::query(
+        "SELECT request_digest, request_id, request_status, slashed_status, source, created_at, updated_at,
+                locked_at, fulfilled_at, slashed_at, lock_end, slash_recipient,
+                slash_transferred_amount, slash_burned_amount
+         FROM request_status
+         WHERE request_id = $1",
+    )
+    .bind(request_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    RequestStatusRow {
+        request_digest: row.get("request_digest"),
+        request_id: row.get("request_id"),
+        request_status: row.get("request_status"),
+        slashed_status: row.get("slashed_status"),
+        source: row.get("source"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        locked_at: row.get("locked_at"),
+        fulfilled_at: row.get("fulfilled_at"),
+        slashed_at: row.get("slashed_at"),
+        lock_end: row.get("lock_end"),
+        slash_recipient: row.get("slash_recipient"),
+        slash_transferred_amount: row.get("slash_transferred_amount"),
+        slash_burned_amount: row.get("slash_burned_amount"),
+    }
+}
+
+#[sqlx::test(migrations = "../order-stream/migrations")]
+#[traced_test]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
+    let test_db = TestDb::new().await.unwrap();
+    let anvil = Anvil::new().spawn();
+    let rpc_url = anvil.endpoint_url();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    let prover = DefaultProver::new(
+        SET_BUILDER_ELF.to_vec(),
+        ASSESSOR_GUEST_ELF.to_vec(),
+        ctx.prover_signer.address(),
+        ctx.customer_market.eip712_domain().await.unwrap(),
+    )
+    .unwrap();
+
+    let block = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let start_block = block.header.number.saturating_sub(1);
+
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let start_block_str = start_block.to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "3",
+        "--start-block",
+        start_block_str.as_str(),
+    ];
+
+    println!("{exe_path} {args:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut indexer_process = Command::new(exe_path).args(args).spawn().unwrap();
+
+    let provider = ctx.customer_provider.clone();
+
+    let block = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    let now = block.header.timestamp;
+
+    // Create and submit request
+    let (req, sig) = create_order_with_timeouts(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        1,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+        1000000,
+        1000000,
+    )
+    .await;
+
+    ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    ctx
+        .customer_market
+        .submit_request_with_signature(&req, sig.clone())
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Verify submitted status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Submitted.to_string(),
+        "Request should be in submitted status"
+    );
+    assert_eq!(status.source, "onchain", "Request should be marked as onchain");
+    assert!(status.locked_at.is_none(), "Request should not be locked yet");
+    assert!(status.fulfilled_at.is_none(), "Request should not be fulfilled yet");
+
+    // Lock request
+    ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Verify locked status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Locked.to_string(),
+        "Request should be in locked status"
+    );
+    assert!(status.locked_at.is_some(), "Request should have locked_at timestamp");
+    assert_eq!(
+        status.lock_end,
+        req.offer.rampUpStart as i64 + req.offer.lockTimeout as i64,
+        "lock_end should be rampUpStart + lockTimeout"
+    );
+
+    // Fulfill request
+    let (fill, root_receipt, assessor_receipt) =
+        prover.fulfill(&[(req.clone(), sig.clone())]).await.unwrap();
+    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+    ctx
+        .prover_market
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
+        )
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Verify fulfilled status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Fulfilled.to_string(),
+        "Request should be in fulfilled status"
+    );
+    assert!(status.fulfilled_at.is_some(), "Request should have fulfilled_at timestamp");
+
+    indexer_process.kill().unwrap();
+}
+
+#[sqlx::test(migrations = "../order-stream/migrations")]
+#[traced_test]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
+    let test_db = TestDb::new().await.unwrap();
+    let anvil = Anvil::new().spawn();
+    let rpc_url = anvil.endpoint_url();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    let block = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let start_block = block.header.number.saturating_sub(1);
+
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let start_block_str = start_block.to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "3",
+        "--start-block",
+        start_block_str.as_str(),
+    ];
+
+    println!("{exe_path} {args:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut indexer_process = Command::new(exe_path).args(args).spawn().unwrap();
+
+    let provider = ctx.customer_provider.clone();
+
+    let block = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    let now = block.header.timestamp;
+
+    // Create and submit request with short timeout
+    let (req, sig) = create_order_with_timeouts(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        1,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+        1000,
+        1000,
+    )
+    .await;
+
+    ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    ctx
+        .customer_market
+        .submit_request_with_signature(&req, sig.clone())
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Verify submitted status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Submitted.to_string(),
+        "Request should be in submitted status"
+    );
+
+    // Lock request
+    ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Verify locked status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Locked.to_string(),
+        "Request should be in locked status"
+    );
+
+    // Advance time past request expiration
+    let expires_at = req.expires_at();
+    provider.anvil_set_next_block_timestamp(expires_at + 1).await.unwrap();
+    provider.anvil_mine(Some(1), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Verify expired status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Expired.to_string(),
+        "Request should be in expired status"
+    );
+
+    indexer_process.kill().unwrap();
+}
+
+#[sqlx::test(migrations = "../order-stream/migrations")]
+#[traced_test]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
+    let test_db = TestDb::new().await.unwrap();
+    let anvil = Anvil::new().spawn();
+    let rpc_url = anvil.endpoint_url();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    let prover = DefaultProver::new(
+        SET_BUILDER_ELF.to_vec(),
+        ASSESSOR_GUEST_ELF.to_vec(),
+        ctx.prover_signer.address(),
+        ctx.customer_market.eip712_domain().await.unwrap(),
+    )
+    .unwrap();
+
+    let block = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let start_block = block.header.number.saturating_sub(1);
+
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let start_block_str = start_block.to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "3",
+        "--start-block",
+        start_block_str.as_str(),
+    ];
+
+    println!("{exe_path} {args:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut indexer_process = Command::new(exe_path).args(args).spawn().unwrap();
+
+    let provider = ctx.customer_provider.clone();
+
+    let block = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    let now = block.header.timestamp;
+
+    // Create request with short lock timeout
+    let req = ProofRequest::new(
+        RequestId::new(ctx.customer_signer.address(), 1),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: U256::from(0),
+            maxPrice: U256::from(1),
+            rampUpStart: now - 3,
+            timeout: 7200,
+            rampUpPeriod: 1,
+            lockTimeout: 1800,
+            lockCollateral: U256::from(0),
+        },
+    );
+    let sig = req
+        .sign_request(
+            &ctx.customer_signer,
+            ctx.deployment.boundless_market_address,
+            anvil.chain_id(),
+        )
+        .await
+        .unwrap();
+    let sig_bytes: Bytes = sig.as_bytes().into();
+
+    ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    ctx
+        .customer_market
+        .submit_request_with_signature(&req, sig_bytes.clone())
+        .await
+        .unwrap();
+
+    provider.anvil_mine(Some(3), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Verify submitted status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Submitted.to_string(),
+        "Request should be in submitted status"
+    );
+
+    // Lock request
+    ctx
+        .prover_market
+        .lock_request(&req, sig_bytes.clone(), None)
+        .await
+        .unwrap();
+
+    provider.anvil_mine(Some(2), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Verify locked status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Locked.to_string(),
+        "Request should be in locked status"
+    );
+    let lock_end = status.lock_end;
+
+    // Advance time past lock expiration
+    provider.anvil_set_next_block_timestamp(lock_end as u64 + 1).await.unwrap();
+    provider.anvil_mine(Some(1), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Fulfill request (late fulfillment after lock expired)
+    let (fill, root_receipt, assessor_receipt) =
+        prover.fulfill(&[(req.clone(), sig_bytes.clone())]).await.unwrap();
+    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+    ctx
+        .prover_market
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
+        )
+        .await
+        .unwrap();
+
+    provider.anvil_mine(Some(2), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Verify fulfilled status
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Fulfilled.to_string(),
+        "Request should be in fulfilled status"
+    );
+    assert!(status.fulfilled_at.is_some(), "Request should have fulfilled_at timestamp");
+
+    // Advance time and slash the fulfilled request
+    provider.anvil_set_next_block_timestamp(req.expires_at() + 1).await.unwrap();
+    provider.anvil_mine(Some(1), None).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    ctx.prover_market.slash(req.id).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Verify slashed status (fulfilled takes priority, but slashed_status should be set)
+    let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(
+        status.request_status,
+        RequestStatusType::Fulfilled.to_string(),
+        "Request should remain in fulfilled status (fulfilled takes priority)"
+    );
+    assert_eq!(
+        status.slashed_status,
+        SlashedStatus::Slashed.to_string(),
+        "Request should have slashed status"
+    );
+    assert!(status.fulfilled_at.is_some(), "Request should still have fulfilled_at timestamp");
+    assert!(status.slashed_at.is_some(), "Request should have slashed_at timestamp");
+    assert!(status.slash_recipient.is_some(), "Request should have slash_recipient");
+    assert!(
+        status.slash_transferred_amount.is_some(),
+        "Request should have slash_transferred_amount"
+    );
+    assert!(status.slash_burned_amount.is_some(), "Request should have slash_burned_amount");
+
+    indexer_process.kill().unwrap();
 }

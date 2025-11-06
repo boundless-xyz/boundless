@@ -228,12 +228,28 @@ pub struct OrderStreamClient {
     pub boundless_market_address: Address,
     /// Chain ID of the network
     pub chain_id: u64,
+    /// Optional API key for authenticated requests
+    pub api_key: Option<String>,
 }
 
 impl OrderStreamClient {
     /// Create a new client
     pub fn new(base_url: Url, boundless_market_address: Address, chain_id: u64) -> Self {
-        Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id }
+        Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id, api_key: None }
+    }
+
+    /// Create a new client with API key
+    pub fn new_with_api_key(base_url: Url, boundless_market_address: Address, chain_id: u64, api_key: String) -> Self {
+        Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id, api_key: Some(api_key) }
+    }
+
+    /// Helper to add API key header to request if configured
+    fn add_api_key_header(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if let Some(api_key) = &self.api_key {
+            request.header("x-api-key", api_key)
+        } else {
+            request
+        }
     }
 
     /// Submit a proof request to the order stream server
@@ -250,10 +266,12 @@ impl OrderStreamClient {
         order.validate(self.boundless_market_address, self.chain_id)?;
         let order_json = serde_json::to_value(&order)?;
         let response = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .json(&order_json)
+            .add_api_key_header(
+                self.client
+                    .post(url)
+                    .header("Content-Type", "application/json")
+                    .json(&order_json)
+            )
             .send()
             .await?;
 
@@ -277,7 +295,7 @@ impl OrderStreamClient {
     /// If multiple orders are found, the `request_digest` must be provided to select the correct order.
     pub async fn fetch_order(&self, id: U256, request_digest: Option<B256>) -> Result<Order> {
         let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
-        let response = self.client.get(url).send().await?;
+        let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
             let error_message = match response.json::<serde_json::Value>().await {
@@ -322,7 +340,7 @@ impl OrderStreamClient {
         request_digest: Option<B256>,
     ) -> Result<(Order, DateTime<Utc>)> {
         let url = self.base_url.join(&format!("{ORDER_LIST_PATH}/{id}"))?;
-        let response = self.client.get(url).send().await?;
+        let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
             let error_message = match response.json::<serde_json::Value>().await {
@@ -360,7 +378,7 @@ impl OrderStreamClient {
     /// Get the nonce from the order stream service for websocket auth
     pub async fn get_nonce(&self, address: Address) -> Result<Nonce> {
         let url = self.base_url.join(AUTH_GET_NONCE)?.join(&address.to_string())?;
-        let res = self.client.get(url).send().await?;
+        let res = self.add_api_key_header(self.client.get(url)).send().await?;
         if !res.status().is_success() {
             anyhow::bail!("Http error {} fetching nonce", res.status())
         }
@@ -389,7 +407,7 @@ impl OrderStreamClient {
             }
         }
 
-        let response = self.client.get(url).send().await?;
+        let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
             let error_message = match response.json::<serde_json::Value>().await {
@@ -458,7 +476,7 @@ impl OrderStreamClient {
             }
         }
 
-        let response = self.client.get(url).send().await?;
+        let response = self.add_api_key_header(self.client.get(url)).send().await?;
 
         if !response.status().is_success() {
             let error_message = match response.json::<serde_json::Value>().await {
@@ -512,6 +530,11 @@ impl OrderStreamClient {
         request
             .headers_mut()
             .insert("X-Auth-Data", auth_json.parse().context("failed to parse auth message")?);
+
+        // Add API key header if configured
+        if let Some(api_key) = &self.api_key {
+            request.headers_mut().insert("x-api-key", api_key.parse().context("failed to parse api key")?);
+        }
 
         // Connect to the WebSocket server and return the socket
         let (socket, _) = match connect_async(request).await {

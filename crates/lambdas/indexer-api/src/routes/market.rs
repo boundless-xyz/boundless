@@ -195,6 +195,18 @@ pub struct MarketAggregateEntry {
 
     /// Total number of requests slashed in this period
     pub total_requests_slashed: i64,
+
+    /// Total number of requests that expired in this period
+    pub total_expired: i64,
+
+    /// Total number of locked requests that expired in this period
+    pub total_locked_and_expired: i64,
+
+    /// Total number of locked requests that were fulfilled in this period
+    pub total_locked_and_fulfilled: i64,
+
+    /// Fulfillment rate for locked orders (percentage)
+    pub locked_orders_fulfillment_rate: Option<f32>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -371,6 +383,10 @@ async fn get_market_aggregates_impl(
                 total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
                 total_requests_locked: summary.total_requests_locked as i64,
                 total_requests_slashed: summary.total_requests_slashed as i64,
+                total_expired: summary.total_expired as i64,
+                total_locked_and_expired: summary.total_locked_and_expired as i64,
+                total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
             }
         })
         .collect();
@@ -432,7 +448,9 @@ pub struct RequestStatusResponse {
     /// Client address
     pub client_address: String,
     /// Prover address (if locked)
-    pub prover_address: Option<String>,
+    pub lock_prover_address: Option<String>,
+    /// Fulfill prover address (if fulfilled)
+    pub fulfill_prover_address: Option<String>,
     /// Created timestamp (Unix)
     pub created_at: i64,
     /// Last updated timestamp (Unix)
@@ -516,10 +534,11 @@ fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
     RequestStatusResponse {
         request_digest: format!("{:x}", status.request_digest),
         request_id: status.request_id,
-        request_status: status.request_status,
+        request_status: status.request_status.to_string(),
         source: status.source,
         client_address: format!("{:x}", status.client_address),
-        prover_address: status.prover_address.map(|addr| format!("{:x}", addr)),
+        lock_prover_address: status.lock_prover_address.map(|addr| format!("{:x}", addr)),
+        fulfill_prover_address: status.fulfill_prover_address.map(|addr| format!("{:x}", addr)),
         created_at: status.created_at as i64,
         updated_at: status.updated_at as i64,
         locked_at: status.locked_at.map(|t| t as i64),
