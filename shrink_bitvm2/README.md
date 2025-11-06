@@ -19,7 +19,7 @@ cargo xtask-blake3-groth16 <BLAKE3_GROTH16_SETUP_DIR>
 
 ### Building Rapidsnark
 
-If using rapidsnark for CPU proving instead of CUDA, you will need to need to manually build rapidsnark. This crate will look for the `rapidsnark` binary in your PATH.
+If using rapidsnark for CPU proving instead of CUDA, you will need to need to manually build rapidsnark. This is all packaged in a dockerfile.
 
 ## Proving
 
