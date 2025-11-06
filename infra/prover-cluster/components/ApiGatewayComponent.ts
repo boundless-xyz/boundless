@@ -77,7 +77,7 @@ export class ApiGatewayComponent extends BaseComponent {
             enableDeletionProtection: false,
             securityGroups: [config.securityGroupId],
             tags: {
-                Name: `${this.config.stackName}-prover-internal`,
+                Name: `${this.config.stackName}-internal`,
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
@@ -86,7 +86,7 @@ export class ApiGatewayComponent extends BaseComponent {
         // Create separate target group for the internal ALB
         // AWS doesn't allow a target group to be associated with more than one load balancer
         this.internalTargetGroup = new aws.lb.TargetGroup("boundless-internal-tg", {
-            name: `${this.config.stackName}-prove-internal`,
+            name: `${this.config.stackName}-internal`,
             port: 8081,
             protocol: "HTTP",
             vpcId: config.vpcId,
@@ -102,7 +102,7 @@ export class ApiGatewayComponent extends BaseComponent {
                 unhealthyThreshold: 2,
             },
             tags: {
-                Name: `${this.config.stackName}-prover-internal`,
+                Name: `${this.config.stackName}-internal`,
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
