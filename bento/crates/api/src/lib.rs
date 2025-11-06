@@ -118,6 +118,9 @@ pub enum AppError {
     #[error("Database error")]
     DbError(#[from] TaskDbErr),
 
+    #[error("The input does not exist: {0}")]
+    InputMissing(String),
+
     #[error("internal error")]
     InternalErr(AnyhowErr),
 }
@@ -133,6 +136,7 @@ impl AppError {
             Self::ReceiptMissing(_) => "ReceiptMissing",
             Self::JournalMissing(_) => "JournalMissing",
             Self::DbError(_) => "DbError",
+            Self::InputMissing(_) => "InputMissing",
             Self::InternalErr(_) => "InternalErr",
         }
         .into()
@@ -152,7 +156,7 @@ impl IntoResponse for AppError {
             Self::ImgAlreadyExists(_)
             | Self::InputAlreadyExists(_)
             | Self::ReceiptAlreadyExists(_) => StatusCode::NO_CONTENT,
-            Self::ReceiptMissing(_) | Self::JournalMissing(_) => StatusCode::NOT_FOUND,
+            Self::ReceiptMissing(_) | Self::JournalMissing(_) | Self::InputMissing(_) => StatusCode::NOT_FOUND,
             Self::InternalErr(_) | Self::DbError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -347,8 +351,7 @@ async fn input_delete(
         .await
         .context("Failed to check if object exists")?
     {
-        // TODO(ec2): correct error
-        return Err(AppError::InputAlreadyExists(input_id.to_string()));
+        return Err(AppError::InputMissing(input_id.to_string()));
     }
 
     state
