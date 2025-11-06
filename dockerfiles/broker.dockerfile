@@ -40,7 +40,7 @@ COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
-
+COPY shrink_bitvm2/ ./shrink_bitvm2/
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM init AS builder

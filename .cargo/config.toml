@@ -1,0 +1,3 @@
+[alias]
+xtask = "run --package xtask --release --"
+xtask-blake3-groth16 = "run --package xtask --no-default-features -F cuda --release -- setup-groth16"
