@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::path::Path;
 
 pub fn calculate_witness_encoded(graph_path: &Path, inputs: &str) -> Result<Vec<u8>> {

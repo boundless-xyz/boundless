@@ -10,7 +10,7 @@ pub fn shrink_wrap(
     work_dir: &Path,
     identity_seal_json: serde_json::Value,
 ) -> Result<Groth16ProofJson> {
-    tracing::debug!("shrink_wrap with rapidsnark");
+    tracing::debug!("blake3 shrink_wrap with rapidsnark");
     if !is_docker_installed() {
         bail!("Please install docker first.")
     }

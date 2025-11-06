@@ -16,7 +16,7 @@ use std::future::Future;
 
 use async_trait::async_trait;
 use bonsai_sdk::{
-    non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id, SnarkId},
+    non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id as Blake3Groth16Id, SnarkId},
     SdkErr,
 };
 use risc0_zkvm::Receipt;
@@ -279,9 +279,9 @@ impl StatusPoller {
         }
     }
 
-    async fn poll_with_retries_shrink_bitvm2_id(
+    async fn poll_with_retries_blake3_groth16_id(
         &self,
-        proof_id: &ShrinkBitvm2Id,
+        proof_id: &Blake3Groth16Id,
         client: &BonsaiClient,
     ) -> Result<String, ProverError> {
         loop {
@@ -289,7 +289,7 @@ impl StatusPoller {
                 self.retry_counts,
                 self.poll_sleep_ms,
                 || async { proof_id.status(client).await },
-                "get shrink_bitvm2 status",
+                "get blake3 groth16 (shrink_bitvm2) status",
             )
             .await;
 
@@ -568,11 +568,11 @@ impl Prover for Bonsai {
         Ok(Some(receipt_buf))
     }
 
-    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
+    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
         let proof_id = self
             .retry(
                 || async { Ok(self.client.shrink_bitvm2(proof_id.into()).await?) },
-                "create bitvm2",
+                "create blake3_groth16 (bitvm2)",
             )
             .await?;
 
@@ -581,17 +581,20 @@ impl Prover for Bonsai {
             retry_counts: self.status_poll_retry_count,
         };
 
-        poller.poll_with_retries_shrink_bitvm2_id(&proof_id, &self.client).await?;
+        poller.poll_with_retries_blake3_groth16_id(&proof_id, &self.client).await?;
 
         Ok(proof_id.uuid)
     }
 
-    async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-        let snark_id = ShrinkBitvm2Id { uuid: proof_id.into() };
+    async fn get_blake3_groth16_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
+        let snark_id = Blake3Groth16Id { uuid: proof_id.into() };
         let status = self
             .retry(
                 || async { Ok(snark_id.status(&self.client).await?) },
-                "get status of shrink bitvm2",
+                "get status of blake3 groth16",
             )
             .await?;
 
@@ -599,7 +602,7 @@ impl Prover for Bonsai {
         let receipt_buf = self
             .retry(
                 || async { Ok(self.client.download(&output).await?) },
-                "download shrink bitvm2 output",
+                "download blake3 groth16 (bitvm2) output",
             )
             .await?;
 

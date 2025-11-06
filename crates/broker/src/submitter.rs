@@ -30,7 +30,7 @@ use boundless_market::{
         encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
         FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
-    selector::{is_groth16_selector, is_shrink_bitvm2_selector},
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -172,19 +172,19 @@ where
         Ok(encoded_seal)
     }
 
-    async fn fetch_encode_shrink_seal(&self, bitvm2_proof_id: &str) -> Result<Vec<u8>> {
-        let bitvm2_receipt = self
+    async fn fetch_encode_b3_g16(&self, b3_g16_proof_id: &str) -> Result<Vec<u8>> {
+        let groth16_receipt = self
             .prover
-            .get_bitvm2_receipt(bitvm2_proof_id)
+            .get_blake3_groth16_receipt(b3_g16_proof_id)
             .await
-            .context("Failed to fetch BitVM2 receipt")?
-            .context("BitVM2 receipt missing")?;
+            .context("Failed to fetch blake3 groth16 receipt")?
+            .context("Blake3 Groth16 receipt missing")?;
 
-        let bitvm2_receipt: Receipt = bincode::deserialize(&bitvm2_receipt)
-            .context("Failed to deserialize BitVM2 receipt")?;
+        let groth16_receipt: Receipt = bincode::deserialize(&groth16_receipt)
+            .context("Failed to deserialize Blake3 Groth16 receipt")?;
 
-        let encoded_seal =
-            encode_seal(&bitvm2_receipt).context("Failed to encode BitVM2 receipt seal")?;
+        let encoded_seal = encode_seal(&groth16_receipt)
+            .context("Failed to encode Blake3 Groth16 receipt seal")?;
 
         Ok(encoded_seal)
     }
@@ -320,14 +320,14 @@ where
                     self.fetch_encode_g16(&compressed_proof_id)
                         .await
                         .context("Failed to fetch and encode g16 proof")?
-                } else if is_shrink_bitvm2_selector(order_request.requirements.selector) {
+                } else if is_blake3_groth16_selector(order_request.requirements.selector) {
                     let compressed_proof_id =
                         self.db.get_order_compressed_proof_id(order_id).await.context(
                             "Failed to get order compressed proof ID from DB for submission",
                         )?;
-                    self.fetch_encode_shrink_seal(&compressed_proof_id)
+                    self.fetch_encode_b3_g16(&compressed_proof_id)
                         .await
-                        .context("Failed to fetch and encode bitvm2 proof")?
+                        .context("Failed to fetch and encode blake3 groth16 proof")?
                 } else {
                     let order_claim_index = aggregation_state
                         .claim_digests

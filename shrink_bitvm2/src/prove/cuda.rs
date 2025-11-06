@@ -33,21 +33,16 @@ impl CalcWitness {
 fn calculate_witness(graph_path: &Path, inputs: &str) -> Result<CalcWitness> {
     let witness_encoded = calculate_witness_encoded(graph_path, inputs)?;
     let wtns_f = wtns_file::WtnsFile::read(Cursor::new(witness_encoded))?;
-    Ok(CalcWitness {
-        witness: wtns_f.witness.0,
-    })
+    Ok(CalcWitness { witness: wtns_f.witness.0 })
 }
 
 pub fn shrink_wrap(
     work_dir: &Path,
     identity_seal_json: serde_json::Value,
 ) -> Result<Groth16ProofJson> {
-    tracing::info!("shrink_wrap with cuda");
+    tracing::info!("blake3 shrink_wrap with cuda");
     let root_dir = std::env::var("BLAKE3_GROTH16_SETUP_DIR");
-    let root_dir = root_dir
-        .as_ref()
-        .map(Path::new)
-        .expect("must provide BLAKE3_GROTH16_SETUP_DIR");
+    let root_dir = root_dir.as_ref().map(Path::new).expect("must provide BLAKE3_GROTH16_SETUP_DIR");
 
     let mut setup_params =
         SetupParams::new(root_dir).context("failed to create groth16 work directories")?;
@@ -56,10 +51,8 @@ pub fn shrink_wrap(
     let mut witness_params = WitnessParams::new(root_dir);
     witness_params.graph_path = root_dir.join("verify_for_guest_graph.bin");
 
-    let witness = calculate_witness(
-        &witness_params.graph_path,
-        identity_seal_json.to_string().as_str(),
-    )?;
+    let witness =
+        calculate_witness(&witness_params.graph_path, identity_seal_json.to_string().as_str())?;
 
     {
         let _lock = risc0_zkp::hal::cuda::singleton().lock();

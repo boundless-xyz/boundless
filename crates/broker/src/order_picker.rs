@@ -51,7 +51,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
         RequestInputType,
     },
-    selector::{is_shrink_bitvm2_selector, SupportedSelectors},
+    selector::{is_blake3_groth16_selector, SupportedSelectors},
 };
 use moka::future::Cache;
 use thiserror::Error;
@@ -798,20 +798,20 @@ where
             });
         }
 
-        // If the selector is a shrink bitvm2 selector, ensure the journal is exactly 32 bytes
-        if is_shrink_bitvm2_selector(order.request.requirements.selector) && journal.len() != 32 {
+        // If the selector is a blake3 groth16 selector, ensure the journal is exactly 32 bytes
+        if is_blake3_groth16_selector(order.request.requirements.selector) && journal.len() != 32 {
             tracing::info!(
-                "Order {order_id} journal is not 32 bytes for shrink bitvm2 selector, skipping",
+                "Order {order_id} journal is not 32 bytes for blake3 groth16 selector, skipping",
             );
             return Ok(Skip {
-                reason: "shrink bitvm2 selector requires 32 byte journal".to_string(),
+                reason: "blake3 groth16 selector requires 32 byte journal".to_string(),
             });
         }
 
         // Validate the predicates:
         let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
             .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
-        let eval_data = if is_shrink_bitvm2_selector(order.request.requirements.selector) {
+        let eval_data = if is_blake3_groth16_selector(order.request.requirements.selector) {
             // TODO(ec2): comment on this
             FulfillmentData::None
         } else {
@@ -2912,12 +2912,15 @@ pub(crate) mod tests {
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_compressed_receipt(proof_id).await
         }
-        async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
-            self.default_prover.shrink_bitvm2(proof_id).await
+        async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+            self.default_prover.compress_blake3_groth16(proof_id).await
         }
 
-        async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
-            self.default_prover.get_bitvm2_receipt(proof_id).await
+        async fn get_blake3_groth16_receipt(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_blake3_groth16_receipt(proof_id).await
         }
     }
 

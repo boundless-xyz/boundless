@@ -397,15 +397,15 @@ impl Prover for DefaultProver {
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
 
-    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
-        tracing::info!("Compressing proof Shrink bitvm2 {proof_id}");
+    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+        tracing::info!("Compressing proof to blake3 groth16 {proof_id}");
         let receipt = self
             .get_receipt(proof_id)
             .await?
             .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {proof_id}")))?;
         if receipt.journal.bytes.len() != 32 {
             return Err(ProverError::UnexpectedError(anyhow!(
-                "Shrink BitVM2 requires a journal of 32 bytes, got {}",
+                "Compressing proof to blake3 groth16 requires a journal of 32 bytes, got {}",
                 receipt.journal.bytes.len()
             )));
         }
@@ -413,7 +413,7 @@ impl Prover for DefaultProver {
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         let compress_result =
-            shrink_bitvm2::compress_bitvm2(&receipt).await.map_err(ProverError::from);
+            shrink_bitvm2::compress_blake3_groth16(&receipt).await.map_err(ProverError::from);
 
         let compressed_bytes = compress_result
             .as_ref()
@@ -437,11 +437,14 @@ impl Prover for DefaultProver {
             }
         }
     }
-    async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+    async fn get_blake3_groth16_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
         let proofs = self.state.proofs.read().await;
         let proof_data = proofs
             .get(proof_id)
-            .ok_or_else(|| ProverError::NotFound(format!("shrink bitvm2 proof {proof_id}")))?;
+            .ok_or_else(|| ProverError::NotFound(format!("blake3 groth16 proof {proof_id}")))?;
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
 }
@@ -568,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    async fn test_shrink_bitvm2() {
+    async fn test_shrink_blake3_groth16() {
         let prover = DefaultProver::new();
         // Upload test data
         let input_data = [255u8; 32].to_vec(); // Example input data
@@ -580,7 +583,7 @@ mod tests {
         let ProofResult { id: stark_id, .. } =
             prover.prove_and_monitor_stark(&image_id.to_string(), &input_id, vec![]).await.unwrap();
 
-        let snark_id = prover.shrink_bitvm2(&stark_id).await.unwrap();
+        let snark_id = prover.compress_blake3_groth16(&stark_id).await.unwrap();
 
         // Fetch the compressed receipt
         let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
@@ -590,8 +593,8 @@ mod tests {
         let groth16_seal = Groth16Seal::decode(&groth16_receipt.seal)
             .expect("Failed to create Groth16 seal from receipt");
         let claim_digest =
-            shrink_bitvm2::ShrinkBitvm2ReceiptClaim::ok(ECHO_ID, input_data).claim_digest();
+            shrink_bitvm2::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data).claim_digest();
         shrink_bitvm2::verify::verify(&groth16_seal, claim_digest)
-            .expect("Failed to verify Shrink BitVM2 receipt");
+            .expect("Failed to verify Shrink to blake3 groth16 receipt");
     }
 }

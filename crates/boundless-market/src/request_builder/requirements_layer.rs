@@ -14,7 +14,7 @@
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::contracts::{Callback, Predicate, Requirements};
-use crate::selector::is_shrink_bitvm2_selector;
+use crate::selector::is_blake3_groth16_selector;
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
 use clap::Args;
@@ -159,9 +159,9 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         let mut predicate = params.predicate.clone();
 
         if let Some(selector) = &params.selector {
-            if is_shrink_bitvm2_selector(*selector) {
+            if is_blake3_groth16_selector(*selector) {
                 predicate = Some(params.predicate.clone().unwrap_or_else(|| {
-                    let blake3_claim_digest = shrink_bitvm2::ShrinkBitvm2ReceiptClaim::ok(
+                    let blake3_claim_digest = shrink_bitvm2::Blake3Groth16ReceiptClaim::ok(
                         image_id,
                         journal.bytes.clone(),
                     )

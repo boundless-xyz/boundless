@@ -119,8 +119,8 @@ lto = true
 # codegen-units = 1
 
 [patch.crates-io]
-risc0-ethereum-contracts = { git = "https://github.com/ec2/risc0-ethereum.git", rev = "a5bf55285c5ea2e65de9c53421987449e2db046d" }
-risc0-aggregation = { git = "https://github.com/ec2/risc0-ethereum.git", rev = "a5bf55285c5ea2e65de9c53421987449e2db046d" }
+risc0-ethereum-contracts = { git = "https://github.com/ec2/risc0-ethereum.git", rev = "1d1e75e78bf8e6ec26d59e0aef8cfa748aaa9b64" }
+risc0-aggregation = { git = "https://github.com/ec2/risc0-ethereum.git", rev = "1d1e75e78bf8e6ec26d59e0aef8cfa748aaa9b64" }
 # TODO(ec2): Needs these patches until this is backported https://github.com/risc0/risc0/pull/3370
 risc0-groth16 = { git = "https://github.com/boundless-xyz/risc0.git", branch = "ec2/v3.0.3-backport-3370" }
 risc0-groth16-sys = { git = "https://github.com/boundless-xyz/risc0.git", branch = "ec2/v3.0.3-backport-3370" }

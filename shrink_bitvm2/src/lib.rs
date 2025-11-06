@@ -13,27 +13,27 @@ pub mod receipt_claim;
 pub mod verify;
 
 /// Compresses a Receipt into a BLAKE3 Groth16 Receipt.
-pub async fn compress_bitvm2(receipt: &Receipt) -> Result<Receipt> {
-    tracing::debug!("Compressing receipt to shrink_bitvm2");
+pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Receipt> {
+    tracing::debug!("Compressing receipt to blake3 groth16");
     if is_dev_mode() {
         return Ok(receipt.clone());
     }
     if default_prover().get_name() == "bonsai" {
         let client = bonsai_sdk::non_blocking::Client::from_env(risc0_zkvm::VERSION)?;
-        tracing::info!("Using bonsai to compress to shrink_bitvm2");
-        return compress_bitvm2_with_bonsai(&client, receipt).await;
+        tracing::info!("Using bonsai to compress to blake3 groth16");
+        return compress_blake3_groth16_bonsai(&client, receipt).await;
     }
     let receipt = receipt.clone();
     #[cfg(not(feature = "prove"))]
     {
         Err(anyhow::anyhow!(
-            "shrink_bitvm2 must be built with the 'prove' feature to compress receipts locally"
+            "blake3_groth16 must be built with the 'prove' feature to compress receipts locally"
         ))
     }
     #[cfg(feature = "prove")]
     tokio::task::spawn_blocking(move || {
         let succinct_receipt = default_prover().compress(&ProverOpts::succinct(), &receipt)?;
-        tracing::debug!("Succinct receipt created, proceeding to convert to shrink_bitvm2");
+        tracing::debug!("Succinct receipt created, proceeding to convert to blake3 groth16");
         let receipt = succinct_receipt.clone();
         let journal: [u8; 32] = receipt
             .journal
@@ -41,7 +41,7 @@ pub async fn compress_bitvm2(receipt: &Receipt) -> Result<Receipt> {
             .as_slice()
             .try_into()
             .context("invalid journal length, expected 32 bytes for shrink blake3")?;
-        let seal = succinct_to_bitvm2(
+        let seal = succinct_to_blake3_groth16(
             receipt
                 .inner
                 .succinct()
@@ -57,7 +57,7 @@ pub async fn compress_bitvm2(receipt: &Receipt) -> Result<Receipt> {
 /// It will first run the identity_p254 program to convert the STARK to BN254,
 /// which is more efficient to verify.
 #[cfg(feature = "prove")]
-fn succinct_to_bitvm2(
+fn succinct_to_blake3_groth16(
     succinct_receipt: &SuccinctReceipt<ReceiptClaim>,
     journal: [u8; 32],
 ) -> Result<Groth16ProofJson> {
@@ -97,7 +97,7 @@ fn finalize(
     let receipt_claim_value =
         receipt_claim.as_value().context("receipt claim must not be pruned")?;
     let blake3_claim_digest =
-        ShrinkBitvm2ReceiptClaim::ok(receipt_claim_value.pre.digest(), journal.to_vec()).digest();
+        Blake3Groth16ReceiptClaim::ok(receipt_claim_value.pre.digest(), journal.to_vec()).digest();
     verify::verify(seal, blake3_claim_digest)?;
 
     let verifier_parameters = crate::verify::verifier_parameters();
@@ -108,7 +108,7 @@ fn finalize(
     Ok(receipt)
 }
 
-async fn compress_bitvm2_with_bonsai(
+async fn compress_blake3_groth16_bonsai(
     client: &bonsai_sdk::non_blocking::Client,
     succinct_receipt: &Receipt,
 ) -> Result<Receipt> {
@@ -153,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     #[test_log::test]
-    async fn test_succinct_to_bitvm2() {
+    async fn test_succinct_to_blake3_groth16() {
         use guest_util::ECHO_ID;
 
         let input = [3u8; 32];
@@ -164,11 +164,11 @@ mod tests {
         // Produce a receipt by proving the specified ELF binary.
         let receipt =
             prover.prove_with_opts(env, ECHO_ELF, &ProverOpts::succinct()).unwrap().receipt;
-        tracing::info!("Initial receipt created, compressing to shrink_bitvm2");
-        let groth16_receipt = compress_bitvm2(&receipt).await.unwrap();
+        tracing::info!("Initial receipt created, compressing to blake3_groth16");
+        let groth16_receipt = compress_blake3_groth16(&receipt).await.unwrap();
         let groth16_receipt = groth16_receipt.inner.groth16().unwrap();
         let blake3_g16_seal = Groth16Seal::decode(&groth16_receipt.seal).unwrap();
-        let blake3_claim_digest = ShrinkBitvm2ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
+        let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
         verify::verify(&blake3_g16_seal, blake3_claim_digest).expect("verification failed");
     }
 }

@@ -51,9 +51,9 @@ const SOL_HEADER: &str = r#"// Copyright 2025 RISC Zero, Inc.
 
 "#;
 
-const SOLIDITY_VERIFIER_TARGET: &str = "contracts/src/bitvm/Groth16Verifier.sol";
-const SOLIDITY_CONTROL_ID_PATH: &str = "contracts/src/bitvm/ControlID.sol";
-const RUST_VERIFIER_PATH: &str = "shrink_bitvm2/src/verify.rs";
+const SOLIDITY_VERIFIER_TARGET: &str = "contracts/src/blake3_groth16/Groth16Verifier.sol";
+const SOLIDITY_CONTROL_ID_PATH: &str = "contracts/src/blake3_groth16/ControlID.sol";
+const RUST_VERIFIER_PATH: &str = "blake3_groth16/src/verify.rs";
 
 impl BootstrapBlake3Groth16 {
     pub fn run(&self) {
