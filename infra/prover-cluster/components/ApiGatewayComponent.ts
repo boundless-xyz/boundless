@@ -12,6 +12,7 @@ export class ApiGatewayComponent extends BaseComponent {
     public readonly alb: aws.lb.LoadBalancer;
     public readonly internalAlb: aws.lb.LoadBalancer;
     public readonly targetGroup: aws.lb.TargetGroup;
+    public readonly internalTargetGroup: aws.lb.TargetGroup;
     public readonly albUrl: pulumi.Output<string>;
     public readonly internalAlbUrl: pulumi.Output<string>;
     public readonly wafWebAcl: aws.wafv2.WebAcl;
@@ -60,7 +61,7 @@ export class ApiGatewayComponent extends BaseComponent {
             }
         });
 
-        // Register the manager instance as a target
+        // Register the manager instance as a target for the public ALB
         new aws.lb.TargetGroupAttachment("boundless-tg-attachment", {
             targetGroupArn: this.targetGroup.arn,
             targetId: config.managerPrivateIp,
@@ -82,6 +83,38 @@ export class ApiGatewayComponent extends BaseComponent {
             }
         });
 
+        // Create separate target group for the internal ALB
+        // AWS doesn't allow a target group to be associated with more than one load balancer
+        this.internalTargetGroup = new aws.lb.TargetGroup("boundless-internal-tg", {
+            name: `${this.config.stackName}-prover-internal`,
+            port: 8081,
+            protocol: "HTTP",
+            vpcId: config.vpcId,
+            targetType: "ip",
+            healthCheck: {
+                enabled: true,
+                healthyThreshold: 2,
+                interval: 30,
+                port: "traffic-port",
+                protocol: "HTTP",
+                path: "/health",
+                timeout: 5,
+                unhealthyThreshold: 2,
+            },
+            tags: {
+                Name: `${this.config.stackName}-prover-internal`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
+        });
+
+        // Register the manager instance as a target for the internal ALB
+        new aws.lb.TargetGroupAttachment("boundless-internal-tg-attachment", {
+            targetGroupArn: this.internalTargetGroup.arn,
+            targetId: config.managerPrivateIp,
+            port: 8081,
+        });
+
         // Create ALB listener for HTTP (port 80) on public ALB
         new aws.lb.Listener("boundless-alb-listener", {
             loadBalancerArn: this.alb.arn,
@@ -100,7 +133,7 @@ export class ApiGatewayComponent extends BaseComponent {
             protocol: "HTTP",
             defaultActions: [{
                 type: "forward",
-                targetGroupArn: this.targetGroup.arn,
+                targetGroupArn: this.internalTargetGroup.arn,
             }],
         });
 
