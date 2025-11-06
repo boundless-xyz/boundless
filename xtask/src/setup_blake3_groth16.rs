@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use clap::Parser;
-use rlimit::{INFINITY, Resource, setrlimit};
+use rlimit::{setrlimit, Resource, INFINITY};
 use std::path::PathBuf;
-use xshell::{Shell, cmd};
+use xshell::{cmd, Shell};
 
 const CIRCOM_WITNESSCALC_URL: &str = "https://github.com/iden3/circom-witnesscalc.git";
 const CIRCOM_WITNESSCALC_COMMIT: &str = "b7ff0ffd9c72c8f60896ce131ee98a35aba96009"; // 0.2.1
@@ -42,15 +42,11 @@ const CIRCUIT_FILES: &[&str] = &[
 
 fn download_circuits(sh: &Shell) {
     if !sh.path_exists("risc0-to-bitvm2") {
-        cmd!(sh, "git clone {RISC0_TO_BITVM2_URL} risc0-to-bitvm2")
-            .run()
-            .unwrap();
+        cmd!(sh, "git clone {RISC0_TO_BITVM2_URL} risc0-to-bitvm2").run().unwrap();
     }
     {
         let _cd = sh.push_dir("risc0-to-bitvm2");
-        cmd!(sh, "git checkout {RISC0_TO_BITVM2_COMMIT}")
-            .run()
-            .unwrap();
+        cmd!(sh, "git checkout {RISC0_TO_BITVM2_COMMIT}").run().unwrap();
         cmd!(sh, "git lfs pull").run().unwrap();
     }
     sh.create_dir("groth16_proof").unwrap();
@@ -62,12 +58,7 @@ fn download_circuits(sh: &Shell) {
         sh.copy_file(&src, &dst).unwrap();
     }
     // Delete the last line of stark_verify.circom so that we only use its template
-    cmd!(
-        sh,
-        "sed -i '$d' ./groth16_proof/circuits/stark_verify.circom"
-    )
-    .run()
-    .unwrap();
+    cmd!(sh, "sed -i '$d' ./groth16_proof/circuits/stark_verify.circom").run().unwrap();
 }
 
 impl SetupBlake3Groth16 {
@@ -82,7 +73,7 @@ impl SetupBlake3Groth16 {
 
         if !sh.path_exists(srs_path.as_path()) {
             let zkey_path = srs_path.as_path().to_path_buf();
-            let url = "https://static.testnet.citrea.xyz/conf/verify_for_guest_final.zkey";
+            let url = "https://static.mainnet.citrea.xyz/verify_for_guest_final.zkey";
             cmd!(sh, "curl -o {zkey_path} {url}").run().unwrap();
         }
 
@@ -91,9 +82,7 @@ impl SetupBlake3Groth16 {
         download_circuits(&sh);
 
         if !sh.path_exists("circom-witnesscalc") {
-            cmd!(sh, "git clone {CIRCOM_WITNESSCALC_URL}")
-                .run()
-                .unwrap();
+            cmd!(sh, "git clone {CIRCOM_WITNESSCALC_URL}").run().unwrap();
         }
 
         if !sh.path_exists("circomlib") {
@@ -107,43 +96,28 @@ impl SetupBlake3Groth16 {
         let build_circuit = "circom-witnesscalc/target/release/build-circuit";
         if !sh.path_exists(build_circuit) {
             let _cd = sh.push_dir("circom-witnesscalc");
-            cmd!(sh, "git checkout {CIRCOM_WITNESSCALC_COMMIT}")
-                .run()
-                .unwrap();
-            cmd!(sh, "cargo build --release -p build-circuit")
-                .run()
-                .unwrap();
+            cmd!(sh, "git checkout {CIRCOM_WITNESSCALC_COMMIT}").run().unwrap();
+            cmd!(sh, "cargo build --release -p build-circuit").run().unwrap();
         }
 
         let stark_verify_circom = setup_dir.join("groth16_proof/circuits/verify_for_guest.circom");
         if !sh.path_exists(&stark_verify_circom) {
-            panic!(
-                "Run from top of workspace. Could not find: {}",
-                stark_verify_circom.display()
-            );
+            panic!("Run from top of workspace. Could not find: {}", stark_verify_circom.display());
         }
 
         let graph_path = setup_dir.join("verify_for_guest_graph.bin");
         // verify_for_guest.circom -> verify_for_guest_graph.bin
         if !sh.path_exists(graph_path.as_path()) {
-            cmd!(sh, "{build_circuit} {stark_verify_circom} {graph_path}")
-                .run()
-                .unwrap();
+            cmd!(sh, "{build_circuit} {stark_verify_circom} {graph_path}").run().unwrap();
         }
 
-                let verifier_sol_path = setup_dir.join("verifier.sol");
+        let verifier_sol_path = setup_dir.join("verifier.sol");
         if !sh.path_exists(verifier_sol_path.as_path()) {
-            tracing::info!(
-                "Exporting Solidity verifier to {}",
-                verifier_sol_path.display()
-            );
+            tracing::info!("Exporting Solidity verifier to {}", verifier_sol_path.display());
             // Export Solidity verifier
-            cmd!(
-                sh,
-                "snarkjs zkey export solidityverifier {srs_path} {verifier_sol_path}"
-            )
-            .run()
-            .unwrap();
+            cmd!(sh, "snarkjs zkey export solidityverifier {srs_path} {verifier_sol_path}")
+                .run()
+                .unwrap();
         }
 
         #[cfg(feature = "cuda")]

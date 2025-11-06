@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use anyhow::{ensure, Result};
 use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
@@ -43,7 +43,6 @@ const IC0_Y: &str = "20069629286434534534516684991063672335613842540347999544849
 const IC1_X: &str = "19282603452922066135228857769519044667044696173320493211119861249451600114594";
 const IC1_Y: &str = "11966256187809052800087108088094647243345273965264062329687482664981607072161";
 
-
 /// Verifies the soundness of a Groth16Seal against the BLAKE3 claim digest.
 pub fn verify(seal: &Groth16Seal, blake3_claim_digest: impl Into<Digest>) -> Result<()> {
     let ark_proof = from_seal(&seal.to_vec());
@@ -72,10 +71,7 @@ pub fn get_r0_verifying_key() -> risc0_groth16::VerifyingKey {
 
 pub fn verifier_parameters() -> risc0_zkvm::Groth16ReceiptVerifierParameters {
     let vk: risc0_groth16::VerifyingKey = get_r0_verifying_key();
-    risc0_zkvm::Groth16ReceiptVerifierParameters {
-        verifying_key: vk,
-        ..Default::default()
-    }
+    risc0_zkvm::Groth16ReceiptVerifierParameters { verifying_key: vk, ..Default::default() }
 }
 
 fn from_seal(seal_bytes: &[u8]) -> ark_groth16::Proof<ark_bn254::Bn254> {
@@ -109,42 +105,21 @@ fn from_seal(seal_bytes: &[u8]) -> ark_groth16::Proof<ark_bn254::Bn254> {
 }
 
 pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<ark_bn254::Bn254> {
-    let alpha_g1 = G1Affine::new(
-        Fq::from_str(ALPHA_X).unwrap(),
-        Fq::from_str(ALPHA_Y).unwrap(),
-    );
+    let alpha_g1 = G1Affine::new(Fq::from_str(ALPHA_X).unwrap(), Fq::from_str(ALPHA_Y).unwrap());
 
     let beta_g2 = G2Affine::new(
-        Fq2::new(
-            Fq::from_str(BETA_X2).unwrap(),
-            Fq::from_str(BETA_X1).unwrap(),
-        ),
-        Fq2::new(
-            Fq::from_str(BETA_Y2).unwrap(),
-            Fq::from_str(BETA_Y1).unwrap(),
-        ),
+        Fq2::new(Fq::from_str(BETA_X2).unwrap(), Fq::from_str(BETA_X1).unwrap()),
+        Fq2::new(Fq::from_str(BETA_Y2).unwrap(), Fq::from_str(BETA_Y1).unwrap()),
     );
 
     let gamma_g2 = G2Affine::new(
-        Fq2::new(
-            Fq::from_str(GAMMA_X2).unwrap(),
-            Fq::from_str(GAMMA_X1).unwrap(),
-        ),
-        Fq2::new(
-            Fq::from_str(GAMMA_Y2).unwrap(),
-            Fq::from_str(GAMMA_Y1).unwrap(),
-        ),
+        Fq2::new(Fq::from_str(GAMMA_X2).unwrap(), Fq::from_str(GAMMA_X1).unwrap()),
+        Fq2::new(Fq::from_str(GAMMA_Y2).unwrap(), Fq::from_str(GAMMA_Y1).unwrap()),
     );
 
     let delta_g2 = G2Affine::new(
-        Fq2::new(
-            Fq::from_str(DELTA_X2).unwrap(),
-            Fq::from_str(DELTA_X1).unwrap(),
-        ),
-        Fq2::new(
-            Fq::from_str(DELTA_Y2).unwrap(),
-            Fq::from_str(DELTA_Y1).unwrap(),
-        ),
+        Fq2::new(Fq::from_str(DELTA_X2).unwrap(), Fq::from_str(DELTA_X1).unwrap()),
+        Fq2::new(Fq::from_str(DELTA_Y2).unwrap(), Fq::from_str(DELTA_Y1).unwrap()),
     );
 
     let gamma_abc_g1 = vec![
@@ -152,13 +127,7 @@ pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<ark_bn254::Bn254> {
         G1Affine::new(Fq::from_str(IC1_X).unwrap(), Fq::from_str(IC1_Y).unwrap()),
     ];
 
-    ark_groth16::VerifyingKey {
-        alpha_g1,
-        beta_g2,
-        gamma_g2,
-        delta_g2,
-        gamma_abc_g1,
-    }
+    ark_groth16::VerifyingKey { alpha_g1, beta_g2, gamma_g2, delta_g2, gamma_abc_g1 }
 }
 
 #[cfg(test)]
