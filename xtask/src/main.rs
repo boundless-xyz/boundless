@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+mod bootstrap_blake3_groth16;
 mod setup_blake3_groth16;
 
 #[derive(Parser)]
@@ -11,12 +12,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     SetupBlake3Groth16(crate::setup_blake3_groth16::SetupBlake3Groth16),
+    BootstrapBlake3Groth16(crate::bootstrap_blake3_groth16::BootstrapBlake3Groth16),
 }
 
 impl Commands {
     fn run(&self) {
         match self {
             Commands::SetupBlake3Groth16(cmd) => cmd.run(),
+            Commands::BootstrapBlake3Groth16(cmd) => cmd.run(),
         }
     }
 }
