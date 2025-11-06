@@ -2912,15 +2912,12 @@ pub(crate) mod tests {
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_compressed_receipt(proof_id).await
         }
-        async fn shrink_bitvm2(&self, _proof_id: &str) -> Result<String, ProverError> {
-            todo!("Shrink BitVM is not implemented yet");
+        async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError> {
+            self.default_prover.shrink_bitvm2(proof_id).await
         }
 
-        async fn get_bitvm2_receipt(
-            &self,
-            _proof_id: &str,
-        ) -> Result<Option<Receipt>, ProverError> {
-            todo!("Shrink BitVM is not implemented yet");
+        async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_bitvm2_receipt(proof_id).await
         }
     }
 
