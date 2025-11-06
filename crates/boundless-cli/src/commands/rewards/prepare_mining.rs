@@ -338,14 +338,14 @@ fn check_work_receipt<T: Borrow<WorkReceipt>>(
     // NOTE: If nonce_max does not have the same log ID as nonce_min, the exec will fail.
     ensure!(
         work_claim.nonce_min.log == log_id,
-        "Receipt has a log ID that does not match the reward address: receipt: {:x}, work log: {:x}",
+        "Receipt has a log ID that does not match the work log: receipt: {:x}, work log: {:x}",
         work_claim.nonce_min.log,
         log_id
     );
 
     ensure!(
         work_claim.nonce_max.log == log_id,
-        "Receipt has a log ID that does not match the reward address: receipt: {:x}, work log: {:x}",
+        "Receipt has a log ID that does not match the work log: receipt: {:x}, work log: {:x}",
         work_claim.nonce_max.log,
         log_id
     );
