@@ -412,34 +412,8 @@ impl Prover for DefaultProver {
         let proof_id = format!("snark_{}", Uuid::new_v4());
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
-        tracing::debug!("shrink bitvm2 identity_p254 for proof {proof_id}");
-
-        let compress_result: Result<Receipt, _> = tokio::task::spawn_blocking(move || {
-            tracing::debug!(
-                "r0vm does not currently support shrink_bitvm2, compressing will be done locally"
-            );
-            let journal: [u8; 32] = receipt.journal.bytes.as_slice().try_into().map_err(|_| {
-                ProverError::UnexpectedError(anyhow!(
-                    "Failed to convert journal to [u8; 32] as expected for blake3 groth16",
-                ))
-            })?;
-
-            let succinct_receipt = receipt.inner.succinct().unwrap().clone();
-            let seal = shrink_bitvm2::succinct_to_bitvm2(&succinct_receipt, journal)
-                .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?;
-            shrink_bitvm2::finalize(
-                journal,
-                receipt.claim().map_err(|e| ProverError::UnexpectedError(anyhow!(e)))?,
-                &seal.try_into().map_err(|_| {
-                    ProverError::UnexpectedError(anyhow!(
-                        "Failed to convert blake3 groth16 seal from json"
-                    ))
-                })?,
-            )
-            .map_err(|e| ProverError::UnexpectedError(anyhow!(e)))
-        })
-        .await
-        .unwrap();
+        let compress_result =
+            shrink_bitvm2::compress_bitvm2(&receipt).await.map_err(ProverError::from);
 
         let compressed_bytes = compress_result
             .as_ref()
