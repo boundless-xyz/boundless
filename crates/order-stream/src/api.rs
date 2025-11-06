@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,17 +15,18 @@
 use alloy::primitives::Address;
 use anyhow::Context;
 use axum::extract::{Json, Path, Query, State};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use boundless_market::order_stream_client::{
     ErrMsg, Nonce, OrderData, SubmitOrderRes, AUTH_GET_NONCE, HEALTH_CHECK, ORDER_LIST_PATH,
-    ORDER_SUBMISSION_PATH,
+    ORDER_LIST_PATH_V2, ORDER_SUBMISSION_PATH,
 };
-use serde::Deserialize;
-use sqlx::types::chrono;
+use serde::{Deserialize, Serialize};
+use sqlx::types::chrono::{self, DateTime, Utc};
 use std::sync::Arc;
 use utoipa::IntoParams;
 
 use crate::{
-    order_db::{DbOrder, OrderDbErr},
+    order_db::{DbOrder, OrderDbErr, SortDirection},
     AppError, AppState, Order,
 };
 
@@ -68,6 +69,56 @@ pub struct Pagination {
     /// ISO 8601 timestamp to fetch orders created after this time (only used with sort=desc)
     #[serde(default)]
     after: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CursorData {
+    timestamp: DateTime<Utc>,
+    id: i64,
+}
+
+fn encode_cursor(timestamp: DateTime<Utc>, id: i64) -> Result<String, AppError> {
+    let cursor_data = CursorData { timestamp, id };
+    let json = serde_json::to_string(&cursor_data)
+        .map_err(|e| AppError::InternalErr(anyhow::anyhow!("Failed to serialize cursor: {}", e)))?;
+    Ok(BASE64.encode(json))
+}
+
+fn decode_cursor(cursor_str: &str) -> Result<(DateTime<Utc>, i64), AppError> {
+    let json =
+        BASE64.decode(cursor_str).map_err(|_| AppError::QueryParamErr("cursor: invalid base64"))?;
+    let cursor_data: CursorData = serde_json::from_slice(&json)
+        .map_err(|_| AppError::QueryParamErr("cursor: invalid format"))?;
+    Ok((cursor_data.timestamp, cursor_data.id))
+}
+
+/// Paging query parameters for v2 API
+#[derive(Deserialize, IntoParams)]
+pub struct PaginationV2 {
+    /// Base64-encoded cursor from previous response for pagination
+    #[serde(default)]
+    cursor: Option<String>,
+    /// Limit of orders returned, max 1000 (default 100)
+    #[serde(default)]
+    limit: Option<u64>,
+    /// Sort order: "asc" or "desc" (default "desc")
+    #[serde(default)]
+    sort: Option<String>,
+    /// ISO 8601 timestamp to fetch orders created before this time
+    #[serde(default)]
+    #[param(value_type = Option<String>)]
+    before: Option<DateTime<Utc>>,
+    /// ISO 8601 timestamp to fetch orders created after this time
+    #[serde(default)]
+    #[param(value_type = Option<String>)]
+    after: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ListOrdersV2Response {
+    pub orders: Vec<DbOrder>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
 }
 
 #[utoipa::path(
@@ -113,6 +164,65 @@ pub(crate) async fn list_orders(
     };
 
     Ok(Json(results))
+}
+
+const DEFAULT_LIMIT_V2: u64 = 100;
+
+#[utoipa::path(
+    get,
+    path = ORDER_LIST_PATH_V2,
+    params(
+        PaginationV2,
+    ),
+    responses(
+        (status = 200, description = "list of orders with pagination info", body = ListOrdersV2Response),
+        (status = 500, description = "Internal error", body = ErrMsg)
+    )
+)]
+/// Returns a list of orders with cursor-based pagination and flexible filtering (v2).
+pub(crate) async fn list_orders_v2(
+    State(state): State<Arc<AppState>>,
+    paging: Query<PaginationV2>,
+) -> Result<Json<ListOrdersV2Response>, AppError> {
+    let limit = paging.limit.unwrap_or(DEFAULT_LIMIT_V2);
+    let limit = if limit > MAX_ORDERS { MAX_ORDERS } else { limit };
+    let limit_i64 = i64::try_from(limit).map_err(|_| AppError::QueryParamErr("limit"))?;
+
+    let sort = match paging.sort.as_deref() {
+        Some("asc") => SortDirection::Asc,
+        Some("desc") | None => SortDirection::Desc,
+        _ => return Err(AppError::QueryParamErr("sort: must be 'asc' or 'desc'")),
+    };
+
+    let cursor =
+        if let Some(cursor_str) = &paging.cursor { Some(decode_cursor(cursor_str)?) } else { None };
+
+    // Request one extra item to efficiently determine if more pages exist
+    // without needing a separate COUNT query. If we get limit+1 items back,
+    // we know there are more results, and we discard the extra item.
+    let limit_plus_one = limit_i64 + 1;
+    let mut orders = state
+        .db
+        .list_orders_v2(cursor, limit_plus_one, sort, paging.before, paging.after)
+        .await
+        .context("Failed to query DB")?;
+
+    let has_more = orders.len() > limit as usize;
+    if has_more {
+        orders.pop();
+    }
+
+    let next_cursor = if has_more && !orders.is_empty() {
+        let last_order = orders.last().unwrap();
+        let timestamp = last_order.created_at.ok_or_else(|| {
+            AppError::InternalErr(anyhow::anyhow!("Order missing created_at timestamp"))
+        })?;
+        Some(encode_cursor(timestamp, last_order.id)?)
+    } else {
+        None
+    };
+
+    Ok(Json(ListOrdersV2Response { orders, next_cursor, has_more }))
 }
 
 #[utoipa::path(

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,13 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{DefaultProver, OrderFulfilled};
+use crate::{OrderFulfilled, OrderFulfiller};
 use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
-use boundless_market::{
-    contracts::boundless_market::{FulfillmentTx, UnlockedRequest},
-    storage::fetch_url,
-};
+use boundless_market::contracts::boundless_market::{FulfillmentTx, UnlockedRequest};
 use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};
@@ -79,26 +76,10 @@ impl ProverFulfill {
 
         display.header("Fulfilling Proof Requests");
         display.item_colored("Request IDs", &request_ids_string, "cyan");
-        display.status("Status", "Configuring prover", "yellow");
+        display.status("Status", "Initializing prover and fetching images", "yellow");
 
-        prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
-
-        display.status("Status", "Fetching programs", "yellow");
-        let (_, market_url) = client.boundless_market.image_info().await?;
-        tracing::debug!("Fetching Assessor program from {}", market_url);
-        let assessor_program = fetch_url(&market_url).await?;
-        let domain = client.boundless_market.eip712_domain().await?;
-
-        let (_, set_builder_url) = client.set_verifier.image_info().await?;
-        tracing::debug!("Fetching SetBuilder program from {}", set_builder_url);
-        let set_builder_program = fetch_url(&set_builder_url).await?;
-
-        let prover = DefaultProver::new(
-            set_builder_program,
-            assessor_program,
-            client.boundless_market.caller(),
-            domain,
-        )?;
+        // Initialize fulfiller with prover setup and image uploads
+        let fulfiller = OrderFulfiller::initialize_from_config(&prover_config, &client).await?;
 
         let fetch_order_jobs = self.request_ids.iter().enumerate().map(|(i, request_id)| {
             let client = client.clone();
@@ -145,7 +126,7 @@ impl ProverFulfill {
         }
 
         display.status("Status", "Generating proofs", "yellow");
-        let (fills, root_receipt, assessor_receipt) = prover.fulfill(&orders).await?;
+        let (fills, root_receipt, assessor_receipt) = fulfiller.fulfill(&orders).await?;
         let order_fulfilled = OrderFulfilled::new(fills, root_receipt, assessor_receipt)?;
         let boundless_market = client.boundless_market.clone();
 

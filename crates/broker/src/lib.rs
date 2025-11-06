@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -64,7 +64,7 @@ pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
 pub(crate) mod prioritization;
-pub(crate) mod provers;
+pub mod provers;
 pub(crate) mod proving;
 pub(crate) mod reaper;
 pub(crate) mod requestor_monitor;

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -40,10 +40,10 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
 
     left_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify left receipt integrity")?;
+        .context("[BENTO-JOINPOVW-001] Failed to verify left receipt integrity")?;
     right_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify right receipt integrity")?;
+        .context("[BENTO-JOINPOVW-002] Failed to verify right receipt integrity")?;
 
     tracing::debug!("Starting POVW join of receipts {} and {}", request.left, request.right);
 
@@ -58,14 +58,14 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
 
     joined_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify joined POVW receipt integrity")?;
+        .context("[BENTO-JOINPOVW-003] Failed to verify joined POVW receipt integrity")?;
 
     tracing::debug!("Completed POVW join: {} and {}", request.left, request.right);
 
     // Store the joined POVW receipt (this is what finalization will need to unwrap)
     let povw_output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{}", request.idx);
-    let povw_receipt_asset =
-        serialize_obj(&joined_receipt).context("Failed to serialize joined POVW receipt")?;
+    let povw_receipt_asset = serialize_obj(&joined_receipt)
+        .context("[BENTO-JOINPOVW-004] Failed to serialize joined POVW receipt")?;
 
     redis::set_key_with_expiry(
         &mut conn,
@@ -74,11 +74,11 @@ pub async fn join_povw(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Resul
         Some(agent.args.redis_ttl),
     )
     .await
-    .context("Failed to write joined POVW receipt to Redis")?;
+    .context("[BENTO-JOINPOVW-005] Failed to write joined POVW receipt to Redis")?;
 
     conn.unlink::<_, ()>(&[&left_receipt_key, &right_receipt_key])
         .await
-        .context("Failed to delete POVW join receipt keys")?;
+        .context("[BENTO-JOINPOWV-006] Failed to delete POVW join receipt keys")?;
 
     Ok(())
 }

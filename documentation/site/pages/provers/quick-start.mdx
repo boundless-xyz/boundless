@@ -1,20 +1,6 @@
 import { YoutubeEmbed } from '../../components/youtube-embed';
 
 # Quick Start (Prove)
-## Video Walkthrough
-
-:::note[Boundless has launched Mainnet]
-This video was recorded early July 2025 during Boundless Mainnet Beta; there have been some further changes to the setup process. For the latest commands, make sure to check the tutorial below.
-:::
-
-To run your prover on Base Mainnet, follow the steps in the video below and make sure to set your RPC endpoint to Base mainnet i.e:
-
-```bash [Terminal]
-export RPC_URL="https://base-mainnet.g.alchemy.com/v2/{YOUR_ALCHEMY_APP_ID}"`
-```
-
-<YoutubeEmbed videoId="MZqU-J-fW2M" />
-
 
 ## Requirements
 
@@ -39,7 +25,7 @@ To get started, first clone the Boundless monorepo on your proving machine, and 
 ```bash [Terminal]
 git clone https://github.com/boundless-xyz/boundless
 cd boundless
-git checkout release-1.0
+git checkout release-1.1
 ```
 
 ## Install Dependencies
@@ -68,7 +54,11 @@ export PRIVATE_KEY=""
 export RPC_URL=""
 ```
 
-This is the private key to the wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using an [Alchemy](https://alchemy.com) endpoint for the network you want to prove on.
+This is the private key to the wallet which will represent your prover on the market; make sure it has funds. For the RPC url, we recommend using either [Alchemy](https://alchemy.com) or [Quicknode](https://www.quicknode.com/) paid RPC endpoints.
+
+:::warning
+Note that the free RPC plans from either provider *will not* work for longer than a few hours, and therefore this may cause a prover to get slashed, if free RPC limits are hit, after some orders are locked.
+:::
 
 ## Running a Test Proof
 
@@ -83,7 +73,7 @@ Boundless is comprised of two major components:
 To get started with a test proof on a new proving machine, you'll need to install the `bento_cli`:
 
 ```bash [Terminal]
-cargo install --locked --git https://github.com/boundless-xyz/boundless bento-client --branch release-1.0 --bin bento_cli
+cargo install --locked --git https://github.com/boundless-xyz/boundless bento-client --branch release-1.1 --bin bento_cli
 ```
 Once installed, you can run bento with:
 
@@ -107,6 +97,36 @@ If everything works, you should see something like the following:
 
 ![Bento CLI Test Proof Success](/test-proof.png)
 
+## Running the Prover Setup Wizard
+
+Once Bento is running successfully, it is time to configure the [broker](/provers/proving-stack#what-is-the-broker). The [Boundless CLI](/developers/tooling/cli) provides an interactive setup wizard to help configure the [broker.toml](/provers/broker#settings-in-brokertoml) and [compose.yml](https://github.com/boundless-xyz/boundless/blob/main/compose.yml) files.
+
+### Install the Boundless CLI
+
+First, install the Boundless CLI (the Boundless CLI is separate to the Bento CLI we installed earlier):
+
+```bash
+cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.1 --bin boundless
+```
+
+Once installed, run `boundless` to check it has been installed properly:
+
+![Boundless CLI Homescreen](/boundless_cli_main.png)
+
+### Run the Prover Setup Wizard
+
+To run the prover setup wizard, run:
+
+```bash
+boundless prover generate-config
+```
+
+and an interactive prompt will appear:
+
+![Boundless CLI Prover Setup Wizard](/prover-setup-wizard.png)
+
+Answer the questions as required, based on your setup and requirements. Once finished, the broker.toml and compose.yml files will be created/edited.
+
 ## Running the Broker
 
 :::tip[Need technical support?]
@@ -114,14 +134,6 @@ For technical support, please post your questions on the [Boundless Discussions 
 :::
 
 We have checked that bento successfully generated a test proof. We are now ready to run the broker so that we can start proving on Boundless.
-
-### Install the Boundless CLI
-
-Before we start, we'll need to install the *Boundless CLI* (which is separate to the Bento CLI we installed earlier):
-
-```bash [Terminal]
-cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.0 --bin boundless
-```
 
 ### Deposit Collateral
 
@@ -131,7 +143,7 @@ cargo install --locked --git https://github.com/boundless-xyz/boundless boundles
 Therefore, to use *$ZKC* as proving collateral, provers have to first [bridge *$ZKC*](/zkc/collateral) from Ethereum mainnet to Base mainnet.
 :::
 
-With the environment variables set, you can now deposit *$ZKC* tokens as collateral to your account balance:
+With the [environment variables](/provers/quick-start#setup-environment-variables) set, you can now deposit *$ZKC* tokens as collateral to your account balance:
 
 ```bash [Terminal]
 boundless account deposit-collateral 50

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -49,11 +49,11 @@ const HOUR: Duration = Duration::from_secs(60 * 60);
 /// Claim mining rewards associated with submitted work log updates
 #[derive(Args, Clone, Debug)]
 pub struct RewardsClaimMiningRewards {
-    /// Work log ID for the reward claim (defaults to reward address from config)
+    /// Reward address for the claim (defaults to reward address from config)
     ///
-    /// State for submitted updates is retrieved from the chain using the ID. Note that initiating
-    /// the claim can be done for any log ID and does not require authorization.
-    #[arg(long = "log-id")]
+    /// State for submitted updates is retrieved from the chain using this address. Note that initiating
+    /// the claim can be done for any address and does not require authorization.
+    #[arg(long = "reward-address")]
     log_id: Option<PovwLogId>,
 
     /// URL for an Ethereum Beacon chain (i.e. consensus chain) API
@@ -101,7 +101,7 @@ impl RewardsClaimMiningRewards {
         } else if let Some(reward_addr) = rewards_config.reward_address {
             reward_addr.into()
         } else {
-            bail!("No log ID provided and no reward address configured.\n\nTo configure: run 'boundless rewards setup' and set a reward address\nOr provide --log-id parameter")
+            bail!("No reward address provided and no reward address configured.\n\nTo configure: run 'boundless rewards setup' and set a reward address\nOr provide --reward-address parameter")
         };
 
         let display = DisplayManager::new();

@@ -1,7 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import * as crypto from "crypto";
-import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
+import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
 
 export interface LaunchTemplateConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -120,6 +119,16 @@ echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
 echo "COMPONENT_TYPE=${componentType}" >> /etc/environment
 /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
+/usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+# Add CloudWatch agent configuration that is manager-specific
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json << 'EOF'
+{
+  "metrics": {
+    "aggregation_dimensions": [["InstanceId"]]
+  }
+}
+EOF
 
 # Ethereum configuration
 echo "RPC_URL=${rpcUrl}" >> /etc/environment
@@ -196,6 +205,7 @@ curl -f http://localhost:9000/minio/health/live > /dev/null 2>&1 && echo "MinIO 
 
 systemctl daemon-reload
 systemctl restart vector
+systemctl restart amazon-cloudwatch-agent
 systemctl start bento-api.service bento-broker.service
 systemctl enable bento-api.service bento-broker.service`;
             return Buffer.from(userDataScript).toString('base64');
@@ -221,6 +231,29 @@ systemctl enable bento-api.service bento-broker.service`;
             switch (config.componentType) {
                 case "prover":
                     serviceFile = "bento-prover.service";
+                    componentSpecificVars = `
+# Prover-specific variables and commands
+
+# Add prover-specific CloudWatch agent configuration
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/gpu_metrics.json << 'EOF'
+{
+  "metrics": {
+    "metrics_collected": {
+      "nvidia_gpu": {
+        "measurement": [
+          "utilization_gpu",
+          "memory_total",
+          "memory_used",
+          "memory_free",
+          "power_draw",
+          "temperature_gpu"
+        ]
+      }
+    }
+  }
+}
+EOF
+`;
                     break;
                 case "execution":
                     serviceFile = "bento-executor.service";
@@ -243,6 +276,7 @@ ${componentSpecificVars}
 cp /etc/systemd/system/${serviceFile} /etc/systemd/system/bento.service
 systemctl daemon-reload
 systemctl restart vector
+systemctl restart amazon-cloudwatch-agent
 systemctl start bento.service
 systemctl enable bento.service`;
 
@@ -274,6 +308,17 @@ echo "S3_SECRET_KEY=${minioPass}" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
 echo "COMPONENT_TYPE=${componentType}" >> /etc/environment
-/usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml`;
+/usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
+/usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}-cluster",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+# Add CloudWatch agent configuration common to all worker clusters
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json << 'EOF'
+{
+  "metrics": {
+    "aggregation_dimensions": [["AutoScalingGroupName"]]
+  }
+}
+EOF
+`;
     }
 }

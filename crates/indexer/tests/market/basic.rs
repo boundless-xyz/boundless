@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{process::Command, time::Duration};
+use std::{process::Command, sync::Arc, time::Duration};
 
 use assert_cmd::Command as AssertCommand;
 
@@ -23,16 +23,17 @@ use alloy::{
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
-use boundless_cli::{DefaultProver, OrderFulfilled};
+use boundless_cli::{OrderFulfilled, OrderFulfiller};
 use boundless_indexer::test_utils::TestDb;
 use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
     Requirements,
 };
 use boundless_test_utils::{
-    guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
+    guests::{ECHO_ID, ECHO_PATH},
     market::create_test_ctx,
 };
+use broker::provers::DefaultProver as BrokerDefaultProver;
 use sqlx::Row;
 
 async fn create_order(
@@ -52,9 +53,9 @@ async fn create_order(
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
             rampUpStart: now - 3,
-            timeout: 12,
+            timeout: 24,
             rampUpPeriod: 1,
-            lockTimeout: 12,
+            lockTimeout: 24,
             lockCollateral: U256::from(0),
         },
     );
@@ -91,13 +92,10 @@ async fn test_e2e() {
 
     println!("{exe_path} {args:?}");
 
-    let prover = DefaultProver::new(
-        SET_BUILDER_ELF.to_vec(),
-        ASSESSOR_GUEST_ELF.to_vec(),
-        ctx.prover_signer.address(),
-        ctx.customer_market.eip712_domain().await.unwrap(),
-    )
-    .unwrap();
+    let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
+    let prover = OrderFulfiller::initialize(Arc::new(BrokerDefaultProver::default()), &client)
+        .await
+        .unwrap();
 
     #[allow(clippy::zombie_processes)]
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
@@ -229,13 +227,10 @@ async fn test_monitoring() {
 
     println!("{exe_path} {args:?}");
 
-    let prover = DefaultProver::new(
-        SET_BUILDER_ELF.to_vec(),
-        ASSESSOR_GUEST_ELF.to_vec(),
-        ctx.prover_signer.address(),
-        ctx.customer_market.eip712_domain().await.unwrap(),
-    )
-    .unwrap();
+    let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
+    let prover = OrderFulfiller::initialize(Arc::new(BrokerDefaultProver::default()), &client)
+        .await
+        .unwrap();
 
     #[allow(clippy::zombie_processes)]
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
