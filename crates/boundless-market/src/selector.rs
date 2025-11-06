@@ -38,8 +38,8 @@ pub enum ProofType {
     Groth16,
     /// Inclusion proof type.
     Inclusion,
-    /// BitVM2 compatible Groth16 proof type.
-    ShrinkBitvm2,
+    /// BitVM compatible blake3 Groth16 proof type.
+    Blake3Groth16,
 }
 
 /// A struct to hold the supported selectors.
@@ -55,8 +55,8 @@ impl Default for SupportedSelectors {
             .with_selector(UNSPECIFIED_SELECTOR, ProofType::Any)
             .with_selector(FixedBytes::from(Selector::groth16_latest() as u32), ProofType::Groth16)
             .with_selector(
-                FixedBytes::from(Selector::shrink_bitvm2_latest() as u32),
-                ProofType::ShrinkBitvm2,
+                FixedBytes::from(Selector::blake3_groth16_latest() as u32),
+                ProofType::Blake3Groth16,
             );
         if is_dev_mode() {
             supported_selectors = supported_selectors
@@ -130,13 +130,13 @@ pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
     }
 }
 
-/// Check if a selector is a bitvm2 groth16 selector.
-pub fn is_shrink_bitvm2_selector(selector: FixedBytes<4>) -> bool {
+/// Check if a selector is a blake3 groth16 selector.
+pub fn is_blake3_groth16_selector(selector: FixedBytes<4>) -> bool {
     let sel = Selector::from_bytes(selector.into());
     match sel {
         Some(selector) => {
             selector.get_type() == SelectorType::FakeReceipt
-                || selector.get_type() == SelectorType::ShrinkBitvm2
+                || selector.get_type() == SelectorType::Blake3Groth16
         }
         None => false,
     }

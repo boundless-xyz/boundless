@@ -113,9 +113,9 @@ impl ProvingService {
                             .compress(stark_proof_id)
                             .await
                             .context("Failed to compress proof")?,
-                        CompressionType::ShrinkBitvm2 => self
+                        CompressionType::Blake3Groth16 => self
                             .prover
-                            .shrink_bitvm2(stark_proof_id)
+                            .compress_blake3_groth16(stark_proof_id)
                             .await
                             .context("Failed to shrink proof")?,
                         CompressionType::None => {
@@ -129,9 +129,9 @@ impl ProvingService {
                             );
                             provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
                         }
-                        CompressionType::ShrinkBitvm2 => {
+                        CompressionType::Blake3Groth16 => {
                             tracing::trace!(
-                                "Verifying compressed BitVM2 receipt locally for proof_id: {proof_id}"
+                                "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}"
                             );
                             provers::verify_blake3_groth16_receipt(&self.prover, &proof_id).await?;
                         }

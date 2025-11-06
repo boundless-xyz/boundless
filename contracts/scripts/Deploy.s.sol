@@ -69,12 +69,12 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             console2.log("Added Groth16 verifier to router with selector");
             console2.logBytes4(selector);
 
-            IRiscZeroVerifier _bitvm2_verifier = deployRiscZeroBitvm2Verifier();
-            IRiscZeroSelectable bitvm2_selectable = IRiscZeroSelectable(address(_bitvm2_verifier));
-            bytes4 bitvm_selector = bitvm2_selectable.SELECTOR();
-            verifierRouter.addVerifier(bitvm_selector, _bitvm2_verifier);
-            console2.log("Added BitVM2 verifier to router with selector");
-            console2.logBytes4(bitvm_selector);
+            IRiscZeroVerifier _blake3_g16_verifier = deployRiscZeroBlake3Verifier();
+            IRiscZeroSelectable blake3_g16_selectable = IRiscZeroSelectable(address(_blake3_g16_verifier));
+            bytes4 blake3_g16_selector = blake3_g16_selectable.SELECTOR();
+            verifierRouter.addVerifier(blake3_g16_selector, _blake3_g16_verifier);
+            console2.log("Added Blake3 Groth16 verifier to router with selector");
+            console2.logBytes4(blake3_g16_selector);
 
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.

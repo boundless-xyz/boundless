@@ -553,15 +553,15 @@ impl RequestParams {
         Self { requirements, ..self }
     }
 
-    /// Request a stand-alone Shrink Bitvm2 proof for this request.
+    /// Request a stand-alone Blake3 Groth16 proof for this request.
     ///
     /// This is a convinience method to set the selector on the requirements. Note that calling
     /// [RequestParams::with_requirements] after this function will overwrite the change.
-    pub fn with_shrink_bitvm2_proof(self) -> Self {
+    pub fn with_blake3_groth16_proof(self) -> Self {
         let mut requirements = self.requirements;
         requirements.selector = match crate::util::is_dev_mode() {
             true => Some((Selector::FakeReceipt as u32).into()),
-            false => Some((Selector::shrink_bitvm2_latest() as u32).into()),
+            false => Some((Selector::blake3_groth16_latest() as u32).into()),
         };
         // TODO(ec2): should we automatically set the predicate type to claim digest match here?
         Self { requirements, ..self }

@@ -53,7 +53,7 @@ use boundless_market::{
         Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType, RequestInputType,
     },
     input::GuestEnv,
-    selector::{is_groth16_selector, is_shrink_bitvm2_selector, SupportedSelectors},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
     storage::fetch_url,
     ProofRequest,
 };
@@ -548,17 +548,16 @@ impl OrderFulfiller {
                         .context("Failed to deserialize compressed order receipt")?;
 
                 encode_seal(&compressed_receipt)?
-            } else if is_shrink_bitvm2_selector(req.requirements.selector) {
-                // Compress the STARK proof to Groth16
+            } else if is_blake3_groth16_selector(req.requirements.selector) {
                 let compressed_proof_id = self
                     .prover
-                    .shrink_bitvm2(&proof_ids[i])
+                    .compress_blake3_groth16(&proof_ids[i])
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to compress order proof: {}", e))?;
 
                 let compressed_receipt_bytes = self
                     .prover
-                    .get_bitvm2_receipt(&compressed_proof_id)
+                    .get_blake3_groth16_receipt(&compressed_proof_id)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to get compressed order receipt: {}", e))?
                     .ok_or_else(|| anyhow::anyhow!("Compressed order receipt not found"))?;
@@ -633,7 +632,7 @@ mod tests {
     use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
     use boundless_test_utils::market::create_test_ctx;
     use risc0_ethereum_contracts::selector::Selector;
-    use shrink_bitvm2::ShrinkBitvm2ReceiptClaim;
+    use shrink_bitvm2::Blake3Groth16ReceiptClaim;
     use std::sync::Arc;
 
     async fn setup_proving_request_and_signature(
@@ -695,15 +694,15 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_fulfill_shrink_bitvm2_selector() {
+    async fn test_fulfill_blake3_groth16_selector() {
         let input = [255u8; 32].to_vec(); // Example output data
         let blake3_claim_digest =
-            ShrinkBitvm2ReceiptClaim::ok(Digest::from(ECHO_ID), input.clone()).digest();
+            Blake3Groth16ReceiptClaim::ok(Digest::from(ECHO_ID), input.clone()).digest();
         let signer = PrivateKeySigner::random();
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
             Requirements::new(Predicate::claim_digest_match(blake3_claim_digest))
-                .with_selector(FixedBytes::from(Selector::shrink_bitvm2_latest() as u32)),
+                .with_selector(FixedBytes::from(Selector::blake3_groth16_latest() as u32)),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&input).build_inline().unwrap(),
             Offer::default(),

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// A claim about the guest program execution, such as the journal.
 /// The digest of this is what the BLAKE3 Groth16 proof outputs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ShrinkBitvm2ReceiptClaim {
+pub struct Blake3Groth16ReceiptClaim {
     pub pre: MaybePruned<SystemState>,
     pub post: MaybePruned<SystemState>,
     /// Note: This journal has to be exactly 32 bytes
@@ -18,7 +18,7 @@ pub struct ShrinkBitvm2ReceiptClaim {
     pub control_id: Digest,
 }
 
-impl ShrinkBitvm2ReceiptClaim {
+impl Blake3Groth16ReceiptClaim {
     pub fn ok(image_id: impl Into<Digest>, journal: impl Into<Vec<u8>>) -> Self {
         Self::ok_with_ctx(image_id, journal, VerifierContext::default())
             .expect("default verifier context is expected to supply succinct verifier parameters")
@@ -37,10 +37,7 @@ impl ShrinkBitvm2ReceiptClaim {
         Ok(Self {
             control_root,
             pre: MaybePruned::Pruned(image_id.into()),
-            post: MaybePruned::Value(SystemState {
-                pc: 0,
-                merkle_root: Digest::ZERO,
-            }),
+            post: MaybePruned::Value(SystemState { pc: 0, merkle_root: Digest::ZERO }),
             control_id: crate::BN254_IDENTITY_CONTROL_ID,
             journal: journal.into(),
         })
@@ -87,7 +84,7 @@ impl ShrinkBitvm2ReceiptClaim {
     }
 }
 
-impl risc0_binfmt::Digestible for ShrinkBitvm2ReceiptClaim {
+impl risc0_binfmt::Digestible for Blake3Groth16ReceiptClaim {
     fn digest<S: Sha256>(&self) -> Digest {
         self.claim_digest_inner::<S>()
     }

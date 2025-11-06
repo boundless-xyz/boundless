@@ -82,6 +82,7 @@ pub(crate) async fn create_uri_handler(
 
     match uri.scheme() {
         "file" => {
+            // TODO(ec2): uncomment this.
             // if !is_dev_mode() {
             //     return Err(StorageErr::UnsupportedScheme("file".to_string()));
             // }

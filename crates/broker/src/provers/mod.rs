@@ -142,11 +142,11 @@ pub(crate) async fn verify_blake3_groth16_receipt(
 ) -> Result<(), ProverError> {
     tracing::trace!("Verifying Blake3 Groth16 receipt locally for proof_id: {proof_id}");
 
-    let receipt_bytes = prover.get_bitvm2_receipt(proof_id).await?.ok_or_else(|| {
+    let receipt_bytes = prover.get_blake3_groth16_receipt(proof_id).await?.ok_or_else(|| {
         ProverError::NotFound(format!("Blake3 Groth16 receipt not found: {proof_id}"))
     })?;
 
-    let receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
+    let _receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
         ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
     })?;
 
@@ -194,8 +194,11 @@ pub trait Prover {
     async fn get_journal(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
     async fn compress(&self, proof_id: &str) -> Result<String, ProverError>;
     async fn get_compressed_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
-    async fn shrink_bitvm2(&self, proof_id: &str) -> Result<String, ProverError>;
-    async fn get_bitvm2_receipt(&self, proof_id: &str) -> Result<Option<Vec<u8>>, ProverError>;
+    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError>;
+    async fn get_blake3_groth16_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError>;
 }
 
 pub type ProverObj = Arc<dyn Prover + Send + Sync>;
