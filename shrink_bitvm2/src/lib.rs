@@ -26,7 +26,7 @@ pub async fn compress_bitvm2(receipt: &Receipt) -> Result<Receipt> {
     let receipt = receipt.clone();
     #[cfg(not(feature = "prove"))]
     {
-        Err(anyhow!(
+        Err(anyhow::anyhow!(
             "shrink_bitvm2 must be built with the 'prove' feature to compress receipts locally"
         ))
     }
@@ -82,7 +82,7 @@ fn shrink_wrap(
     #[cfg(feature = "cuda")]
     let proof_json = prove::cuda::shrink_wrap(work_dir, seal_json)?;
     #[cfg(not(feature = "cuda"))]
-    let proof_json = prove::rapidsnark::shrink_wrap(work_dir, seal_json)?;
+    let proof_json = prove::docker::shrink_wrap(work_dir, seal_json)?;
 
     Ok(proof_json)
 }
@@ -149,7 +149,7 @@ fn is_dev_mode() -> bool {
 mod tests {
     use super::*;
     use guest_util::ECHO_ELF;
-    use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts};
+    use risc0_zkvm::{default_prover, sha::Digestible, ExecutorEnv, ProverOpts};
 
     #[tokio::test]
     #[test_log::test]
