@@ -69,7 +69,7 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Create internal Application Load Balancer for VPC access
         this.internalAlb = new aws.lb.LoadBalancer("boundless-internal-alb", {
-            name: `${this.config.stackName}-prover-internal`,
+            name: `${this.config.stackName}-internal`,
             internal: true, // Internal ALB - only accessible from within VPC
             loadBalancerType: "application",
             subnets: config.privateSubnetIds, // Use private subnets
