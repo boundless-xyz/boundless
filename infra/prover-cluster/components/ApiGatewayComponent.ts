@@ -106,10 +106,6 @@ export class ApiGatewayComponent extends BaseComponent {
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
-        }, {
-            // Retain old target group during replacement to avoid deletion conflicts
-            // The old target group will need to be manually deleted after the update
-            retainOnDelete: true,
         });
 
         // Register the manager instance as a target for the internal ALB
@@ -131,7 +127,8 @@ export class ApiGatewayComponent extends BaseComponent {
         });
 
         // Create ALB listener for HTTP (port 80) on internal ALB
-        // The listener will automatically update to use the new target group when it's created
+        // Use deleteBeforeReplace to ensure old listener is removed before creating new one
+        // This is necessary if the old listener was using the wrong target group
         new aws.lb.Listener("boundless-internal-alb-listener", {
             loadBalancerArn: this.internalAlb.arn,
             port: 80,
@@ -142,6 +139,7 @@ export class ApiGatewayComponent extends BaseComponent {
             }],
         }, {
             dependsOn: [this.internalTargetGroup],
+            deleteBeforeReplace: true,
         });
 
         // Create WAF Web ACL with API key enforcement (only for public ALB)
