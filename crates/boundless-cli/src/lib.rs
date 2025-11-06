@@ -625,6 +625,7 @@ mod tests {
         primitives::{FixedBytes, Signature, U256},
         signers::local::PrivateKeySigner,
     };
+    use blake3_groth16::Blake3Groth16ReceiptClaim;
     use boundless_market::contracts::{
         eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         UNSPECIFIED_SELECTOR,
@@ -632,7 +633,6 @@ mod tests {
     use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
     use boundless_test_utils::market::create_test_ctx;
     use risc0_ethereum_contracts::selector::Selector;
-    use shrink_bitvm2::Blake3Groth16ReceiptClaim;
     use std::sync::Arc;
 
     async fn setup_proving_request_and_signature(

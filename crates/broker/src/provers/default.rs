@@ -413,7 +413,7 @@ impl Prover for DefaultProver {
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         let compress_result =
-            shrink_bitvm2::compress_blake3_groth16(&receipt).await.map_err(ProverError::from);
+            blake3_groth16::compress_blake3_groth16(&receipt).await.map_err(ProverError::from);
 
         let compressed_bytes = compress_result
             .as_ref()
@@ -593,8 +593,8 @@ mod tests {
         let groth16_seal = Groth16Seal::decode(&groth16_receipt.seal)
             .expect("Failed to create Groth16 seal from receipt");
         let claim_digest =
-            shrink_bitvm2::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data).claim_digest();
-        shrink_bitvm2::verify::verify(&groth16_seal, claim_digest)
+            blake3_groth16::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data).claim_digest();
+        blake3_groth16::verify::verify(&groth16_seal, claim_digest)
             .expect("Failed to verify Shrink to blake3 groth16 receipt");
     }
 }
