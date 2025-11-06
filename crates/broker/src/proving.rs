@@ -122,7 +122,23 @@ impl ProvingService {
                             unreachable!("Compression type should not be None here")
                         }
                     };
-                    provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                    match compression_type {
+                        CompressionType::Groth16 => {
+                            tracing::trace!(
+                                "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}"
+                            );
+                            provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                        }
+                        CompressionType::ShrinkBitvm2 => {
+                            tracing::trace!(
+                                "Verifying compressed BitVM2 receipt locally for proof_id: {proof_id}"
+                            );
+                            provers::verify_blake3_groth16_receipt(&self.prover, &proof_id).await?;
+                        }
+                        CompressionType::None => {
+                            unreachable!("Compression type should not be None here")
+                        }
+                    }
                     Ok::<String, provers::ProverError>(proof_id)
                 },
                 "compress_and_verify",
