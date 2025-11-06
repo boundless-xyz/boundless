@@ -7,7 +7,7 @@ use risc0_zkvm::{ReceiptClaim, SuccinctReceipt};
 #[cfg(feature = "cuda")]
 pub(crate) mod cuda;
 #[cfg(not(feature = "cuda"))]
-pub(crate) mod rapidsnark;
+pub(crate) mod docker;
 pub(crate) mod witgen;
 
 pub(crate) fn identity_seal_json(
