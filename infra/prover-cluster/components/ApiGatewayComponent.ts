@@ -10,8 +10,10 @@ export interface ApiGatewayComponentConfig extends BaseComponentConfig {
 
 export class ApiGatewayComponent extends BaseComponent {
     public readonly alb: aws.lb.LoadBalancer;
+    public readonly internalAlb: aws.lb.LoadBalancer;
     public readonly targetGroup: aws.lb.TargetGroup;
     public readonly albUrl: pulumi.Output<string>;
+    public readonly internalAlbUrl: pulumi.Output<string>;
     public readonly wafWebAcl: aws.wafv2.WebAcl;
     private readonly apiKey: pulumi.Output<string>;
 
@@ -65,7 +67,22 @@ export class ApiGatewayComponent extends BaseComponent {
             port: 8081,
         });
 
-        // Create ALB listener for HTTP (port 80)
+        // Create internal Application Load Balancer for VPC access
+        this.internalAlb = new aws.lb.LoadBalancer("boundless-internal-alb", {
+            name: `${this.config.stackName}-prover-internal`,
+            internal: true, // Internal ALB - only accessible from within VPC
+            loadBalancerType: "application",
+            subnets: config.privateSubnetIds, // Use private subnets
+            enableDeletionProtection: false,
+            securityGroups: [config.securityGroupId],
+            tags: {
+                Name: `${this.config.stackName}-prover-internal`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
+        });
+
+        // Create ALB listener for HTTP (port 80) on public ALB
         new aws.lb.Listener("boundless-alb-listener", {
             loadBalancerArn: this.alb.arn,
             port: 80,
@@ -76,25 +93,19 @@ export class ApiGatewayComponent extends BaseComponent {
             }],
         });
 
-        // Get VPC CIDR block to allow internal requests without API key
-        const vpc = config.vpcId.apply(id => aws.ec2.getVpc({ id }));
-        const vpcCidr = vpc.apply(v => v.cidrBlock);
-
-        // Create IP set for VPC CIDR
-        const vpcIpSet = new aws.wafv2.IpSet("boundless-vpc-ipset", {
-            name: `${this.config.stackName}-vpc`,
-            description: "IP set for VPC CIDR to allow internal requests",
-            scope: "REGIONAL",
-            ipAddressVersion: "IPV4",
-            addresses: vpcCidr.apply(cidr => [cidr]),
-            tags: {
-                Name: `${this.config.stackName}-prover-vpc-ipset`,
-                Environment: this.config.stackName,
-                Component: "api-gateway"
-            }
+        // Create ALB listener for HTTP (port 80) on internal ALB
+        new aws.lb.Listener("boundless-internal-alb-listener", {
+            loadBalancerArn: this.internalAlb.arn,
+            port: 80,
+            protocol: "HTTP",
+            defaultActions: [{
+                type: "forward",
+                targetGroupArn: this.targetGroup.arn,
+            }],
         });
 
-        // Create WAF Web ACL with API key enforcement
+        // Create WAF Web ACL with API key enforcement (only for public ALB)
+        // Internal ALB doesn't need WAF since it's only accessible from within VPC
         this.wafWebAcl = new aws.wafv2.WebAcl("boundless-waf", {
             name: `${this.config.stackName}-prover`,
             description: "WAF for Boundless Bento API with API key enforcement",
@@ -103,23 +114,6 @@ export class ApiGatewayComponent extends BaseComponent {
                 block: {}
             },
             rules: [
-                {
-                    name: "VpcRule",
-                    priority: 0,
-                    action: {
-                        allow: {}
-                    },
-                    statement: {
-                        ipSetReferenceStatement: {
-                            arn: vpcIpSet.arn
-                        }
-                    },
-                    visibilityConfig: {
-                        cloudwatchMetricsEnabled: true,
-                        metricName: "VpcRule",
-                        sampledRequestsEnabled: true
-                    }
-                },
                 {
                     name: "ApiKeyRule",
                     priority: 1,
@@ -195,7 +189,8 @@ export class ApiGatewayComponent extends BaseComponent {
             webAclArn: this.wafWebAcl.arn
         });
 
-        // Set the ALB URL for external access
+        // Set the ALB URLs
         this.albUrl = this.alb.dnsName.apply(dnsName => `http://${dnsName}`);
+        this.internalAlbUrl = this.internalAlb.dnsName.apply(dnsName => `http://${dnsName}`);
     }
 }
