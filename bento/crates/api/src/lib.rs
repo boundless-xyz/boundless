@@ -156,7 +156,9 @@ impl IntoResponse for AppError {
             Self::ImgAlreadyExists(_)
             | Self::InputAlreadyExists(_)
             | Self::ReceiptAlreadyExists(_) => StatusCode::NO_CONTENT,
-            Self::ReceiptMissing(_) | Self::JournalMissing(_) | Self::InputMissing(_) => StatusCode::NOT_FOUND,
+            Self::ReceiptMissing(_) | Self::JournalMissing(_) | Self::InputMissing(_) => {
+                StatusCode::NOT_FOUND
+            }
             Self::InternalErr(_) | Self::DbError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
