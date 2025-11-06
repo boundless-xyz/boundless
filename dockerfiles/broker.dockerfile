@@ -41,6 +41,7 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 COPY shrink_bitvm2/ ./shrink_bitvm2/
+COPY xtask/ ./xtask/
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM init AS builder
@@ -60,6 +61,8 @@ COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
+COPY shrink_bitvm2/ ./shrink_bitvm2/
+COPY xtask/ ./xtask/
 
 ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build
