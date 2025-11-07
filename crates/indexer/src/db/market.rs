@@ -585,6 +585,15 @@ pub trait IndexerDb {
         period_start: u64,
         period_end: u64,
     ) -> Result<u64, DbError>;
+
+    /// Gets request digests using cursor-based pagination.
+    /// Returns digests greater than the cursor, ordered by digest value.
+    /// Used for backfilling request statuses.
+    async fn get_request_digests_paginated(
+        &self,
+        cursor: Option<B256>,
+        limit: i64,
+    ) -> Result<Vec<B256>, DbError>;
 }
 
 pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
@@ -2091,6 +2100,65 @@ impl IndexerDb for AnyDb {
         .fetch_one(&self.pool)
         .await?;
         Ok(count as u64)
+    }
+
+    async fn get_request_digests_paginated(
+        &self,
+        cursor: Option<B256>,
+        limit: i64,
+    ) -> Result<Vec<B256>, DbError> {
+        let rows = if let Some(cursor) = cursor {
+            let cursor_hex = format!("0x{:x}", cursor);
+            sqlx::query(
+                "SELECT DISTINCT request_digest FROM (
+                    SELECT request_digest FROM proof_requests
+                    UNION
+                    SELECT request_digest FROM request_submitted_events
+                    UNION
+                    SELECT request_digest FROM request_locked_events
+                    UNION
+                    SELECT request_digest FROM request_fulfilled_events
+                    UNION
+                    SELECT request_digest FROM proof_delivered_events
+                ) AS all_digests
+                WHERE request_digest > $1
+                ORDER BY request_digest
+                LIMIT $2"
+            )
+            .bind(cursor_hex)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT DISTINCT request_digest FROM (
+                    SELECT request_digest FROM proof_requests
+                    UNION
+                    SELECT request_digest FROM request_submitted_events
+                    UNION
+                    SELECT request_digest FROM request_locked_events
+                    UNION
+                    SELECT request_digest FROM request_fulfilled_events
+                    UNION
+                    SELECT request_digest FROM proof_delivered_events
+                ) AS all_digests
+                ORDER BY request_digest
+                LIMIT $1"
+            )
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        let mut digests = Vec::new();
+        for row in rows {
+            let digest_hex: String = row.try_get("request_digest")?;
+            let digest = B256::from_str(&digest_hex)
+                .map_err(|e| DbError::BadTransaction(format!("Invalid digest: {}", e)))?;
+            digests.push(digest);
+        }
+
+        Ok(digests)
     }
 }
 

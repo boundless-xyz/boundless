@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import * as crypto from 'crypto';
 import { createRustLambda } from './rust-lambda';
 import { Severity } from '../../util';
 
@@ -9,8 +10,10 @@ export interface IndexerApiArgs {
   vpcId: pulumi.Input<string>;
   /** Private subnets for Lambda to attach to */
   privSubNetIds: pulumi.Input<pulumi.Input<string>[]>;
-  /** RDS Url secret */
-  dbUrlSecret: aws.secretsmanager.Secret;
+  /** RDS Reader Url secret (for read-only queries) */
+  dbReaderUrlSecret: aws.secretsmanager.Secret;
+  /** Hash of DB secrets to trigger Lambda updates when secrets change */
+  secretHash: pulumi.Output<string>;
   /** RDS sg ID */
   rdsSgId: pulumi.Input<string>;
   /** Indexer Security Group ID (that has access to RDS) */
@@ -76,7 +79,7 @@ export class IndexerApi extends pulumi.ComponentResource {
     );
 
     // Create inline policy for Secrets Manager access
-    const inlinePolicy = pulumi.all([args.dbUrlSecret.arn]).apply(([secretArn]) =>
+    const inlinePolicy = pulumi.all([args.dbReaderUrlSecret.arn]).apply(([secretArn]) =>
       JSON.stringify({
         Version: '2012-10-17',
         Statement: [
@@ -98,12 +101,18 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Use the existing indexer security group that already has access to RDS
-    // This is the same security group used by the ECS tasks
+    // Combine secret hash from infra with local env variables
+    // So that we can trigger a Lambda update when the secrets change
+    const envHash = args.secretHash.apply((infraSecretHash) => {
+      const hash = crypto.createHash('sha1');
+      hash.update(infraSecretHash);
+      hash.update(args.rustLogLevel);
+      return hash.digest('hex');
+    });
 
-    // Get database URL from secret
+    // Get database URL from secret (reader endpoint for read-only queries)
     const dbUrl = aws.secretsmanager.getSecretVersionOutput({
-      secretId: args.dbUrlSecret.id,
+      secretId: args.dbReaderUrlSecret.id,
     }).secretString;
 
     // Create the Lambda function
@@ -115,6 +124,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       environmentVariables: {
         DB_URL: dbUrl,
         RUST_LOG: args.rustLogLevel,
+        SECRET_HASH: envHash,
       },
       memorySize: 256,
       timeout: 30,

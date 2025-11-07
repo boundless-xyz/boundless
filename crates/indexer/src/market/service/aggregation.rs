@@ -250,7 +250,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn compute_period_summary(
+    pub async fn compute_period_summary(
         &self,
         period_start: u64,
         period_end: u64,

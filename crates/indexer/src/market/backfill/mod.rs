@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod backfill;
-pub mod cache;
-pub mod pricing;
-pub mod service;
+mod service;
 
-pub use service::{IndexerService, IndexerServiceConfig, ServiceError};
+pub use service::{BackfillMode, BackfillService};

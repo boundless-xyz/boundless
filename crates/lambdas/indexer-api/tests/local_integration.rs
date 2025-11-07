@@ -59,7 +59,7 @@ const END_BLOCK: u32 = 23395398;
 // Market indexer configuration for Base network
 const BOUNDLESS_MARKET_ADDRESS: &str = "0xfd152dadc5183870710fe54f939eae3ab9f0fe82";
 const MARKET_START_BLOCK: u32 = 37833057;
-const MARKET_END_BLOCK: u32 = 37840000;
+const MARKET_END_BLOCK: u32 = 37835000;
 
 /// Shared test environment that persists across all tests
 struct SharedTestEnv {

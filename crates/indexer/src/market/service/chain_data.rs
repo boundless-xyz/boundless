@@ -87,7 +87,7 @@ where
         Ok(logs)
     }
 
-    pub(super) async fn block_timestamp(&mut self, block_number: u64) -> Result<u64, ServiceError> {
+    pub async fn block_timestamp(&mut self, block_number: u64) -> Result<u64, ServiceError> {
         // Check in-memory cache first
         if let Some(ts) = self.block_num_to_timestamp.get(&block_number) {
             return Ok(*ts);

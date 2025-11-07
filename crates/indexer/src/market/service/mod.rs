@@ -47,9 +47,9 @@ use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
 
-const SECONDS_PER_HOUR: u64 = 3600;
-const SECONDS_PER_DAY: u64 = 86400;
-const SECONDS_PER_WEEK: u64 = 604800;
+pub const SECONDS_PER_HOUR: u64 = 3600;
+pub const SECONDS_PER_DAY: u64 = 86400;
+pub const SECONDS_PER_WEEK: u64 = 604800;
 const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 3;
 const DAILY_AGGREGATION_RECOMPUTE_DAYS: u64 = 3;
 const WEEKLY_AGGREGATION_RECOMPUTE_WEEKS: u64 = 3;

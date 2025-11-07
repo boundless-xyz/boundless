@@ -39,6 +39,9 @@ use boundless_test_utils::{
 use sqlx::{AnyPool, Row};
 use tracing_test::traced_test;
 
+// Constant for indexer wait time between actions
+const INDEXER_WAIT_DURATION: Duration = Duration::from_secs(4);
+
 // Helper struct for hourly summary data
 #[derive(Debug)]
 struct HourlySummaryRow {
@@ -260,7 +263,7 @@ async fn test_e2e() {
     tracing::info!("After fulfilling order: now: {}, block_number: {}", now2, block_number2);
 
     // Wait for the events to be indexed
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Check that the request was indexed
     let result = sqlx::query("SELECT * FROM proof_requests WHERE request_id == $1")
@@ -449,7 +452,7 @@ async fn test_monitoring() {
         if now > request.expires_at() {
             break;
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(INDEXER_WAIT_DURATION).await;
     }
 
     // fetch requests ids that expired in the last 30 seconds
@@ -510,7 +513,7 @@ async fn test_monitoring() {
     ctx.prover_market.fulfill(fulfillment).await.unwrap();
 
     // Wait for the events to be indexed
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     let now = ctx
         .customer_provider
@@ -772,7 +775,7 @@ async fn test_aggregation_across_hours() {
     provider.anvil_mine(Some(1), None).await.unwrap();
 
     // Wait for the events to be indexed and aggregated
-    tokio::time::sleep(Duration::from_secs(4)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Check hourly aggregation across multiple hours
     let summary_count = count_hourly_summaries(&pool).await;
@@ -944,7 +947,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     // For some reason initial anvil block timestamps is in the future. Our time must advance past the anvil block timestampbefore we submit our off chain orders, 
     // since the indexer uses block timestmaps to filter the order stream to avoid re-processing orders from the past.
     while now < block_timestamp {
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(INDEXER_WAIT_DURATION).await;
         now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         tracing::info!("Now: {}, anvil block timestamp: {}", now, block_timestamp);
     }
@@ -973,7 +976,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     .await;
     order_stream_client.submit_request(&req1, &ctx.customer_signer).await.unwrap();
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     let (req2, _) = create_order(
         &ctx.customer_signer,
@@ -986,7 +989,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     .await;
     order_stream_client.submit_request(&req2, &ctx.customer_signer).await.unwrap();
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     let (req3, _) = create_order(
         &ctx.customer_signer,
@@ -1041,7 +1044,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
 
     // Wait for the indexer to process orders
-    tokio::time::sleep(Duration::from_secs(4)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify all 3 orders were indexed
     let result = sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
@@ -1193,11 +1196,11 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
         Command::new(&exe_path).args(args_receipts).spawn().unwrap();
 
     // Wait for the indexer to process events
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
     cli_process_receipts.kill().ok(); // Kill if still running
     
     // Wait a moment for cleanup
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Run indexer with tx-by-hash strategy
     let args_tx_by_hash = [
@@ -1228,11 +1231,11 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
         Command::new(&exe_path).args(args_tx_by_hash).spawn().unwrap();
 
     // Wait for the indexer to process events
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
     cli_process_tx_by_hash.kill().ok(); // Kill if still running
     
     // Wait a moment for cleanup
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Now compare the results from both databases
     // 1. Compare transaction count
@@ -1460,7 +1463,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify submitted status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1476,7 +1479,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     // Lock request
     ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify locked status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1509,7 +1512,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify fulfilled status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1594,7 +1597,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify submitted status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1607,7 +1610,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     // Lock request
     ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify locked status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1622,7 +1625,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     provider.anvil_set_next_block_timestamp(expires_at + 1).await.unwrap();
     provider.anvil_mine(Some(1), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify expired status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1729,7 +1732,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
 
     provider.anvil_mine(Some(3), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify submitted status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1748,7 +1751,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
 
     provider.anvil_mine(Some(2), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify locked status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1763,7 +1766,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     provider.anvil_set_next_block_timestamp(lock_end as u64 + 1).await.unwrap();
     provider.anvil_mine(Some(1), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Fulfill request (late fulfillment after lock expired)
     let (fill, root_receipt, assessor_receipt) =
@@ -1784,7 +1787,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
 
     provider.anvil_mine(Some(2), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify fulfilled status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;
@@ -1799,11 +1802,11 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     provider.anvil_set_next_block_timestamp(req.expires_at() + 1).await.unwrap();
     provider.anvil_mine(Some(1), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     ctx.prover_market.slash(req.id).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Verify slashed status (fulfilled takes priority, but slashed_status should be set)
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;

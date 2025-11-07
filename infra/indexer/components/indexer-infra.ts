@@ -18,6 +18,8 @@ export class IndexerShared extends pulumi.ComponentResource {
   public readonly rdsSecurityGroupId: pulumi.Output<string>;
   public readonly dbUrlSecret: aws.secretsmanager.Secret;
   public readonly dbUrlSecretVersion: aws.secretsmanager.SecretVersion;
+  public readonly dbReaderUrlSecret: aws.secretsmanager.Secret;
+  public readonly dbReaderUrlSecretVersion: aws.secretsmanager.SecretVersion;
   public readonly secretHash: pulumi.Output<string>;
   public readonly executionRole: aws.iam.Role;
   public readonly taskRole: aws.iam.Role;
@@ -77,9 +79,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
-    const rdsUser = 'indexer';
-    const rdsPort = 5432;
-    const rdsDbName = 'indexerV2';
+
 
     const dbSubnets = new aws.rds.SubnetGroup(`${serviceName}-dbsubnets`, {
       subnetIds: privSubNetIds,
@@ -106,10 +106,16 @@ export class IndexerShared extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
-    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v4`, {
+    const rdsUser = 'indexer';
+    const rdsPort = 5432;
+    // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
+    const databaseVersion = 'V6';
+    const rdsDbName = `indexer${databaseVersion}`;
+
+    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-${databaseVersion}`, {
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      clusterIdentifier: `${serviceName}-aurora-v4`,
+      clusterIdentifier: `${serviceName}-aurora-${databaseVersion}`,
       databaseName: rdsDbName,
       masterUsername: rdsUser,
       masterPassword: rdsPassword,
@@ -121,12 +127,12 @@ export class IndexerShared extends pulumi.ComponentResource {
       storageEncrypted: true,
     }, { parent: this /* protect: true */ });
 
-    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-4`, {
+    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-${databaseVersion}`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
       instanceClass: 'db.t4g.medium',
-      identifier: `${serviceName}-aurora-writer-v4`,
+      identifier: `${serviceName}-aurora-writer-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     }, { parent: this /* protect: true */ });
@@ -138,27 +144,36 @@ export class IndexerShared extends pulumi.ComponentResource {
       secretString: dbUrlSecretValue,
     }, { parent: this, dependsOn: [this.dbUrlSecret] });
 
+    const dbReaderUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.readerEndpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
+    this.dbReaderUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-reader-url-1`, {}, { parent: this });
+    this.dbReaderUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-reader-url-ver-1`, {
+      secretId: this.dbReaderUrlSecret.id,
+      secretString: dbReaderUrlSecretValue,
+    }, { parent: this, dependsOn: [this.dbReaderUrlSecret] });
+
     this.secretHash = pulumi
-      .all([dbUrlSecretValue, this.dbUrlSecretVersion.arn])
-      .apply(([value, versionArn]) => {
+      .all([dbUrlSecretValue, this.dbUrlSecretVersion.arn, dbReaderUrlSecretValue, this.dbReaderUrlSecretVersion.arn])
+      .apply(([writerValue, writerVersionArn, readerValue, readerVersionArn]) => {
         const hash = crypto.createHash('sha1');
-        hash.update(value);
-        hash.update(versionArn);
+        hash.update(writerValue);
+        hash.update(writerVersionArn);
+        hash.update(readerValue);
+        hash.update(readerVersionArn);
         return hash.digest('hex');
       });
 
     const dbSecretAccessPolicy = new aws.iam.Policy(`${serviceName}-db-url-policy`, {
-      policy: this.dbUrlSecret.arn.apply((secretArn): aws.iam.PolicyDocument => ({
+      policy: pulumi.all([this.dbUrlSecret.arn, this.dbReaderUrlSecret.arn]).apply(([writerArn, readerArn]): aws.iam.PolicyDocument => ({
         Version: '2012-10-17',
         Statement: [
           {
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-            Resource: [secretArn],
+            Resource: [writerArn, readerArn],
           },
         ],
       })),
-    }, { parent: this, dependsOn: [this.dbUrlSecret] });
+    }, { parent: this, dependsOn: [this.dbUrlSecret, this.dbReaderUrlSecret] });
 
     this.executionRole = new aws.iam.Role(`${serviceName}-ecs-role`, {
       assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
@@ -192,7 +207,7 @@ export class IndexerShared extends pulumi.ComponentResource {
             {
               Effect: 'Allow',
               Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-              Resource: [this.dbUrlSecret.arn],
+              Resource: [this.dbUrlSecret.arn, this.dbReaderUrlSecret.arn],
             },
           ],
         },
@@ -285,6 +300,7 @@ export class IndexerShared extends pulumi.ComponentResource {
     this.registerOutputs({
       repositoryUrl: this.ecrRepository.repository.repositoryUrl,
       dbUrlSecretArn: this.dbUrlSecret.arn,
+      dbReaderUrlSecretArn: this.dbReaderUrlSecret.arn,
       rdsSecurityGroupId: this.rdsSecurityGroupId,
       taskRoleArn: this.taskRole.arn,
       executionRoleArn: this.executionRole.arn,

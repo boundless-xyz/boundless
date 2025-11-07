@@ -25,7 +25,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub(super) fn compute_request_status(
+    pub fn compute_request_status(
         &self,
         req: crate::db::market::RequestComprehensive,
         current_timestamp: u64,

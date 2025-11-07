@@ -70,7 +70,7 @@ export = () => {
   let marketIndexer: MarketIndexer | undefined;
   if (shouldDeployMarket && boundlessAddress && startBlock) {
     marketIndexer = new MarketIndexer(indexerServiceName, {
-      infra,
+      infra,w
       privSubNetIds,
       ciCacheSecret,
       githubTokenSecret,
@@ -85,7 +85,7 @@ export = () => {
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
-    }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -107,7 +107,7 @@ export = () => {
     }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
-  const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion];
+  const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
   if (marketIndexer) {
     sharedDependencies.push(marketIndexer);
   }
@@ -136,7 +136,8 @@ export = () => {
     api = new IndexerApi(indexerApiServiceName, {
       vpcId: vpcId,
       privSubNetIds: privSubNetIds,
-      dbUrlSecret: infra.dbUrlSecret,
+      dbReaderUrlSecret: infra.dbReaderUrlSecret,
+      secretHash: infra.secretHash,
       rdsSgId: infra.rdsSecurityGroupId,
       indexerSgId: infra.indexerSecurityGroup.id,
       rustLogLevel: rustLogLevel,
