@@ -70,7 +70,7 @@ export = () => {
   let marketIndexer: MarketIndexer | undefined;
   if (shouldDeployMarket && boundlessAddress && startBlock) {
     marketIndexer = new MarketIndexer(indexerServiceName, {
-      infra,w
+      infra,
       privSubNetIds,
       ciCacheSecret,
       githubTokenSecret,
@@ -129,7 +129,6 @@ export = () => {
       marketMetricsNamespace,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
-
 
   let api: IndexerApi | undefined;
   if (shouldDeployMarket && marketIndexer || shouldDeployRewards && rewardsIndexer) {

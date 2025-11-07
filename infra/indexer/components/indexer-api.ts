@@ -101,19 +101,22 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Combine secret hash from infra with local env variables
-    // So that we can trigger a Lambda update when the secrets change
-    const envHash = args.secretHash.apply((infraSecretHash) => {
-      const hash = crypto.createHash('sha1');
-      hash.update(infraSecretHash);
-      hash.update(args.rustLogLevel);
-      return hash.digest('hex');
-    });
+
 
     // Get database URL from secret (reader endpoint for read-only queries)
     const dbUrl = aws.secretsmanager.getSecretVersionOutput({
       secretId: args.dbReaderUrlSecret.id,
     }).secretString;
+
+    // Combine secret hash from infra with local env variables
+    // So that we can trigger a Lambda update when the secrets change
+    const envHash = pulumi.all([dbUrl, args.secretHash]).apply(([dbUrl, infraSecretHash]) => {
+      const hash = crypto.createHash('sha1');
+      hash.update(dbUrl);
+      hash.update(infraSecretHash);
+      hash.update(args.rustLogLevel);
+      return hash.digest('hex');
+    });
 
     // Create the Lambda function
     const { lambda, logGroupName } = createRustLambda(`${serviceName}-lambda`, {

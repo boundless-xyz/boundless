@@ -117,8 +117,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
       }, { parent: this });
     }));
 
-    const marketService = new awsx.ecs.FargateService(`${serviceName}-market-service`, {
-      name: `${serviceName}-market-service`,
+    const marketService = new awsx.ecs.FargateService(`${serviceName}-market-indexer`, {
+      name: `${serviceName}-market-indexer`,
       cluster: infra.cluster.arn,
       networkConfiguration: {
         securityGroups: [infra.indexerSecurityGroup.id],

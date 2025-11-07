@@ -65,6 +65,13 @@ export class IndexerShared extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
+    new aws.s3.BucketOwnershipControls(`${serviceName}-cache-ownership`, {
+      bucket: this.cacheBucket.id,
+      rule: {
+        objectOwnership: 'BucketOwnerEnforced',
+      },
+    }, { parent: this });
+
     this.indexerSecurityGroup = new aws.ec2.SecurityGroup(`${serviceName}-sg`, {
       name: `${serviceName}-sg`,
       vpcId,
@@ -85,6 +92,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       subnetIds: privSubNetIds,
     }, { parent: this });
 
+    const rdsPort = 5432;
     const rdsSecurityGroup = new aws.ec2.SecurityGroup(`${serviceName}-rds`, {
       name: `${serviceName}-rds`,
       vpcId,
@@ -107,9 +115,9 @@ export class IndexerShared extends pulumi.ComponentResource {
     }, { parent: this });
 
     const rdsUser = 'indexer';
-    const rdsPort = 5432;
+
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
-    const databaseVersion = 'V6';
+    const databaseVersion = 'v7';
     const rdsDbName = `indexer${databaseVersion}`;
 
     const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-${databaseVersion}`, {

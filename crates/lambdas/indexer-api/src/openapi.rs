@@ -63,6 +63,7 @@ use utoipa::OpenApi;
         crate::routes::delegations::get_reward_delegation_history_by_address,
         crate::routes::delegations::get_reward_delegation_by_address_and_epoch,
         // Market endpoints
+        crate::routes::market::get_indexing_status,
         crate::routes::market::get_market_aggregates,
         crate::routes::market::list_requests,
         crate::routes::market::get_requests_by_request_id,
@@ -103,6 +104,7 @@ use utoipa::OpenApi;
         RewardDelegationSummaryStats,
 
         // Market types
+        crate::routes::market::IndexingStatusResponse,
         crate::routes::market::MarketAggregatesParams,
         crate::routes::market::MarketAggregateEntry,
         crate::routes::market::MarketAggregatesResponse,

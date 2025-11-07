@@ -36,11 +36,68 @@ use boundless_indexer::db::market::{RequestCursor, RequestSortField, RequestStat
 /// Create market routes
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/", get(get_indexing_status))
         .route("/aggregates", get(get_market_aggregates))
         .route("/requests", get(list_requests))
         .route("/requests/:request_id", get(get_requests_by_request_id))
         .route("/requestors/:address/requests", get(list_requests_by_requestor))
         .route("/provers/:address/requests", get(list_requests_by_prover))
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct IndexingStatusResponse {
+    /// Last indexed block number
+    pub last_indexed_block: u64,
+    /// Last indexed block timestamp (Unix timestamp)
+    pub last_indexed_block_timestamp: i64,
+    /// Last indexed block timestamp (ISO 8601)
+    pub last_indexed_block_timestamp_iso: String,
+}
+
+/// GET /v1/market
+/// Returns the current indexing status
+#[utoipa::path(
+    get,
+    path = "/v1/market",
+    tag = "Market",
+    responses(
+        (status = 200, description = "Indexing status", body = IndexingStatusResponse),
+        (status = 404, description = "No indexing data available"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+async fn get_indexing_status(State(state): State<Arc<AppState>>) -> Response {
+    match get_indexing_status_impl(state).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            res.headers_mut()
+                .insert(header::CACHE_CONTROL, cache_control("public, max-age=10"));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_indexing_status_impl(state: Arc<AppState>) -> anyhow::Result<IndexingStatusResponse> {
+    let last_block = state
+        .market_db
+        .get_last_block()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("No indexing data available"))?;
+
+    let timestamp = state
+        .market_db
+        .get_block_timestamp(last_block)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Block timestamp not found"))?;
+
+    let timestamp_i64 = timestamp as i64;
+
+    Ok(IndexingStatusResponse {
+        last_indexed_block: last_block,
+        last_indexed_block_timestamp: timestamp_i64,
+        last_indexed_block_timestamp_iso: format_timestamp_iso(timestamp_i64),
+    })
 }
 
 const MAX_AGGREGATES: u64 = 1000;
