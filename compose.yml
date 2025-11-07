@@ -36,6 +36,8 @@ x-exec-agent-common: &exec-agent-common
   environment:
     <<: *base-environment
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
+    JOIN_STREAM: 1
+    # UNION_STREAM: "true"
   entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} --redis-ttl ${REDIS_TTL:-57600}
 
 x-broker-environment: &broker-environment
@@ -60,6 +62,8 @@ x-broker-common: &broker-common
     rest_api:
       condition: service_healthy
     gpu_prove_agent0:
+      condition: service_started
+    gpu_join_agent0:
       condition: service_started
     exec_agent:
       condition: service_started
@@ -167,6 +171,41 @@ services:
       - redis
       - minio
 
+  exclusive-mode:
+    image: debian:bookworm-slim
+    command: nvidia-smi -c EXCLUSIVE_PROCESS
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=utility
+    runtime: nvidia
+    network_mode: none
+    cap_add:
+      - SYS_ADMIN
+
+  mps-daemon:
+    image: nvidia/mps
+    container_name: mps-daemon
+    restart: on-failure
+    depends_on:
+      exclusive-mode:
+        condition: service_completed_successfully
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-0}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps
+      - CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps/log
+      - CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=${CUDA_MPS_ACTIVE_THREAD_PERCENTAGE:-100}
+    runtime: nvidia
+    init: true
+    ipc: shareable
+    network_mode: none
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - nvidia_mps:/tmp/nvidia-mps
+
   exec_agent:
     <<: *exec-agent-common
     deploy:
@@ -191,6 +230,23 @@ services:
     <<: *agent-common
     mem_limit: 4G
     cpus: 4
+    environment:
+      <<: *base-environment
+      CUDA_MPS_PIPE_DIRECTORY: /tmp/nvidia-mps
+      CUDA_MPS_LOG_DIRECTORY: /tmp/nvidia-mps/log
+      CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: ${CUDA_MPS_ACTIVE_THREAD_PERCENTAGE:-100}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mps-daemon:
+        condition: service_started
+    volumes:
+      - nvidia_mps:/tmp/nvidia-mps
+    ipc: container:mps-daemon
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
 
     # comment-out if running in CPU proving mode
@@ -200,6 +256,38 @@ services:
           devices:
             - driver: nvidia
               # TODO: how to scale this with N gpus?
+              device_ids: ["0"]
+              capabilities: [gpu]
+
+  gpu_join_agent0:
+    <<: *agent-common
+    mem_limit: 4G
+    cpus: 4
+    environment:
+      <<: *base-environment
+      CUDA_MPS_PIPE_DIRECTORY: /tmp/nvidia-mps
+      CUDA_MPS_LOG_DIRECTORY: /tmp/nvidia-mps/log
+      CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: ${CUDA_MPS_ACTIVE_THREAD_PERCENTAGE:-100}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mps-daemon:
+        condition: service_started
+    volumes:
+      - nvidia_mps:/tmp/nvidia-mps
+    ipc: container:mps-daemon
+    entrypoint: /app/agent -t join --redis-ttl ${REDIS_TTL:-57600}
+
+    # comment-out if running in CPU proving mode
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
               device_ids: ["0"]
               capabilities: [gpu]
 
@@ -294,4 +382,8 @@ volumes:
   minio-data:
   grafana-data:
   broker-data:
+  nvidia_mps:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
   # broker2-data:
