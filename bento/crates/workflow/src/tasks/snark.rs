@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result, bail};
 use risc0_zkvm::{InnerReceipt, ProverOpts, Receipt};
 use workflow_common::{
     CompressType, SnarkReq, SnarkResp,
-    s3::{GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, SHRINK_BITVM2_BUCKET_DIR, STARK_BUCKET_DIR},
+    s3::{BLAKE3_GROTH16_BUCKET_DIR, GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
 };
 
 /// Converts a stark, stored in s3 to a snark
@@ -35,11 +35,11 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
                 .context("groth16 compress failed")?,
             GROTH16_BUCKET_DIR,
         ),
-        CompressType::ShrinkBitvm2 => (
-            shrink_bitvm2::compress_bitvm2(&receipt)
+        CompressType::Blake3Groth16 => (
+            blake3_groth16::compress_blake3_groth16(&receipt)
                 .await
-                .context("shrink blake3 groth16 failed")?,
-            SHRINK_BITVM2_BUCKET_DIR,
+                .context("blake3 groth16 compress failed")?,
+            BLAKE3_GROTH16_BUCKET_DIR,
         ),
     };
     if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {

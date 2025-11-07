@@ -40,7 +40,7 @@ COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
-COPY shrink_bitvm2/ ./shrink_bitvm2/
+COPY blake3_groth16/ ./blake3_groth16/
 COPY xtask/ ./xtask/
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -61,7 +61,7 @@ COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
-COPY shrink_bitvm2/ ./shrink_bitvm2/
+COPY blake3_groth16/ ./blake3_groth16/
 COPY xtask/ ./xtask/
 
 ENV PATH="$PATH:/root/.foundry/bin"
