@@ -110,7 +110,7 @@ fn decode_cursor(cursor_str: &str) -> Result<i64, anyhow::Error> {
     Ok(timestamp)
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MarketAggregateEntry {
     /// Timestamp for this aggregate period (Unix timestamp)
     pub timestamp: i64,
@@ -209,7 +209,7 @@ pub struct MarketAggregateEntry {
     pub locked_orders_fulfillment_rate: f32,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MarketAggregatesResponse {
     /// The aggregation granularity used: hourly, daily, weekly, or monthly
     pub aggregation: AggregationGranularity,
@@ -435,7 +435,7 @@ fn decode_request_cursor(cursor_str: &str) -> Result<RequestCursor, anyhow::Erro
     Ok(cursor)
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RequestStatusResponse {
     /// Request digest (unique identifier)
     pub request_digest: String,
@@ -453,14 +453,24 @@ pub struct RequestStatusResponse {
     pub fulfill_prover_address: Option<String>,
     /// Created timestamp (Unix)
     pub created_at: i64,
+    /// Created timestamp (ISO 8601)
+    pub created_at_iso: String,
     /// Last updated timestamp (Unix)
     pub updated_at: i64,
+    /// Last updated timestamp (ISO 8601)
+    pub updated_at_iso: String,
     /// Locked timestamp (Unix)
     pub locked_at: Option<i64>,
+    /// Locked timestamp (ISO 8601)
+    pub locked_at_iso: Option<String>,
     /// Fulfilled timestamp (Unix)
     pub fulfilled_at: Option<i64>,
+    /// Fulfilled timestamp (ISO 8601)
+    pub fulfilled_at_iso: Option<String>,
     /// Slashed timestamp (Unix)
     pub slashed_at: Option<i64>,
+    /// Slashed timestamp (ISO 8601)
+    pub slashed_at_iso: Option<String>,
     /// Submit block number
     pub submit_block: Option<i64>,
     /// Lock block number
@@ -471,24 +481,40 @@ pub struct RequestStatusResponse {
     pub slashed_block: Option<i64>,
     /// Minimum price (wei)
     pub min_price: String,
+    /// Minimum price (formatted)
+    pub min_price_formatted: String,
     /// Maximum price (wei)
     pub max_price: String,
+    /// Maximum price (formatted)
+    pub max_price_formatted: String,
     /// Lock collateral (wei)
     pub lock_collateral: String,
+    /// Lock collateral (formatted)
+    pub lock_collateral_formatted: String,
     /// Ramp up start timestamp
     pub ramp_up_start: i64,
+    /// Ramp up start timestamp (ISO 8601)
+    pub ramp_up_start_iso: String,
     /// Ramp up period (seconds)
     pub ramp_up_period: i64,
     /// Expires at timestamp
     pub expires_at: i64,
+    /// Expires at timestamp (ISO 8601)
+    pub expires_at_iso: String,
     /// Lock end timestamp
     pub lock_end: i64,
+    /// Lock end timestamp (ISO 8601)
+    pub lock_end_iso: String,
     /// Slash recipient address
     pub slash_recipient: Option<String>,
     /// Slash transferred amount
     pub slash_transferred_amount: Option<String>,
+    /// Slash transferred amount (formatted)
+    pub slash_transferred_amount_formatted: Option<String>,
     /// Slash burned amount
     pub slash_burned_amount: Option<String>,
+    /// Slash burned amount (formatted)
+    pub slash_burned_amount_formatted: Option<String>,
     /// Cycles
     pub cycles: Option<i64>,
     /// Peak prove MHz
@@ -523,7 +549,7 @@ pub struct RequestStatusResponse {
     pub fulfill_seal: Option<String>,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RequestListResponse {
     pub data: Vec<RequestStatusResponse>,
     pub next_cursor: Option<String>,
@@ -531,40 +557,62 @@ pub struct RequestListResponse {
 }
 
 fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
+    let created_at = status.created_at as i64;
+    let updated_at = status.updated_at as i64;
+    let locked_at = status.locked_at.map(|t| t as i64);
+    let fulfilled_at = status.fulfilled_at.map(|t| t as i64);
+    let slashed_at = status.slashed_at.map(|t| t as i64);
+    let ramp_up_start = status.ramp_up_start as i64;
+    let expires_at = status.expires_at as i64;
+    let lock_end = status.lock_end as i64;
+
     RequestStatusResponse {
-        request_digest: format!("{:x}", status.request_digest),
-        request_id: status.request_id,
+        request_digest: format!("{:#x}", status.request_digest),
+        request_id: status.request_id.clone(),
         request_status: status.request_status.to_string(),
         source: status.source,
-        client_address: format!("{:x}", status.client_address),
-        lock_prover_address: status.lock_prover_address.map(|addr| format!("{:x}", addr)),
-        fulfill_prover_address: status.fulfill_prover_address.map(|addr| format!("{:x}", addr)),
-        created_at: status.created_at as i64,
-        updated_at: status.updated_at as i64,
-        locked_at: status.locked_at.map(|t| t as i64),
-        fulfilled_at: status.fulfilled_at.map(|t| t as i64),
-        slashed_at: status.slashed_at.map(|t| t as i64),
+        client_address: format!("{:#x}", status.client_address),
+        lock_prover_address: status.lock_prover_address.map(|addr| format!("{:#x}", addr)),
+        fulfill_prover_address: status.fulfill_prover_address.map(|addr| format!("{:#x}", addr)),
+        created_at,
+        created_at_iso: format_timestamp_iso(created_at),
+        updated_at,
+        updated_at_iso: format_timestamp_iso(updated_at),
+        locked_at,
+        locked_at_iso: locked_at.map(format_timestamp_iso),
+        fulfilled_at,
+        fulfilled_at_iso: fulfilled_at.map(format_timestamp_iso),
+        slashed_at,
+        slashed_at_iso: slashed_at.map(format_timestamp_iso),
         submit_block: status.submit_block.map(|b| b as i64),
         lock_block: status.lock_block.map(|b| b as i64),
         fulfill_block: status.fulfill_block.map(|b| b as i64),
         slashed_block: status.slashed_block.map(|b| b as i64),
-        min_price: status.min_price,
-        max_price: status.max_price,
-        lock_collateral: status.lock_collateral,
-        ramp_up_start: status.ramp_up_start as i64,
+        min_price: status.min_price.clone(),
+        min_price_formatted: format_eth(&status.min_price),
+        max_price: status.max_price.clone(),
+        max_price_formatted: format_eth(&status.max_price),
+        lock_collateral: status.lock_collateral.clone(),
+        lock_collateral_formatted: format_zkc(&status.lock_collateral),
+        ramp_up_start,
+        ramp_up_start_iso: format_timestamp_iso(ramp_up_start),
         ramp_up_period: status.ramp_up_period as i64,
-        expires_at: status.expires_at as i64,
-        lock_end: status.lock_end as i64,
-        slash_recipient: status.slash_recipient.map(|addr| format!("{:x}", addr)),
-        slash_transferred_amount: status.slash_transferred_amount,
-        slash_burned_amount: status.slash_burned_amount,
+        expires_at,
+        expires_at_iso: format_timestamp_iso(expires_at),
+        lock_end,
+        lock_end_iso: format_timestamp_iso(lock_end),
+        slash_recipient: status.slash_recipient.map(|addr| format!("{:#x}", addr)),
+        slash_transferred_amount: status.slash_transferred_amount.clone(),
+        slash_transferred_amount_formatted: status.slash_transferred_amount.as_ref().map(|a| format_zkc(a)),
+        slash_burned_amount: status.slash_burned_amount.clone(),
+        slash_burned_amount_formatted: status.slash_burned_amount.as_ref().map(|a| format_zkc(a)),
         cycles: status.cycles.map(|c| c as i64),
         peak_prove_mhz: status.peak_prove_mhz.map(|m| m as i64),
         effective_prove_mhz: status.effective_prove_mhz.map(|m| m as i64),
-        submit_tx_hash: status.submit_tx_hash.map(|h| format!("{:x}", h)),
-        lock_tx_hash: status.lock_tx_hash.map(|h| format!("{:x}", h)),
-        fulfill_tx_hash: status.fulfill_tx_hash.map(|h| format!("{:x}", h)),
-        slash_tx_hash: status.slash_tx_hash.map(|h| format!("{:x}", h)),
+        submit_tx_hash: status.submit_tx_hash.map(|h| format!("{:#x}", h)),
+        lock_tx_hash: status.lock_tx_hash.map(|h| format!("{:#x}", h)),
+        fulfill_tx_hash: status.fulfill_tx_hash.map(|h| format!("{:#x}", h)),
+        slash_tx_hash: status.slash_tx_hash.map(|h| format!("{:#x}", h)),
         image_id: status.image_id,
         image_url: status.image_url,
         selector: status.selector,
@@ -804,7 +852,14 @@ async fn get_requests_by_request_id_impl(
     state: Arc<AppState>,
     request_id: String,
 ) -> anyhow::Result<Vec<RequestStatusResponse>> {
-    let statuses = state.market_db.get_requests_by_request_id(&request_id).await?;
+    // Parse as U256 to support both with and without 0x prefix
+    let parsed = U256::from_str(&request_id)
+        .map_err(|e| anyhow::anyhow!("Invalid request_id format: {}", e))?;
+
+    // Convert to decimal string for database query (standard U256 format)
+    let normalized_id = parsed.to_string();
+
+    let statuses = state.market_db.get_requests_by_request_id(&normalized_id).await?;
     let data = statuses.into_iter().map(convert_request_status).collect();
     Ok(data)
 }

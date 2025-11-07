@@ -125,8 +125,6 @@ async fn test_staking_address() {
     }
 }
 
-// Removed test_staking_filters - the API doesn't support is_withdrawing filter parameter
-
 #[tokio::test]
 #[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_staking_pagination() {
