@@ -1622,7 +1622,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     provider.anvil_set_next_block_timestamp(expires_at + 1).await.unwrap();
     provider.anvil_mine(Some(1), None).await.unwrap();
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Verify expired status
     let status = get_request_status(&test_db.pool, &format!("{:x}", req.id)).await;

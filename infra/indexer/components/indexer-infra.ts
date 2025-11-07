@@ -79,7 +79,7 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     const rdsUser = 'indexer';
     const rdsPort = 5432;
-    const rdsDbName = 'indexerV1';
+    const rdsDbName = 'indexerV2';
 
     const dbSubnets = new aws.rds.SubnetGroup(`${serviceName}-dbsubnets`, {
       subnetIds: privSubNetIds,

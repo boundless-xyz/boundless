@@ -28,6 +28,10 @@ use sqlx::{
 
 const SQL_BLOCK_KEY: i64 = 0;
 
+// Batch insert chunk size for request statuses
+// Setting too high may result in hitting parameter limits for the db engine.
+const REQUEST_STATUS_BATCH_SIZE: usize = 200;
+
 #[derive(Debug, Clone, Copy)]
 pub enum SortDirection {
     /// Ascending order (oldest first)
@@ -1310,9 +1314,26 @@ impl IndexerDb for AnyDb {
         &self,
         statuses: &[RequestStatus],
     ) -> Result<(), DbError> {
-        for status in statuses {
-            sqlx::query(
-                "INSERT INTO request_status (
+        if statuses.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        for chunk in statuses.chunks(REQUEST_STATUS_BATCH_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 1;
+
+            for _ in chunk {
+                let params: Vec<String> = (param_idx..param_idx + 43)
+                    .map(|i| format!("${}", i))
+                    .collect();
+                values_clauses.push(format!("({})", params.join(",")));
+                param_idx += 43;
+            }
+
+            let query = format!(
+                r#"INSERT INTO request_status (
                     request_digest, request_id, request_status, slashed_status, source, client_address, lock_prover_address, fulfill_prover_address,
                     created_at, updated_at, locked_at, fulfilled_at, slashed_at,
                     submit_block, lock_block, fulfill_block, slashed_block,
@@ -1322,11 +1343,7 @@ impl IndexerDb for AnyDb {
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                    $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43
-                )
+                ) VALUES {}
                 ON CONFLICT (request_digest) DO UPDATE SET
                     request_status = EXCLUDED.request_status,
                     slashed_status = EXCLUDED.slashed_status,
@@ -1349,54 +1366,61 @@ impl IndexerDb for AnyDb {
                     peak_prove_mhz = EXCLUDED.peak_prove_mhz,
                     effective_prove_mhz = EXCLUDED.effective_prove_mhz,
                     fulfill_journal = EXCLUDED.fulfill_journal,
-                    fulfill_seal = EXCLUDED.fulfill_seal"
-            )
-            .bind(status.request_digest.to_string())
-            .bind(&status.request_id)
-            .bind(status.request_status.to_string())
-            .bind(status.slashed_status.to_string())
-            .bind(&status.source)
-            .bind(status.client_address.to_string())
-            .bind(status.lock_prover_address.map(|a| a.to_string()))
-            .bind(status.fulfill_prover_address.map(|a| a.to_string()))
-            .bind(status.created_at as i64)
-            .bind(status.updated_at as i64)
-            .bind(status.locked_at.map(|t| t as i64))
-            .bind(status.fulfilled_at.map(|t| t as i64))
-            .bind(status.slashed_at.map(|t| t as i64))
-            .bind(status.submit_block.map(|b| b as i64))
-            .bind(status.lock_block.map(|b| b as i64))
-            .bind(status.fulfill_block.map(|b| b as i64))
-            .bind(status.slashed_block.map(|b| b as i64))
-            .bind(&status.min_price)
-            .bind(&status.max_price)
-            .bind(&status.lock_collateral)
-            .bind(status.ramp_up_start as i64)
-            .bind(status.ramp_up_period as i64)
-            .bind(status.expires_at as i64)
-            .bind(status.lock_end as i64)
-            .bind(status.slash_recipient.map(|a| a.to_string()))
-            .bind(&status.slash_transferred_amount)
-            .bind(&status.slash_burned_amount)
-            .bind(status.cycles.map(|c| c as i64))
-            .bind(status.peak_prove_mhz.map(|m| m as i64))
-            .bind(status.effective_prove_mhz.map(|m| m as i64))
-            .bind(status.submit_tx_hash.map(|h| h.to_string()))
-            .bind(status.lock_tx_hash.map(|h| h.to_string()))
-            .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
-            .bind(status.slash_tx_hash.map(|h| h.to_string()))
-            .bind(&status.image_id)
-            .bind(&status.image_url)
-            .bind(&status.selector)
-            .bind(&status.predicate_type)
-            .bind(&status.predicate_data)
-            .bind(&status.input_type)
-            .bind(&status.input_data)
-            .bind(&status.fulfill_journal)
-            .bind(&status.fulfill_seal)
-            .execute(&self.pool)
-            .await?;
+                    fulfill_seal = EXCLUDED.fulfill_seal"#,
+                values_clauses.join(",")
+            );
+
+            let mut q = sqlx::query(&query);
+            for status in chunk {
+                q = q
+                    .bind(status.request_digest.to_string())
+                    .bind(&status.request_id)
+                    .bind(status.request_status.to_string())
+                    .bind(status.slashed_status.to_string())
+                    .bind(&status.source)
+                    .bind(status.client_address.to_string())
+                    .bind(status.lock_prover_address.map(|a| a.to_string()))
+                    .bind(status.fulfill_prover_address.map(|a| a.to_string()))
+                    .bind(status.created_at as i64)
+                    .bind(status.updated_at as i64)
+                    .bind(status.locked_at.map(|t| t as i64))
+                    .bind(status.fulfilled_at.map(|t| t as i64))
+                    .bind(status.slashed_at.map(|t| t as i64))
+                    .bind(status.submit_block.map(|b| b as i64))
+                    .bind(status.lock_block.map(|b| b as i64))
+                    .bind(status.fulfill_block.map(|b| b as i64))
+                    .bind(status.slashed_block.map(|b| b as i64))
+                    .bind(&status.min_price)
+                    .bind(&status.max_price)
+                    .bind(&status.lock_collateral)
+                    .bind(status.ramp_up_start as i64)
+                    .bind(status.ramp_up_period as i64)
+                    .bind(status.expires_at as i64)
+                    .bind(status.lock_end as i64)
+                    .bind(status.slash_recipient.map(|a| a.to_string()))
+                    .bind(&status.slash_transferred_amount)
+                    .bind(&status.slash_burned_amount)
+                    .bind(status.cycles.map(|c| c as i64))
+                    .bind(status.peak_prove_mhz.map(|m| m as i64))
+                    .bind(status.effective_prove_mhz.map(|m| m as i64))
+                    .bind(status.submit_tx_hash.map(|h| h.to_string()))
+                    .bind(status.lock_tx_hash.map(|h| h.to_string()))
+                    .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
+                    .bind(status.slash_tx_hash.map(|h| h.to_string()))
+                    .bind(&status.image_id)
+                    .bind(&status.image_url)
+                    .bind(&status.selector)
+                    .bind(&status.predicate_type)
+                    .bind(&status.predicate_data)
+                    .bind(&status.input_type)
+                    .bind(&status.input_data)
+                    .bind(&status.fulfill_journal)
+                    .bind(&status.fulfill_seal);
+            }
+            q.execute(&mut *tx).await?;
         }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -3146,5 +3170,140 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 0);
         assert_eq!(results[0].unique_provers_locking_requests, 0);
         assert_eq!(results[0].total_fees_locked, "0");
+    }
+
+    fn create_test_status(digest: B256, status_type: RequestStatusType) -> RequestStatus {
+        RequestStatus {
+            request_digest: digest,
+            request_id: format!("test_id_{:x}", digest),
+            request_status: status_type,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: Address::ZERO,
+            lock_prover_address: None,
+            fulfill_prover_address: None,
+            created_at: 1234567890,
+            updated_at: 1234567890,
+            locked_at: None,
+            fulfilled_at: None,
+            slashed_at: None,
+            submit_block: Some(100),
+            lock_block: None,
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: 0,
+            ramp_up_period: 10,
+            expires_at: 9999999999,
+            lock_end: 9999999999,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: None,
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test_image".to_string(),
+            image_url: Some("https://test.com".to_string()),
+            selector: "test_selector".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upsert_request_statuses_single_insert() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let digest = B256::from([1; 32]);
+        let status = create_test_status(digest, RequestStatusType::Submitted);
+
+        db.upsert_request_statuses(&[status.clone()]).await.unwrap();
+
+        let result = sqlx::query("SELECT * FROM request_status WHERE request_digest = $1")
+            .bind(digest.to_string())
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+
+        assert_eq!(result.get::<String, _>("request_status"), "submitted");
+        assert_eq!(result.get::<String, _>("request_id"), status.request_id);
+        assert_eq!(result.get::<String, _>("source"), "onchain");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_request_statuses_update_conflict() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let digest = B256::from([2; 32]);
+        let mut status = create_test_status(digest, RequestStatusType::Submitted);
+
+        db.upsert_request_statuses(&[status.clone()]).await.unwrap();
+
+        status.request_status = RequestStatusType::Locked;
+        status.locked_at = Some(1234567900);
+        status.lock_block = Some(200);
+        status.lock_prover_address = Some(Address::from([5; 20]));
+        status.lock_tx_hash = Some(B256::from([3; 32]));
+
+        db.upsert_request_statuses(&[status.clone()]).await.unwrap();
+
+        let result = sqlx::query("SELECT * FROM request_status WHERE request_digest = $1")
+            .bind(digest.to_string())
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+
+        assert_eq!(result.get::<String, _>("request_status"), "locked");
+        assert_eq!(result.get::<Option<i64>, _>("locked_at"), Some(1234567900));
+        assert_eq!(result.get::<Option<i64>, _>("lock_block"), Some(200));
+        assert_eq!(result.get::<String, _>("request_id"), status.request_id);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_request_statuses_batch() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let mut statuses = Vec::new();
+        for i in 0..100 {
+            let digest = B256::from([i as u8; 32]);
+            statuses.push(create_test_status(digest, RequestStatusType::Submitted));
+        }
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_status")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+
+        assert_eq!(count, 100);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_request_statuses_empty() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        db.upsert_request_statuses(&[]).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_status")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+
+        assert_eq!(count, 0);
     }
 }

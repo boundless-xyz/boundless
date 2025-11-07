@@ -242,7 +242,6 @@ where
         // Process each month
         for month_ts in periods {
             let month_end = get_next_month(month_ts);
-            tracing::info!("Computing monthly summary for [{} to {})", month_ts, month_end);
             let summary = self.compute_period_summary(month_ts, month_end).await?;
             self.db.upsert_monthly_market_summary(summary).await?;
         }
