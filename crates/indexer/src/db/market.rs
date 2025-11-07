@@ -139,7 +139,7 @@ pub struct HourlyMarketSummary {
     pub total_expired: u64,
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
-    pub locked_orders_fulfillment_rate: Option<f32>,
+    pub locked_orders_fulfillment_rate: f32,
 }
 
 // Type aliases for different aggregation periods - they all use the same struct
@@ -443,6 +443,10 @@ pub trait IndexerDb {
         after: Option<i64>,
     ) -> Result<Vec<MonthlyMarketSummary>, DbError>;
 
+    /// Upserts request statuses.
+    /// Note on conflict, this function will not update all fields.
+    /// Only the mutable fields e.g. locked_at, fulfilled_at, slashed_at, etc. will be updated.
+    /// Things like image id, offer details, etc. will not be updated.
     async fn upsert_request_statuses(
         &self,
         statuses: &[RequestStatus],
@@ -1233,70 +1237,8 @@ impl IndexerDb for AnyDb {
         &self,
         summary: HourlyMarketSummary,
     ) -> Result<(), DbError> {
-        sqlx::query(
-            "INSERT INTO hourly_market_summary (
-                period_timestamp,
-                total_fulfilled,
-                unique_provers_locking_requests,
-                unique_requesters_submitting_requests,
-                total_fees_locked,
-                total_collateral_locked,
-                p10_fees_locked,
-                p25_fees_locked,
-                p50_fees_locked,
-                p75_fees_locked,
-                p90_fees_locked,
-                p95_fees_locked,
-                p99_fees_locked,
-                total_requests_submitted,
-                total_requests_submitted_onchain,
-                total_requests_submitted_offchain,
-                total_requests_locked,
-                total_requests_slashed,
-                updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
-            ON CONFLICT (period_timestamp) DO UPDATE SET
-                total_fulfilled = EXCLUDED.total_fulfilled,
-                unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
-                unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
-                total_fees_locked = EXCLUDED.total_fees_locked,
-                total_collateral_locked = EXCLUDED.total_collateral_locked,
-                p10_fees_locked = EXCLUDED.p10_fees_locked,
-                p25_fees_locked = EXCLUDED.p25_fees_locked,
-                p50_fees_locked = EXCLUDED.p50_fees_locked,
-                p75_fees_locked = EXCLUDED.p75_fees_locked,
-                p90_fees_locked = EXCLUDED.p90_fees_locked,
-                p95_fees_locked = EXCLUDED.p95_fees_locked,
-                p99_fees_locked = EXCLUDED.p99_fees_locked,
-                total_requests_submitted = EXCLUDED.total_requests_submitted,
-                total_requests_submitted_onchain = EXCLUDED.total_requests_submitted_onchain,
-                total_requests_submitted_offchain = EXCLUDED.total_requests_submitted_offchain,
-                total_requests_locked = EXCLUDED.total_requests_locked,
-                total_requests_slashed = EXCLUDED.total_requests_slashed,
-                updated_at = CURRENT_TIMESTAMP",
-        )
-        .bind(summary.period_timestamp as i64)
-        .bind(summary.total_fulfilled as i64)
-        .bind(summary.unique_provers_locking_requests as i64)
-        .bind(summary.unique_requesters_submitting_requests as i64)
-        .bind(summary.total_fees_locked)
-        .bind(summary.total_collateral_locked)
-        .bind(summary.p10_fees_locked)
-        .bind(summary.p25_fees_locked)
-        .bind(summary.p50_fees_locked)
-        .bind(summary.p75_fees_locked)
-        .bind(summary.p90_fees_locked)
-        .bind(summary.p95_fees_locked)
-        .bind(summary.p99_fees_locked)
-        .bind(summary.total_requests_submitted as i64)
-        .bind(summary.total_requests_submitted_onchain as i64)
-        .bind(summary.total_requests_submitted_offchain as i64)
-        .bind(summary.total_requests_locked as i64)
-        .bind(summary.total_requests_slashed as i64)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
+        self.upsert_market_summary_generic(summary, "hourly_market_summary")
+            .await
     }
 
     async fn get_hourly_market_summaries(
@@ -1525,7 +1467,7 @@ impl IndexerDb for AnyDb {
             .fetch_all(&self.pool)
             .await?;
 
-            tracing::debug!("Query returned {} rows for digest: {}", rows.len(), digest_str);
+            tracing::trace!("Query returned {} rows for digest: {}", rows.len(), digest_str);
 
             if rows.is_empty() {
                 tracing::warn!("No proof_request found for digest: {}", digest_str);
@@ -1591,7 +1533,6 @@ impl IndexerDb for AnyDb {
             let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
             let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
-            // Just return the raw data - status computation will happen in service layer
             requests.push(RequestComprehensive {
                 request_digest,
                 request_id,
@@ -1623,10 +1564,10 @@ impl IndexerDb for AnyDb {
                 fulfill_prover_address,
                 fulfill_block: fulfill_block.map(|b| b as u64),
                 fulfill_tx_hash,
-                cycles: None,  // Will be populated in request_status table
-                peak_prove_mhz: None,  // Will be populated in request_status table
-                effective_prove_mhz: None,  // Will be populated in request_status table
-                fulfill_journal: None,  // Will be populated in request_status table
+                cycles: None,  // TODO
+                peak_prove_mhz: None,  // TODO
+                effective_prove_mhz: None,  // TODO
+                fulfill_journal: None,  // TODO
                 fulfill_seal,
                 slashed_at: slashed_at.map(|t| t as u64),
                 slashed_block: slashed_block.map(|b| b as u64),
@@ -2347,7 +2288,7 @@ impl AnyDb {
                 total_expired: row.get::<i64, _>("total_expired") as u64,
                 total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
                 total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-                locked_orders_fulfillment_rate: row.get::<Option<f64>, _>("locked_orders_fulfillment_rate").map(|v| v as f32),
+                locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
             })
             .collect();
 
@@ -2786,7 +2727,7 @@ mod tests {
                 total_expired: i,
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i,
-                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
+                locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
             };
             db.upsert_hourly_market_summary(summary).await.unwrap();
         }
@@ -2965,7 +2906,7 @@ mod tests {
                 total_expired: i,
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i * 10,
-                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
+                locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }
@@ -3014,7 +2955,7 @@ mod tests {
                 total_expired: i * 10,
                 total_locked_and_expired: i * 5,
                 total_locked_and_fulfilled: i * 100,
-                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
+                locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
             };
             db.upsert_weekly_market_summary(summary).await.unwrap();
         }
@@ -3067,7 +3008,7 @@ mod tests {
                 total_expired: i * 100,
                 total_locked_and_expired: i * 50,
                 total_locked_and_fulfilled: i * 1000,
-                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
+                locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
             };
             db.upsert_monthly_market_summary(summary).await.unwrap();
         }
@@ -3117,7 +3058,7 @@ mod tests {
                 total_expired: i,
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i,
-                locked_orders_fulfillment_rate: if i > 0 { Some(100.0) } else { Some(0.0) },
+                locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }

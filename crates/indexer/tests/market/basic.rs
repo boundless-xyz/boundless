@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{process::Command, time::{Duration, SystemTime}};
+use std::{process::Command, sync::Arc, time::{Duration, SystemTime}};
 
 use assert_cmd::Command as AssertCommand;
 
@@ -56,7 +56,7 @@ struct HourlySummaryRow {
     total_expired: u64,
     total_locked_and_expired: u64,
     total_locked_and_fulfilled: u64,
-    locked_orders_fulfillment_rate: Option<f32>,
+    locked_orders_fulfillment_rate: f32,
 }
 
 async fn count_hourly_summaries(pool: &AnyPool) -> i64 {
@@ -97,7 +97,7 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
             total_expired: row.get::<i64, _>("total_expired") as u64,
             total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
             total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-            locked_orders_fulfillment_rate: row.get::<Option<f64>, _>("locked_orders_fulfillment_rate").map(|v| v as f32),
+            locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
         })
         .collect()
 }
@@ -186,6 +186,8 @@ async fn test_e2e() {
         "1",
         "--retries",
         "0",
+        "--start-block",
+        "0",
     ];
 
     println!("{exe_path} {args:?}");
@@ -202,14 +204,17 @@ async fn test_e2e() {
     let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
 
     // Use the chain's timestamps to avoid inconsistencies with system time.
-    let now = ctx
+    let header = ctx
         .customer_provider
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await
         .unwrap()
         .unwrap()
-        .header
-        .timestamp;
+        .header;
+    
+    let now = header.timestamp;
+    let block_number = header.number;
+    tracing::info!("Before submitting order: now: {}, block_number: {}", now, block_number);
 
     let (request, client_sig) = create_order(
         &ctx.customer_signer,
@@ -240,6 +245,19 @@ async fn test_e2e() {
         )
         .await
         .unwrap();
+
+    // Use the chain's timestamps to avoid inconsistencies with system time.
+    let header2 = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
+    
+    let now2 = header2.timestamp;
+    let block_number2 = header2.number;
+    tracing::info!("After fulfilling order: now: {}, block_number: {}", now2, block_number2);
 
     // Wait for the events to be indexed
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -341,7 +359,7 @@ async fn test_e2e() {
     assert_eq!(summary.total_expired, 0, "Expected 0 expired requests (request was fulfilled)");
     assert_eq!(summary.total_locked_and_expired, 0, "Expected 0 locked and expired requests");
     assert_eq!(summary.total_locked_and_fulfilled, 1, "Expected 1 locked and fulfilled request");
-    assert_eq!(summary.locked_orders_fulfillment_rate, Some(100.0), "Expected 100% fulfillment rate (1/1)");
+    assert_eq!(summary.locked_orders_fulfillment_rate, 100.0, "Expected 100% fulfillment rate (1/1)");
 
     cli_process.kill().unwrap();
 }
@@ -586,7 +604,31 @@ async fn test_monitoring() {
 #[traced_test]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_aggregation_across_hours() {
-    let test_db = TestDb::new().await.unwrap();
+    // Create a persistent database file for debugging
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Create a persistent database file in /tmp for easy debugging
+    let db_filename = format!("test_aggregation_debug_{}.db", timestamp);
+    let db_path = std::path::Path::new("/tmp").join(&db_filename);
+
+    // Create an empty file to ensure it exists
+    std::fs::File::create(&db_path).unwrap();
+
+    let db_url = format!("sqlite:{}", db_path.display());
+
+    // Log the database location for debugging
+    tracing::info!("Creating persistent test database at: {}", db_path.display());
+    tracing::info!("Database URL: {}", &db_url);
+    tracing::info!("To inspect the database after the test, use: sqlite3 {}", db_path.display());
+
+    // Connect to the database
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::AnyPool::connect(&db_url).await.unwrap();
+    let db = Arc::new(boundless_indexer::db::AnyDb::new(&db_url).await.unwrap());
+
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -601,7 +643,7 @@ async fn test_aggregation_across_hours() {
         "--boundless-market-address",
         &ctx.deployment.boundless_market_address.to_string(),
         "--db",
-        &test_db.db_url,
+        &db_url,
         "--interval",
         "1",
         "--retries",
@@ -733,14 +775,14 @@ async fn test_aggregation_across_hours() {
     tokio::time::sleep(Duration::from_secs(4)).await;
 
     // Check hourly aggregation across multiple hours
-    let summary_count = count_hourly_summaries(&test_db.pool).await;
+    let summary_count = count_hourly_summaries(&pool).await;
     assert!(
         summary_count >= 2,
         "Expected at least 2 hourly summaries (one per hour), got {}",
         summary_count
     );
 
-    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let summaries = get_all_hourly_summaries_asc(&pool).await;
 
     // Verify we have multiple hours
     assert!(
@@ -796,11 +838,11 @@ async fn test_aggregation_across_hours() {
 
     //debug by printing proof_request table
     let request_statuses = sqlx::query("SELECT * FROM request_status")
-        .fetch_all(&test_db.pool)
+        .fetch_all(&pool)
         .await
         .unwrap();
     for request_status_row in request_statuses {
-        let request_status = test_db.db.row_to_request_status(&request_status_row).unwrap();
+        let request_status = db.row_to_request_status(&request_status_row).unwrap();
         tracing::info!(
             "Request status: request_digest: {}, request_id: {}, request_status: {}, source: {}, client_address: {}, locked_at: {:?}, lock_block: {:?}, lock_tx_hash: {:?}, lock_prover_address: {:?}, fulfilled_at: {:?}, fulfill_block: {:?}, fulfill_tx_hash: {:?}, fulfill_prover_address: {:?}",
             request_status.request_digest,

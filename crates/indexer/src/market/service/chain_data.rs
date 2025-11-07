@@ -50,7 +50,7 @@ where
                     tracing::warn!("Cache miss for logs from block {} to {}", from, to);
                 }
                 Err(e) => {
-                    tracing::warn!("Cache read error for logs from block {} to {}: {}", from, to, e);
+                    tracing::warn!("Cache read error for logs from block {} to {}: {:?}", from, to, e);
                 }
             }
         }

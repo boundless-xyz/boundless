@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS daily_market_summary (
   total_expired                           BIGINT NOT NULL DEFAULT 0,
   total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
   total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
-  locked_orders_fulfillment_rate          REAL,
+  locked_orders_fulfillment_rate          REAL NOT NULL DEFAULT 0.0,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS weekly_market_summary (
   total_expired                           BIGINT NOT NULL DEFAULT 0,
   total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
   total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
-  locked_orders_fulfillment_rate          REAL,
+  locked_orders_fulfillment_rate          REAL NOT NULL DEFAULT 0.0,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS monthly_market_summary (
   total_expired                           BIGINT NOT NULL DEFAULT 0,
   total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
   total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
-  locked_orders_fulfillment_rate          REAL,
+  locked_orders_fulfillment_rate          REAL NOT NULL DEFAULT 0.0,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

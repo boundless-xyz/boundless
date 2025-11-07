@@ -117,7 +117,8 @@ where
 
         // Process each hour
         for hour_ts in (start_hour..=current_hour).step_by(SECONDS_PER_HOUR as usize) {
-            let summary = self.compute_hourly_summary(hour_ts).await?;
+            let hour_end = hour_ts.saturating_add(SECONDS_PER_HOUR);
+            let summary = self.compute_period_summary(hour_ts, hour_end).await?;
             self.db.upsert_hourly_market_summary(summary).await?;
         }
 
@@ -241,6 +242,7 @@ where
         // Process each month
         for month_ts in periods {
             let month_end = get_next_month(month_ts);
+            tracing::info!("Computing monthly summary for [{} to {})", month_ts, month_end);
             let summary = self.compute_period_summary(month_ts, month_end).await?;
             self.db.upsert_monthly_market_summary(summary).await?;
         }
@@ -249,21 +251,11 @@ where
         Ok(())
     }
 
-    pub(super) async fn compute_hourly_summary(
-        &self,
-        hour_timestamp: u64,
-    ) -> Result<HourlyMarketSummary, ServiceError> {
-        let hour_end = hour_timestamp.saturating_add(SECONDS_PER_HOUR);
-        self.compute_period_summary(hour_timestamp, hour_end).await
-    }
-
     pub(super) async fn compute_period_summary(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<HourlyMarketSummary, ServiceError> {
-        tracing::debug!("Computing period summary for {} to {}", period_start, period_end);
-
         // Execute all initial database queries in parallel
         let (
             total_fulfilled,
@@ -308,13 +300,11 @@ where
         let locked_orders_fulfillment_rate = {
             let total_locked_outcomes = total_locked_and_fulfilled + total_locked_and_expired;
             if total_locked_outcomes > 0 {
-                Some((total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0)
+                (total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
             } else {
-                None
+                0.0
             }
         };
-
-        let locks = self.db.get_period_lock_pricing_data(period_start, period_end).await?;
 
         // Compute fees and collateral
         let mut total_fees = U256::ZERO;

@@ -157,8 +157,6 @@ export class MarketIndexer extends pulumi.ComponentResource {
             startBlock,
             '--tx-fetch-strategy',
             'tx-by-hash',
-            '--order-stream-url',
-            "https://base-mainnet.boundless.network",
             '--log-json',
             '--cache-uri',
             pulumi.interpolate`s3://${infra.cacheBucket.bucket}`,

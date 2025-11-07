@@ -206,7 +206,7 @@ pub struct MarketAggregateEntry {
     pub total_locked_and_fulfilled: i64,
 
     /// Fulfillment rate for locked orders (percentage)
-    pub locked_orders_fulfillment_rate: Option<f32>,
+    pub locked_orders_fulfillment_rate: f32,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]

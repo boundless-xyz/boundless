@@ -85,7 +85,7 @@ export = () => {
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
-    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;

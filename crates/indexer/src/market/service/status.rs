@@ -165,7 +165,6 @@ where
         let start = std::time::Instant::now();
         let from_timestamp = self.block_timestamp(from_block).await?;
         let to_timestamp = self.block_timestamp(to_block).await?;
-        tracing::info!("get_newly_expired_requests called with from_timestamp {} to_timestamp {}", from_timestamp, to_timestamp);
         let expired_requests = self.db.find_newly_expired_requests(from_timestamp, to_timestamp).await?;
         tracing::info!("find_newly_expired_requests completed in {:?} [{} expired requests found]", start.elapsed(), expired_requests.len());
         tracing::debug!("Expired requests: {:?}", expired_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());

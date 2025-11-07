@@ -106,10 +106,10 @@ export class IndexerShared extends pulumi.ComponentResource {
       ],
     }, { parent: this });
 
-    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v3`, {
+    const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-v4`, {
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      clusterIdentifier: `${serviceName}-aurora-v3`,
+      clusterIdentifier: `${serviceName}-aurora-v4`,
       databaseName: rdsDbName,
       masterUsername: rdsUser,
       masterPassword: rdsPassword,
@@ -121,12 +121,12 @@ export class IndexerShared extends pulumi.ComponentResource {
       storageEncrypted: true,
     }, { parent: this /* protect: true */ });
 
-    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-3`, {
+    new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-4`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
       instanceClass: 'db.t4g.medium',
-      identifier: `${serviceName}-aurora-writer-v3`,
+      identifier: `${serviceName}-aurora-writer-v4`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     }, { parent: this /* protect: true */ });
@@ -233,6 +233,52 @@ export class IndexerShared extends pulumi.ComponentResource {
         ],
       })),
     }, { parent: this });
+
+    new aws.iam.RolePolicy(`${serviceName}-execution-s3-policy`, {
+      role: this.executionRole.id,
+      policy: this.cacheBucket.arn.apply((bucketArn) => JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['s3:GetObject', 's3:PutObject'],
+            Resource: `${bucketArn}/*`,
+          },
+          {
+            Effect: 'Allow',
+            Action: ['s3:ListBucket'],
+            Resource: bucketArn,
+          },
+        ],
+      })),
+    }, { parent: this });
+
+    new aws.s3.BucketPolicy(`${serviceName}-cache-policy`, {
+      bucket: this.cacheBucket.id,
+      policy: pulumi.all([this.cacheBucket.arn, this.taskRole.arn, this.executionRole.arn]).apply(([bucketArn, taskRoleArn, executionRoleArn]) =>
+        JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Effect: 'Allow',
+              Principal: {
+                AWS: [taskRoleArn, executionRoleArn],
+              },
+              Action: ['s3:GetObject', 's3:PutObject'],
+              Resource: `${bucketArn}/*`,
+            },
+            {
+              Effect: 'Allow',
+              Principal: {
+                AWS: [taskRoleArn, executionRoleArn],
+              },
+              Action: ['s3:ListBucket'],
+              Resource: bucketArn,
+            },
+          ],
+        })
+      ),
+    }, { parent: this, dependsOn: [this.taskRole, this.executionRole] });
 
     this.rdsSecurityGroupId = rdsSecurityGroup.id;
 
