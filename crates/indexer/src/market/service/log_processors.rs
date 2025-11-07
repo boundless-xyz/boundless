@@ -348,6 +348,7 @@ where
                 .add_proof_delivered_event(
                     request_digest,
                     event.requestId,
+                    event.prover,
                     &metadata,
                 )
                 .await?;
@@ -395,7 +396,7 @@ where
                 metadata.block_timestamp
             );
             self.db
-                .add_request_fulfilled_event(event.requestDigest, event.requestId, &metadata)
+                .add_request_fulfilled_event(event.requestDigest, event.requestId, event.prover, &metadata)
                 .await?;
 
             touched_requests.insert(event.requestDigest);

@@ -327,6 +327,7 @@ pub trait IndexerDb {
         &self,
         request_digest: B256,
         request_id: U256,
+        prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
@@ -334,6 +335,7 @@ pub trait IndexerDb {
         &self,
         request_digest: B256,
         request_id: U256,
+        prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
@@ -963,21 +965,24 @@ impl IndexerDb for AnyDb {
         &self,
         request_digest: B256,
         request_id: U256,
+        prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO proof_delivered_events (
                 request_digest,
-                request_id, 
-                tx_hash, 
-                block_number, 
+                request_id,
+                prover_address,
+                tx_hash,
+                block_number,
                 block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5)
+            ) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (request_digest, tx_hash) DO NOTHING",
         )
         .bind(format!("{request_digest:x}"))
         .bind(format!("{request_id:x}"))
+        .bind(format!("{prover_address:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -991,21 +996,24 @@ impl IndexerDb for AnyDb {
         &self,
         request_digest: B256,
         request_id: U256,
+        prover_address: Address,
         metadata: &TxMetadata,
     ) -> Result<(), DbError> {
         self.add_tx(metadata).await?;
         sqlx::query(
             "INSERT INTO request_fulfilled_events (
                 request_digest,
-                request_id, 
-                tx_hash, 
-                block_number, 
+                request_id,
+                prover_address,
+                tx_hash,
+                block_number,
                 block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5)
+            ) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{request_digest:x}"))
         .bind(format!("{request_id:x}"))
+        .bind(format!("{prover_address:x}"))
         .bind(format!("{:x}", metadata.tx_hash))
         .bind(metadata.block_number as i64)
         .bind(metadata.block_timestamp as i64)
@@ -1480,8 +1488,7 @@ impl IndexerDb for AnyDb {
                     rfe.block_timestamp as fulfilled_at,
                     rfe.block_number as fulfill_block,
                     rfe.tx_hash as fulfill_tx_hash,
-                    f.prover_address as fulfill_prover_address,
-                    f.seal as fulfill_seal,
+                    rfe.prover_address as fulfill_prover_address,
                     pse.block_timestamp as slashed_at,
                     pse.block_number as slashed_block,
                     pse.tx_hash as slash_tx_hash,
@@ -1492,7 +1499,6 @@ impl IndexerDb for AnyDb {
                 LEFT JOIN request_submitted_events rse ON rse.request_digest = pr.request_digest
                 LEFT JOIN request_locked_events rle ON rle.request_digest = pr.request_digest
                 LEFT JOIN request_fulfilled_events rfe ON rfe.request_digest = pr.request_digest
-                LEFT JOIN fulfillments f ON f.request_digest = pr.request_digest
                 LEFT JOIN prover_slashed_events pse ON pse.request_id = pr.request_id
                 WHERE pr.request_digest = $1"
             )
@@ -1555,8 +1561,6 @@ impl IndexerDb for AnyDb {
             let fulfill_tx_hash_str: Option<String> = row.try_get("fulfill_tx_hash").ok();
             let fulfill_tx_hash = fulfill_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
 
-            let fulfill_seal: Option<String> = row.try_get("fulfill_seal").ok();
-
             let slashed_at: Option<i64> = row.try_get("slashed_at").ok();
             let slashed_block: Option<i64> = row.try_get("slashed_block").ok();
             let slash_tx_hash_str: Option<String> = row.try_get("slash_tx_hash").ok();
@@ -1601,7 +1605,7 @@ impl IndexerDb for AnyDb {
                 peak_prove_mhz: None,  // TODO
                 effective_prove_mhz: None,  // TODO
                 fulfill_journal: None,  // TODO
-                fulfill_seal,
+                fulfill_seal: None,  // Will be populated from fulfillments table below
                 slashed_at: slashed_at.map(|t| t as u64),
                 slashed_block: slashed_block.map(|b| b as u64),
                 slash_tx_hash,
@@ -1609,6 +1613,66 @@ impl IndexerDb for AnyDb {
                 slash_transferred_amount: slash_transferred_amount_str,
                 slash_recipient,
             });
+            }
+        }
+
+        // Now query fulfillments table to get seals for fulfilled requests
+        // Build map of (request_digest, prover_address) -> seal
+        let mut fulfillments_map: std::collections::HashMap<(B256, Address), String> = std::collections::HashMap::new();
+
+        if !requests.is_empty() {
+            // Collect all unique request_digests that have a fulfill_prover_address
+            let digest_strs: Vec<String> = requests.iter()
+                .filter_map(|req| {
+                    req.fulfill_prover_address.map(|_| format!("{:x}", req.request_digest))
+                })
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
+            // Query fulfillments in chunks of 500 to avoid parameter limits
+            const CHUNK_SIZE: usize = 500;
+            for chunk in digest_strs.chunks(CHUNK_SIZE) {
+                // Build dynamic IN clause
+                let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("${}", i)).collect();
+                let query_str = format!(
+                    "SELECT request_digest, prover_address, seal, block_timestamp
+                     FROM fulfillments
+                     WHERE request_digest IN ({})
+                     ORDER BY request_digest, prover_address, block_timestamp ASC",
+                    placeholders.join(", ")
+                );
+
+                let mut query = sqlx::query(&query_str);
+                for digest_str in chunk {
+                    query = query.bind(digest_str);
+                }
+
+                let rows = query.fetch_all(&self.pool).await?;
+
+                // Build map: keep only first (earliest) seal for each (digest, prover) pair
+                for row in rows {
+                    let digest_str: String = row.get("request_digest");
+                    let prover_str: String = row.get("prover_address");
+                    let seal: String = row.get("seal");
+
+                    let digest = B256::from_str(&digest_str)
+                        .map_err(|e| DbError::BadTransaction(format!("Invalid digest: {}", e)))?;
+                    let prover = Address::from_str(&prover_str)
+                        .map_err(|e| DbError::BadTransaction(format!("Invalid address: {}", e)))?;
+
+                    fulfillments_map.entry((digest, prover)).or_insert(seal); // First one wins
+                }
+            }
+
+            // Fill in seals in RequestComprehensive objects
+            for req in &mut requests {
+                if let Some(prover_addr) = req.fulfill_prover_address {
+                    let key = (req.request_digest, prover_addr);
+                    if let Some(seal) = fulfillments_map.get(&key) {
+                        req.fulfill_seal = Some(seal.clone());
+                    }
+                }
             }
         }
 
@@ -2622,7 +2686,7 @@ mod tests {
 
         let prover_address = Address::ZERO;
         db.add_tx(&metadata).await.unwrap();
-        db.add_proof_delivered_event(fill.requestDigest, fill.id, &metadata).await.unwrap();
+        db.add_proof_delivered_event(fill.requestDigest, fill.id, prover_address, &metadata).await.unwrap();
         db.add_fulfillment(fill.clone(), prover_address, &metadata).await.unwrap();
 
         // Verify fulfillment was added
@@ -2666,7 +2730,7 @@ mod tests {
         assert_eq!(result.get::<String, _>("prover_address"), format!("{prover_address:x}"));
 
         // Test proof delivered event
-        db.add_proof_delivered_event(request_digest, request_id, &metadata).await.unwrap();
+        db.add_proof_delivered_event(request_digest, request_id, prover_address, &metadata).await.unwrap();
         let result = sqlx::query("SELECT * FROM proof_delivered_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -2675,7 +2739,7 @@ mod tests {
         assert_eq!(result.get::<String, _>("request_digest"), format!("{request_digest:x}"));
 
         // Test request fulfilled event
-        db.add_request_fulfilled_event(request_digest, request_id, &metadata).await.unwrap();
+        db.add_request_fulfilled_event(request_digest, request_id, prover_address, &metadata).await.unwrap();
         let result = sqlx::query("SELECT * FROM request_fulfilled_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -3373,5 +3437,95 @@ mod tests {
             .unwrap();
 
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_requests_comprehensive_with_multiple_fulfillments() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let request_digest = B256::from([1; 32]);
+        let request = generate_request(1, &Address::ZERO);
+        let prover_a = Address::from([2; 20]);
+        let prover_b = Address::from([3; 20]);
+
+        // Add proof request
+        let metadata1 = TxMetadata::new(B256::from([10; 32]), Address::ZERO, 100, 1000, 0);
+        db.add_proof_request(request_digest, request.clone(), &metadata1, "onchain").await.unwrap();
+
+        // Add submitted event
+        db.add_request_submitted_event(request_digest, request.id, &metadata1).await.unwrap();
+
+        // Add locked event
+        let metadata2 = TxMetadata::new(B256::from([11; 32]), Address::ZERO, 101, 1100, 0);
+        db.add_request_locked_event(request_digest, request.id, prover_a, &metadata2).await.unwrap();
+
+        // Add fulfilled event (fulfilled by prover_a)
+        let metadata3 = TxMetadata::new(B256::from([12; 32]), Address::ZERO, 102, 1200, 0);
+        db.add_request_fulfilled_event(request_digest, request.id, prover_a, &metadata3).await.unwrap();
+
+        // Add fulfillment from prover_b (earlier timestamp but wrong prover!)
+        let seal_wrong_prover = Bytes::from(vec![99, 99, 99]);
+        let metadata_wrong_prover = TxMetadata::new(B256::from([19; 32]), Address::ZERO, 103, 1250, 0);
+        let fulfillment_wrong_prover = Fulfillment {
+            requestDigest: request_digest,
+            id: request.id,
+            claimDigest: B256::from([29; 32]),
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
+            seal: seal_wrong_prover,
+        };
+        db.add_fulfillment(fulfillment_wrong_prover, prover_b, &metadata_wrong_prover).await.unwrap();
+
+        // Add multiple fulfillments from prover_a with different timestamps
+        let seal_early = Bytes::from(vec![1, 2, 3, 4]);
+        let seal_late = Bytes::from(vec![5, 6, 7, 8]);
+
+        let metadata_early = TxMetadata::new(B256::from([20; 32]), Address::ZERO, 104, 1300, 0);
+        let fulfillment_early = Fulfillment {
+            requestDigest: request_digest,
+            id: request.id,
+            claimDigest: B256::from([30; 32]),
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
+            seal: seal_early.clone(),
+        };
+        db.add_fulfillment(fulfillment_early, prover_a, &metadata_early).await.unwrap();
+
+        let metadata_late = TxMetadata::new(B256::from([21; 32]), Address::ZERO, 105, 1400, 1);
+        let fulfillment_late = Fulfillment {
+            requestDigest: request_digest,
+            id: request.id,
+            claimDigest: B256::from([31; 32]),
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
+            seal: seal_late,
+        };
+        db.add_fulfillment(fulfillment_late, prover_a, &metadata_late).await.unwrap();
+
+        // Get comprehensive request data
+        let mut digest_set = std::collections::HashSet::new();
+        digest_set.insert(request_digest);
+        let results = db.get_requests_comprehensive(&digest_set).await.unwrap();
+
+        // Verify we got exactly one result (no duplicates!)
+        assert_eq!(results.len(), 1);
+
+        let comprehensive = &results[0];
+
+        // Verify basic fields
+        assert_eq!(comprehensive.request_digest, request_digest);
+        assert_eq!(comprehensive.source, "onchain");
+
+        // Verify event data
+        assert_eq!(comprehensive.submitted_at, Some(1000));
+        assert_eq!(comprehensive.locked_at, Some(1100));
+        assert_eq!(comprehensive.fulfilled_at, Some(1200));
+        assert_eq!(comprehensive.lock_prover_address, Some(prover_a));
+        assert_eq!(comprehensive.fulfill_prover_address, Some(prover_a));
+
+        // Verify seal is from prover_a's EARLIEST fulfillment (timestamp 1300)
+        // NOT from prover_b's fulfillment (timestamp 1250) even though it's earlier
+        assert_eq!(comprehensive.fulfill_seal, Some(format!("0x{}", hex::encode(&seal_early))));
     }
 }
