@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,6 +41,8 @@ use crate::contracts::{ProofRequest, RequestError};
 pub const ORDER_SUBMISSION_PATH: &str = "/api/v1/submit_order";
 /// Order stream order list API path.
 pub const ORDER_LIST_PATH: &str = "/api/v1/orders";
+/// Order stream order list API path (v2 with cursor pagination).
+pub const ORDER_LIST_PATH_V2: &str = "/api/v2/orders";
 /// Order stream nonce API path.
 pub const AUTH_GET_NONCE: &str = "/api/v1/nonce/";
 /// Order stream health check API path.
@@ -124,6 +126,27 @@ pub struct SubmitOrderRes {
     /// Request ID submitted
     #[schema(value_type = Object)]
     pub request_id: U256,
+}
+
+/// Sort direction for listing orders
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SortDirection {
+    /// Ascending order (oldest first)
+    Asc,
+    /// Descending order (newest first)
+    Desc,
+}
+
+/// Response for v2 list orders API with pagination info
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
+pub struct ListOrdersV2Response {
+    /// List of orders
+    pub orders: Vec<OrderData>,
+    /// Cursor for the next page (if available)
+    pub next_cursor: Option<String>,
+    /// Whether there are more results available
+    pub has_more: bool,
 }
 
 impl Order {
@@ -425,6 +448,67 @@ impl OrderStreamClient {
 
         let orders: Vec<OrderData> = response.json().await?;
         Ok(orders)
+    }
+
+    /// List orders with cursor-based pagination and flexible filtering (v2)
+    ///
+    /// Provides cursor-based pagination for stable results, bidirectional sorting,
+    /// and timestamp range filtering.
+    ///
+    /// # Arguments
+    /// * `cursor` - Opaque cursor string from previous response for pagination
+    /// * `limit` - Maximum number of orders to return
+    /// * `sort` - Sort direction (Asc for oldest first, Desc for newest first)
+    /// * `before` - Optional timestamp to filter orders created before this time
+    /// * `after` - Optional timestamp to filter orders created after this time
+    pub async fn list_orders_v2(
+        &self,
+        cursor: Option<String>,
+        limit: Option<u64>,
+        sort: Option<SortDirection>,
+        before: Option<DateTime<Utc>>,
+        after: Option<DateTime<Utc>>,
+    ) -> Result<ListOrdersV2Response> {
+        let mut url = self.base_url.join(ORDER_LIST_PATH_V2)?;
+
+        {
+            let mut query = url.query_pairs_mut();
+            if let Some(cursor_str) = cursor {
+                query.append_pair("cursor", &cursor_str);
+            }
+            if let Some(limit_val) = limit {
+                query.append_pair("limit", &limit_val.to_string());
+            }
+            if let Some(sort_val) = sort {
+                let sort_str = match sort_val {
+                    SortDirection::Asc => "asc",
+                    SortDirection::Desc => "desc",
+                };
+                query.append_pair("sort", sort_str);
+            }
+            if let Some(ts) = before {
+                query.append_pair("before", &ts.to_rfc3339());
+            }
+            if let Some(ts) = after {
+                query.append_pair("after", &ts.to_rfc3339());
+            }
+        }
+
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            let error_message = match response.json::<serde_json::Value>().await {
+                Ok(json_body) => {
+                    json_body["msg"].as_str().unwrap_or("Unknown server error").to_string()
+                }
+                Err(_) => "Failed to read server error message".to_string(),
+            };
+
+            return Err(anyhow::Error::msg(error_message));
+        }
+
+        let response_data: ListOrdersV2Response = response.json().await?;
+        Ok(response_data)
     }
 
     /// Return a WebSocket stream connected to the order stream server

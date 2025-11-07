@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -65,10 +65,10 @@ pub async fn finalize(agent: &Agent, job_id: &Uuid, request: &FinalizeReq) -> Re
     })?;
     let image_id = read_image_id(&image_id_string)?;
 
-    rollup_receipt.verify(image_id).context("Receipt verification failed")?;
+    rollup_receipt.verify(image_id).context("[BENTO-FINALIZE-001] Receipt verification failed")?;
 
     if !matches!(rollup_receipt.inner, InnerReceipt::Succinct(_)) {
-        bail!("rollup_receipt is not Succinct")
+        bail!("[BENTO-FINALIZE-002] rollup_receipt is not Succinct")
     }
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");

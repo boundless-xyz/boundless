@@ -1,6 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { BasePipelineArgs } from "./base";
+import {BasePipelineArgs} from "./base";
 
 interface PackerPipelineArgs extends BasePipelineArgs {
     opsAccountId: string;
@@ -48,7 +48,7 @@ export class PackerPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: PackerPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:packer-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, serviceAccountIds, role } = args;
+        const {artifactBucket, connection, serviceAccountIds, role, slackAlertsTopicArn} = args;
 
         // CodeBuild project for Packer builds
         const packerBuildProject = new aws.codebuild.Project("packer-build-project", {
@@ -103,7 +103,7 @@ export class PackerPipeline extends pulumi.ComponentResource {
                 Component: "packer",
                 Environment: "ops",
             },
-        }, { parent: this });
+        }, {parent: this});
 
 
         // Create the main pipeline
@@ -153,7 +153,22 @@ export class PackerPipeline extends pulumi.ComponentResource {
                 Component: "packer",
                 Environment: "ops",
             },
-        }, { parent: this });
+        }, {parent: this});
+
+        // Create notification rule
+        new aws.codestarnotifications.NotificationRule(`${APP_NAME}-pipeline-notifications`, {
+            name: `${APP_NAME}-pipeline-notifications`,
+            eventTypeIds: [
+                "codepipeline-pipeline-action-execution-failed",
+            ],
+            resource: pipeline.arn,
+            detailType: "FULL",
+            targets: [
+                {
+                    address: slackAlertsTopicArn.apply(arn => arn),
+                },
+            ],
+        });
 
         // Outputs
         this.pipelineName = pipeline.name;

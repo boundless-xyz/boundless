@@ -7299,6 +7299,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "axum 0.8.4",
+ "base64 0.22.1",
  "boundless-market",
  "boundless-test-utils",
  "clap",

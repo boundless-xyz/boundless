@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -37,7 +37,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     let snark_receipt = match agent
         .prover
         .as_ref()
-        .context("Missing prover from resolve task")?
+        .context("[BENTO-SNARK-002] Missing prover from resolve task")?
         .compress(&opts, &receipt)
     {
         Ok(receipt) => {
@@ -51,12 +51,12 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
     };
 
     if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
-        bail!("failed to create groth16 receipt");
+        bail!("[BENTO-SNARK-004] failed to create groth16 receipt");
     }
 
     receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify compressed snark receipt")?;
+        .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
     tracing::debug!("Uploading snark receipt to S3: {key}");

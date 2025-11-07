@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -44,12 +44,18 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                 let assumptions = guest_output
                     .assumptions
                     .as_value()
-                    .context("Failed unwrap the assumptions of the guest output")?
+                    .context(
+                        "[BENTO-RESOLVE-002] Failed unwrap the assumptions of the guest output",
+                    )?
                     .iter();
 
                 tracing::debug!("Resolving {} assumption(s)", assumptions.len());
-                assumptions_len =
-                    Some(assumptions.len().try_into().context("Failed to convert to u64")?);
+                assumptions_len = Some(
+                    assumptions
+                        .len()
+                        .try_into()
+                        .context("[BENTO-RESOLVE-003] Failed to convert to u64")?,
+                );
 
                 let mut union_claim = String::new();
                 if let Some(idx) = request.union_max_idx {
@@ -63,8 +69,9 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                             format!("Failed to get union receipt: {union_root_receipt_key}"),
                         )?;
                     let union_receipt: SuccinctReceipt<Unknown> =
-                        deserialize_obj(&union_receipt)
-                            .context("Failed to deserialize to SuccinctReceipt<Unknown> type")?;
+                        deserialize_obj(&union_receipt).context(
+                            "[BENTO-RESOLVE-004] Failed to deserialize to SuccinctReceipt<Unknown> type",
+                        )?;
                     union_claim = union_receipt.claim.digest().to_string();
 
                     // Resolve union receipt
@@ -72,7 +79,7 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
                     conditional_receipt = match agent
                         .prover
                         .as_ref()
-                        .context("Missing prover from resolve task")?
+                        .context("[BENTO-RESOLVE-005] Missing prover from resolve task")?
                         .resolve(&conditional_receipt, &union_receipt)
                     {
                         Ok(receipt) => {
@@ -111,14 +118,16 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
                     let assumption_receipt: SuccinctReceipt<Unknown> =
                         deserialize_obj(&assumption_bytes).with_context(|| {
-                            format!("could not deserialize assumption receipt: {assumption_key}")
+                            format!(
+                                "[BENTO-RESOLVE-008] could not deserialize assumption receipt: {assumption_key}"
+                            )
                         })?;
 
                     // Resolve
                     conditional_receipt = match agent
                         .prover
                         .as_ref()
-                        .context("Missing prover from resolve task")?
+                        .context("[BENTO-RESOLVE-009] Missing prover from resolve task")?
                         .resolve(&conditional_receipt, &assumption_receipt)
                     {
                         Ok(receipt) => {
@@ -148,8 +157,8 @@ pub async fn resolver(agent: &Agent, job_id: &Uuid, request: &ResolveReq) -> Res
 
     // Write out the resolved receipt
     tracing::debug!("Serializing resolved receipt");
-    let serialized_asset =
-        serialize_obj(&conditional_receipt).context("Failed to serialize resolved receipt")?;
+    let serialized_asset = serialize_obj(&conditional_receipt)
+        .context("[BENTO-RESOLVE-011] Failed to serialize resolved receipt")?;
 
     // Store resolved receipt using Redis helper
     tracing::debug!("Writing resolved receipt to Redis key: {root_receipt_key}");

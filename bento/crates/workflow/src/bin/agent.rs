@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -15,12 +15,12 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let task_stream = args.task_stream.clone();
-    let agent = Agent::new(args).await.context("Failed to initialize Agent")?;
+    let agent = Agent::new(args).await.context("[BENTO-AGENT-001] Failed to initialize Agent")?;
 
     sqlx::migrate!("../taskdb/migrations")
         .run(&agent.db_pool)
         .await
-        .context("Failed to run migrations")?;
+        .context("[BENTO-AGENT-002] Failed to run migrations")?;
 
     // Start metrics server in background
     tokio::spawn(async move {
@@ -29,6 +29,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    tracing::info!("Successful agent startup! Worker type: {task_stream}");
-    agent.poll_work().await.context("Exiting agent polling")
+    // Poll until agent is signaled to exit:
+    agent.poll_work().await.context("[BENTO-AGENT-003] Exiting agent polling")
 }

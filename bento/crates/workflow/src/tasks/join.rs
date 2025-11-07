@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -35,17 +35,17 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
             ))
         })?;
 
-    let left_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&left_receipt).context("Failed to deserialize left receipt")?;
-    let right_receipt: SuccinctReceipt<ReceiptClaim> =
-        deserialize_obj(&right_receipt).context("Failed to deserialize right receipt")?;
+    let left_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&left_receipt)
+        .context("[BENTO-JOIN-001] Failed to deserialize left receipt")?;
+    let right_receipt: SuccinctReceipt<ReceiptClaim> = deserialize_obj(&right_receipt)
+        .context("[BENTO-JOIN-002] Failed to deserialize right receipt")?;
 
     left_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify left receipt integrity")?;
+        .context("[BENTO-JOIN-003] Failed to verify left receipt integrity")?;
     right_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify right receipt integrity")?;
+        .context("[BENTO-JOIN-004] Failed to verify right receipt integrity")?;
 
     tracing::trace!("Joining {job_id} - {} + {} -> {}", request.left, request.right, request.idx);
 
@@ -78,7 +78,7 @@ pub async fn join(agent: &Agent, job_id: &Uuid, request: &JoinReq) -> Result<()>
     };
     joined
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify join receipt integrity")?;
+        .context("[BENTO-JOIN-006] Failed to verify join receipt integrity")?;
 
     let join_result = serialize_obj(&joined).expect("Failed to serialize the segment");
     let output_key = format!("{recur_receipts_prefix}:{}", request.idx);

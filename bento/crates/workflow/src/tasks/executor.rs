@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -8,7 +8,7 @@ use crate::{
     redis::{self},
     tasks::{COPROC_CB_PATH, RECEIPT_PATH, SEGMENTS_PATH, read_image_id, serialize_obj},
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use risc0_binfmt::PovwLogId;
 use risc0_zkvm::{
     CoprocessorCallback, ExecutorEnv, ExecutorImpl, InnerReceipt, Journal, NullSegmentRef,
@@ -64,11 +64,11 @@ async fn process_task(
     match tree_task.command {
         TaskCmd::Keccak => {
             TASKS_CREATED.with_label_values(&["keccak"]).inc();
-            let keccak_req = keccak_req.context("keccak_req returned None")?;
+            let keccak_req = keccak_req.context("[BENTO-EXEC-001] keccak_req returned None")?;
             let prereqs = serde_json::json!([]);
             let task_id = format!("{}", tree_task.task_number);
             let task_def = serde_json::to_value(TaskType::Keccak(keccak_req))
-                .expect("Failed to serialize coproc (keccak) task-type");
+                .context("[BENTO-EXEC-002] Failed to serialize coproc (keccak) task-type")?;
 
             taskdb::create_task(
                 pool,
@@ -81,7 +81,7 @@ async fn process_task(
                 args.prove_timeout,
             )
             .await
-            .expect("create_task failure during keccak task creation");
+            .context("[BENTO-EXEC-003] create_task failure during keccak task creation")?;
         }
         TaskCmd::Segment => {
             TASKS_CREATED.with_label_values(&["segment"]).inc();
@@ -93,10 +93,11 @@ async fn process_task(
                 // it feels like a order of operations issue with trying to keep the
                 // executor unblocked as it flushes segments before knowing the
                 // planners internal index counter.
-                index: segment_index.context("INVALID STATE: segment task without segment index")?
+                index: segment_index
+                    .context("[BENTO-EXEC-004] INVALID STATE: segment task without segment index")?
                     as usize,
             }))
-            .context("Failed to serialize prove task-type")?;
+            .context("[BENTO-EXEC-005] Failed to serialize prove task-type")?;
 
             // while this is running in the task tree, it has no pre-reqs
             // because it should be able to start asap since the segment should already
@@ -115,7 +116,7 @@ async fn process_task(
                 args.prove_timeout,
             )
             .await
-            .context("create_task failure during segment creation")?;
+            .context("[BENTO-EXEC-006] create_task failure during segment creation")?;
         }
         TaskCmd::Join => {
             TASKS_CREATED.with_label_values(&["join"]).inc();
@@ -124,7 +125,7 @@ async fn process_task(
                 left: tree_task.depends_on[0],
                 right: tree_task.depends_on[1],
             }))
-            .context("Failed to serialize join task-type")?;
+            .context("[BENTO-EXEC-007] Failed to serialize join task-type")?;
             let prereqs = serde_json::json!([
                 format!("{}", tree_task.depends_on[0]),
                 format!("{}", tree_task.depends_on[1])
@@ -142,7 +143,7 @@ async fn process_task(
                 args.join_timeout,
             )
             .await
-            .context("create_task failure during join creation")?;
+            .context("[BENTO-EXEC-008] create_task failure during join creation")?;
         }
         TaskCmd::Union => {
             TASKS_CREATED.with_label_values(&["union"]).inc();
@@ -151,7 +152,7 @@ async fn process_task(
                 left: tree_task.keccak_depends_on[0],
                 right: tree_task.keccak_depends_on[1],
             }))
-            .context("Failed to serialize Union task-type")?;
+            .context("[BENTO-EXEC-009] Failed to serialize Union task-type")?;
             let prereqs = serde_json::json!([
                 format!("{}", tree_task.keccak_depends_on[0]),
                 format!("{}", tree_task.keccak_depends_on[1])
@@ -169,14 +170,14 @@ async fn process_task(
                 args.join_timeout,
             )
             .await
-            .context("create_task failure during Union creation")?;
+            .context("[BENTO-EXEC-010] create_task failure during Union creation")?;
         }
         TaskCmd::Finalize => {
             TASKS_CREATED.with_label_values(&["finalize"]).inc();
             let keccak_count = u64::from(!tree_task.keccak_depends_on.is_empty());
             // Optionally create the Resolve task ahead of the finalize
             let assumption_count = i32::try_from(assumptions.len() as u64 + keccak_count)
-                .context("Invalid assumption count conversion")?;
+                .context("[BENTO-EXEC-011] Invalid assumption count conversion")?;
 
             let mut prereqs = vec![tree_task.depends_on[0].to_string()];
             let mut union_max_idx: Option<usize> = None;
@@ -190,7 +191,7 @@ async fn process_task(
                 max_idx: tree_task.depends_on[0],
                 union_max_idx,
             }))
-            .context("Failed to serialize resolve req")?;
+            .context("[BENTO-EXEC-012] Failed to serialize resolve req")?;
             let task_id = "resolve";
 
             taskdb::create_task(
@@ -204,12 +205,12 @@ async fn process_task(
                 args.resolve_timeout * assumption_count,
             )
             .await
-            .context("create_task (resolve) failure during resolve creation")?;
+            .context("[BENTO-EXEC-013] create_task (resolve) failure during resolve creation")?;
 
             let task_def = serde_json::to_value(TaskType::Finalize(FinalizeReq {
                 max_idx: tree_task.depends_on[0],
             }))
-            .context("Failed to serialize finalize task-type")?;
+            .context("[BENTO-EXEC-014] Failed to serialize finalize task-type")?;
             let prereqs = serde_json::json!([task_id]);
 
             let finalize_name = "finalize";
@@ -224,14 +225,14 @@ async fn process_task(
                 args.finalize_timeout,
             )
             .await
-            .context("create_task failure during finalize creation")?;
+            .context("[BENTO-EXEC-015] create_task failure during finalize creation")?;
 
             if compress_type != CompressType::None {
                 let task_def = serde_json::to_value(TaskType::Snark(SnarkReq {
                     receipt: job_id.to_string(),
                     compress_type,
                 }))
-                .context("Failed to serialize snark task-type")?;
+                .context("[BENTO-EXEC-016] Failed to serialize snark task-type")?;
 
                 taskdb::create_task(
                     pool,
@@ -244,7 +245,7 @@ async fn process_task(
                     args.snark_timeout,
                 )
                 .await
-                .context("create_task for snark compression failed")?;
+                .context("[BENTO-EXEC-017] create_task for snark compression failed")?;
             }
         }
     };
@@ -346,13 +347,15 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
     // validate elf
     if elf_data[0..V2_ELF_MAGIC.len()] != *V2_ELF_MAGIC {
-        bail!("ELF MAGIC mismatch");
+        bail!("[BENTO-EXEC-018] ELF MAGIC mismatch");
     };
 
     // validate image id
     let computed_id = compute_image_id(&elf_data)?;
     if image_id != computed_id {
-        bail!("User supplied imageId does not match generated ID: {image_id} - {computed_id}");
+        bail!(
+            "[BENTO-EXEC-019] User supplied imageId does not match generated ID: {image_id} - {computed_id}"
+        );
     }
 
     // Fetch array of Receipts
@@ -393,7 +396,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
                 let succinct_receipt = match receipt.inner {
                     InnerReceipt::Succinct(inner) => inner.into_unknown(),
-                    _ => bail!("Invalid assumption receipt, not succinct"),
+                    _ => bail!("[BENTO-EXEC-021] Invalid assumption receipt, not succinct"),
                 };
                 (succinct_receipt, assumption_claim)
             }
@@ -413,7 +416,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     let claim = inner_receipt.claim.digest().to_string();
                     (inner_receipt.into_unknown(), claim)
                 } else {
-                    bail!("Failed to extract receipt from InnerAssumptionReceipt, not succinct");
+                    bail!(
+                        "[BENTO-EXEC-022] Failed to extract receipt from InnerAssumptionReceipt, not succinct"
+                    );
                 }
             }
         };
@@ -421,7 +426,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         assumption_receipts.push(succinct_receipt.clone());
 
         let succinct_receipt_bytes = serialize_obj(&succinct_receipt)
-            .context("Failed to serialize succinct assumption receipt")?;
+            .context("[BENTO-EXEC-023] Failed to serialize succinct assumption receipt")?;
 
         let assumption_key = format!("{receipts_key}:{assumption_claim}");
         redis::set_key_with_expiry(
@@ -473,7 +478,9 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let index = segment.index;
             tracing::debug!("Starting write of index: {index}");
             let segment_key = format!("{segments_prefix_clone}:{index}");
-            let segment_vec = serialize_obj(&segment).expect("Failed to serialize the segment");
+            let segment_vec = serialize_obj(&segment).map_err(|e| {
+                anyhow!("[BENTO-EXEC-048] Failed to serialize the segment").context(e)
+            })?;
             redis::set_key_with_expiry(
                 &mut writer_conn,
                 &segment_key,
@@ -481,33 +488,33 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 Some(redis_ttl),
             )
             .await
-            .expect("Failed to set key with expiry");
+            .map_err(|e| anyhow!("[BENTO-EXEC-049] Failed to set key with expiry").context(e))?;
             tracing::debug!("Completed write of {index}");
 
-            task_tx
-                .send(SenderType::Segment(index))
-                .await
-                .expect("failed to push task into task_tx");
+            task_tx.send(SenderType::Segment(index)).await.map_err(|e| {
+                anyhow!("[BENTO-EXEC-050] failed to push task into task_tx").context(e)
+            })?;
         }
         // Once the segments wraps up, close the task channel to signal completion to the follow up
         // task
         drop(task_tx);
+        Ok(())
     });
 
     let aux_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, AUX_WORK_TYPE)
         .await
-        .context("Failed to get AUX stream")?
+        .context("[BENTO-EXEC-025] Failed to get AUX stream")?
         .with_context(|| format!("Customer {} missing aux stream", request.user_id))?;
 
     let prove_stream = taskdb::get_stream(&agent.db_pool, &request.user_id, PROVE_WORK_TYPE)
         .await
-        .context("Failed to get GPU Prove stream")?
+        .context("[BENTO-EXEC-026] Failed to get GPU Prove stream")?
         .with_context(|| format!("Customer {} missing gpu prove stream", request.user_id))?;
 
     let join_stream = if std::env::var("JOIN_STREAM").is_ok() {
         taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
             .await
-            .context("Failed to get GPU Join stream")?
+            .context("[BENTO-EXEC-027] Failed to get GPU Join stream")?
             .with_context(|| format!("Customer {} missing gpu join stream", request.user_id))?
     } else {
         prove_stream
@@ -516,7 +523,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let union_stream = if std::env::var("UNION_STREAM").is_ok() {
         taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
             .await
-            .context("Failed to get GPU Union stream")?
+            .context("[BENTO-EXEC-028] Failed to get GPU Union stream")?
             .with_context(|| format!("Customer {} missing gpu union stream", request.user_id))?
     } else {
         prove_stream
@@ -525,7 +532,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let coproc_stream = if std::env::var("COPROC_STREAM").is_ok() {
         taskdb::get_stream(&agent.db_pool, &request.user_id, COPROC_WORK_TYPE)
             .await
-            .context("Failed to get GPU Coproc stream")?
+            .context("[BENTO-EXEC-029] Failed to get GPU Coproc stream")?
             .with_context(|| format!("Customer {} missing gpu coproc stream", request.user_id))?
     } else {
         prove_stream
@@ -557,7 +564,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 SenderType::Segment(segment_index) => {
                     planner.enqueue_segment().expect("Failed to enqueue segment");
                     while let Some(tree_task) = planner.next_task() {
-                        process_task(
+                        if let Err(e) = process_task(
                             &args_copy,
                             &pool_copy,
                             &prove_stream,
@@ -572,7 +579,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             None,
                         )
                         .await
-                        .expect("Failed to process task and insert into taskdb");
+                        {
+                            tracing::error!(
+                                "[BENTO-EXEC-030] Failed to process task and insert into taskdb: {e:?}"
+                            );
+                            return Err(e);
+                        }
                     }
                 }
                 SenderType::Keccak(mut keccak_req) => {
@@ -585,11 +597,17 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                         Some(redis_ttl),
                     )
                     .await
-                    .expect("Failed to set key with expiry");
+                    .map_err(|e| {
+                        tracing::error!("[BENTO-EXEC-031] Failed to set key with expiry: {e:?}");
+                        anyhow::anyhow!("[BENTO-EXEC-031] Failed to set key with expiry").context(e)
+                    })?;
                     keccak_req.input.clear();
                     tracing::debug!("Wrote keccak input to redis");
 
-                    planner.enqueue_keccak().expect("Failed to enqueue keccak");
+                    planner.enqueue_keccak().map_err(|e| {
+                        tracing::error!("[BENTO-EXEC-032] Failed to enqueue keccak: {e:?}");
+                        anyhow::anyhow!("[BENTO-EXEC-032] Failed to enqueue keccak").context(e)
+                    })?;
                     while let Some(tree_task) = planner.next_task() {
                         let req = KeccakReq {
                             claim_digest: keccak_req.claim_digest,
@@ -597,7 +615,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             po2: keccak_req.po2,
                         };
 
-                        process_task(
+                        if let Err(e) = process_task(
                             &args_copy,
                             &pool_copy,
                             &coproc_stream,
@@ -612,7 +630,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             Some(req),
                         )
                         .await
-                        .expect("Failed to process task and insert into taskdb");
+                        {
+                            tracing::error!(
+                                "[BENTO-EXEC-033] Failed to process task and insert into taskdb: {e:?}"
+                            );
+                            return Err(e);
+                        }
                     }
                 }
                 SenderType::Fault => {
@@ -625,7 +648,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         if !exec_only && !guest_fault {
             planner.finish().expect("Planner failed to finish()");
             while let Some(tree_task) = planner.next_task() {
-                process_task(
+                if let Err(e) = process_task(
                     &args_copy,
                     &pool_copy,
                     &prove_stream,
@@ -640,9 +663,15 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     None,
                 )
                 .await
-                .expect("Failed to process task and insert into taskdb");
+                {
+                    tracing::error!(
+                        "[BENTO-EXEC-034] Failed to process task and insert into taskdb: {e:?}"
+                    );
+                    return Err(e);
+                }
             }
         }
+        Ok(())
     });
 
     tracing::info!("Starting execution of job: {}", job_id);
@@ -662,7 +691,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 if let Ok(povw_log_id) = PovwLogId::from_str(&log_id) {
                     env.povw((povw_log_id, povw_job_number));
                 } else {
-                    tracing::warn!("Invalid POVW_LOG_ID format: {}", log_id);
+                    tracing::warn!("[BENTO-EXEC-036] Invalid POVW_LOG_ID format: {}", log_id);
                 }
             }
 
@@ -702,11 +731,11 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             "Execution stopped intentionally due to session limit of {exec_limit} cycles"
                         );
                     } else {
-                        tracing::error!("Failed to run executor: {err:?}");
+                        tracing::error!("[BENTO-EXEC-037] Failed to run executor: {err:?}");
                     }
                     task_tx_clone
                         .blocking_send(SenderType::Fault)
-                        .context("Failed to send fault to planner")?;
+                        .context("[BENTO-EXEC-038] Failed to send fault to planner")?;
                     Err(err)
                 }
             };
@@ -734,7 +763,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     };
 
     tracing::info!(
-        "execution {} completed with {} segments and {} user-cycles",
+        "[BENTO-EXEC-040] execution {} completed with {} segments and {} user-cycles",
         job_id,
         session.segment_count,
         session.user_cycles,
@@ -795,7 +824,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             }
         } else {
             let serialized_journal =
-                serialize_obj(&journal).context("Failed to serialize journal")?;
+                serialize_obj(&journal).context("[BENTO-EXEC-043] Failed to serialize journal")?;
 
             redis::set_key_with_expiry(
                 &mut conn,
@@ -808,13 +837,13 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         }
     } else {
         // Optionally handle the case where there is no journal
-        tracing::warn!("No journal to update.");
+        tracing::warn!("[BENTO-EXEC-044] No journal to update.");
     }
 
     // First join all tasks and collect results
     while let Some(res) = writer_tasks.join_next().await {
         match res {
-            Ok(()) => {
+            Ok(Ok(())) => {
                 if guest_fault {
                     GUEST_FAULTS.inc();
                     EXECUTION_ERRORS.with_label_values(&["guest_fault"]).inc();
@@ -827,10 +856,14 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 tracing::error!("queue monitor sub task failed: {err:?}");
                 bail!(err);
             }
+            Err(join_err) => {
+                tracing::error!("[BENTO-EXEC-046] task join error: {join_err:?}");
+                bail!(join_err);
+            }
         }
     }
 
-    tracing::debug!("Done with all IO tasks");
+    tracing::debug!("[BENTO-EXEC-047] Done with all IO tasks");
 
     // Record total execution duration
     helpers::record_execution_duration(

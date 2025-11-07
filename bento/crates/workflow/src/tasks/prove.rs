@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -41,7 +41,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
     let segment_receipt = match agent
         .prover
         .as_ref()
-        .context("Missing prover from prove task")?
+        .context("[BENTO-PROVE-002] Missing prover from prove task")?
         .prove_segment(&agent.verifier_ctx, &segment)
     {
         Ok(receipt) => receipt,
@@ -52,7 +52,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
     segment_receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
-        .context("Failed to verify segment receipt integrity")?;
+        .context("[BENTO-PROVE-004] Failed to verify segment receipt integrity")?;
 
     helpers::record_task("prove", "prove_segment", "success", prove_elapsed_time);
 
@@ -67,7 +67,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = match agent
             .prover
             .as_ref()
-            .context("Missing prover from resolve task")?
+            .context("[BENTO-PROVE-005] Missing prover from resolve task")?
             .lift_povw(&segment_receipt)
         {
             Ok(receipt) => receipt,
@@ -92,7 +92,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
         let lift_receipt: SuccinctReceipt<ReceiptClaim> = match agent
             .prover
             .as_ref()
-            .context("Missing prover from resolve task")?
+            .context("[BENTO-PROVE-008] Missing prover from resolve task")?
             .lift(&segment_receipt)
         {
             Ok(receipt) => receipt,
@@ -101,7 +101,7 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
 
         lift_receipt
             .verify_integrity_with_context(&agent.verifier_ctx)
-            .context("Failed to verify lift receipt integrity")?;
+            .context("[BENTO-PROVE-010] Failed to verify lift receipt integrity")?;
 
         tracing::debug!("lifting complete {job_id} - {index}");
 

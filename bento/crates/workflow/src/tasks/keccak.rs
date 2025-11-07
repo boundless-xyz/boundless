@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -17,7 +17,7 @@ use workflow_common::{KECCAK_RECEIPT_PATH, KeccakReq, metrics::helpers};
 fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
     let chunks = input.chunks_exact(std::mem::size_of::<[u64; 25]>());
     if !chunks.remainder().is_empty() {
-        bail!("Input length must be a multiple of KeccakState size");
+        bail!("[BENTO-KECCAK-001] Input length must be a multiple of KeccakState size");
     }
     chunks
         .map(bytemuck::try_pod_read_unaligned)
@@ -51,7 +51,10 @@ pub async fn keccak(
     };
 
     if keccak_req.input.is_empty() {
-        anyhow::bail!("Received empty keccak input with claim_digest: {}", request.claim_digest);
+        anyhow::bail!(
+            "[BENTO-KECCAK-002] Received empty keccak input with claim_digest: {}",
+            request.claim_digest
+        );
     }
 
     tracing::debug!("Keccak proving {}", request.claim_digest);
@@ -60,7 +63,7 @@ pub async fn keccak(
     let keccak_receipt = match agent
         .prover
         .as_ref()
-        .context("Missing prover from keccak prove task")?
+        .context("[BENTO-KECCAK-003] Missing prover from keccak prove task")?
         .prove_keccak(&keccak_req)
     {
         Ok(receipt) => {
@@ -75,8 +78,8 @@ pub async fn keccak(
 
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{task_id}");
-    let keccak_receipt_bytes =
-        serialize_obj(&keccak_receipt).context("Failed to serialize keccak receipt")?;
+    let keccak_receipt_bytes = serialize_obj(&keccak_receipt)
+        .context("[BENTO-KECCAK-005] Failed to serialize keccak receipt")?;
 
     // Store keccak receipt using Redis helper
     redis::set_key_with_expiry(
