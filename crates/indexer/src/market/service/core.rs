@@ -169,7 +169,8 @@ where
         let callback_failed_digests = self.process_callback_failed_events(&logs).await?;
         let slashed_events_digests = self.process_slashed_events(&logs).await?;
 
-        // Process deposit/withdrawal events (don't touch requests)
+        // Process deposit/withdrawal events. These don't cause request statuses to be updated, so we don't
+        // need to track them as touched requests.
         self.process_deposit_events(&logs).await?;
         self.process_withdrawal_events(&logs).await?;
         self.process_collateral_deposit_events(&logs).await?;
@@ -192,7 +193,8 @@ where
         // Update request statuses for touched requests
         self.update_request_statuses(touched_requests, to).await?;
 
-        // Aggregate market data
+        // Aggregate market data. 
+        // Note: Aggregations use the result of update_request_statuses, so we need to run them after.
         self.aggregate_hourly_market_data(to).await?;
         self.aggregate_daily_market_data(to).await?;
         self.aggregate_weekly_market_data(to).await?;

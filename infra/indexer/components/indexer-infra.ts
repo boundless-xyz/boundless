@@ -25,6 +25,7 @@ export class IndexerShared extends pulumi.ComponentResource {
   public readonly taskRole: aws.iam.Role;
   public readonly taskRolePolicyAttachment: aws.iam.RolePolicyAttachment;
   public readonly cluster: aws.ecs.Cluster;
+  public readonly databaseVersion: string;
 
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
@@ -118,6 +119,7 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
     const databaseVersion = 'v7';
+    this.databaseVersion = databaseVersion;
     const rdsDbName = `indexer${databaseVersion}`;
 
     const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-${databaseVersion}`, {
