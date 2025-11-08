@@ -21,9 +21,13 @@ CREATE TABLE IF NOT EXISTS proof_requests (
     bidding_start       BIGINT    NOT NULL, -- Unix timestamp when bidding starts
     expires_at          BIGINT    NOT NULL, -- Unix timestamp when request expires
     lock_end            BIGINT    NOT NULL, -- Unix timestamp when lock ends
-    ramp_up_period      BIGINT    NOT NULL,  -- Ramp up period in seconds  
+    ramp_up_period      BIGINT    NOT NULL,  -- Ramp up period in seconds
 
-    -- Tx metadata which led to us adding this proof request to the table. 
+    -- Image fields
+    image_id            TEXT      NOT NULL DEFAULT '',
+    image_url           TEXT      NOT NULL DEFAULT '',
+
+    -- Tx metadata which led to us adding this proof request to the table.
     -- Could be a request submitted or request locked (if submitted offchain)
     tx_hash             TEXT      NOT NULL,
     block_number        BIGINT    NOT NULL, -- Block number

@@ -308,7 +308,7 @@ where
         // Compute fees and collateral
         let mut total_fees = U256::ZERO;
         let mut total_collateral = U256::ZERO;
-        let mut prices = Vec::new();
+        let mut prices: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
 
         for lock in locks {
             let min_price = U256::from_str(&lock.min_price)

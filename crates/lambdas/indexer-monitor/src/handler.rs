@@ -108,7 +108,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     metrics.push(new_metric("requests_number", requests_count as f64, now));
 
     let fulfillments = monitor
-        .fetch_fulfillments(start_time, now)
+        .fetch_fulfilled_requests(start_time, now)
         .await
         .context("Failed to fetch fulfilled requests number")?;
     let fulfillment_count = fulfillments.len();
@@ -162,7 +162,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         ));
 
         let fulfilled = monitor
-            .fetch_fulfillments_from_client(start_time, now, address)
+            .fetch_fulfilled_requests_from_client(start_time, now, address)
             .await
             .context("Failed to fetch fulfilled requests number for client {client}")?;
         let fulfilled_count = fulfilled.len();
@@ -185,7 +185,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         let address = Address::from_str(&prover).context("Failed to parse prover address")?;
 
         let fulfilled = monitor
-            .fetch_fulfillments_by_prover(start_time, now, address)
+            .fetch_fulfilled_requests_by_prover(start_time, now, address)
             .await
             .context("Failed to fetch fulfilled requests number by prover {prover}")?;
         let fulfilled_count = fulfilled.len();

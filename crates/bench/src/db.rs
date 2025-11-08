@@ -87,7 +87,7 @@ impl Monitor {
     }
 
     pub async fn fetch_prover(&self, request_digest: &str) -> Result<Option<Address>> {
-        let row = sqlx::query("SELECT prover_address FROM fulfillments WHERE request_digest = $1")
+        let row = sqlx::query("SELECT prover_address FROM proofs WHERE request_digest = $1")
             .bind(request_digest)
             .fetch_optional(&self.db)
             .await?;

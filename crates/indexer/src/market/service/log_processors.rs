@@ -352,7 +352,7 @@ where
                     &metadata,
                 )
                 .await?;
-            self.db.add_fulfillment(event.fulfillment, event.prover, &metadata).await?;
+            self.db.add_proof(event.fulfillment, event.prover, &metadata).await?;
 
             touched_requests.insert(request_digest);
         }

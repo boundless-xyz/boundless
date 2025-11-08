@@ -301,8 +301,8 @@ async fn test_e2e() {
     let request_id = result.get::<String, _>("request_id");
     assert_eq!(request_id, format!("{:x}", request.id));
 
-    // Check that the fulfillment was indexed
-    let result = sqlx::query("SELECT * FROM fulfillments WHERE request_id == $1")
+    // Check that the proof was indexed
+    let result = sqlx::query("SELECT * FROM proofs WHERE request_id == $1")
         .bind(format!("{:x}", request.id))
         .fetch_one(&test_db.pool)
         .await
@@ -535,11 +535,11 @@ async fn test_monitoring() {
         monitor.total_requests_from_client(ctx.customer_signer.address()).await.unwrap();
     assert_eq!(total_requests, 2);
 
-    let total_fulfillments = monitor.total_fulfillments().await.unwrap();
+    let total_fulfillments = monitor.total_proofs().await.unwrap();
     assert_eq!(total_fulfillments, 1);
 
     let total_fulfillments =
-        monitor.total_fulfillments_from_client(ctx.customer_signer.address()).await.unwrap();
+        monitor.total_proofs_from_client(ctx.customer_signer.address()).await.unwrap();
     assert_eq!(total_fulfillments, 1);
 
     let total_slashed = monitor.total_slashed().await.unwrap();

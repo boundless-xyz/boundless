@@ -301,7 +301,7 @@ pub trait IndexerDb {
         metadata: &TxMetadata,
     ) -> Result<(), DbError>;
 
-    async fn add_fulfillment(
+    async fn add_proof(
         &self,
         fill: Fulfillment,
         prover_address: Address,
@@ -458,6 +458,7 @@ pub trait IndexerDb {
         statuses: &[RequestStatus],
     ) -> Result<(), DbError>;
 
+    // Joins multiple tables to get a comprehensive view of a request.
     async fn get_requests_comprehensive(
         &self,
         request_digests: &std::collections::HashSet<B256>,
@@ -857,7 +858,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_fulfillment(
+    async fn add_proof(
         &self,
         fill: Fulfillment,
         prover_address: Address,
@@ -870,7 +871,7 @@ impl IndexerDb for AnyDb {
         };
         self.add_tx(metadata).await?;
         sqlx::query(
-            "INSERT INTO fulfillments (
+            "INSERT INTO proofs (
                 request_digest,
                 request_id,
                 prover_address,
@@ -1605,7 +1606,7 @@ impl IndexerDb for AnyDb {
                 peak_prove_mhz: None,  // TODO
                 effective_prove_mhz: None,  // TODO
                 fulfill_journal: None,  // TODO
-                fulfill_seal: None,  // Will be populated from fulfillments table below
+                fulfill_seal: None,  // Will be populated from proofs table below
                 slashed_at: slashed_at.map(|t| t as u64),
                 slashed_block: slashed_block.map(|b| b as u64),
                 slash_tx_hash,
@@ -1616,7 +1617,7 @@ impl IndexerDb for AnyDb {
             }
         }
 
-        // Now query fulfillments table to get seals for fulfilled requests
+        // Now query proofs table to get seals for fulfilled requests
         // Build map of (request_digest, prover_address) -> seal
         let mut fulfillments_map: std::collections::HashMap<(B256, Address), String> = std::collections::HashMap::new();
 
@@ -1637,7 +1638,7 @@ impl IndexerDb for AnyDb {
                 let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("${}", i)).collect();
                 let query_str = format!(
                     "SELECT request_digest, prover_address, seal, block_timestamp
-                     FROM fulfillments
+                     FROM proofs
                      WHERE request_digest IN ({})
                      ORDER BY request_digest, prover_address, block_timestamp ASC",
                     placeholders.join(", ")
@@ -1650,7 +1651,9 @@ impl IndexerDb for AnyDb {
 
                 let rows = query.fetch_all(&self.pool).await?;
 
-                // Build map: keep only first (earliest) seal for each (digest, prover) pair
+                // Build map: keep only first (earliest) seal for each (digest, prover) pair.
+                // Provers can deliver proofs multiple times, so there may be multiple entries for the same (digest, prover) pair
+                // in the proofs table.
                 for row in rows {
                     let digest_str: String = row.get("request_digest");
                     let prover_str: String = row.get("prover_address");
@@ -2687,10 +2690,10 @@ mod tests {
         let prover_address = Address::ZERO;
         db.add_tx(&metadata).await.unwrap();
         db.add_proof_delivered_event(fill.requestDigest, fill.id, prover_address, &metadata).await.unwrap();
-        db.add_fulfillment(fill.clone(), prover_address, &metadata).await.unwrap();
+        db.add_proof(fill.clone(), prover_address, &metadata).await.unwrap();
 
-        // Verify fulfillment was added
-        let result = sqlx::query("SELECT * FROM fulfillments WHERE tx_hash = $1")
+        // Verify proof was added
+        let result = sqlx::query("SELECT * FROM proofs WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
             .await
@@ -3475,9 +3478,9 @@ mod tests {
             fulfillmentDataType: FulfillmentDataType::None,
             seal: seal_wrong_prover,
         };
-        db.add_fulfillment(fulfillment_wrong_prover, prover_b, &metadata_wrong_prover).await.unwrap();
+        db.add_proof(fulfillment_wrong_prover, prover_b, &metadata_wrong_prover).await.unwrap();
 
-        // Add multiple fulfillments from prover_a with different timestamps
+        // Add multiple proofs from prover_a with different timestamps
         let seal_early = Bytes::from(vec![1, 2, 3, 4]);
         let seal_late = Bytes::from(vec![5, 6, 7, 8]);
 
@@ -3490,7 +3493,7 @@ mod tests {
             fulfillmentDataType: FulfillmentDataType::None,
             seal: seal_early.clone(),
         };
-        db.add_fulfillment(fulfillment_early, prover_a, &metadata_early).await.unwrap();
+        db.add_proof(fulfillment_early, prover_a, &metadata_early).await.unwrap();
 
         let metadata_late = TxMetadata::new(B256::from([21; 32]), Address::ZERO, 105, 1400, 1);
         let fulfillment_late = Fulfillment {
@@ -3501,7 +3504,7 @@ mod tests {
             fulfillmentDataType: FulfillmentDataType::None,
             seal: seal_late,
         };
-        db.add_fulfillment(fulfillment_late, prover_a, &metadata_late).await.unwrap();
+        db.add_proof(fulfillment_late, prover_a, &metadata_late).await.unwrap();
 
         // Get comprehensive request data
         let mut digest_set = std::collections::HashSet::new();

@@ -642,7 +642,7 @@ async fn test_market_aggregates_daily() {
 
     assert_eq!(response.aggregation.to_string(), "daily");
     assert!(response.data.len() <= 5);
-    assert!(response.data.len() > 0);
+    assert!(!response.data.is_empty());
 }
 
 #[tokio::test]
@@ -655,7 +655,7 @@ async fn test_market_aggregates_weekly() {
 
     assert_eq!(response.aggregation.to_string(), "weekly");
     assert!(response.data.len() <= 5);
-    assert!(response.data.len() > 0);
+    assert!(!response.data.is_empty());
 }
 
 #[tokio::test]
@@ -668,7 +668,7 @@ async fn test_market_aggregates_monthly() {
 
     assert_eq!(response.aggregation.to_string(), "monthly");
     assert!(response.data.len() <= 5);
-    assert!(response.data.len() > 0);
+    assert!(!response.data.is_empty());
 }
 
 #[tokio::test]
