@@ -617,20 +617,20 @@ export const alarmConfig: ChainStageAlarms = {
                 treatMissingData: "breaching"
               }
             },
-            {
-              description: "no submitted orders in 30 minutes from kailua_og_offchain",
-              severity: Severity.SEV2,
-              metricConfig: {
-                period: 1800
-              },
-              alarmConfig: {
-                evaluationPeriods: 1,
-                datapointsToAlarm: 1,
-                threshold: 1,
-                comparisonOperator: "LessThanThreshold",
-                treatMissingData: "breaching"
-              }
-            }
+            // {
+            //   description: "no submitted orders in 30 minutes from kailua_og_offchain",
+            //   severity: Severity.SEV2,
+            //   metricConfig: {
+            //     period: 1800
+            //   },
+            //   alarmConfig: {
+            //     evaluationPeriods: 1,
+            //     datapointsToAlarm: 1,
+            //     threshold: 1,
+            //     comparisonOperator: "LessThanThreshold",
+            //     treatMissingData: "breaching"
+            //   }
+            // }
           ],
           successRate: [
             {
