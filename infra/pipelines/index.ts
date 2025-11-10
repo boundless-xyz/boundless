@@ -199,7 +199,7 @@ const packerPipeline = new PackerPipeline("packerPipeline", {
   githubToken,
   dockerUsername,
   dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 });
 
 // Prover cluster deployment pipelines
@@ -213,7 +213,7 @@ const proverClusterPipeline = new ProverClusterPipeline("proverClusterPipeline",
   githubToken,
   dockerUsername,
   dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 });
 
 // Nightly build pipeline
@@ -230,7 +230,7 @@ const packerNightlyPipeline = new PackerNightlyPipeline("packerNightlyPipeline",
   githubToken,
   dockerUsername,
   dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopic.arn,
+  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 });
 
 
