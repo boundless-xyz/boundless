@@ -118,7 +118,7 @@ export class IndexerShared extends pulumi.ComponentResource {
     const rdsUser = 'indexer';
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
-    const databaseVersion = 'v10';
+    const databaseVersion = 'v11';
     this.databaseVersion = databaseVersion;
     const rdsDbName = `indexer${databaseVersion}`;
 
