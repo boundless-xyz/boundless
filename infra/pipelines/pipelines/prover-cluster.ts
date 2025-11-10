@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { BasePipelineArgs } from "./base";
-import { BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
+import {BasePipelineArgs} from "./base";
+import {BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN} from "../accountConstants";
 
 interface ProverClusterPipelineArgs extends BasePipelineArgs {
     stagingAccountId: string;
@@ -50,7 +50,16 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: ProverClusterPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:prover-cluster-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, role, stagingAccountId, productionAccountId, amiId, githubToken } = args;
+        const {
+            artifactBucket,
+            connection,
+            role,
+            stagingAccountId,
+            productionAccountId,
+            amiId,
+            githubToken,
+            slackAlertsTopicArn
+        } = args;
         // Helper function to create CodeBuild projects
         const createCodeBuildProject = (environment: string, accountId: string, stackName: string) => {
             return new aws.codebuild.Project(`${APP_NAME}-${stackName}`, {
@@ -107,7 +116,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     buildspec: PROVER_CLUSTER_BUILD_SPEC,
                 },
                 sourceVersion: "CODEPIPELINE",
-            }, { parent: this });
+            }, {parent: this});
         };
 
         const stagingBuildBaseSepoliaNightly = createCodeBuildProject("staging", stagingAccountId, "staging-nightly-84532");
@@ -240,7 +249,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     },
                 },
             ],
-        }, { parent: this });
+        }, {parent: this});
 
         // Create IAM role for EventBridge to execute the pipeline
         const eventBridgeRole = new aws.iam.Role(`${APP_NAME}-eventbridge-role`, {
@@ -254,7 +263,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     Action: "sts:AssumeRole"
                 }]
             }),
-        }, { parent: this });
+        }, {parent: this});
 
         // Grant EventBridge permission to start pipeline execution
         new aws.iam.RolePolicy(`${APP_NAME}-eventbridge-policy`, {
@@ -269,21 +278,37 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     }]
                 })
             )
-        }, { parent: this });
+        }, {parent: this});
 
         // Create EventBridge rule for daily 5am Central Time trigger
         // 10:00 UTC = 5am CDT (Central Daylight Time, UTC-5) / 4am CST (Central Standard Time, UTC-6)
         const dailyTrigger = new aws.cloudwatch.EventRule(`${APP_NAME}-daily-trigger`, {
             description: "Trigger prover-cluster pipeline daily at 5am Central Time (10:00 UTC)",
             scheduleExpression: "cron(0 10 * * ? *)",
-        }, { parent: this });
+        }, {parent: this});
 
         // Add pipeline as target for the EventBridge rule
         new aws.cloudwatch.EventTarget(`${APP_NAME}-daily-trigger-target`, {
             rule: dailyTrigger.name,
             arn: pipeline.arn,
             roleArn: eventBridgeRole.arn,
-        }, { parent: this });
+        }, {parent: this});
+
+        // Create notification rule
+        new aws.codestarnotifications.NotificationRule(`${APP_NAME}-pipeline-notifications`, {
+            name: `${APP_NAME}-pipeline-notifications`,
+            eventTypeIds: [
+                "codepipeline-pipeline-manual-approval-succeeded",
+                "codepipeline-pipeline-action-execution-failed",
+            ],
+            resource: pipeline.arn,
+            detailType: "FULL",
+            targets: [
+                {
+                    address: slackAlertsTopicArn.apply(arn => arn),
+                },
+            ],
+        });
 
         // Outputs
         this.pipelineName = pipeline.name;
