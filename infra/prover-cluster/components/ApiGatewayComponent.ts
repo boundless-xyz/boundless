@@ -137,10 +137,6 @@ export class ApiGatewayComponent extends BaseComponent {
                 type: "forward",
                 targetGroupArn: this.internalTargetGroup.arn,
             }],
-        }, {
-            dependsOn: [this.internalTargetGroup],
-            replaceOnChanges: ["defaultActions"],
-            deleteBeforeReplace: true,
         });
 
         // Create WAF Web ACL with API key enforcement (only for public ALB)
