@@ -28,21 +28,25 @@ pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &Prove
     let segment =
         deserialize_obj(&segment_vec).context("Failed to deserialize segment data from redis")?;
 
-    // Acquire semaphore permit before GPU operations to prevent OOM
-    let _permit = agent.gpu_semaphore.acquire().await
-        .context("Failed to acquire GPU semaphore permit")?;
-
-    tracing::debug!("Acquired GPU permit for segment proof: {job_id} - {index}");
-
     let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
 
     // Perform all prover operations in a scope to ensure they're dropped before awaits
     let lift_asset = {
         let prover = agent.create_prover();
         let verifier_ctx = agent.create_verifier_ctx();
-        let segment_receipt = prover
-            .prove_segment(&verifier_ctx, &segment)
-            .context("Failed to prove segment")?;
+        let results = prover.segment_preflight(&segment)?;
+
+        // Acquire semaphore permit before GPU operations to prevent OOM
+        let _permit = agent
+            .gpu_semaphore
+            .acquire()
+            .await
+            .context("Failed to acquire GPU semaphore permit")?;
+
+        tracing::debug!("Acquired GPU permit for segment proof: {job_id} - {index}");
+        let segment_receipt = tokio::task::block_in_place(|| {
+            prover.prove_segment_core(&verifier_ctx, results).context("Failed to prove segment")
+        })?;
 
         // Drop permit once GPU work is complete
         drop(_permit);
