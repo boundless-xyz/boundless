@@ -44,22 +44,20 @@ where
 
         let slashed_status = if req.slashed_at.is_some() {
             SlashedStatus::Slashed
-        } else if req.locked_at.is_some() && current_timestamp > req.expires_at && req.fulfilled_at.is_none() {
+        } else if req.locked_at.is_some()
+            && current_timestamp > req.expires_at
+            && req.fulfilled_at.is_none()
+        {
             SlashedStatus::Pending
         } else {
             SlashedStatus::NotApplicable
         };
 
-        let updated_at = [
-            req.submitted_at,
-            req.locked_at,
-            req.fulfilled_at,
-            req.slashed_at,
-        ]
-        .iter()
-        .filter_map(|&t| t)
-        .max()
-        .unwrap_or(req.created_at);
+        let updated_at = [req.submitted_at, req.locked_at, req.fulfilled_at, req.slashed_at]
+            .iter()
+            .filter_map(|&t| t)
+            .max()
+            .unwrap_or(req.created_at);
 
         RequestStatus {
             request_digest: req.request_digest,
@@ -113,13 +111,21 @@ where
         request_digests: HashSet<B256>,
         block_number: u64,
     ) -> Result<(), ServiceError> {
-        tracing::debug!("Request digests to update: {:?}", request_digests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());
+        tracing::debug!(
+            "Request digests to update: {:?}",
+            request_digests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
+        );
 
         let current_timestamp = self.block_timestamp(block_number).await?;
 
         let start = std::time::Instant::now();
 
-        tracing::debug!("Updating statuses for {} requests based on block {} timestamp {}", request_digests.len(), block_number, current_timestamp);
+        tracing::debug!(
+            "Updating statuses for {} requests based on block {} timestamp {}",
+            request_digests.len(),
+            block_number,
+            current_timestamp
+        );
 
         if request_digests.is_empty() {
             tracing::info!(
@@ -131,7 +137,7 @@ where
 
         let start_get_requests_comprehensive = std::time::Instant::now();
         let requests_with_events = self.db.get_requests_comprehensive(&request_digests).await?;
-        tracing::info!("get_requests_comprehensive completed in {:?} [{} requests found]", start_get_requests_comprehensive.elapsed(), requests_with_events.len());
+        tracing::info!("get_requests_comprehensive completed in {:?} [queried with {} digests, {} requests found]", start_get_requests_comprehensive.elapsed(), request_digests.len(), requests_with_events.len());
 
         let start_compute_request_status = std::time::Instant::now();
         let request_statuses: Vec<_> = requests_with_events
@@ -139,11 +145,19 @@ where
             .map(|req| self.compute_request_status(req, current_timestamp))
             .collect();
 
-        tracing::info!("compute_request_status completed in {:?} [{} statuses computed]", start_compute_request_status.elapsed(), request_statuses.len());
+        tracing::info!(
+            "compute_request_status completed in {:?} [{} statuses computed]",
+            start_compute_request_status.elapsed(),
+            request_statuses.len()
+        );
 
         let start_upsert_request_statuses = std::time::Instant::now();
         self.db.upsert_request_statuses(&request_statuses).await?;
-        tracing::info!("upsert_request_statuses completed in {:?} [{} statuses upserted]", start_upsert_request_statuses.elapsed(), request_statuses.len());
+        tracing::info!(
+            "upsert_request_statuses completed in {:?} [{} statuses upserted]",
+            start_upsert_request_statuses.elapsed(),
+            request_statuses.len()
+        );
         for request_status in request_statuses.clone() {
             tracing::debug!("Updated request status for request_id: {:?}. New status: {:?}. Locked at: {:?}. Fulfilled at: {:?}. Slashed at: {:?}.", request_status.request_id, request_status.request_status, request_status.locked_at, request_status.fulfilled_at, request_status.slashed_at);
         }
@@ -165,9 +179,17 @@ where
         let start = std::time::Instant::now();
         let from_timestamp = self.block_timestamp(from_block).await?;
         let to_timestamp = self.block_timestamp(to_block).await?;
-        let expired_requests = self.db.find_newly_expired_requests(from_timestamp, to_timestamp).await?;
-        tracing::info!("find_newly_expired_requests completed in {:?} [{} expired requests found]", start.elapsed(), expired_requests.len());
-        tracing::debug!("Expired requests: {:?}", expired_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());
+        let expired_requests =
+            self.db.find_newly_expired_requests(from_timestamp, to_timestamp).await?;
+        tracing::info!(
+            "find_newly_expired_requests completed in {:?} [{} expired requests found]",
+            start.elapsed(),
+            expired_requests.len()
+        );
+        tracing::debug!(
+            "Expired requests: {:?}",
+            expired_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
+        );
         Ok(expired_requests)
     }
 }

@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
-use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use boundless_indexer::market::service::TransactionFetchStrategy;
+use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
 use url::Url;
 
@@ -107,9 +107,15 @@ async fn main() -> Result<()> {
 
     let mut indexer_service = if let Some(order_stream_url) = args.order_stream_url {
         if args.order_stream_api_key.is_some() {
-            tracing::info!("Initializing market indexer with order stream at: {} (with API key)", order_stream_url);
+            tracing::info!(
+                "Initializing market indexer with order stream at: {} (with API key)",
+                order_stream_url
+            );
         } else {
-            tracing::info!("Initializing market indexer with order stream at: {}", order_stream_url);
+            tracing::info!(
+                "Initializing market indexer with order stream at: {}",
+                order_stream_url
+            );
         }
         IndexerService::new_with_order_stream(
             args.rpc_url.clone(),

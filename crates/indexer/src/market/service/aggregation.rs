@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{IndexerService, HOURLY_AGGREGATION_RECOMPUTE_HOURS, DAILY_AGGREGATION_RECOMPUTE_DAYS, WEEKLY_AGGREGATION_RECOMPUTE_WEEKS, MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_HOUR, SECONDS_PER_DAY, SECONDS_PER_WEEK};
+use super::{
+    IndexerService, DAILY_AGGREGATION_RECOMPUTE_DAYS, HOURLY_AGGREGATION_RECOMPUTE_HOURS,
+    MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_WEEK,
+    WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
+};
 use crate::db::market::HourlyMarketSummary;
 use crate::market::{pricing::compute_percentiles, ServiceError};
 use ::boundless_market::contracts::pricing::price_at_time;
@@ -30,10 +34,10 @@ fn get_day_start(timestamp: u64) -> u64 {
 /// Uses ISO 8601 standard where Monday is the first day of the week
 fn get_week_start(timestamp: u64) -> u64 {
     use chrono::{Datelike, TimeZone, Utc, Weekday};
-    
+
     let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
     let weekday = dt.weekday();
-    
+
     // Calculate days to subtract to get to Monday
     let days_from_monday = match weekday {
         Weekday::Mon => 0,
@@ -44,7 +48,7 @@ fn get_week_start(timestamp: u64) -> u64 {
         Weekday::Sat => 5,
         Weekday::Sun => 6,
     };
-    
+
     let monday = dt - chrono::Duration::days(days_from_monday);
     let monday_start = monday.date_naive().and_hms_opt(0, 0, 0).unwrap();
     monday_start.and_utc().timestamp() as u64
@@ -53,11 +57,9 @@ fn get_week_start(timestamp: u64) -> u64 {
 /// Returns the start of the calendar month (1st day 00:00:00 UTC) for a given timestamp
 fn get_month_start(timestamp: u64) -> u64 {
     use chrono::{Datelike, TimeZone, Utc};
-    
+
     let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
-    let month_start = Utc
-        .with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0)
-        .unwrap();
+    let month_start = Utc.with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0).unwrap();
     month_start.timestamp() as u64
 }
 
@@ -92,13 +94,21 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub(super) async fn aggregate_hourly_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
+    pub(super) async fn aggregate_hourly_market_data(
+        &mut self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
-        tracing::debug!("Aggregating hourly market data for past {} hours from block {} timestamp {}", HOURLY_AGGREGATION_RECOMPUTE_HOURS, to_block, current_time);
+        tracing::debug!(
+            "Aggregating hourly market data for past {} hours from block {} timestamp {}",
+            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
+            to_block,
+            current_time
+        );
 
         // Calculate hours ago based on configured recompute window
         let hours_ago = current_time - (HOURLY_AGGREGATION_RECOMPUTE_HOURS * SECONDS_PER_HOUR);
@@ -126,17 +136,25 @@ where
         Ok(())
     }
 
-    pub(super) async fn aggregate_daily_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
+    pub(super) async fn aggregate_daily_market_data(
+        &mut self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
-        tracing::debug!("Aggregating daily market data for past {} days from block {} timestamp {}", DAILY_AGGREGATION_RECOMPUTE_DAYS, to_block, current_time);
+        tracing::debug!(
+            "Aggregating daily market data for past {} days from block {} timestamp {}",
+            DAILY_AGGREGATION_RECOMPUTE_DAYS,
+            to_block,
+            current_time
+        );
 
         // Get the current day start and calculate days ago
         let current_day_start = get_day_start(current_time);
-        
+
         // Calculate which days to recompute
         let mut periods = Vec::new();
         let mut day_start = current_day_start;
@@ -165,17 +183,25 @@ where
         Ok(())
     }
 
-    pub(super) async fn aggregate_weekly_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
+    pub(super) async fn aggregate_weekly_market_data(
+        &mut self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
-        tracing::debug!("Aggregating weekly market data for past {} weeks from block {} timestamp {}", WEEKLY_AGGREGATION_RECOMPUTE_WEEKS, to_block, current_time);
+        tracing::debug!(
+            "Aggregating weekly market data for past {} weeks from block {} timestamp {}",
+            WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
+            to_block,
+            current_time
+        );
 
         // Get the current week start and calculate weeks ago
         let current_week_start = get_week_start(current_time);
-        
+
         // Calculate which weeks to recompute
         let mut periods = Vec::new();
         let mut week_start = current_week_start;
@@ -204,17 +230,25 @@ where
         Ok(())
     }
 
-    pub(super) async fn aggregate_monthly_market_data(&mut self, to_block: u64) -> Result<(), ServiceError> {
+    pub(super) async fn aggregate_monthly_market_data(
+        &mut self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
-        tracing::debug!("Aggregating monthly market data for past {} months from block {} timestamp {}", MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, to_block, current_time);
+        tracing::debug!(
+            "Aggregating monthly market data for past {} months from block {} timestamp {}",
+            MONTHLY_AGGREGATION_RECOMPUTE_MONTHS,
+            to_block,
+            current_time
+        );
 
         // Get the current month start and calculate months ago
         let current_month_start = get_month_start(current_time);
-        
+
         // Calculate which months to recompute
         let mut periods = Vec::new();
         let mut month_ts = current_month_start;
@@ -268,6 +302,7 @@ where
             total_locked_and_expired,
             total_locked_and_fulfilled,
             locks,
+            all_lock_collaterals,
         ) = tokio::join!(
             self.db.get_period_fulfilled_count(period_start, period_end),
             self.db.get_period_unique_provers(period_start, period_end),
@@ -280,6 +315,7 @@ where
             self.db.get_period_locked_and_expired_count(period_start, period_end),
             self.db.get_period_locked_and_fulfilled_count(period_start, period_end),
             self.db.get_period_lock_pricing_data(period_start, period_end),
+            self.db.get_period_all_lock_collateral(period_start, period_end),
         );
 
         // Unwrap all results
@@ -288,13 +324,15 @@ where
         let unique_requesters = unique_requesters?;
         let total_requests_submitted = total_requests_submitted?;
         let total_requests_submitted_onchain = total_requests_submitted_onchain?;
-        let total_requests_submitted_offchain = total_requests_submitted - total_requests_submitted_onchain;
+        let total_requests_submitted_offchain =
+            total_requests_submitted - total_requests_submitted_onchain;
         let total_requests_locked = total_requests_locked?;
         let total_requests_slashed = total_requests_slashed?;
         let total_expired = total_expired?;
         let total_locked_and_expired = total_locked_and_expired?;
         let total_locked_and_fulfilled = total_locked_and_fulfilled?;
         let locks = locks?;
+        let all_lock_collaterals = all_lock_collaterals?;
 
         let locked_orders_fulfillment_rate = {
             let total_locked_outcomes = total_locked_and_fulfilled + total_locked_and_expired;
@@ -305,9 +343,9 @@ where
             }
         };
 
-        // Compute fees and collateral
+        // Compute fees and percentiles from fulfilled requests only
+        // (where lock_prover_address == fulfill_prover_address)
         let mut total_fees = U256::ZERO;
-        let mut total_collateral = U256::ZERO;
         let mut prices: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
 
         for lock in locks {
@@ -315,8 +353,6 @@ where
                 .map_err(|e| ServiceError::Error(anyhow!("Failed to parse min_price: {}", e)))?;
             let max_price = U256::from_str(&lock.max_price)
                 .map_err(|e| ServiceError::Error(anyhow!("Failed to parse max_price: {}", e)))?;
-            let lock_collateral = U256::from_str(&lock.lock_collateral)
-                .map_err(|e| ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e)))?;
 
             // Compute lock_timeout from lock_end and bidding_start
             // Use saturating conversion to handle edge case where timeout exceeds u32::MAX
@@ -340,8 +376,16 @@ where
             );
 
             total_fees += price;
-            total_collateral += lock_collateral;
             prices.push(price);
+        }
+
+        // Compute total collateral from all locked requests (regardless of fulfillment)
+        let mut total_collateral = U256::ZERO;
+        for collateral_str in all_lock_collaterals {
+            let lock_collateral = U256::from_str(&collateral_str).map_err(|e| {
+                ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e))
+            })?;
+            total_collateral += lock_collateral;
         }
 
         // Compute percentiles: p10, p25, p50, p75, p90, p95, p99
@@ -356,6 +400,15 @@ where
         fn format_u256(value: U256) -> String {
             format!("{:0>78}", value)
         }
+
+        // TODO: Populate proving metrics from fulfilled requests
+        let total_cycles = 0;
+        let best_peak_prove_mhz = 0;
+        let best_peak_prove_mhz_prover = None;
+        let best_peak_prove_mhz_request_id = None;
+        let best_effective_prove_mhz = 0;
+        let best_effective_prove_mhz_prover = None;
+        let best_effective_prove_mhz_request_id = None;
 
         Ok(HourlyMarketSummary {
             period_timestamp: period_start,
@@ -380,6 +433,13 @@ where
             total_locked_and_expired,
             total_locked_and_fulfilled,
             locked_orders_fulfillment_rate,
+            total_cycles,
+            best_peak_prove_mhz,
+            best_peak_prove_mhz_prover,
+            best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz,
+            best_effective_prove_mhz_prover,
+            best_effective_prove_mhz_request_id,
         })
     }
 }
@@ -409,26 +469,26 @@ mod tests {
     #[test]
     fn test_get_week_start() {
         use chrono::{Datelike, TimeZone, Weekday};
-        
+
         // Test that weeks start on Monday (ISO 8601)
         // Using a known date: 2023-11-15 is a Wednesday
         let wednesday = 1700000000; // 2023-11-15 00:00:00 UTC (approximately)
         let week_start = get_week_start(wednesday);
-        
+
         // Week start should be a Monday
         let dt = chrono::Utc.timestamp_opt(week_start as i64, 0).unwrap();
         assert_eq!(dt.weekday(), Weekday::Mon);
-        
+
         // All days in the same week should return the same Monday
         let thursday = wednesday + 86400;
         let friday = wednesday + 2 * 86400;
         assert_eq!(get_week_start(thursday), week_start);
         assert_eq!(get_week_start(friday), week_start);
-        
+
         // Sunday should still be in the same week (ISO 8601)
         let sunday = week_start + 6 * 86400;
         assert_eq!(get_week_start(sunday), week_start);
-        
+
         // Next Monday should be a different week
         let next_monday = week_start + 7 * 86400;
         assert_eq!(get_week_start(next_monday), next_monday);
@@ -437,19 +497,19 @@ mod tests {
     #[test]
     fn test_get_month_start() {
         use chrono::TimeZone;
-        
+
         // Test mid-month timestamp
         let mid_month = chrono::Utc.with_ymd_and_hms(2023, 11, 15, 12, 30, 45).unwrap();
         let month_start = get_month_start(mid_month.timestamp() as u64);
-        
+
         // Should return 1st of November at 00:00:00
         let expected = chrono::Utc.with_ymd_and_hms(2023, 11, 1, 0, 0, 0).unwrap();
         assert_eq!(month_start, expected.timestamp() as u64);
-        
+
         // Test last day of month
         let end_of_month = chrono::Utc.with_ymd_and_hms(2023, 11, 30, 23, 59, 59).unwrap();
         assert_eq!(get_month_start(end_of_month.timestamp() as u64), month_start);
-        
+
         // Test first day of month
         let first_day = chrono::Utc.with_ymd_and_hms(2023, 11, 1, 0, 0, 0).unwrap();
         assert_eq!(get_month_start(first_day.timestamp() as u64), month_start);
@@ -459,10 +519,10 @@ mod tests {
     fn test_get_next_day() {
         let day_start = 1700000000;
         let day_start_aligned = (day_start / SECONDS_PER_DAY) * SECONDS_PER_DAY;
-        
+
         let next_day = get_next_day(day_start_aligned);
         assert_eq!(next_day, day_start_aligned + SECONDS_PER_DAY);
-        
+
         // Should work from any time within the day
         let mid_day = day_start_aligned + 43200; // noon
         assert_eq!(get_next_day(mid_day), day_start_aligned + SECONDS_PER_DAY);
@@ -472,10 +532,10 @@ mod tests {
     fn test_get_next_week() {
         let wednesday = 1700000000;
         let week_start = get_week_start(wednesday);
-        
+
         let next_week = get_next_week(wednesday);
         assert_eq!(next_week, week_start + SECONDS_PER_WEEK);
-        
+
         // Should work from any day in the week
         let friday = wednesday + 2 * 86400;
         assert_eq!(get_next_week(friday), week_start + SECONDS_PER_WEEK);
@@ -484,13 +544,13 @@ mod tests {
     #[test]
     fn test_get_next_month() {
         use chrono::TimeZone;
-        
+
         // Test November -> December
         let november = chrono::Utc.with_ymd_and_hms(2023, 11, 15, 12, 30, 45).unwrap();
         let next_month = get_next_month(november.timestamp() as u64);
         let expected_dec = chrono::Utc.with_ymd_and_hms(2023, 12, 1, 0, 0, 0).unwrap();
         assert_eq!(next_month, expected_dec.timestamp() as u64);
-        
+
         // Test December -> January (year rollover)
         let december = chrono::Utc.with_ymd_and_hms(2023, 12, 20, 10, 0, 0).unwrap();
         let next_month = get_next_month(december.timestamp() as u64);
@@ -501,20 +561,20 @@ mod tests {
     #[test]
     fn test_month_boundaries() {
         use chrono::TimeZone;
-        
+
         // Test months with different numbers of days
         // January (31 days)
         let jan = chrono::Utc.with_ymd_and_hms(2024, 1, 31, 23, 59, 59).unwrap();
         let next = get_next_month(jan.timestamp() as u64);
         let expected_feb = chrono::Utc.with_ymd_and_hms(2024, 2, 1, 0, 0, 0).unwrap();
         assert_eq!(next, expected_feb.timestamp() as u64);
-        
+
         // February leap year (29 days)
         let feb = chrono::Utc.with_ymd_and_hms(2024, 2, 29, 12, 0, 0).unwrap();
         let next = get_next_month(feb.timestamp() as u64);
         let expected_mar = chrono::Utc.with_ymd_and_hms(2024, 3, 1, 0, 0, 0).unwrap();
         assert_eq!(next, expected_mar.timestamp() as u64);
-        
+
         // February non-leap year (28 days)
         let feb = chrono::Utc.with_ymd_and_hms(2023, 2, 28, 12, 0, 0).unwrap();
         let next = get_next_month(feb.timestamp() as u64);

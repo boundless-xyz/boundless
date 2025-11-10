@@ -38,22 +38,18 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub fn new(
-        indexer: IndexerService<P, ANP>,
-        mode: BackfillMode,
-        end_block: u64,
-    ) -> Self {
-        Self {
-            indexer,
-            mode,
-            end_block,
-        }
+    pub fn new(indexer: IndexerService<P, ANP>, mode: BackfillMode, end_block: u64) -> Self {
+        Self { indexer, mode, end_block }
     }
 
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         let start_time = std::time::Instant::now();
 
-        tracing::info!("Starting backfill with mode: {:?}, end_block: {}", self.mode, self.end_block);
+        tracing::info!(
+            "Starting backfill with mode: {:?}, end_block: {}",
+            self.mode,
+            self.end_block
+        );
 
         match self.mode {
             BackfillMode::StatusesAndAggregates => {
@@ -74,7 +70,11 @@ where
         tracing::info!("Starting status backfill...");
 
         let current_timestamp = self.indexer.block_timestamp(self.end_block).await?;
-        tracing::info!("Using end block {} with timestamp {} as 'current time' for status computation", self.end_block, current_timestamp);
+        tracing::info!(
+            "Using end block {} with timestamp {} as 'current time' for status computation",
+            self.end_block,
+            current_timestamp
+        );
 
         let mut cursor: Option<B256> = None;
         let mut total_processed = 0;
@@ -85,7 +85,8 @@ where
             let batch_start = std::time::Instant::now();
 
             // Fetch next batch of digests
-            let digests = self.indexer.db.get_request_digests_paginated(cursor, DIGEST_BATCH_SIZE).await?;
+            let digests =
+                self.indexer.db.get_request_digests_paginated(cursor, DIGEST_BATCH_SIZE).await?;
 
             if digests.is_empty() {
                 tracing::info!("No more digests to process");
@@ -93,7 +94,12 @@ where
             }
 
             let digest_count = digests.len();
-            tracing::info!("Batch {}: Fetched {} digests in {:?}", batch_num, digest_count, batch_start.elapsed());
+            tracing::info!(
+                "Batch {}: Fetched {} digests in {:?}",
+                batch_num,
+                digest_count,
+                batch_start.elapsed()
+            );
 
             // Update cursor for next iteration
             cursor = digests.last().copied();
@@ -105,7 +111,8 @@ where
                 let digest_set: HashSet<B256> = chunk.iter().copied().collect();
 
                 // Fetch comprehensive data for these requests
-                let requests_comprehensive = self.indexer.db.get_requests_comprehensive(&digest_set).await?;
+                let requests_comprehensive =
+                    self.indexer.db.get_requests_comprehensive(&digest_set).await?;
 
                 // Compute statuses
                 let request_statuses: Vec<_> = requests_comprehensive
@@ -131,7 +138,11 @@ where
             tracing::info!("Batch {} completed in {:?}", batch_num, batch_start.elapsed());
         }
 
-        tracing::info!("Status backfill completed: {} statuses updated in {:?}", total_processed, start_time.elapsed());
+        tracing::info!(
+            "Status backfill completed: {} statuses updated in {:?}",
+            total_processed,
+            start_time.elapsed()
+        );
         Ok(())
     }
 
@@ -168,8 +179,12 @@ where
         Ok(())
     }
 
-    async fn backfill_hourly_aggregates(&mut self, start_ts: u64, end_ts: u64) -> Result<(), ServiceError> {
-        use super::super::service::{SECONDS_PER_HOUR};
+    async fn backfill_hourly_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        use super::super::service::SECONDS_PER_HOUR;
 
         let start_time = std::time::Instant::now();
 
@@ -178,7 +193,12 @@ where
         let end_hour = (end_ts / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
 
         let total_hours = ((end_hour - start_hour) / SECONDS_PER_HOUR) + 1;
-        tracing::info!("Recomputing {} hourly periods from {} to {}", total_hours, start_hour, end_hour);
+        tracing::info!(
+            "Recomputing {} hourly periods from {} to {}",
+            total_hours,
+            start_hour,
+            end_hour
+        );
 
         let mut processed = 0;
         for hour_ts in (start_hour..=end_hour).step_by(SECONDS_PER_HOUR as usize) {
@@ -192,11 +212,19 @@ where
             }
         }
 
-        tracing::info!("Hourly aggregate backfill completed: {} periods in {:?}", processed, start_time.elapsed());
+        tracing::info!(
+            "Hourly aggregate backfill completed: {} periods in {:?}",
+            processed,
+            start_time.elapsed()
+        );
         Ok(())
     }
 
-    async fn backfill_daily_aggregates(&mut self, start_ts: u64, end_ts: u64) -> Result<(), ServiceError> {
+    async fn backfill_daily_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
         use super::super::service::SECONDS_PER_DAY;
 
         let start_time = std::time::Instant::now();
@@ -206,7 +234,12 @@ where
         let end_day = self.get_day_start(end_ts);
 
         let total_days = ((end_day - start_day) / SECONDS_PER_DAY) + 1;
-        tracing::info!("Recomputing {} daily periods from {} to {}", total_days, start_day, end_day);
+        tracing::info!(
+            "Recomputing {} daily periods from {} to {}",
+            total_days,
+            start_day,
+            end_day
+        );
 
         let mut processed = 0;
         for day_ts in (start_day..=end_day).step_by(SECONDS_PER_DAY as usize) {
@@ -220,11 +253,19 @@ where
             }
         }
 
-        tracing::info!("Daily aggregate backfill completed: {} periods in {:?}", processed, start_time.elapsed());
+        tracing::info!(
+            "Daily aggregate backfill completed: {} periods in {:?}",
+            processed,
+            start_time.elapsed()
+        );
         Ok(())
     }
 
-    async fn backfill_weekly_aggregates(&mut self, start_ts: u64, end_ts: u64) -> Result<(), ServiceError> {
+    async fn backfill_weekly_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
         use super::super::service::SECONDS_PER_WEEK;
 
         let start_time = std::time::Instant::now();
@@ -239,7 +280,12 @@ where
             week_ts += SECONDS_PER_WEEK;
         }
 
-        tracing::info!("Recomputing {} weekly periods from {} to {}", periods.len(), start_week, end_week);
+        tracing::info!(
+            "Recomputing {} weekly periods from {} to {}",
+            periods.len(),
+            start_week,
+            end_week
+        );
 
         for (idx, week_ts) in periods.iter().enumerate() {
             let week_end = self.get_next_week(*week_ts);
@@ -251,11 +297,19 @@ where
             }
         }
 
-        tracing::info!("Weekly aggregate backfill completed: {} periods in {:?}", periods.len(), start_time.elapsed());
+        tracing::info!(
+            "Weekly aggregate backfill completed: {} periods in {:?}",
+            periods.len(),
+            start_time.elapsed()
+        );
         Ok(())
     }
 
-    async fn backfill_monthly_aggregates(&mut self, start_ts: u64, end_ts: u64) -> Result<(), ServiceError> {
+    async fn backfill_monthly_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
         let start_time = std::time::Instant::now();
 
         let start_month = self.get_month_start(start_ts);
@@ -268,7 +322,12 @@ where
             month_ts = self.get_next_month(month_ts);
         }
 
-        tracing::info!("Recomputing {} monthly periods from {} to {}", periods.len(), start_month, end_month);
+        tracing::info!(
+            "Recomputing {} monthly periods from {} to {}",
+            periods.len(),
+            start_month,
+            end_month
+        );
 
         for (idx, month_ts) in periods.iter().enumerate() {
             let month_end = self.get_next_month(*month_ts);
@@ -278,7 +337,11 @@ where
             tracing::info!("Processed {} / {} monthly periods", idx + 1, periods.len());
         }
 
-        tracing::info!("Monthly aggregate backfill completed: {} periods in {:?}", periods.len(), start_time.elapsed());
+        tracing::info!(
+            "Monthly aggregate backfill completed: {} periods in {:?}",
+            periods.len(),
+            start_time.elapsed()
+        );
         Ok(())
     }
 
@@ -323,9 +386,7 @@ where
         use chrono::{Datelike, TimeZone, Utc};
 
         let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
-        let month_start = Utc
-            .with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0)
-            .unwrap();
+        let month_start = Utc.with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0).unwrap();
         month_start.timestamp() as u64
     }
 

@@ -24,7 +24,11 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub async fn run(&mut self, starting_block: Option<u64>, end_block: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn run(
+        &mut self,
+        starting_block: Option<u64>,
+        end_block: Option<u64>,
+    ) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
 
         let mut from_block: u64 = self.starting_block(starting_block).await?;
@@ -131,8 +135,7 @@ where
                     | ServiceError::RpcError(_) => {
                         attempt += 1;
                         // exponential backoff with a maximum delay of 120 seconds
-                        let delay =
-                            std::time::Duration::from_secs(2u64.pow(attempt - 1).min(120));
+                        let delay = std::time::Duration::from_secs(2u64.pow(attempt - 1).min(120));
                         tracing::warn!(
                             "Failed to process blocks from {} to {}: {:?}, attempt number {}, retrying in {}s",
                             from_block,
@@ -193,7 +196,7 @@ where
         // Update request statuses for touched requests
         self.update_request_statuses(touched_requests, to).await?;
 
-        // Aggregate market data. 
+        // Aggregate market data.
         // Note: Aggregations use the result of update_request_statuses, so we need to run them after.
         self.aggregate_hourly_market_data(to).await?;
         self.aggregate_daily_market_data(to).await?;
@@ -304,5 +307,4 @@ mod tests {
         let block = find_starting_block(starting_block, last_processed, current_block);
         assert_eq!(block, 10);
     }
-
 }

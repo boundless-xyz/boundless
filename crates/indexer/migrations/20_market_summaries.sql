@@ -21,6 +21,13 @@ CREATE TABLE IF NOT EXISTS hourly_market_summary (
   total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
   total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
   locked_orders_fulfillment_rate          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+  total_cycles                            BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz                     BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz_prover              TEXT,
+  best_peak_prove_mhz_request_id          TEXT,
+  best_effective_prove_mhz                BIGINT NOT NULL DEFAULT 0,
+  best_effective_prove_mhz_prover         TEXT,
+  best_effective_prove_mhz_request_id     TEXT,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -49,6 +56,13 @@ CREATE TABLE IF NOT EXISTS daily_market_summary (
   total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
   total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
   locked_orders_fulfillment_rate          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+  total_cycles                            BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz                     BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz_prover              TEXT,
+  best_peak_prove_mhz_request_id          TEXT,
+  best_effective_prove_mhz                BIGINT NOT NULL DEFAULT 0,
+  best_effective_prove_mhz_prover         TEXT,
+  best_effective_prove_mhz_request_id     TEXT,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -77,6 +91,13 @@ CREATE TABLE IF NOT EXISTS weekly_market_summary (
   total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
   total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
   locked_orders_fulfillment_rate          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+  total_cycles                            BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz                     BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz_prover              TEXT,
+  best_peak_prove_mhz_request_id          TEXT,
+  best_effective_prove_mhz                BIGINT NOT NULL DEFAULT 0,
+  best_effective_prove_mhz_prover         TEXT,
+  best_effective_prove_mhz_request_id     TEXT,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -105,6 +126,13 @@ CREATE TABLE IF NOT EXISTS monthly_market_summary (
   total_locked_and_expired                BIGINT NOT NULL DEFAULT 0,
   total_locked_and_fulfilled              BIGINT NOT NULL DEFAULT 0,
   locked_orders_fulfillment_rate          DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+  total_cycles                            BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz                     BIGINT NOT NULL DEFAULT 0,
+  best_peak_prove_mhz_prover              TEXT,
+  best_peak_prove_mhz_request_id          TEXT,
+  best_effective_prove_mhz                BIGINT NOT NULL DEFAULT 0,
+  best_effective_prove_mhz_prover         TEXT,
+  best_effective_prove_mhz_request_id     TEXT,
   updated_at                              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -144,6 +144,13 @@ pub struct HourlyMarketSummary {
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
     pub locked_orders_fulfillment_rate: f32,
+    pub total_cycles: u64,
+    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz_prover: Option<String>,
+    pub best_peak_prove_mhz_request_id: Option<String>,
+    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz_prover: Option<String>,
+    pub best_effective_prove_mhz_request_id: Option<String>,
 }
 
 // Type aliases for different aggregation periods - they all use the same struct
@@ -200,7 +207,7 @@ pub struct RequestStatus {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RequestCursor {
-    pub timestamp: u64,  // Either updated_at or created_at depending on sort_by
+    pub timestamp: u64, // Either updated_at or created_at depending on sort_by
     pub request_digest: String,
 }
 
@@ -263,7 +270,13 @@ pub struct LockPricingData {
 }
 
 impl TxMetadata {
-    pub fn new(tx_hash: B256, from: Address, block_number: u64, block_timestamp: u64, transaction_index: u64) -> Self {
+    pub fn new(
+        tx_hash: B256,
+        from: Address,
+        block_number: u64,
+        block_timestamp: u64,
+        transaction_index: u64,
+    ) -> Self {
         Self { tx_hash, from, block_number, block_timestamp, transaction_index }
     }
 }
@@ -407,10 +420,8 @@ pub trait IndexerDb {
         after: Option<i64>,
     ) -> Result<Vec<HourlyMarketSummary>, DbError>;
 
-    async fn upsert_daily_market_summary(
-        &self,
-        summary: DailyMarketSummary,
-    ) -> Result<(), DbError>;
+    async fn upsert_daily_market_summary(&self, summary: DailyMarketSummary)
+        -> Result<(), DbError>;
 
     async fn get_daily_market_summaries(
         &self,
@@ -453,10 +464,7 @@ pub trait IndexerDb {
     /// Note on conflict, this function will not update all fields.
     /// Only the mutable fields e.g. locked_at, fulfilled_at, slashed_at, etc. will be updated.
     /// Things like image id, offer details, etc. will not be updated.
-    async fn upsert_request_statuses(
-        &self,
-        statuses: &[RequestStatus],
-    ) -> Result<(), DbError>;
+    async fn upsert_request_statuses(&self, statuses: &[RequestStatus]) -> Result<(), DbError>;
 
     // Joins multiple tables to get a comprehensive view of a request.
     async fn get_requests_comprehensive(
@@ -554,13 +562,23 @@ pub trait IndexerDb {
         period_end: u64,
     ) -> Result<u64, DbError>;
 
-    /// Gets pricing data for all locked requests in the half-open period [period_start, period_end).
-    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
+    /// Gets pricing data for requests fulfilled in the half-open period [period_start, period_end).
+    /// Only includes requests where the prover who locked the request is the same as the prover who fulfilled it.
+    /// Filters by `request_status.fulfilled_at` timestamp.
     async fn get_period_lock_pricing_data(
         &self,
         period_start: u64,
         period_end: u64,
     ) -> Result<Vec<LockPricingData>, DbError>;
+
+    /// Gets collateral amounts for all locked requests in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
+    /// Used for total_collateral_locked metric which tracks all locks regardless of fulfillment.
+    async fn get_period_all_lock_collateral(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<Vec<String>, DbError>;
 
     /// Gets the count of requests that expired during the half-open period [period_start, period_end).
     /// Filters by `request_status.expires_at` (when the request's deadline passed).
@@ -612,10 +630,7 @@ impl AnyDb {
         install_default_drivers();
         let opts = AnyConnectOptions::from_str(conn_str)?;
 
-        let pool = AnyPoolOptions::new()
-            .max_connections(7)
-            .connect_with(opts)
-            .await?;
+        let pool = AnyPoolOptions::new().max_connections(7).connect_with(opts).await?;
 
         // apply any migrations
         sqlx::migrate!().run(&pool).await?;
@@ -767,7 +782,8 @@ impl IndexerDb for AnyDb {
         };
 
         let image_id_str = match Predicate::try_from(request.requirements.predicate.clone()) {
-            Ok(predicate) => predicate.image_id()
+            Ok(predicate) => predicate
+                .image_id()
                 .map(|digest| format!("{:x}", B256::from(<[u8; 32]>::from(digest))))
                 .unwrap_or_default(),
             Err(_) => String::new(),
@@ -1259,8 +1275,7 @@ impl IndexerDb for AnyDb {
         &self,
         summary: HourlyMarketSummary,
     ) -> Result<(), DbError> {
-        self.upsert_market_summary_generic(summary, "hourly_market_summary")
-            .await
+        self.upsert_market_summary_generic(summary, "hourly_market_summary").await
     }
 
     async fn get_hourly_market_summaries(
@@ -1271,7 +1286,15 @@ impl IndexerDb for AnyDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<HourlyMarketSummary>, DbError> {
-        self.get_market_summaries_generic(cursor, limit, sort, before, after, "hourly_market_summary").await
+        self.get_market_summaries_generic(
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "hourly_market_summary",
+        )
+        .await
     }
 
     async fn upsert_daily_market_summary(
@@ -1289,7 +1312,15 @@ impl IndexerDb for AnyDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<DailyMarketSummary>, DbError> {
-        self.get_market_summaries_generic(cursor, limit, sort, before, after, "daily_market_summary").await
+        self.get_market_summaries_generic(
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "daily_market_summary",
+        )
+        .await
     }
 
     async fn upsert_weekly_market_summary(
@@ -1307,7 +1338,15 @@ impl IndexerDb for AnyDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<WeeklyMarketSummary>, DbError> {
-        self.get_market_summaries_generic(cursor, limit, sort, before, after, "weekly_market_summary").await
+        self.get_market_summaries_generic(
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "weekly_market_summary",
+        )
+        .await
     }
 
     async fn upsert_monthly_market_summary(
@@ -1325,13 +1364,18 @@ impl IndexerDb for AnyDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<MonthlyMarketSummary>, DbError> {
-        self.get_market_summaries_generic(cursor, limit, sort, before, after, "monthly_market_summary").await
+        self.get_market_summaries_generic(
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "monthly_market_summary",
+        )
+        .await
     }
 
-    async fn upsert_request_statuses(
-        &self,
-        statuses: &[RequestStatus],
-    ) -> Result<(), DbError> {
+    async fn upsert_request_statuses(&self, statuses: &[RequestStatus]) -> Result<(), DbError> {
         if statuses.is_empty() {
             return Ok(());
         }
@@ -1343,9 +1387,8 @@ impl IndexerDb for AnyDb {
             let mut param_idx = 1;
 
             for _ in chunk {
-                let params: Vec<String> = (param_idx..param_idx + 43)
-                    .map(|i| format!("${}", i))
-                    .collect();
+                let params: Vec<String> =
+                    (param_idx..param_idx + 43).map(|i| format!("${}", i)).collect();
                 values_clauses.push(format!("({})", params.join(",")));
                 param_idx += 43;
             }
@@ -1501,7 +1544,7 @@ impl IndexerDb for AnyDb {
                 LEFT JOIN request_locked_events rle ON rle.request_digest = pr.request_digest
                 LEFT JOIN request_fulfilled_events rfe ON rfe.request_digest = pr.request_digest
                 LEFT JOIN prover_slashed_events pse ON pse.request_id = pr.request_id
-                WHERE pr.request_digest = $1"
+                WHERE pr.request_digest = $1",
             )
             .bind(&digest_str)
             .fetch_all(&self.pool)
@@ -1513,117 +1556,137 @@ impl IndexerDb for AnyDb {
                 tracing::warn!("No proof_request found for digest: {}", digest_str);
             }
 
-            // Should be at most one row since request_digest is unique
+            // Should be at most one row since request_digest is unique. If there are multiple, we parse all so that we can
+            // log and warn for further investigation.
+            let mut cur_request = Vec::new();
             for row in rows {
                 let request_digest_str: String = row.get("request_digest");
-                let request_digest = B256::from_str(&request_digest_str)
-                    .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
+                let request_digest = B256::from_str(&request_digest_str).map_err(|e| {
+                    DbError::BadTransaction(format!("Invalid request_digest: {}", e))
+                })?;
                 let request_id: String = row.get("request_id");
                 let source: String = row.get("source");
                 let client_address_str: String = row.get("client_address");
-                let client_address = Address::from_str(&client_address_str)
-                    .map_err(|e| DbError::BadTransaction(format!("Invalid client_address: {}", e)))?;
+                let client_address = Address::from_str(&client_address_str).map_err(|e| {
+                    DbError::BadTransaction(format!("Invalid client_address: {}", e))
+                })?;
 
-            let created_at: i64 = row.get("created_at");
-            let submit_block: Option<i64> = row.try_get("submit_block").ok();
-            let submit_tx_hash_str: Option<String> = row.try_get("submit_tx_hash").ok();
-            let submit_tx_hash = submit_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+                let created_at: i64 = row.get("created_at");
+                let submit_block: Option<i64> = row.try_get("submit_block").ok();
+                let submit_tx_hash_str: Option<String> = row.try_get("submit_tx_hash").ok();
+                let submit_tx_hash = submit_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
 
-            let min_price: String = row.get("min_price");
-            let max_price: String = row.get("max_price");
-            let lock_collateral: String = row.get("lock_collateral");
-            let ramp_up_start: i64 = row.get("ramp_up_start");
-            let ramp_up_period: i64 = row.get("ramp_up_period");
-            let expires_at: i64 = row.get("expires_at");
-            let lock_end: i64 = row.get("lock_end");
+                let min_price: String = row.get("min_price");
+                let max_price: String = row.get("max_price");
+                let lock_collateral: String = row.get("lock_collateral");
+                let ramp_up_start: i64 = row.get("ramp_up_start");
+                let ramp_up_period: i64 = row.get("ramp_up_period");
+                let expires_at: i64 = row.get("expires_at");
+                let lock_end: i64 = row.get("lock_end");
 
-            let image_id: String = row.get("image_id");
-            let image_url: Option<String> = row.try_get("image_url").ok();
-            let selector: String = row.get("selector");
-            let predicate_type: String = row.get("predicate_type");
-            let predicate_data: String = row.get("predicate_data");
-            let input_type: String = row.get("input_type");
-            let input_data: String = row.get("input_data");
+                let image_id: String = row.get("image_id");
+                let image_url: Option<String> = row.try_get("image_url").ok();
+                let selector: String = row.get("selector");
+                let predicate_type: String = row.get("predicate_type");
+                let predicate_data: String = row.get("predicate_data");
+                let input_type: String = row.get("input_type");
+                let input_data: String = row.get("input_data");
 
-            // Event timestamps
-            let submitted_at: Option<i64> = row.try_get("submitted_at").ok();
-            let locked_at: Option<i64> = row.try_get("locked_at").ok();
-            let lock_block: Option<i64> = row.try_get("lock_block").ok();
-            let lock_tx_hash_str: Option<String> = row.try_get("lock_tx_hash").ok();
-            let lock_tx_hash = lock_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+                // Event timestamps
+                let submitted_at: Option<i64> = row.try_get("submitted_at").ok();
+                let locked_at: Option<i64> = row.try_get("locked_at").ok();
+                let lock_block: Option<i64> = row.try_get("lock_block").ok();
+                let lock_tx_hash_str: Option<String> = row.try_get("lock_tx_hash").ok();
+                let lock_tx_hash = lock_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
 
-            let lock_prover_address_str: Option<String> = row.try_get("lock_prover_address").ok();
-            let lock_prover_address = lock_prover_address_str.and_then(|s| Address::from_str(&s).ok());
+                let lock_prover_address_str: Option<String> =
+                    row.try_get("lock_prover_address").ok();
+                let lock_prover_address =
+                    lock_prover_address_str.and_then(|s| Address::from_str(&s).ok());
 
-            let fulfilled_at: Option<i64> = row.try_get("fulfilled_at").ok();
-            let fulfill_prover_address_str: Option<String> = row.try_get("fulfill_prover_address").ok();
-            let fulfill_prover_address = fulfill_prover_address_str.and_then(|s| Address::from_str(&s).ok());
-            let fulfill_block: Option<i64> = row.try_get("fulfill_block").ok();
-            let fulfill_tx_hash_str: Option<String> = row.try_get("fulfill_tx_hash").ok();
-            let fulfill_tx_hash = fulfill_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+                let fulfilled_at: Option<i64> = row.try_get("fulfilled_at").ok();
+                let fulfill_prover_address_str: Option<String> =
+                    row.try_get("fulfill_prover_address").ok();
+                let fulfill_prover_address =
+                    fulfill_prover_address_str.and_then(|s| Address::from_str(&s).ok());
+                let fulfill_block: Option<i64> = row.try_get("fulfill_block").ok();
+                let fulfill_tx_hash_str: Option<String> = row.try_get("fulfill_tx_hash").ok();
+                let fulfill_tx_hash = fulfill_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
 
-            let slashed_at: Option<i64> = row.try_get("slashed_at").ok();
-            let slashed_block: Option<i64> = row.try_get("slashed_block").ok();
-            let slash_tx_hash_str: Option<String> = row.try_get("slash_tx_hash").ok();
-            let slash_tx_hash = slash_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
-            let slash_burned_amount_str: Option<String> = row.try_get("slash_burned_amount").ok();
-            let slash_transferred_amount_str: Option<String> = row.try_get("slash_transferred_amount").ok();
-            let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
-            let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
+                let slashed_at: Option<i64> = row.try_get("slashed_at").ok();
+                let slashed_block: Option<i64> = row.try_get("slashed_block").ok();
+                let slash_tx_hash_str: Option<String> = row.try_get("slash_tx_hash").ok();
+                let slash_tx_hash = slash_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
+                let slash_burned_amount_str: Option<String> =
+                    row.try_get("slash_burned_amount").ok();
+                let slash_transferred_amount_str: Option<String> =
+                    row.try_get("slash_transferred_amount").ok();
+                let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
+                let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
-            requests.push(RequestComprehensive {
-                request_digest,
-                request_id,
-                source,
-                client_address,
-                created_at: created_at as u64,
-                submit_block: submit_block.map(|b| b as u64),
-                submit_tx_hash,
-                min_price,
-                max_price,
-                lock_collateral,
-                ramp_up_start: ramp_up_start as u64,
-                ramp_up_period: ramp_up_period as u64,
-                expires_at: expires_at as u64,
-                lock_end: lock_end as u64,
-                image_id,
-                image_url,
-                selector,
-                predicate_type,
-                predicate_data,
-                input_type,
-                input_data,
-                submitted_at: submitted_at.map(|t| t as u64),
-                locked_at: locked_at.map(|t| t as u64),
-                lock_block: lock_block.map(|b| b as u64),
-                lock_tx_hash,
-                lock_prover_address,
-                fulfilled_at: fulfilled_at.map(|t| t as u64),
-                fulfill_prover_address,
-                fulfill_block: fulfill_block.map(|b| b as u64),
-                fulfill_tx_hash,
-                cycles: None,  // TODO
-                peak_prove_mhz: None,  // TODO
-                effective_prove_mhz: None,  // TODO
-                fulfill_journal: None,  // TODO
-                fulfill_seal: None,  // Will be populated from proofs table below
-                slashed_at: slashed_at.map(|t| t as u64),
-                slashed_block: slashed_block.map(|b| b as u64),
-                slash_tx_hash,
-                slash_burned_amount: slash_burned_amount_str,
-                slash_transferred_amount: slash_transferred_amount_str,
-                slash_recipient,
-            });
+                cur_request.push(RequestComprehensive {
+                    request_digest,
+                    request_id,
+                    source,
+                    client_address,
+                    created_at: created_at as u64,
+                    submit_block: submit_block.map(|b| b as u64),
+                    submit_tx_hash,
+                    min_price,
+                    max_price,
+                    lock_collateral,
+                    ramp_up_start: ramp_up_start as u64,
+                    ramp_up_period: ramp_up_period as u64,
+                    expires_at: expires_at as u64,
+                    lock_end: lock_end as u64,
+                    image_id,
+                    image_url,
+                    selector,
+                    predicate_type,
+                    predicate_data,
+                    input_type,
+                    input_data,
+                    submitted_at: submitted_at.map(|t| t as u64),
+                    locked_at: locked_at.map(|t| t as u64),
+                    lock_block: lock_block.map(|b| b as u64),
+                    lock_tx_hash,
+                    lock_prover_address,
+                    fulfilled_at: fulfilled_at.map(|t| t as u64),
+                    fulfill_prover_address,
+                    fulfill_block: fulfill_block.map(|b| b as u64),
+                    fulfill_tx_hash,
+                    cycles: None,              // TODO
+                    peak_prove_mhz: None,      // TODO
+                    effective_prove_mhz: None, // TODO
+                    fulfill_journal: None,     // TODO
+                    fulfill_seal: None,        // Will be populated from proofs table below
+                    slashed_at: slashed_at.map(|t| t as u64),
+                    slashed_block: slashed_block.map(|b| b as u64),
+                    slash_tx_hash,
+                    slash_burned_amount: slash_burned_amount_str,
+                    slash_transferred_amount: slash_transferred_amount_str,
+                    slash_recipient,
+                });
+            }
+
+            if cur_request.len() > 1 {
+                tracing::warn!("Multiple request_comprehensive computed found for digest {}. Adding first: {:?}", digest_str, cur_request);
+            } 
+
+            if !cur_request.is_empty() {
+                requests.push(cur_request.first().unwrap().clone());
             }
         }
 
         // Now query proofs table to get seals for fulfilled requests
         // Build map of (request_digest, prover_address) -> seal
-        let mut fulfillments_map: std::collections::HashMap<(B256, Address), String> = std::collections::HashMap::new();
+        let mut fulfillments_map: std::collections::HashMap<(B256, Address), String> =
+            std::collections::HashMap::new();
 
         if !requests.is_empty() {
             // Collect all unique request_digests that have a fulfill_prover_address
-            let digest_strs: Vec<String> = requests.iter()
+            let digest_strs: Vec<String> = requests
+                .iter()
                 .filter_map(|req| {
                     req.fulfill_prover_address.map(|_| format!("{:x}", req.request_digest))
                 })
@@ -1635,7 +1698,8 @@ impl IndexerDb for AnyDb {
             const CHUNK_SIZE: usize = 500;
             for chunk in digest_strs.chunks(CHUNK_SIZE) {
                 // Build dynamic IN clause
-                let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("${}", i)).collect();
+                let placeholders: Vec<String> =
+                    (1..=chunk.len()).map(|i| format!("${}", i)).collect();
                 let query_str = format!(
                     "SELECT request_digest, prover_address, seal, block_timestamp
                      FROM proofs
@@ -1697,7 +1761,7 @@ impl IndexerDb for AnyDb {
                    SELECT 1 FROM request_fulfilled_events rfe
                    WHERE rfe.request_digest = pr.request_digest
                )
-               "
+               ",
         )
         .bind(from_block_timestamp as i64)
         .bind(to_block_timestamp as i64)
@@ -1747,10 +1811,7 @@ impl IndexerDb for AnyDb {
                  LIMIT $1",
                 sort_field
             );
-            sqlx::query(&query_str)
-                .bind(limit as i64)
-                .fetch_all(&self.pool)
-                .await?
+            sqlx::query(&query_str).bind(limit as i64).fetch_all(&self.pool).await?
         };
         let mut results = Vec::new();
 
@@ -1764,10 +1825,7 @@ impl IndexerDb for AnyDb {
                     RequestSortField::UpdatedAt => r.updated_at,
                     RequestSortField::CreatedAt => r.created_at,
                 };
-                RequestCursor {
-                    timestamp,
-                    request_digest: r.request_digest.to_string(),
-                }
+                RequestCursor { timestamp, request_digest: r.request_digest.to_string() }
             })
         } else {
             None
@@ -1831,10 +1889,7 @@ impl IndexerDb for AnyDb {
                     RequestSortField::UpdatedAt => r.updated_at,
                     RequestSortField::CreatedAt => r.created_at,
                 };
-                RequestCursor {
-                    timestamp,
-                    request_digest: r.request_digest.to_string(),
-                }
+                RequestCursor { timestamp, request_digest: r.request_digest.to_string() }
             })
         } else {
             None
@@ -1898,10 +1953,7 @@ impl IndexerDb for AnyDb {
                     RequestSortField::UpdatedAt => r.updated_at,
                     RequestSortField::CreatedAt => r.created_at,
                 };
-                RequestCursor {
-                    timestamp,
-                    request_digest: r.request_digest.to_string(),
-                }
+                RequestCursor { timestamp, request_digest: r.request_digest.to_string() }
             })
         } else {
             None
@@ -1917,7 +1969,7 @@ impl IndexerDb for AnyDb {
         let rows = sqlx::query(
             "SELECT * FROM request_status
              WHERE request_id = $1
-             ORDER BY updated_at DESC"
+             ORDER BY updated_at DESC",
         )
         .bind(request_id)
         .fetch_all(&self.pool)
@@ -2057,8 +2109,9 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
-    /// Gets pricing data for all locked requests in the half-open period [period_start, period_end).
-    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
+    /// Gets pricing data for requests fulfilled in the half-open period [period_start, period_end).
+    /// Only includes requests where the prover who locked the request is the same as the prover who fulfilled it.
+    /// Filters by `request_status.fulfilled_at` timestamp.
     async fn get_period_lock_pricing_data(
         &self,
         period_start: u64,
@@ -2066,16 +2119,19 @@ impl IndexerDb for AnyDb {
     ) -> Result<Vec<LockPricingData>, DbError> {
         let rows = sqlx::query(
             "SELECT
-                pr.min_price,
-                pr.max_price,
-                pr.bidding_start,
-                pr.ramp_up_period,
-                pr.lock_end,
-                pr.lock_collateral,
-                rle.block_timestamp as lock_timestamp
-             FROM request_locked_events rle
-             JOIN proof_requests pr ON rle.request_digest = pr.request_digest
-             WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2",
+                rs.min_price,
+                rs.max_price,
+                rs.ramp_up_start as bidding_start,
+                rs.ramp_up_period,
+                rs.lock_end,
+                rs.lock_collateral,
+                rs.locked_at as lock_timestamp
+             FROM request_status rs
+             WHERE rs.fulfilled_at >= $1
+               AND rs.fulfilled_at < $2
+               AND rs.request_status = 'fulfilled'
+               AND rs.lock_prover_address = rs.fulfill_prover_address
+               AND rs.lock_prover_address IS NOT NULL",
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
@@ -2087,7 +2143,7 @@ impl IndexerDb for AnyDb {
             let min_price: String = row.get("min_price");
             let max_price: String = row.get("max_price");
             let bidding_start: i64 = row.get("bidding_start");
-            let ramp_up_period: i32 = row.get("ramp_up_period");
+            let ramp_up_period: i64 = row.get("ramp_up_period");
             let lock_end: i64 = row.get("lock_end");
             let lock_collateral: String = row.get("lock_collateral");
             let lock_timestamp: i64 = row.get("lock_timestamp");
@@ -2101,6 +2157,34 @@ impl IndexerDb for AnyDb {
                 lock_collateral,
                 lock_timestamp: lock_timestamp as u64,
             });
+        }
+
+        Ok(results)
+    }
+
+    /// Gets collateral amounts for all locked requests in the half-open period [period_start, period_end).
+    /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
+    /// Used for total_collateral_locked metric which tracks all locks regardless of fulfillment.
+    async fn get_period_all_lock_collateral(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<Vec<String>, DbError> {
+        let rows = sqlx::query(
+            "SELECT pr.lock_collateral
+             FROM request_locked_events rle
+             JOIN proof_requests pr ON rle.request_digest = pr.request_digest
+             WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let lock_collateral: String = row.get("lock_collateral");
+            results.push(lock_collateral);
         }
 
         Ok(results)
@@ -2190,7 +2274,7 @@ impl IndexerDb for AnyDb {
                 ) AS all_digests
                 WHERE request_digest > $1
                 ORDER BY request_digest
-                LIMIT $2"
+                LIMIT $2",
             )
             .bind(cursor_hex)
             .bind(limit)
@@ -2210,7 +2294,7 @@ impl IndexerDb for AnyDb {
                     SELECT request_digest FROM proof_delivered_events
                 ) AS all_digests
                 ORDER BY request_digest
-                LIMIT $1"
+                LIMIT $1",
             )
             .bind(limit)
             .fetch_all(&self.pool)
@@ -2233,7 +2317,7 @@ impl AnyDb {
     // Generic helper for upserting market summaries to avoid code duplication
     async fn upsert_market_summary_generic(
         &self,
-        summary: HourlyMarketSummary,  // Can be any alias type
+        summary: HourlyMarketSummary, // Can be any alias type
         table_name: &str,
     ) -> Result<(), DbError> {
         let query_str = format!(
@@ -2394,7 +2478,14 @@ impl AnyDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
-                locked_orders_fulfillment_rate
+                locked_orders_fulfillment_rate,
+                total_cycles,
+                best_peak_prove_mhz,
+                best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz,
+                best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id
             FROM {}
             {}
             {}
@@ -2426,10 +2517,12 @@ impl AnyDb {
             .map(|row| HourlyMarketSummary {
                 period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
                 total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
-                unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
-                unique_requesters_submitting_requests: row.get::<i64, _>(
-                    "unique_requesters_submitting_requests",
-                ) as u64,
+                unique_provers_locking_requests: row
+                    .get::<i64, _>("unique_provers_locking_requests")
+                    as u64,
+                unique_requesters_submitting_requests: row
+                    .get::<i64, _>("unique_requesters_submitting_requests")
+                    as u64,
                 total_fees_locked: row.get("total_fees_locked"),
                 total_collateral_locked: row.get("total_collateral_locked"),
                 p10_fees_locked: row.get("p10_fees_locked"),
@@ -2440,14 +2533,38 @@ impl AnyDb {
                 p95_fees_locked: row.get("p95_fees_locked"),
                 p99_fees_locked: row.get("p99_fees_locked"),
                 total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
-                total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain") as u64,
-                total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
+                total_requests_submitted_onchain: row
+                    .get::<i64, _>("total_requests_submitted_onchain")
+                    as u64,
+                total_requests_submitted_offchain: row
+                    .get::<i64, _>("total_requests_submitted_offchain")
+                    as u64,
                 total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
                 total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
                 total_expired: row.get::<i64, _>("total_expired") as u64,
                 total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
                 total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-                locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
+                locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
+                    as f32,
+                total_cycles: row.get::<i64, _>("total_cycles") as u64,
+                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz_prover: row
+                    .try_get("best_peak_prove_mhz_prover")
+                    .ok()
+                    .flatten(),
+                best_peak_prove_mhz_request_id: row
+                    .try_get("best_peak_prove_mhz_request_id")
+                    .ok()
+                    .flatten(),
+                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz_prover: row
+                    .try_get("best_effective_prove_mhz_prover")
+                    .ok()
+                    .flatten(),
+                best_effective_prove_mhz_request_id: row
+                    .try_get("best_effective_prove_mhz_request_id")
+                    .ok()
+                    .flatten(),
             })
             .collect();
 
@@ -2463,11 +2580,14 @@ impl AnyDb {
         let client_address = Address::from_str(&client_address_str)
             .map_err(|e| DbError::BadTransaction(format!("Invalid client_address: {}", e)))?;
 
-        let lock_prover_address_str: Option<String> = row.try_get("lock_prover_address").ok().flatten();
+        let lock_prover_address_str: Option<String> =
+            row.try_get("lock_prover_address").ok().flatten();
         let lock_prover_address = lock_prover_address_str.and_then(|s| Address::from_str(&s).ok());
 
-        let fulfill_prover_address_str: Option<String> = row.try_get("fulfill_prover_address").ok().flatten();
-        let fulfill_prover_address = fulfill_prover_address_str.and_then(|s| Address::from_str(&s).ok());
+        let fulfill_prover_address_str: Option<String> =
+            row.try_get("fulfill_prover_address").ok().flatten();
+        let fulfill_prover_address =
+            fulfill_prover_address_str.and_then(|s| Address::from_str(&s).ok());
 
         let submit_tx_hash_str: Option<String> = row.try_get("submit_tx_hash").ok().flatten();
         let submit_tx_hash = submit_tx_hash_str.and_then(|s| B256::from_str(&s).ok());
@@ -2504,12 +2624,36 @@ impl AnyDb {
             created_at: row.get::<i64, _>("created_at") as u64,
             updated_at: row.get::<i64, _>("updated_at") as u64,
             locked_at: row.try_get::<Option<i64>, _>("locked_at").ok().flatten().map(|t| t as u64),
-            fulfilled_at: row.try_get::<Option<i64>, _>("fulfilled_at").ok().flatten().map(|t| t as u64),
-            slashed_at: row.try_get::<Option<i64>, _>("slashed_at").ok().flatten().map(|t| t as u64),
-            submit_block: row.try_get::<Option<i64>, _>("submit_block").ok().flatten().map(|b| b as u64),
-            lock_block: row.try_get::<Option<i64>, _>("lock_block").ok().flatten().map(|b| b as u64),
-            fulfill_block: row.try_get::<Option<i64>, _>("fulfill_block").ok().flatten().map(|b| b as u64),
-            slashed_block: row.try_get::<Option<i64>, _>("slashed_block").ok().flatten().map(|b| b as u64),
+            fulfilled_at: row
+                .try_get::<Option<i64>, _>("fulfilled_at")
+                .ok()
+                .flatten()
+                .map(|t| t as u64),
+            slashed_at: row
+                .try_get::<Option<i64>, _>("slashed_at")
+                .ok()
+                .flatten()
+                .map(|t| t as u64),
+            submit_block: row
+                .try_get::<Option<i64>, _>("submit_block")
+                .ok()
+                .flatten()
+                .map(|b| b as u64),
+            lock_block: row
+                .try_get::<Option<i64>, _>("lock_block")
+                .ok()
+                .flatten()
+                .map(|b| b as u64),
+            fulfill_block: row
+                .try_get::<Option<i64>, _>("fulfill_block")
+                .ok()
+                .flatten()
+                .map(|b| b as u64),
+            slashed_block: row
+                .try_get::<Option<i64>, _>("slashed_block")
+                .ok()
+                .flatten()
+                .map(|b| b as u64),
             min_price: row.get("min_price"),
             max_price: row.get("max_price"),
             lock_collateral: row.get("lock_collateral"),
@@ -2521,8 +2665,16 @@ impl AnyDb {
             slash_transferred_amount: row.try_get("slash_transferred_amount").ok(),
             slash_burned_amount: row.try_get("slash_burned_amount").ok(),
             cycles: row.try_get::<Option<i64>, _>("cycles").ok().flatten().map(|c| c as u64),
-            peak_prove_mhz: row.try_get::<Option<i64>, _>("peak_prove_mhz").ok().flatten().map(|m| m as u64),
-            effective_prove_mhz: row.try_get::<Option<i64>, _>("effective_prove_mhz").ok().flatten().map(|m| m as u64),
+            peak_prove_mhz: row
+                .try_get::<Option<i64>, _>("peak_prove_mhz")
+                .ok()
+                .flatten()
+                .map(|m| m as u64),
+            effective_prove_mhz: row
+                .try_get::<Option<i64>, _>("effective_prove_mhz")
+                .ok()
+                .flatten()
+                .map(|m| m as u64),
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -2689,7 +2841,9 @@ mod tests {
 
         let prover_address = Address::ZERO;
         db.add_tx(&metadata).await.unwrap();
-        db.add_proof_delivered_event(fill.requestDigest, fill.id, prover_address, &metadata).await.unwrap();
+        db.add_proof_delivered_event(fill.requestDigest, fill.id, prover_address, &metadata)
+            .await
+            .unwrap();
         db.add_proof(fill.clone(), prover_address, &metadata).await.unwrap();
 
         // Verify proof was added
@@ -2733,7 +2887,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("prover_address"), format!("{prover_address:x}"));
 
         // Test proof delivered event
-        db.add_proof_delivered_event(request_digest, request_id, prover_address, &metadata).await.unwrap();
+        db.add_proof_delivered_event(request_digest, request_id, prover_address, &metadata)
+            .await
+            .unwrap();
         let result = sqlx::query("SELECT * FROM proof_delivered_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -2742,7 +2898,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("request_digest"), format!("{request_digest:x}"));
 
         // Test request fulfilled event
-        db.add_request_fulfilled_event(request_digest, request_id, prover_address, &metadata).await.unwrap();
+        db.add_request_fulfilled_event(request_digest, request_id, prover_address, &metadata)
+            .await
+            .unwrap();
         let result = sqlx::query("SELECT * FROM request_fulfilled_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -2887,6 +3045,13 @@ mod tests {
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
+                total_cycles: 0,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
             };
             db.upsert_hourly_market_summary(summary).await.unwrap();
         }
@@ -2900,10 +3065,8 @@ mod tests {
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
-        let results = db
-            .get_hourly_market_summaries(None, 3, SortDirection::Desc, None, None)
-            .await
-            .unwrap();
+        let results =
+            db.get_hourly_market_summaries(None, 3, SortDirection::Desc, None, None).await.unwrap();
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].period_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
@@ -2918,11 +3081,9 @@ mod tests {
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
         // Get first page
-        let first_page = db
-            .get_hourly_market_summaries(None, 3, SortDirection::Desc, None, None)
-            .await
-            .unwrap();
-        
+        let first_page =
+            db.get_hourly_market_summaries(None, 3, SortDirection::Desc, None, None).await.unwrap();
+
         // Use last item as cursor for next page
         let cursor = first_page[2].period_timestamp as i64;
         let results = db
@@ -2942,10 +3103,8 @@ mod tests {
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
-        let results = db
-            .get_hourly_market_summaries(None, 3, SortDirection::Asc, None, None)
-            .await
-            .unwrap();
+        let results =
+            db.get_hourly_market_summaries(None, 3, SortDirection::Asc, None, None).await.unwrap();
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].period_timestamp, base_timestamp as u64); // oldest first
@@ -2960,11 +3119,9 @@ mod tests {
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
         // Get first page
-        let first_page = db
-            .get_hourly_market_summaries(None, 3, SortDirection::Asc, None, None)
-            .await
-            .unwrap();
-        
+        let first_page =
+            db.get_hourly_market_summaries(None, 3, SortDirection::Asc, None, None).await.unwrap();
+
         // Use last item as cursor for next page
         let cursor = first_page[2].period_timestamp as i64;
         let results = db
@@ -2993,7 +3150,10 @@ mod tests {
         // Should get hours 4-9 (6 results) - all after hour 3, desc so most recent first
         assert_eq!(results.len(), 6);
         assert_eq!(results[0].period_timestamp, (base_timestamp + (9 * hour_in_seconds)) as u64);
-        assert_eq!(results[results.len() - 1].period_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
+        assert_eq!(
+            results[results.len() - 1].period_timestamp,
+            (base_timestamp + (4 * hour_in_seconds)) as u64
+        );
     }
 
     #[tokio::test]
@@ -3066,15 +3226,20 @@ mod tests {
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i * 10,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
+                total_cycles: 0,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }
 
         // Test retrieval
-        let results = db
-            .get_daily_market_summaries(None, 10, SortDirection::Desc, None, None)
-            .await
-            .unwrap();
+        let results =
+            db.get_daily_market_summaries(None, 10, SortDirection::Desc, None, None).await.unwrap();
 
         assert_eq!(results.len(), 5);
         assert_eq!(results[0].period_timestamp, (base_timestamp + (4 * day_in_seconds)) as u64);
@@ -3115,15 +3280,20 @@ mod tests {
                 total_locked_and_expired: i * 5,
                 total_locked_and_fulfilled: i * 100,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
+                total_cycles: 0,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
             };
             db.upsert_weekly_market_summary(summary).await.unwrap();
         }
 
         // Test retrieval
-        let results = db
-            .get_weekly_market_summaries(None, 10, SortDirection::Asc, None, None)
-            .await
-            .unwrap();
+        let results =
+            db.get_weekly_market_summaries(None, 10, SortDirection::Asc, None, None).await.unwrap();
 
         assert_eq!(results.len(), 4);
         assert_eq!(results[0].period_timestamp, base_timestamp as u64);
@@ -3168,6 +3338,13 @@ mod tests {
                 total_locked_and_expired: i * 50,
                 total_locked_and_fulfilled: i * 1000,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
+                total_cycles: 0,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
             };
             db.upsert_monthly_market_summary(summary).await.unwrap();
         }
@@ -3218,15 +3395,20 @@ mod tests {
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
+                total_cycles: 0,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
             };
             db.upsert_daily_market_summary(summary).await.unwrap();
         }
 
         // Get first page
-        let first_page = db
-            .get_daily_market_summaries(None, 3, SortDirection::Desc, None, None)
-            .await
-            .unwrap();
+        let first_page =
+            db.get_daily_market_summaries(None, 3, SortDirection::Desc, None, None).await.unwrap();
 
         assert_eq!(first_page.len(), 3);
 
@@ -3266,10 +3448,8 @@ mod tests {
         let db: DbObj = test_db.db;
         setup_hourly_summaries(&db).await;
 
-        let results = db
-            .get_hourly_market_summaries(None, 2, SortDirection::Desc, None, None)
-            .await
-            .unwrap();
+        let results =
+            db.get_hourly_market_summaries(None, 2, SortDirection::Desc, None, None).await.unwrap();
 
         assert_eq!(results.len(), 2);
     }
@@ -3296,10 +3476,8 @@ mod tests {
         let db: DbObj = test_db.db;
         setup_hourly_summaries(&db).await;
 
-        let results = db
-            .get_hourly_market_summaries(None, 1, SortDirection::Asc, None, None)
-            .await
-            .unwrap();
+        let results =
+            db.get_hourly_market_summaries(None, 1, SortDirection::Asc, None, None).await.unwrap();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].total_fulfilled, 0);
@@ -3461,15 +3639,20 @@ mod tests {
 
         // Add locked event
         let metadata2 = TxMetadata::new(B256::from([11; 32]), Address::ZERO, 101, 1100, 0);
-        db.add_request_locked_event(request_digest, request.id, prover_a, &metadata2).await.unwrap();
+        db.add_request_locked_event(request_digest, request.id, prover_a, &metadata2)
+            .await
+            .unwrap();
 
         // Add fulfilled event (fulfilled by prover_a)
         let metadata3 = TxMetadata::new(B256::from([12; 32]), Address::ZERO, 102, 1200, 0);
-        db.add_request_fulfilled_event(request_digest, request.id, prover_a, &metadata3).await.unwrap();
+        db.add_request_fulfilled_event(request_digest, request.id, prover_a, &metadata3)
+            .await
+            .unwrap();
 
         // Add fulfillment from prover_b (earlier timestamp but wrong prover!)
         let seal_wrong_prover = Bytes::from(vec![99, 99, 99]);
-        let metadata_wrong_prover = TxMetadata::new(B256::from([19; 32]), Address::ZERO, 103, 1250, 0);
+        let metadata_wrong_prover =
+            TxMetadata::new(B256::from([19; 32]), Address::ZERO, 103, 1250, 0);
         let fulfillment_wrong_prover = Fulfillment {
             requestDigest: request_digest,
             id: request.id,

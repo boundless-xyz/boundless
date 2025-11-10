@@ -16,9 +16,9 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
-use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use boundless_indexer::market::backfill::{BackfillMode, BackfillService};
 use boundless_indexer::market::service::TransactionFetchStrategy;
+use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
 use url::Url;
 
@@ -82,10 +82,7 @@ async fn main() -> Result<()> {
     let mode = match args.mode.as_str() {
         "statuses_and_aggregates" => BackfillMode::StatusesAndAggregates,
         "aggregates" => BackfillMode::Aggregates,
-        _ => bail!(
-            "Invalid mode: {}. Use 'statuses_and_aggregates' or 'aggregates'",
-            args.mode
-        ),
+        _ => bail!("Invalid mode: {}. Use 'statuses_and_aggregates' or 'aggregates'", args.mode),
     };
 
     let tx_fetch_strategy = match args.tx_fetch_strategy.as_str() {

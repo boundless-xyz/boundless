@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{IndexerService, MARKET_EVENT_SIGNATURES, TransactionFetchStrategy, GET_BLOCK_RECEIPTS_CHUNK_SIZE, GET_BLOCK_BY_NUMBER_CHUNK_SIZE, BLOCK_QUERY_SLEEP};
+use super::{
+    IndexerService, TransactionFetchStrategy, BLOCK_QUERY_SLEEP, GET_BLOCK_BY_NUMBER_CHUNK_SIZE,
+    GET_BLOCK_RECEIPTS_CHUNK_SIZE, MARKET_EVENT_SIGNATURES,
+};
 use crate::db::market::TxMetadata;
 use crate::market::ServiceError;
 use alloy::eips::{BlockId, BlockNumberOrTag};
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::{Address, B256};
-use alloy::rpc::types::{Filter, Log};
 use alloy::providers::Provider;
+use alloy::rpc::types::{Filter, Log};
 use anyhow::{anyhow, Context};
 use futures_util::future::try_join_all;
 use std::collections::{HashMap, HashSet};
@@ -50,7 +53,12 @@ where
                     tracing::warn!("Cache miss for logs from block {} to {}", from, to);
                 }
                 Err(e) => {
-                    tracing::warn!("Cache read error for logs from block {} to {}: {:?}", from, to, e);
+                    tracing::warn!(
+                        "Cache read error for logs from block {} to {}: {:?}",
+                        from,
+                        to,
+                        e
+                    );
                 }
             }
         }
@@ -61,24 +69,17 @@ where
             .to_block(to)
             .event_signature(MARKET_EVENT_SIGNATURES.to_vec());
 
-        tracing::debug!(
-            "Fetching logs from RPC: block {} to block {}",
-            from,
-            to
-        );
+        tracing::debug!("Fetching logs from RPC: block {} to block {}", from, to);
 
         let logs = self.logs_provider.get_logs(&filter).await?;
 
-        tracing::debug!(
-            "Fetched {} total logs from block {} to block {}",
-            logs.len(),
-            from,
-            to
-        );
+        tracing::debug!("Fetched {} total logs from block {} to block {}", logs.len(), from, to);
 
         // Save to cache if enabled
         if let Some(cache) = &self.cache_storage {
-            if let Err(e) = cache.put_logs(self.chain_id, from, to, MARKET_EVENT_SIGNATURES, &logs).await {
+            if let Err(e) =
+                cache.put_logs(self.chain_id, from, to, MARKET_EVENT_SIGNATURES, &logs).await
+            {
                 tracing::warn!("Failed to cache logs for block {} to {}: {}", from, to, e);
             }
         }
@@ -123,7 +124,9 @@ where
 
     pub(super) async fn get_tx_metadata(&mut self, log: Log) -> Result<TxMetadata, ServiceError> {
         let tx_hash = log.transaction_hash.context("Transaction hash not found")?;
-        let meta = self.tx_hash_to_metadata.get(&tx_hash).cloned().ok_or_else(|| ServiceError::Error(anyhow!("Transaction not found: {}", hex::encode(tx_hash))))?;
+        let meta = self.tx_hash_to_metadata.get(&tx_hash).cloned().ok_or_else(|| {
+            ServiceError::Error(anyhow!("Transaction not found: {}", hex::encode(tx_hash)))
+        })?;
 
         Ok(meta)
     }
@@ -134,7 +137,7 @@ where
         to: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
+
         // Try to get from cache if enabled
         if let Some(cache) = &self.cache_storage {
             match cache.get_tx_metadata(self.chain_id, from, to, MARKET_EVENT_SIGNATURES).await {
@@ -154,7 +157,12 @@ where
                     tracing::warn!("Cache miss for tx metadata from block {} to {}", from, to);
                 }
                 Err(e) => {
-                    tracing::warn!("Cache read error for tx metadata from block {} to {}: {}", from, to, e);
+                    tracing::warn!(
+                        "Cache read error for tx metadata from block {} to {}: {}",
+                        from,
+                        to,
+                        e
+                    );
                 }
             }
         }
@@ -210,12 +218,26 @@ where
 
         // Save to cache if enabled
         if let Some(cache) = &self.cache_storage {
-            if let Err(e) = cache.put_tx_metadata(self.chain_id, from, to, MARKET_EVENT_SIGNATURES, &self.tx_hash_to_metadata).await {
+            if let Err(e) = cache
+                .put_tx_metadata(
+                    self.chain_id,
+                    from,
+                    to,
+                    MARKET_EVENT_SIGNATURES,
+                    &self.tx_hash_to_metadata,
+                )
+                .await
+            {
                 tracing::warn!("Failed to cache tx metadata for block {} to {}: {}", from, to, e);
             }
         }
 
-        tracing::info!("fetch_tx_metadata completed in {:?} [got {} transactions and {} block timestamps]", start.elapsed(), missing_hashes.len(), self.block_num_to_timestamp.len());
+        tracing::info!(
+            "fetch_tx_metadata completed in {:?} [got {} transactions and {} block timestamps]",
+            start.elapsed(),
+            missing_hashes.len(),
+            self.block_num_to_timestamp.len()
+        );
         Ok(())
     }
 
@@ -240,15 +262,18 @@ where
 
         // Step 2: Fetch block receipts for each block in parallel
         let mut receipt_map: HashMap<B256, (Address, u64, u64)> = HashMap::new();
-        
+
         for chunk in block_numbers.chunks(GET_BLOCK_RECEIPTS_CHUNK_SIZE) {
-            
             let receipt_futures: Vec<_> = chunk
                 .iter()
                 .map(|&block_num| {
                     let provider = self.any_network_provider.clone();
                     async move {
-                        let receipts = provider.get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(block_num))).await?;
+                        let receipts = provider
+                            .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(
+                                block_num,
+                            )))
+                            .await?;
                         Ok::<_, ServiceError>((block_num, receipts))
                     }
                 })
@@ -265,12 +290,14 @@ where
                             let tx_hash = receipt.transaction_hash;
                             if expected_hashes.contains(&tx_hash) {
                                 let from = receipt.from;
-                                let tx_index = receipt.transaction_index.context(
-                                    anyhow!("Transaction index not found for transaction {}", hex::encode(tx_hash))
-                                )?;
-                                let block_number = receipt.block_number.context(
-                                    anyhow!("Block number not found for transaction {}", hex::encode(tx_hash))
-                                )?;
+                                let tx_index = receipt.transaction_index.context(anyhow!(
+                                    "Transaction index not found for transaction {}",
+                                    hex::encode(tx_hash)
+                                ))?;
+                                let block_number = receipt.block_number.context(anyhow!(
+                                    "Block number not found for transaction {}",
+                                    hex::encode(tx_hash)
+                                ))?;
                                 receipt_map.insert(tx_hash, (from, tx_index, block_number));
                             }
                         }
@@ -307,7 +334,7 @@ where
         // Step 4: Fetch block timestamps in parallel and update service map
         if !block_numbers_set.is_empty() {
             let block_numbers_vec: Vec<u64> = block_numbers_set.into_iter().collect();
-            
+
             // Fetch all blocks from RPC in parallel (chunked)
             for chunk in block_numbers_vec.chunks(GET_BLOCK_BY_NUMBER_CHUNK_SIZE) {
                 let block_futures: Vec<_> = chunk
@@ -322,7 +349,7 @@ where
                         }
                     })
                     .collect();
-                
+
                 let start = std::time::Instant::now();
                 let block_results = try_join_all(block_futures).await?;
                 tracing::info!("Got {} blocks in {:?}", block_results.len(), start.elapsed());
@@ -337,14 +364,18 @@ where
 
         // Step 5: Build final map from tx_hash to TxMetadata and update service map
         for &tx_hash in missing_hashes.iter() {
-            let (from, tx_index, bn) = receipt_map.get(&tx_hash)
+            let (from, tx_index, bn) = receipt_map
+                .get(&tx_hash)
                 .copied()
                 .context(anyhow!("Receipt not found for transaction {}", hex::encode(tx_hash)))?;
-            
+
             // Get timestamp from service block_timestamps map
-            let ts = self.block_num_to_timestamp.get(&bn).copied()
+            let ts = self
+                .block_num_to_timestamp
+                .get(&bn)
+                .copied()
                 .context(anyhow!("Block {} timestamp not found in map", bn))?;
-            
+
             let meta = TxMetadata::new(tx_hash, from, bn, ts, tx_index);
             self.tx_hash_to_metadata.insert(tx_hash, meta);
         }
@@ -361,7 +392,7 @@ where
         let start = std::time::Instant::now();
         // Step 1: Fetch all transactions in parallel and store in a map
         let mut tx_map: HashMap<B256, _> = HashMap::new();
-        
+
         for chunk in missing_hashes.chunks(GET_BLOCK_RECEIPTS_CHUNK_SIZE) {
             let futures: Vec<_> = chunk
                 .iter()
@@ -406,7 +437,7 @@ where
         // Step 3: Fetch block timestamps in parallel and update service map
         if !block_numbers.is_empty() {
             let block_numbers_vec: Vec<u64> = block_numbers.into_iter().collect();
-            
+
             // Fetch all blocks from RPC in parallel (chunked)
             for chunk in block_numbers_vec.chunks(GET_BLOCK_BY_NUMBER_CHUNK_SIZE) {
                 let block_futures: Vec<_> = chunk
@@ -421,7 +452,7 @@ where
                         }
                     })
                     .collect();
-                
+
                 let start = std::time::Instant::now();
                 let block_results = try_join_all(block_futures).await?;
                 tracing::info!("Got {} blocks in {:?}", block_results.len(), start.elapsed());
@@ -437,13 +468,18 @@ where
         // Step 4: Build final map from tx_hash to TxMetadata and update service map
         for (tx_hash, tx) in tx_map {
             let bn = tx.block_number.context("block number not found")?;
-            let tx_index = tx.transaction_index.context(
-                anyhow!("Transaction index not found for transaction {}", hex::encode(tx_hash))
-            )?;
-            
+            let tx_index = tx.transaction_index.context(anyhow!(
+                "Transaction index not found for transaction {}",
+                hex::encode(tx_hash)
+            ))?;
+
             // Get timestamp from service block_timestamps map
-            let ts = self.block_num_to_timestamp.get(&bn).copied().context(anyhow!("Block {} timestamp not found in map", bn))?;
-            
+            let ts = self
+                .block_num_to_timestamp
+                .get(&bn)
+                .copied()
+                .context(anyhow!("Block {} timestamp not found in map", bn))?;
+
             let from = tx.inner.signer();
             let meta = TxMetadata::new(tx_hash, from, bn, ts, tx_index);
             self.tx_hash_to_metadata.insert(tx_hash, meta);

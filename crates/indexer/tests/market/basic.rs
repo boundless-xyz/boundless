@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{process::Command, sync::Arc, time::{Duration, SystemTime}};
+use std::{
+    process::Command,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use assert_cmd::Command as AssertCommand;
 
@@ -51,6 +55,7 @@ struct HourlySummaryRow {
     unique_requesters_submitting_requests: u64,
     total_fees_locked: String,
     total_collateral_locked: String,
+    p50_fees_locked: String,
     total_requests_submitted: u64,
     total_requests_submitted_onchain: u64,
     total_requests_submitted_offchain: u64,
@@ -74,7 +79,7 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
     let rows = sqlx::query(
         "SELECT period_timestamp, total_fulfilled, unique_provers_locking_requests,
                 unique_requesters_submitting_requests, total_fees_locked, total_collateral_locked,
-                total_requests_submitted, total_requests_submitted_onchain,
+                p50_fees_locked, total_requests_submitted, total_requests_submitted_onchain,
                 total_requests_submitted_offchain, total_requests_locked, total_requests_slashed,
                 total_expired, total_locked_and_expired, total_locked_and_fulfilled,
                 locked_orders_fulfillment_rate
@@ -88,19 +93,27 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
         .map(|row| HourlySummaryRow {
             period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
             total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
-            unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
-            unique_requesters_submitting_requests: row.get::<i64, _>("unique_requesters_submitting_requests") as u64,
+            unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests")
+                as u64,
+            unique_requesters_submitting_requests: row
+                .get::<i64, _>("unique_requesters_submitting_requests")
+                as u64,
             total_fees_locked: row.get("total_fees_locked"),
             total_collateral_locked: row.get("total_collateral_locked"),
+            p50_fees_locked: row.get("p50_fees_locked"),
             total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
-            total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain") as u64,
-            total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
+            total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain")
+                as u64,
+            total_requests_submitted_offchain: row
+                .get::<i64, _>("total_requests_submitted_offchain")
+                as u64,
             total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
             total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
             total_expired: row.get::<i64, _>("total_expired") as u64,
             total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
             total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-            locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
+            locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
+                as f32,
         })
         .collect()
 }
@@ -214,7 +227,7 @@ async fn test_e2e() {
         .unwrap()
         .unwrap()
         .header;
-    
+
     let now = header.timestamp;
     let block_number = header.number;
     tracing::info!("Before submitting order: now: {}, block_number: {}", now, block_number);
@@ -257,7 +270,7 @@ async fn test_e2e() {
         .unwrap()
         .unwrap()
         .header;
-    
+
     let now2 = header2.timestamp;
     let block_number2 = header2.number;
     tracing::info!("After fulfilling order: now: {}, block_number: {}", now2, block_number2);
@@ -337,18 +350,15 @@ async fn test_e2e() {
 
     // Verify counts match our test scenario
     assert_eq!(summary.total_fulfilled, 1, "Expected 1 fulfilled request");
-    assert_eq!(
-        summary.unique_provers_locking_requests, 1,
-        "Expected 1 unique prover"
-    );
-    assert_eq!(
-        summary.unique_requesters_submitting_requests, 1,
-        "Expected 1 unique requester"
-    );
+    assert_eq!(summary.unique_provers_locking_requests, 1, "Expected 1 unique prover");
+    assert_eq!(summary.unique_requesters_submitting_requests, 1, "Expected 1 unique requester");
 
     // Verify new request count fields
     assert_eq!(summary.total_requests_submitted, 1, "Expected 1 total request submitted");
-    assert_eq!(summary.total_requests_submitted_onchain, 1, "Expected 1 onchain request (has requestSubmitted event)");
+    assert_eq!(
+        summary.total_requests_submitted_onchain, 1,
+        "Expected 1 onchain request (has requestSubmitted event)"
+    );
     assert_eq!(summary.total_requests_submitted_offchain, 0, "Expected 0 offchain requests");
     assert_eq!(summary.total_requests_locked, 1, "Expected 1 locked request");
     assert_eq!(summary.total_requests_slashed, 0, "Expected 0 slashed requests");
@@ -356,13 +366,19 @@ async fn test_e2e() {
     // Verify fees and collateral are non-zero (the offer had minPrice=0, maxPrice=1, collateral=0)
     // But we should at least have the strings present
     assert!(!summary.total_fees_locked.is_empty(), "total_fees_locked should not be empty");
-    assert!(!summary.total_collateral_locked.is_empty(), "total_collateral_locked should not be empty");
+    assert!(
+        !summary.total_collateral_locked.is_empty(),
+        "total_collateral_locked should not be empty"
+    );
 
     // Verify new expiration and fulfillment fields
     assert_eq!(summary.total_expired, 0, "Expected 0 expired requests (request was fulfilled)");
     assert_eq!(summary.total_locked_and_expired, 0, "Expected 0 locked and expired requests");
     assert_eq!(summary.total_locked_and_fulfilled, 1, "Expected 1 locked and fulfilled request");
-    assert_eq!(summary.locked_orders_fulfillment_rate, 100.0, "Expected 100% fulfillment rate (1/1)");
+    assert_eq!(
+        summary.locked_orders_fulfillment_rate, 100.0,
+        "Expected 100% fulfillment rate (1/1)"
+    );
 
     cli_process.kill().unwrap();
 }
@@ -572,13 +588,18 @@ async fn test_monitoring() {
 
     // Verify new request count fields across all hours
     let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
-    let total_requests_onchain: u64 = summaries.iter().map(|s| s.total_requests_submitted_onchain).sum();
-    let total_requests_offchain: u64 = summaries.iter().map(|s| s.total_requests_submitted_offchain).sum();
+    let total_requests_onchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_onchain).sum();
+    let total_requests_offchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_offchain).sum();
     let total_locked: u64 = summaries.iter().map(|s| s.total_requests_locked).sum();
     let total_slashed: u64 = summaries.iter().map(|s| s.total_requests_slashed).sum();
 
     assert_eq!(total_requests_submitted, 2, "Expected 2 total requests submitted");
-    assert_eq!(total_requests_onchain, 2, "Expected 2 onchain requests (both used submit_request_with_signature)");
+    assert_eq!(
+        total_requests_onchain, 2,
+        "Expected 2 onchain requests (both used submit_request_with_signature)"
+    );
     assert_eq!(total_requests_offchain, 0, "Expected 0 offchain requests");
     assert_eq!(total_locked, 2, "Expected 2 locked requests");
     assert_eq!(total_slashed, 1, "Expected 1 slashed request");
@@ -586,7 +607,8 @@ async fn test_monitoring() {
     // Verify new expiration and fulfillment fields across all hours
     let total_expired: u64 = summaries.iter().map(|s| s.total_expired).sum();
     let total_locked_and_expired: u64 = summaries.iter().map(|s| s.total_locked_and_expired).sum();
-    let total_locked_and_fulfilled: u64 = summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
+    let total_locked_and_fulfilled: u64 =
+        summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
 
     assert_eq!(total_expired, 1, "Expected 1 expired request (the slashed one)");
     assert_eq!(total_locked_and_expired, 1, "Expected 1 locked and expired request");
@@ -608,10 +630,7 @@ async fn test_monitoring() {
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_aggregation_across_hours() {
     // Create a persistent database file for debugging
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
 
     // Create a persistent database file in /tmp for easy debugging
     let db_filename = format!("test_aggregation_debug_{}.db", timestamp);
@@ -693,14 +712,12 @@ async fn test_aggregation_across_hours() {
         .submit_request_with_signature(&request1, client_sig1.clone())
         .await
         .unwrap();
-    ctx.prover_market
-        .lock_request(&request1, client_sig1.clone(), None)
-        .await
-        .unwrap();
+    ctx.prover_market.lock_request(&request1, client_sig1.clone(), None).await.unwrap();
 
     let (fill1, root_receipt1, assessor_receipt1) =
         prover.fulfill(&[(request1.clone(), client_sig1.clone())]).await.unwrap();
-    let order_fulfilled1 = OrderFulfilled::new(fill1.clone(), root_receipt1, assessor_receipt1).unwrap();
+    let order_fulfilled1 =
+        OrderFulfilled::new(fill1.clone(), root_receipt1, assessor_receipt1).unwrap();
     ctx.prover_market
         .fulfill(
             FulfillmentTx::new(order_fulfilled1.fills, order_fulfilled1.assessorReceipt)
@@ -742,14 +759,12 @@ async fn test_aggregation_across_hours() {
         .submit_request_with_signature(&request2, client_sig2.clone())
         .await
         .unwrap();
-    ctx.prover_market
-        .lock_request(&request2, client_sig2.clone(), None)
-        .await
-        .unwrap();
+    ctx.prover_market.lock_request(&request2, client_sig2.clone(), None).await.unwrap();
 
     let (fill2, root_receipt2, assessor_receipt2) =
         prover.fulfill(&[(request2.clone(), client_sig2.clone())]).await.unwrap();
-    let order_fulfilled2 = OrderFulfilled::new(fill2.clone(), root_receipt2, assessor_receipt2).unwrap();
+    let order_fulfilled2 =
+        OrderFulfilled::new(fill2.clone(), root_receipt2, assessor_receipt2).unwrap();
     ctx.prover_market
         .fulfill(
             FulfillmentTx::new(order_fulfilled2.fills, order_fulfilled2.assessorReceipt)
@@ -763,7 +778,8 @@ async fn test_aggregation_across_hours() {
         .unwrap();
 
     let now3 = ctx
-        .customer_provider.clone()
+        .customer_provider
+        .clone()
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await
         .unwrap()
@@ -788,10 +804,7 @@ async fn test_aggregation_across_hours() {
     let summaries = get_all_hourly_summaries_asc(&pool).await;
 
     // Verify we have multiple hours
-    assert!(
-        summaries.len() >= 2,
-        "Expected at least 2 different hours of data"
-    );
+    assert!(summaries.len() >= 2, "Expected at least 2 different hours of data");
 
     // Verify all hour timestamps are aligned to hour boundaries
     for summary in &summaries {
@@ -806,10 +819,7 @@ async fn test_aggregation_across_hours() {
     // Verify hour timestamps are different (events are in different hours)
     let hour1 = summaries[0].period_timestamp;
     let hour2 = summaries[1].period_timestamp;
-    assert_ne!(
-        hour1, hour2,
-        "Expected different hour timestamps for different hours"
-    );
+    assert_ne!(hour1, hour2, "Expected different hour timestamps for different hours");
 
     // Verify time difference is at least 1 hour
     let hour_diff = hour2.saturating_sub(hour1);
@@ -821,29 +831,29 @@ async fn test_aggregation_across_hours() {
 
     // Total fulfilled across all hours should be 2
     let total_fulfilled_across_hours: u64 = summaries.iter().map(|s| s.total_fulfilled).sum();
-    assert_eq!(
-        total_fulfilled_across_hours, 2,
-        "Expected 2 total fulfilled across all hours"
-    );
+    assert_eq!(total_fulfilled_across_hours, 2, "Expected 2 total fulfilled across all hours");
 
     // Verify new request count fields across all hours
     let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
-    let total_requests_onchain: u64 = summaries.iter().map(|s| s.total_requests_submitted_onchain).sum();
-    let total_requests_offchain: u64 = summaries.iter().map(|s| s.total_requests_submitted_offchain).sum();
+    let total_requests_onchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_onchain).sum();
+    let total_requests_offchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_offchain).sum();
     let total_locked: u64 = summaries.iter().map(|s| s.total_requests_locked).sum();
     let total_slashed: u64 = summaries.iter().map(|s| s.total_requests_slashed).sum();
 
     assert_eq!(total_requests_submitted, 2, "Expected 2 total requests submitted");
-    assert_eq!(total_requests_onchain, 2, "Expected 2 onchain requests (both used submit_request_with_signature)");
+    assert_eq!(
+        total_requests_onchain, 2,
+        "Expected 2 onchain requests (both used submit_request_with_signature)"
+    );
     assert_eq!(total_requests_offchain, 0, "Expected 0 offchain requests");
     assert_eq!(total_locked, 2, "Expected 2 locked requests");
     assert_eq!(total_slashed, 0, "Expected 0 slashed requests");
 
     //debug by printing proof_request table
-    let request_statuses = sqlx::query("SELECT * FROM request_status")
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    let request_statuses =
+        sqlx::query("SELECT * FROM request_status").fetch_all(&pool).await.unwrap();
     for request_status_row in request_statuses {
         let request_status = db.row_to_request_status(&request_status_row).unwrap();
         tracing::info!(
@@ -867,7 +877,8 @@ async fn test_aggregation_across_hours() {
     // Verify new expiration and fulfillment fields across all hours
     let total_expired: u64 = summaries.iter().map(|s| s.total_expired).sum();
     let total_locked_and_expired: u64 = summaries.iter().map(|s| s.total_locked_and_expired).sum();
-    let total_locked_and_fulfilled: u64 = summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
+    let total_locked_and_fulfilled: u64 =
+        summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
 
     tracing::info!("Summaries: {:?}", summaries);
     assert_eq!(total_expired, 0, "Expected 0 expired requests (both were fulfilled)");
@@ -891,6 +902,36 @@ async fn test_aggregation_across_hours() {
         expected_hour2,
         now2
     );
+
+    // Verify fee metrics from fulfilled requests are populated
+    // Filter to summaries with fulfilled requests
+    let summaries_with_fulfilled: Vec<_> =
+        summaries.iter().filter(|s| s.total_fulfilled > 0).collect();
+
+    // We should have at least 1 summary with fulfilled requests (we fulfilled 2 orders)
+    assert!(
+        !summaries_with_fulfilled.is_empty(),
+        "Expected at least 1 summary with fulfilled requests, got {}",
+        summaries_with_fulfilled.len()
+    );
+
+    // For each summary with fulfilled requests, verify fees and percentiles are populated
+    // This validates that get_period_lock_pricing_data is correctly filtering by fulfilled requests
+    for summary in summaries_with_fulfilled {
+        assert_ne!(
+            summary.total_fees_locked.trim_start_matches('0'),
+            "",
+            "Expected non-zero total_fees_locked for period with {} fulfilled requests",
+            summary.total_fulfilled
+        );
+
+        assert_ne!(
+            summary.p50_fees_locked.trim_start_matches('0'),
+            "",
+            "Expected non-zero p50_fees_locked for period with {} fulfilled requests",
+            summary.total_fulfilled
+        );
+    }
 
     cli_process.kill().unwrap();
 }
@@ -935,16 +976,25 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         anvil.chain_id(),
     );
 
-    
     let mut now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     let provider = ctx.customer_provider.clone();
-    let block_timestamp = provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap().header.timestamp;
+    let block_timestamp = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
     let start_block = ctx
         .customer_provider
         .get_block_by_number(BlockNumberOrTag::Latest)
-        .await.unwrap().unwrap().header.number;
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .number;
 
-    // For some reason initial anvil block timestamps is in the future. Our time must advance past the anvil block timestampbefore we submit our off chain orders, 
+    // For some reason initial anvil block timestamps is in the future. Our time must advance past the anvil block timestampbefore we submit our off chain orders,
     // since the indexer uses block timestmaps to filter the order stream to avoid re-processing orders from the past.
     while now < block_timestamp {
         tokio::time::sleep(INDEXER_WAIT_DURATION).await;
@@ -953,7 +1003,6 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     }
     tracing::info!("Block timestamp: {}", block_timestamp);
     tracing::info!("Now: {}", now);
-
 
     let now = ctx
         .customer_provider
@@ -1016,7 +1065,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         .timestamp;
     provider.anvil_set_next_block_timestamp(now_2 + 10).await.unwrap();
     provider.anvil_mine(Some(1), None).await.unwrap();
-    
+
     // Start market indexer with order stream URL
     let cmd = AssertCommand::cargo_bin("market-indexer")
         .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
@@ -1130,14 +1179,8 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     .await;
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.customer_market
-        .submit_request_with_signature(&request, client_sig.clone())
-        .await
-        .unwrap();
-    ctx.prover_market
-        .lock_request(&request, client_sig.clone(), None)
-        .await
-        .unwrap();
+    ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
 
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
@@ -1167,7 +1210,7 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     let cmd1 = AssertCommand::cargo_bin("market-indexer")
         .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
     let exe_path = cmd1.get_program().to_string_lossy().to_string();
-    
+
     let args_receipts = [
         "--rpc-url",
         rpc_url.as_str(),
@@ -1192,13 +1235,12 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     println!("Running indexer with block-receipts strategy: {exe_path} {args_receipts:?}");
 
     #[allow(clippy::zombie_processes)]
-    let mut cli_process_receipts =
-        Command::new(&exe_path).args(args_receipts).spawn().unwrap();
+    let mut cli_process_receipts = Command::new(&exe_path).args(args_receipts).spawn().unwrap();
 
     // Wait for the indexer to process events
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
     cli_process_receipts.kill().ok(); // Kill if still running
-    
+
     // Wait a moment for cleanup
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
@@ -1227,13 +1269,12 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     println!("Running indexer with tx-by-hash strategy: {exe_path} {args_tx_by_hash:?}");
 
     #[allow(clippy::zombie_processes)]
-    let mut cli_process_tx_by_hash =
-        Command::new(&exe_path).args(args_tx_by_hash).spawn().unwrap();
+    let mut cli_process_tx_by_hash = Command::new(&exe_path).args(args_tx_by_hash).spawn().unwrap();
 
     // Wait for the indexer to process events
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
     cli_process_tx_by_hash.kill().ok(); // Kill if still running
-    
+
     // Wait a moment for cleanup
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
@@ -1272,31 +1313,15 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     .await
     .unwrap();
 
-    assert_eq!(
-        txs_receipts.len(),
-        txs_tx_by_hash.len(),
-        "Should have same number of transactions"
-    );
+    assert_eq!(txs_receipts.len(), txs_tx_by_hash.len(), "Should have same number of transactions");
 
     // Compare each transaction
     for (i, (tx_receipts, tx_tx_by_hash)) in
         txs_receipts.iter().zip(txs_tx_by_hash.iter()).enumerate()
     {
-        assert_eq!(
-            tx_receipts.0, tx_tx_by_hash.0,
-            "Transaction {} tx_hash should match",
-            i
-        );
-        assert_eq!(
-            tx_receipts.1, tx_tx_by_hash.1,
-            "Transaction {} from_address should match",
-            i
-        );
-        assert_eq!(
-            tx_receipts.2, tx_tx_by_hash.2,
-            "Transaction {} block_number should match",
-            i
-        );
+        assert_eq!(tx_receipts.0, tx_tx_by_hash.0, "Transaction {} tx_hash should match", i);
+        assert_eq!(tx_receipts.1, tx_tx_by_hash.1, "Transaction {} from_address should match", i);
+        assert_eq!(tx_receipts.2, tx_tx_by_hash.2, "Transaction {} block_number should match", i);
         assert_eq!(
             tx_receipts.3, tx_tx_by_hash.3,
             "Transaction {} block_timestamp should match",
@@ -1310,12 +1335,11 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     }
 
     // 3. Compare proof requests count
-    let count_requests_receipts: i64 =
-        sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
-            .fetch_one(&test_db_receipts.pool)
-            .await
-            .unwrap()
-            .get("count");
+    let count_requests_receipts: i64 = sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
+        .fetch_one(&test_db_receipts.pool)
+        .await
+        .unwrap()
+        .get("count");
 
     let count_requests_tx_by_hash: i64 =
         sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
@@ -1328,10 +1352,7 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
         count_requests_receipts, count_requests_tx_by_hash,
         "Proof request counts should match between strategies"
     );
-    assert_eq!(
-        count_requests_receipts, 1,
-        "Expected 1 proof request to be indexed"
-    );
+    assert_eq!(count_requests_receipts, 1, "Expected 1 proof request to be indexed");
 }
 
 // Helper struct for request status data
@@ -1401,12 +1422,8 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     )
     .unwrap();
 
-    let block = ctx
-        .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
+    let block =
+        ctx.customer_provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
 
     let start_block = block.header.number.saturating_sub(1);
 
@@ -1436,11 +1453,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
 
     let provider = ctx.customer_provider.clone();
 
-    let block = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
+    let block = provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
     let now = block.header.timestamp;
 
     // Create and submit request
@@ -1457,11 +1470,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     .await;
 
     ctx.customer_market.deposit(U256::from(10)).await.unwrap();
-    ctx
-        .customer_market
-        .submit_request_with_signature(&req, sig.clone())
-        .await
-        .unwrap();
+    ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
 
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
@@ -1498,9 +1507,9 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     // Fulfill request
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(req.clone(), sig.clone())]).await.unwrap();
-    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
-    ctx
-        .prover_market
+    let order_fulfilled =
+        OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+    ctx.prover_market
         .fulfill(
             FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
                 .with_submit_root(
@@ -1535,12 +1544,8 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    let block = ctx
-        .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
+    let block =
+        ctx.customer_provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
 
     let start_block = block.header.number.saturating_sub(1);
 
@@ -1570,11 +1575,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
 
     let provider = ctx.customer_provider.clone();
 
-    let block = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
+    let block = provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
     let now = block.header.timestamp;
 
     // Create and submit request with short timeout
@@ -1591,11 +1592,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     .await;
 
     ctx.customer_market.deposit(U256::from(10)).await.unwrap();
-    ctx
-        .customer_market
-        .submit_request_with_signature(&req, sig.clone())
-        .await
-        .unwrap();
+    ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
 
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
@@ -1655,12 +1652,8 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     )
     .unwrap();
 
-    let block = ctx
-        .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
+    let block =
+        ctx.customer_provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
 
     let start_block = block.header.number.saturating_sub(1);
 
@@ -1690,11 +1683,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
 
     let provider = ctx.customer_provider.clone();
 
-    let block = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
+    let block = provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
     let now = block.header.timestamp;
 
     // Create request with short lock timeout
@@ -1724,11 +1713,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     let sig_bytes: Bytes = sig.as_bytes().into();
 
     ctx.customer_market.deposit(U256::from(10)).await.unwrap();
-    ctx
-        .customer_market
-        .submit_request_with_signature(&req, sig_bytes.clone())
-        .await
-        .unwrap();
+    ctx.customer_market.submit_request_with_signature(&req, sig_bytes.clone()).await.unwrap();
 
     provider.anvil_mine(Some(3), None).await.unwrap();
 
@@ -1743,11 +1728,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     );
 
     // Lock request
-    ctx
-        .prover_market
-        .lock_request(&req, sig_bytes.clone(), None)
-        .await
-        .unwrap();
+    ctx.prover_market.lock_request(&req, sig_bytes.clone(), None).await.unwrap();
 
     provider.anvil_mine(Some(2), None).await.unwrap();
 
@@ -1771,9 +1752,9 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     // Fulfill request (late fulfillment after lock expired)
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(req.clone(), sig_bytes.clone())]).await.unwrap();
-    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
-    ctx
-        .prover_market
+    let order_fulfilled =
+        OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+    ctx.prover_market
         .fulfill(
             FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
                 .with_submit_root(

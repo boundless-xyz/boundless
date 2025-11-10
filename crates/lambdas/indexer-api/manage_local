@@ -27,22 +27,27 @@ usage() {
     echo "Usage: $0 <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  run-rewards-indexer <db_file> [duration] [end_epoch] [end_block] [batch_size]"
-    echo "                                     Run rewards-indexer to populate SQLite database"
+    echo "  run-rewards-indexer <database> [duration] [end_epoch] [end_block] [batch_size]"
+    echo "                                     Run rewards-indexer to populate database"
+    echo "                                     database: SQLite file path or PostgreSQL URL"
+    echo "                                               (e.g., 'local.db' or 'postgres://user:pass@host:port/db')"
     echo "                                     duration: seconds to run (default: 120)"
     echo "                                     end_epoch: stop at this epoch (optional)"
     echo "                                     end_block: stop at this block (optional)"
     echo "                                     batch_size: blocks per batch (default: 500)"
     echo ""
-    echo "  run-market-indexer <db_file> [duration] [start_block] [end_block] [batch_size] [cache_dir]"
-    echo "                                     Run market-indexer to populate SQLite database"
+    echo "  run-market-indexer <database> [duration] [start_block] [end_block] [batch_size] [cache_dir]"
+    echo "                                     Run market-indexer to populate database"
+    echo "                                     database: SQLite file path or PostgreSQL URL"
+    echo "                                               (e.g., 'local.db' or 'postgres://user:pass@host:port/db')"
     echo "                                     duration: seconds to run (default: 120)"
     echo "                                     start_block: block to start from (optional)"
     echo "                                     end_block: stop at this block (optional)"
     echo "                                     batch_size: blocks per batch (default: 500)"
     echo "                                     cache_dir: directory for cache file storage (optional)"
     echo ""
-    echo "  run-api <port> <db_file>          Run API server with debug logging"
+    echo "  run-api <port> <database>         Run API server with debug logging"
+    echo "                                     database: SQLite file path or PostgreSQL URL"
     echo ""
     echo "Environment variables (Rewards Indexer):"
     echo "  ZKC_RPC_URL                        Required: Ethereum RPC endpoint for ZKC/veZKC"
@@ -59,7 +64,7 @@ usage() {
 # Function to check RPC URL
 check_rpc_url() {
     local rpc_type="$1"  # Either "zkc" or "market"
-    
+
     if [ "$rpc_type" == "zkc" ]; then
         if [ -z "$ZKC_RPC_URL" ]; then
             echo -e "${RED}Error: ZKC_RPC_URL environment variable is not set${NC}"
@@ -78,6 +83,43 @@ check_rpc_url() {
             exit 1
         fi
     fi
+}
+
+# Function to detect database type and prepare database URL
+# Returns: db_url (with prefix) and is_postgres flag
+prepare_database() {
+    local db_input="$1"
+    local is_postgres="false"
+    local db_url=""
+
+    # Check if input is a PostgreSQL URL
+    if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
+        is_postgres="true"
+        db_url="$db_input"
+        echo -e "${GREEN}Detected PostgreSQL database${NC}"
+    else
+        # SQLite file path
+        local db_file="$db_input"
+
+        # Convert to absolute path if relative
+        if [[ ! "$db_file" = /* ]]; then
+            db_file="$(pwd)/$db_file"
+        fi
+
+        # Clean up existing database file
+        if [ -f "$db_file" ]; then
+            echo -e "${YELLOW}Removing existing database: $db_file${NC}"
+            rm "$db_file"
+        fi
+
+        # Create empty database file for SQLite
+        echo -e "${GREEN}Creating SQLite database: $db_file${NC}"
+        touch "$db_file"
+
+        db_url="sqlite:$db_file"
+    fi
+
+    echo "$db_url|$is_postgres"
 }
 
 # Function to build binaries
@@ -105,7 +147,7 @@ build_binaries() {
 
 # Function to run rewards indexer
 run_rewards_indexer() {
-    local db_file="$1"
+    local db_input="$1"
     local duration="${2:-120}"
     local end_epoch="$3"
     local end_block="$4"
@@ -114,31 +156,21 @@ run_rewards_indexer() {
     check_rpc_url "zkc"
 
     # Validate arguments
-    if [ -z "$db_file" ]; then
-        echo -e "${RED}Error: Database file path required${NC}"
+    if [ -z "$db_input" ]; then
+        echo -e "${RED}Error: Database path or URL required${NC}"
         usage
     fi
 
-    # Convert to absolute path if relative
-    if [[ ! "$db_file" = /* ]]; then
-        db_file="$(pwd)/$db_file"
-    fi
-
-    # Clean up existing database
-    if [ -f "$db_file" ]; then
-        echo -e "${YELLOW}Removing existing database: $db_file${NC}"
-        rm "$db_file"
-    fi
-
-    # Create empty database file for SQLite
-    echo -e "${GREEN}Creating SQLite database: $db_file${NC}"
-    touch "$db_file"
+    # Prepare database (handles both SQLite and PostgreSQL)
+    local db_result=$(prepare_database "$db_input")
+    local db_url=$(echo "$db_result" | cut -d'|' -f1)
+    local is_postgres=$(echo "$db_result" | cut -d'|' -f2)
 
     # Build the indexer
     build_binaries "rewards-indexer"
 
     echo -e "${GREEN}Running rewards-indexer for $duration seconds...${NC}"
-    echo "Database: sqlite:$db_file"
+    echo "Database: $db_url"
     echo "RPC URL: $ZKC_RPC_URL"
     if [ ! -z "$end_epoch" ]; then
         echo "End epoch: $end_epoch"
@@ -157,7 +189,7 @@ run_rewards_indexer() {
     cmd="$cmd --vezkc-address \"$VEZKC_ADDRESS\""
     cmd="$cmd --zkc-address \"$ZKC_ADDRESS\""
     cmd="$cmd --povw-accounting-address \"$POVW_ACCOUNTING_ADDRESS\""
-    cmd="$cmd --db \"sqlite:$db_file\""
+    cmd="$cmd --db \"$db_url\""
     cmd="$cmd --interval 600"
 
     if [ ! -z "$end_epoch" ]; then
@@ -171,7 +203,7 @@ run_rewards_indexer() {
     fi
 
     # Run the indexer in background
-    DATABASE_URL="sqlite:$db_file" \
+    DATABASE_URL="$db_url" \
     VEZKC_ADDRESS="$VEZKC_ADDRESS" \
     ZKC_ADDRESS="$ZKC_ADDRESS" \
     POVW_ACCOUNTING_ADDRESS="$POVW_ACCOUNTING_ADDRESS" \
@@ -201,12 +233,12 @@ run_rewards_indexer() {
     fi
 
     echo -e "${GREEN}Database populated successfully!${NC}"
-    echo "Database location: $db_file"
+    echo "Database: $db_url"
 }
 
 # Function to run market indexer
 run_market_indexer() {
-    local db_file="$1"
+    local db_input="$1"
     local duration="${2:-120}"
     local start_block="$3"
     local end_block="$4"
@@ -216,15 +248,15 @@ run_market_indexer() {
     check_rpc_url "market"
 
     # Validate arguments
-    if [ -z "$db_file" ]; then
-        echo -e "${RED}Error: Database file path required${NC}"
+    if [ -z "$db_input" ]; then
+        echo -e "${RED}Error: Database path or URL required${NC}"
         usage
     fi
 
-    # Convert to absolute path if relative
-    if [[ ! "$db_file" = /* ]]; then
-        db_file="$(pwd)/$db_file"
-    fi
+    # Prepare database (handles both SQLite and PostgreSQL)
+    local db_result=$(prepare_database "$db_input")
+    local db_url=$(echo "$db_result" | cut -d'|' -f1)
+    local is_postgres=$(echo "$db_result" | cut -d'|' -f2)
 
     # Handle cache directory if provided
     local cache_uri=""
@@ -233,31 +265,21 @@ run_market_indexer() {
         if [[ ! "$cache_dir" = /* ]]; then
             cache_dir="$(pwd)/$cache_dir"
         fi
-        
+
         # Create cache directory if it doesn't exist
         if [ ! -d "$cache_dir" ]; then
             echo -e "${GREEN}Creating cache directory: $cache_dir${NC}"
             mkdir -p "$cache_dir"
         fi
-        
+
         cache_uri="file://$cache_dir"
     fi
-
-    # Clean up existing database
-    if [ -f "$db_file" ]; then
-        echo -e "${YELLOW}Removing existing database: $db_file${NC}"
-        rm "$db_file"
-    fi
-
-    # Create empty database file for SQLite
-    echo -e "${GREEN}Creating SQLite database: $db_file${NC}"
-    touch "$db_file"
 
     # Build the indexer
     build_binaries "market-indexer"
 
     echo -e "${GREEN}Running market-indexer for $duration seconds...${NC}"
-    echo "Database: sqlite:$db_file"
+    echo "Database: $db_url"
     echo "RPC URL: $MARKET_RPC_URL"
     echo "Boundless Market Address: $BOUNDLESS_MARKET_ADDRESS"
     if [ ! -z "$start_block" ]; then
@@ -278,7 +300,7 @@ run_market_indexer() {
     local cmd="../../../target/debug/market-indexer"
     cmd="$cmd --rpc-url \"$MARKET_RPC_URL\""
     cmd="$cmd --boundless-market-address \"$BOUNDLESS_MARKET_ADDRESS\""
-    cmd="$cmd --db \"sqlite:$db_file\""
+    cmd="$cmd --db \"$db_url\""
     cmd="$cmd --interval 1"
 
     if [ ! -z "$start_block" ]; then
@@ -295,7 +317,7 @@ run_market_indexer() {
     fi
 
     # Run the indexer in background
-    DATABASE_URL="sqlite:$db_file" \
+    DATABASE_URL="$db_url" \
     BOUNDLESS_MARKET_ADDRESS="$BOUNDLESS_MARKET_ADDRESS" \
     RUST_LOG=info \
     eval "$cmd &"
@@ -323,30 +345,43 @@ run_market_indexer() {
     fi
 
     echo -e "${GREEN}Database populated successfully!${NC}"
-    echo "Database location: $db_file"
+    echo "Database: $db_url"
 }
 
 # Function to run API
 run_api() {
     local port="$1"
-    local db_file="$2"
+    local db_input="$2"
 
     # Validate arguments
-    if [ -z "$port" ] || [ -z "$db_file" ]; then
-        echo -e "${RED}Error: Port and database file required${NC}"
+    if [ -z "$port" ] || [ -z "$db_input" ]; then
+        echo -e "${RED}Error: Port and database path or URL required${NC}"
         usage
     fi
 
-    # Convert to absolute path if relative
-    if [[ ! "$db_file" = /* ]]; then
-        db_file="$(pwd)/$db_file"
-    fi
+    # Detect database type
+    local db_url=""
+    if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
+        # PostgreSQL URL
+        db_url="$db_input"
+        echo -e "${GREEN}Using PostgreSQL database${NC}"
+    else
+        # SQLite file path
+        local db_file="$db_input"
 
-    # Check if database exists
-    if [ ! -f "$db_file" ]; then
-        echo -e "${RED}Error: Database file not found: $db_file${NC}"
-        echo "Run 'manage_local run-rewards-indexer' or 'manage_local run-market-indexer' first to create and populate the database"
-        exit 1
+        # Convert to absolute path if relative
+        if [[ ! "$db_file" = /* ]]; then
+            db_file="$(pwd)/$db_file"
+        fi
+
+        # Check if database file exists
+        if [ ! -f "$db_file" ]; then
+            echo -e "${RED}Error: Database file not found: $db_file${NC}"
+            echo "Run 'manage_local run-rewards-indexer' or 'manage_local run-market-indexer' first to create and populate the database"
+            exit 1
+        fi
+
+        db_url="sqlite:$db_file"
     fi
 
     # Build the API server
@@ -354,12 +389,12 @@ run_api() {
 
     echo -e "${GREEN}Starting API server...${NC}"
     echo "Port: $port"
-    echo "Database: sqlite:$db_file"
+    echo "Database: $db_url"
     echo ""
     echo "http://localhost:$port/docs"
     echo ""
 
-    DB_URL="sqlite:$db_file" \
+    DB_URL="$db_url" \
     PORT="$port" \
     RUST_LOG=debug \
     ../../../target/debug/local-server

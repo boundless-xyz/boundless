@@ -14,7 +14,6 @@
 
 use alloy::primitives::U256;
 
-
 /// Computes a single percentile from a list of U256 values.
 ///
 /// # Arguments
@@ -82,7 +81,6 @@ pub fn compute_percentiles(values: &mut [U256], percentiles: &[u8]) -> Vec<U256>
     percentiles.iter().map(|&p| compute_percentile(values, p)).collect()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,13 +101,8 @@ mod tests {
 
     #[test]
     fn test_compute_percentile_median() {
-        let values = vec![
-            U256::from(10),
-            U256::from(20),
-            U256::from(30),
-            U256::from(40),
-            U256::from(50),
-        ];
+        let values =
+            vec![U256::from(10), U256::from(20), U256::from(30), U256::from(40), U256::from(50)];
         let p50 = compute_percentile(&values, 50);
         assert_eq!(p50, U256::from(30)); // Median of 5 values
     }
@@ -124,5 +117,4 @@ mod tests {
         assert_eq!(percentiles[2], U256::from(30)); // median
         assert_eq!(percentiles[4], U256::from(50)); // max
     }
-
 }

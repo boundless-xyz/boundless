@@ -54,7 +54,7 @@ async fn list_orders_v2_with_retry(
                 if attempt < MAX_RETRIES {
                     let delay_ms = std::cmp::min(
                         INITIAL_DELAY_MS * BACKOFF_MULTIPLIER.pow(attempt),
-                        MAX_DELAY_MS
+                        MAX_DELAY_MS,
                     );
                     tracing::warn!(
                         "Failed to fetch orders (attempt {}/{}): {}. Retrying in {}ms",
@@ -69,11 +69,7 @@ async fn list_orders_v2_with_retry(
         }
     }
 
-    Err(anyhow!(
-        "Failed to fetch orders after {} retries: {}",
-        MAX_RETRIES,
-        last_error.unwrap()
-    ))
+    Err(anyhow!("Failed to fetch orders after {} retries: {}", MAX_RETRIES, last_error.unwrap()))
 }
 
 impl<P, ANP> IndexerService<P, ANP>
@@ -133,12 +129,23 @@ where
             touched_requests.insert(request_digest);
         }
 
-        tracing::info!("process_request_submitted_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
-        tracing::debug!("Touched requests: {:?}", touched_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());
+        tracing::info!(
+            "process_request_submitted_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
+        tracing::debug!(
+            "Touched requests: {:?}",
+            touched_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
+        );
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_request_submitted_offchain(&mut self, from_block: u64, to_block: u64) -> Result<HashSet<B256>, ServiceError> {
+    pub(super) async fn process_request_submitted_offchain(
+        &mut self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
         let mut touched_requests = HashSet::new();
 
@@ -173,8 +180,9 @@ where
 
         // Convert end block timestamp to DateTime and add 1 second to include orders at block_timestamp
         // (before parameter is exclusive, uses <)
-        let before_timestamp = chrono::DateTime::from_timestamp(to_block_timestamp as i64 + 1, 0)
-            .ok_or_else(|| ServiceError::Error(anyhow!("Invalid block timestamp")))?;
+        let before_timestamp =
+            chrono::DateTime::from_timestamp(to_block_timestamp as i64 + 1, 0)
+                .ok_or_else(|| ServiceError::Error(anyhow!("Invalid block timestamp")))?;
 
         // Convert start block timestamp to DateTime
         let after_timestamp = chrono::DateTime::from_timestamp(from_block_timestamp as i64, 0)
@@ -213,14 +221,13 @@ where
                 let request_id = RequestId::from_lossy(request.id);
                 // Off-chain orders have no associated on-chain transaction, so use sentinel values:
                 // tx_hash = B256::ZERO, block_number = 0, block_timestamp = 0, transaction_index = 0
-                let metadata =
-                    TxMetadata::new(B256::ZERO, request_id.addr, 0, 0, 0);
+                let metadata = TxMetadata::new(B256::ZERO, request_id.addr, 0, 0, 0);
 
+                tracing::debug!("Adding offchain proof request: 0x{:x}", request_digest);
                 self.db
                     .add_proof_request(request_digest, request.clone(), &metadata, "offchain")
                     .await?;
 
-                tracing::debug!("Adding offchain request_digest to touched_requests: 0x{:x}", request_digest);
                 touched_requests.insert(request_digest);
 
                 let created_at = order_data.created_at;
@@ -248,8 +255,15 @@ where
             self.db.set_last_order_stream_timestamp(ts).await?;
         }
 
-        tracing::info!("process_request_submitted_offchain completed in {:?} [found: {}]", start.elapsed(), total_orders);
-        tracing::debug!("Touched requests (offchain): {:?}", touched_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>());
+        tracing::info!(
+            "process_request_submitted_offchain completed in {:?} [found: {}]",
+            start.elapsed(),
+            total_orders
+        );
+        tracing::debug!(
+            "Touched requests (offchain): {:?}",
+            touched_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
+        );
         Ok(touched_requests)
     }
 
@@ -304,7 +318,11 @@ where
             touched_requests.insert(request_digest);
         }
 
-        tracing::info!("process_locked_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_locked_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(touched_requests)
     }
 
@@ -345,19 +363,18 @@ where
 
             let request_digest = event.fulfillment.requestDigest;
             self.db
-                .add_proof_delivered_event(
-                    request_digest,
-                    event.requestId,
-                    event.prover,
-                    &metadata,
-                )
+                .add_proof_delivered_event(request_digest, event.requestId, event.prover, &metadata)
                 .await?;
             self.db.add_proof(event.fulfillment, event.prover, &metadata).await?;
 
             touched_requests.insert(request_digest);
         }
 
-        tracing::info!("process_proof_delivered_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_proof_delivered_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(touched_requests)
     }
 
@@ -396,13 +413,22 @@ where
                 metadata.block_timestamp
             );
             self.db
-                .add_request_fulfilled_event(event.requestDigest, event.requestId, event.prover, &metadata)
+                .add_request_fulfilled_event(
+                    event.requestDigest,
+                    event.requestId,
+                    event.prover,
+                    &metadata,
+                )
                 .await?;
 
             touched_requests.insert(event.requestDigest);
         }
 
-        tracing::info!("process_fulfilled_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_fulfilled_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(touched_requests)
     }
 
@@ -450,13 +476,18 @@ where
                 )
                 .await?;
 
-            let request_digests = self.db.get_request_digests_by_request_id(event.requestId).await?;
+            let request_digests =
+                self.db.get_request_digests_by_request_id(event.requestId).await?;
             for digest in request_digests {
                 touched_requests.insert(digest);
             }
         }
 
-        tracing::info!("process_slashed_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_slashed_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(touched_requests)
     }
 
@@ -465,7 +496,7 @@ where
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
+
         // Filter logs for Deposit events
         let logs: Vec<_> = all_logs
             .iter()
@@ -496,7 +527,11 @@ where
             self.db.add_deposit_event(event.account, event.value, &metadata).await?;
         }
 
-        tracing::info!("process_deposit_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_deposit_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(())
     }
 
@@ -505,7 +540,7 @@ where
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
+
         // Filter logs for Withdrawal events
         let logs: Vec<_> = all_logs
             .iter()
@@ -536,7 +571,11 @@ where
             self.db.add_withdrawal_event(event.account, event.value, &metadata).await?;
         }
 
-        tracing::info!("process_withdrawal_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_withdrawal_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(())
     }
 
@@ -545,7 +584,7 @@ where
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
+
         // Filter logs for CollateralDeposit events
         let logs: Vec<_> = all_logs
             .iter()
@@ -576,7 +615,11 @@ where
             self.db.add_collateral_deposit_event(event.account, event.value, &metadata).await?;
         }
 
-        tracing::info!("process_collateral_deposit_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_collateral_deposit_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(())
     }
 
@@ -585,7 +628,7 @@ where
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-        
+
         // Filter logs for CollateralWithdrawal events
         let logs: Vec<_> = all_logs
             .iter()
@@ -616,7 +659,11 @@ where
             self.db.add_collateral_withdrawal_event(event.account, event.value, &metadata).await?;
         }
 
-        tracing::info!("process_collateral_withdrawal_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_collateral_withdrawal_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(())
     }
 
@@ -664,13 +711,18 @@ where
                 )
                 .await?;
 
-            let request_digests = self.db.get_request_digests_by_request_id(event.requestId).await?;
+            let request_digests =
+                self.db.get_request_digests_by_request_id(event.requestId).await?;
             for digest in request_digests {
                 touched_requests.insert(digest);
             }
         }
 
-        tracing::info!("process_callback_failed_events completed in {:?} [found: {}]", start.elapsed(), logs_len);
+        tracing::info!(
+            "process_callback_failed_events completed in {:?} [found: {}]",
+            start.elapsed(),
+            logs_len
+        );
         Ok(touched_requests)
     }
 }

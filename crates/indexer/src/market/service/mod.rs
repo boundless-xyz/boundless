@@ -21,10 +21,7 @@ mod status;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    db::{
-        market::AnyDb,
-        DbError, DbObj, TxMetadata,
-    },
+    db::{market::AnyDb, DbError, DbObj, TxMetadata},
     market::cache::CacheStorage,
 };
 use ::boundless_market::contracts::{
@@ -36,7 +33,8 @@ use alloy::{
     network::AnyNetwork,
     primitives::{Address, B256},
     providers::{
-        Identity, Provider, ProviderBuilder, RootProvider, fillers::{ChainIdFiller, FillProvider, JoinFill}
+        fillers::{ChainIdFiller, FillProvider, JoinFill},
+        Identity, Provider, ProviderBuilder, RootProvider,
     },
     signers::local::PrivateKeySigner,
     sol_types::SolEvent,
@@ -73,7 +71,23 @@ const MARKET_EVENT_SIGNATURES: &[B256] = &[
 ];
 
 type ProviderWallet = FillProvider<JoinFill<Identity, ChainIdFiller>, RootProvider>;
-type AnyNetworkProvider = FillProvider<JoinFill<JoinFill<Identity, JoinFill<alloy::providers::fillers::GasFiller, JoinFill<alloy::providers::fillers::BlobGasFiller, JoinFill<alloy::providers::fillers::NonceFiller, ChainIdFiller>>>>, ChainIdFiller>, RootProvider<AnyNetwork>, AnyNetwork>;
+type AnyNetworkProvider = FillProvider<
+    JoinFill<
+        JoinFill<
+            Identity,
+            JoinFill<
+                alloy::providers::fillers::GasFiller,
+                JoinFill<
+                    alloy::providers::fillers::BlobGasFiller,
+                    JoinFill<alloy::providers::fillers::NonceFiller, ChainIdFiller>,
+                >,
+            >,
+        >,
+        ChainIdFiller,
+    >,
+    RootProvider<AnyNetwork>,
+    AnyNetwork,
+>;
 
 #[derive(Error, Debug)]
 pub enum ServiceError {
@@ -188,7 +202,20 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             None
         };
 
-        Ok(Self { boundless_market, provider, any_network_provider, logs_provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client: None, cache_storage, chain_id })
+        Ok(Self {
+            boundless_market,
+            provider,
+            any_network_provider,
+            logs_provider,
+            db,
+            domain,
+            config,
+            tx_hash_to_metadata,
+            block_num_to_timestamp: HashMap::new(),
+            order_stream_client: None,
+            cache_storage,
+            chain_id,
+        })
     }
 
     pub async fn new_with_order_stream(
@@ -224,7 +251,12 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             .await
             .map_err(|e| ServiceError::Error(anyhow!("Failed to get chain id: {}", e)))?;
         let order_stream_client = Some(match order_stream_api_key {
-            Some(api_key) => OrderStreamClient::new_with_api_key(order_stream_url, boundless_market_address, chain_id, api_key),
+            Some(api_key) => OrderStreamClient::new_with_api_key(
+                order_stream_url,
+                boundless_market_address,
+                chain_id,
+                api_key,
+            ),
             None => OrderStreamClient::new(order_stream_url, boundless_market_address, chain_id),
         });
 
@@ -244,7 +276,19 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             None
         };
 
-        Ok(Self { boundless_market, any_network_provider, provider, logs_provider, db, domain, config, tx_hash_to_metadata, block_num_to_timestamp: HashMap::new(), order_stream_client, cache_storage, chain_id })
+        Ok(Self {
+            boundless_market,
+            any_network_provider,
+            provider,
+            logs_provider,
+            db,
+            domain,
+            config,
+            tx_hash_to_metadata,
+            block_num_to_timestamp: HashMap::new(),
+            order_stream_client,
+            cache_storage,
+            chain_id,
+        })
     }
 }
-
