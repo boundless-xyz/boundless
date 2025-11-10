@@ -96,7 +96,7 @@ prepare_database() {
     if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
         is_postgres="true"
         db_url="$db_input"
-        echo -e "${GREEN}Detected PostgreSQL database${NC}"
+        echo -e "${GREEN}Detected PostgreSQL database${NC}" >&2
     else
         # SQLite file path
         local db_file="$db_input"
@@ -108,12 +108,12 @@ prepare_database() {
 
         # Clean up existing database file
         if [ -f "$db_file" ]; then
-            echo -e "${YELLOW}Removing existing database: $db_file${NC}"
+            echo -e "${YELLOW}Removing existing database: $db_file${NC}" >&2
             rm "$db_file"
         fi
 
         # Create empty database file for SQLite
-        echo -e "${GREEN}Creating SQLite database: $db_file${NC}"
+        echo -e "${GREEN}Creating SQLite database: $db_file${NC}" >&2
         touch "$db_file"
 
         db_url="sqlite:$db_file"
@@ -207,7 +207,7 @@ run_rewards_indexer() {
     VEZKC_ADDRESS="$VEZKC_ADDRESS" \
     ZKC_ADDRESS="$ZKC_ADDRESS" \
     POVW_ACCOUNTING_ADDRESS="$POVW_ACCOUNTING_ADDRESS" \
-    RUST_LOG=info \
+    RUST_LOG="$RUST_LOG" \
     eval "$cmd &"
 
     INDEXER_PID=$!
@@ -319,7 +319,7 @@ run_market_indexer() {
     # Run the indexer in background
     DATABASE_URL="$db_url" \
     BOUNDLESS_MARKET_ADDRESS="$BOUNDLESS_MARKET_ADDRESS" \
-    RUST_LOG=info \
+    RUST_LOG="$RUST_LOG" \
     eval "$cmd &"
 
     INDEXER_PID=$!

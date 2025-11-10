@@ -61,8 +61,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
       };
     }
 
-    const marketImage = new docker_build.Image(`${serviceName}-market-img`, {
-      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}`],
+    const marketImage = new docker_build.Image(`${serviceName}-market-img-${infra.databaseVersion}`, {
+      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}-${infra.databaseVersion}`],
       context: {
         location: dockerDir,
       },

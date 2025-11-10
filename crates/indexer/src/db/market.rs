@@ -627,7 +627,7 @@ pub struct AnyDb {
 impl AnyDb {
     /// For SQLite use a `sqlite:file_path` URL; for Postgres `postgres://`.
     pub async fn new(conn_str: &str) -> Result<Self, DbError> {
-        install_default_drivers();
+        install_default_drivers(); 
         let opts = AnyConnectOptions::from_str(conn_str)?;
 
         let pool = AnyPoolOptions::new().max_connections(7).connect_with(opts).await?;
