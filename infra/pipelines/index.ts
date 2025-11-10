@@ -1,6 +1,5 @@
 import { PulumiStateBucket } from "./components/pulumiState";
 import { PulumiSecrets } from "./components/pulumiSecrets";
-import { SamplePipeline } from "./pipelines/sample";
 import { Notifications } from "./components/notifications";
 import { LDistributorPipeline } from "./pipelines/l-distributor";
 import { LIndexerPipeline } from "./pipelines/l-indexer";
@@ -106,13 +105,6 @@ const notifications = new Notifications("notifications", {
 const githubToken = config.requireSecret("GITHUB_TOKEN");
 const dockerUsername = config.require("DOCKER_USER");
 const dockerToken = config.requireSecret("DOCKER_PAT");
-
-// Create the deployment pipeline for the "sample" app.
-const samplePipeline = new SamplePipeline("samplePipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-});
 
 // Launch pipelines
 const lDistributorPipeline = new LDistributorPipeline("lDistributorPipeline", {
