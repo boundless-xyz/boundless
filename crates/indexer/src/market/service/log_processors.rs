@@ -98,6 +98,9 @@ where
 
         tracing::debug!("Found {} request submitted events", logs_len);
 
+        // Collect events for batch insert
+        let mut submitted_events = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::RequestSubmitted>()
@@ -122,11 +125,19 @@ where
                     event.requestId
                 ))?;
 
+            // Keep the individual add_proof_request for now (as planned)
             self.db.add_proof_request(request_digest, request, &metadata, "onchain").await?;
-            self.db.add_request_submitted_event(request_digest, event.requestId, &metadata).await?;
+
+            // Collect event for batch insert instead of immediate insert
+            submitted_events.push((request_digest, event.requestId, metadata));
 
             tracing::debug!("Adding request_digest to touched_requests: 0x{:x}", request_digest);
             touched_requests.insert(request_digest);
+        }
+
+        // Batch insert all collected events
+        if !submitted_events.is_empty() {
+            self.db.add_request_submitted_events_batch(&submitted_events).await?;
         }
 
         tracing::info!(
@@ -288,6 +299,9 @@ where
 
         tracing::debug!("Found {} locked events", logs_len);
 
+        // Collect events for batch insert
+        let mut locked_events = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::RequestLocked>()
@@ -311,11 +325,13 @@ where
                     event.requestId
                 ))?;
 
-            self.db
-                .add_request_locked_event(request_digest, event.requestId, event.prover, &metadata)
-                .await?;
-
+            locked_events.push((request_digest, event.requestId, event.prover, metadata));
             touched_requests.insert(request_digest);
+        }
+
+        // Batch insert all locked events
+        if !locked_events.is_empty() {
+            self.db.add_request_locked_events_batch(&locked_events).await?;
         }
 
         tracing::info!(
@@ -347,6 +363,9 @@ where
 
         tracing::debug!("Found {} proof delivered events", logs_len);
 
+        // Collect events for batch insert
+        let mut proof_delivered_events = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::ProofDelivered>()
@@ -362,12 +381,17 @@ where
             );
 
             let request_digest = event.fulfillment.requestDigest;
-            self.db
-                .add_proof_delivered_event(request_digest, event.requestId, event.prover, &metadata)
-                .await?;
+            proof_delivered_events.push((request_digest, event.requestId, event.prover, metadata));
+
+            // Still need to add proofs individually for now
             self.db.add_proof(event.fulfillment, event.prover, &metadata).await?;
 
             touched_requests.insert(request_digest);
+        }
+
+        // Batch insert all proof delivered events
+        if !proof_delivered_events.is_empty() {
+            self.db.add_proof_delivered_events_batch(&proof_delivered_events).await?;
         }
 
         tracing::info!(
@@ -399,6 +423,9 @@ where
 
         tracing::debug!("Found {} fulfilled events", logs_len);
 
+        // Collect events for batch insert
+        let mut fulfilled_events = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::RequestFulfilled>()
@@ -412,16 +439,14 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db
-                .add_request_fulfilled_event(
-                    event.requestDigest,
-                    event.requestId,
-                    event.prover,
-                    &metadata,
-                )
-                .await?;
 
+            fulfilled_events.push((event.requestDigest, event.requestId, event.prover, metadata));
             touched_requests.insert(event.requestDigest);
+        }
+
+        // Batch insert all fulfilled events
+        if !fulfilled_events.is_empty() {
+            self.db.add_request_fulfilled_events_batch(&fulfilled_events).await?;
         }
 
         tracing::info!(

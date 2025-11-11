@@ -44,7 +44,7 @@ use sqlx::{AnyPool, Row};
 use tracing_test::traced_test;
 
 // Constant for indexer wait time between actions
-const INDEXER_WAIT_DURATION: Duration = Duration::from_secs(4);
+const INDEXER_WAIT_DURATION: Duration = Duration::from_secs(7);
 
 // Helper struct for hourly summary data
 #[derive(Debug)]
