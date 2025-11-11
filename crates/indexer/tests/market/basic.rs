@@ -1619,7 +1619,8 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
 
     // Advance time past request expiration
     let expires_at = req.expires_at();
-    provider.anvil_set_next_block_timestamp(expires_at + 1).await.unwrap();
+    tracing::info!("Request expires at: {}.", expires_at);
+    provider.anvil_set_next_block_timestamp(expires_at).await.unwrap();
     provider.anvil_mine(Some(1), None).await.unwrap();
 
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;

@@ -179,8 +179,12 @@ where
         let start = std::time::Instant::now();
         let from_timestamp = self.block_timestamp(from_block).await?;
         let to_timestamp = self.block_timestamp(to_block).await?;
+        
+        // Note: to_timestamp is typically "now", so we use a half-open range to avoid including requests that 
+        // with timeout == now, as they are not expired yet.
         let expired_requests =
             self.db.find_newly_expired_requests(from_timestamp, to_timestamp).await?;
+        
         tracing::info!(
             "find_newly_expired_requests completed in {:?} [{} expired requests found]",
             start.elapsed(),

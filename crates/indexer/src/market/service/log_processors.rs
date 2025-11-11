@@ -98,8 +98,9 @@ where
 
         tracing::debug!("Found {} request submitted events", logs_len);
 
-        // Collect events for batch insert
+        // Collect events and proof requests for batch insert
         let mut submitted_events = Vec::new();
+        let mut proof_requests = Vec::new();
 
         for log in logs {
             let decoded = log
@@ -125,14 +126,19 @@ where
                     event.requestId
                 ))?;
 
-            // Keep the individual add_proof_request for now (as planned)
-            self.db.add_proof_request(request_digest, request, &metadata, "onchain").await?;
+            // Collect proof request for batch insert
+            proof_requests.push((request_digest, request, metadata, "onchain".to_string()));
 
-            // Collect event for batch insert instead of immediate insert
+            // Collect event for batch insert
             submitted_events.push((request_digest, event.requestId, metadata));
 
             tracing::debug!("Adding request_digest to touched_requests: 0x{:x}", request_digest);
             touched_requests.insert(request_digest);
+        }
+
+        // Batch insert all collected proof requests
+        if !proof_requests.is_empty() {
+            self.db.add_proof_requests_batch(&proof_requests).await?;
         }
 
         // Batch insert all collected events
@@ -199,6 +205,9 @@ where
         let after_timestamp = chrono::DateTime::from_timestamp(from_block_timestamp as i64, 0)
             .ok_or_else(|| ServiceError::Error(anyhow!("Invalid block timestamp")))?;
 
+        // Collect all proof requests for batch insert
+        let mut all_proof_requests = Vec::new();
+
         loop {
             let response = list_orders_v2_with_retry(
                 order_stream_client,
@@ -217,6 +226,9 @@ where
 
             tracing::debug!("Fetched {} orders from order stream", response.orders.len());
 
+            // Collect proof requests from this batch
+            let mut batch_proof_requests = Vec::new();
+
             for order_data in &response.orders {
                 let request = &order_data.order.request;
                 let request_digest = order_data.order.request_digest;
@@ -234,10 +246,10 @@ where
                 // tx_hash = B256::ZERO, block_number = 0, block_timestamp = 0, transaction_index = 0
                 let metadata = TxMetadata::new(B256::ZERO, request_id.addr, 0, 0, 0);
 
-                tracing::debug!("Adding offchain proof request: 0x{:x}", request_digest);
-                self.db
-                    .add_proof_request(request_digest, request.clone(), &metadata, "offchain")
-                    .await?;
+                tracing::debug!("Collecting offchain proof request: 0x{:x}", request_digest);
+
+                // Collect for batch insert
+                batch_proof_requests.push((request_digest, request.clone(), metadata, "offchain".to_string()));
 
                 touched_requests.insert(request_digest);
 
@@ -249,6 +261,9 @@ where
                 total_orders += 1;
             }
 
+            // Add this batch to the overall collection
+            all_proof_requests.extend(batch_proof_requests);
+
             // Check if there are more pages to fetch
             if !response.has_more {
                 break;
@@ -256,6 +271,12 @@ where
 
             // Update cursor for next page
             cursor = response.next_cursor;
+        }
+
+        // Batch insert all collected proof requests
+        if !all_proof_requests.is_empty() {
+            tracing::info!("Batch inserting {} offchain proof requests", all_proof_requests.len());
+            self.db.add_proof_requests_batch(&all_proof_requests).await?;
         }
 
         if total_orders > 0 {

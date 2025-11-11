@@ -98,8 +98,6 @@ where
             // cap to at most batch_size blocks per batch, but also respect end_block
             let batch_end = min(max_block, from_block.saturating_add(self.config.batch_size));
 
-            tracing::info!("=== Processing blocks from {} to {} ===", from_block, batch_end);
-
             let start = std::time::Instant::now();
             match self.process_blocks(from_block, batch_end).await {
                 Ok(_) => {
@@ -157,11 +155,13 @@ where
     }
 
     async fn process_blocks(&mut self, from: u64, to: u64) -> Result<(), ServiceError> {
+        tracing::info!("=== Processing blocks from {} to {} ===", from, to);
         // Fetch all relevant logs once with a single filter
         let logs = self.fetch_logs(from, to).await?;
 
         // Batch fetch all transactions and blocks in parallel and populate cache
         self.fetch_tx_metadata(&logs, from, to).await?;
+        tracing::info!("Blocks being processed timestamp range: {} [{}] to {} [{}]", from, self.block_timestamp(from).await?, to, self.block_timestamp(to).await?);
 
         // Collect touched requests from each process_* call
         let submitted_events_digests = self.process_request_submitted_events(&logs).await?;
@@ -179,8 +179,10 @@ where
         self.process_collateral_deposit_events(&logs).await?;
         self.process_collateral_withdrawal_events(&logs).await?;
 
-        // Find requests that expired during this block range
-        let expired_requests = self.get_newly_expired_requests(from, to).await?;
+        // Find requests that expired during this block range.
+        // Note we process the previous block also, to ensure we capture requests that expired during the previous block.
+        let expired_requests_from = if from > 0 { from.saturating_sub(1) } else { 0 };
+        let expired_requests = self.get_newly_expired_requests(expired_requests_from, to).await?;
 
         // Merge all touched requests
         let mut touched_requests = HashSet::new();

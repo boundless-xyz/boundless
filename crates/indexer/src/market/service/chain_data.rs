@@ -436,7 +436,14 @@ where
 
         // Step 3: Fetch block timestamps in parallel and update service map
         if !block_numbers.is_empty() {
-            let block_numbers_vec: Vec<u64> = block_numbers.into_iter().collect();
+            let mut block_numbers_vec: Vec<u64> = block_numbers.into_iter().collect();
+            let min_block_number = block_numbers_vec.iter().min().unwrap();
+            
+            // We add the previous block number to the list of blocks to fetch. This ensures we cache the block info of the previous block
+            // to the range we are indexing. This info is used later during indexing when we check for expired requests.
+            if *min_block_number > 0 {
+                block_numbers_vec.push(*min_block_number - 1);
+            }
 
             // Fetch all blocks from RPC in parallel (chunked)
             for chunk in block_numbers_vec.chunks(GET_BLOCK_BY_NUMBER_CHUNK_SIZE) {
