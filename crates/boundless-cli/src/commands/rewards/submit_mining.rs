@@ -114,9 +114,9 @@ impl RewardsSubmitMining {
 
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
-            "Signer does not match the state log ID: signer: {}, state: {}",
+            "Signer does not match the state log ID: signer: {}, state: {:x}",
             work_log_signer.address(),
-            format!("{:x}", state.log_id)
+            state.log_id,
         );
 
         // Connect to the chain
