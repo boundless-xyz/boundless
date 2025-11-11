@@ -9,6 +9,7 @@ Welcome to the Boundless documentation.
 
 ## Prerequisites
 
+- [Node.js](https://nodejs.org/en) >= 24.0
 - [Bun](https://bun.sh)
 
 ## Getting Started
@@ -19,19 +20,25 @@ Welcome to the Boundless documentation.
 git clone https://github.com/boundless-xyz/boundless.git
 ```
 
-2. Install dependencies
+2. Navigate to the `documentation/` directory
+
+```bash
+cd boundless/documentation
+```
+
+3. Install dependencies
 
 ```bash
 bun install
 ```
 
-3. Start the development server
+4. Start the development server
 
 ```bash
 bun run dev
 ```
 
-4. Open your browser and navigate to `http://localhost:5173`
+5. Open your browser and navigate to `http://localhost:5173`
 
 ## Contributing
 
