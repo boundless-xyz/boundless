@@ -1,6 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import {BasePipelineArgs} from "./base";
+import { BasePipelineArgs } from "./base";
 
 interface PackerPipelineArgs extends BasePipelineArgs {
     opsAccountId: string;
@@ -99,9 +99,8 @@ export class PackerPipeline extends pulumi.ComponentResource {
             },
             sourceVersion: "CODEPIPELINE",
             tags: {
-                Project: "boundless",
+                Name: `${APP_NAME}-packer-build`,
                 Component: "packer",
-                Environment: "ops",
             },
         }, {parent: this});
 
@@ -149,9 +148,8 @@ export class PackerPipeline extends pulumi.ComponentResource {
                 }
             ],
             tags: {
-                Project: "boundless",
+                Name: `${APP_NAME}-pipeline`,
                 Component: "packer",
-                Environment: "ops",
             },
         }, {parent: this});
 
@@ -168,6 +166,10 @@ export class PackerPipeline extends pulumi.ComponentResource {
                     address: slackAlertsTopicArn.apply(arn => arn),
                 },
             ],
+            tags: {
+                Name: `${APP_NAME}-pipeline-notifications`,
+                Component: "packer",
+            },
         });
 
         // Outputs
