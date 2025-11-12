@@ -955,9 +955,7 @@ impl IndexerDb for AnyDb {
             return Ok(());
         }
 
-        let mut tx = self.pool.begin().await?;
-
-        // First, batch insert unique transactions
+        // First, batch insert unique transactions (before starting our transaction)
         let unique_txs: Vec<TxMetadata> = requests
             .iter()
             .map(|(_, _, metadata, _)| *metadata)
@@ -967,9 +965,15 @@ impl IndexerDb for AnyDb {
 
         self.add_txs_batch(&unique_txs).await?;
 
-        // Then batch insert proof requests in chunks
+        // Then batch insert proof requests in chunks (within a transaction)
+        let mut tx = self.pool.begin().await?;
+
         for chunk in requests.chunks(PROOF_REQUEST_BATCH_SIZE) {
-            let mut query_builder = sqlx::QueryBuilder::new(
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
                 "INSERT INTO proof_requests (
                     request_digest,
                     request_id,
@@ -994,20 +998,52 @@ impl IndexerDb for AnyDb {
                     source,
                     image_id,
                     image_url
-                ) ",
+                ) VALUES ",
             );
 
-            query_builder.push_values(chunk, |mut b, (request_digest, request, metadata, source)| {
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5,
+                    params_count + 6,
+                    params_count + 7,
+                    params_count + 8,
+                    params_count + 9,
+                    params_count + 10,
+                    params_count + 11,
+                    params_count + 12,
+                    params_count + 13,
+                    params_count + 14,
+                    params_count + 15,
+                    params_count + 16,
+                    params_count + 17,
+                    params_count + 18,
+                    params_count + 19,
+                    params_count + 20,
+                    params_count + 21,
+                    params_count + 22,
+                    params_count + 23
+                ));
+                params_count += 23;
+            }
+            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (request_digest, request, metadata, source) in chunk {
                 // Extract predicate type string
                 let predicate_type = match request.requirements.predicate.predicateType {
                     PredicateType::DigestMatch => "DigestMatch",
                     PredicateType::PrefixMatch => "PrefixMatch",
                     PredicateType::ClaimDigestMatch => "ClaimDigestMatch",
-                    _ => {
-                        // This is a bit tricky in batch - we can't return an error mid-batch
-                        // For now, we'll use "Invalid" and let the DB constraint handle it
-                        "Invalid"
-                    }
+                    _ => "Invalid",
                 };
 
                 // Extract input type string
@@ -1026,35 +1062,33 @@ impl IndexerDb for AnyDb {
                     Err(_) => String::new(),
                 };
 
-                b.push_bind(format!("{request_digest:x}"))
-                    .push_bind(format!("{:x}", request.id))
-                    .push_bind(format!("{:x}", request.client_address()))
-                    .push_bind(predicate_type)
-                    .push_bind(format!("{:x}", request.requirements.predicate.data))
-                    .push_bind(format!("{:x}", request.requirements.callback.addr))
-                    .push_bind(request.requirements.callback.gasLimit.to_string())
-                    .push_bind(format!("{:x}", request.requirements.selector))
-                    .push_bind(input_type)
-                    .push_bind(format!("{:x}", request.input.data))
-                    .push_bind(request.offer.minPrice.to_string())
-                    .push_bind(request.offer.maxPrice.to_string())
-                    .push_bind(request.offer.lockCollateral.to_string())
-                    .push_bind(request.offer.rampUpStart as i64)
-                    .push_bind((request.offer.rampUpStart + request.offer.timeout as u64) as i64)
-                    .push_bind((request.offer.rampUpStart + request.offer.lockTimeout as u64) as i64)
-                    .push_bind(request.offer.rampUpPeriod as i64)
-                    .push_bind(format!("{:x}", metadata.tx_hash))
-                    .push_bind(metadata.block_number as i64)
-                    .push_bind(metadata.block_timestamp as i64)
-                    .push_bind(source.as_str())
-                    .push_bind(image_id_str)
-                    .push_bind(&request.imageUrl);
-            });
+                query_builder = query_builder
+                    .bind(format!("{request_digest:x}"))
+                    .bind(format!("{:x}", request.id))
+                    .bind(format!("{:x}", request.client_address()))
+                    .bind(predicate_type)
+                    .bind(format!("{:x}", request.requirements.predicate.data))
+                    .bind(format!("{:x}", request.requirements.callback.addr))
+                    .bind(request.requirements.callback.gasLimit.to_string())
+                    .bind(format!("{:x}", request.requirements.selector))
+                    .bind(input_type)
+                    .bind(format!("{:x}", request.input.data))
+                    .bind(request.offer.minPrice.to_string())
+                    .bind(request.offer.maxPrice.to_string())
+                    .bind(request.offer.lockCollateral.to_string())
+                    .bind(request.offer.rampUpStart as i64)
+                    .bind((request.offer.rampUpStart + request.offer.timeout as u64) as i64)
+                    .bind((request.offer.rampUpStart + request.offer.lockTimeout as u64) as i64)
+                    .bind(request.offer.rampUpPeriod as i64)
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64)
+                    .bind(source.as_str())
+                    .bind(image_id_str)
+                    .bind(&request.imageUrl);
+            }
 
-            query_builder.push(" ON CONFLICT (request_digest) DO NOTHING");
-
-            let query = query_builder.build();
-            query.execute(&mut *tx).await?;
+            query_builder.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1169,10 +1203,7 @@ impl IndexerDb for AnyDb {
             return Ok(());
         }
 
-        // Start a transaction
-        let mut tx = self.pool.begin().await?;
-
-        // First, batch insert all unique transactions
+        // First, batch insert all unique transactions (before starting our transaction)
         let unique_txs: Vec<TxMetadata> = {
             let mut seen = std::collections::HashSet::new();
             events.iter()
@@ -1186,33 +1217,55 @@ impl IndexerDb for AnyDb {
                 .collect()
         };
 
-        // Use the add_txs_batch function we just created
         self.add_txs_batch(&unique_txs).await?;
+
+        // Start a transaction for the events
+        let mut tx = self.pool.begin().await?;
 
         // Now batch insert the events
         for chunk in events.chunks(REQUEST_SUBMITTED_EVENT_BATCH_SIZE) {
-            let mut query_builder = sqlx::QueryBuilder::new(
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
                 "INSERT INTO request_submitted_events (
                     request_digest,
                     request_id,
                     tx_hash,
                     block_number,
                     block_timestamp
-                ) ",
+                ) VALUES ",
             );
 
-            query_builder.push_values(chunk, |mut b, (request_digest, request_id, metadata)| {
-                b.push_bind(format!("{request_digest:x}"))
-                    .push_bind(format!("{request_id:x}"))
-                    .push_bind(format!("{:x}", metadata.tx_hash))
-                    .push_bind(metadata.block_number as i64)
-                    .push_bind(metadata.block_timestamp as i64);
-            });
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5
+                ));
+                params_count += 5;
+            }
+            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
 
-            query_builder.push(" ON CONFLICT (request_digest) DO NOTHING");
+            let mut query_builder = sqlx::query(&query);
+            for (request_digest, request_id, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{request_digest:x}"))
+                    .bind(format!("{request_id:x}"))
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
 
-            let query = query_builder.build();
-            query.execute(&mut *tx).await?;
+            query_builder.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1258,10 +1311,7 @@ impl IndexerDb for AnyDb {
             return Ok(());
         }
 
-        // Start a transaction
-        let mut tx = self.pool.begin().await?;
-
-        // First, batch insert all unique transactions
+        // First, batch insert all unique transactions (before starting our transaction)
         let unique_txs: Vec<TxMetadata> = {
             let mut seen = std::collections::HashSet::new();
             events.iter()
@@ -1275,8 +1325,10 @@ impl IndexerDb for AnyDb {
                 .collect()
         };
 
-        // Use the add_txs_batch function
         self.add_txs_batch(&unique_txs).await?;
+
+        // Start a transaction for the events
+        let mut tx = self.pool.begin().await?;
 
         // Now batch insert the events
         for chunk in events.chunks(REQUEST_LOCKED_EVENT_BATCH_SIZE) {
@@ -1340,9 +1392,7 @@ impl IndexerDb for AnyDb {
             return Ok(());
         }
 
-        let mut tx = self.pool.begin().await?;
-
-        // First, batch insert unique transactions
+        // First, batch insert unique transactions (before starting our transaction)
         let unique_txs: Vec<TxMetadata> = events
             .iter()
             .map(|(_, _, _, metadata)| *metadata)
@@ -1352,9 +1402,16 @@ impl IndexerDb for AnyDb {
 
         self.add_txs_batch(&unique_txs).await?;
 
+        // Start a transaction for the events
+        let mut tx = self.pool.begin().await?;
+
         // Then batch insert proof delivered events in chunks
         for chunk in events.chunks(PROOF_DELIVERED_EVENT_BATCH_SIZE) {
-            let mut query_builder = sqlx::QueryBuilder::new(
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
                 "INSERT INTO proof_delivered_events (
                     request_digest,
                     request_id,
@@ -1362,22 +1419,39 @@ impl IndexerDb for AnyDb {
                     tx_hash,
                     block_number,
                     block_timestamp
-                ) ",
+                ) VALUES ",
             );
 
-            query_builder.push_values(chunk, |mut b, (request_digest, request_id, prover_address, metadata)| {
-                b.push_bind(format!("{request_digest:x}"))
-                    .push_bind(format!("{request_id:x}"))
-                    .push_bind(format!("{prover_address:x}"))
-                    .push_bind(format!("{:x}", metadata.tx_hash))
-                    .push_bind(metadata.block_number as i64)
-                    .push_bind(metadata.block_timestamp as i64);
-            });
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5,
+                    params_count + 6
+                ));
+                params_count += 6;
+            }
+            query.push_str(" ON CONFLICT (request_digest, tx_hash) DO NOTHING");
 
-            query_builder.push(" ON CONFLICT (request_digest, tx_hash) DO NOTHING");
+            let mut query_builder = sqlx::query(&query);
+            for (request_digest, request_id, prover_address, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{request_digest:x}"))
+                    .bind(format!("{request_id:x}"))
+                    .bind(format!("{prover_address:x}"))
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
 
-            let query = query_builder.build();
-            query.execute(&mut *tx).await?;
+            query_builder.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1392,9 +1466,7 @@ impl IndexerDb for AnyDb {
             return Ok(());
         }
 
-        let mut tx = self.pool.begin().await?;
-
-        // First, batch insert unique transactions
+        // First, batch insert unique transactions (before starting our transaction)
         let unique_txs: Vec<TxMetadata> = events
             .iter()
             .map(|(_, _, _, metadata)| *metadata)
@@ -1404,9 +1476,16 @@ impl IndexerDb for AnyDb {
 
         self.add_txs_batch(&unique_txs).await?;
 
+        // Start a transaction for the events
+        let mut tx = self.pool.begin().await?;
+
         // Then batch insert request fulfilled events in chunks
         for chunk in events.chunks(REQUEST_FULFILLED_EVENT_BATCH_SIZE) {
-            let mut query_builder = sqlx::QueryBuilder::new(
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
                 "INSERT INTO request_fulfilled_events (
                     request_digest,
                     request_id,
@@ -1414,22 +1493,39 @@ impl IndexerDb for AnyDb {
                     tx_hash,
                     block_number,
                     block_timestamp
-                ) ",
+                ) VALUES ",
             );
 
-            query_builder.push_values(chunk, |mut b, (request_digest, request_id, prover_address, metadata)| {
-                b.push_bind(format!("{request_digest:x}"))
-                    .push_bind(format!("{request_id:x}"))
-                    .push_bind(format!("{prover_address:x}"))
-                    .push_bind(format!("{:x}", metadata.tx_hash))
-                    .push_bind(metadata.block_number as i64)
-                    .push_bind(metadata.block_timestamp as i64);
-            });
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5,
+                    params_count + 6
+                ));
+                params_count += 6;
+            }
+            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
 
-            query_builder.push(" ON CONFLICT (request_digest) DO NOTHING");
+            let mut query_builder = sqlx::query(&query);
+            for (request_digest, request_id, prover_address, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{request_digest:x}"))
+                    .bind(format!("{request_id:x}"))
+                    .bind(format!("{prover_address:x}"))
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
 
-            let query = query_builder.build();
-            query.execute(&mut *tx).await?;
+            query_builder.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -1841,7 +1937,11 @@ impl IndexerDb for AnyDb {
         let mut tx = self.pool.begin().await?;
 
         for chunk in statuses.chunks(REQUEST_STATUS_BATCH_SIZE) {
-            let mut query_builder = sqlx::QueryBuilder::new(
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
                 "INSERT INTO request_status (
                     request_digest, request_id, request_status, slashed_status, source, client_address, lock_prover_address, fulfill_prover_address,
                     created_at, updated_at, locked_at, fulfilled_at, slashed_at,
@@ -1852,56 +1952,29 @@ impl IndexerDb for AnyDb {
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
-                ) ",
+                ) VALUES ",
             );
 
-            query_builder.push_values(chunk, |mut b, status| {
-                b.push_bind(status.request_digest.to_string())
-                    .push_bind(&status.request_id)
-                    .push_bind(status.request_status.to_string())
-                    .push_bind(status.slashed_status.to_string())
-                    .push_bind(&status.source)
-                    .push_bind(status.client_address.to_string())
-                    .push_bind(status.lock_prover_address.map(|a| a.to_string()))
-                    .push_bind(status.fulfill_prover_address.map(|a| a.to_string()))
-                    .push_bind(status.created_at as i64)
-                    .push_bind(status.updated_at as i64)
-                    .push_bind(status.locked_at.map(|t| t as i64))
-                    .push_bind(status.fulfilled_at.map(|t| t as i64))
-                    .push_bind(status.slashed_at.map(|t| t as i64))
-                    .push_bind(status.submit_block.map(|b| b as i64))
-                    .push_bind(status.lock_block.map(|b| b as i64))
-                    .push_bind(status.fulfill_block.map(|b| b as i64))
-                    .push_bind(status.slashed_block.map(|b| b as i64))
-                    .push_bind(&status.min_price)
-                    .push_bind(&status.max_price)
-                    .push_bind(&status.lock_collateral)
-                    .push_bind(status.ramp_up_start as i64)
-                    .push_bind(status.ramp_up_period as i64)
-                    .push_bind(status.expires_at as i64)
-                    .push_bind(status.lock_end as i64)
-                    .push_bind(status.slash_recipient.map(|a| a.to_string()))
-                    .push_bind(&status.slash_transferred_amount)
-                    .push_bind(&status.slash_burned_amount)
-                    .push_bind(status.cycles.map(|c| c as i64))
-                    .push_bind(status.peak_prove_mhz.map(|m| m as i64))
-                    .push_bind(status.effective_prove_mhz.map(|m| m as i64))
-                    .push_bind(status.submit_tx_hash.map(|h| h.to_string()))
-                    .push_bind(status.lock_tx_hash.map(|h| h.to_string()))
-                    .push_bind(status.fulfill_tx_hash.map(|h| h.to_string()))
-                    .push_bind(status.slash_tx_hash.map(|h| h.to_string()))
-                    .push_bind(&status.image_id)
-                    .push_bind(&status.image_url)
-                    .push_bind(&status.selector)
-                    .push_bind(&status.predicate_type)
-                    .push_bind(&status.predicate_data)
-                    .push_bind(&status.input_type)
-                    .push_bind(&status.input_data)
-                    .push_bind(&status.fulfill_journal)
-                    .push_bind(&status.fulfill_seal);
-            });
-
-            query_builder.push(
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
+                    params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
+                    params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
+                    params_count + 16, params_count + 17, params_count + 18, params_count + 19, params_count + 20,
+                    params_count + 21, params_count + 22, params_count + 23, params_count + 24, params_count + 25,
+                    params_count + 26, params_count + 27, params_count + 28, params_count + 29, params_count + 30,
+                    params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
+                    params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
+                    params_count + 41, params_count + 42, params_count + 43
+                ));
+                params_count += 43;
+            }
+            query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
                     request_status = EXCLUDED.request_status,
                     slashed_status = EXCLUDED.slashed_status,
@@ -1927,8 +2000,55 @@ impl IndexerDb for AnyDb {
                     fulfill_seal = EXCLUDED.fulfill_seal"
             );
 
-            let query = query_builder.build();
-            query.execute(&mut *tx).await?;
+            let mut query_builder = sqlx::query(&query);
+            for status in chunk {
+                query_builder = query_builder
+                    .bind(status.request_digest.to_string())
+                    .bind(&status.request_id)
+                    .bind(status.request_status.to_string())
+                    .bind(status.slashed_status.to_string())
+                    .bind(&status.source)
+                    .bind(status.client_address.to_string())
+                    .bind(status.lock_prover_address.map(|a| a.to_string()))
+                    .bind(status.fulfill_prover_address.map(|a| a.to_string()))
+                    .bind(status.created_at as i64)
+                    .bind(status.updated_at as i64)
+                    .bind(status.locked_at.map(|t| t as i64))
+                    .bind(status.fulfilled_at.map(|t| t as i64))
+                    .bind(status.slashed_at.map(|t| t as i64))
+                    .bind(status.submit_block.map(|b| b as i64))
+                    .bind(status.lock_block.map(|b| b as i64))
+                    .bind(status.fulfill_block.map(|b| b as i64))
+                    .bind(status.slashed_block.map(|b| b as i64))
+                    .bind(&status.min_price)
+                    .bind(&status.max_price)
+                    .bind(&status.lock_collateral)
+                    .bind(status.ramp_up_start as i64)
+                    .bind(status.ramp_up_period as i64)
+                    .bind(status.expires_at as i64)
+                    .bind(status.lock_end as i64)
+                    .bind(status.slash_recipient.map(|a| a.to_string()))
+                    .bind(&status.slash_transferred_amount)
+                    .bind(&status.slash_burned_amount)
+                    .bind(status.cycles.map(|c| c as i64))
+                    .bind(status.peak_prove_mhz.map(|m| m as i64))
+                    .bind(status.effective_prove_mhz.map(|m| m as i64))
+                    .bind(status.submit_tx_hash.map(|h| h.to_string()))
+                    .bind(status.lock_tx_hash.map(|h| h.to_string()))
+                    .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
+                    .bind(status.slash_tx_hash.map(|h| h.to_string()))
+                    .bind(&status.image_id)
+                    .bind(&status.image_url)
+                    .bind(&status.selector)
+                    .bind(&status.predicate_type)
+                    .bind(&status.predicate_data)
+                    .bind(&status.input_type)
+                    .bind(&status.input_data)
+                    .bind(&status.fulfill_journal)
+                    .bind(&status.fulfill_seal);
+            }
+
+            query_builder.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -3151,7 +3271,7 @@ mod tests {
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
         AssessorReceipt, Fulfillment, FulfillmentDataType, Offer, Predicate, ProofRequest,
-        RequestId, RequestInput, Requirements, PredicateType, RequestInputType,
+        RequestId, RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
 
@@ -4220,7 +4340,7 @@ mod tests {
         // Test with large batch to verify chunking works
         let mut large_batch = Vec::new();
         for i in 100..1200 {  // 1100 events, will require 2 chunks
-            let request_digest = B256::from([(i % 256) as u8; 32]);
+            let _request_digest = B256::from([(i % 256) as u8; 32]);
             let mut digest_bytes = [0u8; 32];
             digest_bytes[0] = (i / 256) as u8;
             digest_bytes[1] = (i % 256) as u8;
@@ -4241,7 +4361,7 @@ mod tests {
 
         // Verify a sample from the large batch
         let sample_index = 500;
-        let (sample_digest, sample_id, sample_metadata) = &large_batch[sample_index];
+        let (sample_digest, sample_id, _sample_metadata) = &large_batch[sample_index];
         let result = sqlx::query("SELECT * FROM request_submitted_events WHERE request_digest = $1")
             .bind(format!("{sample_digest:x}"))
             .fetch_one(&test_db.pool)
@@ -4638,5 +4758,62 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count_result.get::<i64, _>("count"), 1500); // Still 1500 unique requests
+    }
+
+    #[cfg(test)]
+    #[tokio::test]
+    #[ignore = "Requires PostgreSQL - run with DATABASE_URL env var"]
+    async fn test_add_proof_requests_batch_postgres_fixed() -> Result<(), Box<dyn std::error::Error>> {
+        // This test verifies the fix (no leading newlines) works correctly
+        // Get database URL from environment variable
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres:password@p-9-5090-001:5433/postgres".to_string());
+
+        let pool = sqlx::postgres::PgPool::connect(&database_url).await?;
+
+        // Run migrations
+        sqlx::migrate!("./migrations").run(&pool).await?;
+
+        // Test the FIXED SQL - without leading newline
+        let good_sql = "INSERT INTO proof_requests (
+    request_digest, request_id, client_address,
+    predicate_type, predicate_data, callback_address, callback_gas_limit, selector,
+    input_type, input_data,
+    min_price, max_price, lock_collateral, bidding_start, expires_at, lock_end, ramp_up_period,
+    image_id, image_url,
+    tx_hash, block_number, block_timestamp
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+ON CONFLICT (request_digest) DO NOTHING";
+
+        // This should succeed on PostgreSQL without leading newline
+        let result = sqlx::query(good_sql)
+            .bind("0x1234")  // request_digest
+            .bind("0x5678")  // request_id
+            .bind("0xabcd")  // client_address
+            .bind("DigestMatch")  // predicate_type
+            .bind("0xdeadbeef")  // predicate_data
+            .bind(Option::<String>::None)  // callback_address
+            .bind(Option::<String>::None)  // callback_gas_limit
+            .bind("0xselector")  // selector
+            .bind("Inline")  // input_type
+            .bind("0xinputdata")  // input_data
+            .bind("1000")  // min_price
+            .bind("2000")  // max_price
+            .bind("500")  // lock_collateral
+            .bind(1700000000i64)  // bidding_start
+            .bind(1700100000i64)  // expires_at
+            .bind(1700200000i64)  // lock_end
+            .bind(3600i64)  // ramp_up_period
+            .bind("0ximageid")  // image_id
+            .bind("http://example.com/image")  // image_url
+            .bind("0xtxhash")  // tx_hash
+            .bind(12345i64)  // block_number
+            .bind(1700000000i64)  // block_timestamp
+            .execute(&pool)
+            .await;
+
+        assert!(result.is_ok(), "Should succeed without leading newline: {:?}", result);
+
+        Ok(())
     }
 }

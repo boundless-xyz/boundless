@@ -51,6 +51,6 @@ futures-util = { workspace = true }
 indexer-monitor = { path = "../lambdas/indexer-monitor" }
 order-stream = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
-sqlx = { workspace = true, features = ["postgres"] }
+sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
 tracing-test = { workspace = true }
 
