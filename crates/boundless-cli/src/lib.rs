@@ -693,8 +693,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     async fn test_fulfill_blake3_groth16_selector() {
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let client =
+            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+
         let input = [255u8; 32].to_vec(); // Example output data
         let blake3_claim_digest =
             Blake3Groth16ReceiptClaim::ok(Digest::from(ECHO_ID), input.clone()).digest();
@@ -705,14 +710,19 @@ mod tests {
                 .with_selector(FixedBytes::from(Selector::blake3_groth16_latest() as u32)),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&input).build_inline().unwrap(),
-            Offer::default(),
+            Offer::default()
+                .with_timeout(60)
+                .with_lock_timeout(30)
+                .with_max_price(U256::from(1000))
+                .with_ramp_up_start(10),
         );
 
         let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
-        let domain = eip712_domain(Address::ZERO, 1);
+
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
         let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
+
         fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
     }
 }
