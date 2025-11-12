@@ -80,6 +80,7 @@ impl TestDb {
                 "assessor_receipts",
                 "fulfillments",
                 "request_status",
+                "cycle_counts",
                 "hourly_market_summary",
                 "daily_market_summary",
                 "weekly_market_summary",

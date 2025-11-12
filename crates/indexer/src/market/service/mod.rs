@@ -15,6 +15,7 @@
 mod aggregation;
 mod chain_data;
 mod core;
+mod cycle_counts;
 mod log_processors;
 mod status;
 

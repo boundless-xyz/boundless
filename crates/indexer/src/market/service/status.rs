@@ -90,6 +90,7 @@ where
             cycles: req.cycles,
             peak_prove_mhz: req.peak_prove_mhz,
             effective_prove_mhz: req.effective_prove_mhz,
+            cycle_status: req.cycle_status,
             submit_tx_hash: req.submit_tx_hash,
             lock_tx_hash: req.lock_tx_hash,
             fulfill_tx_hash: req.fulfill_tx_hash,

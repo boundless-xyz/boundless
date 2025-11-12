@@ -199,6 +199,7 @@ pub struct RequestStatus {
     pub cycles: Option<u64>,
     pub peak_prove_mhz: Option<u64>,
     pub effective_prove_mhz: Option<u64>,
+    pub cycle_status: Option<String>,
     pub submit_tx_hash: Option<B256>,
     pub lock_tx_hash: Option<B256>,
     pub fulfill_tx_hash: Option<B256>,
@@ -257,6 +258,7 @@ pub struct RequestComprehensive {
     pub cycles: Option<u64>,
     pub peak_prove_mhz: Option<u64>,
     pub effective_prove_mhz: Option<u64>,
+    pub cycle_status: Option<String>,
     pub fulfill_journal: Option<String>,
     pub fulfill_seal: Option<String>,
     pub slashed_at: Option<u64>,
@@ -276,6 +278,15 @@ pub struct LockPricingData {
     pub lock_end: u64,
     pub lock_collateral: String,
     pub lock_timestamp: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CycleCount {
+    pub request_digest: B256,
+    pub cycle_status: String,
+    pub cycle_count: Option<u64>,
+    pub created_at: u64,
+    pub updated_at: u64,
 }
 
 impl TxMetadata {
@@ -473,6 +484,21 @@ pub trait IndexerDb {
     /// Only the mutable fields e.g. locked_at, fulfilled_at, slashed_at, etc. will be updated.
     /// Things like image id, offer details, etc. will not be updated.
     async fn upsert_request_statuses(&self, statuses: &[RequestStatus]) -> Result<(), DbError>;
+
+    /// Batch insert cycle counts with ON CONFLICT DO NOTHING (idempotent)
+    async fn insert_cycle_counts_batch(&self, cycle_counts: &[CycleCount]) -> Result<(), DbError>;
+
+    /// Check which cycle counts exist for the given request digests
+    async fn has_cycle_counts_batch(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError>;
+
+    /// Get cycle counts for the given request digests
+    async fn get_cycle_counts(&self, request_digests: &HashSet<B256>) -> Result<Vec<CycleCount>, DbError>;
+
+    /// Get input_type, input_data, and client_address from proof_requests for the given request digests
+    async fn get_request_inputs_batch(
+        &self,
+        request_digests: &[B256],
+    ) -> Result<Vec<(B256, String, String, Address)>, DbError>;
 
     // Joins multiple tables to get a comprehensive view of a request.
     async fn get_requests_comprehensive(
@@ -1964,7 +1990,7 @@ impl IndexerDb for AnyDb {
                     submit_block, lock_block, fulfill_block, slashed_block,
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
-                    cycles, peak_prove_mhz, effective_prove_mhz,
+                    cycles, peak_prove_mhz, effective_prove_mhz, cycle_status,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
@@ -1977,7 +2003,7 @@ impl IndexerDb for AnyDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -1986,9 +2012,9 @@ impl IndexerDb for AnyDb {
                     params_count + 26, params_count + 27, params_count + 28, params_count + 29, params_count + 30,
                     params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
-                    params_count + 41, params_count + 42, params_count + 43
+                    params_count + 41, params_count + 42, params_count + 43, params_count + 44
                 ));
-                params_count += 43;
+                params_count += 44;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2012,6 +2038,7 @@ impl IndexerDb for AnyDb {
                     cycles = EXCLUDED.cycles,
                     peak_prove_mhz = EXCLUDED.peak_prove_mhz,
                     effective_prove_mhz = EXCLUDED.effective_prove_mhz,
+                    cycle_status = EXCLUDED.cycle_status,
                     fulfill_journal = EXCLUDED.fulfill_journal,
                     fulfill_seal = EXCLUDED.fulfill_seal"
             );
@@ -2049,6 +2076,7 @@ impl IndexerDb for AnyDb {
                     .bind(status.cycles.map(|c| c as i64))
                     .bind(status.peak_prove_mhz.map(|m| m as i64))
                     .bind(status.effective_prove_mhz.map(|m| m as i64))
+                    .bind(&status.cycle_status)
                     .bind(status.submit_tx_hash.map(|h| h.to_string()))
                     .bind(status.lock_tx_hash.map(|h| h.to_string()))
                     .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
@@ -2069,6 +2097,202 @@ impl IndexerDb for AnyDb {
 
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn insert_cycle_counts_batch(&self, cycle_counts: &[CycleCount]) -> Result<(), DbError> {
+        if cycle_counts.is_empty() {
+            return Ok(());
+        }
+
+        const BATCH_SIZE: usize = 800; // 5 params per row = 4000 params max
+
+        for chunk in cycle_counts.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
+                "INSERT INTO cycle_counts (request_digest, cycle_status, cycle_count, created_at, updated_at) VALUES "
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${})",
+                    params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5
+                ));
+                params_count += 5;
+            }
+            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for cycle_count in chunk {
+                query_builder = query_builder
+                    .bind(format!("{:x}", cycle_count.request_digest))
+                    .bind(&cycle_count.cycle_status)
+                    .bind(cycle_count.cycle_count.map(|c| c as i64))
+                    .bind(cycle_count.created_at as i64)
+                    .bind(cycle_count.updated_at as i64);
+            }
+
+            query_builder.execute(self.pool()).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn has_cycle_counts_batch(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError> {
+        if request_digests.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let mut existing = HashSet::new();
+        const BATCH_SIZE: usize = 500;
+
+        for chunk in request_digests.chunks(BATCH_SIZE) {
+            let placeholders = (1..=chunk.len())
+                .map(|i| format!("${}", i))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let query = format!(
+                "SELECT request_digest FROM cycle_counts WHERE request_digest IN ({})",
+                placeholders
+            );
+
+            let mut query_builder = sqlx::query(&query);
+            for digest in chunk {
+                query_builder = query_builder.bind(format!("{:x}", digest));
+            }
+
+            let rows = query_builder.fetch_all(self.pool()).await?;
+            for row in rows {
+                let digest_str: String = row.try_get("request_digest")?;
+                let digest = B256::from_str(&digest_str)
+                    .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
+                existing.insert(digest);
+            }
+        }
+
+        Ok(existing)
+    }
+
+    async fn get_cycle_counts(&self, request_digests: &HashSet<B256>) -> Result<Vec<CycleCount>, DbError> {
+        if request_digests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut cycle_counts = Vec::new();
+        let digest_vec: Vec<&B256> = request_digests.iter().collect();
+        const BATCH_SIZE: usize = 500;
+
+        for chunk in digest_vec.chunks(BATCH_SIZE) {
+            let placeholders = (1..=chunk.len())
+                .map(|i| format!("${}", i))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let query = format!(
+                "SELECT request_digest, cycle_status, cycle_count, created_at, updated_at
+                 FROM cycle_counts
+                 WHERE request_digest IN ({})",
+                placeholders
+            );
+
+            let mut query_builder = sqlx::query(&query);
+            for digest in chunk {
+                query_builder = query_builder.bind(format!("{:x}", digest));
+            }
+
+            let rows = query_builder.fetch_all(self.pool()).await?;
+            for row in rows {
+                let digest_str: String = row.try_get("request_digest")?;
+                let cycle_status: String = row.try_get("cycle_status")?;
+                let cycle_count: Option<i64> = row.try_get("cycle_count")?;
+                let created_at: i64 = row.try_get("created_at")?;
+                let updated_at: i64 = row.try_get("updated_at")?;
+
+                let digest = match B256::from_str(&digest_str) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                        continue;
+                    }
+                };
+
+                cycle_counts.push(CycleCount {
+                    request_digest: digest,
+                    cycle_status,
+                    cycle_count: cycle_count.map(|c| c as u64),
+                    created_at: created_at as u64,
+                    updated_at: updated_at as u64,
+                });
+            }
+        }
+
+        Ok(cycle_counts)
+    }
+
+    async fn get_request_inputs_batch(
+        &self,
+        request_digests: &[B256],
+    ) -> Result<Vec<(B256, String, String, Address)>, DbError> {
+        if request_digests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut results = Vec::new();
+        const BATCH_SIZE: usize = 500;
+
+        for chunk in request_digests.chunks(BATCH_SIZE) {
+            let placeholders = (1..=chunk.len())
+                .map(|i| format!("${}", i))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let query = format!(
+                "SELECT request_digest, input_type, input_data, client_address
+                 FROM proof_requests
+                 WHERE request_digest IN ({})",
+                placeholders
+            );
+
+            let mut query_builder = sqlx::query(&query);
+            for digest in chunk {
+                query_builder = query_builder.bind(format!("{:x}", digest));
+            }
+
+            let rows = query_builder.fetch_all(self.pool()).await?;
+            for row in rows {
+                let digest_str: String = row.try_get("request_digest")?;
+                let input_type: String = row.try_get("input_type")?;
+                let input_data: String = row.try_get("input_data")?;
+                let client_address_str: String = row.try_get("client_address")?;
+
+                let digest = match B256::from_str(&digest_str) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                        continue;
+                    }
+                };
+
+                let client_address = match Address::from_str(&client_address_str) {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse client_address '{}': {}", client_address_str, e);
+                        continue;
+                    }
+                };
+
+                results.push((digest, input_type, input_data, client_address));
+            }
+        }
+
+        Ok(results)
     }
 
     async fn get_requests_comprehensive(
@@ -2128,12 +2352,15 @@ impl IndexerDb for AnyDb {
                     pse.tx_hash as slash_tx_hash,
                     pse.burn_value as slash_burned_amount,
                     pse.transfer_value as slash_transferred_amount,
-                    pse.collateral_recipient as slash_recipient
+                    pse.collateral_recipient as slash_recipient,
+                    cc.cycle_count,
+                    cc.cycle_status
                 FROM proof_requests pr
                 LEFT JOIN request_submitted_events rse ON rse.request_digest = pr.request_digest
                 LEFT JOIN request_locked_events rle ON rle.request_digest = pr.request_digest
                 LEFT JOIN request_fulfilled_events rfe ON rfe.request_digest = pr.request_digest
                 LEFT JOIN prover_slashed_events pse ON pse.request_id = pr.request_id
+                LEFT JOIN cycle_counts cc ON cc.request_digest = pr.request_digest
                 WHERE pr.request_digest IN ({})",
                 placeholders.join(", ")
             );
@@ -2216,6 +2443,9 @@ impl IndexerDb for AnyDb {
                 let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
                 let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
+                let cycle_count: Option<i64> = row.try_get("cycle_count").ok();
+                let cycle_status: Option<String> = row.try_get("cycle_status").ok();
+
                 let request = RequestComprehensive {
                     request_digest,
                     request_id,
@@ -2247,9 +2477,10 @@ impl IndexerDb for AnyDb {
                     fulfill_prover_address,
                     fulfill_block: fulfill_block.map(|b| b as u64),
                     fulfill_tx_hash,
-                    cycles: None,              // TODO
+                    cycles: cycle_count.and_then(|c| c.try_into().ok()),
                     peak_prove_mhz: None,      // TODO
                     effective_prove_mhz: None, // TODO
+                    cycle_status,
                     fulfill_journal: None,     // TODO
                     fulfill_seal: None,        // Will be populated from proofs table below
                     slashed_at: slashed_at.map(|t| t as u64),
@@ -3284,6 +3515,7 @@ impl AnyDb {
                 .ok()
                 .flatten()
                 .map(|m| m as u64),
+            cycle_status: row.try_get("cycle_status").ok(),
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -3311,6 +3543,7 @@ mod tests {
         RequestId, RequestInput, Requirements,
     };
     use risc0_zkvm::Digest;
+    use tracing_test::traced_test;
 
     // generate a test request
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
@@ -4228,6 +4461,7 @@ mod tests {
             cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            cycle_status: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
@@ -5056,6 +5290,201 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count_result.get::<i64, _>("count"), 1500); // Still 1500 unique requests
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_cycle_counts_insert_and_query() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let digest1 = B256::from([1; 32]);
+        let digest2 = B256::from([2; 32]);
+        let digest3 = B256::from([3; 32]);
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let cycle_counts = vec![
+            CycleCount {
+                request_digest: digest1,
+                cycle_status: "COMPLETED".to_string(),
+                cycle_count: Some(50_000_000_000),
+                created_at: now,
+                updated_at: now,
+            },
+            CycleCount {
+                request_digest: digest2,
+                cycle_status: "PENDING".to_string(),
+                cycle_count: None,
+                created_at: now,
+                updated_at: now,
+            },
+            CycleCount {
+                request_digest: digest3,
+                cycle_status: "COMPLETED".to_string(),
+                cycle_count: Some(54_000_000_000),
+                created_at: now,
+                updated_at: now,
+            },
+        ];
+
+        // Insert cycle counts
+        db.insert_cycle_counts_batch(&cycle_counts).await.unwrap();
+
+        // Verify insertion
+        let result = sqlx::query("SELECT COUNT(*) as count FROM cycle_counts")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<i64, _>("count"), 3);
+
+        // Test get_cycle_counts
+        let digests = vec![digest1, digest2, digest3].into_iter().collect();
+        let retrieved = db.get_cycle_counts(&digests).await.unwrap();
+        assert_eq!(retrieved.len(), 3);
+
+        // Find digest1 in results
+        let cc1 = retrieved.iter().find(|cc| cc.request_digest == digest1).unwrap();
+        assert_eq!(cc1.cycle_status, "COMPLETED");
+        assert_eq!(cc1.cycle_count, Some(50_000_000_000));
+
+        // Find digest2 in results
+        let cc2 = retrieved.iter().find(|cc| cc.request_digest == digest2).unwrap();
+        assert_eq!(cc2.cycle_status, "PENDING");
+        assert_eq!(cc2.cycle_count, None);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_cycle_counts_idempotency() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let digest = B256::from([1; 32]);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let cycle_count = CycleCount {
+            request_digest: digest,
+            cycle_status: "COMPLETED".to_string(),
+            cycle_count: Some(50_000_000_000),
+            created_at: now,
+            updated_at: now,
+        };
+
+        // Insert once
+        db.insert_cycle_counts_batch(&[cycle_count.clone()]).await.unwrap();
+
+        // Insert again with different values - should be ignored due to ON CONFLICT DO NOTHING
+        let cycle_count_updated = CycleCount {
+            request_digest: digest,
+            cycle_status: "PENDING".to_string(),
+            cycle_count: None,
+            created_at: now + 1000,
+            updated_at: now + 1000,
+        };
+        db.insert_cycle_counts_batch(&[cycle_count_updated]).await.unwrap();
+
+        // Verify original value is preserved
+        let result = sqlx::query("SELECT * FROM cycle_counts WHERE request_digest = $1")
+            .bind(format!("{:x}", digest))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<String, _>("cycle_status"), "COMPLETED");
+        assert_eq!(result.get::<Option<i64>, _>("cycle_count"), Some(50_000_000_000));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_has_cycle_counts_batch() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        // Test with empty array
+        let existing = db.has_cycle_counts_batch(&[]).await.unwrap();
+        assert_eq!(existing.len(), 0);
+
+        // Add some cycle counts
+        let digest1 = B256::from([1; 32]);
+        let digest2 = B256::from([2; 32]);
+        let digest3 = B256::from([3; 32]);
+        let digest4 = B256::from([4; 32]);
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        db.insert_cycle_counts_batch(&[
+            CycleCount {
+                request_digest: digest1,
+                cycle_status: "COMPLETED".to_string(),
+                cycle_count: Some(50_000_000_000),
+                created_at: now,
+                updated_at: now,
+            },
+            CycleCount {
+                request_digest: digest2,
+                cycle_status: "PENDING".to_string(),
+                cycle_count: None,
+                created_at: now,
+                updated_at: now,
+            },
+        ])
+        .await
+        .unwrap();
+
+        // Check which ones exist
+        let existing = db.has_cycle_counts_batch(&[digest1, digest2, digest3, digest4]).await.unwrap();
+        assert_eq!(existing.len(), 2);
+        assert!(existing.contains(&digest1));
+        assert!(existing.contains(&digest2));
+        assert!(!existing.contains(&digest3));
+        assert!(!existing.contains(&digest4));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_get_request_inputs_batch() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        // Add some proof requests
+        let addr1 = Address::from([1; 20]);
+        let addr2 = Address::from([2; 20]);
+        let digest1 = B256::from([1; 32]);
+        let digest2 = B256::from([2; 32]);
+
+        let request1 = generate_request(1, &addr1);
+        let request2 = generate_request(2, &addr2);
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
+
+        db.add_proof_request(digest1, request1.clone(), &metadata, "onchain").await.unwrap();
+        db.add_proof_request(digest2, request2.clone(), &metadata, "onchain").await.unwrap();
+
+        // Query inputs
+        let results = db.get_request_inputs_batch(&[digest1, digest2]).await.unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Check digest1
+        let (d1, input_type1, _input_data1, client_addr1) =
+            results.iter().find(|(d, _, _, _)| *d == digest1).unwrap();
+        assert_eq!(*d1, digest1);
+        assert_eq!(input_type1, "Inline");
+        assert_eq!(*client_addr1, addr1);
+
+        // Check digest2
+        let (d2, input_type2, _input_data2, client_addr2) =
+            results.iter().find(|(d, _, _, _)| *d == digest2).unwrap();
+        assert_eq!(*d2, digest2);
+        assert_eq!(input_type2, "Inline");
+        assert_eq!(*client_addr2, addr2);
     }
 
 }
