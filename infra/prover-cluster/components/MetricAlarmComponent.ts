@@ -1,7 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import {ChainId, Severity} from "../../util";
-import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
+import { ChainId, Severity } from "../../util";
+import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 
 export interface MetricAlarmConfig extends BaseComponentConfig {
     serviceName: string,
@@ -38,14 +38,14 @@ export class MetricAlarmComponent extends BaseComponent {
                 // Import the existing log group into a LogGroup resource
                 return new aws.cloudwatch.LogGroup(`${config.serviceName}-log-group`, {
                     name: existing.name,
-                    retentionInDays: existing.retentionInDays,
+                    retentionInDays: 90,
                 }, {import: existing.id});
             }
 
             // Otherwise create a new log group
             return new aws.cloudwatch.LogGroup(`${config.serviceName}-log-group`, {
                 name: config.logGroupName,
-                retentionInDays: 0,
+                retentionInDays: 90,
                 tags: {
                     Name: config.logGroupName,
                     Environment: this.config.environment,

@@ -1,6 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
+import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 
 export interface LaunchTemplateConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -53,6 +53,7 @@ export class LaunchTemplateComponent extends BaseComponent {
                     deleteOnTermination: "true",
                 },
             }],
+            updateDefaultVersion: true,
             tagSpecifications: [{
                 resourceType: "instance",
                 tags: {
