@@ -226,14 +226,22 @@ where
 
             tracing::debug!("Fetched {} orders from order stream", response.orders.len());
 
-            // Collect proof requests from this batch
+            // Collect all request digests to check in batch
+            let request_digests: Vec<B256> = response.orders.iter()
+                .map(|order_data| order_data.order.request_digest)
+                .collect();
+
+            // Batch check which requests already exist
+            let existing_digests = self.db.has_proof_requests_batch(&request_digests).await?;
+
+            // Collect proof requests from this batch, skipping existing ones
             let mut batch_proof_requests = Vec::new();
 
             for order_data in &response.orders {
                 let request = &order_data.order.request;
                 let request_digest = order_data.order.request_digest;
 
-                if self.db.has_proof_request(request_digest).await? {
+                if existing_digests.contains(&request_digest) {
                     tracing::warn!(
                         "Skipping order 0x{:x} - already exists in database",
                         request.id
@@ -384,8 +392,9 @@ where
 
         tracing::debug!("Found {} proof delivered events", logs_len);
 
-        // Collect events for batch insert
+        // Collect events and proofs for batch insert
         let mut proof_delivered_events = Vec::new();
+        let mut proofs = Vec::new();
 
         for log in logs {
             let decoded = log
@@ -404,10 +413,15 @@ where
             let request_digest = event.fulfillment.requestDigest;
             proof_delivered_events.push((request_digest, event.requestId, event.prover, metadata));
 
-            // Still need to add proofs individually for now
-            self.db.add_proof(event.fulfillment, event.prover, &metadata).await?;
+            // Collect proof for batch insert
+            proofs.push((event.fulfillment, event.prover, metadata));
 
             touched_requests.insert(request_digest);
+        }
+
+        // Batch insert all proofs
+        if !proofs.is_empty() {
+            self.db.add_proofs_batch(&proofs).await?;
         }
 
         // Batch insert all proof delivered events
@@ -557,6 +571,9 @@ where
 
         tracing::debug!("Found {} deposit events", logs_len);
 
+        // Collect deposits for batch insert
+        let mut deposits = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::Deposit>()
@@ -570,7 +587,13 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_deposit_event(event.account, event.value, &metadata).await?;
+
+            deposits.push((event.account, event.value, metadata));
+        }
+
+        // Batch insert all deposit events
+        if !deposits.is_empty() {
+            self.db.add_deposit_events_batch(&deposits).await?;
         }
 
         tracing::info!(

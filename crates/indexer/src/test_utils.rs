@@ -30,9 +30,11 @@ impl TestDb {
     pub async fn new() -> Result<Self, DbError> {
         install_default_drivers();
 
-        // Check for PostgreSQL via INDEXER_DATABASE_URL
+        // Lets you run the DB tests against PostgreSQL, via setting INDEXER_DATABASE_URL
         // This is only supported for testing with --test-threads=1
-        // And used as a way to sanity check queries are working correctly with postgres
+        // This should only be used for sanity checking queries are working correctly with postgres.
+        //
+        // RUST_LOG="info" INDEXER_DATABASE_URL="postgres://postgres:password@localhost:5433/postgres" RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib -- --nocapture --test-threads=1
         if let Ok(db_url) = std::env::var("INDEXER_DATABASE_URL") {
             if db_url.starts_with("postgres") {
                 let pool = AnyPool::connect(&db_url).await?;
