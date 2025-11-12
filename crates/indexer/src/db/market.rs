@@ -130,7 +130,7 @@ pub struct TxMetadata {
 }
 
 #[derive(Debug, Clone)]
-pub struct HourlyMarketSummary {
+pub struct PeriodMarketSummary {
     pub period_timestamp: u64,
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
@@ -153,6 +153,7 @@ pub struct HourlyMarketSummary {
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
     pub locked_orders_fulfillment_rate: f32,
+    pub total_program_cycles: u64,
     pub total_cycles: u64,
     pub best_peak_prove_mhz: u64,
     pub best_peak_prove_mhz_prover: Option<String>,
@@ -163,9 +164,10 @@ pub struct HourlyMarketSummary {
 }
 
 // Type aliases for different aggregation periods - they all use the same struct
-pub type DailyMarketSummary = HourlyMarketSummary;
-pub type WeeklyMarketSummary = HourlyMarketSummary;
-pub type MonthlyMarketSummary = HourlyMarketSummary;
+pub type HourlyMarketSummary = PeriodMarketSummary;
+pub type DailyMarketSummary = PeriodMarketSummary;
+pub type WeeklyMarketSummary = PeriodMarketSummary;
+pub type MonthlyMarketSummary = PeriodMarketSummary;
 
 #[derive(Debug, Clone)]
 pub struct RequestStatus {
@@ -196,7 +198,8 @@ pub struct RequestStatus {
     pub slash_recipient: Option<Address>,
     pub slash_transferred_amount: Option<String>,
     pub slash_burned_amount: Option<String>,
-    pub cycles: Option<u64>,
+    pub program_cycles: Option<u64>,
+    pub total_cycles: Option<u64>,
     pub peak_prove_mhz: Option<u64>,
     pub effective_prove_mhz: Option<u64>,
     pub cycle_status: Option<String>,
@@ -255,7 +258,8 @@ pub struct RequestComprehensive {
     pub fulfill_prover_address: Option<Address>,
     pub fulfill_block: Option<u64>,
     pub fulfill_tx_hash: Option<B256>,
-    pub cycles: Option<u64>,
+    pub program_cycles: Option<u64>,
+    pub total_cycles: Option<u64>,
     pub peak_prove_mhz: Option<u64>,
     pub effective_prove_mhz: Option<u64>,
     pub cycle_status: Option<String>,
@@ -284,7 +288,8 @@ pub struct LockPricingData {
 pub struct CycleCount {
     pub request_digest: B256,
     pub cycle_status: String,
-    pub cycle_count: Option<u64>,
+    pub program_cycles: Option<u64>,
+    pub total_cycles: Option<u64>,
     pub created_at: u64,
     pub updated_at: u64,
 }
@@ -427,7 +432,7 @@ pub trait IndexerDb {
 
     async fn upsert_hourly_market_summary(
         &self,
-        summary: HourlyMarketSummary,
+        summary: PeriodMarketSummary,
     ) -> Result<(), DbError>;
 
     async fn get_hourly_market_summaries(
@@ -437,7 +442,7 @@ pub trait IndexerDb {
         sort: SortDirection,
         before: Option<i64>,
         after: Option<i64>,
-    ) -> Result<Vec<HourlyMarketSummary>, DbError>;
+    ) -> Result<Vec<PeriodMarketSummary>, DbError>;
 
     async fn upsert_daily_market_summary(&self, summary: DailyMarketSummary)
         -> Result<(), DbError>;
@@ -636,6 +641,24 @@ pub trait IndexerDb {
     /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
     /// Note: These requests may have been locked in an earlier period.
     async fn get_period_locked_and_fulfilled_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    /// Gets the total sum of program cycles from fulfilled requests in the half-open period [period_start, period_end).
+    /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
+    /// Only counts requests with non-NULL program_cycles data.
+    async fn get_period_total_program_cycles(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    /// Gets the total sum of total cycles from fulfilled requests in the half-open period [period_start, period_end).
+    /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
+    /// Only counts requests with non-NULL total_cycles data.
+    async fn get_period_total_cycles(
         &self,
         period_start: u64,
         period_end: u64,
@@ -1869,7 +1892,7 @@ impl IndexerDb for AnyDb {
 
     async fn upsert_hourly_market_summary(
         &self,
-        summary: HourlyMarketSummary,
+        summary: PeriodMarketSummary,
     ) -> Result<(), DbError> {
         self.upsert_market_summary_generic(summary, "hourly_market_summary").await
     }
@@ -1881,7 +1904,7 @@ impl IndexerDb for AnyDb {
         sort: SortDirection,
         before: Option<i64>,
         after: Option<i64>,
-    ) -> Result<Vec<HourlyMarketSummary>, DbError> {
+    ) -> Result<Vec<PeriodMarketSummary>, DbError> {
         self.get_market_summaries_generic(
             cursor,
             limit,
@@ -1990,7 +2013,7 @@ impl IndexerDb for AnyDb {
                     submit_block, lock_block, fulfill_block, slashed_block,
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
-                    cycles, peak_prove_mhz, effective_prove_mhz, cycle_status,
+                    program_cycles, total_cycles, peak_prove_mhz, effective_prove_mhz, cycle_status,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
@@ -2003,7 +2026,7 @@ impl IndexerDb for AnyDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2012,9 +2035,9 @@ impl IndexerDb for AnyDb {
                     params_count + 26, params_count + 27, params_count + 28, params_count + 29, params_count + 30,
                     params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
-                    params_count + 41, params_count + 42, params_count + 43, params_count + 44
+                    params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45
                 ));
-                params_count += 44;
+                params_count += 45;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2035,7 +2058,8 @@ impl IndexerDb for AnyDb {
                     slash_recipient = EXCLUDED.slash_recipient,
                     slash_transferred_amount = EXCLUDED.slash_transferred_amount,
                     slash_burned_amount = EXCLUDED.slash_burned_amount,
-                    cycles = EXCLUDED.cycles,
+                    program_cycles = EXCLUDED.program_cycles,
+                    total_cycles = EXCLUDED.total_cycles,
                     peak_prove_mhz = EXCLUDED.peak_prove_mhz,
                     effective_prove_mhz = EXCLUDED.effective_prove_mhz,
                     cycle_status = EXCLUDED.cycle_status,
@@ -2073,7 +2097,8 @@ impl IndexerDb for AnyDb {
                     .bind(status.slash_recipient.map(|a| a.to_string()))
                     .bind(&status.slash_transferred_amount)
                     .bind(&status.slash_burned_amount)
-                    .bind(status.cycles.map(|c| c as i64))
+                    .bind(status.program_cycles.map(|c| c as i64))
+                    .bind(status.total_cycles.map(|c| c as i64))
                     .bind(status.peak_prove_mhz.map(|m| m as i64))
                     .bind(status.effective_prove_mhz.map(|m| m as i64))
                     .bind(&status.cycle_status)
@@ -2112,7 +2137,7 @@ impl IndexerDb for AnyDb {
             }
 
             let mut query = String::from(
-                "INSERT INTO cycle_counts (request_digest, cycle_status, cycle_count, created_at, updated_at) VALUES "
+                "INSERT INTO cycle_counts (request_digest, cycle_status, program_cycles, total_cycles, created_at, updated_at) VALUES "
             );
 
             let mut params_count = 0;
@@ -2121,10 +2146,10 @@ impl IndexerDb for AnyDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${})",
-                    params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5
+                    "(${}, ${}, ${}, ${}, ${}, ${})",
+                    params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5, params_count + 6
                 ));
-                params_count += 5;
+                params_count += 6;
             }
             query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
 
@@ -2133,7 +2158,8 @@ impl IndexerDb for AnyDb {
                 query_builder = query_builder
                     .bind(format!("{:x}", cycle_count.request_digest))
                     .bind(&cycle_count.cycle_status)
-                    .bind(cycle_count.cycle_count.map(|c| c as i64))
+                    .bind(cycle_count.program_cycles.map(|c| c as i64))
+                    .bind(cycle_count.total_cycles.map(|c| c as i64))
                     .bind(cycle_count.created_at as i64)
                     .bind(cycle_count.updated_at as i64);
             }
@@ -2196,7 +2222,7 @@ impl IndexerDb for AnyDb {
                 .join(", ");
 
             let query = format!(
-                "SELECT request_digest, cycle_status, cycle_count, created_at, updated_at
+                "SELECT request_digest, cycle_status, program_cycles, total_cycles, created_at, updated_at
                  FROM cycle_counts
                  WHERE request_digest IN ({})",
                 placeholders
@@ -2211,7 +2237,8 @@ impl IndexerDb for AnyDb {
             for row in rows {
                 let digest_str: String = row.try_get("request_digest")?;
                 let cycle_status: String = row.try_get("cycle_status")?;
-                let cycle_count: Option<i64> = row.try_get("cycle_count")?;
+                let program_cycles: Option<i64> = row.try_get("program_cycles")?;
+                let total_cycles: Option<i64> = row.try_get("total_cycles")?;
                 let created_at: i64 = row.try_get("created_at")?;
                 let updated_at: i64 = row.try_get("updated_at")?;
 
@@ -2226,7 +2253,8 @@ impl IndexerDb for AnyDb {
                 cycle_counts.push(CycleCount {
                     request_digest: digest,
                     cycle_status,
-                    cycle_count: cycle_count.map(|c| c as u64),
+                    program_cycles: program_cycles.map(|c| c as u64),
+                    total_cycles: total_cycles.map(|c| c as u64),
                     created_at: created_at as u64,
                     updated_at: updated_at as u64,
                 });
@@ -2353,7 +2381,8 @@ impl IndexerDb for AnyDb {
                     pse.burn_value as slash_burned_amount,
                     pse.transfer_value as slash_transferred_amount,
                     pse.collateral_recipient as slash_recipient,
-                    cc.cycle_count,
+                    cc.program_cycles,
+                    cc.total_cycles,
                     cc.cycle_status
                 FROM proof_requests pr
                 LEFT JOIN request_submitted_events rse ON rse.request_digest = pr.request_digest
@@ -2443,7 +2472,8 @@ impl IndexerDb for AnyDb {
                 let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
                 let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
-                let cycle_count: Option<i64> = row.try_get("cycle_count").ok();
+                let program_cycles: Option<i64> = row.try_get("program_cycles").ok();
+                let total_cycles: Option<i64> = row.try_get("total_cycles").ok();
                 let cycle_status: Option<String> = row.try_get("cycle_status").ok();
 
                 let request = RequestComprehensive {
@@ -2477,7 +2507,8 @@ impl IndexerDb for AnyDb {
                     fulfill_prover_address,
                     fulfill_block: fulfill_block.map(|b| b as u64),
                     fulfill_tx_hash,
-                    cycles: cycle_count.and_then(|c| c.try_into().ok()),
+                    program_cycles: program_cycles.and_then(|c| c.try_into().ok()),
+                    total_cycles: total_cycles.and_then(|c| c.try_into().ok()),
                     peak_prove_mhz: None,      // TODO
                     effective_prove_mhz: None, // TODO
                     cycle_status,
@@ -3093,6 +3124,44 @@ impl IndexerDb for AnyDb {
         Ok(count as u64)
     }
 
+    async fn get_period_total_program_cycles(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let total = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT COALESCE(SUM(program_cycles), 0) FROM request_status
+             WHERE request_status = 'fulfilled'
+             AND program_cycles IS NOT NULL
+             AND fulfilled_at IS NOT NULL
+             AND fulfilled_at >= $1 AND fulfilled_at < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(total.unwrap_or(0) as u64)
+    }
+
+    async fn get_period_total_cycles(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let total = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT COALESCE(SUM(total_cycles), 0) FROM request_status
+             WHERE request_status = 'fulfilled'
+             AND total_cycles IS NOT NULL
+             AND fulfilled_at IS NOT NULL
+             AND fulfilled_at >= $1 AND fulfilled_at < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(total.unwrap_or(0) as u64)
+    }
+
     async fn get_request_digests_paginated(
         &self,
         cursor: Option<B256>,
@@ -3157,7 +3226,7 @@ impl AnyDb {
     // Generic helper for upserting market summaries to avoid code duplication
     async fn upsert_market_summary_generic(
         &self,
-        summary: HourlyMarketSummary, // Can be any alias type
+        summary: PeriodMarketSummary, // Can be any alias type
         table_name: &str,
     ) -> Result<(), DbError> {
         let query_str = format!(
@@ -3184,8 +3253,16 @@ impl AnyDb {
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
                 locked_orders_fulfillment_rate,
+                total_program_cycles,
+                total_cycles,
+                best_peak_prove_mhz,
+                best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz,
+                best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -3208,6 +3285,14 @@ impl AnyDb {
                 total_locked_and_expired = EXCLUDED.total_locked_and_expired,
                 total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
+                total_program_cycles = EXCLUDED.total_program_cycles,
+                total_cycles = EXCLUDED.total_cycles,
+                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
+                best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
+                best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
                 updated_at = CURRENT_TIMESTAMP",
             table_name
         );
@@ -3235,6 +3320,14 @@ impl AnyDb {
             .bind(summary.total_locked_and_expired as i64)
             .bind(summary.total_locked_and_fulfilled as i64)
             .bind(summary.locked_orders_fulfillment_rate)
+            .bind(summary.total_program_cycles as i64)
+            .bind(summary.total_cycles as i64)
+            .bind(summary.best_peak_prove_mhz as i64)
+            .bind(summary.best_peak_prove_mhz_prover)
+            .bind(summary.best_peak_prove_mhz_request_id)
+            .bind(summary.best_effective_prove_mhz as i64)
+            .bind(summary.best_effective_prove_mhz_prover)
+            .bind(summary.best_effective_prove_mhz_request_id)
             .execute(&self.pool)
             .await?;
 
@@ -3250,7 +3343,7 @@ impl AnyDb {
         before: Option<i64>,
         after: Option<i64>,
         table_name: &str,
-    ) -> Result<Vec<HourlyMarketSummary>, DbError> {
+    ) -> Result<Vec<PeriodMarketSummary>, DbError> {
         let mut conditions = Vec::new();
         let mut bind_count = 0;
 
@@ -3319,6 +3412,7 @@ impl AnyDb {
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
                 locked_orders_fulfillment_rate,
+                total_program_cycles,
                 total_cycles,
                 best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
@@ -3354,7 +3448,7 @@ impl AnyDb {
 
         let summaries = rows
             .into_iter()
-            .map(|row| HourlyMarketSummary {
+            .map(|row| PeriodMarketSummary {
                 period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
                 total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
                 unique_provers_locking_requests: row
@@ -3386,6 +3480,7 @@ impl AnyDb {
                 total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
                 locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
                     as f32,
+                total_program_cycles: row.get::<i64, _>("total_program_cycles") as u64,
                 total_cycles: row.get::<i64, _>("total_cycles") as u64,
                 best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
                 best_peak_prove_mhz_prover: row
@@ -3504,7 +3599,8 @@ impl AnyDb {
             slash_recipient,
             slash_transferred_amount: row.try_get("slash_transferred_amount").ok(),
             slash_burned_amount: row.try_get("slash_burned_amount").ok(),
-            cycles: row.try_get::<Option<i64>, _>("cycles").ok().flatten().map(|c| c as u64),
+            program_cycles: row.try_get::<Option<i64>, _>("program_cycles").ok().flatten().map(|c| c as u64),
+            total_cycles: row.try_get::<Option<i64>, _>("total_cycles").ok().flatten().map(|c| c as u64),
             peak_prove_mhz: row
                 .try_get::<Option<i64>, _>("peak_prove_mhz")
                 .ok()
@@ -3966,7 +4062,7 @@ mod tests {
 
         // Insert 10 hourly summaries
         for i in 0..10u64 {
-            let summary = HourlyMarketSummary {
+            let summary = PeriodMarketSummary {
                 period_timestamp: (base_timestamp + (i as i64 * hour_in_seconds)) as u64,
                 total_fulfilled: i,
                 unique_provers_locking_requests: i * 2,
@@ -3990,6 +4086,7 @@ mod tests {
                 total_locked_and_fulfilled: i,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: 0,
+                total_program_cycles: 0,
                 best_peak_prove_mhz: 0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -4171,6 +4268,7 @@ mod tests {
                 total_locked_and_fulfilled: i * 10,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: 0,
+                total_program_cycles: 0,
                 best_peak_prove_mhz: 0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -4225,6 +4323,7 @@ mod tests {
                 total_locked_and_fulfilled: i * 100,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: 0,
+                total_program_cycles: 0,
                 best_peak_prove_mhz: 0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -4283,6 +4382,7 @@ mod tests {
                 total_locked_and_fulfilled: i * 1000,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: 0,
+                total_program_cycles: 0,
                 best_peak_prove_mhz: 0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -4340,6 +4440,7 @@ mod tests {
                 total_locked_and_fulfilled: i,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: 0,
+                total_program_cycles: 0,
                 best_peak_prove_mhz: 0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
@@ -4458,7 +4559,8 @@ mod tests {
             slash_recipient: None,
             slash_transferred_amount: None,
             slash_burned_amount: None,
-            cycles: None,
+            program_cycles: None,
+            total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
             cycle_status: None,
@@ -5311,21 +5413,24 @@ mod tests {
             CycleCount {
                 request_digest: digest1,
                 cycle_status: "COMPLETED".to_string(),
-                cycle_count: Some(50_000_000_000),
+                program_cycles: Some(50_000_000_000),
+                total_cycles: Some((50_000_000_000.0 * 1.0158) as u64),
                 created_at: now,
                 updated_at: now,
             },
             CycleCount {
                 request_digest: digest2,
                 cycle_status: "PENDING".to_string(),
-                cycle_count: None,
+                program_cycles: None,
+                total_cycles: None,
                 created_at: now,
                 updated_at: now,
             },
             CycleCount {
                 request_digest: digest3,
                 cycle_status: "COMPLETED".to_string(),
-                cycle_count: Some(54_000_000_000),
+                program_cycles: Some(54_000_000_000),
+                total_cycles: Some((54_000_000_000.0 * 1.0158) as u64),
                 created_at: now,
                 updated_at: now,
             },
@@ -5349,12 +5454,14 @@ mod tests {
         // Find digest1 in results
         let cc1 = retrieved.iter().find(|cc| cc.request_digest == digest1).unwrap();
         assert_eq!(cc1.cycle_status, "COMPLETED");
-        assert_eq!(cc1.cycle_count, Some(50_000_000_000));
+        assert_eq!(cc1.program_cycles, Some(50_000_000_000));
+        assert_eq!(cc1.total_cycles, Some((50_000_000_000.0 * 1.0158) as u64));
 
         // Find digest2 in results
         let cc2 = retrieved.iter().find(|cc| cc.request_digest == digest2).unwrap();
         assert_eq!(cc2.cycle_status, "PENDING");
-        assert_eq!(cc2.cycle_count, None);
+        assert_eq!(cc2.program_cycles, None);
+        assert_eq!(cc2.total_cycles, None);
     }
 
     #[tokio::test]
@@ -5372,7 +5479,8 @@ mod tests {
         let cycle_count = CycleCount {
             request_digest: digest,
             cycle_status: "COMPLETED".to_string(),
-            cycle_count: Some(50_000_000_000),
+            program_cycles: Some(50_000_000_000),
+            total_cycles: Some((50_000_000_000.0 * 1.0158) as u64),
             created_at: now,
             updated_at: now,
         };
@@ -5384,7 +5492,8 @@ mod tests {
         let cycle_count_updated = CycleCount {
             request_digest: digest,
             cycle_status: "PENDING".to_string(),
-            cycle_count: None,
+            program_cycles: None,
+            total_cycles: None,
             created_at: now + 1000,
             updated_at: now + 1000,
         };
@@ -5397,7 +5506,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.get::<String, _>("cycle_status"), "COMPLETED");
-        assert_eq!(result.get::<Option<i64>, _>("cycle_count"), Some(50_000_000_000));
+        assert_eq!(result.get::<Option<i64>, _>("program_cycles"), Some(50_000_000_000));
+        let expected_total = (50_000_000_000.0 * 1.0158) as i64;
+        assert_eq!(result.get::<Option<i64>, _>("total_cycles"), Some(expected_total));
     }
 
     #[tokio::test]
@@ -5425,14 +5536,16 @@ mod tests {
             CycleCount {
                 request_digest: digest1,
                 cycle_status: "COMPLETED".to_string(),
-                cycle_count: Some(50_000_000_000),
+                program_cycles: Some(50_000_000_000),
+                total_cycles: Some((50_000_000_000.0 * 1.0158) as u64),
                 created_at: now,
                 updated_at: now,
             },
             CycleCount {
                 request_digest: digest2,
                 cycle_status: "PENDING".to_string(),
-                cycle_count: None,
+                program_cycles: None,
+                total_cycles: None,
                 created_at: now,
                 updated_at: now,
             },

@@ -16,5 +16,6 @@ pub mod backfill;
 pub mod cache;
 pub mod pricing;
 pub mod service;
+pub mod time_boundaries;
 
 pub use service::{IndexerService, IndexerServiceConfig, ServiceError};

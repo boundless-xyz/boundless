@@ -65,6 +65,8 @@ struct HourlySummaryRow {
     total_locked_and_expired: u64,
     total_locked_and_fulfilled: u64,
     locked_orders_fulfillment_rate: f32,
+    total_program_cycles: u64,
+    total_cycles: u64,
 }
 
 async fn count_hourly_summaries(pool: &AnyPool) -> i64 {
@@ -82,7 +84,7 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
                 p50_fees_locked, total_requests_submitted, total_requests_submitted_onchain,
                 total_requests_submitted_offchain, total_requests_locked, total_requests_slashed,
                 total_expired, total_locked_and_expired, total_locked_and_fulfilled,
-                locked_orders_fulfillment_rate
+                locked_orders_fulfillment_rate, total_program_cycles, total_cycles
          FROM hourly_market_summary ORDER BY period_timestamp ASC",
     )
     .fetch_all(pool)
@@ -114,6 +116,8 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
             total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
             locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
                 as f32,
+            total_program_cycles: row.get::<i64, _>("total_program_cycles") as u64,
+            total_cycles: row.get::<i64, _>("total_cycles") as u64,
         })
         .collect()
 }
@@ -379,6 +383,10 @@ async fn test_e2e() {
         summary.locked_orders_fulfillment_rate, 100.0,
         "Expected 100% fulfillment rate (1/1)"
     );
+
+    // Verify cycle counts (will be 0 since test uses random address, not hardcoded SIGNAL_REQUESTOR/REQUESTOR_1/2)
+    assert_eq!(summary.total_program_cycles, 0, "Expected 0 total_program_cycles for non-hardcoded requestor");
+    assert_eq!(summary.total_cycles, 0, "Expected 0 total_cycles for non-hardcoded requestor");
 
     cli_process.kill().unwrap();
 }

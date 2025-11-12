@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::market::{IndexerService, ServiceError};
+use crate::market::{
+    time_boundaries::{get_day_start, get_month_start, get_next_day, get_next_month, get_next_week, get_week_start},
+    IndexerService, ServiceError,
+};
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::B256;
 use alloy::providers::Provider;
@@ -230,8 +233,8 @@ where
         let start_time = std::time::Instant::now();
 
         // Use helper functions from aggregation module
-        let start_day = self.get_day_start(start_ts);
-        let end_day = self.get_day_start(end_ts);
+        let start_day = get_day_start(start_ts);
+        let end_day = get_day_start(end_ts);
 
         let total_days = ((end_day - start_day) / SECONDS_PER_DAY) + 1;
         tracing::info!(
@@ -243,7 +246,7 @@ where
 
         let mut processed = 0;
         for day_ts in (start_day..=end_day).step_by(SECONDS_PER_DAY as usize) {
-            let day_end = self.get_next_day(day_ts);
+            let day_end = get_next_day(day_ts);
             let summary = self.indexer.compute_period_summary(day_ts, day_end).await?;
             self.indexer.db.upsert_daily_market_summary(summary).await?;
 
@@ -270,8 +273,8 @@ where
 
         let start_time = std::time::Instant::now();
 
-        let start_week = self.get_week_start(start_ts);
-        let end_week = self.get_week_start(end_ts);
+        let start_week = get_week_start(start_ts);
+        let end_week = get_week_start(end_ts);
 
         let mut periods = Vec::new();
         let mut week_ts = start_week;
@@ -288,7 +291,7 @@ where
         );
 
         for (idx, week_ts) in periods.iter().enumerate() {
-            let week_end = self.get_next_week(*week_ts);
+            let week_end = get_next_week(*week_ts);
             let summary = self.indexer.compute_period_summary(*week_ts, week_end).await?;
             self.indexer.db.upsert_weekly_market_summary(summary).await?;
 
@@ -312,14 +315,14 @@ where
     ) -> Result<(), ServiceError> {
         let start_time = std::time::Instant::now();
 
-        let start_month = self.get_month_start(start_ts);
-        let end_month = self.get_month_start(end_ts);
+        let start_month = get_month_start(start_ts);
+        let end_month = get_month_start(end_ts);
 
         let mut periods = Vec::new();
         let mut month_ts = start_month;
         while month_ts <= end_month {
             periods.push(month_ts);
-            month_ts = self.get_next_month(month_ts);
+            month_ts = get_next_month(month_ts);
         }
 
         tracing::info!(
@@ -330,7 +333,7 @@ where
         );
 
         for (idx, month_ts) in periods.iter().enumerate() {
-            let month_end = self.get_next_month(*month_ts);
+            let month_end = get_next_month(*month_ts);
             let summary = self.indexer.compute_period_summary(*month_ts, month_end).await?;
             self.indexer.db.upsert_monthly_market_summary(summary).await?;
 
@@ -343,64 +346,5 @@ where
             start_time.elapsed()
         );
         Ok(())
-    }
-
-    // Helper functions for period boundaries (copied from aggregation.rs)
-    fn get_day_start(&self, timestamp: u64) -> u64 {
-        use super::super::service::SECONDS_PER_DAY;
-        (timestamp / SECONDS_PER_DAY) * SECONDS_PER_DAY
-    }
-
-    fn get_next_day(&self, timestamp: u64) -> u64 {
-        use super::super::service::SECONDS_PER_DAY;
-        self.get_day_start(timestamp) + SECONDS_PER_DAY
-    }
-
-    fn get_week_start(&self, timestamp: u64) -> u64 {
-        use chrono::{Datelike, TimeZone, Utc, Weekday};
-
-        let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
-        let weekday = dt.weekday();
-
-        let days_from_monday = match weekday {
-            Weekday::Mon => 0,
-            Weekday::Tue => 1,
-            Weekday::Wed => 2,
-            Weekday::Thu => 3,
-            Weekday::Fri => 4,
-            Weekday::Sat => 5,
-            Weekday::Sun => 6,
-        };
-
-        let monday = dt - chrono::Duration::days(days_from_monday);
-        let monday_start = monday.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        monday_start.and_utc().timestamp() as u64
-    }
-
-    fn get_next_week(&self, timestamp: u64) -> u64 {
-        use super::super::service::SECONDS_PER_WEEK;
-        self.get_week_start(timestamp) + SECONDS_PER_WEEK
-    }
-
-    fn get_month_start(&self, timestamp: u64) -> u64 {
-        use chrono::{Datelike, TimeZone, Utc};
-
-        let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
-        let month_start = Utc.with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0).unwrap();
-        month_start.timestamp() as u64
-    }
-
-    fn get_next_month(&self, timestamp: u64) -> u64 {
-        use chrono::{Datelike, TimeZone, Utc};
-
-        let dt = Utc.timestamp_opt(timestamp as i64, 0).unwrap();
-
-        let next_month = if dt.month() == 12 {
-            Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).unwrap()
-        } else {
-            Utc.with_ymd_and_hms(dt.year(), dt.month() + 1, 1, 0, 0, 0).unwrap()
-        };
-
-        next_month.timestamp() as u64
     }
 }

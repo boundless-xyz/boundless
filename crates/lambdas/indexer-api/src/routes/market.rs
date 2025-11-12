@@ -266,6 +266,12 @@ pub struct MarketAggregateEntry {
 
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
+
+    /// Total program cycles computed across all fulfilled requests in this period
+    pub total_program_cycles: i64,
+
+    /// Total cycles (program + overhead) computed across all fulfilled requests in this period
+    pub total_cycles: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -446,6 +452,8 @@ async fn get_market_aggregates_impl(
                 total_locked_and_expired: summary.total_locked_and_expired as i64,
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                total_program_cycles: summary.total_program_cycles as i64,
+                total_cycles: summary.total_cycles as i64,
             }
         })
         .collect();
@@ -574,8 +582,10 @@ pub struct RequestStatusResponse {
     pub slash_burned_amount: Option<String>,
     /// Slash burned amount (formatted)
     pub slash_burned_amount_formatted: Option<String>,
-    /// Cycles
-    pub cycles: Option<i64>,
+    /// Program cycles (guest program only)
+    pub program_cycles: Option<i64>,
+    /// Total cycles (program + overhead)
+    pub total_cycles: Option<i64>,
     /// Peak prove MHz
     pub peak_prove_mhz: Option<i64>,
     /// Effective prove MHz
@@ -665,7 +675,8 @@ fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
         slash_transferred_amount_formatted: status.slash_transferred_amount.as_ref().map(|a| format_zkc(a)),
         slash_burned_amount: status.slash_burned_amount.clone(),
         slash_burned_amount_formatted: status.slash_burned_amount.as_ref().map(|a| format_zkc(a)),
-        cycles: status.cycles.map(|c| c as i64),
+        program_cycles: status.program_cycles.map(|c| c as i64),
+        total_cycles: status.total_cycles.map(|c| c as i64),
         peak_prove_mhz: status.peak_prove_mhz.map(|m| m as i64),
         effective_prove_mhz: status.effective_prove_mhz.map(|m| m as i64),
         submit_tx_hash: status.submit_tx_hash.map(|h| format!("{:#x}", h)),

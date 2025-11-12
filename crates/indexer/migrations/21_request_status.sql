@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS request_status (
     slash_burned_amount TEXT,          -- amount burned
 
     -- Optional metrics (from fulfillment, NULL until fulfilled)
-    cycles BIGINT,
+    program_cycles BIGINT,
+    total_cycles BIGINT,
     peak_prove_mhz BIGINT,
     effective_prove_mhz BIGINT,
 
