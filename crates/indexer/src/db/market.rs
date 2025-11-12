@@ -2028,13 +2028,17 @@ impl IndexerDb for AnyDb {
 
         let mut requests = Vec::new();
 
-        // Process requests individually since ANY array syntax doesn't work with AnyPool
-        for digest in request_digests {
-            let digest_str = format!("{:x}", digest);
+        // Convert HashSet to Vec for chunked processing
+        let digest_vec: Vec<&B256> = request_digests.iter().collect();
 
-            tracing::trace!("Querying proof_requests for digest: {}", digest_str);
+        // Process in batches to avoid parameter limits and optimize query performance
+        const BATCH_SIZE: usize = 500;
 
-            let rows = sqlx::query(
+        for chunk in digest_vec.chunks(BATCH_SIZE) {
+            // Build dynamic IN clause with placeholders
+            let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("${}", i)).collect();
+
+            let query_str = format!(
                 "SELECT
                     pr.request_digest,
                     pr.request_id,
@@ -2077,21 +2081,24 @@ impl IndexerDb for AnyDb {
                 LEFT JOIN request_locked_events rle ON rle.request_digest = pr.request_digest
                 LEFT JOIN request_fulfilled_events rfe ON rfe.request_digest = pr.request_digest
                 LEFT JOIN prover_slashed_events pse ON pse.request_id = pr.request_id
-                WHERE pr.request_digest = $1",
-            )
-            .bind(&digest_str)
-            .fetch_all(&self.pool)
-            .await?;
+                WHERE pr.request_digest IN ({})",
+                placeholders.join(", ")
+            );
 
-            tracing::trace!("Query returned {} rows for digest: {}", rows.len(), digest_str);
-
-            if rows.is_empty() {
-                tracing::warn!("No proof_request found for digest: {}", digest_str);
+            let mut query = sqlx::query(&query_str);
+            for digest in chunk {
+                let digest_str = format!("{:x}", digest);
+                query = query.bind(digest_str);
             }
 
-            // Should be at most one row since request_digest is unique. If there are multiple, we parse all so that we can
-            // log and warn for further investigation.
-            let mut cur_request = Vec::new();
+            tracing::trace!("Querying {} request digests in batch", chunk.len());
+            let rows = query.fetch_all(&self.pool).await?;
+            tracing::trace!("Batch query returned {} rows", rows.len());
+
+            // Group rows by digest to detect duplicates
+            let mut rows_by_digest: std::collections::HashMap<B256, Vec<RequestComprehensive>> =
+                std::collections::HashMap::new();
+
             for row in rows {
                 let request_digest_str: String = row.get("request_digest");
                 let request_digest = B256::from_str(&request_digest_str).map_err(|e| {
@@ -2125,7 +2132,6 @@ impl IndexerDb for AnyDb {
                 let input_type: String = row.get("input_type");
                 let input_data: String = row.get("input_data");
 
-                // Event timestamps
                 let submitted_at: Option<i64> = row.try_get("submitted_at").ok();
                 let locked_at: Option<i64> = row.try_get("locked_at").ok();
                 let lock_block: Option<i64> = row.try_get("lock_block").ok();
@@ -2157,7 +2163,7 @@ impl IndexerDb for AnyDb {
                 let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
                 let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
-                cur_request.push(RequestComprehensive {
+                let request = RequestComprehensive {
                     request_digest,
                     request_id,
                     source,
@@ -2199,15 +2205,30 @@ impl IndexerDb for AnyDb {
                     slash_burned_amount: slash_burned_amount_str,
                     slash_transferred_amount: slash_transferred_amount_str,
                     slash_recipient,
-                });
+                };
+
+                rows_by_digest.entry(request_digest).or_insert_with(Vec::new).push(request);
             }
 
-            if cur_request.len() > 1 {
-                tracing::warn!("Multiple request_comprehensive computed found for digest {}. Adding first: {:?}", digest_str, cur_request);
-            } 
+            // Check for missing digests before consuming the HashMap
+            for digest in chunk {
+                if !rows_by_digest.contains_key(*digest) {
+                    tracing::warn!("No proof_request found for digest: {:x}", digest);
+                }
+            }
 
-            if !cur_request.is_empty() {
-                requests.push(cur_request.first().unwrap().clone());
+            // Check for duplicates and add to results
+            for (digest, mut digest_requests) in rows_by_digest {
+                if digest_requests.len() > 1 {
+                    tracing::warn!(
+                        "Multiple request_comprehensive rows found for digest {:x}. Using first. Digests: {:?}",
+                        digest,
+                        digest_requests
+                    );
+                }
+                if let Some(request) = digest_requests.pop() {
+                    requests.push(request);
+                }
             }
         }
 
@@ -4352,6 +4373,144 @@ mod tests {
         // Verify seal is from prover_a's EARLIEST fulfillment (timestamp 1300)
         // NOT from prover_b's fulfillment (timestamp 1250) even though it's earlier
         assert_eq!(comprehensive.fulfill_seal, Some(format!("0x{}", hex::encode(&seal_early))));
+    }
+
+    #[tokio::test]
+    async fn test_get_requests_comprehensive_batch() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        // Create multiple requests with different states
+        let digest1 = B256::from([1; 32]);
+        let digest2 = B256::from([2; 32]);
+        let digest3 = B256::from([3; 32]);
+        let digest4 = B256::from([4; 32]);
+        let digest5 = B256::from([5; 32]);
+
+        let request1 = generate_request(1, &Address::ZERO);
+        let request2 = generate_request(2, &Address::ZERO);
+        let request3 = generate_request(3, &Address::ZERO);
+        let request4 = generate_request(4, &Address::ZERO);
+        let request5 = generate_request(5, &Address::ZERO);
+
+        let prover1 = Address::from([10; 20]);
+        let prover2 = Address::from([11; 20]);
+
+        // Request 1: fully fulfilled
+        let meta1 = TxMetadata::new(B256::from([100; 32]), Address::ZERO, 100, 1000, 0);
+        db.add_proof_request(digest1, request1.clone(), &meta1, "onchain").await.unwrap();
+        db.add_request_submitted_events_batch(&[(digest1, request1.id, meta1)]).await.unwrap();
+        let meta1_lock = TxMetadata::new(B256::from([101; 32]), Address::ZERO, 101, 1100, 0);
+        db.add_request_locked_events_batch(&[(digest1, request1.id, prover1, meta1_lock)]).await.unwrap();
+        let meta1_fulfill = TxMetadata::new(B256::from([102; 32]), Address::ZERO, 102, 1200, 0);
+        db.add_request_fulfilled_events_batch(&[(digest1, request1.id, prover1, meta1_fulfill)]).await.unwrap();
+        let seal1 = Bytes::from(vec![1, 1, 1]);
+        let fulfillment1 = Fulfillment {
+            requestDigest: digest1,
+            id: request1.id,
+            claimDigest: B256::from([201; 32]),
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
+            seal: seal1.clone(),
+        };
+        db.add_proofs_batch(&[(fulfillment1, prover1, meta1_fulfill)]).await.unwrap();
+
+        // Request 2: locked but not fulfilled
+        let meta2 = TxMetadata::new(B256::from([110; 32]), Address::ZERO, 103, 2000, 0);
+        db.add_proof_request(digest2, request2.clone(), &meta2, "offchain").await.unwrap();
+        db.add_request_submitted_events_batch(&[(digest2, request2.id, meta2)]).await.unwrap();
+        let meta2_lock = TxMetadata::new(B256::from([111; 32]), Address::ZERO, 104, 2100, 0);
+        db.add_request_locked_events_batch(&[(digest2, request2.id, prover2, meta2_lock)]).await.unwrap();
+
+        // Request 3: only submitted
+        let meta3 = TxMetadata::new(B256::from([120; 32]), Address::ZERO, 105, 3000, 0);
+        db.add_proof_request(digest3, request3.clone(), &meta3, "onchain").await.unwrap();
+        db.add_request_submitted_events_batch(&[(digest3, request3.id, meta3)]).await.unwrap();
+
+        // Request 4: fulfilled by different prover than locked
+        let meta4 = TxMetadata::new(B256::from([130; 32]), Address::ZERO, 106, 4000, 0);
+        db.add_proof_request(digest4, request4.clone(), &meta4, "onchain").await.unwrap();
+        db.add_request_submitted_events_batch(&[(digest4, request4.id, meta4)]).await.unwrap();
+        let meta4_lock = TxMetadata::new(B256::from([131; 32]), Address::ZERO, 107, 4100, 0);
+        db.add_request_locked_events_batch(&[(digest4, request4.id, prover1, meta4_lock)]).await.unwrap();
+        let meta4_fulfill = TxMetadata::new(B256::from([132; 32]), Address::ZERO, 108, 4200, 0);
+        db.add_request_fulfilled_events_batch(&[(digest4, request4.id, prover2, meta4_fulfill)]).await.unwrap();
+        let seal4 = Bytes::from(vec![4, 4, 4]);
+        let fulfillment4 = Fulfillment {
+            requestDigest: digest4,
+            id: request4.id,
+            claimDigest: B256::from([204; 32]),
+            fulfillmentData: Bytes::default(),
+            fulfillmentDataType: FulfillmentDataType::None,
+            seal: seal4.clone(),
+        };
+        db.add_proofs_batch(&[(fulfillment4, prover2, meta4_fulfill)]).await.unwrap();
+
+        // Request 5: no events at all
+        let meta5 = TxMetadata::new(B256::from([140; 32]), Address::ZERO, 109, 5000, 0);
+        db.add_proof_request(digest5, request5.clone(), &meta5, "onchain").await.unwrap();
+
+        // Fetch all requests in a single batch call
+        let digest_set: std::collections::HashSet<B256> =
+            vec![digest1, digest2, digest3, digest4, digest5].into_iter().collect();
+        let results = db.get_requests_comprehensive(&digest_set).await.unwrap();
+
+        // Should get exactly 5 results
+        assert_eq!(results.len(), 5);
+
+        // Convert to HashMap for easier lookup
+        let results_map: std::collections::HashMap<B256, &RequestComprehensive> =
+            results.iter().map(|r| (r.request_digest, r)).collect();
+
+        // Verify request 1 (fully fulfilled)
+        let r1 = results_map.get(&digest1).expect("Request 1 should be in results");
+        assert_eq!(r1.source, "onchain");
+        assert_eq!(r1.submitted_at, Some(1000));
+        assert_eq!(r1.locked_at, Some(1100));
+        assert_eq!(r1.fulfilled_at, Some(1200));
+        assert_eq!(r1.lock_prover_address, Some(prover1));
+        assert_eq!(r1.fulfill_prover_address, Some(prover1));
+        assert_eq!(r1.fulfill_seal, Some(format!("0x{}", hex::encode(&seal1))));
+
+        // Verify request 2 (locked but not fulfilled)
+        let r2 = results_map.get(&digest2).expect("Request 2 should be in results");
+        assert_eq!(r2.source, "offchain");
+        assert_eq!(r2.submitted_at, Some(2000));
+        assert_eq!(r2.locked_at, Some(2100));
+        assert_eq!(r2.fulfilled_at, None);
+        assert_eq!(r2.lock_prover_address, Some(prover2));
+        assert_eq!(r2.fulfill_prover_address, None);
+        assert_eq!(r2.fulfill_seal, None);
+
+        // Verify request 3 (only submitted)
+        let r3 = results_map.get(&digest3).expect("Request 3 should be in results");
+        assert_eq!(r3.source, "onchain");
+        assert_eq!(r3.submitted_at, Some(3000));
+        assert_eq!(r3.locked_at, None);
+        assert_eq!(r3.fulfilled_at, None);
+        assert_eq!(r3.lock_prover_address, None);
+        assert_eq!(r3.fulfill_prover_address, None);
+        assert_eq!(r3.fulfill_seal, None);
+
+        // Verify request 4 (different provers for lock and fulfill)
+        let r4 = results_map.get(&digest4).expect("Request 4 should be in results");
+        assert_eq!(r4.source, "onchain");
+        assert_eq!(r4.submitted_at, Some(4000));
+        assert_eq!(r4.locked_at, Some(4100));
+        assert_eq!(r4.fulfilled_at, Some(4200));
+        assert_eq!(r4.lock_prover_address, Some(prover1));
+        assert_eq!(r4.fulfill_prover_address, Some(prover2));
+        assert_eq!(r4.fulfill_seal, Some(format!("0x{}", hex::encode(&seal4))));
+
+        // Verify request 5 (no events)
+        let r5 = results_map.get(&digest5).expect("Request 5 should be in results");
+        assert_eq!(r5.source, "onchain");
+        assert_eq!(r5.submitted_at, None);
+        assert_eq!(r5.locked_at, None);
+        assert_eq!(r5.fulfilled_at, None);
+        assert_eq!(r5.lock_prover_address, None);
+        assert_eq!(r5.fulfill_prover_address, None);
+        assert_eq!(r5.fulfill_seal, None);
     }
 
     #[tokio::test]
