@@ -127,7 +127,7 @@ where
                 ))?;
 
             // Collect proof request for batch insert
-            proof_requests.push((request_digest, request, metadata, "onchain".to_string()));
+            proof_requests.push((request_digest, request, metadata, "onchain".to_string(), metadata.block_timestamp));
 
             // Collect event for batch insert
             submitted_events.push((request_digest, event.requestId, metadata));
@@ -201,8 +201,8 @@ where
             chrono::DateTime::from_timestamp(to_block_timestamp as i64 + 1, 0)
                 .ok_or_else(|| ServiceError::Error(anyhow!("Invalid block timestamp")))?;
 
-        // Convert start block timestamp to DateTime
-        let after_timestamp = chrono::DateTime::from_timestamp(from_block_timestamp as i64, 0)
+        // Convert start block timestamp to DateTime and subtract 1 second to include orders at block_timestamp
+        let after_timestamp = chrono::DateTime::from_timestamp(from_block_timestamp as i64 - 1, 0)
             .ok_or_else(|| ServiceError::Error(anyhow!("Invalid block timestamp")))?;
 
         // Collect all proof requests for batch insert
@@ -250,6 +250,8 @@ where
                 }
 
                 let request_id = RequestId::from_lossy(request.id);
+                let created_at = order_data.created_at;
+                let submission_timestamp = created_at.timestamp() as u64;
                 // Off-chain orders have no associated on-chain transaction, so use sentinel values:
                 // tx_hash = B256::ZERO, block_number = 0, block_timestamp = 0, transaction_index = 0
                 let metadata = TxMetadata::new(B256::ZERO, request_id.addr, 0, 0, 0);
@@ -257,11 +259,9 @@ where
                 tracing::debug!("Collecting offchain proof request: 0x{:x}", request_digest);
 
                 // Collect for batch insert
-                batch_proof_requests.push((request_digest, request.clone(), metadata, "offchain".to_string()));
+                batch_proof_requests.push((request_digest, request.clone(), metadata, "offchain".to_string(), submission_timestamp));
 
                 touched_requests.insert(request_digest);
-
-                let created_at = order_data.created_at;
                 if latest_timestamp.is_none() || latest_timestamp.unwrap() < created_at {
                     latest_timestamp = Some(created_at);
                 }

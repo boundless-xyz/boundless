@@ -85,13 +85,15 @@ async fn get_indexing_status_impl(state: Arc<AppState>) -> anyhow::Result<Indexi
         .await?
         .ok_or_else(|| anyhow::anyhow!("No indexing data available"))?;
 
-    let timestamp = state
-        .market_db
-        .get_block_timestamp(last_block)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Block timestamp not found"))?;
+    // TODO
+    
+    // let timestamp = state
+    //     .market_db
+    //     .get_block_timestamp(last_block)
+    //     .await?
+    //     .ok_or_else(|| anyhow::anyhow!("Block timestamp not found"))?;
 
-    let timestamp_i64 = timestamp as i64;
+    let timestamp_i64 = 0;
 
     Ok(IndexingStatusResponse {
         last_indexed_block: last_block,

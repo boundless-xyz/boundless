@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS proof_requests (
     -- Could be a request submitted or request locked (if submitted offchain)
     tx_hash             TEXT      NOT NULL,
     block_number        BIGINT    NOT NULL, -- Block number
-    block_timestamp     BIGINT    NOT NULL  -- Block timestamp
+    block_timestamp     BIGINT    NOT NULL, -- Block timestamp
+    
+    submission_timestamp BIGINT   NOT NULL  -- Timestamp when request was submitted (block_timestamp for onchain, created_at for offchain)
 );
 
 -- Add an index on client_address for faster lookups
@@ -39,3 +41,6 @@ CREATE INDEX IF NOT EXISTS idx_proof_requests_client_address ON proof_requests(c
 
 -- Add an index on bidding_end for time-based queries
 CREATE INDEX IF NOT EXISTS idx_proof_requests_expires_at ON proof_requests(expires_at);
+
+-- Add an index on submission_timestamp for aggregation queries
+CREATE INDEX IF NOT EXISTS idx_proof_requests_submission_timestamp ON proof_requests(submission_timestamp);

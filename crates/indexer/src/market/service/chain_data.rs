@@ -362,6 +362,14 @@ where
             }
         }
 
+        // Batch insert all fetched blocks into database
+        let blocks_to_insert: Vec<(u64, u64)> = self.block_num_to_timestamp.iter()
+            .map(|(&block_num, &timestamp)| (block_num, timestamp))
+            .collect();
+        if !blocks_to_insert.is_empty() {
+            self.db.add_blocks_batch(&blocks_to_insert).await?;
+        }
+
         // Step 5: Build final map from tx_hash to TxMetadata and update service map
         for &tx_hash in missing_hashes.iter() {
             let (from, tx_index, bn) = receipt_map
@@ -470,6 +478,14 @@ where
                     }
                 }
             }
+        }
+
+        // Batch insert all fetched blocks into database
+        let blocks_to_insert: Vec<(u64, u64)> = self.block_num_to_timestamp.iter()
+            .map(|(&block_num, &timestamp)| (block_num, timestamp))
+            .collect();
+        if !blocks_to_insert.is_empty() {
+            self.db.add_blocks_batch(&blocks_to_insert).await?;
         }
 
         // Step 4: Build final map from tx_hash to TxMetadata and update service map

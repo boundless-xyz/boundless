@@ -1132,6 +1132,457 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         "Expected tx_hash to be zero for offchain order"
     );
 
+    // Verify aggregation statistics include offchain requests
+    let summary_count = count_hourly_summaries(&test_db.pool).await;
+    assert!(
+        summary_count >= 1,
+        "Expected at least one hourly summary, got {}",
+        summary_count
+    );
+
+    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+
+    // Sum up counts across all hours
+    let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
+    let total_requests_onchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_onchain).sum();
+    let total_requests_offchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_offchain).sum();
+
+    assert_eq!(total_requests_submitted, 3, "Expected 3 total requests submitted");
+    assert_eq!(total_requests_onchain, 0, "Expected 0 onchain requests (all submitted via order stream)");
+    assert_eq!(total_requests_offchain, 3, "Expected 3 offchain requests");
+
+    // Verify unique requesters count includes offchain requests
+    let unique_requesters: u64 = summaries
+        .iter()
+        .map(|s| s.unique_requesters_submitting_requests)
+        .max()
+        .unwrap_or(0);
+    assert_eq!(
+        unique_requesters, 1,
+        "Expected 1 unique requester (all requests from same address)"
+    );
+
+    cli_process.kill().unwrap();
+    order_stream_handle.abort();
+}
+
+#[sqlx::test(migrations = "../order-stream/migrations")]
+#[traced_test]
+#[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
+async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
+    use boundless_market::order_stream_client::OrderStreamClient;
+    use order_stream::{run_from_parts, AppState, ConfigBuilder};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use url::Url;
+
+    let test_db = TestDb::new().await.unwrap();
+    let anvil = Anvil::new().spawn();
+    let rpc_url = anvil.endpoint_url();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Setup order stream server
+    let listener =
+        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
+    let order_stream_address = listener.local_addr().unwrap();
+    let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
+
+    let order_stream_config = ConfigBuilder::default()
+        .rpc_url(anvil.endpoint_url())
+        .market_address(ctx.deployment.boundless_market_address)
+        .domain(order_stream_address.to_string())
+        .build()
+        .unwrap();
+
+    let order_stream = AppState::new(&order_stream_config, Some(pool)).await.unwrap();
+    let order_stream_clone = order_stream.clone();
+    let order_stream_handle = tokio::spawn(async move {
+        run_from_parts(order_stream_clone, listener).await.unwrap();
+    });
+
+    // Create order stream client
+    let order_stream_client = OrderStreamClient::new(
+        order_stream_url.clone(),
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+    );
+
+    let provider = ctx.customer_provider.clone();
+    let block_timestamp = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    let start_block = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .number;
+
+    let mut now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    while now < block_timestamp {
+        tokio::time::sleep(INDEXER_WAIT_DURATION).await;
+        now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    }
+
+    let now = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+
+    // Submit 2 onchain requests
+    let (req1_onchain, sig1) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        1,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&req1_onchain, sig1).await.unwrap();
+
+    let (req2_onchain, sig2) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        2,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    ctx.customer_market.submit_request_with_signature(&req2_onchain, sig2).await.unwrap();
+
+    // Submit 3 offchain requests to order stream
+    let (req1_offchain, _) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        10,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    order_stream_client.submit_request(&req1_offchain, &ctx.customer_signer).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let (req2_offchain, _) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        11,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    order_stream_client.submit_request(&req2_offchain, &ctx.customer_signer).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let (req3_offchain, _) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        12,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    order_stream_client.submit_request(&req3_offchain, &ctx.customer_signer).await.unwrap();
+
+    // Start market indexer with order stream URL
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "1",
+        "--order-stream-url",
+        order_stream_url.as_str(),
+        "--start-block",
+        &start_block.to_string(),
+    ];
+
+    println!("{exe_path} {args:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
+
+    // Wait for the indexer to process orders
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
+
+    // Verify all 5 orders were indexed (2 onchain + 3 offchain)
+    let result = sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+    let count: i64 = result.get("count");
+    assert_eq!(count, 5, "Expected 5 proof requests to be indexed");
+
+    // Verify source distribution
+    let result =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'onchain'")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+    let onchain_count: i64 = result.get("count");
+    assert_eq!(onchain_count, 2, "Expected 2 requests to have source='onchain'");
+
+    let result =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+    let offchain_count: i64 = result.get("count");
+    assert_eq!(offchain_count, 3, "Expected 3 requests to have source='offchain'");
+
+    // Verify aggregation statistics include both onchain and offchain requests
+    let summary_count = count_hourly_summaries(&test_db.pool).await;
+    assert!(
+        summary_count >= 1,
+        "Expected at least one hourly summary, got {}",
+        summary_count
+    );
+
+    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+
+    // Sum up counts across all hours
+    let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
+    let total_requests_onchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_onchain).sum();
+    let total_requests_offchain: u64 =
+        summaries.iter().map(|s| s.total_requests_submitted_offchain).sum();
+
+    assert_eq!(total_requests_submitted, 5, "Expected 5 total requests submitted");
+    assert_eq!(total_requests_onchain, 2, "Expected 2 onchain requests");
+    assert_eq!(total_requests_offchain, 3, "Expected 3 offchain requests");
+
+    // Verify unique requesters count includes both sources
+    let unique_requesters: u64 = summaries
+        .iter()
+        .map(|s| s.unique_requesters_submitting_requests)
+        .max()
+        .unwrap_or(0);
+    assert_eq!(
+        unique_requesters, 1,
+        "Expected 1 unique requester (all requests from same address)"
+    );
+
+    cli_process.kill().unwrap();
+    order_stream_handle.abort();
+}
+
+#[sqlx::test(migrations = "../order-stream/migrations")]
+#[traced_test]
+#[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
+async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
+    use boundless_market::order_stream_client::OrderStreamClient;
+    use order_stream::{run_from_parts, AppState, ConfigBuilder};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use url::Url;
+
+    let test_db = TestDb::new().await.unwrap();
+    let anvil = Anvil::new().spawn();
+    let rpc_url = anvil.endpoint_url();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Setup order stream server
+    let listener =
+        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
+    let order_stream_address = listener.local_addr().unwrap();
+    let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
+
+    let order_stream_config = ConfigBuilder::default()
+        .rpc_url(anvil.endpoint_url())
+        .market_address(ctx.deployment.boundless_market_address)
+        .domain(order_stream_address.to_string())
+        .build()
+        .unwrap();
+
+    let order_stream = AppState::new(&order_stream_config, Some(pool)).await.unwrap();
+    let order_stream_clone = order_stream.clone();
+    let order_stream_handle = tokio::spawn(async move {
+        run_from_parts(order_stream_clone, listener).await.unwrap();
+    });
+
+    // Create order stream client
+    let order_stream_client = OrderStreamClient::new(
+        order_stream_url.clone(),
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+    );
+
+    let provider = ctx.customer_provider.clone();
+    let block_timestamp = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    let start_block = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .number;
+
+    let mut now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    while now < block_timestamp {
+        tokio::time::sleep(INDEXER_WAIT_DURATION).await;
+        now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    }
+
+    let now = ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+
+    // Submit 1 onchain request
+    let (req_onchain, sig_onchain) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        1,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    ctx.customer_market.submit_request_with_signature(&req_onchain, sig_onchain).await.unwrap();
+
+    // Get the block timestamp of the onchain submission
+    let onchain_block = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    let onchain_block_timestamp = onchain_block.header.timestamp;
+
+    // Submit 1 offchain request
+    let (req_offchain, _) = create_order(
+        &ctx.customer_signer,
+        ctx.customer_signer.address(),
+        10,
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+        now,
+    )
+    .await;
+    order_stream_client.submit_request(&req_offchain, &ctx.customer_signer).await.unwrap();
+
+    // Start market indexer with order stream URL
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &test_db.db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "1",
+        "--order-stream-url",
+        order_stream_url.as_str(),
+        "--start-block",
+        &start_block.to_string(),
+    ];
+
+    println!("{exe_path} {args:?}");
+
+    #[allow(clippy::zombie_processes)]
+    let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
+
+    // Wait for the indexer to process orders
+    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
+
+    // Verify onchain request has submission_timestamp equal to block_timestamp
+    let result = sqlx::query(
+        "SELECT block_timestamp, submission_timestamp, source FROM proof_requests WHERE request_id = $1",
+    )
+    .bind(format!("{:x}", req_onchain.id))
+    .fetch_one(&test_db.pool)
+    .await
+    .unwrap();
+    let onchain_block_ts: i64 = result.get("block_timestamp");
+    let onchain_submission_ts: i64 = result.get("submission_timestamp");
+    let onchain_source: String = result.get("source");
+    assert_eq!(onchain_source, "onchain");
+    assert_eq!(
+        onchain_submission_ts, onchain_block_ts,
+        "Onchain request submission_timestamp should equal block_timestamp"
+    );
+    assert_eq!(
+        onchain_block_ts, onchain_block_timestamp as i64,
+        "block_timestamp should match the actual block timestamp"
+    );
+
+    // Verify offchain request has submission_timestamp != 0 (block_timestamp is 0 for offchain)
+    let result = sqlx::query(
+        "SELECT block_timestamp, submission_timestamp, source FROM proof_requests WHERE request_id = $1",
+    )
+    .bind(format!("{:x}", req_offchain.id))
+    .fetch_one(&test_db.pool)
+    .await
+    .unwrap();
+    let offchain_block_ts: i64 = result.get("block_timestamp");
+    let offchain_submission_ts: i64 = result.get("submission_timestamp");
+    let offchain_source: String = result.get("source");
+    assert_eq!(offchain_source, "offchain");
+    assert_eq!(
+        offchain_block_ts, 0,
+        "Offchain request block_timestamp should be 0 (sentinel value)"
+    );
+    assert!(
+        offchain_submission_ts > 0,
+        "Offchain request submission_timestamp should be > 0 (from order stream created_at)"
+    );
+
+    // Verify both requests appear in aggregation (verifies submission_timestamp filtering works)
+    let summary_count = count_hourly_summaries(&test_db.pool).await;
+    assert!(
+        summary_count >= 1,
+        "Expected at least one hourly summary, got {}",
+        summary_count
+    );
+
+    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
+    assert_eq!(
+        total_requests_submitted, 2,
+        "Expected 2 total requests (1 onchain + 1 offchain) to appear in aggregation"
+    );
+
     cli_process.kill().unwrap();
     order_stream_handle.abort();
 }

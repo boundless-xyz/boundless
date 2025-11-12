@@ -298,6 +298,7 @@ pub trait IndexerDb {
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
 
     async fn add_block(&self, block_numb: u64, block_timestamp: u64) -> Result<(), DbError>;
+    async fn add_blocks_batch(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
 
     async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError>;
@@ -316,7 +317,7 @@ pub trait IndexerDb {
     /// Batch insert proof requests
     async fn add_proof_requests_batch(
         &self,
-        requests: &[(B256, ProofRequest, TxMetadata, String)],
+        requests: &[(B256, ProofRequest, TxMetadata, String, u64)],
     ) -> Result<(), DbError>;
 
     async fn has_proof_requests_batch(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError>;
@@ -703,6 +704,53 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
+    async fn add_blocks_batch(&self, blocks: &[(u64, u64)]) -> Result<(), DbError> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        for chunk in blocks.chunks(1000) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
+                "INSERT INTO blocks (
+                    block_number,
+                    block_timestamp
+                ) VALUES ",
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${})",
+                    params_count + 1,
+                    params_count + 2
+                ));
+                params_count += 2;
+            }
+            query.push_str(" ON CONFLICT (block_number) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (block_number, block_timestamp) in chunk {
+                query_builder = query_builder
+                    .bind(*block_number as i64)
+                    .bind(*block_timestamp as i64);
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError> {
         let result = sqlx::query("SELECT block_timestamp FROM blocks WHERE block_number = $1")
             .bind(block_numb as i64)
@@ -907,8 +955,9 @@ impl IndexerDb for AnyDb {
                 block_timestamp,
                 source,
                 image_id,
-                image_url
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+                image_url,
+                submission_timestamp
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
             ON CONFLICT (request_digest) DO NOTHING",
         )
         .bind(format!("{request_digest:x}"))
@@ -934,6 +983,7 @@ impl IndexerDb for AnyDb {
         .bind(source)
         .bind(&image_id_str)
         .bind(&request.imageUrl)
+        .bind(metadata.block_timestamp as i64)
         .execute(&self.pool)
         .await?;
         tracing::debug!("INSERT completed successfully for digest: 0x{:x}", request_digest);
@@ -942,7 +992,7 @@ impl IndexerDb for AnyDb {
 
     async fn add_proof_requests_batch(
         &self,
-        requests: &[(B256, ProofRequest, TxMetadata, String)],
+        requests: &[(B256, ProofRequest, TxMetadata, String, u64)],
     ) -> Result<(), DbError> {
         if requests.is_empty() {
             return Ok(());
@@ -951,7 +1001,7 @@ impl IndexerDb for AnyDb {
         // First, batch insert unique transactions (before starting our transaction)
         let unique_txs: Vec<TxMetadata> = requests
             .iter()
-            .map(|(_, _, metadata, _)| *metadata)
+            .map(|(_, _, metadata, _, _)| *metadata)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
@@ -990,7 +1040,8 @@ impl IndexerDb for AnyDb {
                     block_timestamp,
                     source,
                     image_id,
-                    image_url
+                    image_url,
+                    submission_timestamp
                 ) VALUES ",
             );
 
@@ -1000,7 +1051,7 @@ impl IndexerDb for AnyDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1,
                     params_count + 2,
                     params_count + 3,
@@ -1023,14 +1074,15 @@ impl IndexerDb for AnyDb {
                     params_count + 20,
                     params_count + 21,
                     params_count + 22,
-                    params_count + 23
+                    params_count + 23,
+                    params_count + 24
                 ));
-                params_count += 23;
+                params_count += 24;
             }
             query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
 
             let mut query_builder = sqlx::query(&query);
-            for (request_digest, request, metadata, source) in chunk {
+            for (request_digest, request, metadata, source, submission_timestamp) in chunk {
                 // Extract predicate type string
                 let predicate_type = match request.requirements.predicate.predicateType {
                     PredicateType::DigestMatch => "DigestMatch",
@@ -1078,7 +1130,8 @@ impl IndexerDb for AnyDb {
                     .bind(metadata.block_timestamp as i64)
                     .bind(source.as_str())
                     .bind(image_id_str)
-                    .bind(&request.imageUrl);
+                    .bind(&request.imageUrl)
+                    .bind(*submission_timestamp as i64);
             }
 
             query_builder.execute(&mut *tx).await?;
@@ -2576,7 +2629,7 @@ impl IndexerDb for AnyDb {
     }
 
     /// Gets the count of unique requester addresses that submitted requests in the half-open period [period_start, period_end).
-    /// Filters by `proof_requests.block_timestamp` (when the request was created/submitted).
+    /// Filters by `proof_requests.submission_timestamp` (when the request was created/submitted).
     async fn get_period_unique_requesters(
         &self,
         period_start: u64,
@@ -2584,7 +2637,7 @@ impl IndexerDb for AnyDb {
     ) -> Result<u64, DbError> {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(DISTINCT client_address) FROM proof_requests
-             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+             WHERE submission_timestamp >= $1 AND submission_timestamp < $2",
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
@@ -2594,7 +2647,7 @@ impl IndexerDb for AnyDb {
     }
 
     /// Gets the total count of requests submitted (both on-chain and off-chain) in the half-open period [period_start, period_end).
-    /// Filters by `proof_requests.block_timestamp` (when the request was created/submitted).
+    /// Filters by `proof_requests.submission_timestamp` (when the request was created/submitted).
     async fn get_period_total_requests_submitted(
         &self,
         period_start: u64,
@@ -2602,7 +2655,7 @@ impl IndexerDb for AnyDb {
     ) -> Result<u64, DbError> {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM proof_requests
-             WHERE block_timestamp >= $1 AND block_timestamp < $2",
+             WHERE submission_timestamp >= $1 AND submission_timestamp < $2",
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
@@ -4943,7 +4996,8 @@ mod tests {
             );
 
             let source = if i % 2 == 0 { "onchain" } else { "offchain" };
-            requests.push((request_digest, request, metadata, source.to_string()));
+            let submission_timestamp = metadata.block_timestamp;
+            requests.push((request_digest, request, metadata, source.to_string(), submission_timestamp));
         }
 
         // Add requests in batch
@@ -4951,7 +5005,7 @@ mod tests {
 
         // Verify requests were added correctly - check a sample
         for i in [0, 500, 999, 1499].iter() {
-            let (request_digest, request, _metadata, source) = &requests[*i];
+            let (request_digest, request, metadata, source, submission_timestamp) = &requests[*i];
 
             let result = sqlx::query(
                 "SELECT * FROM proof_requests WHERE request_digest = $1"
@@ -4967,6 +5021,24 @@ mod tests {
             assert_eq!(row.get::<String, _>("source"), source.as_str());
             assert_eq!(row.get::<String, _>("min_price"), request.offer.minPrice.to_string());
             assert_eq!(row.get::<String, _>("max_price"), request.offer.maxPrice.to_string());
+
+            // Verify submission_timestamp is set
+            let db_submission_timestamp = row.get::<i64, _>("submission_timestamp");
+            assert_eq!(
+                db_submission_timestamp, *submission_timestamp as i64,
+                "submission_timestamp should match for request {}", i
+            );
+            assert!(
+                db_submission_timestamp > 0,
+                "submission_timestamp should be > 0 for request {}", i
+            );
+
+            // Verify block_timestamp is set
+            let db_block_timestamp = row.get::<i64, _>("block_timestamp");
+            assert_eq!(
+                db_block_timestamp, metadata.block_timestamp as i64,
+                "block_timestamp should match for request {}", i
+            );
         }
 
         // Verify total count

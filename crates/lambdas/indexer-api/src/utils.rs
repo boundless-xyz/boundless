@@ -12,36 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::U256;
+use alloy::primitives::{utils::format_ether, U256};
 use std::str::FromStr;
 
-/// Format wei amount to human-readable ZKC with commas
-/// Converts from 18 decimals to ZKC units
+/// Format wei amount to human-readable ZKC
+/// Converts from 18 decimals to ZKC units with full precision
 pub fn format_zkc(wei_str: &str) -> String {
     match U256::from_str(wei_str) {
         Ok(wei) => {
-            // ZKC has 18 decimals
-            let divisor = U256::from(10u64).pow(U256::from(18));
-            let zkc = wei / divisor;
-            let formatted = format_with_commas_u256(zkc);
+            let formatted = format_ether(wei);
             format!("{} ZKC", formatted)
         }
-        Err(_) => "0 ZKC".to_string(),
+        Err(_) => "0.0 ZKC".to_string(),
     }
 }
 
-/// Format wei amount to human-readable ETH with commas
-/// Converts from 18 decimals to ETH units
+/// Format wei amount to human-readable ETH
+/// Converts from 18 decimals to ETH units with full precision
 pub fn format_eth(wei_str: &str) -> String {
     match U256::from_str(wei_str) {
         Ok(wei) => {
-            // ETH has 18 decimals
-            let divisor = U256::from(10u64).pow(U256::from(18));
-            let eth = wei / divisor;
-            let formatted = format_with_commas_u256(eth);
+            let formatted = format_ether(wei);
             format!("{} ETH", formatted)
         }
-        Err(_) => "0 ETH".to_string(),
+        Err(_) => "0.0 ETH".to_string(),
     }
 }
 
@@ -101,20 +95,44 @@ mod tests {
 
     #[test]
     fn test_format_zkc() {
-        assert_eq!(format_zkc("1000000000000000000000"), "1,000 ZKC");
-        assert_eq!(format_zkc("1500000000000000000000000"), "1,500,000 ZKC");
-        assert_eq!(format_zkc("788626950526189926000000"), "788,626 ZKC");
-        assert_eq!(format_zkc("0"), "0 ZKC");
-        assert_eq!(format_zkc("invalid"), "0 ZKC");
+        // Large amounts
+        assert_eq!(format_zkc("1000000000000000000000"), "1000.000000000000000000 ZKC");
+        assert_eq!(format_zkc("1500000000000000000000000"), "1500000.000000000000000000 ZKC");
+        assert_eq!(format_zkc("788626950526189926000000"), "788626.950526189926000000 ZKC");
+
+        // Small amounts (fractional ZKC)
+        assert_eq!(format_zkc("1554869558951"), "0.000001554869558951 ZKC");
+        assert_eq!(format_zkc("1000000000000000"), "0.001000000000000000 ZKC");
+        assert_eq!(format_zkc("100000000000000000"), "0.100000000000000000 ZKC");
+
+        // Edge cases
+        assert_eq!(format_zkc("0"), "0.000000000000000000 ZKC");
+        assert_eq!(format_zkc("1"), "0.000000000000000001 ZKC");
+        assert_eq!(format_zkc("invalid"), "0.0 ZKC");
     }
 
     #[test]
     fn test_format_eth() {
-        assert_eq!(format_eth("1000000000000000000000"), "1,000 ETH");
-        assert_eq!(format_eth("1500000000000000000000000"), "1,500,000 ETH");
-        assert_eq!(format_eth("788626950526189926000000"), "788,626 ETH");
-        assert_eq!(format_eth("0"), "0 ETH");
-        assert_eq!(format_eth("invalid"), "0 ETH");
+        // Large amounts
+        assert_eq!(format_eth("1000000000000000000000"), "1000.000000000000000000 ETH");
+        assert_eq!(format_eth("1500000000000000000000000"), "1500000.000000000000000000 ETH");
+        assert_eq!(format_eth("788626950526189926000000"), "788626.950526189926000000 ETH");
+
+        // Small amounts (gwei range - typical gas fees)
+        assert_eq!(format_eth("1554869558951"), "0.000001554869558951 ETH");
+        assert_eq!(format_eth("8619988255263"), "0.000008619988255263 ETH");
+        assert_eq!(format_eth("20476994041239"), "0.000020476994041239 ETH");
+        assert_eq!(format_eth("1196099996666666"), "0.001196099996666666 ETH");
+
+        // Standard amounts
+        assert_eq!(format_eth("1000000000000000000"), "1.000000000000000000 ETH");
+        assert_eq!(format_eth("1000000000000000"), "0.001000000000000000 ETH");
+        assert_eq!(format_eth("100000000000000000"), "0.100000000000000000 ETH");
+
+        // Edge cases
+        assert_eq!(format_eth("0"), "0.000000000000000000 ETH");
+        assert_eq!(format_eth("1"), "0.000000000000000001 ETH");
+        assert_eq!(format_eth("invalid"), "0.0 ETH");
     }
 
     #[test]
