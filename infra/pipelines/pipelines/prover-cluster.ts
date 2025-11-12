@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import {BasePipelineArgs} from "./base";
-import {BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN} from "../accountConstants";
+import { BasePipelineArgs } from "./base";
+import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 
 interface ProverClusterPipelineArgs extends BasePipelineArgs {
     stagingAccountId: string;
@@ -116,6 +116,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     buildspec: PROVER_CLUSTER_BUILD_SPEC,
                 },
                 sourceVersion: "CODEPIPELINE",
+                tags: {
+                    Name: `${APP_NAME}-${stackName}-deployment`,
+                    Component: "prover-cluster",
+                },
             }, {parent: this});
         };
 
@@ -249,6 +253,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     },
                 },
             ],
+            tags: {
+                Name: `${APP_NAME}-pipeline`,
+                Component: "prover-cluster",
+            },
         }, {parent: this});
 
         // Create IAM role for EventBridge to execute the pipeline
@@ -308,6 +316,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     address: slackAlertsTopicArn.apply(arn => arn),
                 },
             ],
+            tags: {
+                Name: `${APP_NAME}-pipeline-notifications`,
+                Component: "prover-cluster",
+            },
         });
 
         // Outputs

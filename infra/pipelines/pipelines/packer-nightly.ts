@@ -1,6 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import {BasePipelineArgs} from "./base";
+import { BasePipelineArgs } from "./base";
 
 interface PackerNightlyPipelineArgs extends BasePipelineArgs {
     opsAccountId: string;
@@ -111,9 +111,8 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
             },
             sourceVersion: "CODEPIPELINE",
             tags: {
-                Project: "boundless",
+                Name: `${APP_NAME}-packer-nightly-build`,
                 Component: "packer-nightly-build",
-                Environment: "ops",
             },
         }, {parent: this});
 
@@ -160,9 +159,8 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                 }
             ],
             tags: {
-                Project: "boundless",
+                Name: "packer-nightly-pipeline",
                 Component: "packer-nightly-build",
-                Environment: "ops",
             },
         }, {parent: this});
 
@@ -202,9 +200,8 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
             scheduleExpression: "cron(0 2 * * ? *)", // 2 AM UTC daily
             state: "ENABLED",
             tags: {
-                Project: "boundless",
+                Name: "packer-nightly-schedule-rule",
                 Component: "packer-nightly-build",
-                Environment: "ops",
             },
         }, {parent: this});
 
@@ -228,6 +225,10 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                     address: slackAlertsTopicArn.apply(arn => arn),
                 },
             ],
+            tags: {
+                Name: `packer-nightly-pipeline-notifications`,
+                Component: "packer",
+            },
         });
 
         // Outputs
