@@ -1,11 +1,9 @@
-use anyhow::{ensure, Context, Result};
+use anyhow::{ensure, Result};
 use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
-use risc0_zkvm::{sha::Digestible, Digest, InnerReceipt};
+use risc0_zkvm::Digest;
 use std::str::FromStr;
-
-use crate::{is_dev_mode, Blake3Groth16ReceiptClaim};
 
 // Constants from: risc0-ethereum/contracts/src/blake3/Groth16Verifier.sol
 // When running a new ceremony, update them by running cargo xtask bootstrap-blake3-groth16
@@ -59,52 +57,6 @@ pub fn verify_seal(seal_bytes: &[u8], blake3_claim_digest: impl Into<Digest>) ->
     .unwrap();
     ensure!(res, "proof verification failed");
     Ok(())
-}
-
-/// Verifies a Receipt containing a blake3 Groth16 proof against the BLAKE3 claim digest.
-pub fn verify_receipt(
-    receipt: &risc0_zkvm::Receipt,
-    blake3_claim_digest: impl Into<Digest>,
-) -> Result<()> {
-    if is_dev_mode() {
-        tracing::info!("Warning: Skipping BLAKE3 Groth16 proof verification in dev mode");
-        if let InnerReceipt::Fake(fake_receipt) = &receipt.inner {
-            let claim_digest = fake_receipt.claim.digest();
-            ensure!(
-                claim_digest == blake3_claim_digest.into(),
-                "Fake receipt claim digest does not match expected digest"
-            );
-        } else {
-            return Err(anyhow::anyhow!(
-                "RISC0_DEV_MODE blake3_groth16 verification can only be used on fake receipts"
-            ));
-        }
-        return Ok(());
-    }
-    let groth16_receipt =
-        receipt.inner.groth16().context("verify_receipt expects a Groth16 InnerReceipt")?;
-
-    crate::verify::verify_seal(&groth16_receipt.seal, blake3_claim_digest.into())
-}
-
-/// Verify the integrity of this receipt, ensuring the claim is attested
-/// to by the seal.
-pub fn verify_integrity(receipt: &risc0_zkvm::Receipt) -> Result<()> {
-    if is_dev_mode() {
-        return Ok(());
-    }
-    let groth16_receipt =
-        receipt.inner.groth16().context("verify_receipt expects a Groth16 InnerReceipt")?;
-    let journal = &receipt.journal;
-    let journal_bytes: [u8; 32] = journal
-        .bytes
-        .as_slice()
-        .try_into()
-        .context("invalid journal length, expected 32 bytes for blake3 groth16")?;
-    let blake3_claim_digest =
-        Blake3Groth16ReceiptClaim::ok(receipt.claim()?.as_value()?.pre.digest(), journal_bytes)
-            .digest();
-    crate::verify::verify_seal(&groth16_receipt.seal, blake3_claim_digest)
 }
 
 fn get_r0_verifying_key() -> risc0_groth16::VerifyingKey {

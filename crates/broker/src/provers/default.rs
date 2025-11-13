@@ -592,7 +592,9 @@ mod tests {
         let claim_digest =
             blake3_groth16::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data.clone())
                 .claim_digest();
-        blake3_groth16::verify::verify_receipt(&shrink_receipt, claim_digest)
-            .expect("blake3 groth16 verification failed");
+        let blake3_receipt: blake3_groth16::Blake3Groth16Receipt =
+            blake3_groth16::Blake3Groth16Receipt::try_from(shrink_receipt.clone()).unwrap();
+        assert_eq!(blake3_receipt.claim_digest().unwrap(), claim_digest);
+        blake3_receipt.verify(ECHO_ID).expect("blake3 groth16 verification failed");
     }
 }
