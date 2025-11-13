@@ -318,112 +318,81 @@ pub trait IndexerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
 
-    async fn add_block(&self, block_numb: u64, block_timestamp: u64) -> Result<(), DbError>;
-    async fn add_blocks_batch(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
+    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
 
-    async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError>;
+    async fn add_txs(&self, metadata_list: &[TxMetadata]) -> Result<(), DbError>;
 
-    /// Batch insert transactions
-    async fn add_txs_batch(&self, metadata_list: &[TxMetadata]) -> Result<(), DbError>;
-
-    async fn add_proof_request(
-        &self,
-        request_digest: B256,
-        request: ProofRequest,
-        metadata: &TxMetadata,
-        source: &str,
-    ) -> Result<(), DbError>;
-
-    /// Batch insert proof requests
-    async fn add_proof_requests_batch(
+    async fn add_proof_requests(
         &self,
         requests: &[(B256, ProofRequest, TxMetadata, String, u64)],
     ) -> Result<(), DbError>;
 
-    async fn has_proof_requests_batch(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError>;
+    async fn has_proof_requests(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError>;
 
     async fn get_request_digests_by_request_id(
         &self,
         request_id: U256,
     ) -> Result<Vec<B256>, DbError>;
 
-    async fn add_assessor_receipt(
+    async fn add_assessor_receipts(
         &self,
-        receipt: AssessorReceipt,
-        metadata: &TxMetadata,
+        receipts: &[(AssessorReceipt, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    async fn add_proofs_batch(
+    async fn add_proofs(
         &self,
         proofs: &[(Fulfillment, Address, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    /// Batch insert request submitted events
-    async fn add_request_submitted_events_batch(
+    async fn add_request_submitted_events(
         &self,
         events: &[(B256, U256, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    /// Batch insert request locked events
-    async fn add_request_locked_events_batch(
+    async fn add_request_locked_events(
         &self,
         events: &[(B256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    /// Batch insert proof delivered events
-    async fn add_proof_delivered_events_batch(
+    async fn add_proof_delivered_events(
         &self,
         events: &[(B256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    /// Batch insert request fulfilled events
-    async fn add_request_fulfilled_events_batch(
+    async fn add_request_fulfilled_events(
         &self,
         events: &[(B256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    async fn add_prover_slashed_event(
+    async fn add_prover_slashed_events(
         &self,
-        request_id: U256,
-        burn_value: U256,
-        transfer_value: U256,
-        collateral_recipient: Address,
-        metadata: &TxMetadata,
+        events: &[(U256, U256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    async fn add_deposit_events_batch(
+    async fn add_deposit_events(
         &self,
         deposits: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    async fn add_withdrawal_event(
+    async fn add_withdrawal_events(
         &self,
-        account: Address,
-        value: U256,
-        metadata: &TxMetadata,
+        withdrawals: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    async fn add_collateral_deposit_event(
+    async fn add_collateral_deposit_events(
         &self,
-        account: Address,
-        value: U256,
-        metadata: &TxMetadata,
+        deposits: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    async fn add_collateral_withdrawal_event(
+    async fn add_collateral_withdrawal_events(
         &self,
-        account: Address,
-        value: U256,
-        metadata: &TxMetadata,
+        withdrawals: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError>;
 
-    async fn add_callback_failed_event(
+    async fn add_callback_failed_events(
         &self,
-        request_id: U256,
-        callback_address: Address,
-        error_data: Vec<u8>,
-        metadata: &TxMetadata,
+        events: &[(U256, Address, Vec<u8>, TxMetadata)],
     ) -> Result<(), DbError>;
 
     async fn get_last_order_stream_timestamp(
@@ -495,11 +464,11 @@ pub trait IndexerDb {
     /// Things like image id, offer details, etc. will not be updated.
     async fn upsert_request_statuses(&self, statuses: &[RequestStatus]) -> Result<(), DbError>;
 
-    /// Batch insert cycle counts with ON CONFLICT DO NOTHING (idempotent)
-    async fn insert_cycle_counts_batch(&self, cycle_counts: &[CycleCount]) -> Result<(), DbError>;
+    /// Insert cycle counts with ON CONFLICT DO NOTHING (idempotent)
+    async fn add_cycle_counts(&self, cycle_counts: &[CycleCount]) -> Result<(), DbError>;
 
     /// Check which cycle counts exist for the given request digests
-    async fn has_cycle_counts_batch(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError>;
+    async fn has_cycle_counts(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError>;
 
     /// Get cycle counts for the given request digests
     async fn get_cycle_counts(&self, request_digests: &HashSet<B256>) -> Result<Vec<CycleCount>, DbError>;
@@ -512,7 +481,7 @@ pub trait IndexerDb {
     ) -> Result<HashSet<B256>, DbError>;
 
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
-    async fn get_request_inputs_batch(
+    async fn get_request_inputs(
         &self,
         request_digests: &[B256],
     ) -> Result<Vec<(B256, String, String, Address)>, DbError>;
@@ -761,20 +730,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_block(&self, block_numb: u64, block_timestamp: u64) -> Result<(), DbError> {
-        sqlx::query(
-            "INSERT INTO blocks (block_number, block_timestamp) VALUES ($1, $2)
-         ON CONFLICT (block_number) DO NOTHING",
-        )
-        .bind(block_numb as i64)
-        .bind(block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn add_blocks_batch(&self, blocks: &[(u64, u64)]) -> Result<(), DbError> {
+    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError> {
         if blocks.is_empty() {
             return Ok(());
         }
@@ -835,29 +791,7 @@ impl IndexerDb for AnyDb {
         }
     }
 
-    async fn add_tx(&self, metadata: &TxMetadata) -> Result<(), DbError> {
-        sqlx::query(
-            "INSERT INTO transactions (
-                tx_hash, 
-                block_number, 
-                from_address, 
-                block_timestamp,
-                transaction_index
-            ) VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (tx_hash) DO NOTHING",
-        )
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(metadata.block_number as i64)
-        .bind(format!("{:x}", metadata.from))
-        .bind(metadata.block_timestamp as i64)
-        .bind(metadata.transaction_index as i64)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn add_txs_batch(&self, metadata_list: &[TxMetadata]) -> Result<(), DbError> {
+    async fn add_txs(&self, metadata_list: &[TxMetadata]) -> Result<(), DbError> {
         if metadata_list.is_empty() {
             return Ok(());
         }
@@ -915,7 +849,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn has_proof_requests_batch(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError> {
+    async fn has_proof_requests(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError> {
         if request_digests.is_empty() {
             return Ok(HashSet::new());
         }
@@ -971,96 +905,7 @@ impl IndexerDb for AnyDb {
         Ok(digests)
     }
 
-    async fn add_proof_request(
-        &self,
-        request_digest: B256,
-        request: ProofRequest,
-        metadata: &TxMetadata,
-        source: &str,
-    ) -> Result<(), DbError> {
-        tracing::debug!("add_proof_request called for digest: 0x{:x}", request_digest);
-        self.add_tx(metadata).await?;
-        let predicate_type = match request.requirements.predicate.predicateType {
-            PredicateType::DigestMatch => "DigestMatch",
-            PredicateType::PrefixMatch => "PrefixMatch",
-            PredicateType::ClaimDigestMatch => "ClaimDigestMatch",
-            _ => return Err(DbError::BadTransaction("Invalid predicate type".to_string())),
-        };
-        let input_type = match request.input.inputType {
-            RequestInputType::Inline => "Inline",
-            RequestInputType::Url => "Url",
-            _ => return Err(DbError::BadTransaction("Invalid input type".to_string())),
-        };
-
-        let image_id_str = match Predicate::try_from(request.requirements.predicate.clone()) {
-            Ok(predicate) => predicate
-                .image_id()
-                .map(|digest| format!("{:x}", B256::from(<[u8; 32]>::from(digest))))
-                .unwrap_or_default(),
-            Err(_) => String::new(),
-        };
-
-        tracing::debug!("Executing INSERT for proof_request digest: 0x{:x}", request_digest);
-        sqlx::query(
-            "INSERT INTO proof_requests (
-                request_digest,
-                request_id,
-                client_address,
-                predicate_type,
-                predicate_data,
-                callback_address,
-                callback_gas_limit,
-                selector,
-                input_type,
-                input_data,
-                min_price,
-                max_price,
-                lock_collateral,
-                bidding_start,
-                expires_at,
-                lock_end,
-                ramp_up_period,
-                tx_hash,
-                block_number,
-                block_timestamp,
-                source,
-                image_id,
-                image_url,
-                submission_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
-            ON CONFLICT (request_digest) DO NOTHING",
-        )
-        .bind(format!("{request_digest:x}"))
-        .bind(format!("{:x}", request.id))
-        .bind(format!("{:x}", request.client_address()))
-        .bind(predicate_type)
-        .bind(format!("{:x}", request.requirements.predicate.data))
-        .bind(format!("{:x}", request.requirements.callback.addr))
-        .bind(request.requirements.callback.gasLimit.to_string())
-        .bind(format!("{:x}", request.requirements.selector))
-        .bind(input_type)
-        .bind(format!("{:x}", request.input.data))
-        .bind(request.offer.minPrice.to_string())
-        .bind(request.offer.maxPrice.to_string())
-        .bind(request.offer.lockCollateral.to_string())
-        .bind(request.offer.rampUpStart as i64)
-        .bind((request.offer.rampUpStart + request.offer.timeout as u64)  as i64)
-        .bind((request.offer.rampUpStart + request.offer.lockTimeout as u64)  as i64)
-        .bind(request.offer.rampUpPeriod as i64)
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(metadata.block_number as i64)
-        .bind(metadata.block_timestamp as i64)
-        .bind(source)
-        .bind(&image_id_str)
-        .bind(&request.imageUrl)
-        .bind(metadata.block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
-        tracing::debug!("INSERT completed successfully for digest: 0x{:x}", request_digest);
-        Ok(())
-    }
-
-    async fn add_proof_requests_batch(
+    async fn add_proof_requests(
         &self,
         requests: &[(B256, ProofRequest, TxMetadata, String, u64)],
     ) -> Result<(), DbError> {
@@ -1076,7 +921,7 @@ impl IndexerDb for AnyDb {
             .into_iter()
             .collect();
 
-        self.add_txs_batch(&unique_txs).await?;
+        self.add_txs(&unique_txs).await?;
 
         // Then batch insert proof requests in chunks (within a transaction)
         let mut tx = self.pool.begin().await?;
@@ -1211,34 +1056,78 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_assessor_receipt(
+    async fn add_assessor_receipts(
         &self,
-        receipt: AssessorReceipt,
-        metadata: &TxMetadata,
+        receipts: &[(AssessorReceipt, TxMetadata)],
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
-        sqlx::query(
-            "INSERT INTO assessor_receipts (
-                tx_hash,
-                prover_address,
-                seal,
-                block_number,
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (tx_hash) DO NOTHING",
-        )
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(format!("{:x}", receipt.prover))
-        .bind(format!("{:x}", receipt.seal))
-        .bind(metadata.block_number as i64)
-        .bind(metadata.block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
+        if receipts.is_empty() {
+            return Ok(());
+        }
 
+        // First, batch insert unique transactions
+        let unique_txs: Vec<TxMetadata> = receipts
+            .iter()
+            .map(|(_, metadata)| *metadata)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        self.add_txs(&unique_txs).await?;
+
+        // Then batch insert assessor receipts in chunks
+        let mut tx = self.pool.begin().await?;
+
+        const BATCH_SIZE: usize = 1000;
+        for chunk in receipts.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
+                "INSERT INTO assessor_receipts (
+                    tx_hash,
+                    prover_address,
+                    seal,
+                    block_number,
+                    block_timestamp
+                ) VALUES ",
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5
+                ));
+                params_count += 5;
+            }
+            query.push_str(" ON CONFLICT (tx_hash) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (receipt, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(format!("{:x}", receipt.prover))
+                    .bind(format!("{:x}", receipt.seal))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn add_proofs_batch(
+    async fn add_proofs(
         &self,
         proofs: &[(Fulfillment, Address, TxMetadata)],
     ) -> Result<(), DbError> {
@@ -1254,7 +1143,7 @@ impl IndexerDb for AnyDb {
             .into_iter()
             .collect();
 
-        self.add_txs_batch(&unique_txs).await?;
+        self.add_txs(&unique_txs).await?;
 
         // Then batch insert proofs in chunks
         let mut tx = self.pool.begin().await?;
@@ -1332,7 +1221,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_request_submitted_events_batch(
+    async fn add_request_submitted_events(
         &self,
         events: &[(B256, U256, TxMetadata)],
     ) -> Result<(), DbError> {
@@ -1354,7 +1243,7 @@ impl IndexerDb for AnyDb {
                 .collect()
         };
 
-        self.add_txs_batch(&unique_txs).await?;
+        self.add_txs(&unique_txs).await?;
 
         // Start a transaction for the events
         let mut tx = self.pool.begin().await?;
@@ -1409,7 +1298,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_request_locked_events_batch(
+    async fn add_request_locked_events(
         &self,
         events: &[(B256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError> {
@@ -1431,7 +1320,7 @@ impl IndexerDb for AnyDb {
                 .collect()
         };
 
-        self.add_txs_batch(&unique_txs).await?;
+        self.add_txs(&unique_txs).await?;
 
         // Start a transaction for the events
         let mut tx = self.pool.begin().await?;
@@ -1490,7 +1379,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_proof_delivered_events_batch(
+    async fn add_proof_delivered_events(
         &self,
         events: &[(B256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError> {
@@ -1506,7 +1395,7 @@ impl IndexerDb for AnyDb {
             .into_iter()
             .collect();
 
-        self.add_txs_batch(&unique_txs).await?;
+        self.add_txs(&unique_txs).await?;
 
         // Start a transaction for the events
         let mut tx = self.pool.begin().await?;
@@ -1564,7 +1453,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_request_fulfilled_events_batch(
+    async fn add_request_fulfilled_events(
         &self,
         events: &[(B256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError> {
@@ -1580,7 +1469,7 @@ impl IndexerDb for AnyDb {
             .into_iter()
             .collect();
 
-        self.add_txs_batch(&unique_txs).await?;
+        self.add_txs(&unique_txs).await?;
 
         // Start a transaction for the events
         let mut tx = self.pool.begin().await?;
@@ -1638,59 +1527,120 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_prover_slashed_event(
+    async fn add_prover_slashed_events(
         &self,
-        request_id: U256,
-        burn_value: U256,
-        transfer_value: U256,
-        collateral_recipient: Address,
-        metadata: &TxMetadata,
+        events: &[(U256, U256, U256, Address, TxMetadata)],
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
-        let result =
-            sqlx::query("SELECT prover_address FROM request_locked_events WHERE request_id = $1")
-                .bind(format!("{request_id:x}"))
-                .fetch_optional(&self.pool)
-                .await?;
-        // TODO: Improve this
-        // If for some reason due to a gap in the db that is missing the associated locked request event,
-        // we set the prover address to zero.
-        let prover_address =
-            result.map(|row| row.try_get("prover_address")).transpose()?.unwrap_or_else(|| {
-                tracing::warn!(
-                    "Missing request locked event for slashed event for request id: {:x}",
-                    request_id
-                );
-                format!("{:x}", Address::ZERO)
-            });
-        sqlx::query(
-            "INSERT INTO prover_slashed_events (
-                request_id, 
-                prover_address,
-                burn_value,
-                transfer_value,
-                collateral_recipient,
-                tx_hash, 
-                block_number, 
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (request_id) DO NOTHING",
-        )
-        .bind(format!("{request_id:x}"))
-        .bind(prover_address)
-        .bind(burn_value.to_string())
-        .bind(transfer_value.to_string())
-        .bind(format!("{collateral_recipient:x}"))
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(metadata.block_number as i64)
-        .bind(metadata.block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
+        if events.is_empty() {
+            return Ok(());
+        }
 
+        // First, batch insert unique transactions
+        let unique_txs: Vec<TxMetadata> = events
+            .iter()
+            .map(|(_, _, _, _, metadata)| *metadata)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        self.add_txs(&unique_txs).await?;
+
+        // Then batch insert prover slashed events in chunks
+        let mut tx = self.pool.begin().await?;
+
+        const BATCH_SIZE: usize = 500;
+        for chunk in events.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            // First, fetch prover addresses for all request IDs in this chunk
+            let request_ids: Vec<String> = chunk.iter().map(|(request_id, _, _, _, _)| format!("{request_id:x}")).collect();
+            let prover_map: std::collections::HashMap<String, String> = {
+                let mut map = std::collections::HashMap::new();
+                // Query in batches to avoid parameter limits
+                for request_id_batch in request_ids.chunks(500) {
+                    let placeholders: Vec<String> = (1..=request_id_batch.len()).map(|i| format!("${}", i)).collect();
+                    let query_str = format!(
+                        "SELECT request_id, prover_address FROM request_locked_events WHERE request_id IN ({})",
+                        placeholders.join(", ")
+                    );
+                    let mut query = sqlx::query(&query_str);
+                    for request_id in request_id_batch {
+                        query = query.bind(request_id);
+                    }
+                    let rows = query.fetch_all(&self.pool).await?;
+                    for row in rows {
+                        let request_id: String = row.try_get("request_id")?;
+                        let prover_address: String = row.try_get("prover_address")?;
+                        map.insert(request_id, prover_address);
+                    }
+                }
+                map
+            };
+
+            let mut query = String::from(
+                "INSERT INTO prover_slashed_events (
+                    request_id, 
+                    prover_address,
+                    burn_value,
+                    transfer_value,
+                    collateral_recipient,
+                    tx_hash, 
+                    block_number, 
+                    block_timestamp
+                ) VALUES ",
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5,
+                    params_count + 6,
+                    params_count + 7,
+                    params_count + 8
+                ));
+                params_count += 8;
+            }
+            query.push_str(" ON CONFLICT (request_id) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (request_id, burn_value, transfer_value, collateral_recipient, metadata) in chunk {
+                let request_id_str = format!("{request_id:x}");
+                let prover_address = prover_map.get(&request_id_str).cloned().unwrap_or_else(|| {
+                    tracing::warn!(
+                        "Missing request locked event for slashed event for request id: {:x}",
+                        request_id
+                    );
+                    format!("{:x}", Address::ZERO)
+                });
+                query_builder = query_builder
+                    .bind(request_id_str)
+                    .bind(prover_address)
+                    .bind(burn_value.to_string())
+                    .bind(transfer_value.to_string())
+                    .bind(format!("{collateral_recipient:x}"))
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn add_deposit_events_batch(
+    async fn add_deposit_events(
         &self,
         deposits: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError> {
@@ -1706,7 +1656,7 @@ impl IndexerDb for AnyDb {
             .into_iter()
             .collect();
 
-        self.add_txs_batch(&unique_txs).await?;
+        self.add_txs(&unique_txs).await?;
 
         // Then batch insert deposit events in chunks
         let mut tx = self.pool.begin().await?;
@@ -1760,118 +1710,290 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn add_withdrawal_event(
+    async fn add_withdrawal_events(
         &self,
-        account: Address,
-        value: U256,
-        metadata: &TxMetadata,
+        withdrawals: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
-        sqlx::query(
-            "INSERT INTO withdrawal_events (
-                account,
-                value,
-                tx_hash, 
-                block_number, 
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (account, tx_hash) DO NOTHING",
-        )
-        .bind(format!("{account:x}"))
-        .bind(value.to_string())
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(metadata.block_number as i64)
-        .bind(metadata.block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
+        if withdrawals.is_empty() {
+            return Ok(());
+        }
 
+        // First, batch insert unique transactions
+        let unique_txs: Vec<TxMetadata> = withdrawals
+            .iter()
+            .map(|(_, _, metadata)| *metadata)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        self.add_txs(&unique_txs).await?;
+
+        // Then batch insert withdrawal events in chunks
+        let mut tx = self.pool.begin().await?;
+
+        const BATCH_SIZE: usize = 1000;
+        for chunk in withdrawals.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
+                "INSERT INTO withdrawal_events (
+                    account,
+                    value,
+                    tx_hash, 
+                    block_number, 
+                    block_timestamp
+                ) VALUES ",
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5
+                ));
+                params_count += 5;
+            }
+            query.push_str(" ON CONFLICT (account, tx_hash) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (account, value, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{account:x}"))
+                    .bind(value.to_string())
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn add_collateral_deposit_event(
+    async fn add_collateral_deposit_events(
         &self,
-        account: Address,
-        value: U256,
-        metadata: &TxMetadata,
+        deposits: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
-        sqlx::query(
-            "INSERT INTO collateral_deposit_events (
-                account,
-                value,
-                tx_hash, 
-                block_number, 
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (account, tx_hash) DO NOTHING",
-        )
-        .bind(format!("{account:x}"))
-        .bind(value.to_string())
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(metadata.block_number as i64)
-        .bind(metadata.block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
+        if deposits.is_empty() {
+            return Ok(());
+        }
 
+        // First, batch insert unique transactions
+        let unique_txs: Vec<TxMetadata> = deposits
+            .iter()
+            .map(|(_, _, metadata)| *metadata)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        self.add_txs(&unique_txs).await?;
+
+        // Then batch insert collateral deposit events in chunks
+        let mut tx = self.pool.begin().await?;
+
+        const BATCH_SIZE: usize = 1000;
+        for chunk in deposits.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
+                "INSERT INTO collateral_deposit_events (
+                    account,
+                    value,
+                    tx_hash, 
+                    block_number, 
+                    block_timestamp
+                ) VALUES ",
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5
+                ));
+                params_count += 5;
+            }
+            query.push_str(" ON CONFLICT (account, tx_hash) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (account, value, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{account:x}"))
+                    .bind(value.to_string())
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn add_collateral_withdrawal_event(
+    async fn add_collateral_withdrawal_events(
         &self,
-        account: Address,
-        value: U256,
-        metadata: &TxMetadata,
+        withdrawals: &[(Address, U256, TxMetadata)],
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
-        sqlx::query(
-            "INSERT INTO collateral_withdrawal_events (
-                account,
-                value,
-                tx_hash, 
-                block_number, 
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (account, tx_hash) DO NOTHING",
-        )
-        .bind(format!("{account:x}"))
-        .bind(value.to_string())
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(metadata.block_number as i64)
-        .bind(metadata.block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
+        if withdrawals.is_empty() {
+            return Ok(());
+        }
 
+        // First, batch insert unique transactions
+        let unique_txs: Vec<TxMetadata> = withdrawals
+            .iter()
+            .map(|(_, _, metadata)| *metadata)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        self.add_txs(&unique_txs).await?;
+
+        // Then batch insert collateral withdrawal events in chunks
+        let mut tx = self.pool.begin().await?;
+
+        const BATCH_SIZE: usize = 1000;
+        for chunk in withdrawals.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
+                "INSERT INTO collateral_withdrawal_events (
+                    account,
+                    value,
+                    tx_hash, 
+                    block_number, 
+                    block_timestamp
+                ) VALUES ",
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5
+                ));
+                params_count += 5;
+            }
+            query.push_str(" ON CONFLICT (account, tx_hash) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (account, value, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{account:x}"))
+                    .bind(value.to_string())
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn add_callback_failed_event(
+    async fn add_callback_failed_events(
         &self,
-        request_id: U256,
-        callback_address: Address,
-        error_data: Vec<u8>,
-        metadata: &TxMetadata,
+        events: &[(U256, Address, Vec<u8>, TxMetadata)],
     ) -> Result<(), DbError> {
-        self.add_tx(metadata).await?;
-        sqlx::query(
-            "INSERT INTO callback_failed_events (
-                request_id,
-                callback_address,
-                error_data,
-                tx_hash, 
-                block_number, 
-                block_timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (request_id, tx_hash) DO NOTHING",
-        )
-        .bind(format!("{request_id:x}"))
-        .bind(format!("{callback_address:x}"))
-        .bind(error_data)
-        .bind(format!("{:x}", metadata.tx_hash))
-        .bind(metadata.block_number as i64)
-        .bind(metadata.block_timestamp as i64)
-        .execute(&self.pool)
-        .await?;
+        if events.is_empty() {
+            return Ok(());
+        }
 
+        // First, batch insert unique transactions
+        let unique_txs: Vec<TxMetadata> = events
+            .iter()
+            .map(|(_, _, _, metadata)| *metadata)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        self.add_txs(&unique_txs).await?;
+
+        // Then batch insert callback failed events in chunks
+        let mut tx = self.pool.begin().await?;
+
+        const BATCH_SIZE: usize = 500;
+        for chunk in events.chunks(BATCH_SIZE) {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            let mut query = String::from(
+                "INSERT INTO callback_failed_events (
+                    request_id,
+                    callback_address,
+                    error_data,
+                    tx_hash, 
+                    block_number, 
+                    block_timestamp
+                ) VALUES ",
+            );
+
+            let mut params_count = 0;
+            for i in 0..chunk.len() {
+                if i > 0 {
+                    query.push_str(", ");
+                }
+                query.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3,
+                    params_count + 4,
+                    params_count + 5,
+                    params_count + 6
+                ));
+                params_count += 6;
+            }
+            query.push_str(" ON CONFLICT (request_id, tx_hash) DO NOTHING");
+
+            let mut query_builder = sqlx::query(&query);
+            for (request_id, callback_address, error_data, metadata) in chunk {
+                query_builder = query_builder
+                    .bind(format!("{request_id:x}"))
+                    .bind(format!("{callback_address:x}"))
+                    .bind(error_data.clone())
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .bind(metadata.block_number as i64)
+                    .bind(metadata.block_timestamp as i64);
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2151,7 +2273,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn insert_cycle_counts_batch(&self, cycle_counts: &[CycleCount]) -> Result<(), DbError> {
+    async fn add_cycle_counts(&self, cycle_counts: &[CycleCount]) -> Result<(), DbError> {
         if cycle_counts.is_empty() {
             return Ok(());
         }
@@ -2197,7 +2319,7 @@ impl IndexerDb for AnyDb {
         Ok(())
     }
 
-    async fn has_cycle_counts_batch(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError> {
+    async fn has_cycle_counts(&self, request_digests: &[B256]) -> Result<HashSet<B256>, DbError> {
         if request_digests.is_empty() {
             return Ok(HashSet::new());
         }
@@ -2320,7 +2442,7 @@ impl IndexerDb for AnyDb {
         Ok(request_digests)
     }
 
-    async fn get_request_inputs_batch(
+    async fn get_request_inputs(
         &self,
         request_digests: &[B256],
     ) -> Result<Vec<(B256, String, String, Address)>, DbError> {
@@ -3783,7 +3905,7 @@ mod tests {
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
-        db.add_tx(&metadata).await.unwrap();
+        db.add_txs(&[metadata]).await.unwrap();
 
         // Verify transaction was added
         let result = sqlx::query("SELECT * FROM transactions WHERE tx_hash = $1")
@@ -3802,7 +3924,7 @@ mod tests {
         let request_digest = B256::ZERO;
         let request = generate_request(0, &Address::ZERO);
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
-        db.add_proof_request(request_digest, request.clone(), &metadata, "onchain").await.unwrap();
+        db.add_proof_requests(&[(request_digest, request.clone(), metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
 
         // Verify proof request was added
         let result = sqlx::query("SELECT * FROM proof_requests WHERE request_digest = $1")
@@ -3814,12 +3936,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_has_proof_requests_batch() {
+    async fn test_has_proof_requests() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty array
-        let existing = db.has_proof_requests_batch(&[]).await.unwrap();
+        let existing = db.has_proof_requests(&[]).await.unwrap();
         assert_eq!(existing.len(), 0);
 
         // Add 20 proof requests to database
@@ -3834,12 +3956,12 @@ mod tests {
                 1234567890 + i as u64,
                 i as u64,
             );
-            db.add_proof_request(request_digest, request, &metadata, "onchain").await.unwrap();
+            db.add_proof_requests(&[(request_digest, request, metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
             all_digests.push(request_digest);
         }
 
         // Test batch check with all existing digests
-        let existing = db.has_proof_requests_batch(&all_digests).await.unwrap();
+        let existing = db.has_proof_requests(&all_digests).await.unwrap();
         assert_eq!(existing.len(), 20);
         for digest in &all_digests {
             assert!(existing.contains(digest));
@@ -3854,7 +3976,7 @@ mod tests {
             mixed_digests.push(B256::from([i as u8; 32])); // Non-existing
         }
 
-        let existing = db.has_proof_requests_batch(&mixed_digests).await.unwrap();
+        let existing = db.has_proof_requests(&mixed_digests).await.unwrap();
         assert_eq!(existing.len(), 10, "Should find exactly 10 existing digests");
         for i in 0..10 {
             assert!(existing.contains(&B256::from([i as u8; 32])));
@@ -3865,7 +3987,7 @@ mod tests {
 
         // Test batch check with all non-existing digests
         let non_existing_digests: Vec<B256> = (100..110).map(|i| B256::from([i as u8; 32])).collect();
-        let existing = db.has_proof_requests_batch(&non_existing_digests).await.unwrap();
+        let existing = db.has_proof_requests(&non_existing_digests).await.unwrap();
         assert_eq!(existing.len(), 0);
     }
 
@@ -3883,7 +4005,7 @@ mod tests {
             seal: Bytes::default(),
         };
 
-        db.add_assessor_receipt(receipt.clone(), &metadata).await.unwrap();
+        db.add_assessor_receipts(&[(receipt.clone(), metadata)]).await.unwrap();
 
         // Verify assessor receipt was added
         let result = sqlx::query("SELECT * FROM assessor_receipts WHERE tx_hash = $1")
@@ -3895,12 +4017,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_proofs_batch() {
+    async fn test_add_proofs() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty array
-        db.add_proofs_batch(&[]).await.unwrap();
+        db.add_proofs(&[]).await.unwrap();
 
         // Create test data - more than chunk size (800) to test chunking
         let mut proofs = Vec::new();
@@ -3940,7 +4062,7 @@ mod tests {
         }
 
         // Batch insert all proofs
-        db.add_proofs_batch(&proofs).await.unwrap();
+        db.add_proofs(&proofs).await.unwrap();
 
         // Verify proofs were added correctly - check samples
         for i in [0, 500, 800, 1199].iter() {
@@ -3969,7 +4091,7 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1200);
 
         // Test idempotency
-        db.add_proofs_batch(&proofs).await.unwrap();
+        db.add_proofs(&proofs).await.unwrap();
 
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM proofs")
             .fetch_one(&test_db.pool)
@@ -3993,18 +4115,18 @@ mod tests {
         // First add a request locked event (required for prover slashed event)
         let request_digest = B256::ZERO;
         let prover_address = Address::ZERO;
-        db.add_request_locked_events_batch(&[(request_digest, request_id, prover_address, metadata)])
+        db.add_request_locked_events(&[(request_digest, request_id, prover_address, metadata)])
             .await
             .unwrap();
 
         // Then test prover slashed event
-        db.add_prover_slashed_event(
+        db.add_prover_slashed_events(&[(
             request_id,
             burn_value,
             transfer_value,
             collateral_recipient,
-            &metadata,
-        )
+            metadata,
+        )])
         .await
         .unwrap();
         let result = sqlx::query("SELECT * FROM prover_slashed_events WHERE tx_hash = $1")
@@ -4026,7 +4148,7 @@ mod tests {
         let value = U256::from(100);
 
         // Test deposit event
-        db.add_deposit_events_batch(&[(account, value, metadata)]).await.unwrap();
+        db.add_deposit_events(&[(account, value, metadata)]).await.unwrap();
         let result = sqlx::query("SELECT * FROM deposit_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -4035,7 +4157,7 @@ mod tests {
         assert_eq!(result.get::<String, _>("value"), value.to_string());
 
         // Test withdrawal event
-        db.add_withdrawal_event(account, value, &metadata).await.unwrap();
+        db.add_withdrawal_events(&[(account, value, metadata)]).await.unwrap();
         let result = sqlx::query("SELECT * FROM withdrawal_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -4044,7 +4166,7 @@ mod tests {
         assert_eq!(result.get::<String, _>("value"), value.to_string());
 
         // Test collateral deposit event
-        db.add_collateral_deposit_event(account, value, &metadata).await.unwrap();
+        db.add_collateral_deposit_events(&[(account, value, metadata)]).await.unwrap();
         let result = sqlx::query("SELECT * FROM collateral_deposit_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -4053,7 +4175,7 @@ mod tests {
         assert_eq!(result.get::<String, _>("value"), value.to_string());
 
         // Test collateral withdrawal event
-        db.add_collateral_withdrawal_event(account, value, &metadata).await.unwrap();
+        db.add_collateral_withdrawal_events(&[(account, value, metadata)]).await.unwrap();
         let result = sqlx::query("SELECT * FROM collateral_withdrawal_events WHERE tx_hash = $1")
             .bind(format!("{:x}", metadata.tx_hash))
             .fetch_one(&test_db.pool)
@@ -4063,12 +4185,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_deposit_events_batch() {
+    async fn test_add_deposit_events() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty array
-        db.add_deposit_events_batch(&[]).await.unwrap();
+        db.add_deposit_events(&[]).await.unwrap();
 
         // Create test data - more than chunk size (1000) to test chunking
         let mut deposits = Vec::new();
@@ -4094,7 +4216,7 @@ mod tests {
         }
 
         // Batch insert all deposit events
-        db.add_deposit_events_batch(&deposits).await.unwrap();
+        db.add_deposit_events(&deposits).await.unwrap();
 
         // Verify deposits were added correctly - check samples
         for i in [0, 500, 1000, 1499].iter() {
@@ -4122,7 +4244,7 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1500);
 
         // Test idempotency
-        db.add_deposit_events_batch(&deposits).await.unwrap();
+        db.add_deposit_events(&deposits).await.unwrap();
 
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM deposit_events")
             .fetch_one(&test_db.pool)
@@ -4142,7 +4264,7 @@ mod tests {
         let callback_address = Address::ZERO;
         let error_data = vec![1, 2, 3, 4];
 
-        db.add_callback_failed_event(request_id, callback_address, error_data.clone(), &metadata)
+        db.add_callback_failed_events(&[(request_id, callback_address, error_data.clone(), metadata)])
             .await
             .unwrap();
         let result = sqlx::query("SELECT * FROM callback_failed_events WHERE tx_hash = $1")
@@ -4784,20 +4906,20 @@ mod tests {
 
         // Add proof request
         let metadata1 = TxMetadata::new(B256::from([10; 32]), Address::ZERO, 100, 1000, 0);
-        db.add_proof_request(request_digest, request.clone(), &metadata1, "onchain").await.unwrap();
+        db.add_proof_requests(&[(request_digest, request.clone(), metadata1, "onchain".to_string(), metadata1.block_timestamp)]).await.unwrap();
 
         // Add submitted event
-        db.add_request_submitted_events_batch(&[(request_digest, request.id, metadata1)]).await.unwrap();
+        db.add_request_submitted_events(&[(request_digest, request.id, metadata1)]).await.unwrap();
 
         // Add locked event
         let metadata2 = TxMetadata::new(B256::from([11; 32]), Address::ZERO, 101, 1100, 0);
-        db.add_request_locked_events_batch(&[(request_digest, request.id, prover_a, metadata2)])
+        db.add_request_locked_events(&[(request_digest, request.id, prover_a, metadata2)])
             .await
             .unwrap();
 
         // Add fulfilled event (fulfilled by prover_a)
         let metadata3 = TxMetadata::new(B256::from([12; 32]), Address::ZERO, 102, 1200, 0);
-        db.add_request_fulfilled_events_batch(&[(request_digest, request.id, prover_a, metadata3)])
+        db.add_request_fulfilled_events(&[(request_digest, request.id, prover_a, metadata3)])
             .await
             .unwrap();
 
@@ -4837,7 +4959,7 @@ mod tests {
             seal: seal_late,
         };
 
-        db.add_proofs_batch(&[
+        db.add_proofs(&[
             (fulfillment_wrong_prover, prover_b, metadata_wrong_prover),
             (fulfillment_early, prover_a, metadata_early),
             (fulfillment_late, prover_a, metadata_late),
@@ -4892,12 +5014,12 @@ mod tests {
 
         // Request 1: fully fulfilled
         let meta1 = TxMetadata::new(B256::from([100; 32]), Address::ZERO, 100, 1000, 0);
-        db.add_proof_request(digest1, request1.clone(), &meta1, "onchain").await.unwrap();
-        db.add_request_submitted_events_batch(&[(digest1, request1.id, meta1)]).await.unwrap();
+        db.add_proof_requests(&[(digest1, request1.clone(), meta1, "onchain".to_string(), meta1.block_timestamp)]).await.unwrap();
+        db.add_request_submitted_events(&[(digest1, request1.id, meta1)]).await.unwrap();
         let meta1_lock = TxMetadata::new(B256::from([101; 32]), Address::ZERO, 101, 1100, 0);
-        db.add_request_locked_events_batch(&[(digest1, request1.id, prover1, meta1_lock)]).await.unwrap();
+        db.add_request_locked_events(&[(digest1, request1.id, prover1, meta1_lock)]).await.unwrap();
         let meta1_fulfill = TxMetadata::new(B256::from([102; 32]), Address::ZERO, 102, 1200, 0);
-        db.add_request_fulfilled_events_batch(&[(digest1, request1.id, prover1, meta1_fulfill)]).await.unwrap();
+        db.add_request_fulfilled_events(&[(digest1, request1.id, prover1, meta1_fulfill)]).await.unwrap();
         let seal1 = Bytes::from(vec![1, 1, 1]);
         let fulfillment1 = Fulfillment {
             requestDigest: digest1,
@@ -4907,28 +5029,28 @@ mod tests {
             fulfillmentDataType: FulfillmentDataType::None,
             seal: seal1.clone(),
         };
-        db.add_proofs_batch(&[(fulfillment1, prover1, meta1_fulfill)]).await.unwrap();
+        db.add_proofs(&[(fulfillment1, prover1, meta1_fulfill)]).await.unwrap();
 
         // Request 2: locked but not fulfilled
         let meta2 = TxMetadata::new(B256::from([110; 32]), Address::ZERO, 103, 2000, 0);
-        db.add_proof_request(digest2, request2.clone(), &meta2, "offchain").await.unwrap();
-        db.add_request_submitted_events_batch(&[(digest2, request2.id, meta2)]).await.unwrap();
+        db.add_proof_requests(&[(digest2, request2.clone(), meta2, "offchain".to_string(), meta2.block_timestamp)]).await.unwrap();
+        db.add_request_submitted_events(&[(digest2, request2.id, meta2)]).await.unwrap();
         let meta2_lock = TxMetadata::new(B256::from([111; 32]), Address::ZERO, 104, 2100, 0);
-        db.add_request_locked_events_batch(&[(digest2, request2.id, prover2, meta2_lock)]).await.unwrap();
+        db.add_request_locked_events(&[(digest2, request2.id, prover2, meta2_lock)]).await.unwrap();
 
         // Request 3: only submitted
         let meta3 = TxMetadata::new(B256::from([120; 32]), Address::ZERO, 105, 3000, 0);
-        db.add_proof_request(digest3, request3.clone(), &meta3, "onchain").await.unwrap();
-        db.add_request_submitted_events_batch(&[(digest3, request3.id, meta3)]).await.unwrap();
+        db.add_proof_requests(&[(digest3, request3.clone(), meta3, "onchain".to_string(), meta3.block_timestamp)]).await.unwrap();
+        db.add_request_submitted_events(&[(digest3, request3.id, meta3)]).await.unwrap();
 
         // Request 4: fulfilled by different prover than locked
         let meta4 = TxMetadata::new(B256::from([130; 32]), Address::ZERO, 106, 4000, 0);
-        db.add_proof_request(digest4, request4.clone(), &meta4, "onchain").await.unwrap();
-        db.add_request_submitted_events_batch(&[(digest4, request4.id, meta4)]).await.unwrap();
+        db.add_proof_requests(&[(digest4, request4.clone(), meta4, "onchain".to_string(), meta4.block_timestamp)]).await.unwrap();
+        db.add_request_submitted_events(&[(digest4, request4.id, meta4)]).await.unwrap();
         let meta4_lock = TxMetadata::new(B256::from([131; 32]), Address::ZERO, 107, 4100, 0);
-        db.add_request_locked_events_batch(&[(digest4, request4.id, prover1, meta4_lock)]).await.unwrap();
+        db.add_request_locked_events(&[(digest4, request4.id, prover1, meta4_lock)]).await.unwrap();
         let meta4_fulfill = TxMetadata::new(B256::from([132; 32]), Address::ZERO, 108, 4200, 0);
-        db.add_request_fulfilled_events_batch(&[(digest4, request4.id, prover2, meta4_fulfill)]).await.unwrap();
+        db.add_request_fulfilled_events(&[(digest4, request4.id, prover2, meta4_fulfill)]).await.unwrap();
         let seal4 = Bytes::from(vec![4, 4, 4]);
         let fulfillment4 = Fulfillment {
             requestDigest: digest4,
@@ -4938,11 +5060,11 @@ mod tests {
             fulfillmentDataType: FulfillmentDataType::None,
             seal: seal4.clone(),
         };
-        db.add_proofs_batch(&[(fulfillment4, prover2, meta4_fulfill)]).await.unwrap();
+        db.add_proofs(&[(fulfillment4, prover2, meta4_fulfill)]).await.unwrap();
 
         // Request 5: no events at all
         let meta5 = TxMetadata::new(B256::from([140; 32]), Address::ZERO, 109, 5000, 0);
-        db.add_proof_request(digest5, request5.clone(), &meta5, "onchain").await.unwrap();
+        db.add_proof_requests(&[(digest5, request5.clone(), meta5, "onchain".to_string(), meta5.block_timestamp)]).await.unwrap();
 
         // Fetch all requests in a single batch call
         let digest_set: std::collections::HashSet<B256> =
@@ -5008,12 +5130,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_request_submitted_events_batch() {
+    async fn test_add_request_submitted_events() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty events - should not fail
-        db.add_request_submitted_events_batch(&[]).await.unwrap();
+        db.add_request_submitted_events(&[]).await.unwrap();
 
         // Create test events with different request digests
         let mut events = Vec::new();
@@ -5031,7 +5153,7 @@ mod tests {
         }
 
         // Add events in batch
-        db.add_request_submitted_events_batch(&events).await.unwrap();
+        db.add_request_submitted_events(&events).await.unwrap();
 
         // Verify all events were added correctly
         for (request_digest, request_id, metadata) in &events {
@@ -5048,7 +5170,7 @@ mod tests {
         }
 
         // Test idempotency - adding same events again should not fail
-        db.add_request_submitted_events_batch(&events).await.unwrap();
+        db.add_request_submitted_events(&events).await.unwrap();
 
         // Verify we still have exactly 15 events (not duplicated)
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM request_submitted_events")
@@ -5077,7 +5199,7 @@ mod tests {
             large_batch.push((unique_digest, request_id, metadata));
         }
 
-        db.add_request_submitted_events_batch(&large_batch).await.unwrap();
+        db.add_request_submitted_events(&large_batch).await.unwrap();
 
         // Verify a sample from the large batch
         let sample_index = 500;
@@ -5091,12 +5213,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_txs_batch() {
+    async fn test_add_txs() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty list - should not fail
-        db.add_txs_batch(&[]).await.unwrap();
+        db.add_txs(&[]).await.unwrap();
 
         // Create test transactions
         let mut txs = Vec::new();
@@ -5112,7 +5234,7 @@ mod tests {
         }
 
         // Add transactions in batch
-        db.add_txs_batch(&txs).await.unwrap();
+        db.add_txs(&txs).await.unwrap();
 
         // Verify all transactions were added
         for tx in &txs {
@@ -5128,7 +5250,7 @@ mod tests {
         }
 
         // Test idempotency - adding same transactions should not fail
-        db.add_txs_batch(&txs).await.unwrap();
+        db.add_txs(&txs).await.unwrap();
 
         // Verify we still have exactly 10 transactions
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM transactions")
@@ -5139,12 +5261,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_request_locked_events_batch() {
+    async fn test_add_request_locked_events() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty events - should not fail
-        db.add_request_locked_events_batch(&[]).await.unwrap();
+        db.add_request_locked_events(&[]).await.unwrap();
 
         // Create test data - more than REQUEST_LOCKED_EVENT_BATCH_SIZE to test chunking
         let mut events = Vec::new();
@@ -5177,7 +5299,7 @@ mod tests {
         }
 
         // Add events in batch
-        db.add_request_locked_events_batch(&events).await.unwrap();
+        db.add_request_locked_events(&events).await.unwrap();
 
         // Verify events were added correctly
         for (i, (request_digest, request_id, prover, metadata)) in events.iter().enumerate() {
@@ -5213,7 +5335,7 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1500);
 
         // Test idempotency - adding same events should not fail and not duplicate
-        db.add_request_locked_events_batch(&events).await.unwrap();
+        db.add_request_locked_events(&events).await.unwrap();
 
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM request_locked_events")
             .fetch_one(&test_db.pool)
@@ -5223,12 +5345,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_proof_delivered_events_batch() {
+    async fn test_add_proof_delivered_events() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty events - should not fail
-        db.add_proof_delivered_events_batch(&[]).await.unwrap();
+        db.add_proof_delivered_events(&[]).await.unwrap();
 
         // Create test data - more than PROOF_DELIVERED_EVENT_BATCH_SIZE to test chunking
         let mut events = Vec::new();
@@ -5261,7 +5383,7 @@ mod tests {
         }
 
         // Add events in batch
-        db.add_proof_delivered_events_batch(&events).await.unwrap();
+        db.add_proof_delivered_events(&events).await.unwrap();
 
         // Verify events were added correctly
         for (i, (request_digest, request_id, prover, metadata)) in events.iter().enumerate() {
@@ -5289,7 +5411,7 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1200);
 
         // Test idempotency - adding same events should not fail and not duplicate
-        db.add_proof_delivered_events_batch(&events).await.unwrap();
+        db.add_proof_delivered_events(&events).await.unwrap();
 
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM proof_delivered_events")
             .fetch_one(&test_db.pool)
@@ -5299,12 +5421,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_request_fulfilled_events_batch() {
+    async fn test_add_request_fulfilled_events() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty events - should not fail
-        db.add_request_fulfilled_events_batch(&[]).await.unwrap();
+        db.add_request_fulfilled_events(&[]).await.unwrap();
 
         // Create test data - more than REQUEST_FULFILLED_EVENT_BATCH_SIZE to test chunking
         let mut events = Vec::new();
@@ -5337,7 +5459,7 @@ mod tests {
         }
 
         // Add events in batch
-        db.add_request_fulfilled_events_batch(&events).await.unwrap();
+        db.add_request_fulfilled_events(&events).await.unwrap();
 
         // Verify events were added correctly - note: only check first few due to ON CONFLICT
         // Since request_fulfilled_events has ON CONFLICT (request_digest) DO NOTHING,
@@ -5372,7 +5494,7 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1000);
 
         // Test idempotency - adding same events should not fail and not duplicate
-        db.add_request_fulfilled_events_batch(&events).await.unwrap();
+        db.add_request_fulfilled_events(&events).await.unwrap();
 
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM request_fulfilled_events")
             .fetch_one(&test_db.pool)
@@ -5382,12 +5504,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_proof_requests_batch() {
+    async fn test_add_proof_requests() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty requests - should not fail
-        db.add_proof_requests_batch(&[]).await.unwrap();
+        db.add_proof_requests(&[]).await.unwrap();
 
         // Helper function to create a test ProofRequest
         fn create_test_proof_request(i: usize, addr: &Address) -> ProofRequest {
@@ -5442,7 +5564,7 @@ mod tests {
         }
 
         // Add requests in batch
-        db.add_proof_requests_batch(&requests).await.unwrap();
+        db.add_proof_requests(&requests).await.unwrap();
 
         // Verify requests were added correctly - check a sample
         for i in [0, 500, 999, 1499].iter() {
@@ -5490,7 +5612,7 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1500);
 
         // Test idempotency - adding same requests should not fail and not duplicate
-        db.add_proof_requests_batch(&requests).await.unwrap();
+        db.add_proof_requests(&requests).await.unwrap();
 
         let count_result = sqlx::query("SELECT COUNT(*) as count FROM proof_requests")
             .fetch_one(&test_db.pool)
@@ -5542,7 +5664,7 @@ mod tests {
         ];
 
         // Insert cycle counts
-        db.insert_cycle_counts_batch(&cycle_counts).await.unwrap();
+        db.add_cycle_counts(&cycle_counts).await.unwrap();
 
         // Verify insertion
         let result = sqlx::query("SELECT COUNT(*) as count FROM cycle_counts")
@@ -5591,7 +5713,7 @@ mod tests {
         };
 
         // Insert once
-        db.insert_cycle_counts_batch(&[cycle_count.clone()]).await.unwrap();
+        db.add_cycle_counts(&[cycle_count.clone()]).await.unwrap();
 
         // Insert again with different values - should be ignored due to ON CONFLICT DO NOTHING
         let cycle_count_updated = CycleCount {
@@ -5602,7 +5724,7 @@ mod tests {
             created_at: now + 1000,
             updated_at: now + 1000,
         };
-        db.insert_cycle_counts_batch(&[cycle_count_updated]).await.unwrap();
+        db.add_cycle_counts(&[cycle_count_updated]).await.unwrap();
 
         // Verify original value is preserved
         let result = sqlx::query("SELECT * FROM cycle_counts WHERE request_digest = $1")
@@ -5618,12 +5740,12 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_has_cycle_counts_batch() {
+    async fn test_has_cycle_counts() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
         // Test with empty array
-        let existing = db.has_cycle_counts_batch(&[]).await.unwrap();
+        let existing = db.has_cycle_counts(&[]).await.unwrap();
         assert_eq!(existing.len(), 0);
 
         // Add some cycle counts
@@ -5637,7 +5759,7 @@ mod tests {
             .unwrap()
             .as_secs();
 
-        db.insert_cycle_counts_batch(&[
+        db.add_cycle_counts(&[
             CycleCount {
                 request_digest: digest1,
                 cycle_status: "COMPLETED".to_string(),
@@ -5659,7 +5781,7 @@ mod tests {
         .unwrap();
 
         // Check which ones exist
-        let existing = db.has_cycle_counts_batch(&[digest1, digest2, digest3, digest4]).await.unwrap();
+        let existing = db.has_cycle_counts(&[digest1, digest2, digest3, digest4]).await.unwrap();
         assert_eq!(existing.len(), 2);
         assert!(existing.contains(&digest1));
         assert!(existing.contains(&digest2));
@@ -5669,7 +5791,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_get_request_inputs_batch() {
+    async fn test_get_request_inputs() {
         let test_db = TestDb::new().await.unwrap();
         let db: DbObj = test_db.db;
 
@@ -5683,11 +5805,11 @@ mod tests {
         let request2 = generate_request(2, &addr2);
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
 
-        db.add_proof_request(digest1, request1.clone(), &metadata, "onchain").await.unwrap();
-        db.add_proof_request(digest2, request2.clone(), &metadata, "onchain").await.unwrap();
+        db.add_proof_requests(&[(digest1, request1.clone(), metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
+        db.add_proof_requests(&[(digest2, request2.clone(), metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
 
         // Query inputs
-        let results = db.get_request_inputs_batch(&[digest1, digest2]).await.unwrap();
+        let results = db.get_request_inputs(&[digest1, digest2]).await.unwrap();
         assert_eq!(results.len(), 2);
 
         // Check digest1

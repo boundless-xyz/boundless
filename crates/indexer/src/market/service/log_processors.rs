@@ -138,12 +138,12 @@ where
 
         // Batch insert all collected proof requests
         if !proof_requests.is_empty() {
-            self.db.add_proof_requests_batch(&proof_requests).await?;
+            self.db.add_proof_requests(&proof_requests).await?;
         }
 
         // Batch insert all collected events
         if !submitted_events.is_empty() {
-            self.db.add_request_submitted_events_batch(&submitted_events).await?;
+            self.db.add_request_submitted_events(&submitted_events).await?;
         }
 
         tracing::info!(
@@ -232,7 +232,7 @@ where
                 .collect();
 
             // Batch check which requests already exist
-            let existing_digests = self.db.has_proof_requests_batch(&request_digests).await?;
+            let existing_digests = self.db.has_proof_requests(&request_digests).await?;
 
             // Collect proof requests from this batch, skipping existing ones
             let mut batch_proof_requests = Vec::new();
@@ -284,7 +284,7 @@ where
         // Batch insert all collected proof requests
         if !all_proof_requests.is_empty() {
             tracing::info!("Batch inserting {} offchain proof requests", all_proof_requests.len());
-            self.db.add_proof_requests_batch(&all_proof_requests).await?;
+            self.db.add_proof_requests(&all_proof_requests).await?;
         }
 
         if total_orders > 0 {
@@ -360,7 +360,7 @@ where
 
         // Batch insert all locked events
         if !locked_events.is_empty() {
-            self.db.add_request_locked_events_batch(&locked_events).await?;
+            self.db.add_request_locked_events(&locked_events).await?;
         }
 
         tracing::info!(
@@ -421,12 +421,12 @@ where
 
         // Batch insert all proofs
         if !proofs.is_empty() {
-            self.db.add_proofs_batch(&proofs).await?;
+            self.db.add_proofs(&proofs).await?;
         }
 
         // Batch insert all proof delivered events
         if !proof_delivered_events.is_empty() {
-            self.db.add_proof_delivered_events_batch(&proof_delivered_events).await?;
+            self.db.add_proof_delivered_events(&proof_delivered_events).await?;
         }
 
         tracing::info!(
@@ -481,7 +481,7 @@ where
 
         // Batch insert all fulfilled events
         if !fulfilled_events.is_empty() {
-            self.db.add_request_fulfilled_events_batch(&fulfilled_events).await?;
+            self.db.add_request_fulfilled_events(&fulfilled_events).await?;
         }
 
         tracing::info!(
@@ -527,13 +527,13 @@ where
                 metadata.block_timestamp
             );
             self.db
-                .add_prover_slashed_event(
+                .add_prover_slashed_events(&[(
                     event.requestId,
                     event.collateralBurned,
                     event.collateralTransferred,
                     event.collateralRecipient,
-                    &metadata,
-                )
+                    metadata,
+                )])
                 .await?;
 
             let request_digests =
@@ -593,7 +593,7 @@ where
 
         // Batch insert all deposit events
         if !deposits.is_empty() {
-            self.db.add_deposit_events_batch(&deposits).await?;
+            self.db.add_deposit_events(&deposits).await?;
         }
 
         tracing::info!(
@@ -637,7 +637,7 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_withdrawal_event(event.account, event.value, &metadata).await?;
+            self.db.add_withdrawal_events(&[(event.account, event.value, metadata)]).await?;
         }
 
         tracing::info!(
@@ -681,7 +681,7 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_collateral_deposit_event(event.account, event.value, &metadata).await?;
+            self.db.add_collateral_deposit_events(&[(event.account, event.value, metadata)]).await?;
         }
 
         tracing::info!(
@@ -725,7 +725,7 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_collateral_withdrawal_event(event.account, event.value, &metadata).await?;
+            self.db.add_collateral_withdrawal_events(&[(event.account, event.value, metadata)]).await?;
         }
 
         tracing::info!(
@@ -772,12 +772,12 @@ where
             );
 
             self.db
-                .add_callback_failed_event(
+                .add_callback_failed_events(&[(
                     event.requestId,
                     event.callback,
                     event.error.to_vec(),
-                    &metadata,
-                )
+                    metadata,
+                )])
                 .await?;
 
             let request_digests =

@@ -113,7 +113,7 @@ where
                     .context(anyhow!("Failed to get block by number: {}", block_number))?
                     .header
                     .timestamp;
-                self.db.add_block(block_number, ts).await?;
+                self.db.add_blocks(&[(block_number, ts)]).await?;
                 // Store in in-memory cache
                 self.block_num_to_timestamp.insert(block_number, ts);
                 ts
@@ -367,7 +367,7 @@ where
             .map(|(&block_num, &timestamp)| (block_num, timestamp))
             .collect();
         if !blocks_to_insert.is_empty() {
-            self.db.add_blocks_batch(&blocks_to_insert).await?;
+            self.db.add_blocks(&blocks_to_insert).await?;
         }
 
         // Step 5: Build final map from tx_hash to TxMetadata and update service map
@@ -485,7 +485,7 @@ where
             .map(|(&block_num, &timestamp)| (block_num, timestamp))
             .collect();
         if !blocks_to_insert.is_empty() {
-            self.db.add_blocks_batch(&blocks_to_insert).await?;
+            self.db.add_blocks(&blocks_to_insert).await?;
         }
 
         // Step 4: Build final map from tx_hash to TxMetadata and update service map

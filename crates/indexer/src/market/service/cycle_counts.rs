@@ -138,7 +138,7 @@ where
 
         // Check which cycle counts already exist
         let digest_vec: Vec<B256> = request_digests.iter().copied().collect();
-        let existing = self.db.has_cycle_counts_batch(&digest_vec).await?;
+        let existing = self.db.has_cycle_counts(&digest_vec).await?;
 
         // Filter out requests that already have cycle count records
         let new_requests: Vec<B256> = request_digests
@@ -160,7 +160,7 @@ where
         );
 
         // Query proof_requests table for input_type, input_data, and client_address
-        let request_inputs = self.db.get_request_inputs_batch(&new_requests).await?;
+        let request_inputs = self.db.get_request_inputs(&new_requests).await?;
 
         let current_timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -191,7 +191,7 @@ where
 
         // Batch insert
         if !cycle_counts.is_empty() {
-            self.db.insert_cycle_counts_batch(&cycle_counts).await?;
+            self.db.add_cycle_counts(&cycle_counts).await?;
             tracing::info!(
                 "process_cycle_counts completed in {:?} [{} cycle counts inserted: {} COMPLETED, {} PENDING]",
                 start.elapsed(),

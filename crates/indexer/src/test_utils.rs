@@ -122,6 +122,6 @@ impl TestDb {
             updated_at: current_timestamp,
         };
 
-        self.db.insert_cycle_counts_batch(&[cycle_count]).await
+        self.db.add_cycle_counts(&[cycle_count]).await
     }
 }
