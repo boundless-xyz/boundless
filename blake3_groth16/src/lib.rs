@@ -129,6 +129,8 @@ mod tests {
         tracing::info!("Initial receipt created, compressing to blake3_groth16");
         let groth16_receipt = compress_blake3_groth16(&receipt).await.unwrap();
         let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
-        verify::verify_receipt(&groth16_receipt, blake3_claim_digest).expect("verification failed");
+        let blake3_receipt = Blake3Groth16Receipt::try_from(groth16_receipt).unwrap();
+        assert_eq!(blake3_receipt.claim.digest(), blake3_claim_digest);
+        blake3_receipt.verify(ECHO_ID).expect("verification failed");
     }
 }

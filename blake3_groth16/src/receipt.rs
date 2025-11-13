@@ -58,10 +58,14 @@ impl Blake3Groth16Receipt {
         Ok(receipt)
     }
 
+    /// Verify that this receipt proves a successful execution of the zkVM from
+    /// the given `image_id`.
     pub fn verify(&self, image_id: impl Into<Digest>) -> Result<()> {
         self.verify_with_context(&crate::verify::verifier_parameters(), image_id)
     }
 
+    /// Verify that this receipt proves a successful execution of the zkVM from the given
+    /// `image_id`.
     pub fn verify_with_context(
         &self,
         params: &risc0_zkvm::Groth16ReceiptVerifierParameters,
@@ -85,11 +89,15 @@ impl Blake3Groth16Receipt {
         Ok(())
     }
 
+    /// Verify the integrity of this receipt, ensuring the claim and journal
+    /// are attested to by the seal.
     pub fn verify_integrity(&self) -> Result<()> {
         let params = crate::verify::verifier_parameters();
         self.verify_integrity_with_context(&params)
     }
 
+    /// Verify the integrity of this receipt, ensuring the claim and journal
+    /// are attested to by the seal.
     pub fn verify_integrity_with_context(
         &self,
         params: &risc0_zkvm::Groth16ReceiptVerifierParameters,
@@ -103,6 +111,11 @@ impl Blake3Groth16Receipt {
                 params.digest(),
                 self.verifier_parameters
             ));
+        }
+        if self.journal.as_slice()
+            != self.claim.as_value().context("blake3 claim must not be pruned")?.journal.as_slice()
+        {
+            return Err(anyhow::anyhow!("journal in receipt does not match journal in claim"));
         }
         crate::verify::verify_seal(&self.seal, self.claim.digest())?;
         Ok(())
@@ -119,5 +132,31 @@ impl From<Blake3Groth16Receipt> for Receipt {
             )),
             value.journal.to_vec(),
         )
+    }
+}
+
+impl TryFrom<Receipt> for Blake3Groth16Receipt {
+    type Error = anyhow::Error;
+
+    fn try_from(receipt: Receipt) -> Result<Self, Self::Error> {
+        let claim =
+            receipt.claim()?.as_value().context("receipt claim must not be pruned")?.clone();
+        if let InnerReceipt::Groth16(groth16_receipt) = receipt.inner {
+            let blake3_claim = Blake3Groth16ReceiptClaim::try_from(claim)?;
+            let journal: [u8; 32] = receipt
+                .journal
+                .bytes
+                .as_slice()
+                .try_into()
+                .context("invalid journal length, expected 32 bytes for blake3 groth16")?;
+            Ok(Blake3Groth16Receipt::new(
+                journal,
+                groth16_receipt.seal,
+                blake3_claim.into(),
+                groth16_receipt.verifier_parameters,
+            ))
+        } else {
+            Err(anyhow::anyhow!("Expected Groth16 InnerReceipt, found different variant"))
+        }
     }
 }
