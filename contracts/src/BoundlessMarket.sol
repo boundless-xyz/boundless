@@ -16,7 +16,11 @@ import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {
-    IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib, VerificationFailed
+    IRiscZeroVerifier,
+    Receipt,
+    ReceiptClaim,
+    ReceiptClaimLib,
+    VerificationFailed
 } from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
@@ -111,9 +115,16 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint64 public immutable DEPRECATED_ASSESSOR_EXPIRES_AT;
 
+    // Using immutable here means the application verifier address is linked to the implementation
+    // contract, and not to the proxy. Any deployment that wants to update this value must deploy
+    // a new implementation contract.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    IRiscZeroVerifier public immutable APPLICATION_VERIFIER;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         IRiscZeroVerifier verifier,
+        IRiscZeroVerifier applicationVerifier,
         bytes32 assessorId,
         bytes32 deprecatedAssessorId,
         uint32 deprecatedAssessorDuration,
@@ -121,6 +132,7 @@ contract BoundlessMarket is
     ) {
         // Validate non-zero critical params
         require(address(verifier) != address(0), "Invalid verifier");
+        require(address(applicationVerifier) != address(0), "Invalid application verifier");
         require(assessorId != bytes32(0), "Invalid assessor image");
         require(collateralTokenContract != address(0), "Invalid collateral token");
         if (deprecatedAssessorDuration > 0) {
@@ -128,6 +140,7 @@ contract BoundlessMarket is
         }
 
         VERIFIER = verifier;
+        APPLICATION_VERIFIER = applicationVerifier;
         ASSESSOR_ID = assessorId;
         COLLATERAL_TOKEN_CONTRACT = collateralTokenContract;
         DEPRECATED_ASSESSOR_ID = deprecatedAssessorId;
@@ -296,9 +309,11 @@ contract BoundlessMarket is
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
             if (!hasSelector[i]) {
-                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, fill.claimDigest));
+                APPLICATION_VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(
+                    Receipt(fill.seal, fill.claimDigest)
+                );
             } else {
-                VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
+                APPLICATION_VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
             }
         }
 
@@ -809,22 +824,6 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function balanceOf(address addr) public view returns (uint256) {
         return uint256(accounts[addr].balance);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    /// @dev We withdraw from address(this) but send to msg.sender, so _withdraw is not used.
-    function withdrawFromTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
-        if (accounts[address(this)].balance < value.toUint96()) {
-            revert InsufficientBalance(address(this));
-        }
-        unchecked {
-            accounts[address(this)].balance -= value.toUint96();
-        }
-        (bool sent,) = msg.sender.call{value: value}("");
-        if (!sent) {
-            revert TransferFailed();
-        }
-        emit Withdrawal(address(this), value);
     }
 
     /// @inheritdoc IBoundlessMarket

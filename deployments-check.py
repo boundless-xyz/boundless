@@ -140,7 +140,7 @@ def main():
 
         mapping = {
             'boundless-market': 'boundless_market_address',
-            'verifier': 'verifier_router_address',
+            'application-verifier': 'verifier_router_address',
             'set-verifier': 'set_verifier_address',
             'collateral-token': 'collateral_token_address',
         }

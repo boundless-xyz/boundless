@@ -23,6 +23,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
     string constant CONFIG_FILE = "contracts/deployment.toml";
 
     IRiscZeroVerifier verifier;
+    IRiscZeroVerifier applicationVerifier;
     address boundlessMarketAddress;
     bytes32 assessorImageId;
     address stakeToken;
@@ -48,6 +49,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
 
         // Assign parsed config values to the variables
         verifier = IRiscZeroVerifier(deploymentConfig.verifier);
+        applicationVerifier = IRiscZeroVerifier(deploymentConfig.applicationVerifier);
         assessorImageId = deploymentConfig.assessorImageId;
         assessorGuestUrl = deploymentConfig.assessorGuestUrl;
 
@@ -96,12 +98,19 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             verifierRouter.addVerifier(setVerifier.SELECTOR(), setVerifier);
 
             verifier = IRiscZeroVerifier(verifierRouter);
+            applicationVerifier = verifier;
         }
 
         if (address(verifier) == address(0)) {
             revert("verifier must be specified in deployment.toml");
         } else {
             console2.log("Using IRiscZeroVerifier deployed at", address(verifier));
+        }
+
+        if (address(applicationVerifier) == address(0)) {
+            revert("application verifier must be specified in deployment.toml");
+        } else {
+            console2.log("Using application IRiscZeroVerifier deployed at", address(applicationVerifier));
         }
 
         if (deploymentConfig.collateralToken == address(0)) {
@@ -116,8 +125,9 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
 
         // Deploy the Boundless market
         bytes32 salt = vm.envOr("SALT", keccak256(abi.encodePacked("salt")));
-        address newImplementation =
-            address(new BoundlessMarket{salt: salt}(verifier, assessorImageId, bytes32(0), 0, stakeToken));
+        address newImplementation = address(
+            new BoundlessMarket{salt: salt}(verifier, applicationVerifier, assessorImageId, bytes32(0), 0, stakeToken)
+        );
         console2.log("Deployed new BoundlessMarket implementation at", newImplementation);
         boundlessMarketAddress = address(
             new ERC1967Proxy{salt: salt}(
