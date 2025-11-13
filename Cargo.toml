@@ -65,12 +65,14 @@ bonsai-sdk = { git = "https://github.com/risc0/risc0", branch = "flaub/shrink-bi
     "non_blocking",
     "shrink_bitvm2",
 ] }
+borsh = "1.5"
 broker = { path = "crates/broker" }
 bs58 = "0.5"
 bytemuck = "1.16"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
+derive_more = { version = "2.0" }
 futures-util = "0.3"
 guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", tag = "aggregation-v0.8.1" }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }

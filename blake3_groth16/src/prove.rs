@@ -1,14 +1,49 @@
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use num_bigint::BigUint;
 use num_traits::Num;
-use risc0_groth16::prove::to_json as seal_to_json;
+use risc0_groth16::{prove::to_json as seal_to_json, ProofJson as Groth16ProofJson};
 use risc0_zkvm::sha::Digestible;
-use risc0_zkvm::{ReceiptClaim, SuccinctReceipt};
+use risc0_zkvm::{ProverOpts, ReceiptClaim, SuccinctReceipt};
+use tempfile::tempdir;
 #[cfg(feature = "cuda")]
 pub(crate) mod cuda;
 #[cfg(not(feature = "cuda"))]
 pub(crate) mod docker;
 pub(crate) mod witgen;
+
+/// Creates a BLAKE3 Groth16 proof from a Risc0 SuccinctReceipt.
+/// It will first run the identity_p254 program to convert the STARK to BN254,
+/// which is more efficient to verify.
+pub(crate) fn succinct_to_blake3_groth16(
+    succinct_receipt: &SuccinctReceipt<ReceiptClaim>,
+    journal: [u8; 32],
+) -> Result<Groth16ProofJson> {
+    let p254_receipt = risc0_zkvm::get_prover_server(&ProverOpts::default())?
+        .identity_p254(succinct_receipt)
+        .context("failed to create p254 receipt")?;
+    shrink_wrap(&p254_receipt, journal)
+}
+
+/// Creates a BLAKE3 Groth16 proof from a identity p254 Risc0 SuccinctReceipt.
+pub(crate) fn shrink_wrap(
+    p254_receipt: &SuccinctReceipt<ReceiptClaim>,
+    journal: [u8; 32],
+) -> Result<Groth16ProofJson> {
+    let seal_json = identity_seal_json(journal, p254_receipt)?;
+
+    let tmp_dir = tempdir().context("failed to create temporary directory")?;
+    let work_dir = std::env::var("BLAKE3_GROTH16_WORK_DIR");
+    let work_dir: &Path = work_dir.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
+
+    #[cfg(feature = "cuda")]
+    let proof_json = cuda::shrink_wrap(work_dir, seal_json)?;
+    #[cfg(not(feature = "cuda"))]
+    let proof_json = docker::shrink_wrap(work_dir, seal_json)?;
+
+    Ok(proof_json)
+}
 
 pub(crate) fn identity_seal_json(
     journal_bytes: [u8; 32],
