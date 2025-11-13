@@ -233,11 +233,6 @@ interface IBoundlessMarket {
     /// @return The balance of the account.
     function balanceOf(address addr) external view returns (uint256);
 
-    /// @notice Withdraw funds from the market' collateral treasury.
-    /// @dev Value is debited from the market's account.
-    /// @param value The amount to withdraw.
-    function withdrawFromCollateralTreasury(uint256 value) external;
-
     /// @notice Deposit collateral into the market to pay for lockin collateral.
     /// @dev Before calling this method, the account owner must approve the contract as an allowed spender.
     function depositCollateral(uint256 value) external;

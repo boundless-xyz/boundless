@@ -866,20 +866,6 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    function withdrawFromCollateralTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
-        if (accounts[address(this)].collateralBalance < value.toUint96()) {
-            revert InsufficientBalance(address(this));
-        }
-        unchecked {
-            accounts[address(this)].collateralBalance -= value.toUint96();
-        }
-        bool success = ERC20(COLLATERAL_TOKEN_CONTRACT).transfer(msg.sender, value);
-        if (!success) revert TransferFailed();
-
-        emit CollateralWithdrawal(address(this), value);
-    }
-
-    /// @inheritdoc IBoundlessMarket
     function requestIsFulfilled(RequestId id) public view returns (bool) {
         (address client, uint32 idx) = id.clientAndIndex();
         (, bool fulfilled) = accounts[client].requestFlags(idx);
