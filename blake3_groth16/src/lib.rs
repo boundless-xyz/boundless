@@ -15,7 +15,7 @@ pub mod receipt_claim;
 pub mod verify;
 
 /// Compresses a Receipt into a BLAKE3 Groth16 Receipt.
-pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Receipt> {
+pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Blake3Groth16Receipt> {
     tracing::debug!("Compressing receipt to blake3 groth16");
     if is_dev_mode() {
         println!("RISC0_DEV_MODE is set, skipping actual blake3 groth16 compression and returning fake receipt");
@@ -31,7 +31,7 @@ pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Receipt> {
                 "RISC0_DEV_MODE blake3_groth16 compression can only be used on fake receipts"
             ));
         }
-        return Ok(receipt);
+        return Ok(receipt.try_into()?);
     }
     if default_prover().get_name() == "bonsai" {
         let client = bonsai_sdk::non_blocking::Client::from_env(risc0_zkvm::VERSION)?;
@@ -65,7 +65,7 @@ pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Receipt> {
         )?;
         let seal: Groth16Seal = seal.try_into()?;
         let blake3_receipt = Blake3Groth16Receipt::finalize(receipt.claim()?, seal.to_vec())?;
-        Ok(blake3_receipt.into())
+        Ok(blake3_receipt)
     })
     .await?
 }
@@ -73,7 +73,7 @@ pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Receipt> {
 async fn compress_blake3_groth16_bonsai(
     client: &bonsai_sdk::non_blocking::Client,
     succinct_receipt: &Receipt,
-) -> Result<Receipt> {
+) -> Result<Blake3Groth16Receipt> {
     let encoded_receipt = bincode::serialize(succinct_receipt)?;
     let receipt_id = client.upload_receipt(encoded_receipt).await?;
     let snark_id = client.shrink_bitvm2(receipt_id).await?;
@@ -86,7 +86,7 @@ async fn compress_blake3_groth16_bonsai(
             }
             "SUCCEEDED" => {
                 let receipt_buf = client.download(&status.output.unwrap()).await?;
-                let snark_receipt: Receipt = bincode::deserialize(&receipt_buf)?;
+                let snark_receipt: Blake3Groth16Receipt = bincode::deserialize(&receipt_buf)?;
                 return Ok(snark_receipt);
             }
             status_code => {
@@ -127,9 +127,8 @@ mod tests {
         let receipt =
             prover.prove_with_opts(env, ECHO_ELF, &ProverOpts::succinct()).unwrap().receipt;
         tracing::info!("Initial receipt created, compressing to blake3_groth16");
-        let groth16_receipt = compress_blake3_groth16(&receipt).await.unwrap();
+        let blake3_receipt = compress_blake3_groth16(&receipt).await.unwrap();
         let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
-        let blake3_receipt = Blake3Groth16Receipt::try_from(groth16_receipt).unwrap();
         assert_eq!(blake3_receipt.claim_digest().unwrap(), blake3_claim_digest);
         blake3_receipt.verify(ECHO_ID).expect("verification failed");
     }

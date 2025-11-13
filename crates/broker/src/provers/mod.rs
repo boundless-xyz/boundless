@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use blake3_groth16::Blake3Groth16Receipt;
 use bonsai_sdk::SdkErr;
 use boundless_market::input::GuestEnv;
 use risc0_zkvm::Receipt;
@@ -146,14 +147,13 @@ pub(crate) async fn verify_blake3_groth16_receipt(
         ProverError::NotFound(format!("Blake3 Groth16 receipt not found: {proof_id}"))
     })?;
 
-    let _receipt: Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
+    let receipt: Blake3Groth16Receipt = bincode::deserialize(&receipt_bytes).map_err(|e| {
         ProverError::ProverInternalError(format!("Failed to deserialize receipt: {e}"))
     })?;
 
-    // TODO(ec2): verify this with blake3 groth16 verifier
-    // receipt.verify_integrity_with_context(&Default::default()).map_err(|e| {
-    //     ProverError::ProverInternalError(format!("Blake3 Groth16 verification failed: {e}"))
-    // })?;
+    receipt.verify_integrity().map_err(|e| {
+        ProverError::ProverInternalError(format!("Blake3 Groth16 verification failed: {e}"))
+    })?;
 
     tracing::debug!("Blake3 Groth16 verification passed for proof_id: {proof_id}");
     Ok(())

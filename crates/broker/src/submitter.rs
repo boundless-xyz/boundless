@@ -24,6 +24,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
+use blake3_groth16::Blake3Groth16Receipt;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
@@ -173,17 +174,17 @@ where
     }
 
     async fn fetch_encode_b3_g16(&self, b3_g16_proof_id: &str) -> Result<Vec<u8>> {
-        let groth16_receipt = self
+        let blake3_receipt = self
             .prover
             .get_blake3_groth16_receipt(b3_g16_proof_id)
             .await
             .context("Failed to fetch blake3 groth16 receipt")?
             .context("Blake3 Groth16 receipt missing")?;
 
-        let groth16_receipt: Receipt = bincode::deserialize(&groth16_receipt)
+        let blake3_receipt: Blake3Groth16Receipt = bincode::deserialize(&blake3_receipt)
             .context("Failed to deserialize Blake3 Groth16 receipt")?;
 
-        let encoded_seal = encode_seal(&groth16_receipt)
+        let encoded_seal = encode_seal(&blake3_receipt.into())
             .context("Failed to encode Blake3 Groth16 receipt seal")?;
 
         Ok(encoded_seal)

@@ -587,13 +587,13 @@ mod tests {
 
         // Fetch the compressed receipt
         let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
-        let shrink_receipt: Receipt = bincode::deserialize(&compressed_receipt).unwrap();
+        let blake3_receipt: blake3_groth16::Blake3Groth16Receipt =
+            bincode::deserialize(&compressed_receipt).unwrap();
 
         let claim_digest =
             blake3_groth16::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data.clone())
                 .claim_digest();
-        let blake3_receipt: blake3_groth16::Blake3Groth16Receipt =
-            blake3_groth16::Blake3Groth16Receipt::try_from(shrink_receipt.clone()).unwrap();
+
         assert_eq!(blake3_receipt.claim_digest().unwrap(), claim_digest);
         blake3_receipt.verify(ECHO_ID).expect("blake3 groth16 verification failed");
     }
