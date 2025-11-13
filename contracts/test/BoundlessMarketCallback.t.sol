@@ -6,7 +6,10 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {
-    IRiscZeroVerifier, Receipt as RiscZeroReceipt, ReceiptClaim, ReceiptClaimLib
+    IRiscZeroVerifier,
+    Receipt as RiscZeroReceipt,
+    ReceiptClaim,
+    ReceiptClaimLib
 } from "risc0/IRiscZeroVerifier.sol";
 import {BoundlessMarketCallback} from "../src/BoundlessMarketCallback.sol";
 
