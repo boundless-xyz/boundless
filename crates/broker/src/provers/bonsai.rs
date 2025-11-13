@@ -302,6 +302,14 @@ impl Prover for Bonsai {
         .await
     }
 
+    async fn delete_input(&self, input_id: &str) -> Result<(), ProverError> {
+        self.retry(
+            || async { Ok(self.client.input_delete(input_id).await.map(|_| ())?) },
+            "delete input",
+        )
+        .await
+    }
+
     async fn preflight(
         &self,
         image_id: &str,
