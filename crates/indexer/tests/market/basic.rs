@@ -14,7 +14,6 @@
 
 use std::{
     process::Command,
-    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -22,14 +21,14 @@ use assert_cmd::Command as AssertCommand;
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, U256, utils::parse_ether},
-    providers::{Provider, ext::AnvilApi},
+    primitives::{Address, Bytes, U256, utils::parse_ether, B256},
+    providers::{Provider, ext::AnvilApi, WalletProvider},
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::{
-    db::market::{RequestStatusType, SlashedStatus},
+    db::{market::{RequestStatusType, SlashedStatus}, DbError},
     test_utils::TestDb,
 };
 use boundless_market::contracts::{
@@ -38,7 +37,7 @@ use boundless_market::contracts::{
 };
 use boundless_test_utils::{
     guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
-    market::create_test_ctx,
+    market::{create_test_ctx, TestCtx},
 };
 use sqlx::{AnyPool, Row};
 use tracing_test::traced_test;
@@ -194,6 +193,72 @@ async fn create_order_with_timeouts(
     let client_sig = req.sign_request(signer, contract_addr, chain_id).await.unwrap();
 
     (req, client_sig.as_bytes().into())
+}
+
+// Helper to spawn indexer CLI with common args
+fn spawn_indexer_cli(
+    db_url: &str,
+    rpc_url: &str,
+    market_address: &str,
+    retries: &str,
+) -> std::process::Child {
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url,
+        "--boundless-market-address",
+        market_address,
+        "--db",
+        db_url,
+        "--interval",
+        "1",
+        "--retries",
+        retries,
+    ];
+
+    println!("{exe_path} {args:?}");
+
+    #[allow(clippy::zombie_processes)]
+    Command::new(exe_path).args(args).spawn().unwrap()
+}
+
+// Helper to insert cycle counts with automatic overhead calculation
+async fn insert_cycle_counts_with_overhead(
+    test_db: &TestDb,
+    request_digest: B256,
+    program_cycles: u64,
+) -> Result<(), DbError> {
+    let total_cycles = (program_cycles as f64 * 1.0158) as u64;
+    test_db.insert_test_cycle_counts(request_digest, program_cycles, total_cycles).await
+}
+
+// Helper to lock and fulfill a request
+async fn lock_and_fulfill_request<P: Provider + WalletProvider + Clone + 'static>(
+    ctx: &TestCtx<P>,
+    prover: &DefaultProver,
+    request: &ProofRequest,
+    client_sig: Bytes,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ctx.prover_market.lock_request(request, client_sig.clone(), None).await?;
+
+    let (fill, root_receipt, assessor_receipt) =
+        prover.fulfill(&[(request.clone(), client_sig)]).await?;
+    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt)?;
+
+    ctx.prover_market
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
+        )
+        .await?;
+
+    Ok(())
 }
 
 #[tokio::test]
@@ -651,50 +716,18 @@ async fn test_monitoring() {
 #[traced_test]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_aggregation_across_hours() {
-    // Create a persistent database file for debugging
-    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-
-    // Create a persistent database file in /tmp for easy debugging
-    let db_filename = format!("test_aggregation_debug_{}.db", timestamp);
-    let db_path = std::path::Path::new("/tmp").join(&db_filename);
-
-    // Create an empty file to ensure it exists
-    std::fs::File::create(&db_path).unwrap();
-
-    let db_url = format!("sqlite:{}", db_path.display());
-
-    // Log the database location for debugging
-    tracing::info!("Creating persistent test database at: {}", db_path.display());
-    tracing::info!("Database URL: {}", &db_url);
-    tracing::info!("To inspect the database after the test, use: sqlite3 {}", db_path.display());
-
-    // Connect to the database
-    sqlx::any::install_default_drivers();
-    let pool = sqlx::AnyPool::connect(&db_url).await.unwrap();
-    let db = Arc::new(boundless_indexer::db::AnyDb::new(&db_url).await.unwrap());
+    let test_db = TestDb::new().await.unwrap();
 
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    // Use assert_cmd to find the binary path
-    let cmd = AssertCommand::cargo_bin("market-indexer")
-        .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
-    let exe_path = cmd.get_program().to_string_lossy().to_string();
-    let args = [
-        "--rpc-url",
+    let mut cli_process = spawn_indexer_cli(
+        &test_db.db_url,
         rpc_url.as_str(),
-        "--boundless-market-address",
         &ctx.deployment.boundless_market_address.to_string(),
-        "--db",
-        &db_url,
-        "--interval",
         "1",
-        "--retries",
-        "1",
-    ];
-
-    println!("{exe_path} {args:?}");
+    );
 
     let prover = DefaultProver::new(
         SET_BUILDER_ELF.to_vec(),
@@ -703,9 +736,6 @@ async fn test_aggregation_across_hours() {
         ctx.customer_market.eip712_domain().await.unwrap(),
     )
     .unwrap();
-
-    #[allow(clippy::zombie_processes)]
-    let mut cli_process = Command::new(exe_path).args(args).spawn().unwrap();
 
     // Get initial timestamp
     let now = ctx
@@ -743,36 +773,14 @@ async fn test_aggregation_across_hours() {
         .submit_request_with_signature(&request1, client_sig1.as_bytes())
         .await
         .unwrap();
-    ctx.prover_market.lock_request(&request1, client_sig1.as_bytes(), None).await.unwrap();
 
-    // Insert cycle count for request1 after locking, before fulfillment
-    // This allows the indexer to compute lock_price_per_cycle when status is updated
-    let test_db = boundless_indexer::test_utils::TestDb {
-        db: db.clone(),
-        db_url: db_url.clone(),
-        pool: pool.clone(),
-        _temp_file: None,
-    };
+    // Insert cycle counts before locking so status service computes lock_price_per_cycle
     let request1_digest = request1.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap();
     let program_cycles1 = 50_000_000; // 50M cycles
-    let total_cycles1 = (program_cycles1 as f64 * 1.0158) as u64; // Apply 1.58% overhead
-    test_db.insert_test_cycle_counts(request1_digest, program_cycles1, total_cycles1).await.unwrap();
+    let total_cycles1 = (program_cycles1 as f64 * 1.0158) as u64;
+    insert_cycle_counts_with_overhead(&test_db, request1_digest, program_cycles1).await.unwrap();
 
-    let (fill1, root_receipt1, assessor_receipt1) =
-        prover.fulfill(&[(request1.clone(), client_sig1.as_bytes().to_vec().into())]).await.unwrap();
-    let order_fulfilled1 =
-        OrderFulfilled::new(fill1.clone(), root_receipt1, assessor_receipt1).unwrap();
-    ctx.prover_market
-        .fulfill(
-            FulfillmentTx::new(order_fulfilled1.fills, order_fulfilled1.assessorReceipt)
-                .with_submit_root(
-                    ctx.deployment.set_verifier_address,
-                    order_fulfilled1.root,
-                    order_fulfilled1.seal,
-                ),
-        )
-        .await
-        .unwrap();
+    lock_and_fulfill_request(&ctx, &prover, &request1, client_sig1.as_bytes().to_vec().into()).await.unwrap();
 
     // Advance time by more than an hour (3700 seconds)
     let provider = ctx.customer_provider.clone();
@@ -810,29 +818,14 @@ async fn test_aggregation_across_hours() {
         .submit_request_with_signature(&request2, client_sig2.as_bytes())
         .await
         .unwrap();
-    ctx.prover_market.lock_request(&request2, client_sig2.as_bytes(), None).await.unwrap();
 
-    // Insert cycle count for request2 after locking, before fulfillment
+    // Insert cycle counts before locking so status service computes lock_price_per_cycle
     let request2_digest = request2.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap();
     let program_cycles2 = 100_000_000; // 100M cycles
     let total_cycles2 = (program_cycles2 as f64 * 1.0158) as u64;
-    test_db.insert_test_cycle_counts(request2_digest, program_cycles2, total_cycles2).await.unwrap();
+    insert_cycle_counts_with_overhead(&test_db, request2_digest, program_cycles2).await.unwrap();
 
-    let (fill2, root_receipt2, assessor_receipt2) =
-        prover.fulfill(&[(request2.clone(), client_sig2.as_bytes().to_vec().into())]).await.unwrap();
-    let order_fulfilled2 =
-        OrderFulfilled::new(fill2.clone(), root_receipt2, assessor_receipt2).unwrap();
-    ctx.prover_market
-        .fulfill(
-            FulfillmentTx::new(order_fulfilled2.fills, order_fulfilled2.assessorReceipt)
-                .with_submit_root(
-                    ctx.deployment.set_verifier_address,
-                    order_fulfilled2.root,
-                    order_fulfilled2.seal,
-                ),
-        )
-        .await
-        .unwrap();
+    lock_and_fulfill_request(&ctx, &prover, &request2, client_sig2.as_bytes().to_vec().into()).await.unwrap();
 
     let now3 = ctx
         .customer_provider
@@ -851,14 +844,14 @@ async fn test_aggregation_across_hours() {
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Check hourly aggregation across multiple hours
-    let summary_count = count_hourly_summaries(&pool).await;
+    let summary_count = count_hourly_summaries(&test_db.pool).await;
     assert!(
         summary_count >= 2,
         "Expected at least 2 hourly summaries (one per hour), got {}",
         summary_count
     );
 
-    let summaries = get_all_hourly_summaries_asc(&pool).await;
+    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
 
     // Verify we have multiple hours
     assert!(summaries.len() >= 2, "Expected at least 2 different hours of data");
@@ -1059,44 +1052,18 @@ async fn test_aggregation_percentiles() {
     // Creates 10 requests with prices from 0.1 ETH to 1.0 ETH
     // All requests use 100M cycles for simplicity
 
-    // Create a persistent database similar to test_aggregation_across_hours
-    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    let db_filename = format!("test_percentiles_debug_{}.db", timestamp);
-    let db_path = std::path::Path::new("/tmp").join(&db_filename);
-    std::fs::File::create(&db_path).unwrap();
-    let db_url = format!("sqlite:{}", db_path.display());
-
-    tracing::info!("Creating test database at: {}", db_path.display());
-
-    sqlx::any::install_default_drivers();
-    let pool = sqlx::AnyPool::connect(&db_url).await.unwrap();
-    let db = Arc::new(boundless_indexer::db::AnyDb::new(&db_url).await.unwrap());
+    let test_db = TestDb::new().await.unwrap();
 
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    // Start indexer CLI
-    let cmd = AssertCommand::cargo_bin("market-indexer")
-        .expect("market-indexer binary not found");
-    let exe_path = cmd.get_program().to_string_lossy().to_string();
-    let args = [
-        "--rpc-url",
+    let mut cli_process = spawn_indexer_cli(
+        &test_db.db_url,
         rpc_url.as_str(),
-        "--boundless-market-address",
         &ctx.deployment.boundless_market_address.to_string(),
-        "--db",
-        &db_url,
-        "--interval",
         "1",
-        "--retries",
-        "1",
-    ];
-
-    let mut cli_process = Command::new(&exe_path)
-        .args(&args)
-        .spawn()
-        .expect("Failed to start market-indexer");
+    );
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
@@ -1122,14 +1089,6 @@ async fn test_aggregation_percentiles() {
 
     let mut expected_prices_per_cycle = Vec::new();
     let mut request_digests = Vec::new();
-
-    // Create the test DB helper once
-    let test_db_helper = boundless_indexer::test_utils::TestDb {
-        db: db.clone(),
-        db_url: db_url.clone(),
-        pool: pool.clone(),
-        _temp_file: None,
-    };
 
     for i in 0..num_requests {
         let request_id = i + 1;
@@ -1157,12 +1116,13 @@ async fn test_aggregation_percentiles() {
             .submit_request_with_signature(&request, client_sig.as_bytes())
             .await
             .unwrap();
-        
-        // Now lock the request - the status service will find the cycle counts and compute lock_price_per_cycle
-        ctx.prover_market.lock_request(&request, client_sig.as_bytes(), None).await.unwrap();
 
+        // Insert cycle counts before locking so status service computes lock_price_per_cycle
         let digest = request.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap();
-        test_db_helper.insert_test_cycle_counts(digest, cycles_per_request, total_cycles_per_request).await.unwrap();
+        insert_cycle_counts_with_overhead(&test_db, digest, cycles_per_request).await.unwrap();
+
+        // Lock the request
+        ctx.prover_market.lock_request(&request, client_sig.as_bytes(), None).await.unwrap();
 
         // Calculate expected price per cycle: max_price / cycles
         let expected_price_per_cycle = max_price / U256::from(cycles_per_request);
@@ -1198,7 +1158,7 @@ async fn test_aggregation_percentiles() {
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
     // Query hourly summaries using the helper function
-    let summaries = get_all_hourly_summaries_asc(&pool).await;
+    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
 
     tracing::info!("Retrieved {} hourly summaries", summaries.len());
 
@@ -1228,7 +1188,7 @@ async fn test_aggregation_percentiles() {
     let stored_prices: Vec<String> = sqlx::query_scalar(
         "SELECT lock_price_per_cycle FROM request_status WHERE lock_price_per_cycle IS NOT NULL ORDER BY lock_price_per_cycle ASC"
     )
-    .fetch_all(&pool)
+    .fetch_all(&test_db.pool)
     .await
     .unwrap();
     tracing::info!("Stored lock_price_per_cycle values from DB: {:?}", stored_prices);
