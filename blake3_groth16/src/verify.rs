@@ -1,10 +1,11 @@
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
-use risc0_groth16::Seal as Groth16Seal;
-use risc0_zkvm::Digest;
+use risc0_zkvm::{sha::Digestible, Digest, InnerReceipt};
 use std::str::FromStr;
+
+use crate::is_dev_mode;
 
 // Constants from: risc0-ethereum/contracts/src/blake3/Groth16Verifier.sol
 // When running a new ceremony, update them by running cargo xtask bootstrap-blake3-groth16
@@ -44,8 +45,8 @@ const IC1_X: &str = "19282603452922066135228857769519044667044696173320493211119
 const IC1_Y: &str = "11966256187809052800087108088094647243345273965264062329687482664981607072161";
 
 /// Verifies the soundness of a Groth16Seal against the BLAKE3 claim digest.
-pub fn verify(seal: &Groth16Seal, blake3_claim_digest: impl Into<Digest>) -> Result<()> {
-    let ark_proof = from_seal(&seal.to_vec());
+pub fn verify_seal(seal_bytes: &[u8], blake3_claim_digest: impl Into<Digest>) -> Result<()> {
+    let ark_proof = from_seal(seal_bytes);
     let public_input_scalar =
         ark_bn254::Fr::from_be_bytes_mod_order(blake3_claim_digest.into().as_ref());
     let ark_vk = get_ark_verifying_key();
@@ -59,6 +60,33 @@ pub fn verify(seal: &Groth16Seal, blake3_claim_digest: impl Into<Digest>) -> Res
     ensure!(res, "proof verification failed");
     Ok(())
 }
+
+/// Verifies a Receipt containing a blake3 Groth16 proof against the BLAKE3 claim digest.
+pub fn verify_receipt(
+    receipt: &risc0_zkvm::Receipt,
+    blake3_claim_digest: impl Into<Digest>,
+) -> Result<()> {
+    if is_dev_mode() {
+        tracing::info!("Warning: Skipping BLAKE3 Groth16 proof verification in dev mode");
+        if let InnerReceipt::Fake(fake_receipt) = &receipt.inner {
+            let claim_digest = fake_receipt.claim.digest();
+            ensure!(
+                claim_digest == blake3_claim_digest.into(),
+                "Fake receipt claim digest does not match expected digest"
+            );
+        } else {
+            return Err(anyhow::anyhow!(
+                "RISC0_DEV_MODE blake3_groth16 verification can only be used on fake receipts"
+            ));
+        }
+        return Ok(());
+    }
+    let groth16_receipt =
+        receipt.inner.groth16().context("verify_receipt expects a Groth16 InnerReceipt")?;
+
+    crate::verify::verify_seal(&groth16_receipt.seal, blake3_claim_digest.into())
+}
+
 pub fn get_r0_verifying_key() -> risc0_groth16::VerifyingKey {
     let ark_key = get_ark_verifying_key();
     let mut b = vec![];

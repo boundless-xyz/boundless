@@ -571,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    async fn test_shrink_blake3_groth16() {
+    async fn test_compress_blake3_groth16() {
         let prover = DefaultProver::new();
         // Upload test data
         let input_data = [255u8; 32].to_vec(); // Example input data
@@ -589,12 +589,10 @@ mod tests {
         let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
         let shrink_receipt: Receipt = bincode::deserialize(&compressed_receipt).unwrap();
 
-        let groth16_receipt = shrink_receipt.inner.groth16().unwrap();
-        let groth16_seal = Groth16Seal::decode(&groth16_receipt.seal)
-            .expect("Failed to create Groth16 seal from receipt");
         let claim_digest =
-            blake3_groth16::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data).claim_digest();
-        blake3_groth16::verify::verify(&groth16_seal, claim_digest)
-            .expect("Failed to verify Shrink to blake3 groth16 receipt");
+            blake3_groth16::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data.clone())
+                .claim_digest();
+        blake3_groth16::verify::verify_receipt(&shrink_receipt, claim_digest)
+            .expect("blake3 groth16 verification failed");
     }
 }
