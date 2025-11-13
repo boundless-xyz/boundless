@@ -5,7 +5,7 @@ use ark_serialize::CanonicalSerialize;
 use risc0_zkvm::{sha::Digestible, Digest, InnerReceipt};
 use std::str::FromStr;
 
-use crate::is_dev_mode;
+use crate::{is_dev_mode, Blake3Groth16ReceiptClaim};
 
 // Constants from: risc0-ethereum/contracts/src/blake3/Groth16Verifier.sol
 // When running a new ceremony, update them by running cargo xtask bootstrap-blake3-groth16
@@ -85,6 +85,28 @@ pub fn verify_receipt(
         receipt.inner.groth16().context("verify_receipt expects a Groth16 InnerReceipt")?;
 
     crate::verify::verify_seal(&groth16_receipt.seal, blake3_claim_digest.into())
+}
+
+/// Verify the integrity of this receipt, ensuring the claim is attested
+/// to by the seal.
+pub fn verify_integrity(receipt: &risc0_zkvm::Receipt) -> Result<()> {
+    if is_dev_mode() {
+        return Ok(());
+    }
+    let groth16_receipt =
+        receipt.inner.groth16().context("verify_receipt expects a Groth16 InnerReceipt")?;
+    let journal = &receipt.journal;
+    let journal_bytes: [u8; 32] = journal
+        .bytes
+        .as_slice()
+        .try_into()
+        .context("invalid journal length, expected 32 bytes for blake3 groth16")?;
+    let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(
+        receipt.claim()?.as_value()?.pre.digest(), // image_id is not needed for verification
+        journal_bytes,
+    )
+    .digest();
+    crate::verify::verify_seal(&groth16_receipt.seal, blake3_claim_digest)
 }
 
 pub fn get_r0_verifying_key() -> risc0_groth16::VerifyingKey {

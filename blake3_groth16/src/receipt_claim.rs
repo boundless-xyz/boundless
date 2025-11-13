@@ -1,19 +1,19 @@
 use anyhow::Context;
+use borsh::{BorshDeserialize, BorshSerialize};
 use risc0_zkvm::{
     sha::{self, Digestible, Sha256, DIGEST_BYTES},
-    Digest, MaybePruned, SystemState, VerifierContext,
+    Digest, MaybePruned, ReceiptClaim, SystemState, VerifierContext,
 };
 use serde::{Deserialize, Serialize};
 
 /// A claim about the guest program execution, such as the journal.
 /// The digest of this is what the BLAKE3 Groth16 proof outputs.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct Blake3Groth16ReceiptClaim {
     pub pre: MaybePruned<SystemState>,
     pub post: MaybePruned<SystemState>,
     /// Note: This journal has to be exactly 32 bytes
     pub journal: Vec<u8>,
-
     pub control_root: Digest,
     pub control_id: Digest,
 }
@@ -87,5 +87,27 @@ impl Blake3Groth16ReceiptClaim {
 impl risc0_binfmt::Digestible for Blake3Groth16ReceiptClaim {
     fn digest<S: Sha256>(&self) -> Digest {
         self.claim_digest_inner::<S>()
+    }
+}
+
+impl TryFrom<ReceiptClaim> for Blake3Groth16ReceiptClaim {
+    type Error = anyhow::Error;
+
+    fn try_from(receipt_claim: ReceiptClaim) -> Result<Self, Self::Error> {
+        let image_id = receipt_claim.pre.digest();
+        let output_value = receipt_claim
+            .output
+            .as_value()
+            .context("output should not be pruned")?
+            .as_ref()
+            .context("output should exist")?;
+        let journal: [u8; 32] = output_value
+            .journal
+            .as_value()
+            .context("journal should not be pruned")?
+            .as_slice()
+            .try_into()
+            .context("invalid journal length, expected 32 bytes for blake3 groth16")?;
+        Ok(Blake3Groth16ReceiptClaim::ok(image_id, journal.to_vec()))
     }
 }
