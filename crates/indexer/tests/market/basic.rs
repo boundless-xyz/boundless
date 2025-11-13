@@ -29,7 +29,7 @@ use alloy::{
 };
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::{
-    db::{market::{RequestStatusType, SlashedStatus}, DbError},
+    db::{IndexerDb, market::{RequestStatusType, SlashedStatus, SortDirection}, DbError},
     test_utils::TestDb,
 };
 use boundless_market::contracts::{
@@ -46,96 +46,12 @@ use tracing_test::traced_test;
 // Constant for indexer wait time between actions
 const INDEXER_WAIT_DURATION: Duration = Duration::from_secs(3);
 
-// Helper struct for hourly summary data
-#[derive(Debug)]
-struct HourlySummaryRow {
-    period_timestamp: u64,
-    total_fulfilled: u64,
-    unique_provers_locking_requests: u64,
-    unique_requesters_submitting_requests: u64,
-    total_fees_locked: String,
-    total_collateral_locked: String,
-    total_locked_and_expired_collateral: String,
-    p10_lock_price_per_cycle: String,
-    p25_lock_price_per_cycle: String,
-    p50_lock_price_per_cycle: String,
-    p75_lock_price_per_cycle: String,
-    p90_lock_price_per_cycle: String,
-    p95_lock_price_per_cycle: String,
-    p99_lock_price_per_cycle: String,
-    total_requests_submitted: u64,
-    total_requests_submitted_onchain: u64,
-    total_requests_submitted_offchain: u64,
-    total_requests_locked: u64,
-    total_requests_slashed: u64,
-    total_expired: u64,
-    total_locked_and_expired: u64,
-    total_locked_and_fulfilled: u64,
-    locked_orders_fulfillment_rate: f32,
-    total_program_cycles: u64,
-    total_cycles: u64,
-}
-
 async fn count_hourly_summaries(pool: &AnyPool) -> i64 {
     let result = sqlx::query("SELECT COUNT(*) as count FROM hourly_market_summary")
         .fetch_one(pool)
         .await
         .unwrap();
     result.get("count")
-}
-
-async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
-    let rows = sqlx::query(
-        "SELECT period_timestamp, total_fulfilled, unique_provers_locking_requests,
-                unique_requesters_submitting_requests, total_fees_locked, total_collateral_locked,
-                total_locked_and_expired_collateral, p10_lock_price_per_cycle, p25_lock_price_per_cycle, p50_lock_price_per_cycle,
-                p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle,
-                p99_lock_price_per_cycle, total_requests_submitted, total_requests_submitted_onchain,
-                total_requests_submitted_offchain, total_requests_locked, total_requests_slashed,
-                total_expired, total_locked_and_expired, total_locked_and_fulfilled,
-                locked_orders_fulfillment_rate, total_program_cycles, total_cycles
-         FROM hourly_market_summary ORDER BY period_timestamp ASC",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap();
-
-    rows.into_iter()
-        .map(|row| HourlySummaryRow {
-            period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
-            total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
-            unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests")
-                as u64,
-            unique_requesters_submitting_requests: row
-                .get::<i64, _>("unique_requesters_submitting_requests")
-                as u64,
-            total_fees_locked: row.get("total_fees_locked"),
-            total_collateral_locked: row.get("total_collateral_locked"),
-            total_locked_and_expired_collateral: row.get("total_locked_and_expired_collateral"),
-            p10_lock_price_per_cycle: row.get("p10_lock_price_per_cycle"),
-            p25_lock_price_per_cycle: row.get("p25_lock_price_per_cycle"),
-            p50_lock_price_per_cycle: row.get("p50_lock_price_per_cycle"),
-            p75_lock_price_per_cycle: row.get("p75_lock_price_per_cycle"),
-            p90_lock_price_per_cycle: row.get("p90_lock_price_per_cycle"),
-            p95_lock_price_per_cycle: row.get("p95_lock_price_per_cycle"),
-            p99_lock_price_per_cycle: row.get("p99_lock_price_per_cycle"),
-            total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
-            total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain")
-                as u64,
-            total_requests_submitted_offchain: row
-                .get::<i64, _>("total_requests_submitted_offchain")
-                as u64,
-            total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
-            total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
-            total_expired: row.get::<i64, _>("total_expired") as u64,
-            total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
-            total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-            locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
-                as f32,
-            total_program_cycles: row.get::<i64, _>("total_program_cycles") as u64,
-            total_cycles: row.get::<i64, _>("total_cycles") as u64,
-        })
-        .collect()
 }
 
 async fn create_order(
@@ -422,9 +338,10 @@ async fn test_e2e() {
     let summary_count = count_hourly_summaries(&test_db.pool).await;
     assert!(summary_count >= 1, "Expected at least one hourly summary, got {}", summary_count);
 
-    let mut summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
-    // Sort summaries descending by period_timestamp
-    summaries.sort_by(|a, b| b.period_timestamp.cmp(&a.period_timestamp));
+    let summaries = test_db.db
+        .get_hourly_market_summaries(None, 10000, SortDirection::Desc, None, None)
+        .await
+        .unwrap();
     let summary = &summaries[0];
 
     // Verify hour boundary alignment (timestamp should be divisible by 3600)
@@ -668,7 +585,10 @@ async fn test_monitoring() {
     let summary_count = count_hourly_summaries(&test_db.pool).await;
     assert!(summary_count >= 1, "Expected at least one hourly summary, got {}", summary_count);
 
-    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let summaries = test_db.db
+        .get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
+        .await
+        .unwrap();
 
     // Sum up all fulfilled across all hours (should be 1, since one was slashed)
     let total_fulfilled_across_hours: u64 = summaries.iter().map(|s| s.total_fulfilled).sum();
@@ -868,7 +788,10 @@ async fn test_aggregation_across_hours() {
         summary_count
     );
 
-    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let summaries = test_db.db
+        .get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
+        .await
+        .unwrap();
 
     // Verify we have multiple hours
     assert!(summaries.len() >= 2, "Expected at least 2 different hours of data");
@@ -1169,7 +1092,10 @@ async fn test_aggregation_percentiles() {
     tokio::time::sleep(INDEXER_WAIT_DURATION).await;
 
     // Query hourly summaries using the helper function
-    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let summaries = test_db.db
+        .get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
+        .await
+        .unwrap();
 
     tracing::info!("Retrieved {} hourly summaries", summaries.len());
 
@@ -1439,7 +1365,10 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         summary_count
     );
 
-    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let summaries = test_db.db
+        .get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
+        .await
+        .unwrap();
 
     // Sum up counts across all hours
     let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
@@ -1663,7 +1592,10 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
         summary_count
     );
 
-    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let summaries = test_db.db
+        .get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
+        .await
+        .unwrap();
 
     // Sum up counts across all hours
     let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
@@ -1875,7 +1807,10 @@ async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
         summary_count
     );
 
-    let summaries = get_all_hourly_summaries_asc(&test_db.pool).await;
+    let summaries = test_db.db
+        .get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
+        .await
+        .unwrap();
     let total_requests_submitted: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
     assert_eq!(
         total_requests_submitted, 2,
