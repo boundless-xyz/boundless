@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source .env.broker
+source .env.broker-template
 
 JOB=$1
 if [ -z "$JOB" ]; then
