@@ -302,16 +302,19 @@ impl ProverGenerateConfig {
         display.note("The following values are calculated based on your hardware:");
         display.note("");
 
-        let max_exec_agents = (num_threads.saturating_sub(4).saturating_sub(num_gpus * 2)) / 2;
+        let max_exec_agents =
+            ((num_threads.saturating_sub(4).saturating_sub(num_gpus * 2)) / 2).min(20);
         display.note("  Formula: max_exec_agents =");
-        display.note("    (");
-        display.note(&format!("      {} threads", num_threads));
-        display.note("      - 1  # reserve for postgres");
-        display.note("      - 1  # reserve for redis");
-        display.note("      - 1  # reserve for minio");
-        display.note(&format!("      - {} GPUs × 2  # reserve two threads per GPU", num_gpus));
+        display.note("    min(20, # Capped at 20 to avoid overloading connections");
+        display.note("      (");
+        display.note(&format!("        {} threads", num_threads));
+        display.note("        - 1  # reserve for postgres");
+        display.note("        - 1  # reserve for redis");
+        display.note("        - 1  # reserve for minio");
+        display.note(&format!("        - {} GPUs × 2  # reserve two threads per GPU", num_gpus));
+        display.note("      )");
+        display.note("      / 2  # 2 threads per exec agent");
         display.note("    )");
-        display.note("    / 2  # 2 threads per exec agent");
         display.item_colored("  Result", format!("{} exec agents", max_exec_agents), "cyan");
         display.note("");
 
