@@ -122,8 +122,11 @@ fn finalize(
     verify::verify_seal(&seal.to_vec(), blake3_claim_digest)?;
 
     let verifier_parameters = crate::verify::verifier_parameters();
-    let groth16_receipt =
-        Groth16Receipt::new(seal.to_vec(), receipt_claim, verifier_parameters.digest());
+    let groth16_receipt = Groth16Receipt::new(
+        seal.to_vec(),
+        MaybePruned::Pruned(blake3_claim_digest),
+        verifier_parameters.digest(),
+    );
     let receipt =
         Receipt::new(risc0_zkvm::InnerReceipt::Groth16(groth16_receipt), journal.to_vec());
     Ok(receipt)
