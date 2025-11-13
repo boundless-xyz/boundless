@@ -34,6 +34,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Context, Result};
+use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use broker::provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover};
 use risc0_aggregation::{
@@ -562,11 +563,11 @@ impl OrderFulfiller {
                     .map_err(|e| anyhow::anyhow!("Failed to get compressed order receipt: {}", e))?
                     .ok_or_else(|| anyhow::anyhow!("Compressed order receipt not found"))?;
 
-                let compressed_receipt: Receipt =
+                let blake3_receipt: Blake3Groth16Receipt =
                     bincode::deserialize(&compressed_receipt_bytes)
-                        .context("Failed to deserialize compressed order receipt")?;
+                        .context("Failed to deserialize Blake3 Groth16 receipt")?;
 
-                encode_seal(&compressed_receipt)?
+                encode_seal(&blake3_receipt.into())?
             } else {
                 order_inclusion_receipt.abi_encode_seal()?
             };
@@ -693,7 +694,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    // #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     async fn test_fulfill_blake3_groth16_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
