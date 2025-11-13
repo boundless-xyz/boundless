@@ -21,7 +21,7 @@ env:
   RUST_VERSION: "1.88.0"
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  FOUNDRY_VERSION: v1.2.3
+  FOUNDRY_VERSION: v1.4.4
 
 jobs:
   build-broker:

@@ -6,7 +6,7 @@ on:
       - "documentation/**"
 
 env:
-  FOUNDRY_VERSION: v1.4.0
+  FOUNDRY_VERSION: v1.4.4
 
 jobs:
   build-and-deploy:
