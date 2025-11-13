@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 pub use receipt_claim::*;
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
-use risc0_zkvm::{default_prover, MaybePruned, ProverOpts, Receipt, ReceiptClaim, SuccinctReceipt};
+use risc0_zkvm::{
+    default_prover, InnerReceipt, MaybePruned, ProverOpts, Receipt, ReceiptClaim, SuccinctReceipt,
+};
 
 #[cfg(feature = "prove")]
 use {risc0_zkvm::sha::Digestible, risc0_zkvm::Groth16Receipt, std::path::Path, tempfile::tempdir};
@@ -16,7 +18,26 @@ pub mod verify;
 pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Receipt> {
     tracing::debug!("Compressing receipt to blake3 groth16");
     if is_dev_mode() {
-        return Ok(receipt.clone());
+        println!("RISC0_DEV_MODE is set, skipping actual blake3 groth16 compression and returning fake receipt");
+        let mut receipt = receipt.clone();
+        let image_id =
+            receipt.claim()?.as_value().context("receipt claim must not be pruned")?.pre.digest();
+        let journal: [u8; 32] = receipt
+            .journal
+            .bytes
+            .as_slice()
+            .try_into()
+            .context("invalid journal length, expected 32 bytes for dev mode blake3 groth16")?;
+        let blake3_claim_digest =
+            Blake3Groth16ReceiptClaim::ok(image_id, journal.to_vec()).digest();
+        if let InnerReceipt::Fake(fake_receipt) = &mut receipt.inner {
+            fake_receipt.claim = MaybePruned::Pruned(blake3_claim_digest)
+        } else {
+            return Err(anyhow::anyhow!(
+                "RISC0_DEV_MODE blake3_groth16 compression can only be used on fake receipts"
+            ));
+        }
+        return Ok(receipt);
     }
     if default_prover().get_name() == "bonsai" {
         let client = bonsai_sdk::non_blocking::Client::from_env(risc0_zkvm::VERSION)?;
@@ -77,7 +98,7 @@ fn shrink_wrap(
 
     let tmp_dir = tempdir().context("failed to create temporary directory")?;
     let work_dir = std::env::var("BLAKE3_GROTH16_WORK_DIR");
-    let work_dir = work_dir.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
+    let work_dir: &Path = work_dir.as_ref().map(Path::new).unwrap_or(tmp_dir.path());
 
     #[cfg(feature = "cuda")]
     let proof_json = prove::cuda::shrink_wrap(work_dir, seal_json)?;
@@ -98,7 +119,7 @@ fn finalize(
         receipt_claim.as_value().context("receipt claim must not be pruned")?;
     let blake3_claim_digest =
         Blake3Groth16ReceiptClaim::ok(receipt_claim_value.pre.digest(), journal.to_vec()).digest();
-    verify::verify(seal, blake3_claim_digest)?;
+    verify::verify_seal(&seal.to_vec(), blake3_claim_digest)?;
 
     let verifier_parameters = crate::verify::verifier_parameters();
     let groth16_receipt =
@@ -166,9 +187,7 @@ mod tests {
             prover.prove_with_opts(env, ECHO_ELF, &ProverOpts::succinct()).unwrap().receipt;
         tracing::info!("Initial receipt created, compressing to blake3_groth16");
         let groth16_receipt = compress_blake3_groth16(&receipt).await.unwrap();
-        let groth16_receipt = groth16_receipt.inner.groth16().unwrap();
-        let blake3_g16_seal = Groth16Seal::decode(&groth16_receipt.seal).unwrap();
         let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
-        verify::verify(&blake3_g16_seal, blake3_claim_digest).expect("verification failed");
+        verify::verify_receipt(&groth16_receipt, blake3_claim_digest).expect("verification failed");
     }
 }
