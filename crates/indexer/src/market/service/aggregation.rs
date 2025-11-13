@@ -244,6 +244,7 @@ where
             total_locked_and_fulfilled,
             locks,
             all_lock_collaterals,
+            locked_and_expired_collaterals,
             total_program_cycles,
             total_cycles,
         ) = tokio::join!(
@@ -259,6 +260,7 @@ where
             self.db.get_period_locked_and_fulfilled_count(period_start, period_end),
             self.db.get_period_lock_pricing_data(period_start, period_end),
             self.db.get_period_all_lock_collateral(period_start, period_end),
+            self.db.get_period_locked_and_expired_collateral(period_start, period_end),
             self.db.get_period_total_program_cycles(period_start, period_end),
             self.db.get_period_total_cycles(period_start, period_end),
         );
@@ -278,6 +280,7 @@ where
         let total_locked_and_fulfilled = total_locked_and_fulfilled?;
         let locks = locks?;
         let all_lock_collaterals = all_lock_collaterals?;
+        let locked_and_expired_collaterals = locked_and_expired_collaterals?;
         let total_program_cycles = total_program_cycles?;
         let total_cycles = total_cycles?;
 
@@ -345,6 +348,15 @@ where
             total_collateral += lock_collateral;
         }
 
+        // Compute total collateral from locked requests that expired
+        let mut total_locked_and_expired_collateral = U256::ZERO;
+        for collateral_str in locked_and_expired_collaterals {
+            let lock_collateral = U256::from_str(&collateral_str).map_err(|e| {
+                ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e))
+            })?;
+            total_locked_and_expired_collateral += lock_collateral;
+        }
+
         // Compute percentiles: p10, p25, p50, p75, p90, p95, p99
         let percentiles = if !prices_per_cycle.is_empty() {
             let mut sorted_prices = prices_per_cycle;
@@ -373,6 +385,7 @@ where
             unique_requesters_submitting_requests: unique_requesters,
             total_fees_locked: format_u256(total_fees),
             total_collateral_locked: format_u256(total_collateral),
+            total_locked_and_expired_collateral: format_u256(total_locked_and_expired_collateral),
             p10_lock_price_per_cycle: format_u256(percentiles[0]),
             p25_lock_price_per_cycle: format_u256(percentiles[1]),
             p50_lock_price_per_cycle: format_u256(percentiles[2]),

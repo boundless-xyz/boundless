@@ -198,6 +198,12 @@ pub struct MarketAggregateEntry {
     /// Total collateral locked (formatted for display)
     pub total_collateral_locked_formatted: String,
 
+    /// Total collateral from locked requests that expired (as string)
+    pub total_locked_and_expired_collateral: String,
+
+    /// Total collateral from locked requests that expired (formatted for display)
+    pub total_locked_and_expired_collateral_formatted: String,
+
     /// 10th percentile lock price per cycle (as string)
     pub p10_lock_price_per_cycle: String,
 
@@ -411,6 +417,7 @@ async fn get_market_aggregates_impl(
             // Normalize all currency fields
             let total_fees_locked = normalize(&summary.total_fees_locked);
             let total_collateral_locked = normalize(&summary.total_collateral_locked);
+            let total_locked_and_expired_collateral = normalize(&summary.total_locked_and_expired_collateral);
             let p10_lock_price_per_cycle = normalize(&summary.p10_lock_price_per_cycle);
             let p25_lock_price_per_cycle = normalize(&summary.p25_lock_price_per_cycle);
             let p50_lock_price_per_cycle = normalize(&summary.p50_lock_price_per_cycle);
@@ -429,6 +436,8 @@ async fn get_market_aggregates_impl(
                 total_fees_locked_formatted: format_eth(&total_fees_locked),
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
+                total_locked_and_expired_collateral_formatted: format_zkc(&total_locked_and_expired_collateral),
                 p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
                 p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
                 p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),

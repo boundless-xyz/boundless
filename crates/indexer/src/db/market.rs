@@ -137,6 +137,7 @@ pub struct PeriodMarketSummary {
     pub unique_requesters_submitting_requests: u64,
     pub total_fees_locked: String,
     pub total_collateral_locked: String,
+    pub total_locked_and_expired_collateral: String,
     pub p10_lock_price_per_cycle: String,
     pub p25_lock_price_per_cycle: String,
     pub p50_lock_price_per_cycle: String,
@@ -503,6 +504,13 @@ pub trait IndexerDb {
     /// Get cycle counts for the given request digests
     async fn get_cycle_counts(&self, request_digests: &HashSet<B256>) -> Result<Vec<CycleCount>, DbError>;
 
+    /// Get request digests for cycle counts updated within the given timestamp range (inclusive)
+    async fn get_cycle_counts_by_updated_at_range(
+        &self,
+        from_timestamp: u64,
+        to_timestamp: u64,
+    ) -> Result<HashSet<B256>, DbError>;
+
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
     async fn get_request_inputs_batch(
         &self,
@@ -618,6 +626,15 @@ pub trait IndexerDb {
     /// Filters by `request_locked_events.block_timestamp` (when the lock event occurred on-chain).
     /// Used for total_collateral_locked metric which tracks all locks regardless of fulfillment.
     async fn get_period_all_lock_collateral(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<Vec<String>, DbError>;
+
+    /// Gets collateral amounts for locked requests that expired during the half-open period [period_start, period_end).
+    /// Filters by `request_status.expires_at` (when the request's deadline passed).
+    /// Note: These requests may have been locked in an earlier period.
+    async fn get_period_locked_and_expired_collateral(
         &self,
         period_start: u64,
         period_end: u64,
@@ -2274,6 +2291,35 @@ impl IndexerDb for AnyDb {
         Ok(cycle_counts)
     }
 
+    async fn get_cycle_counts_by_updated_at_range(
+        &self,
+        from_timestamp: u64,
+        to_timestamp: u64,
+    ) -> Result<HashSet<B256>, DbError> {
+        let query = "SELECT request_digest FROM cycle_counts WHERE updated_at >= $1 AND updated_at <= $2";
+
+        let rows = sqlx::query(query)
+            .bind(from_timestamp as i64)
+            .bind(to_timestamp as i64)
+            .fetch_all(self.pool())
+            .await?;
+
+        let mut request_digests = HashSet::new();
+        for row in rows {
+            let digest_str: String = row.try_get("request_digest")?;
+            let digest = match B256::from_str(&digest_str) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                    continue;
+                }
+            };
+            request_digests.insert(digest);
+        }
+
+        Ok(request_digests)
+    }
+
     async fn get_request_inputs_batch(
         &self,
         request_digests: &[B256],
@@ -3077,6 +3123,35 @@ impl IndexerDb for AnyDb {
         Ok(results)
     }
 
+    /// Gets collateral amounts for locked requests that expired during the half-open period [period_start, period_end).
+    /// Filters by `request_status.expires_at` (when the request's deadline passed).
+    /// Note: These requests may have been locked in an earlier period.
+    async fn get_period_locked_and_expired_collateral(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<Vec<String>, DbError> {
+        let rows = sqlx::query(
+            "SELECT lock_collateral
+             FROM request_status
+             WHERE request_status = 'expired'
+             AND locked_at IS NOT NULL
+             AND expires_at >= $1 AND expires_at < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let lock_collateral: String = row.get("lock_collateral");
+            results.push(lock_collateral);
+        }
+
+        Ok(results)
+    }
+
     /// Gets the count of requests that expired during the half-open period [period_start, period_end).
     /// Filters by `request_status.expires_at` (when the request's deadline passed).
     /// Note: These requests may have been submitted in an earlier period.
@@ -3253,6 +3328,7 @@ impl AnyDb {
                 unique_requesters_submitting_requests,
                 total_fees_locked,
                 total_collateral_locked,
+                total_locked_and_expired_collateral,
                 p10_lock_price_per_cycle,
                 p25_lock_price_per_cycle,
                 p50_lock_price_per_cycle,
@@ -3278,13 +3354,14 @@ impl AnyDb {
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
                 unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
                 total_fees_locked = EXCLUDED.total_fees_locked,
                 total_collateral_locked = EXCLUDED.total_collateral_locked,
+                total_locked_and_expired_collateral = EXCLUDED.total_locked_and_expired_collateral,
                 p10_lock_price_per_cycle = EXCLUDED.p10_lock_price_per_cycle,
                 p25_lock_price_per_cycle = EXCLUDED.p25_lock_price_per_cycle,
                 p50_lock_price_per_cycle = EXCLUDED.p50_lock_price_per_cycle,
@@ -3320,6 +3397,7 @@ impl AnyDb {
             .bind(summary.unique_requesters_submitting_requests as i64)
             .bind(summary.total_fees_locked)
             .bind(summary.total_collateral_locked)
+            .bind(summary.total_locked_and_expired_collateral)
             .bind(summary.p10_lock_price_per_cycle)
             .bind(summary.p25_lock_price_per_cycle)
             .bind(summary.p50_lock_price_per_cycle)
@@ -3412,6 +3490,7 @@ impl AnyDb {
                 unique_requesters_submitting_requests,
                 total_fees_locked,
                 total_collateral_locked,
+                total_locked_and_expired_collateral,
                 p10_lock_price_per_cycle,
                 p25_lock_price_per_cycle,
                 p50_lock_price_per_cycle,
@@ -3475,6 +3554,7 @@ impl AnyDb {
                     as u64,
                 total_fees_locked: row.get("total_fees_locked"),
                 total_collateral_locked: row.get("total_collateral_locked"),
+                total_locked_and_expired_collateral: row.get("total_locked_and_expired_collateral"),
                 p10_lock_price_per_cycle: row.get("p10_lock_price_per_cycle"),
                 p25_lock_price_per_cycle: row.get("p25_lock_price_per_cycle"),
                 p50_lock_price_per_cycle: row.get("p50_lock_price_per_cycle"),
@@ -4087,6 +4167,7 @@ mod tests {
                 unique_requesters_submitting_requests: i * 3,
                 total_fees_locked: format!("{}", i * 1000),
                 total_collateral_locked: format!("{}", i * 2000),
+                total_locked_and_expired_collateral: "0".to_string(),
                 p10_lock_price_per_cycle: format!("{}", i * 100),
                 p25_lock_price_per_cycle: format!("{}", i * 250),
                 p50_lock_price_per_cycle: format!("{}", i * 500),
@@ -4269,6 +4350,7 @@ mod tests {
                 unique_requesters_submitting_requests: i * 3,
                 total_fees_locked: format!("{}", i * 1000),
                 total_collateral_locked: format!("{}", i * 2000),
+                total_locked_and_expired_collateral: "0".to_string(),
                 p10_lock_price_per_cycle: format!("{}", i * 100),
                 p25_lock_price_per_cycle: format!("{}", i * 250),
                 p50_lock_price_per_cycle: format!("{}", i * 500),
@@ -4324,6 +4406,7 @@ mod tests {
                 unique_requesters_submitting_requests: i * 30,
                 total_fees_locked: format!("{}", i * 10000),
                 total_collateral_locked: format!("{}", i * 20000),
+                total_locked_and_expired_collateral: "0".to_string(),
                 p10_lock_price_per_cycle: format!("{}", i * 1000),
                 p25_lock_price_per_cycle: format!("{}", i * 2500),
                 p50_lock_price_per_cycle: format!("{}", i * 5000),
@@ -4383,6 +4466,7 @@ mod tests {
                 unique_requesters_submitting_requests: i * 300,
                 total_fees_locked: format!("{}", i * 100000),
                 total_collateral_locked: format!("{}", i * 200000),
+                total_locked_and_expired_collateral: "0".to_string(),
                 p10_lock_price_per_cycle: format!("{}", i * 10000),
                 p25_lock_price_per_cycle: format!("{}", i * 25000),
                 p50_lock_price_per_cycle: format!("{}", i * 50000),
@@ -4441,6 +4525,7 @@ mod tests {
                 unique_requesters_submitting_requests: i * 3,
                 total_fees_locked: format!("{}", i * 1000),
                 total_collateral_locked: format!("{}", i * 2000),
+                total_locked_and_expired_collateral: "0".to_string(),
                 p10_lock_price_per_cycle: format!("{}", i * 100),
                 p25_lock_price_per_cycle: format!("{}", i * 250),
                 p50_lock_price_per_cycle: format!("{}", i * 500),

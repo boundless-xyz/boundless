@@ -15,6 +15,7 @@
 use super::IndexerService;
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
+use alloy::primitives::B256;
 use alloy::providers::Provider;
 use std::cmp::min;
 use std::collections::HashSet;
@@ -180,9 +181,7 @@ where
         self.request_cycle_counts(cycle_count_requests).await?;
 
         // Collect request digests that have been updated in the current block range with cycle count data.
-        // TODO:
-
-        
+        let cycle_count_updated_digests = self.process_cycle_counts(from, to).await?;
 
         // Process deposit/withdrawal events. These don't cause request statuses to be updated, so we don't
         // need to track them as touched requests.
@@ -206,6 +205,7 @@ where
         touched_requests.extend(callback_failed_digests);
         touched_requests.extend(slashed_events_digests);
         touched_requests.extend(expired_requests);
+        touched_requests.extend(cycle_count_updated_digests);
 
         // Update request statuses for touched requests
         self.update_request_statuses(touched_requests, to).await?;
@@ -243,6 +243,20 @@ where
     fn clear_in_memory_cache(&mut self) {
         self.tx_hash_to_metadata.clear();
         self.block_num_to_timestamp.clear();
+    }
+
+    async fn process_cycle_counts(
+        &mut self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<HashSet<B256>, ServiceError> {
+        let from_timestamp = self.block_timestamp(from_block).await?;
+        let to_timestamp = self.block_timestamp(to_block).await?;
+        let request_digests = self
+            .db
+            .get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp)
+            .await?;
+        Ok(request_digests)
     }
 
     // Return the last processed block from the DB is > 0;
