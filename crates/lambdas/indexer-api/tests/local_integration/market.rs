@@ -14,7 +14,7 @@ async fn test_market_requests_list() {
     let response: RequestListResponse = env.get("/v1/market/requests?limit=20").await.unwrap();
 
     tracing::info!(target: "market-requests-list", "response: {:?}", response);
-    assert!(response.data.len() <= 20);
+    assert!(response.data.len() > 0 && response.data.len() <= 20);
 
     // Verify request structure and all fields
     if !response.data.is_empty() {
@@ -378,7 +378,7 @@ async fn test_market_requests_list() {
         }
 
         // Performance metrics
-        if let Some(cycles) = first.cycles {
+        if let Some(cycles) = first.total_cycles {
             assert!(
                 cycles >= 0,
                 "cycles should be non-negative: {}",
@@ -386,21 +386,22 @@ async fn test_market_requests_list() {
             );
         }
 
-        if let Some(peak_prove_mhz) = first.peak_prove_mhz {
-            assert!(
-                peak_prove_mhz >= 0,
-                "peak_prove_mhz should be non-negative: {}",
-                peak_prove_mhz
-            );
-        }
+        // TODO: Add back in once we have peak and effective prove mhz
+        // if let Some(peak_prove_mhz) = first.peak_prove_mhz {
+        //     assert!(
+        //         peak_prove_mhz >= 0,
+        //         "peak_prove_mhz should be non-negative: {}",
+        //         peak_prove_mhz
+        //     );
+        // }
 
-        if let Some(effective_prove_mhz) = first.effective_prove_mhz {
-            assert!(
-                effective_prove_mhz >= 0,
-                "effective_prove_mhz should be non-negative: {}",
-                effective_prove_mhz
-            );
-        }
+        // if let Some(effective_prove_mhz) = first.effective_prove_mhz {
+        //     assert!(
+        //         effective_prove_mhz >= 0,
+        //         "effective_prove_mhz should be non-negative: {}",
+        //         effective_prove_mhz
+        //     );
+        // }
 
         // Transaction hashes
         if let Some(ref tx_hash) = first.submit_tx_hash {
@@ -574,23 +575,22 @@ async fn test_market_requests_by_requestor() {
     // First get a request to obtain a valid client address
     let list_response: RequestListResponse = env.get("/v1/market/requests?limit=1").await.unwrap();
 
-    if let Some(first) = list_response.data.first() {
-        let client_address = &first.client_address;
+    let first = list_response.data.first().unwrap();
+    let client_address = &first.client_address;
 
-        // Test with 0x prefix (as returned from API)
-        let path = format!("/v1/market/requestors/{}/requests", client_address);
-        let response: RequestListResponse = env.get(&path).await.unwrap();
+    // Test with 0x prefix (as returned from API)
+    let path = format!("/v1/market/requestors/{}/requests", client_address);
+    let response: RequestListResponse = env.get(&path).await.unwrap();
 
-        // Should return at least the request we found
-        assert!(!response.data.is_empty(), "Should return at least one request");
+    // Should return at least the request we found
+    assert!(!response.data.is_empty(), "Should return at least one request");
 
-        // Verify all returned requests are from this requestor
-        for req in &response.data {
-            assert_eq!(
-                req.client_address, *client_address,
-                "All requests should be from the same requestor"
-            );
-        }
+    // Verify all returned requests are from this requestor
+    for req in &response.data {
+        assert_eq!(
+            req.client_address, *client_address,
+            "All requests should be from the same requestor"
+        );
     }
 }
 
@@ -606,30 +606,47 @@ async fn test_market_aggregates_hourly() {
     assert!(response.data.len() <= 10);
 
     // Verify aggregate data structure
-    if !response.data.is_empty() {
-        let first = &response.data[0];
+    let first = response.data.first().unwrap();
 
-        // Verify timestamp_iso exists
-        assert!(
-            !first.timestamp_iso.is_empty(),
-            "timestamp_iso should not be empty"
-        );
-        assert!(
-            first.timestamp_iso.contains('T'),
-            "timestamp_iso should be ISO 8601 format: {}",
-            first.timestamp_iso
-        );
+    // Verify timestamp_iso exists
+    assert!(
+        !first.timestamp_iso.is_empty(),
+        "timestamp_iso should not be empty"
+    );
+    assert!(
+        first.timestamp_iso.contains('T'),
+        "timestamp_iso should be ISO 8601 format: {}",
+        first.timestamp_iso
+    );
 
-        // Verify _formatted fields exist for currency amounts
-        assert!(
-            !first.total_fees_locked_formatted.is_empty(),
-            "total_fees_locked_formatted should not be empty"
-        );
-        assert!(
-            !first.total_collateral_locked_formatted.is_empty(),
-            "total_collateral_locked_formatted should not be empty"
-        );
-    }
+    // Verify timestamp is on hour boundary (minutes and seconds = 0)
+    use chrono::{DateTime, Timelike, Utc};
+    let dt = DateTime::<Utc>::from_timestamp(first.timestamp, 0)
+        .expect("timestamp should be valid");
+    assert_eq!(
+        dt.minute(),
+        0,
+        "Hourly aggregate timestamp should have minutes=0: {} (timestamp: {})",
+        first.timestamp_iso,
+        first.timestamp
+    );
+    assert_eq!(
+        dt.second(),
+        0,
+        "Hourly aggregate timestamp should have seconds=0: {} (timestamp: {})",
+        first.timestamp_iso,
+        first.timestamp
+    );
+
+    // Verify _formatted fields exist for currency amounts
+    assert!(
+        !first.total_fees_locked_formatted.is_empty(),
+        "total_fees_locked_formatted should not be empty"
+    );
+    assert!(
+        !first.total_collateral_locked_formatted.is_empty(),
+        "total_collateral_locked_formatted should not be empty"
+    );
 }
 
 #[tokio::test]
@@ -643,6 +660,34 @@ async fn test_market_aggregates_daily() {
     assert_eq!(response.aggregation.to_string(), "daily");
     assert!(response.data.len() <= 5);
     assert!(!response.data.is_empty());
+
+    // Verify timestamps are at day boundaries (midnight UTC)
+    use chrono::{DateTime, Timelike, Utc};
+    for entry in &response.data {
+        let dt = DateTime::<Utc>::from_timestamp(entry.timestamp, 0)
+            .expect("timestamp should be valid");
+        assert_eq!(
+            dt.hour(),
+            0,
+            "Daily aggregate timestamp should have hour=0 (midnight): {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.minute(),
+            0,
+            "Daily aggregate timestamp should have minutes=0: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.second(),
+            0,
+            "Daily aggregate timestamp should have seconds=0: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+    }
 }
 
 #[tokio::test]
@@ -656,6 +701,41 @@ async fn test_market_aggregates_weekly() {
     assert_eq!(response.aggregation.to_string(), "weekly");
     assert!(response.data.len() <= 5);
     assert!(!response.data.is_empty());
+
+    // Verify timestamps are at week boundaries (Monday 00:00:00 UTC)
+    use chrono::{Datelike, DateTime, Timelike, Utc, Weekday};
+    for entry in &response.data {
+        let dt = DateTime::<Utc>::from_timestamp(entry.timestamp, 0)
+            .expect("timestamp should be valid");
+        assert_eq!(
+            dt.weekday(),
+            Weekday::Mon,
+            "Weekly aggregate timestamp should be Monday: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.hour(),
+            0,
+            "Weekly aggregate timestamp should have hour=0 (midnight): {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.minute(),
+            0,
+            "Weekly aggregate timestamp should have minutes=0: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.second(),
+            0,
+            "Weekly aggregate timestamp should have seconds=0: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+    }
 }
 
 #[tokio::test]
@@ -669,6 +749,41 @@ async fn test_market_aggregates_monthly() {
     assert_eq!(response.aggregation.to_string(), "monthly");
     assert!(response.data.len() <= 5);
     assert!(!response.data.is_empty());
+
+    // Verify timestamps are at month boundaries (1st day 00:00:00 UTC)
+    use chrono::{Datelike, DateTime, Timelike, Utc};
+    for entry in &response.data {
+        let dt = DateTime::<Utc>::from_timestamp(entry.timestamp, 0)
+            .expect("timestamp should be valid");
+        assert_eq!(
+            dt.day(),
+            1,
+            "Monthly aggregate timestamp should be 1st of month: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.hour(),
+            0,
+            "Monthly aggregate timestamp should have hour=0 (midnight): {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.minute(),
+            0,
+            "Monthly aggregate timestamp should have minutes=0: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+        assert_eq!(
+            dt.second(),
+            0,
+            "Monthly aggregate timestamp should have seconds=0: {} (timestamp: {})",
+            entry.timestamp_iso,
+            entry.timestamp
+        );
+    }
 }
 
 #[tokio::test]
@@ -679,7 +794,7 @@ async fn test_market_requests_pagination() {
     // Get first page
     let page1: RequestListResponse = env.get("/v1/market/requests?limit=2").await.unwrap();
 
-    assert!(page1.data.len() <= 5);
+    assert!(page1.data.len() > 0 && page1.data.len() <= 5);
 
     // If there's a cursor, test pagination
     if let Some(cursor) = &page1.next_cursor {

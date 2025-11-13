@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, str::FromStr, sync::Arc};
+use std::{collections::{HashMap, HashSet}, str::FromStr, sync::Arc};
 
 use super::DbError;
 use alloy::primitives::{Address, B256, U256};
@@ -334,6 +334,11 @@ pub trait IndexerDb {
         &self,
         request_id: U256,
     ) -> Result<Vec<B256>, DbError>;
+
+    async fn get_request_digests_by_request_ids(
+        &self,
+        request_ids: &[U256],
+    ) -> Result<HashMap<U256, Vec<B256>>, DbError>;
 
     async fn add_assessor_receipts(
         &self,
@@ -903,6 +908,51 @@ impl IndexerDb for AnyDb {
         }
 
         Ok(digests)
+    }
+
+    async fn get_request_digests_by_request_ids(
+        &self,
+        request_ids: &[U256],
+    ) -> Result<HashMap<U256, Vec<B256>>, DbError> {
+        if request_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut result = HashMap::new();
+
+        // Process in chunks to avoid parameter limits
+        const BATCH_SIZE: usize = 500;
+        for chunk in request_ids.chunks(BATCH_SIZE) {
+            let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("${}", i)).collect();
+            let query_str = format!(
+                "SELECT request_id, request_digest FROM proof_requests WHERE request_id IN ({})",
+                placeholders.join(", ")
+            );
+
+            // Collect request_id strings first to ensure they live long enough
+            let request_id_strings: Vec<String> = chunk.iter().map(|request_id| format!("{request_id:x}")).collect();
+
+            let mut query = sqlx::query(&query_str);
+            for request_id_str in request_id_strings.iter() {
+                query = query.bind(request_id_str);
+            }
+
+            let rows = query.fetch_all(&self.pool).await?;
+
+            for row in rows {
+                let request_id_str: String = row.try_get("request_id")?;
+                let request_id = U256::from_str_radix(&request_id_str, 16)
+                    .map_err(|e| DbError::BadTransaction(format!("Invalid request_id: {}", e)))?;
+                
+                let digest_str: String = row.try_get("request_digest")?;
+                let digest = B256::from_str(&digest_str)
+                    .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
+                
+                result.entry(request_id).or_insert_with(Vec::new).push(digest);
+            }
+        }
+
+        Ok(result)
     }
 
     async fn add_proof_requests(
@@ -3343,7 +3393,7 @@ impl IndexerDb for AnyDb {
         period_end: u64,
     ) -> Result<u64, DbError> {
         let total = sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT COALESCE(SUM(program_cycles), 0) FROM request_status
+            "SELECT CAST(COALESCE(SUM(program_cycles), 0) AS BIGINT) FROM request_status
              WHERE request_status = 'fulfilled'
              AND program_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -3362,7 +3412,7 @@ impl IndexerDb for AnyDb {
         period_end: u64,
     ) -> Result<u64, DbError> {
         let total = sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT COALESCE(SUM(total_cycles), 0) FROM request_status
+            "SELECT CAST(COALESCE(SUM(total_cycles), 0) AS BIGINT) FROM request_status
              WHERE request_status = 'fulfilled'
              AND total_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL

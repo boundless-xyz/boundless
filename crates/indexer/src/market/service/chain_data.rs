@@ -88,8 +88,8 @@ where
         Ok(logs)
     }
 
-    pub async fn block_timestamp(&mut self, block_number: u64) -> Result<u64, ServiceError> {
-        // Check in-memory cache first
+    pub async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
+        // Check in-memory cache first (read-only, populated by fetch_tx_metadata)
         if let Some(ts) = self.block_num_to_timestamp.get(&block_number) {
             return Ok(*ts);
         }
@@ -97,11 +97,7 @@ where
         // Check database
         let timestamp = self.db.get_block_timestamp(block_number).await?;
         let ts = match timestamp {
-            Some(ts) => {
-                // Store in in-memory cache
-                self.block_num_to_timestamp.insert(block_number, ts);
-                ts
-            }
+            Some(ts) => ts,
             None => {
                 tracing::debug!("Block timestamp not found in DB for block {}", block_number);
                 let ts = self
@@ -114,15 +110,13 @@ where
                     .header
                     .timestamp;
                 self.db.add_blocks(&[(block_number, ts)]).await?;
-                // Store in in-memory cache
-                self.block_num_to_timestamp.insert(block_number, ts);
                 ts
             }
         };
         Ok(ts)
     }
 
-    pub(super) async fn get_tx_metadata(&mut self, log: Log) -> Result<TxMetadata, ServiceError> {
+    pub(super) async fn get_tx_metadata(&self, log: Log) -> Result<TxMetadata, ServiceError> {
         let tx_hash = log.transaction_hash.context("Transaction hash not found")?;
         let meta = self.tx_hash_to_metadata.get(&tx_hash).cloned().ok_or_else(|| {
             ServiceError::Error(anyhow!("Transaction not found: {}", hex::encode(tx_hash)))

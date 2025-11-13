@@ -165,8 +165,11 @@ where
         tracing::info!("Blocks being processed timestamp range: {} [{}] to {} [{}]", from, self.block_timestamp(from).await?, to, self.block_timestamp(to).await?);
 
         // Collect touched requests from each process_* call
-        let submitted_events_digests = self.process_request_submitted_events(&logs).await?;
-        let submitted_offchain_digests = self.process_request_submitted_offchain(from, to).await?;
+        // Parallelize onchain and offchain request submission processing
+        let (submitted_events_digests, submitted_offchain_digests) = tokio::try_join!(
+            self.process_request_submitted_events(&logs),
+            self.process_request_submitted_offchain(from, to)
+        )?;
         let locked_events_digests = self.process_locked_events(&logs).await?;
         let proof_delivered_digests = self.process_proof_delivered_events(&logs).await?;
         let fulfilled_events_digests = self.process_fulfilled_events(&logs).await?;
@@ -185,10 +188,13 @@ where
 
         // Process deposit/withdrawal events. These don't cause request statuses to be updated, so we don't
         // need to track them as touched requests.
-        self.process_deposit_events(&logs).await?;
-        self.process_withdrawal_events(&logs).await?;
-        self.process_collateral_deposit_events(&logs).await?;
-        self.process_collateral_withdrawal_events(&logs).await?;
+        // Parallelize all deposit/withdrawal event processing
+        tokio::try_join!(
+            self.process_deposit_events(&logs),
+            self.process_withdrawal_events(&logs),
+            self.process_collateral_deposit_events(&logs),
+            self.process_collateral_withdrawal_events(&logs)
+        )?;
 
         // Find requests that expired during this block range.
         // Note we process the previous block also, to ensure we capture requests that expired during the previous block.
@@ -212,10 +218,13 @@ where
 
         // Aggregate market data.
         // Note: Aggregations use the result of update_request_statuses, so we need to run them after.
-        self.aggregate_hourly_market_data(to).await?;
-        self.aggregate_daily_market_data(to).await?;
-        self.aggregate_weekly_market_data(to).await?;
-        self.aggregate_monthly_market_data(to).await?;
+        // Parallelize all aggregate functions
+        tokio::try_join!(
+            self.aggregate_hourly_market_data(to),
+            self.aggregate_daily_market_data(to),
+            self.aggregate_weekly_market_data(to),
+            self.aggregate_monthly_market_data(to)
+        )?;
 
         // Update the last processed block.
         self.update_last_processed_block(to).await?;

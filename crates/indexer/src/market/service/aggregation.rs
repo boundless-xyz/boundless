@@ -36,7 +36,7 @@ where
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     pub(super) async fn aggregate_hourly_market_data(
-        &mut self,
+        &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
@@ -78,7 +78,7 @@ where
     }
 
     pub(super) async fn aggregate_daily_market_data(
-        &mut self,
+        &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
@@ -125,7 +125,7 @@ where
     }
 
     pub(super) async fn aggregate_weekly_market_data(
-        &mut self,
+        &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
@@ -172,7 +172,7 @@ where
     }
 
     pub(super) async fn aggregate_monthly_market_data(
-        &mut self,
+        &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();

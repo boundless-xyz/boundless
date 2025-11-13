@@ -78,7 +78,7 @@ where
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
     pub(super) async fn process_request_submitted_events(
-        &mut self,
+        &self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
         let start = std::time::Instant::now();
@@ -159,7 +159,7 @@ where
     }
 
     pub(super) async fn process_request_submitted_offchain(
-        &mut self,
+        &self,
         from_block: u64,
         to_block: u64,
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -513,6 +513,10 @@ where
 
         tracing::debug!("Found {} slashed events", logs_len);
 
+        // Collect events and request_ids for batch insert and batch query
+        let mut slashed_events = Vec::new();
+        let mut request_ids = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::ProverSlashed>()
@@ -526,20 +530,32 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db
-                .add_prover_slashed_events(&[(
-                    event.requestId,
-                    event.collateralBurned,
-                    event.collateralTransferred,
-                    event.collateralRecipient,
-                    metadata,
-                )])
-                .await?;
 
-            let request_digests =
-                self.db.get_request_digests_by_request_id(event.requestId).await?;
-            for digest in request_digests {
-                touched_requests.insert(digest);
+            // Collect event for batch insert
+            slashed_events.push((
+                event.requestId,
+                event.collateralBurned,
+                event.collateralTransferred,
+                event.collateralRecipient,
+                metadata,
+            ));
+
+            // Collect request_id for batch query
+            request_ids.push(event.requestId);
+        }
+
+        // Batch insert all slashed events
+        if !slashed_events.is_empty() {
+            self.db.add_prover_slashed_events(&slashed_events).await?;
+        }
+
+        // Batch query all request digests
+        if !request_ids.is_empty() {
+            let request_digests_map = self.db.get_request_digests_by_request_ids(&request_ids).await?;
+            for digests in request_digests_map.values() {
+                for digest in digests {
+                    touched_requests.insert(*digest);
+                }
             }
         }
 
@@ -552,7 +568,7 @@ where
     }
 
     pub(super) async fn process_deposit_events(
-        &mut self,
+        &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
@@ -605,7 +621,7 @@ where
     }
 
     pub(super) async fn process_withdrawal_events(
-        &mut self,
+        &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
@@ -624,6 +640,9 @@ where
 
         tracing::debug!("Found {} withdrawal events", logs_len);
 
+        // Collect withdrawals for batch insert
+        let mut withdrawals = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::Withdrawal>()
@@ -637,7 +656,13 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_withdrawal_events(&[(event.account, event.value, metadata)]).await?;
+
+            withdrawals.push((event.account, event.value, metadata));
+        }
+
+        // Batch insert all withdrawal events
+        if !withdrawals.is_empty() {
+            self.db.add_withdrawal_events(&withdrawals).await?;
         }
 
         tracing::info!(
@@ -649,7 +674,7 @@ where
     }
 
     pub(super) async fn process_collateral_deposit_events(
-        &mut self,
+        &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
@@ -668,6 +693,9 @@ where
 
         tracing::debug!("Found {} collateral deposit events", logs_len);
 
+        // Collect collateral deposits for batch insert
+        let mut collateral_deposits = Vec::new();
+
         for log in logs {
             let decoded = log
                 .log_decode::<IBoundlessMarket::CollateralDeposit>()
@@ -681,7 +709,13 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_collateral_deposit_events(&[(event.account, event.value, metadata)]).await?;
+
+            collateral_deposits.push((event.account, event.value, metadata));
+        }
+
+        // Batch insert all collateral deposit events
+        if !collateral_deposits.is_empty() {
+            self.db.add_collateral_deposit_events(&collateral_deposits).await?;
         }
 
         tracing::info!(
@@ -693,7 +727,7 @@ where
     }
 
     pub(super) async fn process_collateral_withdrawal_events(
-        &mut self,
+        &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
@@ -710,7 +744,10 @@ where
 
         let logs_len = logs.len();
 
-        tracing::debug!("Found {} collateral withdrawal events", logs.len());
+        tracing::debug!("Found {} collateral withdrawal events", logs_len);
+
+        // Collect collateral withdrawals for batch insert
+        let mut collateral_withdrawals = Vec::new();
 
         for log in logs {
             let decoded = log
@@ -725,7 +762,13 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            self.db.add_collateral_withdrawal_events(&[(event.account, event.value, metadata)]).await?;
+
+            collateral_withdrawals.push((event.account, event.value, metadata));
+        }
+
+        // Batch insert all collateral withdrawal events
+        if !collateral_withdrawals.is_empty() {
+            self.db.add_collateral_withdrawal_events(&collateral_withdrawals).await?;
         }
 
         tracing::info!(
@@ -755,7 +798,11 @@ where
 
         let logs_len = logs.len();
 
-        tracing::debug!("Found {} callback failed events", logs.len());
+        tracing::debug!("Found {} callback failed events", logs_len);
+
+        // Collect events and request_ids for batch insert and batch query
+        let mut callback_failed_events = Vec::new();
+        let mut request_ids = Vec::new();
 
         for log in logs {
             let decoded = log
@@ -771,19 +818,30 @@ where
                 metadata.block_timestamp
             );
 
-            self.db
-                .add_callback_failed_events(&[(
-                    event.requestId,
-                    event.callback,
-                    event.error.to_vec(),
-                    metadata,
-                )])
-                .await?;
+            // Collect event for batch insert
+            callback_failed_events.push((
+                event.requestId,
+                event.callback,
+                event.error.to_vec(),
+                metadata,
+            ));
 
-            let request_digests =
-                self.db.get_request_digests_by_request_id(event.requestId).await?;
-            for digest in request_digests {
-                touched_requests.insert(digest);
+            // Collect request_id for batch query
+            request_ids.push(event.requestId);
+        }
+
+        // Batch insert all callback failed events
+        if !callback_failed_events.is_empty() {
+            self.db.add_callback_failed_events(&callback_failed_events).await?;
+        }
+
+        // Batch query all request digests
+        if !request_ids.is_empty() {
+            let request_digests_map = self.db.get_request_digests_by_request_ids(&request_ids).await?;
+            for digests in request_digests_map.values() {
+                for digest in digests {
+                    touched_requests.insert(*digest);
+                }
             }
         }
 
