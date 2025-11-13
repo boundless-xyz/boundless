@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS request_status (
     peak_prove_mhz BIGINT,
     effective_prove_mhz BIGINT,
 
+    -- Lock pricing (computed when locked)
+    lock_price TEXT,
+    lock_price_per_cycle TEXT,
+
     -- Blockchain references (tx hashes)
     submit_tx_hash TEXT,
     lock_tx_hash TEXT,

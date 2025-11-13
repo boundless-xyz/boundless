@@ -198,47 +198,47 @@ pub struct MarketAggregateEntry {
     /// Total collateral locked (formatted for display)
     pub total_collateral_locked_formatted: String,
 
-    /// 10th percentile fee locked (as string)
-    pub p10_fees_locked: String,
+    /// 10th percentile lock price per cycle (as string)
+    pub p10_lock_price_per_cycle: String,
 
-    /// 10th percentile fee locked (formatted for display)
-    pub p10_fees_locked_formatted: String,
+    /// 10th percentile lock price per cycle (formatted for display)
+    pub p10_lock_price_per_cycle_formatted: String,
 
-    /// 25th percentile fee locked (as string)
-    pub p25_fees_locked: String,
+    /// 25th percentile lock price per cycle (as string)
+    pub p25_lock_price_per_cycle: String,
 
-    /// 25th percentile fee locked (formatted for display)
-    pub p25_fees_locked_formatted: String,
+    /// 25th percentile lock price per cycle (formatted for display)
+    pub p25_lock_price_per_cycle_formatted: String,
 
-    /// Median (p50) fee locked (as string)
-    pub p50_fees_locked: String,
+    /// Median (p50) lock price per cycle (as string)
+    pub p50_lock_price_per_cycle: String,
 
-    /// Median (p50) fee locked (formatted for display)
-    pub p50_fees_locked_formatted: String,
+    /// Median (p50) lock price per cycle (formatted for display)
+    pub p50_lock_price_per_cycle_formatted: String,
 
-    /// 75th percentile fee locked (as string)
-    pub p75_fees_locked: String,
+    /// 75th percentile lock price per cycle (as string)
+    pub p75_lock_price_per_cycle: String,
 
-    /// 75th percentile fee locked (formatted for display)
-    pub p75_fees_locked_formatted: String,
+    /// 75th percentile lock price per cycle (formatted for display)
+    pub p75_lock_price_per_cycle_formatted: String,
 
-    /// 90th percentile fee locked (as string)
-    pub p90_fees_locked: String,
+    /// 90th percentile lock price per cycle (as string)
+    pub p90_lock_price_per_cycle: String,
 
-    /// 90th percentile fee locked (formatted for display)
-    pub p90_fees_locked_formatted: String,
+    /// 90th percentile lock price per cycle (formatted for display)
+    pub p90_lock_price_per_cycle_formatted: String,
 
-    /// 95th percentile fee locked (as string)
-    pub p95_fees_locked: String,
+    /// 95th percentile lock price per cycle (as string)
+    pub p95_lock_price_per_cycle: String,
 
-    /// 95th percentile fee locked (formatted for display)
-    pub p95_fees_locked_formatted: String,
+    /// 95th percentile lock price per cycle (formatted for display)
+    pub p95_lock_price_per_cycle_formatted: String,
 
-    /// 99th percentile fee locked (as string)
-    pub p99_fees_locked: String,
+    /// 99th percentile lock price per cycle (as string)
+    pub p99_lock_price_per_cycle: String,
 
-    /// 99th percentile fee locked (formatted for display)
-    pub p99_fees_locked_formatted: String,
+    /// 99th percentile lock price per cycle (formatted for display)
+    pub p99_lock_price_per_cycle_formatted: String,
 
     /// Total number of requests submitted in this period
     pub total_requests_submitted: i64,
@@ -411,13 +411,13 @@ async fn get_market_aggregates_impl(
             // Normalize all currency fields
             let total_fees_locked = normalize(&summary.total_fees_locked);
             let total_collateral_locked = normalize(&summary.total_collateral_locked);
-            let p10_fees_locked = normalize(&summary.p10_fees_locked);
-            let p25_fees_locked = normalize(&summary.p25_fees_locked);
-            let p50_fees_locked = normalize(&summary.p50_fees_locked);
-            let p75_fees_locked = normalize(&summary.p75_fees_locked);
-            let p90_fees_locked = normalize(&summary.p90_fees_locked);
-            let p95_fees_locked = normalize(&summary.p95_fees_locked);
-            let p99_fees_locked = normalize(&summary.p99_fees_locked);
+            let p10_lock_price_per_cycle = normalize(&summary.p10_lock_price_per_cycle);
+            let p25_lock_price_per_cycle = normalize(&summary.p25_lock_price_per_cycle);
+            let p50_lock_price_per_cycle = normalize(&summary.p50_lock_price_per_cycle);
+            let p75_lock_price_per_cycle = normalize(&summary.p75_lock_price_per_cycle);
+            let p90_lock_price_per_cycle = normalize(&summary.p90_lock_price_per_cycle);
+            let p95_lock_price_per_cycle = normalize(&summary.p95_lock_price_per_cycle);
+            let p99_lock_price_per_cycle = normalize(&summary.p99_lock_price_per_cycle);
 
             MarketAggregateEntry {
                 timestamp: summary.period_timestamp as i64,
@@ -429,20 +429,20 @@ async fn get_market_aggregates_impl(
                 total_fees_locked_formatted: format_eth(&total_fees_locked),
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
-                p10_fees_locked: p10_fees_locked.clone(),
-                p10_fees_locked_formatted: format_eth(&p10_fees_locked),
-                p25_fees_locked: p25_fees_locked.clone(),
-                p25_fees_locked_formatted: format_eth(&p25_fees_locked),
-                p50_fees_locked: p50_fees_locked.clone(),
-                p50_fees_locked_formatted: format_eth(&p50_fees_locked),
-                p75_fees_locked: p75_fees_locked.clone(),
-                p75_fees_locked_formatted: format_eth(&p75_fees_locked),
-                p90_fees_locked: p90_fees_locked.clone(),
-                p90_fees_locked_formatted: format_eth(&p90_fees_locked),
-                p95_fees_locked: p95_fees_locked.clone(),
-                p95_fees_locked_formatted: format_eth(&p95_fees_locked),
-                p99_fees_locked: p99_fees_locked.clone(),
-                p99_fees_locked_formatted: format_eth(&p99_fees_locked),
+                p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
+                p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
+                p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
+                p25_lock_price_per_cycle_formatted: format_eth(&p25_lock_price_per_cycle),
+                p50_lock_price_per_cycle: p50_lock_price_per_cycle.clone(),
+                p50_lock_price_per_cycle_formatted: format_eth(&p50_lock_price_per_cycle),
+                p75_lock_price_per_cycle: p75_lock_price_per_cycle.clone(),
+                p75_lock_price_per_cycle_formatted: format_eth(&p75_lock_price_per_cycle),
+                p90_lock_price_per_cycle: p90_lock_price_per_cycle.clone(),
+                p90_lock_price_per_cycle_formatted: format_eth(&p90_lock_price_per_cycle),
+                p95_lock_price_per_cycle: p95_lock_price_per_cycle.clone(),
+                p95_lock_price_per_cycle_formatted: format_eth(&p95_lock_price_per_cycle),
+                p99_lock_price_per_cycle: p99_lock_price_per_cycle.clone(),
+                p99_lock_price_per_cycle_formatted: format_eth(&p99_lock_price_per_cycle),
                 total_requests_submitted: summary.total_requests_submitted as i64,
                 total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
                 total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,

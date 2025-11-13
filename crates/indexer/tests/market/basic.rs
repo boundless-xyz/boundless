@@ -22,8 +22,8 @@ use assert_cmd::Command as AssertCommand;
 
 use alloy::{
     node_bindings::Anvil,
-    primitives::{Address, Bytes, U256},
-    providers::{ext::AnvilApi, Provider},
+    primitives::{Address, Bytes, U256, utils::parse_ether},
+    providers::{Provider, ext::AnvilApi},
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
@@ -55,7 +55,13 @@ struct HourlySummaryRow {
     unique_requesters_submitting_requests: u64,
     total_fees_locked: String,
     total_collateral_locked: String,
-    p50_fees_locked: String,
+    p10_lock_price_per_cycle: String,
+    p25_lock_price_per_cycle: String,
+    p50_lock_price_per_cycle: String,
+    p75_lock_price_per_cycle: String,
+    p90_lock_price_per_cycle: String,
+    p95_lock_price_per_cycle: String,
+    p99_lock_price_per_cycle: String,
     total_requests_submitted: u64,
     total_requests_submitted_onchain: u64,
     total_requests_submitted_offchain: u64,
@@ -81,7 +87,9 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
     let rows = sqlx::query(
         "SELECT period_timestamp, total_fulfilled, unique_provers_locking_requests,
                 unique_requesters_submitting_requests, total_fees_locked, total_collateral_locked,
-                p50_fees_locked, total_requests_submitted, total_requests_submitted_onchain,
+                p10_lock_price_per_cycle, p25_lock_price_per_cycle, p50_lock_price_per_cycle,
+                p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle,
+                p99_lock_price_per_cycle, total_requests_submitted, total_requests_submitted_onchain,
                 total_requests_submitted_offchain, total_requests_locked, total_requests_slashed,
                 total_expired, total_locked_and_expired, total_locked_and_fulfilled,
                 locked_orders_fulfillment_rate, total_program_cycles, total_cycles
@@ -102,7 +110,13 @@ async fn get_all_hourly_summaries_asc(pool: &AnyPool) -> Vec<HourlySummaryRow> {
                 as u64,
             total_fees_locked: row.get("total_fees_locked"),
             total_collateral_locked: row.get("total_collateral_locked"),
-            p50_fees_locked: row.get("p50_fees_locked"),
+            p10_lock_price_per_cycle: row.get("p10_lock_price_per_cycle"),
+            p25_lock_price_per_cycle: row.get("p25_lock_price_per_cycle"),
+            p50_lock_price_per_cycle: row.get("p50_lock_price_per_cycle"),
+            p75_lock_price_per_cycle: row.get("p75_lock_price_per_cycle"),
+            p90_lock_price_per_cycle: row.get("p90_lock_price_per_cycle"),
+            p95_lock_price_per_cycle: row.get("p95_lock_price_per_cycle"),
+            p99_lock_price_per_cycle: row.get("p99_lock_price_per_cycle"),
             total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
             total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain")
                 as u64,
@@ -704,26 +718,48 @@ async fn test_aggregation_across_hours() {
         .header
         .timestamp;
 
-    // Create and fulfill first order
-    let (request1, client_sig1) = create_order(
-        &ctx.customer_signer,
-        ctx.customer_signer.address(),
-        1,
-        ctx.deployment.boundless_market_address,
-        anvil.chain_id(),
-        now,
-    )
-    .await;
+    // Create and fulfill first order with higher prices to make per-cycle calculations meaningful
+    // Using 1 ETH max price (10^18 wei) so that lock_price / cycles gives non-zero values
+    let one_eth = parse_ether("1").unwrap().into();
+    let request1 = ProofRequest::new(
+        RequestId::new(ctx.customer_signer.address(), 1),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: one_eth,
+            maxPrice: one_eth,
+            rampUpStart: now - 3,
+            timeout: 12,
+            rampUpPeriod: 1,
+            lockTimeout: 12,
+            lockCollateral: U256::from(0),
+        },
+    );
+    let client_sig1 = request1.sign_request(&ctx.customer_signer, ctx.deployment.boundless_market_address, anvil.chain_id()).await.unwrap();
 
-    ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    ctx.customer_market.deposit(one_eth * U256::from(2)).await.unwrap();
     ctx.customer_market
-        .submit_request_with_signature(&request1, client_sig1.clone())
+        .submit_request_with_signature(&request1, client_sig1.as_bytes())
         .await
         .unwrap();
-    ctx.prover_market.lock_request(&request1, client_sig1.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request1, client_sig1.as_bytes(), None).await.unwrap();
+
+    // Insert cycle count for request1 after locking, before fulfillment
+    // This allows the indexer to compute lock_price_per_cycle when status is updated
+    let test_db = boundless_indexer::test_utils::TestDb {
+        db: db.clone(),
+        db_url: db_url.clone(),
+        pool: pool.clone(),
+        _temp_file: None,
+    };
+    let request1_digest = request1.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap();
+    let program_cycles1 = 50_000_000; // 50M cycles
+    let total_cycles1 = (program_cycles1 as f64 * 1.0158) as u64; // Apply 1.58% overhead
+    test_db.insert_test_cycle_counts(request1_digest, program_cycles1, total_cycles1).await.unwrap();
 
     let (fill1, root_receipt1, assessor_receipt1) =
-        prover.fulfill(&[(request1.clone(), client_sig1.clone())]).await.unwrap();
+        prover.fulfill(&[(request1.clone(), client_sig1.as_bytes().to_vec().into())]).await.unwrap();
     let order_fulfilled1 =
         OrderFulfilled::new(fill1.clone(), root_receipt1, assessor_receipt1).unwrap();
     ctx.prover_market
@@ -752,25 +788,38 @@ async fn test_aggregation_across_hours() {
         .header
         .timestamp;
 
-    // Create and fulfill second order in a different hour
-    let (request2, client_sig2) = create_order(
-        &ctx.customer_signer,
-        ctx.customer_signer.address(),
-        2,
-        ctx.deployment.boundless_market_address,
-        anvil.chain_id(),
-        now2,
-    )
-    .await;
+    // Create and fulfill second order in a different hour with higher prices
+    let request2 = ProofRequest::new(
+        RequestId::new(ctx.customer_signer.address(), 2),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: one_eth,
+            maxPrice: one_eth, // Reuse 1 ETH max price
+            rampUpStart: now2 - 3,
+            timeout: 12,
+            rampUpPeriod: 1,
+            lockTimeout: 12,
+            lockCollateral: U256::from(0),
+        },
+    );
+    let client_sig2 = request2.sign_request(&ctx.customer_signer, ctx.deployment.boundless_market_address, anvil.chain_id()).await.unwrap();
 
     ctx.customer_market
-        .submit_request_with_signature(&request2, client_sig2.clone())
+        .submit_request_with_signature(&request2, client_sig2.as_bytes())
         .await
         .unwrap();
-    ctx.prover_market.lock_request(&request2, client_sig2.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request2, client_sig2.as_bytes(), None).await.unwrap();
+
+    // Insert cycle count for request2 after locking, before fulfillment
+    let request2_digest = request2.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap();
+    let program_cycles2 = 100_000_000; // 100M cycles
+    let total_cycles2 = (program_cycles2 as f64 * 1.0158) as u64;
+    test_db.insert_test_cycle_counts(request2_digest, program_cycles2, total_cycles2).await.unwrap();
 
     let (fill2, root_receipt2, assessor_receipt2) =
-        prover.fulfill(&[(request2.clone(), client_sig2.clone())]).await.unwrap();
+        prover.fulfill(&[(request2.clone(), client_sig2.as_bytes().to_vec().into())]).await.unwrap();
     let order_fulfilled2 =
         OrderFulfilled::new(fill2.clone(), root_receipt2, assessor_receipt2).unwrap();
     ctx.prover_market
@@ -859,36 +908,12 @@ async fn test_aggregation_across_hours() {
     assert_eq!(total_locked, 2, "Expected 2 locked requests");
     assert_eq!(total_slashed, 0, "Expected 0 slashed requests");
 
-    //debug by printing proof_request table
-    let request_statuses =
-        sqlx::query("SELECT * FROM request_status").fetch_all(&pool).await.unwrap();
-    for request_status_row in request_statuses {
-        let request_status = db.row_to_request_status(&request_status_row).unwrap();
-        tracing::info!(
-            "Request status: request_digest: {}, request_id: {}, request_status: {}, source: {}, client_address: {}, locked_at: {:?}, lock_block: {:?}, lock_tx_hash: {:?}, lock_prover_address: {:?}, fulfilled_at: {:?}, fulfill_block: {:?}, fulfill_tx_hash: {:?}, fulfill_prover_address: {:?}",
-            request_status.request_digest,
-            request_status.request_id,
-            request_status.request_status,
-            request_status.source,
-            request_status.client_address,
-            request_status.locked_at,
-            request_status.lock_block,
-            request_status.lock_tx_hash,
-            request_status.lock_prover_address,
-            request_status.fulfilled_at,
-            request_status.fulfill_block,
-            request_status.fulfill_tx_hash,
-            request_status.fulfill_prover_address,
-        );
-    }
-
     // Verify new expiration and fulfillment fields across all hours
     let total_expired: u64 = summaries.iter().map(|s| s.total_expired).sum();
     let total_locked_and_expired: u64 = summaries.iter().map(|s| s.total_locked_and_expired).sum();
     let total_locked_and_fulfilled: u64 =
         summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
 
-    tracing::info!("Summaries: {:?}", summaries);
     assert_eq!(total_expired, 0, "Expected 0 expired requests (both were fulfilled)");
     assert_eq!(total_locked_and_expired, 0, "Expected 0 locked and expired requests");
     assert_eq!(total_locked_and_fulfilled, 2, "Expected 2 locked and fulfilled requests");
@@ -934,12 +959,366 @@ async fn test_aggregation_across_hours() {
         );
 
         assert_ne!(
-            summary.p50_fees_locked.trim_start_matches('0'),
+            summary.p50_lock_price_per_cycle.trim_start_matches('0'),
             "",
-            "Expected non-zero p50_fees_locked for period with {} fulfilled requests",
+            "Expected non-zero p50_lock_price_per_cycle for period with {} fulfilled requests",
             summary.total_fulfilled
         );
     }
+
+    // Verify cycle count aggregations - both total across hours and per-hour values
+    let total_cycles_across_hours: u64 = summaries.iter().map(|s| s.total_cycles).sum();
+    let total_program_cycles_across_hours: u64 = summaries.iter().map(|s| s.total_program_cycles).sum();
+
+    let expected_total_cycles = total_cycles1 + total_cycles2;
+    let expected_total_program_cycles = program_cycles1 + program_cycles2;
+
+    assert_eq!(
+        total_cycles_across_hours, expected_total_cycles,
+        "Expected total_cycles to equal {} + {} = {}, got {}",
+        total_cycles1, total_cycles2, expected_total_cycles, total_cycles_across_hours
+    );
+
+    assert_eq!(
+        total_program_cycles_across_hours, expected_total_program_cycles,
+        "Expected total_program_cycles to equal {} + {} = {}, got {}",
+        program_cycles1, program_cycles2, expected_total_program_cycles, total_program_cycles_across_hours
+    );
+
+    // Verify each hour has the correct cycle counts for its specific request
+    let hours_with_fulfilled: Vec<_> = summaries.iter().filter(|s| s.total_fulfilled > 0).collect();
+    assert_eq!(hours_with_fulfilled.len(), 2, "Expected exactly 2 hours with fulfilled requests");
+
+    // First fulfilled hour should have request1's cycles
+    assert_eq!(
+        hours_with_fulfilled[0].total_program_cycles, program_cycles1,
+        "Expected first hour to have {} program cycles (request1), got {}",
+        program_cycles1, hours_with_fulfilled[0].total_program_cycles
+    );
+    assert_eq!(
+        hours_with_fulfilled[0].total_cycles, total_cycles1,
+        "Expected first hour to have {} total cycles (request1), got {}",
+        total_cycles1, hours_with_fulfilled[0].total_cycles
+    );
+
+    // Second fulfilled hour should have request2's cycles
+    assert_eq!(
+        hours_with_fulfilled[1].total_program_cycles, program_cycles2,
+        "Expected second hour to have {} program cycles (request2), got {}",
+        program_cycles2, hours_with_fulfilled[1].total_program_cycles
+    );
+    assert_eq!(
+        hours_with_fulfilled[1].total_cycles, total_cycles2,
+        "Expected second hour to have {} total cycles (request2), got {}",
+        total_cycles2, hours_with_fulfilled[1].total_cycles
+    );
+
+    // Verify p50_lock_price_per_cycle calculation
+    // Since rampUpStart is (now - 3) and rampUpPeriod is 1, by the time requests are locked
+    // the ramp-up is complete and lock_price = maxPrice = 1 ETH
+    // Therefore: p50_lock_price_per_cycle = lock_price / program_cycles
+    //   Request 1: 10^18 / 50,000,000 = 20,000,000,000
+    //   Request 2: 10^18 / 100,000,000 = 10,000,000,000
+
+    let expected_p50_request1 = U256::from(one_eth) / U256::from(program_cycles1);
+    let expected_p50_request2 = U256::from(one_eth) / U256::from(program_cycles2);
+
+    // First fulfilled hour should have request1's p50
+    let p50_hour1: U256 = hours_with_fulfilled[0].p50_lock_price_per_cycle.trim_start_matches('0')
+        .parse()
+        .expect("Failed to parse p50_lock_price_per_cycle");
+    assert_eq!(
+        p50_hour1, expected_p50_request1,
+        "Expected first hour p50_lock_price_per_cycle to be {} (1 ETH / {} cycles), got {}",
+        expected_p50_request1, program_cycles1, p50_hour1
+    );
+
+    // Second fulfilled hour should have request2's p50
+    let p50_hour2: U256 = hours_with_fulfilled[1].p50_lock_price_per_cycle.trim_start_matches('0')
+        .parse()
+        .expect("Failed to parse p50_lock_price_per_cycle");
+    assert_eq!(
+        p50_hour2, expected_p50_request2,
+        "Expected second hour p50_lock_price_per_cycle to be {} (1 ETH / {} cycles), got {}",
+        expected_p50_request2, program_cycles2, p50_hour2
+    );
+
+    tracing::info!(
+        "Hour 1 p50: {} (expected {}), Hour 2 p50: {} (expected {})",
+        p50_hour1, expected_p50_request1, p50_hour2, expected_p50_request2
+    );
+
+    cli_process.kill().unwrap();
+}
+
+#[tokio::test]
+#[traced_test]
+#[ignore = "Slow without RISC0_DEV_MODE=1"]
+async fn test_aggregation_percentiles() {
+    // Test multiple requests with different prices to validate percentile calculations
+    // Creates 10 requests with prices from 0.1 ETH to 1.0 ETH
+    // All requests use 100M cycles for simplicity
+
+    // Create a persistent database similar to test_aggregation_across_hours
+    let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+    let db_filename = format!("test_percentiles_debug_{}.db", timestamp);
+    let db_path = std::path::Path::new("/tmp").join(&db_filename);
+    std::fs::File::create(&db_path).unwrap();
+    let db_url = format!("sqlite:{}", db_path.display());
+
+    tracing::info!("Creating test database at: {}", db_path.display());
+
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::AnyPool::connect(&db_url).await.unwrap();
+    let db = Arc::new(boundless_indexer::db::AnyDb::new(&db_url).await.unwrap());
+
+    let anvil = Anvil::new().spawn();
+    let rpc_url = anvil.endpoint_url();
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+
+    // Start indexer CLI
+    let cmd = AssertCommand::cargo_bin("market-indexer")
+        .expect("market-indexer binary not found");
+    let exe_path = cmd.get_program().to_string_lossy().to_string();
+    let args = [
+        "--rpc-url",
+        rpc_url.as_str(),
+        "--boundless-market-address",
+        &ctx.deployment.boundless_market_address.to_string(),
+        "--db",
+        &db_url,
+        "--interval",
+        "1",
+        "--retries",
+        "1",
+    ];
+
+    let mut cli_process = Command::new(&exe_path)
+        .args(&args)
+        .spawn()
+        .expect("Failed to start market-indexer");
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let prover = DefaultProver::new(
+        SET_BUILDER_ELF.to_vec(),
+        ASSESSOR_GUEST_ELF.to_vec(),
+        ctx.prover_signer.address(),
+        ctx.customer_market.eip712_domain().await.unwrap(),
+    )
+    .unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+    // Create 10 requests with different prices (0.1 ETH to 1.0 ETH)
+    // This gives us a good distribution for testing percentiles
+    let num_requests = 10;
+    let base_price = U256::from(100_000_000_000_000_000u128); // 0.1 ETH
+    let cycles_per_request = 100_000_000u64; // 100M cycles for all requests
+    let total_cycles_per_request = (cycles_per_request as f64 * 1.0158) as u64;
+
+    // Deposit enough to cover all requests
+    let total_deposit = U256::from(1_000_000_000_000_000_000u128) * U256::from(num_requests);
+    ctx.customer_market.deposit(total_deposit).await.unwrap();
+
+    let mut expected_prices_per_cycle = Vec::new();
+    let mut request_digests = Vec::new();
+
+    // Create the test DB helper once
+    let test_db_helper = boundless_indexer::test_utils::TestDb {
+        db: db.clone(),
+        db_url: db_url.clone(),
+        pool: pool.clone(),
+        _temp_file: None,
+    };
+
+    for i in 0..num_requests {
+        let request_id = i + 1;
+        let max_price = base_price * U256::from(request_id); // 0.1 ETH, 0.2 ETH, ..., 1.0 ETH
+
+        let request = ProofRequest::new(
+            RequestId::new(ctx.customer_signer.address(), request_id as u32),
+            Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+            format!("file://{ECHO_PATH}"),
+            RequestInput::builder().build_inline().unwrap(),
+            Offer {
+                minPrice: max_price,
+                maxPrice: max_price,
+                rampUpStart: now - 3,
+                timeout: 300,
+                rampUpPeriod: 1,
+                lockTimeout: 300,
+                lockCollateral: U256::from(0),
+            },
+        );
+
+        let client_sig = request.sign_request(&ctx.customer_signer, ctx.deployment.boundless_market_address, anvil.chain_id()).await.unwrap();
+
+        ctx.customer_market
+            .submit_request_with_signature(&request, client_sig.as_bytes())
+            .await
+            .unwrap();
+        
+        // Now lock the request - the status service will find the cycle counts and compute lock_price_per_cycle
+        ctx.prover_market.lock_request(&request, client_sig.as_bytes(), None).await.unwrap();
+
+        let digest = request.signing_hash(ctx.deployment.boundless_market_address, anvil.chain_id()).unwrap();
+        test_db_helper.insert_test_cycle_counts(digest, cycles_per_request, total_cycles_per_request).await.unwrap();
+
+        // Calculate expected price per cycle: max_price / cycles
+        let expected_price_per_cycle = max_price / U256::from(cycles_per_request);
+        expected_prices_per_cycle.push(expected_price_per_cycle);
+
+        // Store for fulfillment
+        request_digests.push((request.clone(), client_sig, digest));
+    }
+
+    // Fulfill all requests
+    let fulfillment_requests: Vec<_> = request_digests.iter()
+        .map(|(req, sig, _)| (req.clone(), sig.as_bytes().to_vec().into()))
+        .collect();
+
+    for chunk in fulfillment_requests.chunks(5) {
+        let (fill, root_receipt, assessor_receipt) = prover.fulfill(chunk).await.unwrap();
+        let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+        ctx.prover_market
+            .fulfill(
+                FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                    .with_submit_root(
+                        ctx.deployment.set_verifier_address,
+                        order_fulfilled.root,
+                        order_fulfilled.seal,
+                    )
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+
+    // Wait for indexer to process all fulfillments
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    // Query hourly summaries using the helper function
+    let summaries = get_all_hourly_summaries_asc(&pool).await;
+
+    tracing::info!("Retrieved {} hourly summaries", summaries.len());
+
+    // Find the hour with all fulfilled requests
+    let fulfilled_summary = summaries.iter()
+        .find(|s| s.total_fulfilled == num_requests as u64)
+        .expect("Should have exactly one hour with all 10 fulfilled requests");
+
+    tracing::info!(
+        "Found hour with {} fulfilled requests: p10={}, p25={}, p50={}, p75={}, p90={}, p95={}, p99={}",
+        fulfilled_summary.total_fulfilled,
+        fulfilled_summary.p10_lock_price_per_cycle,
+        fulfilled_summary.p25_lock_price_per_cycle,
+        fulfilled_summary.p50_lock_price_per_cycle,
+        fulfilled_summary.p75_lock_price_per_cycle,
+        fulfilled_summary.p90_lock_price_per_cycle,
+        fulfilled_summary.p95_lock_price_per_cycle,
+        fulfilled_summary.p99_lock_price_per_cycle
+    );
+
+    // Sort expected prices to calculate percentiles
+    expected_prices_per_cycle.sort();
+
+    tracing::info!("Expected prices per cycle (sorted): {:?}", expected_prices_per_cycle);
+
+    // Query the database to see what lock_price_per_cycle values are stored
+    let stored_prices: Vec<String> = sqlx::query_scalar(
+        "SELECT lock_price_per_cycle FROM request_status WHERE lock_price_per_cycle IS NOT NULL ORDER BY lock_price_per_cycle ASC"
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    tracing::info!("Stored lock_price_per_cycle values from DB: {:?}", stored_prices);
+
+    // Helper function to calculate percentile with linear interpolation
+    // This matches the algorithm used by the aggregation service
+    fn percentile_interpolate(values: &[U256], p: f64) -> U256 {
+        let n = values.len();
+        if n == 0 {
+            return U256::ZERO;
+        }
+        if n == 1 {
+            return values[0];
+        }
+
+        // Calculate position: p * (n - 1)
+        let pos = p * ((n - 1) as f64);
+        let lower_idx = pos.floor() as usize;
+        let upper_idx = (lower_idx + 1).min(n - 1);
+        let fraction = pos - (lower_idx as f64);
+
+        // Linear interpolation
+        let lower_val = values[lower_idx];
+        let upper_val = values[upper_idx];
+
+        if fraction == 0.0 {
+            lower_val
+        } else {
+            let diff = upper_val - lower_val;
+            lower_val + U256::from((diff.as_limbs()[0] as f64 * fraction) as u64)
+        }
+    }
+
+    // Calculate expected percentiles using interpolation
+    let expected_p10 = percentile_interpolate(&expected_prices_per_cycle, 0.10);
+    let expected_p25 = percentile_interpolate(&expected_prices_per_cycle, 0.25);
+    let expected_p50 = percentile_interpolate(&expected_prices_per_cycle, 0.50);
+    let expected_p75 = percentile_interpolate(&expected_prices_per_cycle, 0.75);
+    let expected_p90 = percentile_interpolate(&expected_prices_per_cycle, 0.90);
+    let expected_p95 = percentile_interpolate(&expected_prices_per_cycle, 0.95);
+    let expected_p99 = percentile_interpolate(&expected_prices_per_cycle, 0.99);
+
+    tracing::info!(
+        "Expected percentiles: p10={}, p25={}, p50={}, p75={}, p90={}, p95={}, p99={}",
+        expected_p10, expected_p25, expected_p50, expected_p75, expected_p90, expected_p95, expected_p99
+    );
+
+    // Parse actual values from database
+    let actual_p10: U256 = fulfilled_summary.p10_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+    let actual_p25: U256 = fulfilled_summary.p25_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+    let actual_p50: U256 = fulfilled_summary.p50_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+    let actual_p75: U256 = fulfilled_summary.p75_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+    let actual_p90: U256 = fulfilled_summary.p90_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+    let actual_p95: U256 = fulfilled_summary.p95_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+    let actual_p99: U256 = fulfilled_summary.p99_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+
+    // Assert all percentiles match (allow for small rounding differences < 1000 wei due to floating point math)
+    fn assert_approx_eq(actual: U256, expected: U256, name: &str) {
+        let diff = if actual > expected {
+            actual - expected
+        } else {
+            expected - actual
+        };
+        assert!(
+            diff < U256::from(1000),
+            "{} mismatch: expected {}, got {} (diff: {})",
+            name, expected, actual, diff
+        );
+    }
+
+    assert_approx_eq(actual_p10, expected_p10, "p10");
+    assert_approx_eq(actual_p25, expected_p25, "p25");
+    assert_approx_eq(actual_p50, expected_p50, "p50");
+    assert_approx_eq(actual_p75, expected_p75, "p75");
+    assert_approx_eq(actual_p90, expected_p90, "p90");
+    assert_approx_eq(actual_p95, expected_p95, "p95");
+    assert_approx_eq(actual_p99, expected_p99, "p99");
+
+    // Verify total cycles
+    let expected_total_cycles = total_cycles_per_request * num_requests as u64;
+    assert_eq!(
+        fulfilled_summary.total_cycles, expected_total_cycles,
+        "Total cycles should be {} * {} = {}",
+        total_cycles_per_request, num_requests, expected_total_cycles
+    );
+
+    tracing::info!(
+        "All percentiles match! p10={}, p25={}, p50={}, p75={}, p90={}, p95={}, p99={}",
+        expected_p10, expected_p25, expected_p50, expected_p75, expected_p90, expected_p95, expected_p99
+    );
 
     cli_process.kill().unwrap();
 }

@@ -126,7 +126,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub(super) async fn process_cycle_counts(
+    pub(super) async fn request_cycle_counts(
         &mut self,
         request_digests: HashSet<B256>,
     ) -> Result<(), ServiceError> {

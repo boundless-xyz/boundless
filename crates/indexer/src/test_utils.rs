@@ -14,7 +14,8 @@
 
 use std::sync::Arc;
 
-use crate::db::{AnyDb, DbError, DbObj};
+use crate::db::{market::{CycleCount, IndexerDb}, AnyDb, DbError, DbObj};
+use alloy::primitives::B256;
 use sqlx::any::install_default_drivers;
 use sqlx::AnyPool;
 use tempfile::NamedTempFile;
@@ -23,7 +24,7 @@ pub struct TestDb {
     pub db: Arc<AnyDb>,
     pub db_url: String,
     pub pool: AnyPool,
-    _temp_file: Option<NamedTempFile>,
+    pub _temp_file: Option<NamedTempFile>,
 }
 
 impl TestDb {
@@ -97,5 +98,30 @@ impl TestDb {
             }
         }
         Ok(())
+    }
+
+    /// Helper for tests to manually insert cycle counts for non-hardcoded requestors.
+    /// This allows testing cycle aggregations and lock_price_per_cycle percentiles.
+    pub async fn insert_test_cycle_counts(
+        &self,
+        request_digest: B256,
+        program_cycles: u64,
+        total_cycles: u64,
+    ) -> Result<(), DbError> {
+        let current_timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let cycle_count = CycleCount {
+            request_digest,
+            cycle_status: "COMPLETED".to_string(),
+            program_cycles: Some(program_cycles),
+            total_cycles: Some(total_cycles),
+            created_at: current_timestamp,
+            updated_at: current_timestamp,
+        };
+
+        self.db.insert_cycle_counts_batch(&[cycle_count]).await
     }
 }

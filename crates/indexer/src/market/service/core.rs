@@ -172,12 +172,17 @@ where
         let callback_failed_digests = self.process_callback_failed_events(&logs).await?;
         let slashed_events_digests = self.process_slashed_events(&logs).await?;
 
-        // Process cycle counts for locked and proof fulfilled requests
+        // Request cycle counts for locked and proof fulfilled requests
         // We include fulfilled as it possible to fulfill a request without first locking it.
         let mut cycle_count_requests = HashSet::new();
         cycle_count_requests.extend(locked_events_digests.clone());
         cycle_count_requests.extend(fulfilled_events_digests.clone());
-        self.process_cycle_counts(cycle_count_requests).await?;
+        self.request_cycle_counts(cycle_count_requests).await?;
+
+        // Collect request digests that have been updated in the current block range with cycle count data.
+        // TODO:
+
+        
 
         // Process deposit/withdrawal events. These don't cause request statuses to be updated, so we don't
         // need to track them as touched requests.

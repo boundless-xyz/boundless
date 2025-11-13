@@ -16,9 +16,11 @@ use super::IndexerService;
 use crate::db::market::{RequestStatusType, SlashedStatus};
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::B256;
+use alloy::primitives::{B256, U256};
 use alloy::providers::Provider;
+use boundless_market::contracts::pricing::price_at_time;
 use std::collections::HashSet;
+use std::str::FromStr;
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -59,6 +61,42 @@ where
             .max()
             .unwrap_or(req.created_at);
 
+        let (lock_price, lock_price_per_cycle) = if let Some(locked_at) = req.locked_at {
+            let min_price = U256::from_str(&req.min_price).ok();
+            let max_price = U256::from_str(&req.max_price).ok();
+
+            if let (Some(min_price), Some(max_price)) = (min_price, max_price) {
+                let lock_timeout = req.lock_end.saturating_sub(req.ramp_up_start);
+                let lock_price_u256 = price_at_time(
+                    min_price,
+                    max_price,
+                    req.ramp_up_start,
+                    req.ramp_up_period as u32,
+                    lock_timeout as u32,
+                    locked_at,
+                );
+
+                let lock_price_str = format!("{:0>78}", lock_price_u256.to_string());
+
+                let lock_price_per_cycle_str = if let Some(program_cycles) = req.program_cycles {
+                    if program_cycles > 0 {
+                        let price_per_cycle = lock_price_u256 / U256::from(program_cycles);
+                        Some(format!("{:0>78}", price_per_cycle.to_string()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                (Some(lock_price_str), lock_price_per_cycle_str)
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
         RequestStatus {
             request_digest: req.request_digest,
             request_id: req.request_id,
@@ -92,6 +130,8 @@ where
             peak_prove_mhz: req.peak_prove_mhz,
             effective_prove_mhz: req.effective_prove_mhz,
             cycle_status: req.cycle_status,
+            lock_price,
+            lock_price_per_cycle,
             submit_tx_hash: req.submit_tx_hash,
             lock_tx_hash: req.lock_tx_hash,
             fulfill_tx_hash: req.fulfill_tx_hash,

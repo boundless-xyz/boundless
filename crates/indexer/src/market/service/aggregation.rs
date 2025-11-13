@@ -290,40 +290,50 @@ where
             }
         };
 
-        // Compute fees and percentiles from fulfilled requests only
+        // Compute fees and per-cycle pricing percentiles from fulfilled requests only
         // (where lock_prover_address == fulfill_prover_address)
         let mut total_fees = U256::ZERO;
-        let mut prices: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
+        let mut prices_per_cycle: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
 
         for lock in locks {
-            let min_price = U256::from_str(&lock.min_price)
-                .map_err(|e| ServiceError::Error(anyhow!("Failed to parse min_price: {}", e)))?;
-            let max_price = U256::from_str(&lock.max_price)
-                .map_err(|e| ServiceError::Error(anyhow!("Failed to parse max_price: {}", e)))?;
+            // Use precomputed lock_price if available, otherwise compute it
+            let price = if let Some(lock_price_str) = &lock.lock_price {
+                U256::from_str(lock_price_str)
+                    .map_err(|e| ServiceError::Error(anyhow!("Failed to parse lock_price: {}", e)))?
+            } else {
+                let min_price = U256::from_str(&lock.min_price)
+                    .map_err(|e| ServiceError::Error(anyhow!("Failed to parse min_price: {}", e)))?;
+                let max_price = U256::from_str(&lock.max_price)
+                    .map_err(|e| ServiceError::Error(anyhow!("Failed to parse max_price: {}", e)))?;
 
-            // Compute lock_timeout from lock_end and bidding_start
-            // Use saturating conversion to handle edge case where timeout exceeds u32::MAX
-            let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.bidding_start);
-            let lock_timeout = u32::try_from(lock_timeout_u64).unwrap_or_else(|_| {
-                tracing::warn!(
-                    "Lock timeout {} exceeds u32::MAX for request, using u32::MAX as fallback",
-                    lock_timeout_u64
-                );
-                u32::MAX
-            });
+                // Compute lock_timeout from lock_end and bidding_start
+                let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.bidding_start);
+                let lock_timeout = u32::try_from(lock_timeout_u64).unwrap_or_else(|_| {
+                    tracing::warn!(
+                        "Lock timeout {} exceeds u32::MAX for request, using u32::MAX as fallback",
+                        lock_timeout_u64
+                    );
+                    u32::MAX
+                });
 
-            // Compute price at lock time
-            let price = price_at_time(
-                min_price,
-                max_price,
-                lock.bidding_start,
-                lock.ramp_up_period,
-                lock_timeout,
-                lock.lock_timestamp,
-            );
+                price_at_time(
+                    min_price,
+                    max_price,
+                    lock.bidding_start,
+                    lock.ramp_up_period,
+                    lock_timeout,
+                    lock.lock_timestamp,
+                )
+            };
 
             total_fees += price;
-            prices.push(price);
+
+            // Use precomputed lock_price_per_cycle if available
+            if let Some(price_per_cycle_str) = &lock.lock_price_per_cycle {
+                if let Ok(price_per_cycle) = U256::from_str(price_per_cycle_str) {
+                    prices_per_cycle.push(price_per_cycle);
+                }
+            }
         }
 
         // Compute total collateral from all locked requests (regardless of fulfillment)
@@ -336,8 +346,8 @@ where
         }
 
         // Compute percentiles: p10, p25, p50, p75, p90, p95, p99
-        let percentiles = if !prices.is_empty() {
-            let mut sorted_prices = prices;
+        let percentiles = if !prices_per_cycle.is_empty() {
+            let mut sorted_prices = prices_per_cycle;
             compute_percentiles(&mut sorted_prices, &[10, 25, 50, 75, 90, 95, 99])
         } else {
             vec![U256::ZERO; 7]
@@ -363,13 +373,13 @@ where
             unique_requesters_submitting_requests: unique_requesters,
             total_fees_locked: format_u256(total_fees),
             total_collateral_locked: format_u256(total_collateral),
-            p10_fees_locked: format_u256(percentiles[0]),
-            p25_fees_locked: format_u256(percentiles[1]),
-            p50_fees_locked: format_u256(percentiles[2]),
-            p75_fees_locked: format_u256(percentiles[3]),
-            p90_fees_locked: format_u256(percentiles[4]),
-            p95_fees_locked: format_u256(percentiles[5]),
-            p99_fees_locked: format_u256(percentiles[6]),
+            p10_lock_price_per_cycle: format_u256(percentiles[0]),
+            p25_lock_price_per_cycle: format_u256(percentiles[1]),
+            p50_lock_price_per_cycle: format_u256(percentiles[2]),
+            p75_lock_price_per_cycle: format_u256(percentiles[3]),
+            p90_lock_price_per_cycle: format_u256(percentiles[4]),
+            p95_lock_price_per_cycle: format_u256(percentiles[5]),
+            p99_lock_price_per_cycle: format_u256(percentiles[6]),
             total_requests_submitted,
             total_requests_submitted_onchain,
             total_requests_submitted_offchain,

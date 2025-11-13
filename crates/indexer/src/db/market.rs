@@ -137,13 +137,13 @@ pub struct PeriodMarketSummary {
     pub unique_requesters_submitting_requests: u64,
     pub total_fees_locked: String,
     pub total_collateral_locked: String,
-    pub p10_fees_locked: String,
-    pub p25_fees_locked: String,
-    pub p50_fees_locked: String,
-    pub p75_fees_locked: String,
-    pub p90_fees_locked: String,
-    pub p95_fees_locked: String,
-    pub p99_fees_locked: String,
+    pub p10_lock_price_per_cycle: String,
+    pub p25_lock_price_per_cycle: String,
+    pub p50_lock_price_per_cycle: String,
+    pub p75_lock_price_per_cycle: String,
+    pub p90_lock_price_per_cycle: String,
+    pub p95_lock_price_per_cycle: String,
+    pub p99_lock_price_per_cycle: String,
     pub total_requests_submitted: u64,
     pub total_requests_submitted_onchain: u64,
     pub total_requests_submitted_offchain: u64,
@@ -203,6 +203,8 @@ pub struct RequestStatus {
     pub peak_prove_mhz: Option<u64>,
     pub effective_prove_mhz: Option<u64>,
     pub cycle_status: Option<String>,
+    pub lock_price: Option<String>,
+    pub lock_price_per_cycle: Option<String>,
     pub submit_tx_hash: Option<B256>,
     pub lock_tx_hash: Option<B256>,
     pub fulfill_tx_hash: Option<B256>,
@@ -282,6 +284,8 @@ pub struct LockPricingData {
     pub lock_end: u64,
     pub lock_collateral: String,
     pub lock_timestamp: u64,
+    pub lock_price: Option<String>,
+    pub lock_price_per_cycle: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -2014,6 +2018,7 @@ impl IndexerDb for AnyDb {
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
                     program_cycles, total_cycles, peak_prove_mhz, effective_prove_mhz, cycle_status,
+                    lock_price, lock_price_per_cycle,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
@@ -2026,7 +2031,7 @@ impl IndexerDb for AnyDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2035,9 +2040,10 @@ impl IndexerDb for AnyDb {
                     params_count + 26, params_count + 27, params_count + 28, params_count + 29, params_count + 30,
                     params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
-                    params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45
+                    params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45,
+                    params_count + 46, params_count + 47
                 ));
-                params_count += 45;
+                params_count += 47;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2063,6 +2069,8 @@ impl IndexerDb for AnyDb {
                     peak_prove_mhz = EXCLUDED.peak_prove_mhz,
                     effective_prove_mhz = EXCLUDED.effective_prove_mhz,
                     cycle_status = EXCLUDED.cycle_status,
+                    lock_price = EXCLUDED.lock_price,
+                    lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
                     fulfill_journal = EXCLUDED.fulfill_journal,
                     fulfill_seal = EXCLUDED.fulfill_seal"
             );
@@ -2102,6 +2110,8 @@ impl IndexerDb for AnyDb {
                     .bind(status.peak_prove_mhz.map(|m| m as i64))
                     .bind(status.effective_prove_mhz.map(|m| m as i64))
                     .bind(&status.cycle_status)
+                    .bind(&status.lock_price)
+                    .bind(&status.lock_price_per_cycle)
                     .bind(status.submit_tx_hash.map(|h| h.to_string()))
                     .bind(status.lock_tx_hash.map(|h| h.to_string()))
                     .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
@@ -2996,7 +3006,9 @@ impl IndexerDb for AnyDb {
                 rs.ramp_up_period,
                 rs.lock_end,
                 rs.lock_collateral,
-                rs.locked_at as lock_timestamp
+                rs.locked_at as lock_timestamp,
+                rs.lock_price,
+                rs.lock_price_per_cycle
              FROM request_status rs
              WHERE rs.fulfilled_at >= $1
                AND rs.fulfilled_at < $2
@@ -3018,6 +3030,8 @@ impl IndexerDb for AnyDb {
             let lock_end: i64 = row.get("lock_end");
             let lock_collateral: String = row.get("lock_collateral");
             let lock_timestamp: i64 = row.get("lock_timestamp");
+            let lock_price: Option<String> = row.try_get("lock_price").ok().flatten();
+            let lock_price_per_cycle: Option<String> = row.try_get("lock_price_per_cycle").ok().flatten();
 
             results.push(LockPricingData {
                 min_price,
@@ -3027,6 +3041,8 @@ impl IndexerDb for AnyDb {
                 lock_end: lock_end as u64,
                 lock_collateral,
                 lock_timestamp: lock_timestamp as u64,
+                lock_price,
+                lock_price_per_cycle,
             });
         }
 
@@ -3237,13 +3253,13 @@ impl AnyDb {
                 unique_requesters_submitting_requests,
                 total_fees_locked,
                 total_collateral_locked,
-                p10_fees_locked,
-                p25_fees_locked,
-                p50_fees_locked,
-                p75_fees_locked,
-                p90_fees_locked,
-                p95_fees_locked,
-                p99_fees_locked,
+                p10_lock_price_per_cycle,
+                p25_lock_price_per_cycle,
+                p50_lock_price_per_cycle,
+                p75_lock_price_per_cycle,
+                p90_lock_price_per_cycle,
+                p95_lock_price_per_cycle,
+                p99_lock_price_per_cycle,
                 total_requests_submitted,
                 total_requests_submitted_onchain,
                 total_requests_submitted_offchain,
@@ -3269,13 +3285,13 @@ impl AnyDb {
                 unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
                 total_fees_locked = EXCLUDED.total_fees_locked,
                 total_collateral_locked = EXCLUDED.total_collateral_locked,
-                p10_fees_locked = EXCLUDED.p10_fees_locked,
-                p25_fees_locked = EXCLUDED.p25_fees_locked,
-                p50_fees_locked = EXCLUDED.p50_fees_locked,
-                p75_fees_locked = EXCLUDED.p75_fees_locked,
-                p90_fees_locked = EXCLUDED.p90_fees_locked,
-                p95_fees_locked = EXCLUDED.p95_fees_locked,
-                p99_fees_locked = EXCLUDED.p99_fees_locked,
+                p10_lock_price_per_cycle = EXCLUDED.p10_lock_price_per_cycle,
+                p25_lock_price_per_cycle = EXCLUDED.p25_lock_price_per_cycle,
+                p50_lock_price_per_cycle = EXCLUDED.p50_lock_price_per_cycle,
+                p75_lock_price_per_cycle = EXCLUDED.p75_lock_price_per_cycle,
+                p90_lock_price_per_cycle = EXCLUDED.p90_lock_price_per_cycle,
+                p95_lock_price_per_cycle = EXCLUDED.p95_lock_price_per_cycle,
+                p99_lock_price_per_cycle = EXCLUDED.p99_lock_price_per_cycle,
                 total_requests_submitted = EXCLUDED.total_requests_submitted,
                 total_requests_submitted_onchain = EXCLUDED.total_requests_submitted_onchain,
                 total_requests_submitted_offchain = EXCLUDED.total_requests_submitted_offchain,
@@ -3304,13 +3320,13 @@ impl AnyDb {
             .bind(summary.unique_requesters_submitting_requests as i64)
             .bind(summary.total_fees_locked)
             .bind(summary.total_collateral_locked)
-            .bind(summary.p10_fees_locked)
-            .bind(summary.p25_fees_locked)
-            .bind(summary.p50_fees_locked)
-            .bind(summary.p75_fees_locked)
-            .bind(summary.p90_fees_locked)
-            .bind(summary.p95_fees_locked)
-            .bind(summary.p99_fees_locked)
+            .bind(summary.p10_lock_price_per_cycle)
+            .bind(summary.p25_lock_price_per_cycle)
+            .bind(summary.p50_lock_price_per_cycle)
+            .bind(summary.p75_lock_price_per_cycle)
+            .bind(summary.p90_lock_price_per_cycle)
+            .bind(summary.p95_lock_price_per_cycle)
+            .bind(summary.p99_lock_price_per_cycle)
             .bind(summary.total_requests_submitted as i64)
             .bind(summary.total_requests_submitted_onchain as i64)
             .bind(summary.total_requests_submitted_offchain as i64)
@@ -3396,13 +3412,13 @@ impl AnyDb {
                 unique_requesters_submitting_requests,
                 total_fees_locked,
                 total_collateral_locked,
-                p10_fees_locked,
-                p25_fees_locked,
-                p50_fees_locked,
-                p75_fees_locked,
-                p90_fees_locked,
-                p95_fees_locked,
-                p99_fees_locked,
+                p10_lock_price_per_cycle,
+                p25_lock_price_per_cycle,
+                p50_lock_price_per_cycle,
+                p75_lock_price_per_cycle,
+                p90_lock_price_per_cycle,
+                p95_lock_price_per_cycle,
+                p99_lock_price_per_cycle,
                 total_requests_submitted,
                 total_requests_submitted_onchain,
                 total_requests_submitted_offchain,
@@ -3459,13 +3475,13 @@ impl AnyDb {
                     as u64,
                 total_fees_locked: row.get("total_fees_locked"),
                 total_collateral_locked: row.get("total_collateral_locked"),
-                p10_fees_locked: row.get("p10_fees_locked"),
-                p25_fees_locked: row.get("p25_fees_locked"),
-                p50_fees_locked: row.get("p50_fees_locked"),
-                p75_fees_locked: row.get("p75_fees_locked"),
-                p90_fees_locked: row.get("p90_fees_locked"),
-                p95_fees_locked: row.get("p95_fees_locked"),
-                p99_fees_locked: row.get("p99_fees_locked"),
+                p10_lock_price_per_cycle: row.get("p10_lock_price_per_cycle"),
+                p25_lock_price_per_cycle: row.get("p25_lock_price_per_cycle"),
+                p50_lock_price_per_cycle: row.get("p50_lock_price_per_cycle"),
+                p75_lock_price_per_cycle: row.get("p75_lock_price_per_cycle"),
+                p90_lock_price_per_cycle: row.get("p90_lock_price_per_cycle"),
+                p95_lock_price_per_cycle: row.get("p95_lock_price_per_cycle"),
+                p99_lock_price_per_cycle: row.get("p99_lock_price_per_cycle"),
                 total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
                 total_requests_submitted_onchain: row
                     .get::<i64, _>("total_requests_submitted_onchain")
@@ -3612,6 +3628,8 @@ impl AnyDb {
                 .flatten()
                 .map(|m| m as u64),
             cycle_status: row.try_get("cycle_status").ok(),
+            lock_price: row.try_get("lock_price").ok(),
+            lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -4069,13 +4087,13 @@ mod tests {
                 unique_requesters_submitting_requests: i * 3,
                 total_fees_locked: format!("{}", i * 1000),
                 total_collateral_locked: format!("{}", i * 2000),
-                p10_fees_locked: format!("{}", i * 100),
-                p25_fees_locked: format!("{}", i * 250),
-                p50_fees_locked: format!("{}", i * 500),
-                p75_fees_locked: format!("{}", i * 750),
-                p90_fees_locked: format!("{}", i * 900),
-                p95_fees_locked: format!("{}", i * 950),
-                p99_fees_locked: format!("{}", i * 990),
+                p10_lock_price_per_cycle: format!("{}", i * 100),
+                p25_lock_price_per_cycle: format!("{}", i * 250),
+                p50_lock_price_per_cycle: format!("{}", i * 500),
+                p75_lock_price_per_cycle: format!("{}", i * 750),
+                p90_lock_price_per_cycle: format!("{}", i * 900),
+                p95_lock_price_per_cycle: format!("{}", i * 950),
+                p99_lock_price_per_cycle: format!("{}", i * 990),
                 total_requests_submitted: i * 10,
                 total_requests_submitted_onchain: i * 6,
                 total_requests_submitted_offchain: i * 4,
@@ -4251,13 +4269,13 @@ mod tests {
                 unique_requesters_submitting_requests: i * 3,
                 total_fees_locked: format!("{}", i * 1000),
                 total_collateral_locked: format!("{}", i * 2000),
-                p10_fees_locked: format!("{}", i * 100),
-                p25_fees_locked: format!("{}", i * 250),
-                p50_fees_locked: format!("{}", i * 500),
-                p75_fees_locked: format!("{}", i * 750),
-                p90_fees_locked: format!("{}", i * 900),
-                p95_fees_locked: format!("{}", i * 950),
-                p99_fees_locked: format!("{}", i * 990),
+                p10_lock_price_per_cycle: format!("{}", i * 100),
+                p25_lock_price_per_cycle: format!("{}", i * 250),
+                p50_lock_price_per_cycle: format!("{}", i * 500),
+                p75_lock_price_per_cycle: format!("{}", i * 750),
+                p90_lock_price_per_cycle: format!("{}", i * 900),
+                p95_lock_price_per_cycle: format!("{}", i * 950),
+                p99_lock_price_per_cycle: format!("{}", i * 990),
                 total_requests_submitted: i * 10,
                 total_requests_submitted_onchain: i * 6,
                 total_requests_submitted_offchain: i * 4,
@@ -4306,13 +4324,13 @@ mod tests {
                 unique_requesters_submitting_requests: i * 30,
                 total_fees_locked: format!("{}", i * 10000),
                 total_collateral_locked: format!("{}", i * 20000),
-                p10_fees_locked: format!("{}", i * 1000),
-                p25_fees_locked: format!("{}", i * 2500),
-                p50_fees_locked: format!("{}", i * 5000),
-                p75_fees_locked: format!("{}", i * 7500),
-                p90_fees_locked: format!("{}", i * 9000),
-                p95_fees_locked: format!("{}", i * 9500),
-                p99_fees_locked: format!("{}", i * 9900),
+                p10_lock_price_per_cycle: format!("{}", i * 1000),
+                p25_lock_price_per_cycle: format!("{}", i * 2500),
+                p50_lock_price_per_cycle: format!("{}", i * 5000),
+                p75_lock_price_per_cycle: format!("{}", i * 7500),
+                p90_lock_price_per_cycle: format!("{}", i * 9000),
+                p95_lock_price_per_cycle: format!("{}", i * 9500),
+                p99_lock_price_per_cycle: format!("{}", i * 9900),
                 total_requests_submitted: i * 100,
                 total_requests_submitted_onchain: i * 60,
                 total_requests_submitted_offchain: i * 40,
@@ -4365,13 +4383,13 @@ mod tests {
                 unique_requesters_submitting_requests: i * 300,
                 total_fees_locked: format!("{}", i * 100000),
                 total_collateral_locked: format!("{}", i * 200000),
-                p10_fees_locked: format!("{}", i * 10000),
-                p25_fees_locked: format!("{}", i * 25000),
-                p50_fees_locked: format!("{}", i * 50000),
-                p75_fees_locked: format!("{}", i * 75000),
-                p90_fees_locked: format!("{}", i * 90000),
-                p95_fees_locked: format!("{}", i * 95000),
-                p99_fees_locked: format!("{}", i * 99000),
+                p10_lock_price_per_cycle: format!("{}", i * 10000),
+                p25_lock_price_per_cycle: format!("{}", i * 25000),
+                p50_lock_price_per_cycle: format!("{}", i * 50000),
+                p75_lock_price_per_cycle: format!("{}", i * 75000),
+                p90_lock_price_per_cycle: format!("{}", i * 90000),
+                p95_lock_price_per_cycle: format!("{}", i * 95000),
+                p99_lock_price_per_cycle: format!("{}", i * 99000),
                 total_requests_submitted: i * 1000,
                 total_requests_submitted_onchain: i * 600,
                 total_requests_submitted_offchain: i * 400,
@@ -4423,13 +4441,13 @@ mod tests {
                 unique_requesters_submitting_requests: i * 3,
                 total_fees_locked: format!("{}", i * 1000),
                 total_collateral_locked: format!("{}", i * 2000),
-                p10_fees_locked: format!("{}", i * 100),
-                p25_fees_locked: format!("{}", i * 250),
-                p50_fees_locked: format!("{}", i * 500),
-                p75_fees_locked: format!("{}", i * 750),
-                p90_fees_locked: format!("{}", i * 900),
-                p95_fees_locked: format!("{}", i * 950),
-                p99_fees_locked: format!("{}", i * 990),
+                p10_lock_price_per_cycle: format!("{}", i * 100),
+                p25_lock_price_per_cycle: format!("{}", i * 250),
+                p50_lock_price_per_cycle: format!("{}", i * 500),
+                p75_lock_price_per_cycle: format!("{}", i * 750),
+                p90_lock_price_per_cycle: format!("{}", i * 900),
+                p95_lock_price_per_cycle: format!("{}", i * 950),
+                p99_lock_price_per_cycle: format!("{}", i * 990),
                 total_requests_submitted: i * 10,
                 total_requests_submitted_onchain: i * 6,
                 total_requests_submitted_offchain: i * 4,
@@ -4564,6 +4582,8 @@ mod tests {
             peak_prove_mhz: None,
             effective_prove_mhz: None,
             cycle_status: None,
+            lock_price: None,
+            lock_price_per_cycle: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
