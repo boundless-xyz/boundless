@@ -26,31 +26,35 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
 
     let (snark_receipt, bucket_dir) = match req.compress_type {
         CompressType::None => bail!("Cannot convert to snark with no compression"),
-        CompressType::Groth16 => (
-            agent
+        CompressType::Groth16 => {
+            let groth16_receipt = agent
                 .prover
                 .as_ref()
                 .context("Missing prover from resolve task")?
                 .compress(&ProverOpts::groth16(), &receipt)
-                .context("groth16 compress failed")?,
-            GROTH16_BUCKET_DIR,
-        ),
-        CompressType::Blake3Groth16 => (
-            blake3_groth16::compress_blake3_groth16(&receipt)
+                .context("groth16 compress failed")?;
+
+            groth16_receipt
+                .verify_integrity_with_context(&agent.verifier_ctx)
+                .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
+            (groth16_receipt, GROTH16_BUCKET_DIR)
+        }
+        CompressType::Blake3Groth16 => {
+            let blake3_receipt = blake3_groth16::compress_blake3_groth16(&receipt)
                 .await
-                .context("blake3 groth16 compress failed")?,
-            BLAKE3_GROTH16_BUCKET_DIR,
-        ),
+                .context("blake3 groth16 compress failed")?;
+            blake3_receipt
+                .verify_integrity()
+                .context("[BENTO-SNARK-007] Failed to verify blake3 snark receipt")?;
+            let snark_receipt: Receipt = blake3_receipt.into();
+            (snark_receipt, BLAKE3_GROTH16_BUCKET_DIR)
+        }
     };
     if !matches!(snark_receipt.inner, InnerReceipt::Groth16(_)) {
         bail!("[BENTO-SNARK-004] failed to create groth16 receipt");
     }
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{bucket_dir}/{job_id}.bincode");
-    // TODO(ec2): fixme
-    // receipt
-    //     .verify_integrity_with_context(&agent.verifier_ctx)
-    //     .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
 
     tracing::debug!("Uploading snark receipt to S3: {key}");
 
