@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+pub use receipt::*;
 pub use receipt_claim::*;
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
@@ -12,7 +13,6 @@ mod prove;
 pub mod receipt;
 pub mod receipt_claim;
 pub mod verify;
-use crate::receipt::Blake3Groth16Receipt;
 
 /// Compresses a Receipt into a BLAKE3 Groth16 Receipt.
 pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Receipt> {
@@ -130,7 +130,7 @@ mod tests {
         let groth16_receipt = compress_blake3_groth16(&receipt).await.unwrap();
         let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(ECHO_ID, input.to_vec()).digest();
         let blake3_receipt = Blake3Groth16Receipt::try_from(groth16_receipt).unwrap();
-        assert_eq!(blake3_receipt.claim.digest(), blake3_claim_digest);
+        assert_eq!(blake3_receipt.claim_digest().unwrap(), blake3_claim_digest);
         blake3_receipt.verify(ECHO_ID).expect("verification failed");
     }
 }
