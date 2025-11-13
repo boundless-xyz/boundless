@@ -495,7 +495,7 @@ pub struct RequestListParams {
     #[serde(default)]
     limit: Option<u32>,
 
-    /// Sort field: "updated_at" or "created_at" (default "updated_at")
+    /// Sort field: "updated_at" or "created_at" (default "created_at")
     #[serde(default)]
     sort_by: Option<String>,
 }
@@ -567,6 +567,14 @@ pub struct RequestStatusResponse {
     pub lock_collateral: String,
     /// Lock collateral (formatted)
     pub lock_collateral_formatted: String,
+    /// Lock price (wei)
+    pub lock_price: Option<String>,
+    /// Lock price (formatted)
+    pub lock_price_formatted: Option<String>,
+    /// Lock price per cycle (wei)
+    pub lock_price_per_cycle: Option<String>,
+    /// Lock price per cycle (formatted)
+    pub lock_price_per_cycle_formatted: Option<String>,
     /// Ramp up start timestamp
     pub ramp_up_start: i64,
     /// Ramp up start timestamp (ISO 8601)
@@ -646,7 +654,7 @@ fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
 
     RequestStatusResponse {
         request_digest: format!("{:#x}", status.request_digest),
-        request_id: status.request_id.clone(),
+        request_id: format!("0x{}", status.request_id),
         request_status: status.request_status.to_string(),
         source: status.source,
         client_address: format!("{:#x}", status.client_address),
@@ -672,6 +680,10 @@ fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
         max_price_formatted: format_eth(&status.max_price),
         lock_collateral: status.lock_collateral.clone(),
         lock_collateral_formatted: format_zkc(&status.lock_collateral),
+        lock_price: status.lock_price.clone(),
+        lock_price_formatted: status.lock_price.as_ref().map(|p| format_eth(p)),
+        lock_price_per_cycle: status.lock_price_per_cycle.clone(),
+        lock_price_per_cycle_formatted: status.lock_price_per_cycle.as_ref().map(|p| format_eth(p)),
         ramp_up_start,
         ramp_up_start_iso: format_timestamp_iso(ramp_up_start),
         ramp_up_period: status.ramp_up_period as i64,
@@ -744,8 +756,8 @@ async fn list_requests_impl(
     let limit = params.limit.unwrap_or(DEFAULT_REQUESTS_LIMIT).min(MAX_REQUESTS);
 
     let sort_by = match params.sort_by.as_deref() {
-        Some("created_at") => RequestSortField::CreatedAt,
-        Some("updated_at") | None => RequestSortField::UpdatedAt,
+        Some("updated_at") => RequestSortField::UpdatedAt,
+        Some("created_at") | None => RequestSortField::CreatedAt,
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
@@ -809,8 +821,8 @@ async fn list_requests_by_requestor_impl(
     let limit = params.limit.unwrap_or(DEFAULT_REQUESTS_LIMIT).min(MAX_REQUESTS);
 
     let sort_by = match params.sort_by.as_deref() {
-        Some("created_at") => RequestSortField::CreatedAt,
-        Some("updated_at") | None => RequestSortField::UpdatedAt,
+        Some("updated_at") => RequestSortField::UpdatedAt,
+        Some("created_at") | None => RequestSortField::CreatedAt,
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
@@ -877,8 +889,8 @@ async fn list_requests_by_prover_impl(
     let limit = params.limit.unwrap_or(DEFAULT_REQUESTS_LIMIT).min(MAX_REQUESTS);
 
     let sort_by = match params.sort_by.as_deref() {
-        Some("created_at") => RequestSortField::CreatedAt,
-        Some("updated_at") | None => RequestSortField::UpdatedAt,
+        Some("updated_at") => RequestSortField::UpdatedAt,
+        Some("created_at") | None => RequestSortField::CreatedAt,
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 

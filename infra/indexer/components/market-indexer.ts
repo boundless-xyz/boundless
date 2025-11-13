@@ -141,8 +141,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
         container: {
           name: `${serviceName}-market-${infra.databaseVersion}`,
           image: marketImage.ref,
-          cpu: 1024,
-          memory: 512,
+          cpu: 2048,
+          memory: 2048,
           essential: true,
           linuxParameters: {
             initProcessEnabled: true,

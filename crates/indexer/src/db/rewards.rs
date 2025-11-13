@@ -479,7 +479,7 @@ pub struct RewardsDb {
 impl RewardsDb {
     pub async fn new(database_url: &str) -> Result<Self, DbError> {
         sqlx::any::install_default_drivers();
-        let pool = AnyPoolOptions::new().max_connections(20).connect(database_url).await?;
+        let pool = AnyPoolOptions::new().max_connections(10).connect(database_url).await?;
 
         // Run migrations
         sqlx::migrate!("./migrations").run(&pool).await?;

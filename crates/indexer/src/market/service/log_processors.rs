@@ -110,13 +110,6 @@ where
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
 
-            tracing::debug!(
-                "Processing request submitted event for request: 0x{:x} [block: {}, timestamp: {}]",
-                event.requestId,
-                metadata.block_number,
-                metadata.block_timestamp
-            );
-
             let request = event.request.clone();
 
             let request_digest = request
@@ -126,13 +119,21 @@ where
                     event.requestId
                 ))?;
 
+            tracing::debug!(
+                "Processing request submitted event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]",
+                event.requestId,
+                request_digest,
+                metadata.block_number,
+                metadata.block_timestamp,
+            );
+
             // Collect proof request for batch insert
             proof_requests.push((request_digest, request, metadata, "onchain".to_string(), metadata.block_timestamp));
 
             // Collect event for batch insert
             submitted_events.push((request_digest, event.requestId, metadata));
 
-            tracing::debug!("Adding request_digest to touched_requests: 0x{:x}", request_digest);
+            tracing::debug!("Adding request_digest to touched_requests: 0x{:x} for request: 0x{:x}", request_digest, event.requestId);
             touched_requests.insert(request_digest);
         }
 
@@ -256,7 +257,7 @@ where
                 // tx_hash = B256::ZERO, block_number = 0, block_timestamp = 0, transaction_index = 0
                 let metadata = TxMetadata::new(B256::ZERO, request_id.addr, 0, 0, 0);
 
-                tracing::debug!("Collecting offchain proof request: 0x{:x}", request_digest);
+                tracing::debug!("Processing request submitted offchain event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]", request.id, request_digest, metadata.block_number, metadata.block_timestamp);
 
                 // Collect for batch insert
                 batch_proof_requests.push((request_digest, request.clone(), metadata, "offchain".to_string(), submission_timestamp));
@@ -338,13 +339,7 @@ where
             let event = decoded.inner.data;
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
-            tracing::debug!(
-                "Processing request locked event for request: 0x{:x} [block: {}, timestamp: {}]",
-                event.requestId,
-                metadata.block_number,
-                metadata.block_timestamp
-            );
-
+            
             // Get the request and calculate its digest
             let request = event.request.clone();
             let request_digest = request
@@ -353,6 +348,14 @@ where
                     "Failed to compute request digest for request: 0x{:x}",
                     event.requestId
                 ))?;
+
+            tracing::debug!(
+                "Processing request locked event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]",
+                event.requestId,
+                request_digest,
+                metadata.block_number,
+                metadata.block_timestamp,
+            );
 
             locked_events.push((request_digest, event.requestId, event.prover, metadata));
             touched_requests.insert(request_digest);
@@ -401,16 +404,18 @@ where
                 .log_decode::<IBoundlessMarket::ProofDelivered>()
                 .context("Failed to decode ProofDelivered log")?;
             let event = decoded.inner.data;
+            let request_digest = event.fulfillment.requestDigest;
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
+            
             tracing::debug!(
-                "Processing proof delivered event for request: 0x{:x} [block: {}, timestamp: {}]",
+                "Processing proof delivered event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
+                request_digest,
                 metadata.block_number,
                 metadata.block_timestamp
             );
-
-            let request_digest = event.fulfillment.requestDigest;
+            
             proof_delivered_events.push((request_digest, event.requestId, event.prover, metadata));
 
             // Collect proof for batch insert
@@ -468,9 +473,11 @@ where
             let event = decoded.inner.data;
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
+            
             tracing::debug!(
-                "Processing fulfilled event for request: 0x{:x} [block: {}, timestamp: {}]",
+                "Processing fulfilled event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
+                event.requestDigest,
                 metadata.block_number,
                 metadata.block_timestamp
             );

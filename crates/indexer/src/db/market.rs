@@ -682,7 +682,7 @@ impl AnyDb {
         install_default_drivers(); 
         let opts = AnyConnectOptions::from_str(conn_str)?;
 
-        let pool = AnyPoolOptions::new().max_connections(7).connect_with(opts).await?;
+        let pool = AnyPoolOptions::new().max_connections(10).connect_with(opts).await?;
 
         // apply any migrations
         sqlx::migrate!().run(&pool).await?;

@@ -97,6 +97,8 @@ where
             (None, None)
         };
 
+        tracing::debug!("Computed request status ({}) for request id: {}, digest: 0x{:x} [block: {}, timestamp: {}]", request_status.to_string(), req.request_id, req.request_digest, req.submit_block.unwrap_or(0), req.created_at);
+
         RequestStatus {
             request_digest: req.request_digest,
             request_id: req.request_id,
@@ -201,7 +203,7 @@ where
             request_statuses.len()
         );
         for request_status in request_statuses.clone() {
-            tracing::debug!("Updated request status for request_id: {:?}. New status: {:?}. Locked at: {:?}. Fulfilled at: {:?}. Slashed at: {:?}.", request_status.request_id, request_status.request_status, request_status.locked_at, request_status.fulfilled_at, request_status.slashed_at);
+            tracing::debug!("Updated request status for request_id: {:?}, digest: 0x{:x}. New status: {:?}. Locked at: {:?}. Fulfilled at: {:?}. Slashed at: {:?}.", request_status.request_id, request_status.request_digest, request_status.request_status, request_status.locked_at, request_status.fulfilled_at, request_status.slashed_at);
         }
 
         tracing::info!(
@@ -233,7 +235,7 @@ where
             expired_requests.len()
         );
         tracing::debug!(
-            "Expired requests: {:?}",
+            "Expired requests digests: {:?}",
             expired_requests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
         );
         Ok(expired_requests)

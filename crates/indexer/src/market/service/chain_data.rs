@@ -61,6 +61,8 @@ where
                     );
                 }
             }
+        } else {
+            tracing::debug!("No cache storage configured. Fetching logs from RPC without caching.");
         }
 
         let filter = Filter::new()
@@ -159,6 +161,8 @@ where
                     );
                 }
             }
+        } else {
+            tracing::debug!("No cache storage configured. Fetching tx metadata from RPC without caching.");
         }
 
         // Step 0: Collect unique transaction hashes from all logs

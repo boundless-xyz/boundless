@@ -274,6 +274,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
                 }
             }
         } else {
+            tracing::debug!("No cache storage configured. Using in-memory cache only.");
             None
         };
 

@@ -118,7 +118,7 @@ export class IndexerShared extends pulumi.ComponentResource {
     const rdsUser = 'indexer';
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
-    const databaseVersion = 'v14';
+    const databaseVersion = 'v17';
     this.databaseVersion = databaseVersion;
     const rdsDbName = `indexer${databaseVersion}`;
 
@@ -141,7 +141,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      instanceClass: 'db.t4g.medium',
+      instanceClass: 'db.r6g.xlarge',
       identifier: `${serviceName}-aurora-writer-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
@@ -247,12 +247,12 @@ export class IndexerShared extends pulumi.ComponentResource {
         Statement: [
           {
             Effect: 'Allow',
-            Action: ['s3:GetObject', 's3:PutObject'],
+            Action: ['s3:*'],
             Resource: `${bucketArn}/*`,
           },
           {
             Effect: 'Allow',
-            Action: ['s3:ListBucket'],
+            Action: ['s3:*'],
             Resource: bucketArn,
           },
         ],
@@ -266,12 +266,12 @@ export class IndexerShared extends pulumi.ComponentResource {
         Statement: [
           {
             Effect: 'Allow',
-            Action: ['s3:GetObject', 's3:PutObject'],
+            Action: ['s3:*'],
             Resource: `${bucketArn}/*`,
           },
           {
             Effect: 'Allow',
-            Action: ['s3:ListBucket'],
+            Action: ['s3:*'],
             Resource: bucketArn,
           },
         ],
@@ -289,7 +289,7 @@ export class IndexerShared extends pulumi.ComponentResource {
               Principal: {
                 AWS: [taskRoleArn, executionRoleArn],
               },
-              Action: ['s3:GetObject', 's3:PutObject'],
+              Action: ['s3:*'],
               Resource: `${bucketArn}/*`,
             },
             {
@@ -297,7 +297,7 @@ export class IndexerShared extends pulumi.ComponentResource {
               Principal: {
                 AWS: [taskRoleArn, executionRoleArn],
               },
-              Action: ['s3:ListBucket'],
+              Action: ['s3:*'],
               Resource: bucketArn,
             },
           ],

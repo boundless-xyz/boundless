@@ -21,7 +21,7 @@ use alloy::providers::Provider;
 use boundless_market::GuestEnv;
 use rand::Rng;
 use risc0_zkvm::serde::from_slice;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const REQUESTOR_1: Address = alloy::primitives::address!("c197ebe12c7bcf1d9f3b415342bdbc795425335c");
 const REQUESTOR_2: Address = alloy::primitives::address!("e198c6944cae382902a375b0b8673084270a7f8e");
@@ -38,6 +38,9 @@ fn try_extract_program_cycles(input_type: &str, input_data_hex: &str) -> Option<
             tracing::debug!("Skipping URL-based input for cycle count extraction");
             return None;
         }
+
+        // Trim 0x if input data hex starts with it
+        let input_data_hex = input_data_hex.trim_start_matches("0x");
 
         // Decode hex input data
         let input_data = match hex::decode(input_data_hex) {
@@ -169,7 +172,7 @@ where
 
         // Try to compute cycle counts and build batch
         let mut cycle_counts = Vec::new();
-        for (request_digest, input_type, input_data, client_address) in request_inputs {
+        for (request_digest, input_type, input_data, client_address) in request_inputs.clone() {
             // Compute cycle counts based on requestor
             let cycles = compute_cycle_counts(client_address, &input_type, &input_data);
 
@@ -187,6 +190,18 @@ where
                 created_at: current_timestamp,
                 updated_at: current_timestamp,
             });
+        }
+        // debug client_address to whether we got cycle counts or not
+        // build map of client_address to whether we got cycle counts or not. to get cliebnt address we will need to first build a map of request_digest to client_address.
+        let request_digest_to_client_address = request_inputs.iter().map(|(request_digest, _, _, client_address)| (request_digest, client_address)).collect::<HashMap<_, _>>();
+        // then print debug of client_address to whether we got cycle counts or not
+        let mut seen_client_addresses = HashSet::new();
+        for (request_digest, client_address) in request_digest_to_client_address {
+            if seen_client_addresses.contains(client_address) {
+                continue;
+            }
+            seen_client_addresses.insert(client_address);
+            tracing::debug!("client_address: {:?}, cycle_status: {:?}", client_address, cycle_counts.iter().find(|cc| cc.request_digest == *request_digest).map(|cc| cc.cycle_status.clone()));
         }
 
         // Batch insert
