@@ -101,15 +101,13 @@ pub fn verify_integrity(receipt: &risc0_zkvm::Receipt) -> Result<()> {
         .as_slice()
         .try_into()
         .context("invalid journal length, expected 32 bytes for blake3 groth16")?;
-    let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(
-        receipt.claim()?.as_value()?.pre.digest(), // image_id is not needed for verification
-        journal_bytes,
-    )
-    .digest();
+    let blake3_claim_digest =
+        Blake3Groth16ReceiptClaim::ok(receipt.claim()?.as_value()?.pre.digest(), journal_bytes)
+            .digest();
     crate::verify::verify_seal(&groth16_receipt.seal, blake3_claim_digest)
 }
 
-pub fn get_r0_verifying_key() -> risc0_groth16::VerifyingKey {
+fn get_r0_verifying_key() -> risc0_groth16::VerifyingKey {
     let ark_key = get_ark_verifying_key();
     let mut b = vec![];
     ark_key.serialize_uncompressed(&mut b).unwrap();
