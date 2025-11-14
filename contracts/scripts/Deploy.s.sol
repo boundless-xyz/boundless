@@ -13,7 +13,7 @@ import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
-import {RiscZeroBlake3Groth16Verifier} from "../src/blake3-groth16/RiscZeroBlake3Groth16Verifier.sol";
+import {Blake3Groth16Verifier} from "../src/blake3-groth16/Blake3Groth16Verifier.sol";
 import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
@@ -177,7 +177,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         checkUncommittedChangesWarning("Deployment");
     }
     
-    /// @notice Deploy either a test or fully verifying `RiscZeroBlake3Groth16Verifier` depending on `devMode()`.
+    /// @notice Deploy either a test or fully verifying `Blake3Groth16Verifier` depending on `devMode()`.
     function deployRiscZeroBlake3Verifier() internal returns (IRiscZeroVerifier) {
         if (devMode()) {
             // NOTE: Using a fixed selector of 0xFFFFFFFF for the selector of the mock verifier.
@@ -186,8 +186,8 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             return _verifier;
         } else {
             IRiscZeroVerifier _verifier =
-                new RiscZeroBlake3Groth16Verifier(ControlID.CONTROL_ROOT, ControlID.BN254_CONTROL_ID);
-            console2.log("Deployed RiscZeroBlake3Groth16Verifier to", address(_verifier));
+                new Blake3Groth16Verifier(ControlID.CONTROL_ROOT, ControlID.BN254_CONTROL_ID);
+            console2.log("Deployed Blake3Groth16Verifier to", address(_verifier));
             return _verifier;
         }
     }

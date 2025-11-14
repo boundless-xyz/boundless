@@ -16,7 +16,7 @@ risc0-groth16-sys = { workspace = true, optional = true, features = [
     "cuda",
     "setup",
 ] }
-risc0-zkvm = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["prove"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 xshell = "0.2"

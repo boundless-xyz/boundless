@@ -35,7 +35,7 @@ struct Seal {
 error SelectorMismatch(bytes4 received, bytes4 expected);
 
 /// @notice Blake3Groth16 verifier contract for RISC Zero receipts of execution.
-contract RiscZeroBlake3Groth16Verifier is IRiscZeroVerifier, IRiscZeroSelectable, Groth16Verifier {
+contract Blake3Groth16Verifier is IRiscZeroVerifier, IRiscZeroSelectable, Groth16Verifier {
     using ReceiptClaimLib for ReceiptClaim;
     using OutputLib for Output;
     using SafeCast for uint256;

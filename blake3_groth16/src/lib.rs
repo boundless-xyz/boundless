@@ -12,6 +12,7 @@ use risc0_zkvm::sha::Digestible;
 mod prove;
 pub mod receipt;
 pub mod receipt_claim;
+mod seal_to_json;
 pub mod verify;
 
 /// Compresses a Receipt into a BLAKE3 Groth16 Receipt.
@@ -31,7 +32,7 @@ pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Blake3Groth16R
                 "RISC0_DEV_MODE blake3_groth16 compression can only be used on fake receipts"
             ));
         }
-        return Ok(receipt.try_into()?);
+        return receipt.try_into();
     }
     if default_prover().get_name() == "bonsai" {
         let client = bonsai_sdk::non_blocking::Client::from_env(risc0_zkvm::VERSION)?;
