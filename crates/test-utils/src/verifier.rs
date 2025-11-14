@@ -19,8 +19,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::contracts::bytecode::RiscZeroVerifierRouter::RiscZeroVerifierRouterInstance;
 use boundless_market::contracts::bytecode::{
-    RiscZeroBlake3Groth16Verifier, RiscZeroGroth16Verifier, RiscZeroMockVerifier,
-    RiscZeroSetVerifier, RiscZeroVerifierRouter,
+    Blake3Groth16Verifier, RiscZeroGroth16Verifier, RiscZeroMockVerifier, RiscZeroSetVerifier,
+    RiscZeroVerifierRouter,
 };
 use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
@@ -49,16 +49,15 @@ pub async fn deploy_groth16_verifier<P: Provider>(
     Ok(*instance.address())
 }
 
-/// Deploy a RiscZeroBlake3Groth16Verifier contract
+/// Deploy a Blake3Groth16Verifier contract
 pub async fn deploy_blake3_groth16_verifier<P: Provider>(
     deployer_provider: P,
     control_root: FixedBytes<32>,
     bn254_control_id: FixedBytes<32>,
 ) -> Result<Address> {
-    let instance =
-        RiscZeroBlake3Groth16Verifier::deploy(deployer_provider, control_root, bn254_control_id)
-            .await
-            .context("failed to deploy RiscZeroBlake3Groth16Verifier")?;
+    let instance = Blake3Groth16Verifier::deploy(deployer_provider, control_root, bn254_control_id)
+        .await
+        .context("failed to deploy Blake3Groth16Verifier")?;
     Ok(*instance.address())
 }
 

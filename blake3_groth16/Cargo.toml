@@ -1,14 +1,19 @@
 [package]
 name = "blake3_groth16"
-version.workspace = true
-edition.workspace = true
-homepage.workspace = true
-repository.workspace = true
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 
 [features]
 default = []
 prove = ["risc0-zkvm/prove"]
-cuda = ["prove", "risc0-zkvm/cuda", "risc0-groth16/cuda", "dep:risc0-groth16-sys"]
+cuda = [
+    "prove",
+    "risc0-zkvm/cuda",
+    "risc0-groth16/cuda",
+    "dep:risc0-groth16-sys",
+]
 
 [dependencies]
 anyhow.workspace = true

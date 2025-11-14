@@ -33,7 +33,7 @@ const ARTIFACT_TARGET_CONTRACTS: [&str; 9] = [
     "ERC1967Proxy",
     "RiscZeroVerifierRouter",
     "RiscZeroGroth16Verifier",
-    "RiscZeroBlake3Groth16Verifier",
+    "Blake3Groth16Verifier",
     "MockCallback",
 ];
 
@@ -267,7 +267,7 @@ fn get_interfaces(contract: &str) -> &str {
         "RiscZeroGroth16Verifier" => {
             r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
         }
-        "RiscZeroBlake3Groth16Verifier" => {
+        "Blake3Groth16Verifier" => {
             r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
         }
         "MockCallback" => {
