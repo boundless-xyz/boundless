@@ -7,7 +7,7 @@ repository = { workspace = true }
 
 [features]
 default = []
-prove = ["risc0-zkvm/prove"]
+prove = ["risc0-zkvm/prove", "dep:circom-witnesscalc"]
 cuda = [
     "prove",
     "risc0-zkvm/cuda",
@@ -26,7 +26,7 @@ blake3 = { version = "1.5.0" }
 bonsai-sdk = { workspace = true, features = ["non_blocking", "shrink_bitvm2"] }
 borsh = { workspace = true, features = ["derive"] }
 bytemuck = { workspace = true }
-circom-witnesscalc = { version = "0.2.1" }
+circom-witnesscalc = { version = "0.2.1", optional = true }
 crypto-bigint = { git = "https://github.com/risc0/RustCrypto-crypto-bigint", tag = "v0.5.2-risczero.0", default-features = false }
 <<<<<<< HEAD
 derive_more.workspace = true

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "blake3_groth16",
     "crates/assessor",
     "crates/bench",
     "crates/boundless-cli",
@@ -18,7 +19,6 @@ members = [
     "crates/povw",
     "crates/requestor-lists",
     "crates/rewards",
-    "blake3_groth16",
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
@@ -33,6 +33,7 @@ homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
+blake3_groth16 = { path = "blake3_groth16", default-features = false }
 boundless-assessor = { version = "1.2.0", path = "crates/assessor" }
 boundless-cli = { path = "crates/boundless-cli" }
 boundless-market = { version = "1.2.0", path = "crates/boundless-market" }
@@ -44,7 +45,6 @@ distributor = { path = "crates/distributor" }
 guest-assessor = { path = "crates/guest/assessor" }
 guest-util = { path = "crates/guest/util" }
 order-stream = { path = "crates/order-stream" }
-blake3_groth16 = { path = "blake3_groth16", default-features = false }
 requestor-lists = { path = "crates/requestor-lists" }
 
 alloy = { version = "1.0", default-features = false }

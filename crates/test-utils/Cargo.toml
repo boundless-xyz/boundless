@@ -8,6 +8,23 @@ homepage = { workspace = true }
 repository = { workspace = true }
 license = "Apache-2.0"
 
+[features]
+povw = [
+    "dep:boundless-povw",
+    "dep:bytemuck",
+    "dep:derive_builder",
+    "dep:postcard",
+    "dep:rand",
+    "dep:risc0-povw",
+    "dep:risc0-steel",
+    "dep:wiremock",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:uuid",
+    "dep:bincode",
+    "dep:tracing",
+]
+
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 alloy-primitives = { workspace = true }
@@ -40,6 +57,3 @@ wiremock = { version = "0.6", optional = true }
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["json"] }
-
-[features]
-povw = ["dep:boundless-povw", "dep:bytemuck", "dep:derive_builder", "dep:postcard", "dep:rand", "dep:risc0-povw", "dep:risc0-steel", "dep:wiremock", "dep:serde", "dep:serde_json", "dep:uuid", "dep:bincode", "dep:tracing"]
