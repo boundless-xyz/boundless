@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
+pub use boundless_market::blake3_groth16::Blake3Groth16ReceiptClaim;
 pub use receipt::*;
-pub use receipt_claim::*;
-use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
 use risc0_zkvm::{default_prover, sha::Digestible, InnerReceipt, MaybePruned, Receipt};
 
@@ -11,7 +10,6 @@ use risc0_zkvm::ProverOpts;
 #[cfg(feature = "prove")]
 mod prove;
 pub mod receipt;
-pub mod receipt_claim;
 #[cfg(feature = "prove")]
 mod seal_to_json;
 pub mod verify;

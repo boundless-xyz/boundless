@@ -203,9 +203,6 @@ jobs:
       - name: forge build
         run: forge build
 
-      - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
-
       - name: cargo install boundless-cli
         run: cargo install boundless-cli --path crates/boundless-cli --locked
 

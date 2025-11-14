@@ -1,5 +1,6 @@
 use anyhow::Context;
 use borsh::{BorshDeserialize, BorshSerialize};
+use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 use risc0_zkvm::{
     sha::{self, Digestible, Sha256, DIGEST_BYTES},
     Digest, MaybePruned, ReceiptClaim, SystemState, VerifierContext,
@@ -10,21 +11,26 @@ use serde::{Deserialize, Serialize};
 /// The digest of this is what the BLAKE3 Groth16 proof outputs.
 #[derive(Clone, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct Blake3Groth16ReceiptClaim {
+    /// pre-state
     pub pre: MaybePruned<SystemState>,
+    /// post-state
     pub post: MaybePruned<SystemState>,
     /// Note: This journal has to be exactly 32 bytes
     pub journal: Vec<u8>,
+    /// control root
     pub control_root: Digest,
+    /// control id
     pub control_id: Digest,
 }
 
 impl Blake3Groth16ReceiptClaim {
+    /// Returns the `Blake3Groth16ReceiptClaim` corresponding to the given image id and journal
     pub fn ok(image_id: impl Into<Digest>, journal: impl Into<Vec<u8>>) -> Self {
         Self::ok_with_ctx(image_id, journal, VerifierContext::default())
             .expect("default verifier context is expected to supply succinct verifier parameters")
     }
 
-    pub fn ok_with_ctx(
+    fn ok_with_ctx(
         image_id: impl Into<Digest>,
         journal: impl Into<Vec<u8>>,
         ctx: VerifierContext,
@@ -38,11 +44,12 @@ impl Blake3Groth16ReceiptClaim {
             control_root,
             pre: MaybePruned::Pruned(image_id.into()),
             post: MaybePruned::Value(SystemState { pc: 0, merkle_root: Digest::ZERO }),
-            control_id: crate::BN254_IDENTITY_CONTROL_ID,
+            control_id: BN254_IDENTITY_CONTROL_ID,
             journal: journal.into(),
         })
     }
 
+    /// Returns the digest of the claim.
     pub fn claim_digest(&self) -> Digest {
         self.claim_digest_inner::<sha::Impl>()
     }

@@ -43,7 +43,8 @@ alloy = { workspace = true, features = [
 async-stream = { workspace = true }
 async-trait = "0.1"
 aws-sdk-s3 = "1.34"
-blake3_groth16 = { workspace = true, default-features = false }
+blake3 = { version = "1.5.0" }
+borsh = { workspace = true, features = ["derive"] }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -56,6 +57,7 @@ httpmock = "0.7"
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }
+risc0-binfmt = { workspace = true }
 risc0-circuit-recursion = { workspace = true, optional = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }

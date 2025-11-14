@@ -99,9 +99,6 @@ jobs:
           crate: cargo-sort
           version: "1.0"
 
-      - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
-
       - name: cargo Sort
         run: cargo sort --workspace --check
 
@@ -173,9 +170,6 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
 
       - name: check order-stream
         run: cargo check --locked -p order-stream --bin order_stream
@@ -304,8 +298,6 @@ jobs:
         with:
           # Building with docs.rs config requires the nightly toolchain.
           toolchain: nightly-2025-05-09
-      - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
       - run: cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
@@ -379,6 +371,9 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Install protoc
+        run: sudo apt install protobuf-compiler -y
 
       - name: Install cargo-sort
         uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
