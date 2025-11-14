@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crate::market::{
-    time_boundaries::{get_day_start, get_month_start, get_next_day, get_next_month, get_next_week, get_week_start},
+    time_boundaries::{
+        iter_daily_periods, iter_hourly_periods, iter_monthly_periods, iter_weekly_periods,
+    },
     IndexerService, ServiceError,
 };
 use alloy::network::{AnyNetwork, Ethereum};
@@ -187,25 +189,21 @@ where
         start_ts: u64,
         end_ts: u64,
     ) -> Result<(), ServiceError> {
-        use super::super::service::SECONDS_PER_HOUR;
-
         let start_time = std::time::Instant::now();
 
-        // Calculate hour boundaries
-        let start_hour = (start_ts / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
-        let end_hour = (end_ts / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+        // Collect periods first to get count for logging
+        let periods: Vec<_> = iter_hourly_periods(start_ts, end_ts).collect();
+        let total_hours = periods.len();
 
-        let total_hours = ((end_hour - start_hour) / SECONDS_PER_HOUR) + 1;
         tracing::info!(
             "Recomputing {} hourly periods from {} to {}",
             total_hours,
-            start_hour,
-            end_hour
+            periods.first().map(|p| p.0).unwrap_or(0),
+            periods.last().map(|p| p.0).unwrap_or(0)
         );
 
         let mut processed = 0;
-        for hour_ts in (start_hour..=end_hour).step_by(SECONDS_PER_HOUR as usize) {
-            let hour_end = hour_ts.saturating_add(SECONDS_PER_HOUR);
+        for (hour_ts, hour_end) in periods {
             let summary = self.indexer.compute_period_summary(hour_ts, hour_end).await?;
             self.indexer.db.upsert_hourly_market_summary(summary).await?;
 
@@ -228,25 +226,21 @@ where
         start_ts: u64,
         end_ts: u64,
     ) -> Result<(), ServiceError> {
-        use super::super::service::SECONDS_PER_DAY;
-
         let start_time = std::time::Instant::now();
 
-        // Use helper functions from aggregation module
-        let start_day = get_day_start(start_ts);
-        let end_day = get_day_start(end_ts);
+        // Collect periods first to get count for logging
+        let periods: Vec<_> = iter_daily_periods(start_ts, end_ts).collect();
+        let total_days = periods.len();
 
-        let total_days = ((end_day - start_day) / SECONDS_PER_DAY) + 1;
         tracing::info!(
             "Recomputing {} daily periods from {} to {}",
             total_days,
-            start_day,
-            end_day
+            periods.first().map(|p| p.0).unwrap_or(0),
+            periods.last().map(|p| p.0).unwrap_or(0)
         );
 
         let mut processed = 0;
-        for day_ts in (start_day..=end_day).step_by(SECONDS_PER_DAY as usize) {
-            let day_end = get_next_day(day_ts);
+        for (day_ts, day_end) in periods {
             let summary = self.indexer.compute_period_summary(day_ts, day_end).await?;
             self.indexer.db.upsert_daily_market_summary(summary).await?;
 
@@ -269,40 +263,31 @@ where
         start_ts: u64,
         end_ts: u64,
     ) -> Result<(), ServiceError> {
-        use super::super::service::SECONDS_PER_WEEK;
-
         let start_time = std::time::Instant::now();
 
-        let start_week = get_week_start(start_ts);
-        let end_week = get_week_start(end_ts);
-
-        let mut periods = Vec::new();
-        let mut week_ts = start_week;
-        while week_ts <= end_week {
-            periods.push(week_ts);
-            week_ts += SECONDS_PER_WEEK;
-        }
+        // Collect periods first to get count for logging
+        let periods: Vec<_> = iter_weekly_periods(start_ts, end_ts).collect();
+        let total_weeks = periods.len();
 
         tracing::info!(
             "Recomputing {} weekly periods from {} to {}",
-            periods.len(),
-            start_week,
-            end_week
+            total_weeks,
+            periods.first().map(|p| p.0).unwrap_or(0),
+            periods.last().map(|p| p.0).unwrap_or(0)
         );
 
-        for (idx, week_ts) in periods.iter().enumerate() {
-            let week_end = get_next_week(*week_ts);
-            let summary = self.indexer.compute_period_summary(*week_ts, week_end).await?;
+        for (idx, (week_ts, week_end)) in periods.iter().enumerate() {
+            let summary = self.indexer.compute_period_summary(*week_ts, *week_end).await?;
             self.indexer.db.upsert_weekly_market_summary(summary).await?;
 
             if (idx + 1) % 10 == 0 {
-                tracing::info!("Processed {} / {} weekly periods", idx + 1, periods.len());
+                tracing::info!("Processed {} / {} weekly periods", idx + 1, total_weeks);
             }
         }
 
         tracing::info!(
             "Weekly aggregate backfill completed: {} periods in {:?}",
-            periods.len(),
+            total_weeks,
             start_time.elapsed()
         );
         Ok(())
@@ -315,34 +300,27 @@ where
     ) -> Result<(), ServiceError> {
         let start_time = std::time::Instant::now();
 
-        let start_month = get_month_start(start_ts);
-        let end_month = get_month_start(end_ts);
-
-        let mut periods = Vec::new();
-        let mut month_ts = start_month;
-        while month_ts <= end_month {
-            periods.push(month_ts);
-            month_ts = get_next_month(month_ts);
-        }
+        // Collect periods first to get count for logging
+        let periods: Vec<_> = iter_monthly_periods(start_ts, end_ts).collect();
+        let total_months = periods.len();
 
         tracing::info!(
             "Recomputing {} monthly periods from {} to {}",
-            periods.len(),
-            start_month,
-            end_month
+            total_months,
+            periods.first().map(|p| p.0).unwrap_or(0),
+            periods.last().map(|p| p.0).unwrap_or(0)
         );
 
-        for (idx, month_ts) in periods.iter().enumerate() {
-            let month_end = get_next_month(*month_ts);
-            let summary = self.indexer.compute_period_summary(*month_ts, month_end).await?;
+        for (idx, (month_ts, month_end)) in periods.iter().enumerate() {
+            let summary = self.indexer.compute_period_summary(*month_ts, *month_end).await?;
             self.indexer.db.upsert_monthly_market_summary(summary).await?;
 
-            tracing::info!("Processed {} / {} monthly periods", idx + 1, periods.len());
+            tracing::info!("Processed {} / {} monthly periods", idx + 1, total_months);
         }
 
         tracing::info!(
             "Monthly aggregate backfill completed: {} periods in {:?}",
-            periods.len(),
+            total_months,
             start_time.elapsed()
         );
         Ok(())

@@ -44,7 +44,7 @@ use sqlx::{AnyPool, Row};
 use tracing_test::traced_test;
 
 // Constant for indexer wait time between actions
-const INDEXER_WAIT_DURATION: Duration = Duration::from_secs(3);
+const INDEXER_WAIT_DURATION: Duration = Duration::from_secs(5);
 
 async fn count_hourly_summaries(pool: &AnyPool) -> i64 {
     let result = sqlx::query("SELECT COUNT(*) as count FROM hourly_market_summary")

@@ -20,7 +20,10 @@ use super::{
 use crate::db::market::PeriodMarketSummary;
 use crate::market::{
     pricing::compute_percentiles,
-    time_boundaries::{get_day_start, get_month_start, get_next_day, get_next_month, get_next_week, get_week_start},
+    time_boundaries::{
+        get_day_start, get_month_start, get_week_start, iter_daily_periods, iter_hourly_periods,
+        iter_monthly_periods, iter_weekly_periods,
+    },
     ServiceError,
 };
 use ::boundless_market::contracts::pricing::price_at_time;
@@ -66,9 +69,8 @@ where
             current_time
         );
 
-        // Process each hour
-        for hour_ts in (start_hour..=current_hour).step_by(SECONDS_PER_HOUR as usize) {
-            let hour_end = hour_ts.saturating_add(SECONDS_PER_HOUR);
+        // Process each hour using shared iteration helper
+        for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
             let summary = self.compute_period_summary(hour_ts, hour_end).await?;
             self.db.upsert_hourly_market_summary(summary).await?;
         }
@@ -95,27 +97,17 @@ where
 
         // Get the current day start and calculate days ago
         let current_day_start = get_day_start(current_time);
-
-        // Calculate which days to recompute
-        let mut periods = Vec::new();
-        let mut day_start = current_day_start;
-        for _ in 0..DAILY_AGGREGATION_RECOMPUTE_DAYS {
-            periods.push(day_start);
-            // Go back one day
-            day_start = day_start.saturating_sub(SECONDS_PER_DAY);
-        }
-        periods.reverse();
+        let start_day = current_day_start.saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
 
         tracing::debug!(
             "Aggregating {} days from {} to {}",
-            periods.len(),
-            periods.first().unwrap_or(&0),
+            DAILY_AGGREGATION_RECOMPUTE_DAYS,
+            start_day,
             current_day_start
         );
 
-        // Process each day
-        for day_ts in periods {
-            let day_end = get_next_day(day_ts);
+        // Process each day using shared iteration helper
+        for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
             let summary = self.compute_period_summary(day_ts, day_end).await?;
             self.db.upsert_daily_market_summary(summary).await?;
         }
@@ -142,27 +134,17 @@ where
 
         // Get the current week start and calculate weeks ago
         let current_week_start = get_week_start(current_time);
-
-        // Calculate which weeks to recompute
-        let mut periods = Vec::new();
-        let mut week_start = current_week_start;
-        for _ in 0..WEEKLY_AGGREGATION_RECOMPUTE_WEEKS {
-            periods.push(week_start);
-            // Go back one week
-            week_start = week_start.saturating_sub(SECONDS_PER_WEEK);
-        }
-        periods.reverse();
+        let start_week = current_week_start.saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
 
         tracing::debug!(
             "Aggregating {} weeks from {} to {}",
-            periods.len(),
-            periods.first().unwrap_or(&0),
+            WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
+            start_week,
             current_week_start
         );
 
-        // Process each week
-        for week_ts in periods {
-            let week_end = get_next_week(week_ts);
+        // Process each week using shared iteration helper
+        for (week_ts, week_end) in iter_weekly_periods(start_week, current_week_start) {
             let summary = self.compute_period_summary(week_ts, week_end).await?;
             self.db.upsert_weekly_market_summary(summary).await?;
         }
@@ -189,34 +171,29 @@ where
 
         // Get the current month start and calculate months ago
         let current_month_start = get_month_start(current_time);
-
-        // Calculate which months to recompute
-        let mut periods = Vec::new();
-        let mut month_ts = current_month_start;
-        for _ in 0..MONTHLY_AGGREGATION_RECOMPUTE_MONTHS {
-            periods.push(month_ts);
-            // Go back one month - need to use chrono for proper month arithmetic
-            use chrono::{Datelike, TimeZone, Utc};
-            let dt = Utc.timestamp_opt(month_ts as i64, 0).unwrap();
+        
+        // Calculate start month by going back N-1 months
+        use chrono::{Datelike, TimeZone, Utc};
+        let mut start_month = current_month_start;
+        for _ in 0..(MONTHLY_AGGREGATION_RECOMPUTE_MONTHS - 1) {
+            let dt = Utc.timestamp_opt(start_month as i64, 0).unwrap();
             let prev_month = if dt.month() == 1 {
                 Utc.with_ymd_and_hms(dt.year() - 1, 12, 1, 0, 0, 0).unwrap()
             } else {
                 Utc.with_ymd_and_hms(dt.year(), dt.month() - 1, 1, 0, 0, 0).unwrap()
             };
-            month_ts = prev_month.timestamp() as u64;
+            start_month = prev_month.timestamp() as u64;
         }
-        periods.reverse();
 
         tracing::debug!(
             "Aggregating {} months from {} to {}",
-            periods.len(),
-            periods.first().unwrap_or(&0),
+            MONTHLY_AGGREGATION_RECOMPUTE_MONTHS,
+            start_month,
             current_month_start
         );
 
-        // Process each month
-        for month_ts in periods {
-            let month_end = get_next_month(month_ts);
+        // Process each month using shared iteration helper
+        for (month_ts, month_end) in iter_monthly_periods(start_month, current_month_start) {
             let summary = self.compute_period_summary(month_ts, month_end).await?;
             self.db.upsert_monthly_market_summary(summary).await?;
         }
