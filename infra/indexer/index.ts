@@ -142,6 +142,7 @@ export = () => {
       rustLogLevel: rustLogLevel,
       domain: indexerApiDomain,
       boundlessAlertsTopicArns: alertsTopicArns,
+      databaseVersion: infra.databaseVersion,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 

@@ -672,50 +672,45 @@ pub trait IndexerDb {
 pub type DbObj = Arc<dyn IndexerDb + Send + Sync>;
 
 #[derive(Debug, Clone)]
-pub struct AnyDb {
+pub struct MarketDb {
     pub pool: AnyPool,
 }
 
-impl AnyDb {
-    /// For SQLite use a `sqlite:file_path` URL; for Postgres `postgres://`.
-    /// This constructor is optimized for the indexer (background service).
-    pub async fn new(conn_str: &str) -> Result<Self, DbError> {
+impl MarketDb {
+    /// Create a new MarketDb instance.
+    ///
+    /// # Arguments
+    /// * `conn_str` - Database connection string. For SQLite use a `sqlite:file_path` URL; for Postgres `postgres://`.
+    /// * `pool_options` - Optional pool configuration. If `None`, uses indexer-optimized defaults
+    ///   (20 connections, 10s acquire timeout, 600s idle, 1800s lifetime)
+    /// * `skip_migrations` - If `true`, skips running migrations. Useful for read-only connections
+    pub async fn new(
+        conn_str: &str,
+        pool_options: Option<AnyPoolOptions>,
+        skip_migrations: bool,
+    ) -> Result<Self, DbError> {
         use std::time::Duration;
         
         install_default_drivers(); 
         let opts = AnyConnectOptions::from_str(conn_str)?;
 
-        let pool = AnyPoolOptions::new()
-            .max_connections(20)
-            .acquire_timeout(Duration::from_secs(10))  // Indexer: fail fast if pool exhausted
-            .idle_timeout(Some(Duration::from_secs(600)))  // Indexer: 10 min, keep connections alive
-            .max_lifetime(Some(Duration::from_secs(1800)))  // Indexer: 30 min, rotate periodically
-            .connect_with(opts)
-            .await?;
+        let pool = if let Some(pool_opts) = pool_options {
+            pool_opts.connect_with(opts).await?
+        } else {
+            // Indexer-optimized defaults
+            AnyPoolOptions::new()
+                .max_connections(20)
+                .acquire_timeout(Duration::from_secs(10))  // Indexer: fail fast if pool exhausted
+                .idle_timeout(Some(Duration::from_secs(600)))  // Indexer: 10 min, keep connections alive
+                .max_lifetime(Some(Duration::from_secs(1800)))  // Indexer: 30 min, rotate periodically
+                .connect_with(opts)
+                .await?
+        };
 
-        // apply any migrations
-        sqlx::migrate!().run(&pool).await?;
-
-        Ok(Self { pool })
-    }
-
-    /// Create a new AnyDb instance optimized for Lambda (short-lived, user-facing API).
-    pub async fn new_for_lambda(conn_str: &str) -> Result<Self, DbError> {
-        use std::time::Duration;
-        
-        install_default_drivers(); 
-        let opts = AnyConnectOptions::from_str(conn_str)?;
-
-        let pool = AnyPoolOptions::new()
-            .max_connections(3)  // Lambda: 25 lambdas × 3 = 75 max connections
-            .acquire_timeout(Duration::from_secs(5))  // Lambda: fail fast for users
-            .idle_timeout(Some(Duration::from_secs(300)))  // Lambda: match container warm time
-            .max_lifetime(Some(Duration::from_secs(300)))  // Lambda: 5 min max
-            .connect_with(opts)
-            .await?;
-
-        // apply any migrations
-        sqlx::migrate!().run(&pool).await?;
+        if !skip_migrations {
+            // apply any migrations
+            sqlx::migrate!().run(&pool).await?;
+        }
 
         Ok(Self { pool })
     }
@@ -726,9 +721,9 @@ impl AnyDb {
 }
 
 /// Throughout this trait we manually construct queries and bind parameters to avoid using the sqlx query builder.
-/// This is because the query builder is not supported for Postgres, when used in AnyDb mode.
+/// This is because the query builder is not supported for Postgres, when used in MarketDb mode.
 #[async_trait]
-impl IndexerDb for AnyDb {
+impl IndexerDb for MarketDb {
     fn pool(&self) -> &AnyPool {
         &self.pool
     }
@@ -3511,7 +3506,7 @@ impl IndexerDb for AnyDb {
     }
 }
 
-impl AnyDb {
+impl MarketDb {
     // Generic helper for upserting market summaries to avoid code duplication
     async fn upsert_market_summary_generic(
         &self,

@@ -18,6 +18,7 @@ export interface RustLambdaOptions {
         subnetIds: pulumi.Input<pulumi.Input<string>[]>;
         securityGroupIds: pulumi.Input<pulumi.Input<string>[]>;
     };
+    nameSuffix?: string;
 }
 
 /**
@@ -56,6 +57,7 @@ function ensureCargoLambdaInstalled(): void {
 export function createRustLambda(name: string, options: RustLambdaOptions): { lambda: aws.lambda.Function, logGroupName: pulumi.Output<string> } {
     ensureCargoLambdaInstalled();
 
+    const nameSuffix = options.nameSuffix ?? '';
     const release = options.release ?? true;
     const buildMode = release ? '--release' : '';
 
@@ -91,6 +93,7 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
     // Create the Lambda function with all configuration options
     const lambdaArgs: aws.lambda.FunctionArgs = {
         code: new pulumi.asset.FileArchive(zipFilePath),
+        name: `${name}-lambda-${nameSuffix}`,
         loggingConfig: {
             logGroup: logGroup.name,
             logFormat: 'JSON',
@@ -118,7 +121,7 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         };
     }
 
-    const lambda = new aws.lambda.Function(`${name}-lambda`, lambdaArgs, {
+    const lambda = new aws.lambda.Function(`${name}-lambda-${nameSuffix}`, lambdaArgs, {
         dependsOn: [logGroup],
     });
     const logGroupName = logGroup.name;

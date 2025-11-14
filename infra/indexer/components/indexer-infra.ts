@@ -158,9 +158,6 @@ export class IndexerShared extends pulumi.ComponentResource {
     }, { parent: this /* protect: true */ });
 
     // RDS Proxy for reader (Lambda API reads only)
-    // The indexer (ECS task) connects directly to Aurora writer for better performance
-
-    // COMMENTED OUT: RDS Proxy setup - connecting directly to reader instance instead
     /*
     // Create IAM role for reader proxy
     const readerProxyRoleName = `${serviceName}-reader-proxy-role-${databaseVersion}`;
@@ -233,8 +230,8 @@ export class IndexerShared extends pulumi.ComponentResource {
 
     // Writer secret: direct connection to Aurora cluster endpoint (for ECS indexer)
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
-    this.dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url-1`, {}, { parent: this });
-    this.dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver-1`, {
+    this.dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url-${databaseVersion}`, {}, { parent: this });
+    this.dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver-${databaseVersion}`, {
       secretId: this.dbUrlSecret.id,
       secretString: dbUrlSecretValue,
     }, { parent: this, dependsOn: [this.dbUrlSecret] });
@@ -242,8 +239,8 @@ export class IndexerShared extends pulumi.ComponentResource {
     // Reader secret: direct connection to Aurora reader endpoint (for Lambda API)
     // Note: Using Aurora cluster reader endpoint which automatically routes to reader instances
     const dbReaderUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.readerEndpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
-    this.dbReaderUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-reader-url-1`, {}, { parent: this });
-    this.dbReaderUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-reader-url-ver-1`, {
+    this.dbReaderUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-reader-url-${databaseVersion}`, {}, { parent: this });
+    this.dbReaderUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-reader-url-ver-${databaseVersion}`, {
       secretId: this.dbReaderUrlSecret.id,
       secretString: dbReaderUrlSecretValue,
     }, { parent: this, dependsOn: [this.dbReaderUrlSecret] });

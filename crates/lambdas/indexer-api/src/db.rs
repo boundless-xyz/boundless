@@ -14,10 +14,11 @@
 
 use anyhow::Result;
 use boundless_indexer::db::{
-    market::{AnyDb, DbObj as MarketDbObj},
+    market::{MarketDb, DbObj as MarketDbObj},
     rewards::{RewardsDb, RewardsDbObj},
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+use sqlx::any::AnyPoolOptions;
 
 /// Application state containing database connections
 pub struct AppState {
@@ -27,15 +28,23 @@ pub struct AppState {
 
 impl AppState {
     /// Create new application state with database connection
+    /// Uses read-only constructors since Lambda API connects to reader endpoint
     pub async fn new(database_url: &str) -> Result<Self> {
         tracing::info!("Connecting to database...");
 
         // Create rewards database connection (Lambda-optimized: 3 connections, short timeouts)
-        let rewards_db = RewardsDb::new(database_url).await?;
+        // Skip migrations since we're connecting to a reader endpoint
+        let rewards_db = RewardsDb::new(database_url, None, true).await?;
         let rewards_db: RewardsDbObj = Arc::new(rewards_db);
 
         // Create market database connection (Lambda-optimized: 3 connections, short timeouts)
-        let market_db = AnyDb::new_for_lambda(database_url).await?;
+        // Skip migrations since we're connecting to a reader endpoint
+        let lambda_pool_options = AnyPoolOptions::new()
+            .max_connections(3)  // Lambda: 25 lambdas × 3 = 75 max connections
+            .acquire_timeout(Duration::from_secs(5))  // Lambda: fail fast for users
+            .idle_timeout(Some(Duration::from_secs(300)))  // Lambda: match container warm time
+            .max_lifetime(Some(Duration::from_secs(300)));  // Lambda: 5 min max
+        let market_db = MarketDb::new(database_url, Some(lambda_pool_options), true).await?;
         let market_db: MarketDbObj = Arc::new(market_db);
 
         tracing::info!("Database connection established");

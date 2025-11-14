@@ -14,14 +14,14 @@
 
 use std::sync::Arc;
 
-use crate::db::{market::{CycleCount, IndexerDb}, AnyDb, DbError, DbObj};
+use crate::db::{market::{CycleCount, IndexerDb}, MarketDb, DbError, DbObj};
 use alloy::primitives::B256;
 use sqlx::any::install_default_drivers;
 use sqlx::AnyPool;
 use tempfile::NamedTempFile;
 
 pub struct TestDb {
-    pub db: Arc<AnyDb>,
+    pub db: Arc<MarketDb>,
     pub db_url: String,
     pub pool: AnyPool,
     pub _temp_file: Option<NamedTempFile>,
@@ -39,7 +39,7 @@ impl TestDb {
         if let Ok(db_url) = std::env::var("INDEXER_DATABASE_URL") {
             if db_url.starts_with("postgres") {
                 let pool = AnyPool::connect(&db_url).await?;
-                let db = Arc::new(AnyDb::new(&db_url).await?);
+                let db = Arc::new(MarketDb::new(&db_url, None, false).await?);
                 let test_db = Self {
                     db,
                     db_url,
@@ -57,7 +57,7 @@ impl TestDb {
         let temp_file = NamedTempFile::new().unwrap();
         let db_url = format!("sqlite:{}", temp_file.path().display());
         let pool = AnyPool::connect(&db_url).await?;
-        let db = Arc::new(AnyDb::new(&db_url).await?);
+        let db = Arc::new(MarketDb::new(&db_url, None, false).await?);
 
         Ok(Self { db, db_url: db_url.clone(), pool, _temp_file: Some(temp_file) })
     }

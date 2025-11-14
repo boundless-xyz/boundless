@@ -96,7 +96,7 @@ impl RewardsIndexerService {
                 RpcClient::builder().layer(RetryBackoffLayer::new(3, 1000, 200)).http(rpc_url),
             );
         let chain_id = provider.get_chain_id().await?;
-        let db: RewardsDbObj = Arc::new(RewardsDb::new(db_conn).await?);
+        let db: RewardsDbObj = Arc::new(RewardsDb::new(db_conn, None, false).await?);
 
         Ok(Self {
             provider,

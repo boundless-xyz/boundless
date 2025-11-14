@@ -18,7 +18,7 @@ pub mod rewards;
 use thiserror::Error;
 
 // Re-export common types from market module for backwards compatibility
-pub use market::{AnyDb, DbObj, IndexerDb, TxMetadata};
+pub use market::{MarketDb, DbObj, IndexerDb, TxMetadata};
 
 #[derive(Error, Debug)]
 pub enum DbError {

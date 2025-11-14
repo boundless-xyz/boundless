@@ -24,6 +24,8 @@ export interface IndexerApiArgs {
   domain?: pulumi.Input<string>;
   /** Boundless alerts topic ARNs */
   boundlessAlertsTopicArns?: string[];
+  /** Database version */
+  databaseVersion?: string;
 }
 
 export class IndexerApi extends pulumi.ComponentResource {
@@ -118,11 +120,13 @@ export class IndexerApi extends pulumi.ComponentResource {
       return hash.digest('hex');
     });
 
+
     // Create the Lambda function
     const { lambda, logGroupName } = createRustLambda(`${serviceName}-lambda`, {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-api',
       release: true,
+      nameSuffix: args.databaseVersion ?? '',
       role: role.arn,
       environmentVariables: {
         DB_URL: dbUrl,

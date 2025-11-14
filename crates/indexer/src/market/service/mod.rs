@@ -22,7 +22,7 @@ mod status;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    db::{market::AnyDb, DbError, DbObj, TxMetadata},
+    db::{market::MarketDb, DbError, DbObj, TxMetadata},
     market::cache::CacheStorage,
 };
 use ::boundless_market::contracts::{
@@ -179,7 +179,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             .connect_http(logs_rpc_url);
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
-        let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
+        let db: DbObj = Arc::new(MarketDb::new(db_conn, None, false).await?);
         let domain = boundless_market.eip712_domain().await?;
         let tx_hash_to_metadata = HashMap::new();
         let chain_id = provider
@@ -244,7 +244,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             .connect_http(logs_rpc_url);
         let boundless_market =
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller);
-        let db: DbObj = Arc::new(AnyDb::new(db_conn).await?);
+        let db: DbObj = Arc::new(MarketDb::new(db_conn, None, false).await?);
         let domain = boundless_market.eip712_domain().await?;
         let tx_hash_to_metadata = HashMap::new();
         let chain_id = provider
