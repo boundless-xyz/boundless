@@ -627,9 +627,12 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use blake3_groth16::Blake3Groth16ReceiptClaim;
-    use boundless_market::contracts::{
-        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-        UNSPECIFIED_SELECTOR,
+    use boundless_market::{
+        contracts::{
+            eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+            UNSPECIFIED_SELECTOR,
+        },
+        selector::SelectorExt,
     };
     use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
     use boundless_test_utils::market::create_test_ctx;
@@ -708,7 +711,7 @@ mod tests {
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
             Requirements::new(Predicate::claim_digest_match(blake3_claim_digest))
-                .with_selector(FixedBytes::from(Selector::blake3_groth16_latest() as u32)),
+                .with_selector(FixedBytes::from(SelectorExt::blake3_groth16_latest() as u32)),
             format!("file://{ECHO_PATH}"),
             RequestInput::builder().write_slice(&input).build_inline().unwrap(),
             Offer::default()

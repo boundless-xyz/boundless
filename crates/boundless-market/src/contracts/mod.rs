@@ -579,10 +579,12 @@ impl Requirements {
     /// to the latest Blake3Groth16 selector.
     #[cfg(not(target_os = "zkvm"))]
     pub fn with_blake3_groth16_proof(self) -> Self {
+        use crate::selector::SelectorExt;
+
         match crate::util::is_dev_mode() {
-            true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
+            true => Self { selector: FixedBytes::from(SelectorExt::FakeReceipt as u32), ..self },
             false => Self {
-                selector: FixedBytes::from(Selector::blake3_groth16_latest() as u32),
+                selector: FixedBytes::from(SelectorExt::blake3_groth16_latest() as u32),
                 ..self
             },
         }

@@ -31,6 +31,7 @@ use url::Url;
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
+    selector::SelectorExt,
     storage::{StandardStorageProvider, StorageProvider},
     util::NotProvided,
 };
@@ -560,8 +561,8 @@ impl RequestParams {
     pub fn with_blake3_groth16_proof(self) -> Self {
         let mut requirements = self.requirements;
         requirements.selector = match crate::util::is_dev_mode() {
-            true => Some((Selector::FakeReceipt as u32).into()),
-            false => Some((Selector::blake3_groth16_latest() as u32).into()),
+            true => Some((SelectorExt::FakeReceipt as u32).into()),
+            false => Some((SelectorExt::blake3_groth16_latest() as u32).into()),
         };
         // TODO(ec2): should we automatically set the predicate type to claim digest match here?
         Self { requirements, ..self }
