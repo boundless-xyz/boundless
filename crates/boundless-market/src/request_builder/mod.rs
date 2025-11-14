@@ -24,7 +24,6 @@ use alloy::{
     providers::{DynProvider, Provider},
 };
 use derive_builder::Builder;
-use risc0_ethereum_contracts::selector::Selector;
 use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
@@ -548,8 +547,8 @@ impl RequestParams {
     pub fn with_groth16_proof(self) -> Self {
         let mut requirements = self.requirements;
         requirements.selector = match crate::util::is_dev_mode() {
-            true => Some((Selector::FakeReceipt as u32).into()),
-            false => Some((Selector::groth16_latest() as u32).into()),
+            true => Some((SelectorExt::FakeReceipt as u32).into()),
+            false => Some((SelectorExt::groth16_latest() as u32).into()),
         };
         Self { requirements, ..self }
     }
