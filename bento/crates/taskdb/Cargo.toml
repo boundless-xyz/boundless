@@ -27,6 +27,7 @@ sqlx = { workspace = true, features = [
 ] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+workflow-common = { path = "../workflow-common" }
 
 [dev-dependencies]
 clap = { workspace = true, features = ["derive"] }

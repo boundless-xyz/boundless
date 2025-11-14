@@ -26,6 +26,8 @@ bytemuck = "1.16"
 clap = { version = "4.5", features = ["derive", "env"] }
 deadpool-redis = "0.15"
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
+prometheus = "0.13"
+prometheus_exporter = "0.8"
 rand = "0.8"
 redis = { version = "0.25", features = ["tokio-comp"] }
 risc0-binfmt = { version = "3.0.2" }
