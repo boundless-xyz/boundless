@@ -455,7 +455,7 @@ mod tests {
     use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
     use tokio::test;
 
-    use risc0_zkvm::{sha::Digest, Groth16Seal};
+    use risc0_zkvm::sha::Digest;
 
     #[test]
     async fn test_upload_input_and_image() {

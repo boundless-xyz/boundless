@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{config::ConfigLock, errors::CodedError, is_dev_mode};
+use crate::{config::ConfigLock, errors::CodedError};
 use alloy::primitives::bytes::Buf;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
