@@ -2793,7 +2793,6 @@ dependencies = [
  "sqlx",
  "tabled",
  "tempfile",
- "test-log",
  "tokio",
  "tokio-test",
  "toml 0.8.23",

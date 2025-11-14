@@ -75,7 +75,7 @@ sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls"
 tempfile = { workspace = true }
 tokio-test = "0.4"
 tracing-test = { workspace = true }
-test-log = { workspace = true }
+
 [features]
 # Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.
 prove = ["risc0-zkvm/prove", "blake3_groth16/prove"]
