@@ -5,13 +5,16 @@
 
 pragma solidity ^0.8.26;
 
-import {Script, console2} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
 import {Strings} from "openzeppelin/contracts/utils/Strings.sol";
 import {IRiscZeroSelectable} from "risc0/IRiscZeroSelectable.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroSetVerifier} from "risc0/RiscZeroSetVerifier.sol";
 import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
+import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
+import {Blake3Groth16Verifier} from "../src/blake3-groth16/Blake3Groth16Verifier.sol";
+import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 import {BoundlessMarket} from "../src/BoundlessMarket.sol";
@@ -69,13 +72,12 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             console2.log("Added Groth16 verifier to router with selector");
             console2.logBytes4(selector);
 
-            IRiscZeroVerifier _blake3_g16_verifier = deployRiscZeroBlake3Verifier();
-            IRiscZeroSelectable blake3_g16_selectable = IRiscZeroSelectable(address(_blake3_g16_verifier));
-            bytes4 blake3_g16_selector = blake3_g16_selectable.SELECTOR();
-            verifierRouter.addVerifier(blake3_g16_selector, _blake3_g16_verifier);
+            IRiscZeroVerifier _blake3G16Verifier = deployBlake3Verifier();
+            IRiscZeroSelectable blake3G16Selectable = IRiscZeroSelectable(address(_blake3G16Verifier));
+            bytes4 blake3G16Selector = blake3G16Selectable.SELECTOR();
+            verifierRouter.addVerifier(blake3G16Selector, _blake3G16Verifier);
             console2.log("Added Blake3 Groth16 verifier to router with selector");
-            console2.logBytes4(blake3_g16_selector);
-
+            console2.logBytes4(blake3G16Selector);
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.
             string memory setBuilderPath =
@@ -173,5 +175,20 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
 
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Deployment");
+    }
+    
+    /// @notice Deploy either a test or fully verifying `Blake3Groth16Verifier` depending on `devMode()`.
+    function deployBlake3Verifier() internal returns (IRiscZeroVerifier) {
+        if (devMode()) {
+            // NOTE: Using a fixed selector of 0xFFFFFFFF for the selector of the mock verifier.
+            IRiscZeroVerifier _verifier = new RiscZeroMockVerifier(bytes4(0xFFFFFFFF));
+            console2.log("Deployed RiscZeroMockVerifier to", address(_verifier));
+            return _verifier;
+        } else {
+            IRiscZeroVerifier _verifier =
+                new Blake3Groth16Verifier(ControlID.CONTROL_ROOT, ControlID.BN254_CONTROL_ID);
+            console2.log("Deployed Blake3Groth16Verifier to", address(_verifier));
+            return _verifier;
+        }
     }
 }
