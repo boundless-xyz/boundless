@@ -2,13 +2,12 @@ use anyhow::{bail, Context, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_more::Debug;
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
-use risc0_zkvm::{Digest, InnerReceipt, MaybePruned, Receipt, ReceiptClaim};
+use risc0_zkvm::{
+    sha::Digestible, Digest, Groth16Receipt, InnerReceipt, MaybePruned, Receipt, ReceiptClaim,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{is_dev_mode, Blake3Groth16ReceiptClaim};
-
-#[cfg(feature = "prove")]
-use {risc0_zkvm::sha::Digestible, risc0_zkvm::Groth16Receipt};
 
 #[derive(Clone, Debug, Deserialize, Serialize, BorshSerialize, BorshDeserialize)]
 pub struct Blake3Groth16Receipt {

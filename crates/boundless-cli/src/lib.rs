@@ -605,14 +605,14 @@ impl OrderFulfiller {
     }
 }
 
-// Returns `true` if the dev mode environment variable is enabled.
-fn is_dev_mode() -> bool {
-    std::env::var("RISC0_DEV_MODE")
-        .ok()
-        .map(|x| x.to_lowercase())
-        .filter(|x| x == "1" || x == "true" || x == "yes")
-        .is_some()
-}
+// // Returns `true` if the dev mode environment variable is enabled.
+// fn is_dev_mode() -> bool {
+//     std::env::var("RISC0_DEV_MODE")
+//         .ok()
+//         .map(|x| x.to_lowercase())
+//         .filter(|x| x == "1" || x == "true" || x == "yes")
+//         .is_some()
+// }
 #[cfg(test)]
 #[allow(missing_docs)]
 #[path = "../tests/common/mod.rs"]

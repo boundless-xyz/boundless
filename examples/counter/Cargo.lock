@@ -2077,6 +2077,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3_groth16"
+version = "1.1.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "bincode",
+ "blake3",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
+ "borsh",
+ "bytemuck",
+ "circom-witnesscalc",
+ "crypto-bigint 0.5.2",
+ "derive_more",
+ "hex",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "risc0-binfmt",
+ "risc0-circuit-recursion",
+ "risc0-core",
+ "risc0-groth16",
+ "risc0-zkp",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "wtns-file",
+]
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2119,6 +2154,19 @@ dependencies = [
 [[package]]
 name = "bonsai-sdk"
 version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21055e2f49cbbdbfe9f8f96d597c5527b0c6ab7933341fdc2f147180e48a988e"
+dependencies = [
+ "duplicate",
+ "maybe-async",
+ "reqwest",
+ "serde",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "bonsai-sdk"
+version = "1.4.1"
 source = "git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2#6ed3f0321638ae7eb9c097b8aa8becba3f4b1350"
 dependencies = [
  "duplicate",
@@ -2154,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -2167,7 +2215,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2177,6 +2225,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "blake3_groth16",
  "bytemuck",
  "chrono",
  "clap",
@@ -2210,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2231,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2249,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2260,7 +2309,8 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "bincode",
- "bonsai-sdk",
+ "blake3_groth16",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
  "boundless-test-utils",
@@ -2286,7 +2336,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "shrink_bitvm2",
  "sqlx",
  "tempfile",
  "thiserror 2.0.16",
@@ -3978,7 +4027,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -3996,7 +4045,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6425,7 +6474,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "requestor-lists"
-version = "0.15.0"
+version = "1.1.0"
 dependencies = [
  "alloy",
  "reqwest",
@@ -6932,6 +6981,7 @@ dependencies = [
  "addr2line",
  "anyhow",
  "bincode",
+ "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "borsh",
  "bytemuck",
  "bytes",
@@ -7654,34 +7704,6 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
-
-[[package]]
-name = "shrink_bitvm2"
-version = "0.1.0"
-source = "git+https://github.com/ec2/shrink_bitvm2.git?rev=e3933355820e468a217387dd11fa0a1a0fc309ed#e3933355820e468a217387dd11fa0a1a0fc309ed"
-dependencies = [
- "anyhow",
- "ark-bn254",
- "ark-ff 0.5.0",
- "ark-groth16",
- "ark-serialize 0.5.0",
- "blake3",
- "circom-witnesscalc",
- "crypto-bigint 0.5.2",
- "hex",
- "num-bigint 0.4.6",
- "num-traits",
- "risc0-circuit-recursion",
- "risc0-groth16",
- "risc0-zkp",
- "risc0-zkvm",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tracing",
- "wtns-file",
-]
 
 [[package]]
 name = "signal-hook-registry"

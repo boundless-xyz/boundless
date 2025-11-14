@@ -3,15 +3,16 @@ pub use receipt::*;
 pub use receipt_claim::*;
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
-use risc0_zkvm::{default_prover, InnerReceipt, MaybePruned, ProverOpts, Receipt};
+use risc0_zkvm::{default_prover, sha::Digestible, InnerReceipt, MaybePruned, Receipt};
 
 #[cfg(feature = "prove")]
-use risc0_zkvm::sha::Digestible;
+use risc0_zkvm::ProverOpts;
 
 #[cfg(feature = "prove")]
 mod prove;
 pub mod receipt;
 pub mod receipt_claim;
+#[cfg(feature = "prove")]
 mod seal_to_json;
 pub mod verify;
 
@@ -39,15 +40,18 @@ pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Blake3Groth16R
         tracing::info!("Using bonsai to compress to blake3 groth16");
         return compress_blake3_groth16_bonsai(&client, receipt).await;
     }
-    let receipt = receipt.clone();
+    let _receipt = receipt.clone();
+
     #[cfg(not(feature = "prove"))]
     {
         Err(anyhow::anyhow!(
             "blake3_groth16 must be built with the 'prove' feature to compress receipts locally"
         ))
     }
+
     #[cfg(feature = "prove")]
     tokio::task::spawn_blocking(move || {
+        let receipt = _receipt;
         let succinct_receipt = default_prover().compress(&ProverOpts::succinct(), &receipt)?;
         tracing::debug!("Succinct receipt created, proceeding to convert to blake3 groth16");
         let receipt = succinct_receipt.clone();
