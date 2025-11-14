@@ -1,8 +1,12 @@
 import * as pulumi from "@pulumi/pulumi";
-import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
-import {LaunchTemplateComponent, LaunchTemplateConfig} from "./LaunchTemplateComponent";
-import {AutoScalingGroupComponent, AutoScalingGroupConfig} from "./AutoScalingGroupComponent";
-import {ProverMetricAlarmComponent, WorkerClusterAlarmComponent} from "./MetricAlarmComponent";
+import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
+import { LaunchTemplateComponent, LaunchTemplateConfig } from "./LaunchTemplateComponent";
+import { AutoScalingGroupComponent, AutoScalingGroupConfig } from "./AutoScalingGroupComponent";
+import {
+    ExecutorMetricAlarmComponent,
+    ProverMetricAlarmComponent,
+    WorkerClusterAlarmComponent
+} from "./MetricAlarmComponent";
 
 export interface WorkerClusterConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -25,7 +29,7 @@ export class WorkerClusterComponent extends BaseComponent {
     public readonly executionAsg: AutoScalingGroupComponent;
     public readonly auxAsg: AutoScalingGroupComponent;
     public readonly proverAlarms: ProverMetricAlarmComponent;
-    public readonly executionAlarms: WorkerClusterAlarmComponent;
+    public readonly executionAlarms: ExecutorMetricAlarmComponent;
     public readonly auxAlarms: WorkerClusterAlarmComponent;
 
     constructor(config: WorkerClusterConfig) {
@@ -105,8 +109,8 @@ export class WorkerClusterComponent extends BaseComponent {
         return new AutoScalingGroupComponent(asgConfig);
     }
 
-    private createExecutionAlarms(config: WorkerClusterConfig): WorkerClusterAlarmComponent {
-        return new WorkerClusterAlarmComponent({
+    private createExecutionAlarms(config: WorkerClusterConfig): ExecutorMetricAlarmComponent {
+        return new ExecutorMetricAlarmComponent({
             ...config,
             serviceName: "bento-execution-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/execution`,

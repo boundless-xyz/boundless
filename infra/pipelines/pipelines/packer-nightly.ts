@@ -63,7 +63,7 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: PackerNightlyPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:packer-nightly-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, serviceAccountIds, role } = args;
+        const {artifactBucket, connection, serviceAccountIds, role, slackAlertsTopicArn} = args;
 
         // CodeBuild project for nightly builds
         const nightlyBuildProject = new aws.codebuild.Project("packer-nightly-build-project", {
@@ -111,11 +111,10 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
             },
             sourceVersion: "CODEPIPELINE",
             tags: {
-                Project: "boundless",
+                Name: `${APP_NAME}-packer-nightly-build`,
                 Component: "packer-nightly-build",
-                Environment: "ops",
             },
-        }, { parent: this });
+        }, {parent: this});
 
         // Create the main pipeline
         const pipeline = new aws.codepipeline.Pipeline(`packer-nightly-pipeline`, {
@@ -160,11 +159,10 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                 }
             ],
             tags: {
-                Project: "boundless",
+                Name: "packer-nightly-pipeline",
                 Component: "packer-nightly-build",
-                Environment: "ops",
             },
-        }, { parent: this });
+        }, {parent: this});
 
         // Create IAM role for EventBridge to execute the pipeline
         const eventBridgeRole = new aws.iam.Role(`${APP_NAME}-eventbridge-role`, {
@@ -178,7 +176,7 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                     Action: "sts:AssumeRole"
                 }]
             }),
-        }, { parent: this });
+        }, {parent: this});
 
         // Grant EventBridge permission to start pipeline execution
         new aws.iam.RolePolicy(`${APP_NAME}-eventbridge-policy`, {
@@ -193,7 +191,7 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
                     }]
                 })
             )
-        }, { parent: this });
+        }, {parent: this});
 
         // EventBridge rule for nightly builds (runs at 2 AM UTC daily)
         const nightlyScheduleRule = new aws.cloudwatch.EventRule("packer-nightly-schedule-rule", {
@@ -202,18 +200,36 @@ export class PackerNightlyPipeline extends pulumi.ComponentResource {
             scheduleExpression: "cron(0 2 * * ? *)", // 2 AM UTC daily
             state: "ENABLED",
             tags: {
-                Project: "boundless",
+                Name: "packer-nightly-schedule-rule",
                 Component: "packer-nightly-build",
-                Environment: "ops",
             },
-        }, { parent: this });
+        }, {parent: this});
 
         // EventBridge target to start the pipeline
         new aws.cloudwatch.EventTarget("packer-nightly-schedule-target", {
             rule: nightlyScheduleRule.name,
             arn: pipeline.arn,
             roleArn: eventBridgeRole.arn,
-        }, { parent: this });
+        }, {parent: this});
+
+        // Create notification rule
+        new aws.codestarnotifications.NotificationRule(`packer-nightly-pipeline-notifications`, {
+            name: `packer-nightly-pipeline-notifications`,
+            eventTypeIds: [
+                "codepipeline-pipeline-action-execution-failed",
+            ],
+            resource: pipeline.arn,
+            detailType: "FULL",
+            targets: [
+                {
+                    address: slackAlertsTopicArn.apply(arn => arn),
+                },
+            ],
+            tags: {
+                Name: `packer-nightly-pipeline-notifications`,
+                Component: "packer",
+            },
+        });
 
         // Outputs
         this.pipelineName = pipeline.name;
