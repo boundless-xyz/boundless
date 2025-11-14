@@ -6,14 +6,6 @@
 
 pragma solidity ^0.8.13;
 
-library TestReceipt {
-    bytes public constant SEAL =
-        hex"7f3d01021e2cc73fcbc78acba09144eef4ee7a3bdeeacff3f50d801d6e62423a5ce863072df236b96ac4a8c91af0947d56e34560a7ba3a6fae79ca79bd70c30e2934cb842b72ad3493f70fd5b51a2a8eeead852563d8e8aae05afeeec8aa3ab719d3e42d0f6982e2de87cb6b2ccebab138c09c8a12674ae17d6b0ac0ffeee240af7ca39c00aab7f9aefb5d936bcb2d92c99a44548518130e1bcccdbccf84793862846c2422539985417029729b42c2254be325d915509c74269e4ad5bcc1c243a957a8c504b2162c32c72a3eb4a61becc8512f35603c0758bbbbd6b712efc49e6a3e68c52b42ef79a6f348875913f38da1e1dca85fc43b31097a2938a39480eec05700ea";
-    bytes public constant JOURNAL = hex"6a75737420612073696d706c652072656365697074";
-    bytes32 public constant IMAGE_ID = hex"be5ee8a820e3f10d48576fcefce4570c08f876b2d8a12a7dcd586b5901c7ab3d";
-    bytes32 public constant USER_ID = hex"be5ee8a820e3f10d48576fcefce4570c08f876b2d8a12a7dcd586b5901c7ab3d";
-}
-
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 import {Ownable} from "openzeppelin/contracts/access/Ownable.sol";
@@ -22,7 +14,6 @@ import {
     IRiscZeroVerifier,
     Output,
     OutputLib,
-
     // Receipt needs to be renamed due to collision with type on the Test contract.
     Receipt as RiscZeroReceipt,
     ReceiptClaim,
@@ -32,8 +23,17 @@ import {
     VerificationFailed
 } from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
-import {RiscZeroVerifierRouter} from "../src/verifier/RiscZeroVerifierRouter.sol";
+import {RiscZeroVerifierRouter} from "risc0/RiscZeroVerifierRouter.sol";
+import {RiscZeroVerifierRouter as BoundlessVerifierRouter} from "../src/verifier/RiscZeroVerifierRouter.sol";
 import {VerifierLayeredRouter} from "../src/verifier/VerifierLayeredRouter.sol";
+
+library TestReceipt {
+    bytes public constant SEAL =
+        hex"7f3d01021e2cc73fcbc78acba09144eef4ee7a3bdeeacff3f50d801d6e62423a5ce863072df236b96ac4a8c91af0947d56e34560a7ba3a6fae79ca79bd70c30e2934cb842b72ad3493f70fd5b51a2a8eeead852563d8e8aae05afeeec8aa3ab719d3e42d0f6982e2de87cb6b2ccebab138c09c8a12674ae17d6b0ac0ffeee240af7ca39c00aab7f9aefb5d936bcb2d92c99a44548518130e1bcccdbccf84793862846c2422539985417029729b42c2254be325d915509c74269e4ad5bcc1c243a957a8c504b2162c32c72a3eb4a61becc8512f35603c0758bbbbd6b712efc49e6a3e68c52b42ef79a6f348875913f38da1e1dca85fc43b31097a2938a39480eec05700ea";
+    bytes public constant JOURNAL = hex"6a75737420612073696d706c652072656365697074";
+    bytes32 public constant IMAGE_ID = hex"be5ee8a820e3f10d48576fcefce4570c08f876b2d8a12a7dcd586b5901c7ab3d";
+    bytes32 public constant USER_ID = hex"be5ee8a820e3f10d48576fcefce4570c08f876b2d8a12a7dcd586b5901c7ab3d";
+}
 
 contract RiscZeroVerifierLayeredRouterTest is Test {
     using OutputLib for Output;
@@ -55,7 +55,7 @@ contract RiscZeroVerifierLayeredRouterTest is Test {
 
     function setUp() external {
         parentRouter = new RiscZeroVerifierRouter(address(this));
-        layeredRouter = new VerifierLayeredRouter(address(this), parentRouter);
+        layeredRouter = new VerifierLayeredRouter(address(this), BoundlessVerifierRouter(address(parentRouter)));
 
         verifierMockA = new RiscZeroMockVerifier(bytes4(0xFFFFFFFF));
         verifierMockB = new RiscZeroMockVerifier(bytes4(uint32(1)));
