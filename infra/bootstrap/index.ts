@@ -38,6 +38,22 @@ export = async () => {
     availabilityZones,
   });
 
+  // Configure some ECR properties
+  const basicScanTypeVersion = new aws.ecr.AccountSetting("ecrBasicScanTypeVersion", {
+    name: "BASIC_SCAN_TYPE_VERSION",
+    value: "AWS_NATIVE",
+  });
+  const configuration = new aws.ecr.RegistryScanningConfiguration("ecrRegistryScanningConfiguration", {
+    scanType: "BASIC",
+    rules: [{
+      scanFrequency: "SCAN_ON_PUSH",
+      repositoryFilters: [{
+        filter: "*",
+        filterType: "WILDCARD",
+      }],
+    }],
+  });
+
   return {
     DEPLOYMENT_ROLE_ARN: deploymentRole.arn,
     VPC_ID: services_vpc.vpcx.vpcId,
