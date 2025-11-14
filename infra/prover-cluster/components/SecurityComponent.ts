@@ -55,6 +55,12 @@ export class SecurityComponent extends BaseComponent {
             })
         });
 
+        // Attach S3 access policy
+        new aws.iam.RolePolicyAttachment("ec2-s3-policy", {
+            role: role.name,
+            policyArn: "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+        });
+
         return role;
     }
 
@@ -76,20 +82,6 @@ export class SecurityComponent extends BaseComponent {
                     toPort: 22,
                     cidrBlocks: ["0.0.0.0/0"],
                     description: "SSH access"
-                },
-                {
-                    protocol: "tcp",
-                    fromPort: 6379,
-                    toPort: 6379,
-                    self: true,
-                    description: "Redis access from same security group"
-                },
-                {
-                    protocol: "tcp",
-                    fromPort: 5432,
-                    toPort: 5432,
-                    self: true,
-                    description: "PostgreSQL access from same security group"
                 },
                 {
                     protocol: "tcp",
@@ -119,20 +111,6 @@ export class SecurityComponent extends BaseComponent {
                     cidrBlocks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
                     description: "VPC Link access to Bento API"
                 },
-                {
-                    protocol: "tcp",
-                    fromPort: 9000,
-                    toPort: 9000,
-                    cidrBlocks: ["0.0.0.0/0"],
-                    description: "MinIO S3 API access"
-                },
-                {
-                    protocol: "tcp",
-                    fromPort: 9001,
-                    toPort: 9001,
-                    cidrBlocks: ["0.0.0.0/0"],
-                    description: "MinIO Console access"
-                }
             ],
             egress: [
                 {

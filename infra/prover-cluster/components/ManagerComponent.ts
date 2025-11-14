@@ -1,8 +1,8 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
-import {LaunchTemplateComponent, LaunchTemplateConfig} from "./LaunchTemplateComponent";
-import {ManagerMetricAlarmComponent} from "./MetricAlarmComponent";
+import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
+import { LaunchTemplateComponent, LaunchTemplateConfig } from "./LaunchTemplateComponent";
+import { ManagerMetricAlarmComponent } from "./MetricAlarmComponent";
 
 export interface ManagerComponentConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -12,8 +12,6 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     taskDBName: string;
     taskDBUsername: string;
     taskDBPassword: string;
-    minioUsername: string;
-    minioPassword: string;
     ethRpcUrl: pulumi.Output<string>;
     privateKey: pulumi.Output<string>;
     orderStreamUrl: string;
@@ -23,6 +21,27 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     collateralTokenAddress: string;
     chainId: string;
     alertsTopicArns: string[];
+    rdsEndpoint: pulumi.Output<string>;
+    redisEndpoint: pulumi.Output<string>;
+    s3BucketName: pulumi.Output<string>;
+    // Broker configuration
+    mcyclePrice: string;
+    peakProveKhz: number;
+    minDeadline: number;
+    lookbackBlocks: number;
+    maxCollateral: string;
+    maxFileSize: string;
+    maxMcycleLimit: string;
+    maxConcurrentProofs: number;
+    balanceWarnThreshold: string;
+    balanceErrorThreshold: string;
+    collateralBalanceWarnThreshold: string;
+    collateralBalanceErrorThreshold: string;
+    priorityRequestorAddresses: string;
+    denyRequestorAddresses: string;
+    maxFetchRetries: number;
+    allowClientAddresses: string;
+    lockinPriorityGas: string;
 }
 
 export class ManagerComponent extends BaseComponent {
@@ -74,7 +93,7 @@ export class ManagerComponent extends BaseComponent {
             ...config,
             serviceName: "bento-manager",
             logGroupName: `/boundless/bento/${config.stackName}/manager`,
-            alarmDimensions: {InstanceId: this.instance.id},
+            alarmDimensions: { InstanceId: this.instance.id },
         });
     }
 }
