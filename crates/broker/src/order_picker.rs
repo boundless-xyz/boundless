@@ -1537,10 +1537,13 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use async_trait::async_trait;
-    use boundless_market::contracts::{
-        Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-    };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
+    use boundless_market::{
+        contracts::{
+            Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        },
+        selector::SelectorExt,
+    };
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
@@ -1947,7 +1950,8 @@ pub(crate) mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::groth16_latest() as u32);
+        order.request.requirements.selector =
+            FixedBytes::from(SelectorExt::groth16_latest() as u32);
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
