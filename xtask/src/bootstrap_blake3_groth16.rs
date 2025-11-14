@@ -15,9 +15,13 @@
 
 use std::{fs, path::Path, process::Command};
 
+use blake3_groth16::compress_blake3_groth16;
+use boundless_market::selector::SelectorExt;
 use clap::Parser;
+use guest_util::ECHO_ELF;
 use regex::Regex;
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
+use risc0_zkvm::{default_prover, Digest, ExecutorEnv, ProverOpts};
 
 #[derive(Debug, Parser)]
 pub struct BootstrapBlake3Groth16 {
@@ -39,14 +43,16 @@ const SOL_HEADER: &str = r#"// Copyright 2025 Boundless Foundation, Inc.
 
 const SOLIDITY_VERIFIER_TARGET: &str = "contracts/src/blake3-groth16/Groth16Verifier.sol";
 const SOLIDITY_CONTROL_ID_PATH: &str = "contracts/src/blake3-groth16/ControlID.sol";
+const SOLIDITY_TEST_RECEIPT_PATH: &str = "contracts/test/Blake3Groth16TestReceipt.sol";
 const RUST_VERIFIER_PATH: &str = "blake3_groth16/src/verify.rs";
 
 impl BootstrapBlake3Groth16 {
-    pub fn run(&self) {
+    pub async fn run(&self) {
         let current_dir = std::env::current_dir().unwrap();
         let blake3_setup_path = current_dir.join(&self.blake3_groth16_setup_dir);
         bootstrap_verifying_key(&blake3_setup_path);
         bootstrap_control_id();
+        bootstrap_test_receipt().await;
     }
 }
 
@@ -122,4 +128,46 @@ fn bootstrap_control_id() {
         .arg(solidity_control_id_path.as_os_str())
         .status()
         .unwrap_or_else(|_| panic!("failed to format {}", solidity_control_id_path.display()));
+}
+
+async fn bootstrap_test_receipt() {
+    const LIB_HEADER: &str = r#"pragma solidity ^0.8.13;
+
+ library TestReceipt {
+"#;
+    let (seal, claim_digest) = generate_receipt().await;
+    let selector = format!("{:x}", SelectorExt::blake3_groth16_latest() as u32);
+    let seal = hex::encode(&seal);
+
+    // NOTE: Selector value is the first four bytes of the verifier param digest. It is added as part
+    // of ABI encoding and used for routing to the correct verifier on-chain. We do not use the
+    // full ABI encoding implementation here because its part of risc0-ethereum-contracts, which
+    // would be a hassle to import.
+    let seal = format!(r#"bytes public constant SEAL = hex"{selector}{seal}";"#);
+    let claim_digest = format!(r#"bytes32 public constant CLAIM_DIGEST = hex"{claim_digest}";"#);
+
+    let solidity_test_receipt_path = Path::new(SOLIDITY_TEST_RECEIPT_PATH);
+    let content = &format!("{SOL_HEADER}{LIB_HEADER}\n{seal}\n{claim_digest}\n}}");
+    fs::write(solidity_test_receipt_path, content).unwrap();
+
+    // Use forge fmt to format the file.
+    Command::new("forge").arg("fmt").arg(solidity_test_receipt_path.as_os_str()).status().unwrap();
+}
+
+// Return a Blake3-Groth16 `seal` and the claim digest.
+// Requires running Docker.
+async fn generate_receipt() -> (Vec<u8>, Digest) {
+    tracing::info!("prove");
+    let input = [3u8; 32];
+
+    let env = ExecutorEnv::builder().write_slice(&input).build().unwrap();
+    tracing::info!("Proving echo program to get initial receipt");
+    let prover = default_prover();
+    // Produce a receipt by proving the specified ELF binary.
+    let receipt = prover.prove_with_opts(env, ECHO_ELF, &ProverOpts::succinct()).unwrap().receipt;
+    tracing::info!("Initial receipt created, compressing to blake3_groth16");
+    let blake3_receipt = compress_blake3_groth16(&receipt).await.unwrap();
+    let seal = blake3_receipt.seal().expect("failed to retrieve seal");
+    let claim_digest = blake3_receipt.claim_digest().expect("failed to compute claim digest");
+    (seal.clone(), claim_digest)
 }

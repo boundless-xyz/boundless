@@ -16,18 +16,19 @@ enum Commands {
 }
 
 impl Commands {
-    fn run(&self) {
+    async fn run(&self) {
         match self {
             Commands::SetupBlake3Groth16(cmd) => cmd.run(),
-            Commands::BootstrapBlake3Groth16(cmd) => cmd.run(),
+            Commands::BootstrapBlake3Groth16(cmd) => cmd.run().await,
         }
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
         .init();
 
-    Cli::parse().cmd.run();
+    Cli::parse().cmd.run().await;
 }
