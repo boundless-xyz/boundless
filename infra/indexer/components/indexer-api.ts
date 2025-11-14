@@ -104,11 +104,13 @@ export class IndexerApi extends pulumi.ComponentResource {
     );
 
 
-
-    // Get database URL from secret (reader endpoint for read-only queries)
-    const dbUrl = aws.secretsmanager.getSecretVersionOutput({
-      secretId: args.dbReaderUrlSecret.id,
-    }).secretString;
+    const dbUrl = pulumi.all([args.dbReaderUrlSecret]).apply(([secret]) => {
+      // Get database URL from secret (reader endpoint for read-only queries)
+      const dbUrl = aws.secretsmanager.getSecretVersionOutput({
+        secretId: secret.id,
+      }).secretString;
+      return dbUrl;
+    });
 
     // Combine secret hash from infra with local env variables
     // So that we can trigger a Lambda update when the secrets change
