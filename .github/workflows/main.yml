@@ -99,6 +99,9 @@ jobs:
           crate: cargo-sort
           version: "1.0"
 
+      - name: Install protobuf-compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: cargo Sort
         run: cargo sort --workspace --check
 
@@ -170,6 +173,9 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Install protobuf-compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: check order-stream
         run: cargo check --locked -p order-stream --bin order_stream

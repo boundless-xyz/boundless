@@ -176,7 +176,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         // Check for uncommitted changes warning
         checkUncommittedChangesWarning("Deployment");
     }
-    
+
     /// @notice Deploy either a test or fully verifying `Blake3Groth16Verifier` depending on `devMode()`.
     function deployBlake3Verifier() internal returns (IRiscZeroVerifier) {
         if (devMode()) {
@@ -185,8 +185,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             console2.log("Deployed RiscZeroMockVerifier to", address(_verifier));
             return _verifier;
         } else {
-            IRiscZeroVerifier _verifier =
-                new Blake3Groth16Verifier(ControlID.CONTROL_ROOT, ControlID.BN254_CONTROL_ID);
+            IRiscZeroVerifier _verifier = new Blake3Groth16Verifier(ControlID.CONTROL_ROOT, ControlID.BN254_CONTROL_ID);
             console2.log("Deployed Blake3Groth16Verifier to", address(_verifier));
             return _verifier;
         }

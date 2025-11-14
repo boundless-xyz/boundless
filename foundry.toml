@@ -3,7 +3,11 @@ src = "./contracts/src"
 # OZ Upgrades requires the out dir to be `./out`, or for `FOUNDRY_OUT` to be set
 # https://github.com/OpenZeppelin/openzeppelin-foundry-upgrades/blob/cfd861bc18ef4737e82eae6ec75304e27af699ef/src/internal/Utils.sol#L139-L147
 out = "./out"
-fs_permissions = [{ access = "read", path = "./out" }, { access = "read", path = "./contracts/out" }, { access = "read-write", path = "./contracts/deployment.toml" }]
+fs_permissions = [
+    { access = "read", path = "./out" },
+    { access = "read", path = "./contracts/out" },
+    { access = "read-write", path = "./contracts/deployment.toml" },
+]
 libs = ["./lib"]
 script = "./contracts/scripts"
 test = "./contracts/test"
@@ -31,6 +35,7 @@ isolate = true
 line_length = 120
 tab_width = 4
 quote_style = "double"
+ignore = ["contracts/src/blake3-groth16/Groth16Verifier.sol"]
 
 [lint]
 exclude_lints = ["asm-keccak256", "incorrect-shift"]
@@ -48,7 +53,11 @@ isolate = true
 [profile.povw-deploy]
 src = "./contracts/src"
 out = "./out"
-fs_permissions = [{ access = "read", path = "./out" }, { access = "read", path = "./contracts/out" }, { access = "read-write", path = "./contracts/deployment.toml" }]
+fs_permissions = [
+    { access = "read", path = "./out" },
+    { access = "read", path = "./contracts/out" },
+    { access = "read-write", path = "./contracts/deployment.toml" },
+]
 libs = ["./lib"]
 script = "./contracts/scripts"
 test = "./contracts/test"
@@ -76,4 +85,6 @@ ffi = true
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
-fs_permissions = [{ access = "read", path = "contracts/reference-contract/out" }]
+fs_permissions = [
+    { access = "read", path = "contracts/reference-contract/out" },
+]
