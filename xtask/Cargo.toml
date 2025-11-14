@@ -5,26 +5,26 @@ edition = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
 
+[features]
+default = []
+cuda = ["dep:risc0-groth16-sys", "blake3_groth16/cuda"]
+
 [dependencies]
 blake3_groth16 = { path = "../blake3_groth16", features = ["prove"] }
 boundless-market = { path = "../crates/boundless-market" }
 clap = { version = "4.5", features = ["derive", "env"] }
 guest-util = { workspace = true }
 hex = { workspace = true }
-rlimit = "0.10.2"
+memmap2 = { version = "0.9", optional = true }
+regex = "1"
+risc0-circuit-recursion = { workspace = true }
 risc0-groth16-sys = { workspace = true, optional = true, features = [
     "cuda",
     "setup",
 ] }
 risc0-zkvm = { workspace = true, features = ["prove"] }
+rlimit = "0.10.2"
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 xshell = "0.2"
-memmap2 = { version = "0.9", optional = true }
-regex = "1"
-risc0-circuit-recursion = { workspace = true }
-tokio = { workspace = true }
-
-[features]
-default = []
-cuda = ["dep:risc0-groth16-sys", "blake3_groth16/cuda"]
