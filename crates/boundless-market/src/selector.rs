@@ -103,7 +103,7 @@ impl SelectorExt {
     }
 
     /// Get the latest set verifier selector.
-    pub fn set_verifier_latest() -> SelectorExt {
+    pub fn set_inclusion_latest() -> SelectorExt {
         SelectorExt::SetVerifierV0_9
     }
 

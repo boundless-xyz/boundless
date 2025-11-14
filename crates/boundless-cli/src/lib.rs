@@ -636,12 +636,11 @@ mod tests {
     };
     use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
     use boundless_test_utils::market::create_test_ctx;
-    use risc0_ethereum_contracts::selector::Selector;
     use std::sync::Arc;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
-        selector: Option<Selector>,
+        selector: Option<SelectorExt>,
     ) -> (ProofRequest, Signature) {
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
@@ -672,7 +671,7 @@ mod tests {
             boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
         let signer = PrivateKeySigner::random();
         let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::groth16_latest())).await;
+            setup_proving_request_and_signature(&signer, Some(SelectorExt::groth16_latest())).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
         let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);

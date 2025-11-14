@@ -566,9 +566,13 @@ impl Requirements {
     /// to the latest Groth16 selector.
     #[cfg(not(target_os = "zkvm"))]
     pub fn with_groth16_proof(self) -> Self {
+        use crate::selector::SelectorExt;
+
         match crate::util::is_dev_mode() {
-            true => Self { selector: FixedBytes::from(Selector::FakeReceipt as u32), ..self },
-            false => Self { selector: FixedBytes::from(Selector::groth16_latest() as u32), ..self },
+            true => Self { selector: FixedBytes::from(SelectorExt::FakeReceipt as u32), ..self },
+            false => {
+                Self { selector: FixedBytes::from(SelectorExt::groth16_latest() as u32), ..self }
+            }
         }
     }
 
