@@ -478,8 +478,16 @@ pub struct RewardsDb {
 
 impl RewardsDb {
     pub async fn new(database_url: &str) -> Result<Self, DbError> {
+        use std::time::Duration;
+        
         sqlx::any::install_default_drivers();
-        let pool = AnyPoolOptions::new().max_connections(10).connect(database_url).await?;
+        let pool = AnyPoolOptions::new()
+            .max_connections(3)  // Lambda: 25 lambdas × 3 = 75 max connections
+            .acquire_timeout(Duration::from_secs(5))  // Lambda: fail fast for users
+            .idle_timeout(Some(Duration::from_secs(300)))  // Lambda: match container warm time
+            .max_lifetime(Some(Duration::from_secs(300)))  // Lambda: 5 min max
+            .connect(database_url)
+            .await?;
 
         // Run migrations
         sqlx::migrate!("./migrations").run(&pool).await?;

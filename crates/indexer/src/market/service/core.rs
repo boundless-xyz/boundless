@@ -218,13 +218,10 @@ where
 
         // Aggregate market data.
         // Note: Aggregations use the result of update_request_statuses, so we need to run them after.
-        // Parallelize all aggregate functions
-        tokio::try_join!(
-            self.aggregate_hourly_market_data(to),
-            self.aggregate_daily_market_data(to),
-            self.aggregate_weekly_market_data(to),
-            self.aggregate_monthly_market_data(to)
-        )?;
+        self.aggregate_hourly_market_data(to).await?;
+        self.aggregate_daily_market_data(to).await?;
+        self.aggregate_weekly_market_data(to).await?;
+        self.aggregate_monthly_market_data(to).await?;
 
         // Update the last processed block.
         self.update_last_processed_block(to).await?;

@@ -943,12 +943,13 @@ async fn get_requests_by_request_id_impl(
     state: Arc<AppState>,
     request_id: String,
 ) -> anyhow::Result<Vec<RequestStatusResponse>> {
-    // Parse as U256 to support both with and without 0x prefix
-    let parsed = U256::from_str(&request_id)
+    // Parse as U256 hex string, supporting both with and without 0x prefix
+    let request_id_hex = request_id.strip_prefix("0x").unwrap_or(&request_id);
+    let parsed = U256::from_str_radix(request_id_hex, 16)
         .map_err(|e| anyhow::anyhow!("Invalid request_id format: {}", e))?;
 
-    // Convert to decimal string for database query (standard U256 format)
-    let normalized_id = parsed.to_string();
+    // Convert to hex string (without 0x) for database query (matches DB storage format)
+    let normalized_id = format!("{:x}", parsed);
 
     let statuses = state.market_db.get_requests_by_request_id(&normalized_id).await?;
     let data = statuses.into_iter().map(convert_request_status).collect();

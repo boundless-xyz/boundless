@@ -118,7 +118,7 @@ export class IndexerShared extends pulumi.ComponentResource {
     const rdsUser = 'indexer';
 
     // Note: changing this causes the database to be deleted, and then recreated from scratch, and indexing to restart.
-    const databaseVersion = 'v17';
+    const databaseVersion = 'v18';
     this.databaseVersion = databaseVersion;
     const rdsDbName = `indexer${databaseVersion}`;
 
@@ -141,12 +141,97 @@ export class IndexerShared extends pulumi.ComponentResource {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      instanceClass: 'db.r6g.xlarge',
+      instanceClass: 'db.r6g.large',
       identifier: `${serviceName}-aurora-writer-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
     }, { parent: this /* protect: true */ });
 
+    new aws.rds.ClusterInstance(`${serviceName}-aurora-reader-${databaseVersion}`, {
+      clusterIdentifier: auroraCluster.id,
+      engine: 'aurora-postgresql',
+      engineVersion: '17.4',
+      instanceClass: 'db.r6g.large',
+      identifier: `${serviceName}-aurora-reader-${databaseVersion}`,
+      publiclyAccessible: false,
+      dbSubnetGroupName: dbSubnets.name,
+    }, { parent: this /* protect: true */ });
+
+    // RDS Proxy for reader (Lambda API reads only)
+    // The indexer (ECS task) connects directly to Aurora writer for better performance
+
+    // COMMENTED OUT: RDS Proxy setup - connecting directly to reader instance instead
+    /*
+    // Create IAM role for reader proxy
+    const readerProxyRoleName = `${serviceName}-reader-proxy-role-${databaseVersion}`;
+    const readerProxyRole = new aws.iam.Role(readerProxyRoleName, {
+      name: readerProxyRoleName,
+      assumeRolePolicy: JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Allow',
+          Principal: { Service: 'rds.amazonaws.com' },
+          Action: 'sts:AssumeRole',
+        }],
+      }),
+    }, { parent: this });
+
+    // Create secret for reader proxy authentication FIRST (proxy needs to reference it)
+    const readerProxySecret = new aws.secretsmanager.Secret(`${serviceName}-reader-proxy-secret-${databaseVersion}`, {
+      name: `${serviceName}-reader-proxy-secret`,
+    }, { parent: this });
+
+    new aws.secretsmanager.SecretVersion(`${serviceName}-reader-proxy-secret-ver-${databaseVersion}`, {
+      secretId: readerProxySecret.id,
+      secretString: pulumi.interpolate`{"username":"${rdsUser}","password":"${rdsPassword}"}`,
+    }, { parent: this });
+
+    // Attach policy to reader proxy role for secret access
+    new aws.iam.RolePolicy(`${serviceName}-reader-proxy-policy-${databaseVersion}`, {
+      role: readerProxyRole.id,
+      policy: readerProxySecret.arn.apply(arn => JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Allow',
+          Action: ['secretsmanager:GetSecretValue'],
+          Resource: arn,
+        }],
+      })),
+    }, { parent: this });
+
+    // Create RDS Proxy (references secret created above)
+    const readerProxy = new aws.rds.Proxy(`${serviceName}-reader-proxy-${databaseVersion}`, {
+      name: `${serviceName}-reader-proxy-${databaseVersion}`,
+      engineFamily: 'POSTGRESQL',
+      auths: [{
+        authScheme: 'SECRETS',
+        iamAuth: 'DISABLED',
+        secretArn: readerProxySecret.arn,  // Use actual secret ARN with proper suffix
+      }],
+      roleArn: readerProxyRole.arn,
+      vpcSubnetIds: privSubNetIds,
+      vpcSecurityGroupIds: [rdsSecurityGroup.id],
+      requireTls: false,  // Secret-based auth doesn't use TLS between client and proxy (both in VPC)
+      idleClientTimeout: 300, // 5 minutes for Lambda
+    }, { parent: this });
+
+    new aws.rds.ProxyDefaultTargetGroup(`${serviceName}-reader-proxy-tg-${databaseVersion}`, {
+      dbProxyName: readerProxy.name,
+      connectionPoolConfig: {
+        maxConnectionsPercent: 90,
+        maxIdleConnectionsPercent: 50,
+        connectionBorrowTimeout: 60,
+      },
+    }, { parent: this });
+
+    new aws.rds.ProxyTarget(`${serviceName}-reader-proxy-target-${databaseVersion}`, {
+      dbProxyName: readerProxy.name,
+      targetGroupName: 'default',
+      dbClusterIdentifier: auroraCluster.clusterIdentifier,
+    }, { parent: this });
+    */
+
+    // Writer secret: direct connection to Aurora cluster endpoint (for ECS indexer)
     const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
     this.dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url-1`, {}, { parent: this });
     this.dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-ver-1`, {
@@ -154,6 +239,8 @@ export class IndexerShared extends pulumi.ComponentResource {
       secretString: dbUrlSecretValue,
     }, { parent: this, dependsOn: [this.dbUrlSecret] });
 
+    // Reader secret: direct connection to Aurora reader endpoint (for Lambda API)
+    // Note: Using Aurora cluster reader endpoint which automatically routes to reader instances
     const dbReaderUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${auroraCluster.readerEndpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
     this.dbReaderUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-reader-url-1`, {}, { parent: this });
     this.dbReaderUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-reader-url-ver-1`, {
@@ -306,6 +393,83 @@ export class IndexerShared extends pulumi.ComponentResource {
     }, { parent: this, dependsOn: [this.taskRole, this.executionRole] });
 
     this.rdsSecurityGroupId = rdsSecurityGroup.id;
+
+    /**
+    // CloudWatch Alarms for Database Connections and Replication
+    // Note: r6g.xlarge has a max of 2000 connections according to AWS docs
+    const maxConnections = 2000;
+    const connectionThreshold = maxConnections * 0.8; // 80% threshold
+
+    // Alarm for Aurora Writer connections
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-aurora-writer-connections-${databaseVersion}`, {
+      name: `${serviceName}-aurora-writer-connections-${databaseVersion}`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: 'DatabaseConnections',
+      namespace: 'AWS/RDS',
+      period: 300, // 5 minutes
+      statistic: 'Average',
+      threshold: connectionThreshold,
+      alarmDescription: `Aurora writer instance connections exceeding 80% (${connectionThreshold} connections)`,
+      dimensions: {
+        DBClusterIdentifier: auroraCluster.clusterIdentifier,
+        Role: 'WRITER',
+      },
+      treatMissingData: 'notBreaching',
+    }, { parent: this });
+
+    // Alarm for Aurora Reader connections
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-aurora-reader-connections-${databaseVersion}`, {
+      name: `${serviceName}-aurora-reader-connections-${databaseVersion}`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: 'DatabaseConnections',
+      namespace: 'AWS/RDS',
+      period: 300, // 5 minutes
+      statistic: 'Average',
+      threshold: connectionThreshold,
+      alarmDescription: `Aurora reader instance connections exceeding 80% (${connectionThreshold} connections)`,
+      dimensions: {
+        DBClusterIdentifier: auroraCluster.clusterIdentifier,
+        Role: 'READER',
+      },
+      treatMissingData: 'notBreaching',
+    }, { parent: this });
+
+    // Alarm for Aurora Replication Lag
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-aurora-replication-lag-${databaseVersion}`, {
+      name: `${serviceName}-aurora-replication-lag-${databaseVersion}`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: 'AuroraReplicaLag',
+      namespace: 'AWS/RDS',
+      period: 60, // 1 minute
+      statistic: 'Average',
+      threshold: 500, // 500ms
+      alarmDescription: 'Aurora replication lag exceeding 500ms',
+      dimensions: {
+        DBClusterIdentifier: auroraCluster.clusterIdentifier,
+      },
+      treatMissingData: 'notBreaching',
+    }, { parent: this });
+
+    // Alarm for RDS Reader Proxy Client Connections (Lambda API)
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-reader-proxy-connections-${databaseVersion}`, {
+      name: `${serviceName}-reader-proxy-connections-${databaseVersion}`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: 'ClientConnections',
+      namespace: 'AWS/RDS',
+      period: 300, // 5 minutes
+      statistic: 'Average',
+      threshold: 90, // Alert if reader proxy has > 90 client connections (25 lambda limit × 3 connections + buffer)
+      alarmDescription: 'RDS Reader Proxy client connections approaching Lambda concurrency limit',
+      dimensions: {
+        ProxyName: readerProxy.name,
+      },
+      treatMissingData: 'notBreaching',
+    }, { parent: this });
+    **/
 
     this.registerOutputs({
       repositoryUrl: this.ecrRepository.repository.repositoryUrl,

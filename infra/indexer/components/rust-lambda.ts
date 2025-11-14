@@ -13,6 +13,7 @@ export interface RustLambdaOptions {
     memorySize?: number;
     timeout?: number;
     role: pulumi.Input<string>;
+    reservedConcurrentExecutions?: number;
     vpcConfig?: {
         subnetIds: pulumi.Input<pulumi.Input<string>[]>;
         securityGroupIds: pulumi.Input<pulumi.Input<string>[]>;
@@ -103,6 +104,7 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         role: options.role,
         memorySize: options.memorySize || 128,
         timeout: options.timeout || 30,
+        reservedConcurrentExecutions: options.reservedConcurrentExecutions,
         environment: options.environmentVariables ? {
             variables: options.environmentVariables,
         } : undefined,

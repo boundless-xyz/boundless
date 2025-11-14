@@ -131,6 +131,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       },
       memorySize: 256,
       timeout: 30,
+      reservedConcurrentExecutions: 10,
       vpcConfig: {
         subnetIds: args.privSubNetIds,
         securityGroupIds: [args.indexerSgId],
@@ -177,6 +178,23 @@ export class IndexerApi extends pulumi.ComponentResource {
       alarmDescription: `Indexer API Lambda (${serviceName}) ${Severity.SEV2} log ERROR level (2 errors within 20 mins)`,
       actionsEnabled: true,
       alarmActions,
+    }, { parent: this });
+
+    // Alarm for Lambda Concurrent Executions approaching limit
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-lambda-concurrent-executions`, {
+      name: `${serviceName}-lambda-concurrent-executions`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: 'ConcurrentExecutions',
+      namespace: 'AWS/Lambda',
+      period: 60, // 1 minute
+      statistic: 'Maximum',
+      threshold: 20, // Alert at 20 concurrent executions (80% of 25 limit)
+      alarmDescription: `Lambda concurrent executions approaching reserved limit of 25`,
+      dimensions: {
+        FunctionName: lambda.name,
+      },
+      treatMissingData: 'notBreaching',
     }, { parent: this });
 
     // Create API Gateway v2 (HTTP API)

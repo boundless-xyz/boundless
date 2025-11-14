@@ -30,12 +30,12 @@ impl AppState {
     pub async fn new(database_url: &str) -> Result<Self> {
         tracing::info!("Connecting to database...");
 
-        // Create rewards database connection
+        // Create rewards database connection (Lambda-optimized: 3 connections, short timeouts)
         let rewards_db = RewardsDb::new(database_url).await?;
         let rewards_db: RewardsDbObj = Arc::new(rewards_db);
 
-        // Create market database connection (same database, different trait)
-        let market_db = AnyDb::new(database_url).await?;
+        // Create market database connection (Lambda-optimized: 3 connections, short timeouts)
+        let market_db = AnyDb::new_for_lambda(database_url).await?;
         let market_db: MarketDbObj = Arc::new(market_db);
 
         tracing::info!("Database connection established");

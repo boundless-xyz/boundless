@@ -1,7 +1,7 @@
 // Integration tests for Market API endpoints
 
 use indexer_api::routes::market::{
-    MarketAggregatesResponse, RequestListResponse,
+    MarketAggregatesResponse, RequestListResponse, RequestStatusResponse,
 };
 
 use super::TestEnv;
@@ -892,5 +892,40 @@ async fn test_verify_all_formatted_currency_fields() {
                 );
             }
         }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_market_requests_by_request_id_hex_parsing() {
+    let env = TestEnv::market().await;
+
+    // Get a valid request ID from the database
+    let list_response: RequestListResponse = env.get("/v1/market/requests?limit=1").await.unwrap();
+    assert!(!list_response.data.is_empty(), "Test requires at least one request in the database");
+    let first = list_response.data.first().unwrap();
+    // Strip 0x prefix if present to normalize to hex without prefix
+    let request_id_no_prefix = first.request_id.strip_prefix("0x").unwrap_or(&first.request_id);
+
+    // Test without 0x prefix
+    let path_no_prefix = format!("/v1/market/requests/{}", request_id_no_prefix);
+    let response_no_prefix: Vec<RequestStatusResponse> = env.get(&path_no_prefix).await.unwrap();
+
+    // Test with 0x prefix
+    let path_with_prefix = format!("/v1/market/requests/0x{}", request_id_no_prefix);
+    let response_with_prefix: Vec<RequestStatusResponse> = env.get(&path_with_prefix).await.unwrap();
+    // Verify both return the same results
+    assert_eq!(
+        response_no_prefix.len(),
+        response_with_prefix.len(),
+        "Both formats should return the same number of requests"
+    );
+
+    // Verify the results are identical
+    for (req1, req2) in response_no_prefix.iter().zip(response_with_prefix.iter()) {
+        assert_eq!(
+            req1.request_digest, req2.request_digest,
+            "Request digests should match"
+        );
     }
 }

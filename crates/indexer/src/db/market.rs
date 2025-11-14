@@ -30,16 +30,16 @@ const SQL_BLOCK_KEY: i64 = 0;
 
 // Batch insert chunk size for request statuses
 // Setting too high may result in hitting parameter limits for the db engine.
-const REQUEST_STATUS_BATCH_SIZE: usize = 200;
+const REQUEST_STATUS_BATCH_SIZE: usize = 150;
 
 // Batch insert chunk sizes for various table inserts
 // Conservative sizes to support both PostgreSQL (32,767 params) and SQLite (999 params)
 const TX_BATCH_SIZE: usize = 500; // 5 params per row = 2,500 params max
-const REQUEST_SUBMITTED_EVENT_BATCH_SIZE: usize = 1000; // 5 params per row = 5,000 params max
-const REQUEST_LOCKED_EVENT_BATCH_SIZE: usize = 800; // 6 params per row = 4,800 params max
-const PROOF_DELIVERED_EVENT_BATCH_SIZE: usize = 800; // 6 params per row = 4,800 params max
-const REQUEST_FULFILLED_EVENT_BATCH_SIZE: usize = 800; // 6 params per row = 4,800 params max
-const PROOF_REQUEST_BATCH_SIZE: usize = 1000; // 23 params per row = 23,000 params max
+const REQUEST_SUBMITTED_EVENT_BATCH_SIZE: usize = 500; // 5 params per row = 5,000 params max
+const REQUEST_LOCKED_EVENT_BATCH_SIZE: usize = 500; // 6 params per row = 4,800 params max
+const PROOF_DELIVERED_EVENT_BATCH_SIZE: usize = 500; // 6 params per row = 4,800 params max
+const REQUEST_FULFILLED_EVENT_BATCH_SIZE: usize = 500; // 6 params per row = 4,800 params max
+const PROOF_REQUEST_BATCH_SIZE: usize = 500; // 23 params per row = 23,000 params max
 
 #[derive(Debug, Clone, Copy)]
 pub enum SortDirection {
@@ -678,11 +678,41 @@ pub struct AnyDb {
 
 impl AnyDb {
     /// For SQLite use a `sqlite:file_path` URL; for Postgres `postgres://`.
+    /// This constructor is optimized for the indexer (background service).
     pub async fn new(conn_str: &str) -> Result<Self, DbError> {
+        use std::time::Duration;
+        
         install_default_drivers(); 
         let opts = AnyConnectOptions::from_str(conn_str)?;
 
-        let pool = AnyPoolOptions::new().max_connections(10).connect_with(opts).await?;
+        let pool = AnyPoolOptions::new()
+            .max_connections(20)
+            .acquire_timeout(Duration::from_secs(10))  // Indexer: fail fast if pool exhausted
+            .idle_timeout(Some(Duration::from_secs(600)))  // Indexer: 10 min, keep connections alive
+            .max_lifetime(Some(Duration::from_secs(1800)))  // Indexer: 30 min, rotate periodically
+            .connect_with(opts)
+            .await?;
+
+        // apply any migrations
+        sqlx::migrate!().run(&pool).await?;
+
+        Ok(Self { pool })
+    }
+
+    /// Create a new AnyDb instance optimized for Lambda (short-lived, user-facing API).
+    pub async fn new_for_lambda(conn_str: &str) -> Result<Self, DbError> {
+        use std::time::Duration;
+        
+        install_default_drivers(); 
+        let opts = AnyConnectOptions::from_str(conn_str)?;
+
+        let pool = AnyPoolOptions::new()
+            .max_connections(3)  // Lambda: 25 lambdas × 3 = 75 max connections
+            .acquire_timeout(Duration::from_secs(5))  // Lambda: fail fast for users
+            .idle_timeout(Some(Duration::from_secs(300)))  // Lambda: match container warm time
+            .max_lifetime(Some(Duration::from_secs(300)))  // Lambda: 5 min max
+            .connect_with(opts)
+            .await?;
 
         // apply any migrations
         sqlx::migrate!().run(&pool).await?;
@@ -973,13 +1003,13 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert proof requests in chunks (within a transaction)
-        let mut tx = self.pool.begin().await?;
-
+        // Then batch insert proof requests in chunks (commit per chunk)
         for chunk in requests.chunks(PROOF_REQUEST_BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO proof_requests (
@@ -1100,9 +1130,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1195,13 +1225,13 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert proofs in chunks
-        let mut tx = self.pool.begin().await?;
-
+        // Then batch insert proofs in chunks (commit per chunk)
         for chunk in proofs.chunks(800) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO proofs (
@@ -1265,9 +1295,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1295,14 +1325,13 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Start a transaction for the events
-        let mut tx = self.pool.begin().await?;
-
-        // Now batch insert the events
+        // Batch insert the events (commit per chunk)
         for chunk in events.chunks(REQUEST_SUBMITTED_EVENT_BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO request_submitted_events (
@@ -1342,9 +1371,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1372,14 +1401,13 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Start a transaction for the events
-        let mut tx = self.pool.begin().await?;
-
-        // Now batch insert the events
+        // Batch insert the events (commit per chunk)
         for chunk in events.chunks(REQUEST_LOCKED_EVENT_BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO request_locked_events (
@@ -1423,9 +1451,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1447,14 +1475,13 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Start a transaction for the events
-        let mut tx = self.pool.begin().await?;
-
-        // Then batch insert proof delivered events in chunks
+        // Batch insert proof delivered events in chunks (commit per chunk)
         for chunk in events.chunks(PROOF_DELIVERED_EVENT_BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO proof_delivered_events (
@@ -1497,9 +1524,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1521,14 +1548,13 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Start a transaction for the events
-        let mut tx = self.pool.begin().await?;
-
-        // Then batch insert request fulfilled events in chunks
+        // Batch insert request fulfilled events in chunks (commit per chunk)
         for chunk in events.chunks(REQUEST_FULFILLED_EVENT_BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO request_fulfilled_events (
@@ -1571,9 +1597,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1595,14 +1621,14 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert prover slashed events in chunks
-        let mut tx = self.pool.begin().await?;
-
+        // Batch insert prover slashed events in chunks (commit per chunk)
         const BATCH_SIZE: usize = 500;
         for chunk in events.chunks(BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             // First, fetch prover addresses for all request IDs in this chunk
             let request_ids: Vec<String> = chunk.iter().map(|(request_id, _, _, _, _)| format!("{request_id:x}")).collect();
@@ -1684,9 +1710,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1708,13 +1734,13 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert deposit events in chunks
-        let mut tx = self.pool.begin().await?;
-
+        // Batch insert deposit events in chunks (commit per chunk)
         for chunk in deposits.chunks(1000) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO deposit_events (
@@ -1754,9 +1780,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1778,14 +1804,14 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert withdrawal events in chunks
-        let mut tx = self.pool.begin().await?;
-
+        // Batch insert withdrawal events in chunks (commit per chunk)
         const BATCH_SIZE: usize = 1000;
         for chunk in withdrawals.chunks(BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO withdrawal_events (
@@ -1825,9 +1851,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1849,14 +1875,14 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert collateral deposit events in chunks
-        let mut tx = self.pool.begin().await?;
-
+        // Batch insert collateral deposit events in chunks (commit per chunk)
         const BATCH_SIZE: usize = 1000;
         for chunk in deposits.chunks(BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO collateral_deposit_events (
@@ -1896,9 +1922,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1920,14 +1946,14 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert collateral withdrawal events in chunks
-        let mut tx = self.pool.begin().await?;
-
+        // Batch insert collateral withdrawal events in chunks (commit per chunk)
         const BATCH_SIZE: usize = 1000;
         for chunk in withdrawals.chunks(BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO collateral_withdrawal_events (
@@ -1967,9 +1993,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
@@ -1991,14 +2017,14 @@ impl IndexerDb for AnyDb {
 
         self.add_txs(&unique_txs).await?;
 
-        // Then batch insert callback failed events in chunks
-        let mut tx = self.pool.begin().await?;
-
+        // Batch insert callback failed events in chunks (commit per chunk)
         const BATCH_SIZE: usize = 500;
         for chunk in events.chunks(BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
+
+            let mut tx = self.pool.begin().await?;
 
             let mut query = String::from(
                 "INSERT INTO callback_failed_events (
@@ -2041,9 +2067,9 @@ impl IndexerDb for AnyDb {
             }
 
             query_builder.execute(&mut *tx).await?;
+            tx.commit().await?;
         }
 
-        tx.commit().await?;
         Ok(())
     }
 
