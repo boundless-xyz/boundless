@@ -34,7 +34,7 @@ const collateralTokenAddress: string = config.require("collateralTokenAddress");
 const chainId: string = config.require("chainId");
 const apiKey: pulumi.Output<string> = config.requireSecret("apiKey");
 
-// Contract addresses
+// DB vars
 const taskDBUsername: string = config.require("taskDBUsername");
 const taskDBPassword: string = config.require("taskDBPassword");
 const taskDBName: string = config.require("taskDBName");
