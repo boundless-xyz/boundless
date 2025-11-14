@@ -327,7 +327,8 @@ where
                 self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
 
             // Add the gas price plus 10% to the max_price.
-            let adjusted_gas_cost_estimate = gas_cost_estimate + (gas_cost_estimate / U256::from(10));
+            let adjusted_gas_cost_estimate =
+                gas_cost_estimate + (gas_cost_estimate / U256::from(10));
             let max_price = max_price_cycle + adjusted_gas_cost_estimate;
             tracing::debug!(
                 "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate (adjusted by 10%) [gas price: {} gwei]",
