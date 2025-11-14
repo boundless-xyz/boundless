@@ -72,7 +72,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             console2.log("Added Groth16 verifier to router with selector");
             console2.logBytes4(selector);
 
-            IRiscZeroVerifier _blake3G16Verifier = deployRiscZeroBlake3Verifier();
+            IRiscZeroVerifier _blake3G16Verifier = deployBlake3Verifier();
             IRiscZeroSelectable blake3G16Selectable = IRiscZeroSelectable(address(_blake3G16Verifier));
             bytes4 blake3G16Selector = blake3G16Selectable.SELECTOR();
             verifierRouter.addVerifier(blake3G16Selector, _blake3G16Verifier);
@@ -178,7 +178,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
     }
     
     /// @notice Deploy either a test or fully verifying `Blake3Groth16Verifier` depending on `devMode()`.
-    function deployRiscZeroBlake3Verifier() internal returns (IRiscZeroVerifier) {
+    function deployBlake3Verifier() internal returns (IRiscZeroVerifier) {
         if (devMode()) {
             // NOTE: Using a fixed selector of 0xFFFFFFFF for the selector of the mock verifier.
             IRiscZeroVerifier _verifier = new RiscZeroMockVerifier(bytes4(0xFFFFFFFF));
