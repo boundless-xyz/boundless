@@ -95,9 +95,17 @@ where
             let pending_nonce = self.inner.get_transaction_count(from_address).pending().await?;
             let next_nonce = std::cmp::max(latest_nonce, pending_nonce);
             request.nonce = Some(next_nonce);
-            tracing::trace!(
-                "NonceProvider::send_with_nonce_management - set nonce {} for address: {}",
+            tracing::debug!(
+                "NonceProvider::send_with_nonce_management - set nonce {} [latest: {}, pending: {}] for address: {}",
                 next_nonce,
+                latest_nonce,
+                pending_nonce,
+                from_address
+            );
+        } else {
+            tracing::debug!(
+                "NonceProvider::send_with_nonce_management - nonce already set to {} for address: {}",
+                request.nonce.unwrap(),
                 from_address
             );
         }
