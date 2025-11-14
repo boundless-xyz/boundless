@@ -41,6 +41,12 @@ struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
     rpc_url: Url,
+    /// Additional RPC URLs for automatic failover.
+    /// Can be specified multiple times or as a comma-separated list.
+    /// If provided along with rpc_url, they will be merged into a single list.
+    /// If 2+ URLs are provided total, a fallback provider will be used.
+    #[clap(long, env = "RPC_URLS", value_delimiter = ',')]
+    rpc_urls: Vec<Url>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -158,6 +164,7 @@ async fn run(args: &MainArgs) -> Result<()> {
 
     let client = Client::builder()
         .with_rpc_url(args.rpc_url.clone())
+        .with_rpc_urls(args.rpc_urls.clone())
         .with_storage_provider_config(&args.storage_config)?
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
@@ -381,6 +388,7 @@ mod tests {
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
+            rpc_urls: Vec::new(),
             storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             deployment: Some(ctx.deployment.clone()),
