@@ -2566,7 +2566,7 @@ dependencies = [
 
 [[package]]
 name = "blake3_groth16"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2702,7 +2702,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",
@@ -2720,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-bench"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2748,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-cli"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
@@ -2806,7 +2806,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-distributor"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2826,7 +2826,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-indexer"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2860,7 +2860,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2926,7 +2926,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-povw"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2959,7 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-rewards"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2974,7 +2974,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",
@@ -3034,7 +3034,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3054,7 +3054,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3118,7 +3118,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -4252,7 +4252,7 @@ checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
 name = "doc-test"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.0",
@@ -5200,7 +5200,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5218,7 +5218,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5872,7 +5872,7 @@ checksum = "4ee796ad498c8d9a1d68e477df8f754ed784ef875de1414ebdaf169f70a6a784"
 
 [[package]]
 name = "indexer-api"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5903,7 +5903,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-monitor"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7359,7 +7359,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -8332,7 +8332,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "requestor-lists"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "reqwest",
@@ -12364,7 +12364,7 @@ checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xtask"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "blake3_groth16",
  "boundless-market",

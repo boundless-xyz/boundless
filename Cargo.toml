@@ -27,15 +27,15 @@ members = [
 ]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 homepage = "https://beboundless.xyz/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
-boundless-assessor = { version = "1.1.0", path = "crates/assessor" }
+boundless-assessor = { version = "1.2.0", path = "crates/assessor" }
 boundless-cli = { path = "crates/boundless-cli" }
-boundless-market = { version = "1.1.0", path = "crates/boundless-market" }
+boundless-market = { version = "1.2.0", path = "crates/boundless-market" }
 boundless-rewards = { path = "crates/rewards" }
 boundless-test-utils = { path = "crates/test-utils" }
 boundless-zkc = { path = "crates/zkc" }
