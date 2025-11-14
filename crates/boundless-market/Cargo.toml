@@ -14,7 +14,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-test-utils = ["dep:risc0-circuit-recursion"]
+test-utils = []
 
 [dependencies]
 alloy-chains = { workspace = true }
@@ -58,7 +58,7 @@ rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }
 risc0-binfmt = { workspace = true }
-risc0-circuit-recursion = { workspace = true, optional = true }
+risc0-circuit-recursion = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }
