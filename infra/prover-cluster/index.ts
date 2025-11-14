@@ -22,7 +22,7 @@ const config = new pulumi.Config();
 // Configuration with proper types
 const environment: string = config.get("environment") || "custom";
 
-// Required configuration
+// Required base configuration
 const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
 const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
 const managerInstanceType: string = config.require("managerInstanceType");
