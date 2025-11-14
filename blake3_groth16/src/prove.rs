@@ -3,10 +3,12 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use num_bigint::BigUint;
 use num_traits::Num;
-use risc0_groth16::{prove::to_json as seal_to_json, ProofJson as Groth16ProofJson};
+use risc0_groth16::ProofJson as Groth16ProofJson;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::{ProverOpts, ReceiptClaim, SuccinctReceipt};
 use tempfile::tempdir;
+
+use crate::seal_to_json::seal_to_json;
 #[cfg(feature = "cuda")]
 pub(crate) mod cuda;
 #[cfg(not(feature = "cuda"))]
@@ -50,7 +52,7 @@ pub(crate) fn identity_seal_json(
     p254_receipt: &SuccinctReceipt<ReceiptClaim>,
 ) -> Result<serde_json::Value> {
     let seal_bytes = p254_receipt.get_seal_bytes();
-    let seal_json = seal_to_json(seal_bytes.as_slice())?; // TODO(ec2): This is currently using a local version of risc0 which exposes this method
+    let seal_json = seal_to_json(seal_bytes.as_slice())?;
     let mut seal_json: serde_json::Value = serde_json::from_str(&seal_json)?;
 
     let mut journal_bits = Vec::new();

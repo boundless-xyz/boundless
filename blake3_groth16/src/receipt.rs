@@ -132,7 +132,7 @@ impl Blake3Groth16Receipt {
         }
     }
 
-    fn seal(&self) -> Result<&Vec<u8>> {
+    pub fn seal(&self) -> Result<&Vec<u8>> {
         Ok(&self.groth16()?.seal)
     }
 }
