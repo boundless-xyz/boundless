@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
+use crate::blake3_groth16;
 use crate::contracts::{Callback, Predicate, Requirements};
 use crate::selector::is_blake3_groth16_selector;
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
