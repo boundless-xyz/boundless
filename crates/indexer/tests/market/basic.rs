@@ -15,7 +15,7 @@
 use std::{
     process::Command,
     str::FromStr,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use assert_cmd::Command as AssertCommand;
@@ -112,6 +112,69 @@ async fn create_order_with_timeouts(
     let client_sig = req.sign_request(signer, contract_addr, chain_id).await.unwrap();
 
     (req, client_sig.as_bytes().into())
+}
+
+// Helper to setup order stream server and client
+async fn setup_order_stream<P: Provider>(
+    anvil: &alloy::node_bindings::AnvilInstance,
+    ctx: &TestCtx<P>,
+    pool: sqlx::PgPool,
+) -> (
+    url::Url,
+    boundless_market::order_stream_client::OrderStreamClient,
+    tokio::task::JoinHandle<()>,
+) {
+    use boundless_market::order_stream_client::OrderStreamClient;
+    use order_stream::{run_from_parts, AppState, ConfigBuilder};
+    use std::net::{Ipv4Addr, SocketAddr};
+    use url::Url;
+
+    let listener =
+        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
+    let order_stream_address = listener.local_addr().unwrap();
+    let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
+
+    let order_stream_config = ConfigBuilder::default()
+        .rpc_url(anvil.endpoint_url())
+        .market_address(ctx.deployment.boundless_market_address)
+        .domain(order_stream_address.to_string())
+        .build()
+        .unwrap();
+
+    let order_stream = AppState::new(&order_stream_config, Some(pool)).await.unwrap();
+    let order_stream_clone = order_stream.clone();
+    let order_stream_handle = tokio::spawn(async move {
+        run_from_parts(order_stream_clone, listener).await.unwrap();
+    });
+
+    let order_stream_client = OrderStreamClient::new(
+        order_stream_url.clone(),
+        ctx.deployment.boundless_market_address,
+        anvil.chain_id(),
+    );
+
+    (order_stream_url, order_stream_client, order_stream_handle)
+}
+
+// Helper to get block timestamp and start block number
+async fn get_block_info<P: Provider>(provider: &P) -> (u64, u64) {
+    let block = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    let block_timestamp = block.header.timestamp;
+    let start_block = block.header.number;
+    (block_timestamp, start_block)
+}
+
+// Helper to update all order created_at timestamps to be after a given block timestamp
+async fn update_order_timestamps(pool: &sqlx::PgPool, block_timestamp: u64) {
+    sqlx::query("UPDATE orders SET created_at = to_timestamp($1) WHERE created_at IS NOT NULL")
+        .bind((block_timestamp + 1) as i64)
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 // Helper to spawn indexer CLI with common args
@@ -1168,66 +1231,17 @@ async fn test_aggregation_percentiles() {
 #[traced_test]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
-    use boundless_market::order_stream_client::OrderStreamClient;
-    use order_stream::{run_from_parts, AppState, ConfigBuilder};
-    use std::net::{Ipv4Addr, SocketAddr};
-    use url::Url;
-
     let test_db = TestDb::new().await.unwrap();
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    // Setup order stream server
-    let listener =
-        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
-    let order_stream_address = listener.local_addr().unwrap();
-    let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
+    // Setup order stream server and client
+    let (order_stream_url, order_stream_client, order_stream_handle) =
+        setup_order_stream(&anvil, &ctx, pool.clone()).await;
 
-    let order_stream_config = ConfigBuilder::default()
-        .rpc_url(anvil.endpoint_url())
-        .market_address(ctx.deployment.boundless_market_address)
-        .domain(order_stream_address.to_string())
-        .build()
-        .unwrap();
-
-    let order_stream = AppState::new(&order_stream_config, Some(pool)).await.unwrap();
-    let order_stream_clone = order_stream.clone();
-    let order_stream_handle = tokio::spawn(async move {
-        run_from_parts(order_stream_clone, listener).await.unwrap();
-    });
-
-    // Create order stream client and submit test orders
-    let order_stream_client = OrderStreamClient::new(
-        order_stream_url.clone(),
-        ctx.deployment.boundless_market_address,
-        anvil.chain_id(),
-    );
-
-    let mut now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    let provider = ctx.customer_provider.clone();
-    let block_timestamp = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .timestamp;
-    let start_block = ctx
-        .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .number;
-
-    // For some reason initial anvil block timestamps is in the future. Our time must advance past the anvil block timestampbefore we submit our off chain orders,
-    // since the indexer uses block timestmaps to filter the order stream to avoid re-processing orders from the past.
-    while now < block_timestamp {
-        tokio::time::sleep(INDEXER_WAIT_DURATION).await;
-        now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    }
+    // Get block info
+    let (block_timestamp, _start_block) = get_block_info(&ctx.customer_provider).await;
 
     let now = ctx
         .customer_provider
@@ -1276,6 +1290,9 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     .await;
     order_stream_client.submit_request(&req3, &ctx.customer_signer).await.unwrap();
 
+    // Update all order created_at timestamps to be after the first block timestamp
+    update_order_timestamps(&pool, block_timestamp).await;
+
     let orders = order_stream_client.list_orders_v2(None, None, None, None, None).await.unwrap();
     assert_eq!(orders.orders.len(), 3, "Expected 3 orders to be indexed");
     tracing::info!("Orders: {:?}", orders);
@@ -1288,6 +1305,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         .unwrap()
         .header
         .timestamp;
+    let provider = ctx.customer_provider.clone();
     provider.anvil_set_next_block_timestamp(now_2 + 10).await.unwrap();
     provider.anvil_mine(Some(1), None).await.unwrap();
 
@@ -1309,7 +1327,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         "--order-stream-url",
         order_stream_url.as_str(),
         "--start-block",
-        &start_block.to_string(),
+        &"1".to_string(),
     ];
 
     println!("{exe_path} {args:?}");
@@ -1400,64 +1418,17 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
 #[traced_test]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
-    use boundless_market::order_stream_client::OrderStreamClient;
-    use order_stream::{run_from_parts, AppState, ConfigBuilder};
-    use std::net::{Ipv4Addr, SocketAddr};
-    use url::Url;
-
     let test_db = TestDb::new().await.unwrap();
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    // Setup order stream server
-    let listener =
-        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
-    let order_stream_address = listener.local_addr().unwrap();
-    let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
+    // Setup order stream server and client
+    let (order_stream_url, order_stream_client, order_stream_handle) =
+        setup_order_stream(&anvil, &ctx, pool.clone()).await;
 
-    let order_stream_config = ConfigBuilder::default()
-        .rpc_url(anvil.endpoint_url())
-        .market_address(ctx.deployment.boundless_market_address)
-        .domain(order_stream_address.to_string())
-        .build()
-        .unwrap();
-
-    let order_stream = AppState::new(&order_stream_config, Some(pool)).await.unwrap();
-    let order_stream_clone = order_stream.clone();
-    let order_stream_handle = tokio::spawn(async move {
-        run_from_parts(order_stream_clone, listener).await.unwrap();
-    });
-
-    // Create order stream client
-    let order_stream_client = OrderStreamClient::new(
-        order_stream_url.clone(),
-        ctx.deployment.boundless_market_address,
-        anvil.chain_id(),
-    );
-
-    let provider = ctx.customer_provider.clone();
-    let block_timestamp = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .timestamp;
-    let start_block = ctx
-        .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .number;
-
-    let mut now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    while now < block_timestamp {
-        tokio::time::sleep(INDEXER_WAIT_DURATION).await;
-        now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    }
+    // Get block info
+    let (block_timestamp, start_block) = get_block_info(&ctx.customer_provider).await;
 
     let now = ctx
         .customer_provider
@@ -1529,6 +1500,9 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     )
     .await;
     order_stream_client.submit_request(&req3_offchain, &ctx.customer_signer).await.unwrap();
+
+    // Update all order created_at timestamps to be after the first block timestamp
+    update_order_timestamps(&pool, block_timestamp).await;
 
     // Start market indexer with order stream URL
     let cmd = AssertCommand::cargo_bin("market-indexer")
@@ -1627,64 +1601,17 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
 #[traced_test]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
-    use boundless_market::order_stream_client::OrderStreamClient;
-    use order_stream::{run_from_parts, AppState, ConfigBuilder};
-    use std::net::{Ipv4Addr, SocketAddr};
-    use url::Url;
-
     let test_db = TestDb::new().await.unwrap();
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
-    // Setup order stream server
-    let listener =
-        tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await.unwrap();
-    let order_stream_address = listener.local_addr().unwrap();
-    let order_stream_url = Url::parse(&format!("http://{order_stream_address}")).unwrap();
+    // Setup order stream server and client
+    let (order_stream_url, order_stream_client, order_stream_handle) =
+        setup_order_stream(&anvil, &ctx, pool.clone()).await;
 
-    let order_stream_config = ConfigBuilder::default()
-        .rpc_url(anvil.endpoint_url())
-        .market_address(ctx.deployment.boundless_market_address)
-        .domain(order_stream_address.to_string())
-        .build()
-        .unwrap();
-
-    let order_stream = AppState::new(&order_stream_config, Some(pool)).await.unwrap();
-    let order_stream_clone = order_stream.clone();
-    let order_stream_handle = tokio::spawn(async move {
-        run_from_parts(order_stream_clone, listener).await.unwrap();
-    });
-
-    // Create order stream client
-    let order_stream_client = OrderStreamClient::new(
-        order_stream_url.clone(),
-        ctx.deployment.boundless_market_address,
-        anvil.chain_id(),
-    );
-
-    let provider = ctx.customer_provider.clone();
-    let block_timestamp = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .timestamp;
-    let start_block = ctx
-        .customer_provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .number;
-
-    let mut now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    while now < block_timestamp {
-        tokio::time::sleep(INDEXER_WAIT_DURATION).await;
-        now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-    }
+    // Get block info
+    let (block_timestamp, start_block) = get_block_info(&ctx.customer_provider).await;
 
     let now = ctx
         .customer_provider
@@ -1709,6 +1636,7 @@ async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     ctx.customer_market.submit_request_with_signature(&req_onchain, sig_onchain).await.unwrap();
 
     // Get the block timestamp of the onchain submission
+    let provider = ctx.customer_provider.clone();
     let onchain_block = provider
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await
@@ -1727,6 +1655,9 @@ async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     )
     .await;
     order_stream_client.submit_request(&req_offchain, &ctx.customer_signer).await.unwrap();
+
+    // Update all order created_at timestamps to be after the first block timestamp
+    update_order_timestamps(&pool, block_timestamp).await;
 
     // Start market indexer with order stream URL
     let cmd = AssertCommand::cargo_bin("market-indexer")
