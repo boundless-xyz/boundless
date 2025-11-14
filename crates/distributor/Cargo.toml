@@ -10,6 +10,8 @@ publish = false
 [package.metadata.release]
 release = false
 
+[features]
+
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
 anyhow = { workspace = true }
@@ -27,5 +29,3 @@ url = { workspace = true }
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
 tracing-test = { workspace = true }
-
-[features]
