@@ -6,7 +6,7 @@ homepage.workspace = true
 repository.workspace = true
 
 [features]
-default = ["prove"]
+default = []
 prove = ["risc0-zkvm/prove"]
 cuda = [
     "prove",
