@@ -104,7 +104,7 @@ export class DataServicesComponent extends BaseComponent {
         this.rdsInstance = new aws.rds.Instance(`${config.stackName}`, {
             identifier: this.generateName("postgres"),
             engine: "postgres",
-            engineVersion: "16.3",
+            engineVersion: "17.4",
             instanceClass: config.rdsInstanceClass || "db.t4g.micro",
             allocatedStorage: 20,
             maxAllocatedStorage: 100,
