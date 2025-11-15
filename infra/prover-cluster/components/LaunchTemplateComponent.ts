@@ -186,11 +186,11 @@ ${brokerTomlContent.split('\n').map(line => `      ${line}`).join('\n')}
 
   - path: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json
     content: |
-      {
-        "metrics": {
-          "aggregation_dimensions": [["InstanceId"]]
-        }
-      }
+{
+  "metrics": {
+    "aggregation_dimensions": [["InstanceId"]]
+  }
+}
     owner: root:root
     permissions: '0644'
 
@@ -209,6 +209,7 @@ ${brokerTomlContent.split('\n').map(line => `      ${line}`).join('\n')}
       DATABASE_URL=postgresql://${dbUser}:${dbPass}@${rdsHost}:${rdsPort}/${dbName}
       REDIS_URL=redis://${redisHost}:${redisPort}
       S3_BUCKET=${s3BucketName}
+      S3_URL=https://s3.us-west-2.amazonaws.com
       AWS_REGION=us-west-2
       STACK_NAME=${stackName}
       COMPONENT_TYPE=${componentType}
@@ -223,8 +224,35 @@ ${brokerTomlContent.split('\n').map(line => `      ${line}`).join('\n')}
     owner: root:root
     permissions: '0644'
 
+  - path: /opt/boundless/scripts/fetch-s3-credentials.sh
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      # Ensure script directory exists
+      mkdir -p /opt/boundless/scripts
+
+      # Fetch IAM role credentials from instance metadata
+      TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+      CREDS=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/)
+      ROLE_NAME=$(echo "$CREDS" | head -n 1)
+      ROLE_CREDS=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE_NAME")
+
+      # Parse JSON using Python (available on Ubuntu by default)
+      ACCESS_KEY=$(echo "$ROLE_CREDS" | python3 -c "import sys, json; print(json.load(sys.stdin)['AccessKeyId'])")
+      SECRET_KEY=$(echo "$ROLE_CREDS" | python3 -c "import sys, json; print(json.load(sys.stdin)['SecretAccessKey'])")
+
+      # Append S3 credentials to environment file
+      echo "S3_ACCESS_KEY=$ACCESS_KEY" >> /etc/environment.d/bento.conf
+      echo "S3_SECRET_KEY=$SECRET_KEY" >> /etc/environment.d/bento.conf
+    owner: root:root
+    permissions: '0755'
+
 runcmd:
   - |
+    cat /etc/environment.d/bento.conf >> /etc/environment
+  - |
+    /opt/boundless/scripts/fetch-s3-credentials.sh
     cat /etc/environment.d/bento.conf >> /etc/environment
   - |
     /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
@@ -240,6 +268,9 @@ runcmd:
     systemctl daemon-reload
     systemctl restart vector
     systemctl restart amazon-cloudwatch-agent
+  - |
+    # Reload environment and start services
+    systemctl daemon-reload
     systemctl start bento-api.service bento-broker.service
     systemctl enable bento-api.service bento-broker.service
 `;
