@@ -92,15 +92,16 @@ contract PovwMint is IPovwMint, Initializable, OwnableUpgradeable, UUPSUpgradeab
         }
         if (journal.povwAccountingAddress != address(ACCOUNTING)) {
             revert IncorrectSteelContractAddress({
-                expected: address(ACCOUNTING),
-                received: journal.povwAccountingAddress
+                expected: address(ACCOUNTING), received: journal.povwAccountingAddress
             });
         }
         if (journal.zkcAddress != address(TOKEN)) {
             revert IncorrectSteelContractAddress({expected: address(TOKEN), received: journal.zkcAddress});
         }
         if (journal.zkcRewardsAddress != address(TOKEN_REWARDS)) {
-            revert IncorrectSteelContractAddress({expected: address(TOKEN_REWARDS), received: journal.zkcRewardsAddress});
+            revert IncorrectSteelContractAddress({
+                expected: address(TOKEN_REWARDS), received: journal.zkcRewardsAddress
+            });
         }
 
         // Ensure the initial commit for each update is correct and update the final commit.

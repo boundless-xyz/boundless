@@ -42,11 +42,7 @@ library PredicateLibrary {
     /// @notice Creates a prefix match predicate.
     /// @param prefix The prefix to match.
     /// @return A Predicate struct with type PrefixMatch and the provided prefix.
-    function createPrefixMatchPredicate(bytes32 imageId, bytes memory prefix)
-        internal
-        pure
-        returns (Predicate memory)
-    {
+    function createPrefixMatchPredicate(bytes32 imageId, bytes memory prefix) internal pure returns (Predicate memory) {
         return Predicate({predicateType: PredicateType.PrefixMatch, data: abi.encodePacked(imageId, prefix)});
     }
 
