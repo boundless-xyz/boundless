@@ -75,9 +75,13 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             IRiscZeroVerifier _blake3G16Verifier = deployBlake3Verifier();
             IRiscZeroSelectable blake3G16Selectable = IRiscZeroSelectable(address(_blake3G16Verifier));
             bytes4 blake3G16Selector = blake3G16Selectable.SELECTOR();
-            verifierRouter.addVerifier(blake3G16Selector, _blake3G16Verifier);
-            console2.log("Added Blake3 Groth16 verifier to router with selector");
-            console2.logBytes4(blake3G16Selector);
+            // Only add the _blake3G16Verifier if not dev mode as otherwise we have added already
+            // the mock verifier in the previous steps.
+            if (!devMode()) {
+                verifierRouter.addVerifier(blake3G16Selector, _blake3G16Verifier);
+                console2.log("Added Blake3 Groth16 verifier to router with selector");
+                console2.logBytes4(blake3G16Selector);
+            }
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.
             string memory setBuilderPath =
