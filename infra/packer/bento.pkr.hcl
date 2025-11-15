@@ -52,6 +52,12 @@ source "amazon-ebs" "boundless" {
   }
   ssh_username = "ubuntu"
 
+  # Increase wait time for AMI to be ready
+  aws_polling {
+    delay_seconds = 30
+    max_attempts  = 1200
+  }
+
   # Increase root volume size to 100GB
   launch_block_device_mappings {
     device_name = "/dev/sda1"
