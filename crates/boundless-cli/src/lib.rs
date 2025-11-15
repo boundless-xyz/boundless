@@ -696,7 +696,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
     async fn test_fulfill_blake3_groth16_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
