@@ -64,7 +64,7 @@ export class DataServicesComponent extends BaseComponent {
         });
 
         // Create Redis subnet group
-        this.redisSubnetGroup = new aws.elasticache.SubnetGroup(`${config.stackName}-redis-subnet-group`, {
+        this.redisSubnetGroup = new aws.elasticache.SubnetGroup(`${config.stackName}`, {
             name: this.generateName("redis-subnet-group"),
             subnetIds: config.privateSubnetIds,
             tags: {
@@ -75,8 +75,8 @@ export class DataServicesComponent extends BaseComponent {
         });
 
         // Create Redis security group
-        this.redisSecurityGroup = new aws.ec2.SecurityGroup(`${config.stackName}-redis-sg`, {
-            name: this.generateName("redis-sg"),
+        this.redisSecurityGroup = new aws.ec2.SecurityGroup(`${config.stackName}-redis`, {
+            name: this.generateName("redis"),
             vpcId: config.vpcId,
             description: "Security group for ElastiCache Redis",
             ingress: [{
@@ -101,7 +101,7 @@ export class DataServicesComponent extends BaseComponent {
         });
 
         // Create RDS PostgreSQL instance
-        this.rdsInstance = new aws.rds.Instance(`${config.stackName}-postgres`, {
+        this.rdsInstance = new aws.rds.Instance(`${config.stackName}`, {
             identifier: this.generateName("postgres"),
             engine: "postgres",
             engineVersion: "16.3",
@@ -130,8 +130,13 @@ export class DataServicesComponent extends BaseComponent {
         this.rdsEndpoint = pulumi.interpolate`${this.rdsInstance.endpoint}:${this.rdsInstance.port}`;
 
         // Create ElastiCache Redis replication group
-        this.redisCluster = new aws.elasticache.ReplicationGroup(`${config.stackName}-redis`, {
-            replicationGroupId: this.generateName("redis"),
+        // ElastiCache replication group IDs must be 1-40 characters
+        // Use a shorter name: stackName-redis (max 40 chars)
+        const redisGroupId = config.stackName.length > 35
+            ? `${config.stackName.substring(0, 34)}-redis`
+            : `${config.stackName}-redis`;
+        this.redisCluster = new aws.elasticache.ReplicationGroup(`${config.stackName}`, {
+            replicationGroupId: redisGroupId,
             description: `Redis cluster for ${config.stackName}`,
             engine: "redis",
             engineVersion: "7.1",
