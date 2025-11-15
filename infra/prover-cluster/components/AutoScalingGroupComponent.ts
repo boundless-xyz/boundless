@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as crypto from "crypto";
-import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
+import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 
 export interface AutoScalingGroupConfig extends BaseComponentConfig {
     launchTemplateId: pulumi.Output<string>;
@@ -9,7 +9,7 @@ export interface AutoScalingGroupConfig extends BaseComponentConfig {
     minSize: number;
     maxSize: number;
     desiredCapacity: number;
-    componentType: "prover" | "execution" | "aux";
+    componentType: "manager" | "prover" | "execution" | "aux";
 }
 
 export class AutoScalingGroupComponent extends BaseComponent {
@@ -21,9 +21,23 @@ export class AutoScalingGroupComponent extends BaseComponent {
     }
 
     private createAutoScalingGroup(config: AutoScalingGroupConfig): aws.autoscaling.Group {
+        let subnetConfig
+        if (config.componentType === "manager") {
+            const managerSubnet = aws.ec2.Subnet.get("manager-subnet", config.privateSubnetIds[0])
+
+            // If providing a network interface ID, must provide AZs but not subnets
+            subnetConfig = {
+                availabilityZones: [managerSubnet.availabilityZone],
+            }
+        } else {
+            // By default, provide subnet IDs
+            subnetConfig = {
+                vpcZoneIdentifiers: config.privateSubnetIds,
+            }
+        }
+
         return new aws.autoscaling.Group(`${config.componentType}-asg`, {
             name: this.generateName(`${config.componentType}-asg`),
-            vpcZoneIdentifiers: this.config.privateSubnetIds,
             minSize: config.minSize,
             maxSize: config.maxSize,
             desiredCapacity: config.desiredCapacity,
@@ -72,6 +86,7 @@ export class AutoScalingGroupComponent extends BaseComponent {
                 },
                 triggers: ["tag"],
             },
+            ...subnetConfig
         });
     }
 }
