@@ -64,8 +64,16 @@ export class DataServicesComponent extends BaseComponent {
         });
 
         // Create Redis subnet group
-        this.redisSubnetGroup = new aws.elasticache.SubnetGroup(`${config.stackName}`, {
-            name: this.generateName("redis-subnet-group"),
+        // ElastiCache subnet group names must be unique across account and max 40 chars
+        // Use format: bb-redis-{stackName} (truncated to fit 40 chars)
+        const prefix = "bb-redis-";
+        const maxStackNameLength = 40 - prefix.length;
+        const truncatedStackName = config.stackName.length > maxStackNameLength
+            ? config.stackName.substring(0, maxStackNameLength)
+            : config.stackName;
+        const redisSubnetGroupName = `${prefix}${truncatedStackName}`;
+        this.redisSubnetGroup = new aws.elasticache.SubnetGroup(`${config.stackName}-redis-subnet-group`, {
+            name: redisSubnetGroupName,
             subnetIds: config.privateSubnetIds,
             tags: {
                 Environment: config.environment,
@@ -76,7 +84,7 @@ export class DataServicesComponent extends BaseComponent {
 
         // Create Redis security group
         this.redisSecurityGroup = new aws.ec2.SecurityGroup(`${config.stackName}-redis`, {
-            name: this.generateName("redis"),
+            name: config.stackName,
             vpcId: config.vpcId,
             description: "Security group for ElastiCache Redis",
             ingress: [{
@@ -150,6 +158,7 @@ export class DataServicesComponent extends BaseComponent {
             transitEncryptionEnabled: false,
             automaticFailoverEnabled: false,
             tags: {
+                Name: config.stackName,
                 Environment: config.environment,
                 Stack: config.stackName,
                 Component: "redis",

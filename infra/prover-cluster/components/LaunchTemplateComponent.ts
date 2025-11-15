@@ -224,30 +224,18 @@ ${brokerTomlContent.split('\n').map(line => `      ${line}`).join('\n')}
     permissions: '0644'
 
 runcmd:
-  - |
-    # Update /etc/environment with new variables
-    cat /etc/environment.d/bento.conf >> /etc/environment
-  - |
-    # Update vector configuration
-    /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
-  - |
-    # Update CloudWatch agent configuration
-    /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
-  - |
-    # Copy service files
-    cp /opt/boundless/config/bento-api.service /etc/systemd/system/bento-api.service
-    cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
-    cp /opt/boundless/config/bento-broker.service /etc/systemd/system/bento-broker.service
-  - |
-    # Set proper ownership
-    chown -R ubuntu:ubuntu /opt/boundless
-  - |
-    # Reload systemd and restart services
-    systemctl daemon-reload
-    systemctl restart vector
-    systemctl restart amazon-cloudwatch-agent
-    systemctl start bento-api.service bento-broker.service
-    systemctl enable bento-api.service bento-broker.service
+  - cat /etc/environment.d/bento.conf >> /etc/environment
+  - /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
+  - /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+  - cp /opt/boundless/config/bento-api.service /etc/systemd/system/bento-api.service
+  - cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
+  - cp /opt/boundless/config/bento-broker.service /etc/systemd/system/bento-broker.service
+  - chown -R ubuntu:ubuntu /opt/boundless
+  - systemctl daemon-reload
+  - systemctl restart vector
+  - systemctl restart amazon-cloudwatch-agent
+  - systemctl start bento-api.service bento-broker.service
+  - systemctl enable bento-api.service bento-broker.service
 `;
       return Buffer.from(userDataScript).toString('base64');
     });
