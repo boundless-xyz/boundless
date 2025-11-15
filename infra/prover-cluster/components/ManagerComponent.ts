@@ -1,6 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import * as crypto from "crypto";
 import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 import { LaunchTemplateComponent, LaunchTemplateConfig } from "./LaunchTemplateComponent";
 import { ManagerMetricAlarmComponent } from "./MetricAlarmComponent";
@@ -25,6 +24,8 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     rdsEndpoint: pulumi.Output<string>;
     redisEndpoint: pulumi.Output<string>;
     s3BucketName: pulumi.Output<string>;
+    s3AccessKeyId: pulumi.Output<string>;
+    s3SecretAccessKey: pulumi.Output<string>;
     // Broker configuration
     mcyclePrice: string;
     peakProveKhz: number;

@@ -24,6 +24,8 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   rdsEndpoint?: pulumi.Output<string>;
   redisEndpoint?: pulumi.Output<string>;
   s3BucketName?: pulumi.Output<string>;
+  s3AccessKeyId?: pulumi.Output<string>;
+  s3SecretAccessKey?: pulumi.Output<string>;
   // Broker configuration
   mcyclePrice?: string;
   peakProveKhz?: number;
@@ -112,6 +114,8 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.rdsEndpoint!,
       config.redisEndpoint!,
       config.s3BucketName!,
+      config.s3AccessKeyId!,
+      config.s3SecretAccessKey!,
       config.mcyclePrice || "0.00000001",
       config.peakProveKhz || 100,
       config.minDeadline || 0,
@@ -129,7 +133,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFetchRetries || 3,
       config.allowClientAddresses || "",
       config.lockinPriorityGas || "0",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, redisEndpoint, s3BucketName, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, priorityRequestorAddresses, denyRequestorAddresses, maxFetchRetries, allowClientAddresses, lockinPriorityGas]) => {
+    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, redisEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, priorityRequestorAddresses, denyRequestorAddresses, maxFetchRetries, allowClientAddresses, lockinPriorityGas]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const redisEndpointStr = String(redisEndpoint);
@@ -212,6 +216,8 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
       REDIS_URL=redis://${redisHost}:${redisPort}
       S3_BUCKET=${s3BucketName}
       S3_URL=https://s3.us-west-2.amazonaws.com
+      S3_ACCESS_KEY=${s3AccessKeyId}
+      S3_SECRET_KEY=${s3SecretAccessKey}
       AWS_REGION=us-west-2
       STACK_NAME=${stackName}
       COMPONENT_TYPE=${componentType}
@@ -226,35 +232,8 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
     owner: root:root
     permissions: '0644'
 
-  - path: /opt/boundless/scripts/fetch-s3-credentials.sh
-    content: |
-      #!/bin/bash
-      set -euo pipefail
-
-      # Ensure script directory exists
-      mkdir -p /opt/boundless/scripts
-
-      # Fetch IAM role credentials from instance metadata
-      TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-      CREDS=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/iam/security-credentials/)
-      ROLE_NAME=$(echo "$CREDS" | head -n 1)
-      ROLE_CREDS=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/iam/security-credentials/$ROLE_NAME")
-
-      # Parse JSON using Python (available on Ubuntu by default)
-      ACCESS_KEY=$(echo "$ROLE_CREDS" | python3 -c "import sys, json; print(json.load(sys.stdin)['AccessKeyId'])")
-      SECRET_KEY=$(echo "$ROLE_CREDS" | python3 -c "import sys, json; print(json.load(sys.stdin)['SecretAccessKey'])")
-
-      # Append S3 credentials to environment file
-      echo "S3_ACCESS_KEY=$ACCESS_KEY" >> /etc/environment.d/bento.conf
-      echo "S3_SECRET_KEY=$SECRET_KEY" >> /etc/environment.d/bento.conf
-    owner: root:root
-    permissions: '0755'
-
 runcmd:
   - |
-    cat /etc/environment.d/bento.conf >> /etc/environment
-  - |
-    /opt/boundless/scripts/fetch-s3-credentials.sh
     cat /etc/environment.d/bento.conf >> /etc/environment
   - |
     /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
@@ -291,8 +270,10 @@ runcmd:
       config.componentType,
       config.rdsEndpoint!,
       config.redisEndpoint!,
-      config.s3BucketName!
-    ]).apply(([managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsEndpoint, redisEndpoint, s3BucketName]) => {
+      config.s3BucketName!,
+      config.s3AccessKeyId!,
+      config.s3SecretAccessKey!
+    ]).apply(([managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsEndpoint, redisEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const redisEndpointStr = String(redisEndpoint);
@@ -300,7 +281,7 @@ runcmd:
       const rdsPort = rdsEndpointStr.split(':')[1] || '5432';
       const redisHost = redisEndpointStr.split(':')[0];
       const redisPort = redisEndpointStr.split(':')[1] || '6379';
-      const commonEnvVars = this.generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsHost, rdsPort, redisHost, redisPort, s3BucketName);
+      const commonEnvVars = this.generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsHost, rdsPort, redisHost, redisPort, s3BucketName, s3AccessKeyId, s3SecretAccessKey);
 
       let componentSpecificVars = "";
       let serviceFile = "";
@@ -374,6 +355,8 @@ systemctl enable bento.service`;
     redisHost: string,
     redisPort: string,
     s3BucketName: string,
+    s3AccessKeyId: string,
+    s3SecretAccessKey: string,
   ): string {
     return `# Database and Redis URLs (AWS services)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${rdsHost}:${rdsPort}/${dbName}" >> /etc/environment
@@ -382,6 +365,9 @@ echo "REDIS_URL=redis://${redisHost}:${redisPort}" >> /etc/environment
 # S3 Configuration - using AWS S3
 echo "RUST_LOG=info" >> /etc/environment
 echo "S3_BUCKET=${s3BucketName}" >> /etc/environment
+echo "S3_URL=https://s3.us-west-2.amazonaws.com" >> /etc/environment
+echo "S3_ACCESS_KEY=${s3AccessKeyId}" >> /etc/environment
+echo "S3_SECRET_KEY=${s3SecretAccessKey}" >> /etc/environment
 echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment

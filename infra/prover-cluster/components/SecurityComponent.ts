@@ -8,12 +8,21 @@ export class SecurityComponent extends BaseComponent {
     public readonly ec2Role: aws.iam.Role;
     public readonly ec2Profile: aws.iam.InstanceProfile;
     public readonly securityGroup: aws.ec2.SecurityGroup;
+    public readonly s3User: aws.iam.User;
+    public readonly s3AccessKey: aws.iam.AccessKey;
+    public readonly s3AccessKeyId: pulumi.Output<string>;
+    public readonly s3SecretAccessKey: pulumi.Output<string>;
 
     constructor(config: SecurityComponentConfig) {
         super(config, "boundless-bento");
         this.ec2Role = this.createEC2Role();
         this.ec2Profile = this.createInstanceProfile();
         this.securityGroup = this.createSecurityGroup();
+        const s3UserResources = this.createS3User();
+        this.s3User = s3UserResources.user;
+        this.s3AccessKey = s3UserResources.accessKey;
+        this.s3AccessKeyId = s3UserResources.accessKeyId;
+        this.s3SecretAccessKey = s3UserResources.secretAccessKey;
     }
 
     private createEC2Role(): aws.iam.Role {
@@ -122,5 +131,35 @@ export class SecurityComponent extends BaseComponent {
                 }
             ],
         });
+    }
+
+    private createS3User(): {
+        user: aws.iam.User;
+        accessKey: aws.iam.AccessKey;
+        accessKeyId: pulumi.Output<string>;
+        secretAccessKey: pulumi.Output<string>;
+    } {
+        const user = new aws.iam.User("s3User", {
+            name: this.generateName("s3-user"),
+            path: "/boundless/",
+        });
+
+        // Attach S3 full access policy
+        new aws.iam.UserPolicyAttachment("s3UserPolicy", {
+            user: user.name,
+            policyArn: "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+        });
+
+        // Create access key
+        const accessKey = new aws.iam.AccessKey("s3AccessKey", {
+            user: user.name,
+        });
+
+        return {
+            user,
+            accessKey,
+            accessKeyId: accessKey.id,
+            secretAccessKey: accessKey.secret,
+        };
     }
 }

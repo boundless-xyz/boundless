@@ -129,6 +129,8 @@ const manager = new ManagerComponent({
     rdsEndpoint: dataServices.rdsEndpoint,
     redisEndpoint: dataServices.redisEndpoint,
     s3BucketName: dataServices.s3BucketName,
+    s3AccessKeyId: security.s3AccessKeyId,
+    s3SecretAccessKey: security.s3SecretAccessKey,
     // Broker configuration
     mcyclePrice,
     peakProveKhz,
@@ -166,6 +168,8 @@ const workerCluster = new WorkerClusterComponent({
     rdsEndpoint: dataServices.rdsEndpoint,
     redisEndpoint: dataServices.redisEndpoint,
     s3BucketName: dataServices.s3BucketName,
+    s3AccessKeyId: security.s3AccessKeyId,
+    s3SecretAccessKey: security.s3SecretAccessKey,
 });
 
 // Create API Gateway with NLB
