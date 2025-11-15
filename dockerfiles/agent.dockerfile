@@ -75,4 +75,5 @@ RUN apt-get update -q -y \
 COPY --from=builder /src/agent /app/agent
 COPY --from=builder /usr/local/risc0 /usr/local/risc0
 
+ENV BLAKE3_GROTH16_SETUP_DIR=/.blake3_groth16
 ENTRYPOINT ["/app/agent"]

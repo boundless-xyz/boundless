@@ -19,8 +19,10 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::contracts::bytecode::RiscZeroVerifierRouter::RiscZeroVerifierRouterInstance;
 use boundless_market::contracts::bytecode::{
-    RiscZeroGroth16Verifier, RiscZeroMockVerifier, RiscZeroSetVerifier, RiscZeroVerifierRouter,
+    Blake3Groth16Verifier, RiscZeroGroth16Verifier, RiscZeroMockVerifier, RiscZeroSetVerifier,
+    RiscZeroVerifierRouter,
 };
+use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
 use risc0_zkvm::sha::{Digest, Digestible};
@@ -44,6 +46,18 @@ pub async fn deploy_groth16_verifier<P: Provider>(
         RiscZeroGroth16Verifier::deploy(deployer_provider, control_root, bn254_control_id)
             .await
             .context("failed to deploy RiscZeroGroth16Verifier")?;
+    Ok(*instance.address())
+}
+
+/// Deploy a Blake3Groth16Verifier contract
+pub async fn deploy_blake3_groth16_verifier<P: Provider>(
+    deployer_provider: P,
+    control_root: FixedBytes<32>,
+    bn254_control_id: FixedBytes<32>,
+) -> Result<Address> {
+    let instance = Blake3Groth16Verifier::deploy(deployer_provider, control_root, bn254_control_id)
+        .await
+        .context("failed to deploy Blake3Groth16Verifier")?;
     Ok(*instance.address())
 }
 
@@ -117,6 +131,33 @@ pub async fn setup_verifiers<P: Provider + Clone>(
     // Register verifiers with the router
     let router_instance =
         RiscZeroVerifierRouterInstance::new(verifier_router, deployer_provider.clone());
+
+    // Deploying the blake3 groth16 verifier
+    match is_dev_mode() {
+        true => println!("Skipping Blake3Groth16 verifier deployment in dev mode"),
+        false => {
+            let control_root = ALLOWED_CONTROL_ROOT;
+            let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
+            bn254_control_id.as_mut_bytes().reverse();
+            let verifier_parameters_digest = Digest::from_hex(
+                "62f049f606e804744f1fac2485677bf7905c82a8174a55a1555532b0fc5b2ab3", // TODO(ec2): fixme
+            )
+            .unwrap();
+            let b3_groth16_verifier = deploy_blake3_groth16_verifier(
+                &deployer_provider,
+                <[u8; 32]>::from(control_root).into(),
+                <[u8; 32]>::from(bn254_control_id).into(),
+            )
+            .await?;
+
+            let b3_groth16_selector = verifier_parameters_digest.as_bytes()[..4].try_into()?;
+
+            let call = &router_instance
+                .addVerifier(b3_groth16_selector, b3_groth16_verifier)
+                .from(deployer_address);
+            call.send().await?.get_receipt().await?;
+        }
+    }
 
     // Add groth16 verifier to router
     let call = &router_instance

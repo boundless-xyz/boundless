@@ -24,13 +24,14 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{anyhow, Context, Result};
+use blake3_groth16::Blake3Groth16Receipt;
 use boundless_market::{
     contracts::{
         boundless_market::{BoundlessMarketService, FulfillmentTx, MarketError, UnlockedRequest},
         encode_seal, AssessorJournal, AssessorReceipt, Fulfillment,
         FulfillmentDataImageIdAndJournal, FulfillmentDataType, PredicateType,
     },
-    selector::is_groth16_selector,
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
 };
 use hex::FromHex;
 use risc0_aggregation::{SetInclusionReceipt, SetInclusionReceiptVerifierParameters};
@@ -172,6 +173,23 @@ where
         Ok(encoded_seal)
     }
 
+    async fn fetch_encode_b3_g16(&self, b3_g16_proof_id: &str) -> Result<Vec<u8>> {
+        let blake3_receipt = self
+            .prover
+            .get_blake3_groth16_receipt(b3_g16_proof_id)
+            .await
+            .context("Failed to fetch blake3 groth16 receipt")?
+            .context("Blake3 Groth16 receipt missing")?;
+
+        let blake3_receipt: Blake3Groth16Receipt = bincode::deserialize(&blake3_receipt)
+            .context("Failed to deserialize Blake3 Groth16 receipt")?;
+
+        let encoded_seal = encode_seal(&blake3_receipt.into())
+            .context("Failed to encode Blake3 Groth16 receipt seal")?;
+
+        Ok(encoded_seal)
+    }
+
     pub async fn submit_batch(&self, batch_id: usize, batch: &Batch) -> Result<(), SubmitterErr> {
         tracing::info!("Submitting batch {batch_id}");
 
@@ -303,6 +321,14 @@ where
                     self.fetch_encode_g16(&compressed_proof_id)
                         .await
                         .context("Failed to fetch and encode g16 proof")?
+                } else if is_blake3_groth16_selector(order_request.requirements.selector) {
+                    let compressed_proof_id =
+                        self.db.get_order_compressed_proof_id(order_id).await.context(
+                            "Failed to get order compressed proof ID from DB for submission",
+                        )?;
+                    self.fetch_encode_b3_g16(&compressed_proof_id)
+                        .await
+                        .context("Failed to fetch and encode blake3 groth16 proof")?
                 } else {
                     let order_claim_index = aggregation_state
                         .claim_digests
@@ -368,7 +394,7 @@ where
             };
 
             if let Err(err) = res.await {
-                tracing::error!("Failed to submit {order_id}: {err}");
+                tracing::error!("Failed to submit {order_id}: {err:?}");
                 if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
                     tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }

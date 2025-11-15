@@ -30,7 +30,7 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     order_stream_client::OrderStreamClient,
     override_gateway,
-    selector::is_groth16_selector,
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -395,6 +395,18 @@ impl Order {
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
     }
+    fn is_blake3_groth16(&self) -> bool {
+        is_blake3_groth16_selector(self.request.requirements.selector)
+    }
+    pub fn compression_type(&self) -> CompressionType {
+        if self.is_groth16() {
+            CompressionType::Groth16
+        } else if self.is_blake3_groth16() {
+            CompressionType::Blake3Groth16
+        } else {
+            CompressionType::None
+        }
+    }
 }
 
 impl std::fmt::Display for Order {
@@ -406,6 +418,13 @@ impl std::fmt::Display for Order {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CompressionType {
+    None,
+    Groth16,
+    Blake3Groth16,
 }
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
