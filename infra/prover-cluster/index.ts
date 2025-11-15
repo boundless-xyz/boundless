@@ -80,7 +80,7 @@ const baseComponentConfig: BaseComponentConfig = {
 // Create security components
 const security = new SecurityComponent(baseComponentConfig);
 
-// Create manager instance
+// Create manager (single instance) cluster
 const manager = new ManagerComponent({
     ...baseComponentConfig,
     imageId,
@@ -109,7 +109,7 @@ const workerCluster = new WorkerClusterComponent({
     imageId,
     securityGroupId: security.securityGroup.id,
     iamInstanceProfileName: security.ec2Profile.name,
-    managerIp: manager.instance.privateIp,
+    managerIp: manager.managerNetworkInterface.privateIp,
     taskDBName,
     taskDBUsername,
     taskDBPassword,
@@ -124,15 +124,18 @@ const workerCluster = new WorkerClusterComponent({
 // Create API Gateway with NLB
 const apiGateway = new ApiGatewayComponent({
     ...baseComponentConfig,
-    managerPrivateIp: manager.instance.privateIp,
+    managerPrivateIp: manager.managerNetworkInterface.privateIp,
     securityGroupId: security.securityGroup.id,
     apiKey: apiKey.apply(key => key),
 });
 
 // Outputs
-export const managerInstanceId = manager.instance.id;
-export const managerPrivateIp = manager.instance.privateIp;
-export const managerPublicIp = manager.instance.publicIp;
+export const managerPrivateIp = manager.managerNetworkInterface.privateIp;
+export const managerAsgName = manager.managerAsg.autoScalingGroup.name;
+export const managerAsgArn = manager.managerAsg.autoScalingGroup.arn;
+export const managerDesiredCapacity = manager.managerAsg.autoScalingGroup.desiredCapacity;
+export const managerMinSize = manager.managerAsg.autoScalingGroup.minSize;
+export const managerMaxSize = manager.managerAsg.autoScalingGroup.maxSize;
 
 // AMI information
 export const amiId = imageId;
@@ -162,17 +165,17 @@ export const auxMinSize = workerCluster.auxAsg.autoScalingGroup.minSize;
 export const auxMaxSize = workerCluster.auxAsg.autoScalingGroup.maxSize;
 
 // Redis connection details
-export const redisHost = manager.instance.privateIp;
+export const redisHost = manager.managerNetworkInterface.privateIp;
 export const redisPort = "6379";
 
 // Shared credentials for prover nodes
 export const sharedCredentials = {
-    postgresHost: manager.instance.privateIp,
+    postgresHost: manager.managerNetworkInterface.privateIp,
     postgresPort: "5432",
     postgresDb: taskDBName,
     postgresUser: taskDBUsername,
     postgresPassword: taskDBPassword,
-    redisHost: manager.instance.privateIp,
+    redisHost: manager.managerNetworkInterface.privateIp,
     redisPort: "6379",
     s3Bucket: "bento",
     s3Region: "us-west-2",
@@ -186,9 +189,12 @@ export const targetGroupArn = apiGateway.targetGroup.arn;
 // Cluster info
 export const clusterInfo = {
     manager: {
-        instanceId: manager.instance.id,
-        publicIp: manager.instance.publicIp,
-        privateIp: manager.instance.privateIp,
+        name: manager.managerAsg.autoScalingGroup.name,
+        arn: manager.managerAsg.autoScalingGroup.arn,
+        desiredCapacity: manager.managerAsg.autoScalingGroup.desiredCapacity,
+        minSize: manager.managerAsg.autoScalingGroup.minSize,
+        maxSize: manager.managerAsg.autoScalingGroup.maxSize,
+        privateIp: manager.managerNetworkInterface.privateIp,
     },
     proverAsg: {
         name: workerCluster.proverAsg.autoScalingGroup.name,

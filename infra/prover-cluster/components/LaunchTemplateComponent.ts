@@ -1,6 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
+import * as inputs from "@pulumi/aws/types/input";
 
 export interface LaunchTemplateConfig extends BaseComponentConfig {
     imageId: pulumi.Output<string>;
@@ -23,6 +24,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
     chainId?: string;
     componentType: "manager" | "prover" | "execution" | "aux";
     volumeSize?: number;
+    networkInterfaceId?: pulumi.Output<string>;
 }
 
 export class LaunchTemplateComponent extends BaseComponent {
@@ -36,11 +38,23 @@ export class LaunchTemplateComponent extends BaseComponent {
     private createLaunchTemplate(config: LaunchTemplateConfig): aws.ec2.LaunchTemplate {
         const userData = this.generateUserData(config);
 
+        let networkingConfig
+        if (config.networkInterfaceId) {
+            // If a network interface ID is provided, use it
+            networkingConfig = {
+                networkInterfaces: this.generateNetworkInterfaceConfig(config)
+            }
+        } else {
+            // Without a network interface ID, must specify security group IDs
+            networkingConfig = {
+                vpcSecurityGroupIds: [config.securityGroupId]
+            }
+        }
+
         return new aws.ec2.LaunchTemplate(`${config.componentType}-launch-template`, {
             name: this.generateName(`${config.componentType}-template`),
             imageId: config.imageId,
             instanceType: config.instanceType,
-            vpcSecurityGroupIds: [config.securityGroupId],
             iamInstanceProfile: {
                 name: config.iamInstanceProfileName,
             },
@@ -65,6 +79,7 @@ export class LaunchTemplateComponent extends BaseComponent {
                     "ssm:bootstrap": config.componentType,
                 },
             }],
+            ...networkingConfig
         });
     }
 
@@ -74,6 +89,16 @@ export class LaunchTemplateComponent extends BaseComponent {
         } else {
             return this.generateWorkerUserData(config);
         }
+    }
+
+    private generateNetworkInterfaceConfig(config: LaunchTemplateConfig): Partial<inputs.ec2.LaunchTemplateNetworkInterface>[] {
+        // Providing subnets, security groups, or public IP allocation policy is not allowed when
+        // also providing a network interface ID. That configuration must be on the network interface
+        return [{
+            deleteOnTermination: "false",
+            networkInterfaceId: config.networkInterfaceId,
+            deviceIndex: 0
+        }]
     }
 
     private generateManagerUserData(config: LaunchTemplateConfig): pulumi.Output<string> {
@@ -126,7 +151,7 @@ echo "COMPONENT_TYPE=${componentType}" >> /etc/environment
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json << 'EOF'
 {
   "metrics": {
-    "aggregation_dimensions": [["InstanceId"]]
+    "aggregation_dimensions": [["AutoScalingGroupName"]]
   }
 }
 EOF
