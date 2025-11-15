@@ -65,13 +65,12 @@ export class ManagerComponent extends BaseComponent {
 
     private createManagerInstance(config: ManagerComponentConfig): aws.ec2.Instance {
         return new aws.ec2.Instance("manager", {
-            ami: config.imageId,
-            instanceType: config.instanceType,
+            // Use launch template instead of duplicating configuration
+            launchTemplate: {
+                id: this.launchTemplate.launchTemplate.id,
+                version: "$Latest",
+            },
             subnetId: this.config.privateSubnetIds.apply((subnets: string[]) => subnets[0]),
-            vpcSecurityGroupIds: [config.securityGroupId],
-            iamInstanceProfile: config.iamInstanceProfileName,
-            userData: pulumi.output(this.launchTemplate.launchTemplate.userData).apply(u => u || ""),
-            userDataReplaceOnChange: false,
             ebsBlockDevices: [{
                 deviceName: "/dev/sda1",
                 volumeSize: 1024,
