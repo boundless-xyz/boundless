@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
+import * as crypto from "crypto";
 import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 import { LaunchTemplateComponent, LaunchTemplateConfig } from "./LaunchTemplateComponent";
 import { ManagerMetricAlarmComponent } from "./MetricAlarmComponent";
@@ -64,12 +65,19 @@ export class ManagerComponent extends BaseComponent {
     }
 
     private createManagerInstance(config: ManagerComponentConfig): aws.ec2.Instance {
+        // Use the launch template's latest version number to force replacement when userdata changes
+        // When the launch template is updated, latestVersion changes, which will replace the instance
+        const launchTemplateVersion = pulumi.output(this.launchTemplate.launchTemplate.latestVersion).apply(v =>
+            v ? String(v) : "$Latest"
+        );
+
         return new aws.ec2.Instance("manager", {
             // Use launch template instead of duplicating configuration
-            launchTemplate: {
-                id: this.launchTemplate.launchTemplate.id,
-                version: "$Latest",
-            },
+            // Use the specific version number instead of "$Latest" to force replacement when version changes
+            launchTemplate: pulumi.all([this.launchTemplate.launchTemplate.id, launchTemplateVersion]).apply(([id, version]) => ({
+                id: id,
+                version: version,
+            })),
             subnetId: this.config.privateSubnetIds.apply((subnets: string[]) => subnets[0]),
             ebsBlockDevices: [{
                 deviceName: "/dev/sda1",
