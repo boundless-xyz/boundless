@@ -176,6 +176,12 @@ max_submission_attempts = 2
 withdraw = true
 `;
 
+      const aggregationDimensionsJson = JSON.stringify({
+        metrics: {
+          aggregation_dimensions: [["InstanceId"]]
+        }
+      }, null, 2);
+
       const userDataScript = `#cloud-config
 write_files:
   - path: /opt/boundless/broker.toml
@@ -186,11 +192,7 @@ ${brokerTomlContent.split('\n').map(line => `      ${line}`).join('\n')}
 
   - path: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json
     content: |
-{
-  "metrics": {
-    "aggregation_dimensions": [["InstanceId"]]
-  }
-}
+${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
     owner: root:root
     permissions: '0644'
 
