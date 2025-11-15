@@ -93,7 +93,7 @@ const baseComponentConfig: BaseComponentConfig = {
     publicSubnetIds: pubSubNetIds,
 };
 
-// Create security components
+// Add security components
 const security = new SecurityComponent(baseComponentConfig);
 
 // Create data services (RDS PostgreSQL and ElastiCache Redis)
