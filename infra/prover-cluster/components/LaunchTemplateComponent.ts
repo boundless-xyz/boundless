@@ -237,7 +237,8 @@ runcmd:
   - systemctl start bento-api.service bento-broker.service
   - systemctl enable bento-api.service bento-broker.service
 `;
-      return Buffer.from(userDataScript).toString('base64');
+      // AWS Launch Templates automatically base64 encode userdata, so return plain text
+      return userDataScript;
     });
   }
 
@@ -317,7 +318,8 @@ systemctl restart amazon-cloudwatch-agent
 systemctl start bento.service
 systemctl enable bento.service`;
 
-      return Buffer.from(userDataScript).toString('base64');
+      // AWS Launch Templates automatically base64 encode userdata, so return plain text
+      return userDataScript;
     });
   }
 
