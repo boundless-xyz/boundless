@@ -137,56 +137,8 @@ export class LaunchTemplateComponent extends BaseComponent {
       const rdsPort = rdsEndpointStr.split(':')[1] || '5432';
       const redisHost = redisEndpointStr.split(':')[0];
       const redisPort = redisEndpointStr.split(':')[1] || '6379';
-      const userDataScript = `#!/bin/bash
-# Set environment variables
-echo "RUST_LOG=info" >> /etc/environment
-echo "BENTO_API_LISTEN_ADDR=0.0.0.0" >> /etc/environment
-echo "BENTO_API_PORT=8081" >> /etc/environment
-echo "SNARK_TIMEOUT=1800" >> /etc/environment
-echo "BENTO_BROKER_LISTEN_ADDR=0.0.0.0" >> /etc/environment
-echo "BENTO_BROKER_PORT=8082" >> /etc/environment
-echo "BENTO_EXECUTOR_LISTEN_ADDR=0.0.0.0" >> /etc/environment
-echo "BENTO_EXECUTOR_PORT=8083" >> /etc/environment
-echo "BENTO_PROVER_LISTEN_ADDR=0.0.0.0" >> /etc/environment
-echo "BENTO_PROVER_PORT=8086" >> /etc/environment
 
-# Database and Redis URLs for manager (AWS services)
-echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${rdsHost}:${rdsPort}/${dbName}" >> /etc/environment
-echo "REDIS_URL=redis://${redisHost}:${redisPort}" >> /etc/environment
-
-# S3 Configuration - using AWS S3
-echo "S3_BUCKET=${s3BucketName}" >> /etc/environment
-echo "AWS_REGION=us-west-2" >> /etc/environment
-echo "STACK_NAME=${stackName}" >> /etc/environment
-echo "COMPONENT_TYPE=${componentType}" >> /etc/environment
-/usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
-/usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
-
-# Add CloudWatch agent configuration that is manager-specific
-cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json << 'EOF'
-{
-  "metrics": {
-    "aggregation_dimensions": [["InstanceId"]]
-  }
-}
-EOF
-
-# Ethereum configuration
-echo "RPC_URL=${rpcUrl}" >> /etc/environment
-echo "PRIVATE_KEY=${privKey}" >> /etc/environment
-# Public order stream URL
-echo "ORDER_STREAM_URL=${orderStreamUrl}" >> /etc/environment
-# Base contract addresses
-echo "VERIFIER_ADDRESS=${verifierAddress}" >> /etc/environment
-echo "BOUNDLESS_MARKET_ADDRESS=${boundlessMarketAddress}" >> /etc/environment
-echo "SET_VERIFIER_ADDRESS=${setVerifierAddress}" >> /etc/environment
-echo "COLLATERAL_TOKEN_ADDRESS=${collateralTokenAddress}" >> /etc/environment
-echo "CHAIN_ID=${chainId}" >> /etc/environment
-
-# Generate and write broker.toml file
-mkdir -p /opt/boundless
-cat > /opt/boundless/broker.toml << BROKERTOML
-[market]
+      const brokerTomlContent = `[market]
 mcycle_price = "${mcyclePrice}"
 mcycle_price_collateral_token = "0"
 peak_prove_khz = ${peakProveKhz}
@@ -222,20 +174,81 @@ txn_timeout = 10
 single_txn_fulfill = true
 max_submission_attempts = 2
 withdraw = true
-BROKERTOML
+`;
 
-# Copy and configure service files
-cp /opt/boundless/config/bento-api.service /etc/systemd/system/bento-api.service
-cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
-cp /opt/boundless/config/bento-broker.service /etc/systemd/system/bento-broker.service
+      const userDataScript = `#cloud-config
+write_files:
+  - path: /opt/boundless/broker.toml
+    content: |
+${brokerTomlContent.split('\n').map(line => `      ${line}`).join('\n')}
+    owner: ubuntu:ubuntu
+    permissions: '0644'
 
-# Set proper ownership of /opt/boundless
-chown -R ubuntu:ubuntu /opt/boundless
-systemctl daemon-reload
-systemctl restart vector
-systemctl restart amazon-cloudwatch-agent
-systemctl start bento-api.service bento-broker.service
-systemctl enable bento-api.service bento-broker.service`;
+  - path: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/aggregation_dimensions.json
+    content: |
+      {
+        "metrics": {
+          "aggregation_dimensions": [["InstanceId"]]
+        }
+      }
+    owner: root:root
+    permissions: '0644'
+
+  - path: /etc/environment.d/bento.conf
+    content: |
+      RUST_LOG=info
+      BENTO_API_LISTEN_ADDR=0.0.0.0
+      BENTO_API_PORT=8081
+      SNARK_TIMEOUT=1800
+      BENTO_BROKER_LISTEN_ADDR=0.0.0.0
+      BENTO_BROKER_PORT=8082
+      BENTO_EXECUTOR_LISTEN_ADDR=0.0.0.0
+      BENTO_EXECUTOR_PORT=8083
+      BENTO_PROVER_LISTEN_ADDR=0.0.0.0
+      BENTO_PROVER_PORT=8086
+      DATABASE_URL=postgresql://${dbUser}:${dbPass}@${rdsHost}:${rdsPort}/${dbName}
+      REDIS_URL=redis://${redisHost}:${redisPort}
+      S3_BUCKET=${s3BucketName}
+      AWS_REGION=us-west-2
+      STACK_NAME=${stackName}
+      COMPONENT_TYPE=${componentType}
+      RPC_URL=${rpcUrl}
+      PRIVATE_KEY=${privKey}
+      ORDER_STREAM_URL=${orderStreamUrl}
+      VERIFIER_ADDRESS=${verifierAddress}
+      BOUNDLESS_MARKET_ADDRESS=${boundlessMarketAddress}
+      SET_VERIFIER_ADDRESS=${setVerifierAddress}
+      COLLATERAL_TOKEN_ADDRESS=${collateralTokenAddress}
+      CHAIN_ID=${chainId}
+    owner: root:root
+    permissions: '0644'
+
+runcmd:
+  - |
+    # Update /etc/environment with new variables
+    cat /etc/environment.d/bento.conf >> /etc/environment
+  - |
+    # Update vector configuration
+    /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
+  - |
+    # Update CloudWatch agent configuration
+    /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+  - |
+    # Copy service files
+    cp /opt/boundless/config/bento-api.service /etc/systemd/system/bento-api.service
+    cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
+    cp /opt/boundless/config/bento-broker.service /etc/systemd/system/bento-broker.service
+  - |
+    # Set proper ownership
+    chown -R ubuntu:ubuntu /opt/boundless
+  - |
+    # Reload systemd and restart services
+    systemctl daemon-reload
+    systemctl restart vector
+    systemctl restart amazon-cloudwatch-agent
+    systemctl start bento-api.service bento-broker.service
+    systemctl enable bento-api.service bento-broker.service
+`;
       return Buffer.from(userDataScript).toString('base64');
     });
   }
