@@ -103,13 +103,18 @@ async fn test_e2e() {
         total_locked_and_expired: Some(0),
         total_locked_and_fulfilled: Some(1),
     });
+
+    let request_summary = summaries.iter().find(|s| s.total_requests_submitted > 0)
+        .expect("Expected to find a summary with submitted requests");
+    assert_eq!(request_summary.total_requests_submitted, 1, "Expected 1 submitted request");
+    assert_eq!(request_summary.unique_requesters_submitting_requests, 1, "Expected 1 unique requester");
+    assert_eq!(request_summary.total_requests_submitted_onchain, 1, "Expected 1 onchain request");
     
     // Find the summary with fulfilled requests and verify it
     let fulfilled_summary = summaries.iter().find(|s| s.total_fulfilled > 0)
         .expect("Expected to find a summary with fulfilled requests");
     assert_eq!(fulfilled_summary.total_fulfilled, 1, "Expected 1 fulfilled request");
     assert_eq!(fulfilled_summary.unique_provers_locking_requests, 1, "Expected 1 unique prover");
-    assert_eq!(fulfilled_summary.unique_requesters_submitting_requests, 1, "Expected 1 unique requester");
 
     // Verify fees and collateral are present
     assert!(!fulfilled_summary.total_fees_locked.is_empty(), "total_fees_locked should not be empty");
