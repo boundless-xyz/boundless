@@ -25,10 +25,8 @@ use alloy::{
     signers::Signer,
 };
 use boundless_cli::DefaultProver;
-use std::sync::Arc;
-
 use boundless_indexer::{
-    db::{IndexerDb, market::SortDirection, MarketDb},
+    db::{IndexerDb, market::SortDirection},
     test_utils::TestDb,
 };
 use boundless_market::contracts::{
@@ -51,29 +49,27 @@ pub struct MarketTestFixture<P: Provider + WalletProvider + Clone + 'static> {
     pub prover: DefaultProver,
 }
 
-impl<P: Provider + WalletProvider + Clone + 'static> MarketTestFixture<P> {
-    // Methods for MarketTestFixture with a specific provider type
-}
+impl MarketTestFixture {
+    /// Create a new test fixture with all setup
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let test_db = TestDb::new().await?;
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await?;
+        
+        let prover = DefaultProver::new(
+            SET_BUILDER_ELF.to_vec(),
+            ASSESSOR_GUEST_ELF.to_vec(),
+            ctx.prover_signer.address(),
+            ctx.customer_market.eip712_domain().await?,
+        )?;
 
-/// Create a new test fixture with all setup
-pub async fn new_market_test_fixture() -> Result<MarketTestFixture<impl Provider + WalletProvider + Clone + 'static>, Box<dyn std::error::Error>> {
-    let test_db = TestDb::new().await?;
-    let anvil = Anvil::new().spawn();
-    let ctx = create_test_ctx(&anvil).await?;
-    
-    let prover = DefaultProver::new(
-        SET_BUILDER_ELF.to_vec(),
-        ASSESSOR_GUEST_ELF.to_vec(),
-        ctx.prover_signer.address(),
-        ctx.customer_market.eip712_domain().await?,
-    )?;
-
-    Ok(MarketTestFixture {
-        test_db,
-        anvil,
-        ctx,
-        prover,
-    })
+        Ok(Self {
+            test_db,
+            anvil,
+            ctx,
+            prover,
+        })
+    }
 }
 
 /// Builder for spawning indexer CLI with various configurations
@@ -357,34 +353,6 @@ pub async fn lock_and_fulfill_request<P: Provider + WalletProvider + Clone + 'st
     Ok(())
 }
 
-/// Helper to fulfill a request that's already locked
-pub async fn fulfill_request<P: Provider + WalletProvider + Clone + 'static>(
-    ctx: &TestCtx<P>,
-    prover: &DefaultProver,
-    request: &ProofRequest,
-    client_sig: Bytes,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use boundless_cli::OrderFulfilled;
-    use boundless_market::contracts::boundless_market::FulfillmentTx;
-
-    let (fill, root_receipt, assessor_receipt) =
-        prover.fulfill(&[(request.clone(), client_sig)]).await?;
-    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt)?;
-
-    ctx.prover_market
-        .fulfill(
-            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
-                .with_submit_root(
-                    ctx.deployment.set_verifier_address,
-                    order_fulfilled.root,
-                    order_fulfilled.seal,
-                ),
-        )
-        .await?;
-
-    Ok(())
-}
-
 /// Helper to insert cycle counts with automatic overhead calculation
 pub async fn insert_cycle_counts_with_overhead(
     test_db: &TestDb,
@@ -524,7 +492,7 @@ pub fn verify_hour_boundaries(summaries: &[boundless_indexer::db::market::Hourly
 
 /// Get hourly summaries from database
 pub async fn get_hourly_summaries(
-    db: &Arc<MarketDb>,
+    db: &impl IndexerDb,
 ) -> Vec<boundless_indexer::db::market::HourlyMarketSummary> {
     db.get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
         .await
