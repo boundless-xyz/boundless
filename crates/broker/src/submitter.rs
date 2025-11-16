@@ -585,14 +585,22 @@ where
                     );
                     return Ok(());
                 }
-                Err(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailedUnknownError)) => {
-                    tracing::warn!("Payment requirement failed for one or more orders, will not retry");
-                    errors.push(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailedUnknownError));
+                Err(SubmitterErr::MarketError(
+                    MarketError::PaymentRequirementsFailedUnknownError,
+                )) => {
+                    tracing::warn!(
+                        "Payment requirement failed for one or more orders, will not retry"
+                    );
+                    errors.push(SubmitterErr::MarketError(
+                        MarketError::PaymentRequirementsFailedUnknownError,
+                    ));
                     break;
                 }
                 Err(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailed(err))) => {
                     tracing::warn!("Payment requirement failed for one or more orders: {err:?}, will not retry");
-                    errors.push(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailed(err)));
+                    errors.push(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailed(
+                        err,
+                    )));
                     break;
                 }
                 Err(err) => {
