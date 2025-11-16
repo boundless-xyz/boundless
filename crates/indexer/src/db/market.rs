@@ -158,10 +158,10 @@ pub struct PeriodMarketSummary {
     pub total_cycles: u64,
     pub best_peak_prove_mhz: u64,
     pub best_peak_prove_mhz_prover: Option<String>,
-    pub best_peak_prove_mhz_request_id: Option<String>,
+    pub best_peak_prove_mhz_request_id: Option<U256>,
     pub best_effective_prove_mhz: u64,
     pub best_effective_prove_mhz_prover: Option<String>,
-    pub best_effective_prove_mhz_request_id: Option<String>,
+    pub best_effective_prove_mhz_request_id: Option<U256>,
 }
 
 // Type aliases for different aggregation periods - they all use the same struct
@@ -173,7 +173,7 @@ pub type MonthlyMarketSummary = PeriodMarketSummary;
 #[derive(Debug, Clone)]
 pub struct RequestStatus {
     pub request_digest: B256,
-    pub request_id: String,
+    pub request_id: U256,
     pub request_status: RequestStatusType,
     pub slashed_status: SlashedStatus,
     pub source: String,
@@ -231,7 +231,7 @@ pub struct RequestCursor {
 #[derive(Debug, Clone)]
 pub struct RequestComprehensive {
     pub request_digest: B256,
-    pub request_id: String,
+    pub request_id: U256,
     pub source: String,
     pub client_address: Address,
     pub created_at: u64,
@@ -2289,7 +2289,7 @@ impl IndexerDb for MarketDb {
             for status in chunk {
                 query_builder = query_builder
                     .bind(status.request_digest.to_string())
-                    .bind(&status.request_id)
+                    .bind(format!("{:x}", status.request_id))
                     .bind(status.request_status.to_string())
                     .bind(status.slashed_status.to_string())
                     .bind(&status.source)
@@ -2662,7 +2662,10 @@ impl IndexerDb for MarketDb {
                 let request_digest = B256::from_str(&request_digest_str).map_err(|e| {
                     DbError::BadTransaction(format!("Invalid request_digest: {}", e))
                 })?;
-                let request_id: String = row.get("request_id");
+                let request_id_str: String = row.get("request_id");
+                let request_id = U256::from_str_radix(&request_id_str, 16).map_err(|e| {
+                    DbError::BadTransaction(format!("Invalid request_id: {}", e))
+                })?;
                 let source: String = row.get("source");
                 let client_address_str: String = row.get("client_address");
                 let client_address = Address::from_str(&client_address_str).map_err(|e| {
@@ -3611,10 +3614,10 @@ impl MarketDb {
             .bind(summary.total_cycles as i64)
             .bind(summary.best_peak_prove_mhz as i64)
             .bind(summary.best_peak_prove_mhz_prover)
-            .bind(summary.best_peak_prove_mhz_request_id)
+            .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
             .bind(summary.best_effective_prove_mhz as i64)
             .bind(summary.best_effective_prove_mhz_prover)
-            .bind(summary.best_effective_prove_mhz_request_id)
+            .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
             .execute(&self.pool)
             .await?;
 
@@ -3777,18 +3780,20 @@ impl MarketDb {
                     .ok()
                     .flatten(),
                 best_peak_prove_mhz_request_id: row
-                    .try_get("best_peak_prove_mhz_request_id")
+                    .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                     .ok()
-                    .flatten(),
+                    .flatten()
+                    .and_then(|s| U256::from_str_radix(&s, 16).ok()),
                 best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
                     .flatten(),
                 best_effective_prove_mhz_request_id: row
-                    .try_get("best_effective_prove_mhz_request_id")
+                    .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
                     .ok()
-                    .flatten(),
+                    .flatten()
+                    .and_then(|s| U256::from_str_radix(&s, 16).ok()),
             })
             .collect();
 
@@ -3836,9 +3841,13 @@ impl MarketDb {
         let slashed_status = SlashedStatus::from_str(&slashed_status_str)
             .map_err(|e| DbError::BadTransaction(format!("Invalid slashed_status: {}", e)))?;
 
+        let request_id_str: String = row.get("request_id");
+        let request_id = U256::from_str_radix(&request_id_str, 16)
+            .map_err(|e| DbError::BadTransaction(format!("Invalid request_id: {}", e)))?;
+
         Ok(RequestStatus {
             request_digest,
-            request_id: row.get("request_id"),
+            request_id,
             request_status,
             slashed_status,
             source: row.get("source"),
@@ -4829,7 +4838,7 @@ mod tests {
     fn create_test_status(digest: B256, status_type: RequestStatusType) -> RequestStatus {
         RequestStatus {
             request_digest: digest,
-            request_id: format!("test_id_{:x}", digest),
+            request_id: U256::from(12345), // Use a simple test U256 value
             request_status: status_type,
             slashed_status: SlashedStatus::NotApplicable,
             source: "onchain".to_string(),
@@ -4895,7 +4904,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.get::<String, _>("request_status"), "submitted");
-        assert_eq!(result.get::<String, _>("request_id"), status.request_id);
+        assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
         assert_eq!(result.get::<String, _>("source"), "onchain");
     }
 
@@ -4926,7 +4935,7 @@ mod tests {
         assert_eq!(result.get::<String, _>("request_status"), "locked");
         assert_eq!(result.get::<Option<i64>, _>("locked_at"), Some(1234567900));
         assert_eq!(result.get::<Option<i64>, _>("lock_block"), Some(200));
-        assert_eq!(result.get::<String, _>("request_id"), status.request_id);
+        assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
     }
 
     #[tokio::test]

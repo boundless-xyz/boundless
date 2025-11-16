@@ -13,7 +13,7 @@
 // limitations under the License.
 
 pub mod backfill;
-pub mod cache;
+pub mod caching;
 pub mod pricing;
 pub mod service;
 pub mod time_boundaries;

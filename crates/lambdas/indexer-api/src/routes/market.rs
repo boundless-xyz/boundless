@@ -654,7 +654,7 @@ fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
 
     RequestStatusResponse {
         request_digest: format!("{:#x}", status.request_digest),
-        request_id: format!("0x{}", status.request_id),
+        request_id: format!("0x{:x}", status.request_id),
         request_status: status.request_status.to_string(),
         source: status.source,
         client_address: format!("{:#x}", status.client_address),

@@ -23,7 +23,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     db::{market::MarketDb, DbError, DbObj, TxMetadata},
-    market::cache::CacheStorage,
+    market::caching::CacheStorage,
 };
 use ::boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
@@ -189,7 +189,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
 
         // Initialize cache storage if URI provided
         let cache_storage = if let Some(uri) = &config.cache_uri {
-            match crate::market::cache::cache_storage_from_uri(uri).await {
+            match crate::market::caching::cache_storage_from_uri(uri).await {
                 Ok(storage) => {
                     tracing::info!("Cache storage initialized with URI: {}", uri);
                     Some(Arc::from(storage))
@@ -263,7 +263,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
 
         // Initialize cache storage if URI provided
         let cache_storage = if let Some(uri) = &config.cache_uri {
-            match crate::market::cache::cache_storage_from_uri(uri).await {
+            match crate::market::caching::cache_storage_from_uri(uri).await {
                 Ok(storage) => {
                     tracing::info!("Cache storage initialized with URI: {}", uri);
                     Some(Arc::from(storage))
