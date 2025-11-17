@@ -123,8 +123,8 @@ async fn test_e2e() {
     assert_eq!(fulfilled_summary.locked_orders_fulfillment_rate, 100.0, "Expected 100% fulfillment rate");
     
     // Verify cycle counts (will be 0 since test uses random address)
-    assert_eq!(fulfilled_summary.total_program_cycles, 0, "Expected 0 total_program_cycles for non-hardcoded requestor");
-    assert_eq!(fulfilled_summary.total_cycles, 0, "Expected 0 total_cycles for non-hardcoded requestor");
+    assert_eq!(fulfilled_summary.total_program_cycles, U256::ZERO, "Expected 0 total_program_cycles for non-hardcoded requestor");
+    assert_eq!(fulfilled_summary.total_cycles, U256::ZERO, "Expected 0 total_cycles for non-hardcoded requestor");
 
     cli_process.kill().unwrap();
 }
@@ -382,20 +382,20 @@ async fn test_aggregation_across_hours() {
     }
 
     // Verify cycle count aggregations
-    let total_cycles_across_hours: u64 = summaries.iter().map(|s| s.total_cycles).sum();
-    let total_program_cycles_across_hours: u64 = summaries.iter().map(|s| s.total_program_cycles).sum();
-    let expected_total_cycles = total_cycles1 + total_cycles2;
-    let expected_total_program_cycles = program_cycles1 + program_cycles2;
+    let total_cycles_across_hours: U256 = summaries.iter().map(|s| s.total_cycles).sum();
+    let total_program_cycles_across_hours: U256 = summaries.iter().map(|s| s.total_program_cycles).sum();
+    let expected_total_cycles = U256::from(total_cycles1 + total_cycles2);
+    let expected_total_program_cycles = U256::from(program_cycles1 + program_cycles2);
     assert_eq!(total_cycles_across_hours, expected_total_cycles);
     assert_eq!(total_program_cycles_across_hours, expected_total_program_cycles);
 
     // Verify per-hour cycle counts
     let hours_with_fulfilled: Vec<_> = summaries.iter().filter(|s| s.total_fulfilled > 0).collect();
     assert_eq!(hours_with_fulfilled.len(), 2, "Expected exactly 2 hours with fulfilled requests");
-    assert_eq!(hours_with_fulfilled[0].total_program_cycles, program_cycles1);
-    assert_eq!(hours_with_fulfilled[0].total_cycles, total_cycles1);
-    assert_eq!(hours_with_fulfilled[1].total_program_cycles, program_cycles2);
-    assert_eq!(hours_with_fulfilled[1].total_cycles, total_cycles2);
+    assert_eq!(hours_with_fulfilled[0].total_program_cycles, U256::from(program_cycles1));
+    assert_eq!(hours_with_fulfilled[0].total_cycles, U256::from(total_cycles1));
+    assert_eq!(hours_with_fulfilled[1].total_program_cycles, U256::from(program_cycles2));
+    assert_eq!(hours_with_fulfilled[1].total_cycles, U256::from(total_cycles2));
 
     // Verify p50_lock_price_per_cycle calculation
     let expected_p50_request1 = U256::from(one_eth) / U256::from(program_cycles1);
@@ -530,7 +530,7 @@ async fn test_aggregation_percentiles() {
     assert!(actual_p90 >= U256::from(8_000_000_000u64) && actual_p90 <= max_price_per_cycle, "p90 out of range: {}", actual_p90);
 
     // Verify total cycles
-    let expected_total_cycles = total_cycles_per_request * num_requests as u64;
+    let expected_total_cycles = U256::from(total_cycles_per_request * num_requests as u64);
     assert_eq!(fulfilled_summary.total_cycles, expected_total_cycles, "Total cycles mismatch");
 
     tracing::info!("All percentiles are in expected ranges: p10={}, p50={}, p90={}", actual_p10, actual_p50, actual_p90);

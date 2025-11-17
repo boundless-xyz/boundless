@@ -392,7 +392,7 @@ pub async fn insert_cycle_counts_with_overhead(
     program_cycles: u64,
 ) -> Result<(), boundless_indexer::db::DbError> {
     let total_cycles = (program_cycles as f64 * 1.0158) as u64;
-    test_db.insert_test_cycle_counts(request_digest, program_cycles, total_cycles).await
+    test_db.insert_test_cycle_counts(request_digest, U256::from(program_cycles), U256::from(total_cycles)).await
 }
 
 /// Helper to advance time and mine blocks

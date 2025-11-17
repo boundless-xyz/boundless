@@ -28,6 +28,9 @@ use sqlx::{
 
 const SQL_BLOCK_KEY: i64 = 0;
 
+// Padding width for U256 (78 digits for 2^256-1)
+const U256_PADDING_WIDTH: usize = 78;
+
 // Batch insert chunk size for request statuses
 // Setting too high may result in hitting parameter limits for the db engine.
 const REQUEST_STATUS_BATCH_SIZE: usize = 150;
@@ -40,6 +43,19 @@ const REQUEST_LOCKED_EVENT_BATCH_SIZE: usize = 500; // 6 params per row = 4,800 
 const PROOF_DELIVERED_EVENT_BATCH_SIZE: usize = 500; // 6 params per row = 4,800 params max
 const REQUEST_FULFILLED_EVENT_BATCH_SIZE: usize = 500; // 6 params per row = 4,800 params max
 const PROOF_REQUEST_BATCH_SIZE: usize = 500; // 23 params per row = 23,000 params max
+
+/// Convert U256 to zero-padded string for database storage
+fn u256_to_padded_string(value: U256) -> String {
+    format!("{:0width$}", value, width = U256_PADDING_WIDTH)
+}
+
+/// Parse zero-padded string from database to U256
+fn padded_string_to_u256(s: &str) -> Result<U256, DbError> {
+    let trimmed = s.trim_start_matches('0');
+    let parse_str = if trimmed.is_empty() { "0" } else { trimmed };
+    U256::from_str(parse_str)
+        .map_err(|e| DbError::Error(anyhow::anyhow!("Failed to parse U256: {}", e)))
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum SortDirection {
@@ -154,8 +170,8 @@ pub struct PeriodMarketSummary {
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
     pub locked_orders_fulfillment_rate: f32,
-    pub total_program_cycles: u64,
-    pub total_cycles: u64,
+    pub total_program_cycles: U256,
+    pub total_cycles: U256,
     pub best_peak_prove_mhz: u64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -199,8 +215,8 @@ pub struct RequestStatus {
     pub slash_recipient: Option<Address>,
     pub slash_transferred_amount: Option<String>,
     pub slash_burned_amount: Option<String>,
-    pub program_cycles: Option<u64>,
-    pub total_cycles: Option<u64>,
+    pub program_cycles: Option<U256>,
+    pub total_cycles: Option<U256>,
     pub peak_prove_mhz: Option<u64>,
     pub effective_prove_mhz: Option<u64>,
     pub cycle_status: Option<String>,
@@ -261,8 +277,8 @@ pub struct RequestComprehensive {
     pub fulfill_prover_address: Option<Address>,
     pub fulfill_block: Option<u64>,
     pub fulfill_tx_hash: Option<B256>,
-    pub program_cycles: Option<u64>,
-    pub total_cycles: Option<u64>,
+    pub program_cycles: Option<U256>,
+    pub total_cycles: Option<U256>,
     pub peak_prove_mhz: Option<u64>,
     pub effective_prove_mhz: Option<u64>,
     pub cycle_status: Option<String>,
@@ -293,8 +309,8 @@ pub struct LockPricingData {
 pub struct CycleCount {
     pub request_digest: B256,
     pub cycle_status: String,
-    pub program_cycles: Option<u64>,
-    pub total_cycles: Option<u64>,
+    pub program_cycles: Option<U256>,
+    pub total_cycles: Option<U256>,
     pub created_at: u64,
     pub updated_at: u64,
 }
@@ -648,7 +664,7 @@ pub trait IndexerDb {
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<u64, DbError>;
+    ) -> Result<U256, DbError>;
 
     /// Gets the total sum of total cycles from fulfilled requests in the half-open period [period_start, period_end).
     /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
@@ -657,7 +673,7 @@ pub trait IndexerDb {
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<u64, DbError>;
+    ) -> Result<U256, DbError>;
 
     /// Gets request digests using cursor-based pagination.
     /// Returns digests greater than the cursor, ordered by digest value.
@@ -2315,8 +2331,8 @@ impl IndexerDb for MarketDb {
                     .bind(status.slash_recipient.map(|a| a.to_string()))
                     .bind(&status.slash_transferred_amount)
                     .bind(&status.slash_burned_amount)
-                    .bind(status.program_cycles.map(|c| c as i64))
-                    .bind(status.total_cycles.map(|c| c as i64))
+                    .bind(status.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
+                    .bind(status.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
                     .bind(status.peak_prove_mhz.map(|m| m as i64))
                     .bind(status.effective_prove_mhz.map(|m| m as i64))
                     .bind(&status.cycle_status)
@@ -2378,8 +2394,8 @@ impl IndexerDb for MarketDb {
                 query_builder = query_builder
                     .bind(format!("{:x}", cycle_count.request_digest))
                     .bind(&cycle_count.cycle_status)
-                    .bind(cycle_count.program_cycles.map(|c| c as i64))
-                    .bind(cycle_count.total_cycles.map(|c| c as i64))
+                    .bind(cycle_count.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
+                    .bind(cycle_count.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
                     .bind(cycle_count.created_at as i64)
                     .bind(cycle_count.updated_at as i64);
             }
@@ -2457,8 +2473,8 @@ impl IndexerDb for MarketDb {
             for row in rows {
                 let digest_str: String = row.try_get("request_digest")?;
                 let cycle_status: String = row.try_get("cycle_status")?;
-                let program_cycles: Option<i64> = row.try_get("program_cycles")?;
-                let total_cycles: Option<i64> = row.try_get("total_cycles")?;
+                let program_cycles: Option<String> = row.try_get("program_cycles")?;
+                let total_cycles: Option<String> = row.try_get("total_cycles")?;
                 let created_at: i64 = row.try_get("created_at")?;
                 let updated_at: i64 = row.try_get("updated_at")?;
 
@@ -2470,11 +2486,20 @@ impl IndexerDb for MarketDb {
                     }
                 };
 
+                let program_cycles = match program_cycles {
+                    Some(s) => Some(padded_string_to_u256(&s)?),
+                    None => None,
+                };
+                let total_cycles = match total_cycles {
+                    Some(s) => Some(padded_string_to_u256(&s)?),
+                    None => None,
+                };
+
                 cycle_counts.push(CycleCount {
                     request_digest: digest,
                     cycle_status,
-                    program_cycles: program_cycles.map(|c| c as u64),
-                    total_cycles: total_cycles.map(|c| c as u64),
+                    program_cycles,
+                    total_cycles,
                     created_at: created_at as u64,
                     updated_at: updated_at as u64,
                 });
@@ -2724,9 +2749,18 @@ impl IndexerDb for MarketDb {
                 let slash_recipient_str: Option<String> = row.try_get("slash_recipient").ok();
                 let slash_recipient = slash_recipient_str.and_then(|s| Address::from_str(&s).ok());
 
-                let program_cycles: Option<i64> = row.try_get("program_cycles").ok();
-                let total_cycles: Option<i64> = row.try_get("total_cycles").ok();
+                let program_cycles_str: Option<String> = row.try_get("program_cycles").ok();
+                let total_cycles_str: Option<String> = row.try_get("total_cycles").ok();
                 let cycle_status: Option<String> = row.try_get("cycle_status").ok();
+
+                let program_cycles = match program_cycles_str {
+                    Some(s) => padded_string_to_u256(&s).ok(),
+                    None => None,
+                };
+                let total_cycles = match total_cycles_str {
+                    Some(s) => padded_string_to_u256(&s).ok(),
+                    None => None,
+                };
 
                 let request = RequestComprehensive {
                     request_digest,
@@ -2759,8 +2793,8 @@ impl IndexerDb for MarketDb {
                     fulfill_prover_address,
                     fulfill_block: fulfill_block.map(|b| b as u64),
                     fulfill_tx_hash,
-                    program_cycles: program_cycles.and_then(|c| c.try_into().ok()),
-                    total_cycles: total_cycles.and_then(|c| c.try_into().ok()),
+                    program_cycles,
+                    total_cycles,
                     peak_prove_mhz: None,      // TODO
                     effective_prove_mhz: None, // TODO
                     cycle_status,
@@ -3415,9 +3449,9 @@ impl IndexerDb for MarketDb {
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<u64, DbError> {
-        let total = sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT CAST(COALESCE(SUM(program_cycles), 0) AS BIGINT) FROM request_status
+    ) -> Result<U256, DbError> {
+        let rows = sqlx::query(
+            "SELECT program_cycles FROM request_status
              WHERE request_status = 'fulfilled'
              AND program_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -3425,18 +3459,27 @@ impl IndexerDb for MarketDb {
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_one(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
-        Ok(total.unwrap_or(0) as u64)
+        
+        let mut total = U256::ZERO;
+        for row in rows {
+            let program_cycles_str: String = row.try_get("program_cycles")?;
+            let program_cycles = padded_string_to_u256(&program_cycles_str)?;
+            total = total.checked_add(program_cycles).ok_or_else(|| {
+                DbError::Error(anyhow::anyhow!("Overflow when summing program_cycles"))
+            })?;
+        }
+        Ok(total)
     }
 
     async fn get_period_total_cycles(
         &self,
         period_start: u64,
         period_end: u64,
-    ) -> Result<u64, DbError> {
-        let total = sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT CAST(COALESCE(SUM(total_cycles), 0) AS BIGINT) FROM request_status
+    ) -> Result<U256, DbError> {
+        let rows = sqlx::query(
+            "SELECT total_cycles FROM request_status
              WHERE request_status = 'fulfilled'
              AND total_cycles IS NOT NULL
              AND fulfilled_at IS NOT NULL
@@ -3444,9 +3487,18 @@ impl IndexerDb for MarketDb {
         )
         .bind(period_start as i64)
         .bind(period_end as i64)
-        .fetch_one(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
-        Ok(total.unwrap_or(0) as u64)
+        
+        let mut total = U256::ZERO;
+        for row in rows {
+            let total_cycles_str: String = row.try_get("total_cycles")?;
+            let total_cycles = padded_string_to_u256(&total_cycles_str)?;
+            total = total.checked_add(total_cycles).ok_or_else(|| {
+                DbError::Error(anyhow::anyhow!("Overflow when summing total_cycles"))
+            })?;
+        }
+        Ok(total)
     }
 
     async fn get_request_digests_paginated(
@@ -3610,8 +3662,8 @@ impl MarketDb {
             .bind(summary.total_locked_and_expired as i64)
             .bind(summary.total_locked_and_fulfilled as i64)
             .bind(summary.locked_orders_fulfillment_rate)
-            .bind(summary.total_program_cycles as i64)
-            .bind(summary.total_cycles as i64)
+            .bind(u256_to_padded_string(summary.total_program_cycles))
+            .bind(u256_to_padded_string(summary.total_cycles))
             .bind(summary.best_peak_prove_mhz as i64)
             .bind(summary.best_peak_prove_mhz_prover)
             .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
@@ -3772,8 +3824,8 @@ impl MarketDb {
                 total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
                 locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
                     as f32,
-                total_program_cycles: row.get::<i64, _>("total_program_cycles") as u64,
-                total_cycles: row.get::<i64, _>("total_cycles") as u64,
+                total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
+                total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles")).unwrap_or(U256::ZERO),
                 best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
@@ -3897,8 +3949,8 @@ impl MarketDb {
             slash_recipient,
             slash_transferred_amount: row.try_get("slash_transferred_amount").ok(),
             slash_burned_amount: row.try_get("slash_burned_amount").ok(),
-            program_cycles: row.try_get::<Option<i64>, _>("program_cycles").ok().flatten().map(|c| c as u64),
-            total_cycles: row.try_get::<Option<i64>, _>("total_cycles").ok().flatten().map(|c| c as u64),
+            program_cycles: row.try_get::<Option<String>, _>("program_cycles").ok().flatten().and_then(|s| padded_string_to_u256(&s).ok()),
+            total_cycles: row.try_get::<Option<String>, _>("total_cycles").ok().flatten().and_then(|s| padded_string_to_u256(&s).ok()),
             peak_prove_mhz: row
                 .try_get::<Option<i64>, _>("peak_prove_mhz")
                 .ok()

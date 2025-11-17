@@ -16,7 +16,7 @@ use super::IndexerService;
 use crate::db::market::CycleCount;
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::{Address, B256};
+use alloy::primitives::{Address, B256, U256};
 use alloy::providers::Provider;
 use boundless_market::GuestEnv;
 use rand::Rng;
@@ -95,8 +95,13 @@ fn generate_signal_program_cycles() -> u64 {
 }
 
 /// Convert program cycles to total cycles using 1.0158 multiplier (1.58% overhead)
-fn program_cycles_to_total(program_cycles: u64) -> u64 {
-    (program_cycles as f64 * 1.0158) as u64
+fn program_cycles_to_total(program_cycles: U256) -> U256 {
+    // Multiply by 1.0158 using fixed-point arithmetic
+    // 1.0158 * 10000 = 10158
+    // So: program_cycles * 10158 / 10000
+    let multiplier = U256::from(10158);
+    let divisor = U256::from(10000);
+    program_cycles.saturating_mul(multiplier) / divisor
 }
 
 /// Compute program_cycles and total_cycles based on requestor and input data.
@@ -106,13 +111,13 @@ fn compute_cycle_counts(
         client_address: Address,
         input_type: &str,
         input_data: &str,
-    ) -> Option<(u64, u64)> {
+    ) -> Option<(U256, U256)> {
         let program_cycles = if client_address == SIGNAL_REQUESTOR {
             // Signal requestor: generate random program cycles
-            Some(generate_signal_program_cycles())
+            Some(U256::from(generate_signal_program_cycles()))
         } else if client_address == REQUESTOR_1 || client_address == REQUESTOR_2 {
             // Specific requestors: try to extract from input
-            try_extract_program_cycles(input_type, input_data)
+            try_extract_program_cycles(input_type, input_data).map(U256::from)
         } else {
             // All other requestors: mark as PENDING
             None

@@ -1,8 +1,8 @@
 CREATE TABLE IF NOT EXISTS cycle_counts (
     request_digest TEXT PRIMARY KEY,
     cycle_status TEXT NOT NULL, -- 'PENDING', 'COMPLETED', 'FAILED'
-    program_cycles BIGINT,
-    total_cycles BIGINT,
+    program_cycles TEXT,
+    total_cycles TEXT,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL
 );

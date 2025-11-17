@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use crate::db::{market::{CycleCount, IndexerDb}, MarketDb, DbError, DbObj};
-use alloy::primitives::B256;
+use alloy::primitives::{B256, U256};
 use sqlx::any::install_default_drivers;
 use sqlx::AnyPool;
 use tempfile::NamedTempFile;
@@ -105,8 +105,8 @@ impl TestDb {
     pub async fn insert_test_cycle_counts(
         &self,
         request_digest: B256,
-        program_cycles: u64,
-        total_cycles: u64,
+        program_cycles: U256,
+        total_cycles: U256,
     ) -> Result<(), DbError> {
         let current_timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

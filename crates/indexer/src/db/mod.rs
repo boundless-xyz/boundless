@@ -36,4 +36,7 @@ pub enum DbError {
 
     #[error("Invalid transaction: {0}")]
     BadTransaction(String),
+
+    #[error("Error: {0}")]
+    Error(#[from] anyhow::Error),
 }
