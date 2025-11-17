@@ -51,6 +51,8 @@ pub enum SelectorExtType {
     SetVerifier,
     /// Blake3 Groth16 selector.
     Blake3Groth16,
+    /// Fake Blake3 Groth16 selector
+    FakeBlake3Groth16,
 }
 
 #[repr(u32)]
@@ -60,6 +62,8 @@ pub enum SelectorExtType {
 pub enum SelectorExt {
     /// A fake receipt selector used for testing and development.
     FakeReceipt = 0xFFFFFFFF,
+    /// A fake Blake3 Groth16 proof selector.
+    FakeBlake3Groth16 = 0xFFFF0000,
     /// Groth16 proof selector version 3.0.
     Groth16V3_0 = Selector::Groth16V3_0 as u32,
     /// Set verifier selector version 0.9.
@@ -80,6 +84,7 @@ impl TryFrom<u32> for SelectorExt {
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             0xFFFFFFFF => Ok(SelectorExt::FakeReceipt),
+            0xFFFF0000 => Ok(SelectorExt::FakeBlake3Groth16),
             0x73c457ba => Ok(SelectorExt::Groth16V3_0),
             0x242f9d5b => Ok(SelectorExt::SetVerifierV0_9),
             0x62f049f6 => Ok(SelectorExt::Blake3Groth16V0_1),
@@ -122,6 +127,7 @@ impl SelectorExt {
     pub fn get_type(self) -> SelectorExtType {
         match self {
             SelectorExt::FakeReceipt => SelectorExtType::FakeReceipt,
+            SelectorExt::FakeBlake3Groth16 => SelectorExtType::FakeBlake3Groth16,
             SelectorExt::Groth16V3_0 => SelectorExtType::Groth16,
             SelectorExt::SetVerifierV0_9 => SelectorExtType::SetVerifier,
             SelectorExt::Blake3Groth16V0_1 => SelectorExtType::Blake3Groth16,
@@ -167,7 +173,11 @@ impl Default for SupportedSelectors {
             );
         if is_dev_mode() {
             supported_selectors = supported_selectors
-                .with_selector(FixedBytes::from(SelectorExt::FakeReceipt as u32), ProofType::Any);
+                .with_selector(FixedBytes::from(SelectorExt::FakeReceipt as u32), ProofType::Any)
+                .with_selector(
+                    FixedBytes::from(SelectorExt::FakeBlake3Groth16 as u32),
+                    ProofType::Blake3Groth16,
+                )
         }
         supported_selectors
     }
@@ -241,7 +251,10 @@ pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
 pub fn is_blake3_groth16_selector(selector: FixedBytes<4>) -> bool {
     let sel = SelectorExt::from_bytes(selector.into());
     match sel {
-        Some(selector) => selector.get_type() == SelectorExtType::Blake3Groth16,
+        Some(selector) => {
+            selector.get_type() == SelectorExtType::FakeBlake3Groth16
+                || selector.get_type() == SelectorExtType::Blake3Groth16
+        }
         None => false,
     }
 }
@@ -264,5 +277,15 @@ mod tests {
     fn test_is_groth16_selector() {
         let selector = FixedBytes::from(SelectorExt::groth16_latest() as u32);
         assert!(is_groth16_selector(selector));
+        let fake_selector = FixedBytes::from(SelectorExt::FakeReceipt as u32);
+        assert!(is_groth16_selector(fake_selector));
+    }
+
+    #[test]
+    fn test_is_blake3_groth16_selector() {
+        let selector = FixedBytes::from(SelectorExt::blake3_groth16_latest() as u32);
+        assert!(is_blake3_groth16_selector(selector));
+        let fake_selector = FixedBytes::from(SelectorExt::FakeBlake3Groth16 as u32);
+        assert!(is_blake3_groth16_selector(fake_selector));
     }
 }

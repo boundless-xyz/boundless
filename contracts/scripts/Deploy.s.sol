@@ -75,13 +75,9 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             IRiscZeroVerifier _blake3G16Verifier = deployBlake3Verifier();
             IRiscZeroSelectable blake3G16Selectable = IRiscZeroSelectable(address(_blake3G16Verifier));
             bytes4 blake3G16Selector = blake3G16Selectable.SELECTOR();
-            // Only add the _blake3G16Verifier if not dev mode as otherwise we have added already
-            // the mock verifier in the previous steps.
-            if (!devMode()) {
-                verifierRouter.addVerifier(blake3G16Selector, _blake3G16Verifier);
-                console2.log("Added Blake3 Groth16 verifier to router with selector");
-                console2.logBytes4(blake3G16Selector);
-            }
+            verifierRouter.addVerifier(blake3G16Selector, _blake3G16Verifier);
+            console2.log("Added Blake3 Groth16 verifier to router with selector");
+            console2.logBytes4(blake3G16Selector);
             // TODO: Create a more robust way of getting a URI for guests, and ensure that it is
             // in-sync with the configured image ID.
             string memory setBuilderPath =
@@ -184,8 +180,8 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
     /// @notice Deploy either a test or fully verifying `Blake3Groth16Verifier` depending on `devMode()`.
     function deployBlake3Verifier() internal returns (IRiscZeroVerifier) {
         if (devMode()) {
-            // NOTE: Using a fixed selector of 0xFFFFFFFF for the selector of the mock verifier.
-            IRiscZeroVerifier _verifier = new RiscZeroMockVerifier(bytes4(0xFFFFFFFF));
+            // NOTE: Using a fixed selector of 0xFFFF0000 for the selector of the mock verifier.
+            IRiscZeroVerifier _verifier = new RiscZeroMockVerifier(bytes4(0xFFFF0000));
             console2.log("Deployed RiscZeroMockVerifier to", address(_verifier));
             return _verifier;
         } else {

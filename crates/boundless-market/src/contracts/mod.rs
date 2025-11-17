@@ -579,14 +579,16 @@ impl Requirements {
     /// Set the selector for a blake3 groth16 proof.
     ///
     /// This will set the selector to the appropriate value based on the current environment.
-    /// In dev mode, the selector will be set to `FakeReceipt`, otherwise it will be set
+    /// In dev mode, the selector will be set to `FakeBlake3Groth16`, otherwise it will be set
     /// to the latest Blake3Groth16 selector.
     #[cfg(not(target_os = "zkvm"))]
     pub fn with_blake3_groth16_proof(self) -> Self {
         use crate::selector::SelectorExt;
 
         match crate::util::is_dev_mode() {
-            true => Self { selector: FixedBytes::from(SelectorExt::FakeReceipt as u32), ..self },
+            true => {
+                Self { selector: FixedBytes::from(SelectorExt::FakeBlake3Groth16 as u32), ..self }
+            }
             false => Self {
                 selector: FixedBytes::from(SelectorExt::blake3_groth16_latest() as u32),
                 ..self
