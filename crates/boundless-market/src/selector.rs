@@ -241,10 +241,7 @@ pub fn is_groth16_selector(selector: FixedBytes<4>) -> bool {
 pub fn is_blake3_groth16_selector(selector: FixedBytes<4>) -> bool {
     let sel = SelectorExt::from_bytes(selector.into());
     match sel {
-        Some(selector) => {
-            selector.get_type() == SelectorExtType::FakeReceipt
-                || selector.get_type() == SelectorExtType::Blake3Groth16
-        }
+        Some(selector) => selector.get_type() == SelectorExtType::Blake3Groth16,
         None => false,
     }
 }
