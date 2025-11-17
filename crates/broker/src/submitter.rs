@@ -44,7 +44,7 @@ use risc0_zkvm::{
 use crate::{
     config::ConfigLock,
     db::DbObj,
-    impl_coded_debug, now_timestamp,
+    impl_coded_debug, is_dev_mode, now_timestamp,
     provers::ProverObj,
     task::{RetryRes, RetryTask, SupervisorErr},
     Batch, FulfillmentType, Order,
@@ -184,8 +184,14 @@ where
         let blake3_receipt: Blake3Groth16Receipt = bincode::deserialize(&blake3_receipt)
             .context("Failed to deserialize Blake3 Groth16 receipt")?;
 
-        let encoded_seal = encode_seal(&blake3_receipt.into())
+        let mut encoded_seal = encode_seal(&blake3_receipt.into())
             .context("Failed to encode Blake3 Groth16 receipt seal")?;
+        if is_dev_mode() {
+            // In dev mode, we use the fake selector for Blake3 Groth16 proofs.
+            let fake_selector = &[0xFFu8, 0xFF, 0x00, 0x00];
+            // Replace the first 4 bytes with the fake selector
+            encoded_seal.splice(0..4, fake_selector.iter().cloned());
+        }
 
         Ok(encoded_seal)
     }

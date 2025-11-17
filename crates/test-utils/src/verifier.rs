@@ -36,6 +36,16 @@ pub async fn deploy_mock_verifier<P: Provider>(deployer_provider: P) -> Result<A
     Ok(*instance.address())
 }
 
+pub async fn deploy_mock_blake3_groth16_verifier<P: Provider>(
+    deployer_provider: P,
+) -> Result<Address> {
+    let instance =
+        RiscZeroMockVerifier::deploy(deployer_provider, FixedBytes([0xFFu8, 0xFF, 0x00, 0x00]))
+            .await
+            .context("failed to deploy RiscZeroMockVerifier")?;
+    Ok(*instance.address())
+}
+
 /// Deploy a RiscZeroGroth16Verifier contract
 pub async fn deploy_groth16_verifier<P: Provider>(
     deployer_provider: P,
@@ -133,8 +143,11 @@ pub async fn setup_verifiers<P: Provider + Clone>(
         RiscZeroVerifierRouterInstance::new(verifier_router, deployer_provider.clone());
 
     // Deploying the blake3 groth16 verifier
-    match is_dev_mode() {
-        true => println!("Skipping Blake3Groth16 verifier deployment in dev mode"),
+    let (blake_groth16_verifier, blake_groth16_selector) = match is_dev_mode() {
+        true => (
+            deploy_mock_blake3_groth16_verifier(&deployer_provider).await?,
+            [0xFFu8, 0xFF, 0x00, 0x00],
+        ),
         false => {
             let control_root = ALLOWED_CONTROL_ROOT;
             let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
@@ -152,12 +165,9 @@ pub async fn setup_verifiers<P: Provider + Clone>(
 
             let b3_groth16_selector = verifier_parameters_digest.as_bytes()[..4].try_into()?;
 
-            let call = &router_instance
-                .addVerifier(b3_groth16_selector, b3_groth16_verifier)
-                .from(deployer_address);
-            call.send().await?.get_receipt().await?;
+            (b3_groth16_verifier, b3_groth16_selector)
         }
-    }
+    };
 
     // Add groth16 verifier to router
     let call = &router_instance
@@ -171,6 +181,12 @@ pub async fn setup_verifiers<P: Provider + Clone>(
     let set_verifier_selector: [u8; 4] = verifier_parameters_digest.as_bytes()[..4].try_into()?;
     let call = &router_instance
         .addVerifier(set_verifier_selector.into(), set_verifier)
+        .from(deployer_address);
+    call.send().await?.get_receipt().await?;
+
+    // Add blake3 groth16 verifier to router
+    let call = &router_instance
+        .addVerifier(blake_groth16_selector.into(), blake_groth16_verifier)
         .from(deployer_address);
     call.send().await?.get_receipt().await?;
 
