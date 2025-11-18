@@ -20,8 +20,8 @@ use xshell::{cmd, Shell};
 const CIRCOM_WITNESSCALC_URL: &str = "https://github.com/iden3/circom-witnesscalc.git";
 const CIRCOM_WITNESSCALC_COMMIT: &str = "b7ff0ffd9c72c8f60896ce131ee98a35aba96009"; // 0.2.1
 
-const RISC0_TO_BITVM2_URL: &str = "https://github.com/ec2/risc0-to-bitvm2-boundless.git";
-const RISC0_TO_BITVM2_COMMIT: &str = "b47483ae7ff2bbfbf6d4448bac76aa26afc80e47";
+const RISC0_TO_BITVM2_URL: &str = "https://github.com/chainwayxyz/risc0-to-bitvm2-boundless.git";
+const RISC0_TO_BITVM2_COMMIT: &str = "efc448ef016cef2a908d97e69b9d3d1f2b2cfdb5";
 
 const CIRCOMLIB_URL: &str = "https://github.com/iden3/circomlib.git";
 const CIRCOMLIB_COMMIT: &str = "35e54ea21da3e8762557234298dbb553c175ea8d";
