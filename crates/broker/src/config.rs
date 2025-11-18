@@ -793,7 +793,7 @@ max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 deny_requestor_addresses = ["0x0000000000000000000000000000000000000000"]
-priority_mode = "high"
+gas_priority_mode = "high"
 max_mcycle_limit = 10
 
 [prover]
