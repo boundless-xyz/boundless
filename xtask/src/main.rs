@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand};
 
 mod bootstrap_blake3_groth16;
 mod setup_blake3_groth16;
+mod upload_blake3_groth16_artifacts;
 
 #[derive(Parser)]
 struct Cli {
@@ -27,6 +28,9 @@ struct Cli {
 enum Commands {
     SetupBlake3Groth16(crate::setup_blake3_groth16::SetupBlake3Groth16),
     BootstrapBlake3Groth16(crate::bootstrap_blake3_groth16::BootstrapBlake3Groth16),
+    UploadBlake3Groth16Artifacts(
+        crate::upload_blake3_groth16_artifacts::UploadBlake3Groth16Artifacts,
+    ),
 }
 
 impl Commands {
@@ -34,6 +38,7 @@ impl Commands {
         match self {
             Commands::SetupBlake3Groth16(cmd) => cmd.run(),
             Commands::BootstrapBlake3Groth16(cmd) => cmd.run().await,
+            Commands::UploadBlake3Groth16Artifacts(cmd) => cmd.run().await,
         }
     }
 }
