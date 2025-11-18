@@ -214,7 +214,13 @@ async fn run(args: &MainArgs) -> Result<()> {
             }
         }
         if let Err(e) = handle_request(args, &client, &program, &program_url).await {
-            tracing::error!("Request failed: {e:?}");
+            let error_msg = format!("{e:?}");
+            // Check if this is a transaction confirmation error
+            if error_msg.contains("Transaction confirmation error") {
+                tracing::error!("[B-OG-CONF] Transaction confirmation error: {e:?}");
+            } else {
+                tracing::error!("Request failed: {e:?}");
+            }
         }
         i += 1;
         tokio::time::sleep(Duration::from_secs(args.interval)).await;
