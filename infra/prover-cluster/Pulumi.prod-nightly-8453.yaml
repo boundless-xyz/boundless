@@ -35,7 +35,6 @@ config:
     secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=
   prover-cluster:apiKey:
     secure: v1:cQTlzOGOQeKDgN3q:xi9tY9JD1CKOjVZhxbnSczW3xiHs4dg+Ioi11z1lYiLkzuITbQQaqljkXtujYP/U1hirI5CLD7OzpOQ=
-  prover-cluster:priorityRequestorAddresses: '["0x7276fa3c23c1783bdcb97258717f8f32b75919c9", "0xf23ce39Bf3Ea20C7736C0BBe835B60671EC0b4b2", "0xE3838098D694f572d9eEA90f3b7A65ec3864D568", "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c"]'
   prover-cluster:mcyclePrice: "0.00000001"
   prover-cluster:peakProveKhz: 10000
   prover-cluster:minDeadline: 0
@@ -51,4 +50,4 @@ config:
   prover-cluster:denyRequestorAddresses: ""
   prover-cluster:maxFetchRetries: 3
   prover-cluster:allowClientAddresses: ""
-  prover-cluster:lockinPriorityGas: "0"
+  prover-cluster:lockinPriorityGas: "300"
