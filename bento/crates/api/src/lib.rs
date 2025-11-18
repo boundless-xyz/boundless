@@ -10,7 +10,7 @@ use axum::{
     extract::{FromRequestParts, Host, Path, State},
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use bonsai_sdk::responses::{
     CreateSessRes, ImgUploadRes, ProofReq, ReceiptDownload, SessionStats, SessionStatusRes,
@@ -118,6 +118,9 @@ pub enum AppError {
     #[error("Database error")]
     DbError(#[from] TaskDbErr),
 
+    #[error("The input does not exist: {0}")]
+    InputMissing(String),
+
     #[error("internal error")]
     InternalErr(AnyhowErr),
 }
@@ -133,6 +136,7 @@ impl AppError {
             Self::ReceiptMissing(_) => "ReceiptMissing",
             Self::JournalMissing(_) => "JournalMissing",
             Self::DbError(_) => "DbError",
+            Self::InputMissing(_) => "InputMissing",
             Self::InternalErr(_) => "InternalErr",
         }
         .into()
@@ -152,7 +156,9 @@ impl IntoResponse for AppError {
             Self::ImgAlreadyExists(_)
             | Self::InputAlreadyExists(_)
             | Self::ReceiptAlreadyExists(_) => StatusCode::NO_CONTENT,
-            Self::ReceiptMissing(_) | Self::JournalMissing(_) => StatusCode::NOT_FOUND,
+            Self::ReceiptMissing(_) | Self::JournalMissing(_) | Self::InputMissing(_) => {
+                StatusCode::NOT_FOUND
+            }
             Self::InternalErr(_) | Self::DbError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -333,6 +339,30 @@ async fn input_upload(
         url: format!("http://{hostname}/inputs/upload/{input_id}"),
         uuid: input_id.to_string(),
     }))
+}
+
+const INPUT_DELETE_PATH: &str = "/inputs/:input_id";
+async fn input_delete(
+    State(state): State<Arc<AppState>>,
+    Path(input_id): Path<String>,
+) -> Result<(), AppError> {
+    let input_key = format!("{INPUT_BUCKET_DIR}/{input_id}");
+    if !state
+        .s3_client
+        .object_exists(&input_key)
+        .await
+        .context("Failed to check if object exists")?
+    {
+        return Err(AppError::InputMissing(input_id.to_string()));
+    }
+
+    state
+        .s3_client
+        .object_delete(&input_key)
+        .await
+        .context("Failed to delete input from object store")?;
+
+    Ok(())
 }
 
 const INPUT_UPLOAD_PUT_PATH: &str = "/inputs/upload/:input_id";
@@ -839,6 +869,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(IMAGE_UPLOAD_PATH, get(image_upload))
         .route(IMAGE_UPLOAD_PATH, put(image_upload_put))
         .route(INPUT_UPLOAD_PATH, get(input_upload))
+        .route(INPUT_DELETE_PATH, delete(input_delete))
         .route(INPUT_UPLOAD_PUT_PATH, put(input_upload_put))
         .route(RECEIPT_UPLOAD_PATH, get(receipt_upload))
         .route(RECEIPT_UPLOAD_PUT_PATH, put(receipt_upload_put))
