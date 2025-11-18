@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::{Arc, RwLock};
+
 use alloy::{
     network::{Network, TransactionBuilder},
     primitives::Address,
@@ -21,39 +23,117 @@ use alloy::{
     },
     transports::TransportResult,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug)]
-/// A gas filler that dynamically adjusts the gas price based on the number of pending transactions.
-///
-/// This filler increases the gas price by a factor of `gas_increase_factor` for each pending transaction
-/// up to a maximum of `max_gas_multiplier`.
+/// Priority mode for transaction gas pricing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PriorityMode {
+    /// Low gas price/priority fee.
+    Low,
+    /// Medium gas price/priority fee.
+    Medium,
+    /// High gas price/priority fee.
+    High,
+    /// Custom gas price/priority fee override.
+    ///
+    /// The supplied `multiplier_percentage` is applied as a static percentage bump
+    /// on top of the base gas estimation (e.g., 25 = 25% increase).
+    Custom {
+        /// The static multiplier percentage to apply (0 = no change).
+        multiplier_percentage: u64,
+    },
+}
+
+impl PriorityMode {
+    /// Returns the configuration for this priority mode.
+    fn config(self) -> PriorityModeConfig {
+        match self {
+            PriorityMode::Low => PriorityModeConfig {
+                estimate_additional_percentage: 0,
+                dynamic_multiplier_percentage: 3,
+            },
+            PriorityMode::Medium => PriorityModeConfig {
+                estimate_additional_percentage: 10,
+                dynamic_multiplier_percentage: 5,
+            },
+            PriorityMode::High => PriorityModeConfig {
+                estimate_additional_percentage: 20,
+                dynamic_multiplier_percentage: 7,
+            },
+            PriorityMode::Custom { multiplier_percentage } => PriorityModeConfig {
+                estimate_additional_percentage: multiplier_percentage,
+                dynamic_multiplier_percentage: 5,
+            },
+        }
+    }
+}
+
+/// Configuration for a priority mode.
+#[derive(Clone, Debug)]
+struct PriorityModeConfig {
+    /// The base percentage increase applied to every transaction (e.g., 0 = no change, 10 = 10% increase).
+    estimate_additional_percentage: u64,
+    /// The incremental percentage applied per pending transaction (e.g., 0 = no change, 5 = +5% per pending tx).
+    dynamic_multiplier_percentage: u64,
+}
+
+/// A gas filler that adjusts gas prices based on priority mode.
+#[derive(Clone)]
 pub struct DynamicGasFiller {
-    /// The factor by which to increase the gas limit.
-    pub gas_limit_factor: f64,
-    /// The factor by which to increase the gas price for each pending transaction.
-    pub gas_increase_factor: f64,
-    /// The maximum gas price multiplier.
-    pub max_gas_multiplier: f64,
+    /// The percentage to set the gas limit to, relative to estimate (e.g., 120 = 20% increase).
+    pub additional_gas_limit_percentage: u64,
+    /// The current priority mode (adjustable via RwLock).
+    pub priority_mode: Arc<RwLock<PriorityMode>>,
     /// The address to check the pending transaction count for.
     pub address: Address,
 }
 
+impl std::fmt::Debug for DynamicGasFiller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DynamicGasFiller")
+            .field("gas_limit_percentage", &self.additional_gas_limit_percentage)
+            .field("address", &self.address)
+            .finish()
+    }
+}
+
 impl DynamicGasFiller {
-    /// Creates a new `DynamicMempoolGasFiller`.
+    /// Creates a new `DynamicGasFiller`.
     ///
     /// # Arguments
     ///
-    /// * `gas_limit_factor` - The factor by which to increase the gas limit.
-    /// * `gas_increase_factor` - The factor by which to increase the gas price for each pending transaction.
-    /// * `max_gas_multiplier` - The maximum gas price multiplier.
+    /// * `additional_gas_limit_percentage` - The percentage to set the gas limit to, relative to estimate (e.g., 20 = 20% increase).
+    /// * `priority_mode` - The initial priority mode.
     /// * `address` - The address to check the pending transaction count for.
     pub fn new(
-        gas_limit_factor: f64,
-        gas_increase_factor: f64,
-        max_gas_multiplier: f64,
+        additional_gas_limit_percentage: u64,
+        priority_mode: PriorityMode,
         address: Address,
     ) -> Self {
-        Self { gas_limit_factor, gas_increase_factor, max_gas_multiplier, address }
+        Self {
+            additional_gas_limit_percentage,
+            priority_mode: Arc::new(RwLock::new(priority_mode)),
+            address,
+        }
+    }
+
+    /// Sets the priority mode.
+    pub fn set_priority_mode(
+        &self,
+        mode: PriorityMode,
+    ) -> Result<(), std::sync::PoisonError<std::sync::RwLockWriteGuard<'_, PriorityMode>>> {
+        *self.priority_mode.write()? = mode;
+        Ok(())
+    }
+
+    /// Gets the current priority mode.
+    pub fn get_priority_mode(
+        &self,
+    ) -> Result<PriorityMode, std::sync::PoisonError<std::sync::RwLockReadGuard<'_, PriorityMode>>>
+    {
+        Ok(*self.priority_mode.read()?)
     }
 }
 
@@ -61,8 +141,8 @@ impl DynamicGasFiller {
 pub struct DynamicGasParams {
     /// The fillable gas parameters.
     pub fillable: GasFillable,
-    /// The multiplier to apply to the gas price.
-    pub multiplier: f64,
+    /// The multiplier to apply to the gas limit.
+    pub multiplier: u64,
 }
 
 impl<N: Network> TxFiller<N> for DynamicGasFiller {
@@ -82,20 +162,31 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
     where
         P: Provider<N>,
     {
+        const _: () = {
+            // Assumptions about the default GasFiller params.
+            // Using default, as it is requires a lot of duplication to override.
+            assert!(alloy::providers::utils::EIP1559_FEE_ESTIMATION_REWARD_PERCENTILE == 20.0);
+            assert!(alloy::providers::utils::EIP1559_BASE_FEE_MULTIPLIER == 2);
+        };
         let fillable = GasFiller.prepare(provider, tx).await?;
 
+        // Calculate dynamic multiplier based on pending transactions
         let confirmed_nonce = provider.get_transaction_count(self.address).latest().await?;
         let pending_nonce = provider.get_transaction_count(self.address).pending().await?;
 
-        let tx_diff = pending_nonce.saturating_sub(confirmed_nonce) as u128;
+        let tx_diff = pending_nonce.saturating_sub(confirmed_nonce);
         tracing::debug!(
             "DynamicGasFiller: Pending transactions: {}, confirmed transactions: {} - tx_diff: {}",
             pending_nonce,
             confirmed_nonce,
             tx_diff
         );
-        let mut multiplier = 1.0 + (tx_diff as f64 * self.gas_increase_factor);
-        multiplier = multiplier.min(self.max_gas_multiplier);
+
+        let priority_mode = self.get_priority_mode().unwrap_or(PriorityMode::Medium);
+        let priority_config = priority_mode.config();
+
+        let multiplier = priority_config.estimate_additional_percentage
+            + tx_diff.saturating_mul(priority_config.dynamic_multiplier_percentage);
 
         Ok(DynamicGasParams { fillable, multiplier })
     }
@@ -107,61 +198,27 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
     ) -> TransportResult<SendableTx<N>> {
         if let Some(builder) = tx.as_mut_builder() {
             match params.fillable {
-                GasFillable::Legacy { gas_limit, gas_price } => {
+                GasFillable::Legacy { gas_limit, mut gas_price } => {
+                    gas_price = gas_price.saturating_mul(100 + params.multiplier as u128) / 100;
                     let adjusted_gas_limit =
-                        (gas_limit as f64 * (1.0 + self.gas_limit_factor)).ceil() as u64;
-
-                    let gas_price_f64 = gas_price as f64 * params.multiplier;
-                    // Bounds check, to avoid undefined behavior.
-                    if gas_price_f64 > u128::MAX as f64 {
-                        tracing::warn!(
-                            "DynamicGasFiller: Gas price calculation would overflow, capping at u128::MAX"
-                        );
-                    }
-                    let adjusted_gas_price = gas_price_f64.min(u128::MAX as f64) as u128;
-
+                        gas_limit.saturating_mul(100 + self.additional_gas_limit_percentage) / 100;
                     builder.set_gas_limit(adjusted_gas_limit);
-                    builder.set_gas_price(adjusted_gas_price);
-                    tracing::debug!(
-                        "DynamicGasFiller: Adjusted gas limit: {}, gas price: {}",
-                        adjusted_gas_limit,
-                        adjusted_gas_price
-                    );
+                    builder.set_gas_price(gas_price);
                 }
-                GasFillable::Eip1559 { gas_limit, estimate } => {
+                GasFillable::Eip1559 { gas_limit, mut estimate } => {
+                    estimate.scale_by_pct(params.multiplier);
                     let adjusted_gas_limit =
-                        (gas_limit as f64 * (1.0 + self.gas_limit_factor)).ceil() as u64;
-
-                    let max_fee_f64 = estimate.max_fee_per_gas as f64 * params.multiplier;
-                    let priority_fee_f64 =
-                        estimate.max_priority_fee_per_gas as f64 * params.multiplier;
-
-                    // Bounds check, to avoid undefined behavior.
-                    if max_fee_f64 > u128::MAX as f64 {
-                        tracing::warn!(
-                            "DynamicGasFiller: Max fee calculation would overflow, capping at u128::MAX"
-                        );
-                    }
-                    if priority_fee_f64 > u128::MAX as f64 {
-                        tracing::warn!(
-                            "DynamicGasFiller: Priority fee calculation would overflow, capping at u128::MAX"
-                        );
-                    }
-
-                    let adjusted_max_fee = max_fee_f64.min(u128::MAX as f64) as u128;
-                    let adjusted_priority_fee = priority_fee_f64.min(u128::MAX as f64) as u128;
-
-                    // Ensure priority fee doesn't exceed max fee (EIP-1559 requirement)
-                    let final_priority_fee = adjusted_priority_fee.min(adjusted_max_fee);
+                        gas_limit.saturating_mul(100 + self.additional_gas_limit_percentage) / 100;
 
                     builder.set_gas_limit(adjusted_gas_limit);
-                    builder.set_max_fee_per_gas(adjusted_max_fee);
-                    builder.set_max_priority_fee_per_gas(final_priority_fee);
+                    builder.set_max_fee_per_gas(estimate.max_fee_per_gas);
+                    builder.set_max_priority_fee_per_gas(estimate.max_priority_fee_per_gas);
                     tracing::debug!(
-                        "DynamicGasFiller: Adjusted gas limit: {}, max fee: {}, priority fee: {}",
+                        "DynamicGasFiller: Adjusted gas limit: {}, max fee: {}, priority fee: {}, dynamic multiplier: {}%",
                         adjusted_gas_limit,
-                        adjusted_max_fee,
-                        final_priority_fee
+                        estimate.max_fee_per_gas,
+                        estimate.max_priority_fee_per_gas,
+                        params.multiplier
                     );
                 }
             }

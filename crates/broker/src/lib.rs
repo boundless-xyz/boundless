@@ -466,10 +466,7 @@ impl<P> Broker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    pub async fn new(mut args: Args, provider: P) -> Result<Self> {
-        let config_watcher =
-            ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
-
+    pub async fn new(mut args: Args, provider: P, config_watcher: ConfigWatcher) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
 
@@ -1206,6 +1203,7 @@ pub mod test_utils {
     use tempfile::NamedTempFile;
     use url::Url;
 
+    use crate::config::ConfigWatcher;
     use crate::{config::Config, Args, Broker};
 
     pub struct BrokerBuilder<P> {
@@ -1251,7 +1249,15 @@ pub mod test_utils {
         }
 
         pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
-            Ok((Broker::new(self.args, self.provider).await?, self.config_file))
+            Ok((
+                Broker::new(
+                    self.args,
+                    self.provider,
+                    ConfigWatcher::new(self.config_file.path()).await?,
+                )
+                .await?,
+                self.config_file,
+            ))
         }
     }
 }

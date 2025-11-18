@@ -25,7 +25,7 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use broker::{Args, Broker, Config, CustomRetryPolicy};
+use broker::{config::ConfigWatcher, Args, Broker, CustomRetryPolicy};
 use clap::Parser;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
@@ -42,8 +42,6 @@ async fn main() -> Result<()> {
             tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
         }
     }
-    let config = Config::load(&args.config_file).await?;
-
     if args.log_json {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -57,6 +55,10 @@ async fn main() -> Result<()> {
             .with_span_events(FmtSpan::CLOSE)
             .init();
     }
+
+    // Create config watcher early so we can use it for the gas filler
+    let config_watcher =
+        ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
 
     // Handle private key fallback: PROVER_PRIVATE_KEY -> PRIVATE_KEY
     let private_key = args
@@ -77,24 +79,35 @@ async fn main() -> Result<()> {
         CustomRetryPolicy,
     );
     let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
-    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
-        watch_address: wallet.default_signer().address(),
-        warn_threshold: config
-            .market
-            .balance_warn_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-        error_threshold: config
-            .market
-            .balance_error_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-    });
 
+    // Read config for balance alerts (scope the guard so we can move config_watcher later)
+    let balance_alerts_config = {
+        let config = config_watcher.config.lock_all().context("Failed to read config")?;
+        BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: config
+                .market
+                .balance_warn_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+            error_threshold: config
+                .market
+                .balance_error_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+        }
+    };
+    let balance_alerts_layer = BalanceAlertLayer::new(balance_alerts_config);
+
+    let priority_mode = {
+        let config = config_watcher.config.lock_all().context("Failed to read config")?;
+        config.market.gas_priority_mode
+    };
     let dynamic_gas_filler = DynamicGasFiller::new(
-        0.2,  // 20% increase of gas limit
-        0.05, // 5% increase of gas_price per pending transaction
-        2.0,  // 2x max gas multiplier
+        20, // 20% increase of gas limit
+        priority_mode,
         wallet.default_signer().address(),
     );
 
@@ -106,7 +119,7 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker = Broker::new(args.clone(), provider.clone()).await?;
+    let broker = Broker::new(args.clone(), provider.clone(), config_watcher).await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {

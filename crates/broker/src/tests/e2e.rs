@@ -14,7 +14,10 @@
 
 use std::{future::Future, path::PathBuf};
 
-use crate::{config::Config, now_timestamp, Args, Broker};
+use crate::{
+    config::{Config, ConfigWatcher},
+    now_timestamp, Args, Broker,
+};
 use alloy::{
     node_bindings::Anvil,
     primitives::{
@@ -194,7 +197,10 @@ async fn simple_e2e() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
-    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+    let broker =
+        Broker::new(args, ctx.prover_provider, ConfigWatcher::new(config.path()).await.unwrap())
+            .await
+            .unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
@@ -266,7 +272,13 @@ async fn simple_e2e_with_callback() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
-    let broker = Broker::new(args, ctx.prover_provider.clone()).await.unwrap();
+    let broker = Broker::new(
+        args,
+        ctx.prover_provider.clone(),
+        ConfigWatcher::new(config.path()).await.unwrap(),
+    )
+    .await
+    .unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
@@ -346,7 +358,10 @@ async fn e2e_fulfill_after_lock_expiry() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
-    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+    let broker =
+        Broker::new(args, ctx.prover_provider, ConfigWatcher::new(config.path()).await.unwrap())
+            .await
+            .unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
@@ -375,7 +390,7 @@ async fn e2e_fulfill_after_lock_expiry() {
     run_with_broker(broker, async move {
         let request_id = locker_market.submit_request(&request, &locker_signer).await.unwrap();
         let (_, client_sig) = locker_market.get_submitted_request(request_id, None).await.unwrap();
-        locker_market.lock_request(&request, client_sig, None).await.unwrap();
+        locker_market.lock_request(&request, client_sig).await.unwrap();
 
         // Wait for fulfillment
         ctx.customer_market
@@ -414,7 +429,10 @@ async fn e2e_with_selector() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
-    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+    let broker =
+        Broker::new(args, ctx.prover_provider, ConfigWatcher::new(config.path()).await.unwrap())
+            .await
+            .unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
@@ -478,7 +496,10 @@ async fn e2e_with_multiple_requests() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
-    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+    let broker =
+        Broker::new(args, ctx.prover_provider, ConfigWatcher::new(config.path()).await.unwrap())
+            .await
+            .unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
@@ -567,7 +588,10 @@ async fn e2e_with_claim_digest_match() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
-    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+    let broker =
+        Broker::new(args, ctx.prover_provider, ConfigWatcher::new(config.path()).await.unwrap())
+            .await
+            .unwrap();
 
     // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
