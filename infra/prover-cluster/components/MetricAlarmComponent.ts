@@ -6,8 +6,9 @@ import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 export interface MetricAlarmConfig extends BaseComponentConfig {
     serviceName: string,
     logGroupName: string,
-    alertsTopicArns: string[];
-    alarmDimensions: { [key: string]: pulumi.Input<string> };
+    alertsTopicArns: string[],
+    alarmDimensions: { [key: string]: pulumi.Input<string> },
+    chainId: string,
 }
 
 // Creates and manages general metric filters and alarms that can be common to multiple components
@@ -111,6 +112,10 @@ export class MetricAlarmComponent extends BaseComponent {
                 Name: `${config.stackName}-${config.serviceName}-${metricName}-${severity}`,
                 Environment: this.config.environment,
                 Project: "boundless-bento-cluster",
+                ServiceName: config.serviceName,
+                LogGroupName: config.logGroupName,
+                StackName: config.stackName,
+                ChainId: config.chainId,
             },
             ...alarmConfig
         });
@@ -321,20 +326,16 @@ export class ProverMetricAlarmComponent extends WorkerClusterAlarmComponent {
     }
 }
 
-export interface ManagerMetricAlarmConfig extends MetricAlarmConfig {
-    chainId: string
-}
-
 // Creates and manages metric filters and alarms that are specific to the manager component
 export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
 
-    constructor(config: ManagerMetricAlarmConfig) {
+    constructor(config: MetricAlarmConfig) {
         // The superclass will create the alarms that are common to all components
         super(config);
         this.createManagerMetricAlarms(config)
     }
 
-    private createManagerMetricAlarms = (config: ManagerMetricAlarmConfig): void => {
+    private createManagerMetricAlarms = (config: MetricAlarmConfig): void => {
 
         // Unexpected error threshold for entire broker.
         const brokerUnexpectedErrorThreshold = 5;

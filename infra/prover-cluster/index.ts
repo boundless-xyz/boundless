@@ -118,6 +118,7 @@ const workerCluster = new WorkerClusterComponent({
     proverCount,
     executionCount,
     auxCount,
+    chainId,
     alertsTopicArns: alertsTopicArns,
 });
 

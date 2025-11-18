@@ -21,6 +21,7 @@ export interface WorkerClusterConfig extends BaseComponentConfig {
     proverCount: number;
     executionCount: number;
     auxCount: number;
+    chainId: string;
     alertsTopicArns: string[];
 }
 
