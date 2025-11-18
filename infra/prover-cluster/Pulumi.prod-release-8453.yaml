@@ -35,3 +35,20 @@ config:
     secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=
   prover-cluster:apiKey:
     secure: v1:s3dh8LCcaq1tXtT2:Rbsvh1ktdKrD9WkEVc403al+3xRDFbbWp1FSKAlqsFy9t5mHBhTzXSF6hcTn8dzFsO/1+mNUDCwQktQ=
+  prover-cluster:priorityRequestorAddresses: '["0x7276fa3c23c1783bdcb97258717f8f32b75919c9", "0xf23ce39Bf3Ea20C7736C0BBe835B60671EC0b4b2", "0xE3838098D694f572d9eEA90f3b7A65ec3864D568", "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c"]'
+  prover-cluster:mcyclePrice: "0"
+  prover-cluster:peakProveKhz: 10000
+  prover-cluster:minDeadline: 0
+  prover-cluster:lookbackBlocks: 300
+  prover-cluster:maxCollateral: "200"
+  prover-cluster:maxFileSize: "0"
+  prover-cluster:maxMcycleLimit: "0"
+  prover-cluster:maxConcurrentProofs: 1
+  prover-cluster:balanceWarnThreshold: "0"
+  prover-cluster:balanceErrorThreshold: "0"
+  prover-cluster:collateralBalanceWarnThreshold: "0"
+  prover-cluster:collateralBalanceErrorThreshold: "0"
+  prover-cluster:denyRequestorAddresses: ""
+  prover-cluster:maxFetchRetries: 3
+  prover-cluster:allowClientAddresses: ""
+  prover-cluster:lockinPriorityGas: "0"
