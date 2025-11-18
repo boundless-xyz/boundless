@@ -396,8 +396,8 @@ mod tests {
         let ctx = create_test_ctx(&anvil).await.unwrap();
 
         let args = MainArgs {
-            rpc_url: anvil.endpoint_url(),
-            rpc_urls: Vec::new(),
+            rpc_url: Some(anvil.endpoint_url()),
+            rpc_urls: Some(Vec::new()),
             storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             deployment: Some(ctx.deployment.clone()),
