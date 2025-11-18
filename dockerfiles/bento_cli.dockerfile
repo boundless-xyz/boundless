@@ -15,11 +15,6 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-# Install rust and target version (should match rust-toolchain.toml for best speed)
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
-    && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
-    && rustup install 1.91.1
-
 # # Install RISC0 and groth16 component early for better caching
 ENV RISC0_HOME=/usr/local/risc0
 ENV PATH="/root/.cargo/bin:${PATH}"
