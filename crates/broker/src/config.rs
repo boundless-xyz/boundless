@@ -166,10 +166,11 @@ mod defaults {
 }
 
 /// Order pricing priority mode for determining which orders to price first
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OrderPricingPriority {
     /// Process orders in random order to distribute competition among provers
+    #[default]
     Random,
     /// Process orders in the order they were observed (FIFO)
     ObservationTime,
@@ -177,14 +178,8 @@ pub enum OrderPricingPriority {
     ShortestExpiry,
 }
 
-impl Default for OrderPricingPriority {
-    fn default() -> Self {
-        Self::Random
-    }
-}
-
 /// Order commitment priority mode for determining which orders to commit to first
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OrderCommitmentPriority {
     /// Process orders in random order to distribute competition among provers
@@ -194,13 +189,8 @@ pub enum OrderCommitmentPriority {
     /// Process lock-and-fulfill orders by highest ETH payment, then fulfill-after-lock-expire random weighted by collateral reward
     Price,
     /// Process lock-and-fulfill orders by highest ETH price per cycle, then fulfill-after-lock-expire random weighted by collateral reward
+    #[default]
     CyclePrice,
-}
-
-impl Default for OrderCommitmentPriority {
-    fn default() -> Self {
-        Self::CyclePrice
-    }
 }
 
 /// All configuration related to markets mechanics
