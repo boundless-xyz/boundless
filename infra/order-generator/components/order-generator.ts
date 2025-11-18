@@ -239,7 +239,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
       { dependsOn: [execRole, execRolePolicy] }
     );
 
-    // Exclude balance errors which have a separate alarm.
+    // Exclude balance errors and transaction confirmation errors which have separate alarms.
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
       name: `${serviceName}-log-err-filter`,
       logGroupName: serviceName,
@@ -249,7 +249,20 @@ export class OrderGenerator extends pulumi.ComponentResource {
         value: '1',
         defaultValue: '0',
       },
-      pattern: 'ERROR -"[B-BAL-ETH]"',
+      pattern: 'ERROR -"[B-BAL-ETH]" -"[B-OG-CONF]"',
+    }, { dependsOn: [service] });
+
+    // Create a separate metric filter for transaction confirmation errors
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-tx-conf-error-filter`, {
+      name: `${serviceName}-log-tx-conf-err-filter`,
+      logGroupName: serviceName,
+      metricTransformation: {
+        namespace: `Boundless/Services/${serviceName}`,
+        name: `${serviceName}-log-tx-conf-err`,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: '"[B-OG-CONF]"',
     }, { dependsOn: [service] });
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
@@ -392,6 +405,31 @@ export class OrderGenerator extends pulumi.ComponentResource {
         alarmActions,
       });
     }
+
+    // 10 or more transaction confirmation errors within 1 hour triggers a SEV2 alarm.
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-tx-conf-error-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-log-tx-conf-err-${Severity.SEV2}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: `Boundless/Services/${serviceName}`,
+            metricName: `${serviceName}-log-tx-conf-err`,
+            period: 3600,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 10,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Order generator ${name} transaction confirmation error 10+ times within an hour`,
+      actionsEnabled: true,
+      alarmActions,
+    });
 
     // A single error in the order generator causes the process to exit.
     // SEV2 alarm if we see 2 errors in 30 mins.
