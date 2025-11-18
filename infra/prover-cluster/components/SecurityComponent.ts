@@ -64,10 +64,30 @@ export class SecurityComponent extends BaseComponent {
             })
         });
 
-        // Attach S3 access policy
-        new aws.iam.RolePolicyAttachment("ec2-s3-policy", {
-            role: role.name,
-            policyArn: "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+        // Attach S3 access policy - scoped to the bento-storage bucket
+        const bucketName = this.generateName("bento-storage");
+        new aws.iam.RolePolicy("ec2-s3-scoped-policy", {
+            role: role.id,
+            policy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:ListBucket",
+                            "s3:GetBucketLocation"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}`
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:*"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}/*`
+                    }
+                ]
+            })
         });
 
         return role;
@@ -144,10 +164,30 @@ export class SecurityComponent extends BaseComponent {
             path: "/boundless/",
         });
 
-        // Attach S3 full access policy
-        new aws.iam.UserPolicyAttachment("s3UserPolicy", {
+        // Attach S3 access policy - scoped to the bento-storage bucket
+        const bucketName = this.generateName("bento-storage");
+        new aws.iam.UserPolicy("s3UserScopedPolicy", {
             user: user.name,
-            policyArn: "arn:aws:iam::aws:policy/AmazonS3FullAccess",
+            policy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:ListBucket",
+                            "s3:GetBucketLocation"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}`
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:*"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}/*`
+                    }
+                ]
+            })
         });
 
         // Create access key
