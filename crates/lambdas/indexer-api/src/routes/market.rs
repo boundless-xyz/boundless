@@ -414,17 +414,17 @@ async fn get_market_aggregates_impl(
                 U256::from_str(s).map(|v| v.to_string()).unwrap_or_else(|_| "0".to_string())
             };
 
-            // Normalize all currency fields
-            let total_fees_locked = normalize(&summary.total_fees_locked);
-            let total_collateral_locked = normalize(&summary.total_collateral_locked);
-            let total_locked_and_expired_collateral = normalize(&summary.total_locked_and_expired_collateral);
-            let p10_lock_price_per_cycle = normalize(&summary.p10_lock_price_per_cycle);
-            let p25_lock_price_per_cycle = normalize(&summary.p25_lock_price_per_cycle);
-            let p50_lock_price_per_cycle = normalize(&summary.p50_lock_price_per_cycle);
-            let p75_lock_price_per_cycle = normalize(&summary.p75_lock_price_per_cycle);
-            let p90_lock_price_per_cycle = normalize(&summary.p90_lock_price_per_cycle);
-            let p95_lock_price_per_cycle = normalize(&summary.p95_lock_price_per_cycle);
-            let p99_lock_price_per_cycle = normalize(&summary.p99_lock_price_per_cycle);
+            // Convert U256 fields to strings (all currency fields are now U256 in struct)
+            let total_fees_locked = summary.total_fees_locked.to_string();
+            let total_collateral_locked = summary.total_collateral_locked.to_string();
+            let total_locked_and_expired_collateral = summary.total_locked_and_expired_collateral.to_string();
+            let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
+            let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
+            let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
+            let p75_lock_price_per_cycle = summary.p75_lock_price_per_cycle.to_string();
+            let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
+            let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
+            let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
 
             MarketAggregateEntry {
                 timestamp: summary.period_timestamp as i64,

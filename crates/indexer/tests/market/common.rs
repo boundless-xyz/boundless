@@ -531,3 +531,90 @@ pub async fn get_hourly_summaries(
         .unwrap()
 }
 
+/// Get all-time summaries from database using direct SQL query
+pub async fn get_all_time_summaries(
+    pool: &AnyPool,
+) -> Vec<boundless_indexer::db::market::AllTimeMarketSummary> {
+    use boundless_indexer::db::market::AllTimeMarketSummary;
+    use std::str::FromStr;
+    
+    // Helper to parse padded U256 strings
+    let parse_u256 = |s: &str| -> U256 {
+        let trimmed = s.trim_start_matches('0');
+        let parse_str = if trimmed.is_empty() { "0" } else { trimmed };
+        U256::from_str(parse_str).unwrap_or(U256::ZERO)
+    };
+    
+    let rows = sqlx::query(
+        "SELECT 
+            period_timestamp,
+            total_fulfilled,
+            unique_provers_locking_requests,
+            unique_requesters_submitting_requests,
+            total_fees_locked,
+            total_collateral_locked,
+            total_locked_and_expired_collateral,
+            total_requests_submitted,
+            total_requests_submitted_onchain,
+            total_requests_submitted_offchain,
+            total_requests_locked,
+            total_requests_slashed,
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            locked_orders_fulfillment_rate,
+            total_program_cycles,
+            total_cycles,
+            best_peak_prove_mhz,
+            best_peak_prove_mhz_prover,
+            best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz,
+            best_effective_prove_mhz_prover,
+            best_effective_prove_mhz_request_id
+        FROM all_time_market_summary
+        ORDER BY period_timestamp ASC"
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+
+    rows.into_iter()
+        .map(|row| {
+            AllTimeMarketSummary {
+                period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+                total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+                unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
+                unique_requesters_submitting_requests: row.get::<i64, _>("unique_requesters_submitting_requests") as u64,
+                total_fees_locked: parse_u256(&row.get::<String, _>("total_fees_locked")),
+                total_collateral_locked: parse_u256(&row.get::<String, _>("total_collateral_locked")),
+                total_locked_and_expired_collateral: parse_u256(&row.get::<String, _>("total_locked_and_expired_collateral")),
+                total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+                total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain") as u64,
+                total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
+                total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+                total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+                total_expired: row.get::<i64, _>("total_expired") as u64,
+                total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+                total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
+                total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
+                total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),
+                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
+                best_peak_prove_mhz_request_id: row
+                    .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
+                    .ok()
+                    .flatten()
+                    .and_then(|s| U256::from_str(&s).ok()),
+                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
+                best_effective_prove_mhz_request_id: row
+                    .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
+                    .ok()
+                    .flatten()
+                    .and_then(|s| U256::from_str(&s).ok()),
+            }
+        })
+        .collect()
+}
+

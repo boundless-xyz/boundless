@@ -19,6 +19,9 @@ mod cycle_counts;
 mod log_processors;
 mod status;
 
+// Re-export aggregation helper for use in backfill
+pub use aggregation::sum_hourly_aggregates_into_base;
+
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{

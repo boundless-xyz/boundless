@@ -180,6 +180,9 @@ where
         // Recompute monthly aggregates
         self.backfill_monthly_aggregates(start_timestamp, end_timestamp).await?;
 
+        // Recompute all-time aggregates
+        self.backfill_all_time_aggregates(start_timestamp, end_timestamp).await?;
+
         tracing::info!("Aggregate backfill completed in {:?}", start_time.elapsed());
         Ok(())
     }
@@ -321,6 +324,181 @@ where
         tracing::info!(
             "Monthly aggregate backfill completed: {} periods in {:?}",
             total_months,
+            start_time.elapsed()
+        );
+        Ok(())
+    }
+
+    async fn backfill_all_time_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+
+        use crate::db::market::AllTimeMarketSummary;
+        use crate::market::service::sum_hourly_aggregates_into_base;
+        use crate::market::time_boundaries::{get_hour_start, get_previous_finished_hour, iter_hourly_periods};
+        use alloy::primitives::U256;
+
+        // Get current hour and previous finished hour using DRY helper functions
+        let current_hour = get_hour_start(end_ts);
+        let previous_finished_hour = get_previous_finished_hour(end_ts);
+
+        // Get latest all-time aggregate (if exists)
+        let latest_all_time = self.indexer.db.get_latest_all_time_market_summary().await?;
+
+        // Determine start hour
+        let start_hour_aligned = get_hour_start(start_ts);
+        let start_hour = if let Some(ref latest) = latest_all_time {
+            // Start from the hour after the latest aggregate, or start_ts if later
+            std::cmp::max(latest.period_timestamp + crate::market::service::SECONDS_PER_HOUR, start_hour_aligned)
+        } else {
+            start_hour_aligned
+        };
+
+        // Collect periods first to get count for logging
+        let periods: Vec<_> = iter_hourly_periods(start_hour, previous_finished_hour + 1).collect();
+        let total_hours = periods.len();
+
+        if total_hours == 0 {
+            tracing::info!("No hours to process for all-time aggregate backfill");
+            return Ok(());
+        }
+
+        tracing::info!(
+            "Recomputing {} all-time aggregate periods from {} to {}",
+            total_hours,
+            periods.first().map(|p| p.0).unwrap_or(0),
+            periods.last().map(|p| p.0).unwrap_or(0)
+        );
+
+        // Get earliest hourly summary timestamp for cumulative aggregation
+        let earliest_hourly_ts = self.indexer.db.get_earliest_hourly_summary_timestamp().await?
+            .map(|ts| get_hour_start(ts))
+            .unwrap_or(start_hour);
+
+        // Fetch ALL hourly summaries once (from earliest to end)
+        let all_hourly_summaries = self.indexer.db
+            .get_hourly_market_summaries_by_range(earliest_hourly_ts, previous_finished_hour + 1)
+            .await?;
+
+        // Build a map for quick lookup: hour_timestamp -> hourly_summary
+        let mut hourly_map: std::collections::BTreeMap<u64, _> = std::collections::BTreeMap::new();
+        for summary in all_hourly_summaries {
+            hourly_map.insert(summary.period_timestamp, summary);
+        }
+
+        // Start with base aggregate or zeros
+        let mut current_all_time = if let Some(ref latest) = latest_all_time {
+            // Only use latest if it's before start_hour
+            if latest.period_timestamp < start_hour {
+                latest.clone()
+            } else {
+                // Latest is at or after start_hour, start fresh
+                AllTimeMarketSummary {
+                    period_timestamp: start_hour,
+                    total_fulfilled: 0,
+                    unique_provers_locking_requests: 0,
+                    unique_requesters_submitting_requests: 0,
+                    total_fees_locked: U256::ZERO,
+                    total_collateral_locked: U256::ZERO,
+                    total_locked_and_expired_collateral: U256::ZERO,
+                    total_requests_submitted: 0,
+                    total_requests_submitted_onchain: 0,
+                    total_requests_submitted_offchain: 0,
+                    total_requests_locked: 0,
+                    total_requests_slashed: 0,
+                    total_expired: 0,
+                    total_locked_and_expired: 0,
+                    total_locked_and_fulfilled: 0,
+                    locked_orders_fulfillment_rate: 0.0,
+                    total_program_cycles: U256::ZERO,
+                    total_cycles: U256::ZERO,
+                    best_peak_prove_mhz: 0,
+                    best_peak_prove_mhz_prover: None,
+                    best_peak_prove_mhz_request_id: None,
+                    best_effective_prove_mhz: 0,
+                    best_effective_prove_mhz_prover: None,
+                    best_effective_prove_mhz_request_id: None,
+                }
+            }
+        } else {
+            // No previous aggregate, start from zeros
+            AllTimeMarketSummary {
+                period_timestamp: start_hour,
+                total_fulfilled: 0,
+                unique_provers_locking_requests: 0,
+                unique_requesters_submitting_requests: 0,
+                total_fees_locked: U256::ZERO,
+                total_collateral_locked: U256::ZERO,
+                total_locked_and_expired_collateral: U256::ZERO,
+                total_requests_submitted: 0,
+                total_requests_submitted_onchain: 0,
+                total_requests_submitted_offchain: 0,
+                total_requests_locked: 0,
+                total_requests_slashed: 0,
+                total_expired: 0,
+                total_locked_and_expired: 0,
+                total_locked_and_fulfilled: 0,
+                locked_orders_fulfillment_rate: 0.0,
+                total_program_cycles: U256::ZERO,
+                total_cycles: U256::ZERO,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
+            }
+        };
+
+        let mut processed = 0;
+        for (hour_ts, _hour_end) in periods {
+            // Get hourly summaries up to this hour (from earliest to current hour)
+            let hourly_summaries: Vec<_> = hourly_map
+                .range(earliest_hourly_ts..=hour_ts)
+                .map(|(_, summary)| summary.clone())
+                .collect();
+
+            // If we have a previous aggregate, only sum new hours
+            let hours_to_sum = if current_all_time.period_timestamp < hour_ts {
+                // Sum only hours after the previous aggregate
+                hourly_map
+                    .range((current_all_time.period_timestamp + crate::market::service::SECONDS_PER_HOUR)..=hour_ts)
+                    .map(|(_, summary)| summary.clone())
+                    .collect()
+            } else {
+                // Sum all hours up to this hour
+                hourly_summaries
+            };
+
+            // Update period_timestamp
+            current_all_time.period_timestamp = hour_ts;
+
+            // Sum hourly aggregates into base
+            sum_hourly_aggregates_into_base(&mut current_all_time, &hours_to_sum);
+
+            // Query unique counts from DB for this hour
+            current_all_time.unique_provers_locking_requests = self.indexer.db
+                .get_all_time_unique_provers(hour_ts)
+                .await?;
+            current_all_time.unique_requesters_submitting_requests = self.indexer.db
+                .get_all_time_unique_requesters(hour_ts)
+                .await?;
+
+            // Upsert all-time aggregate for this hour
+            self.indexer.db.upsert_all_time_market_summary(current_all_time.clone()).await?;
+
+            processed += 1;
+            if processed % 100 == 0 {
+                tracing::info!("Processed {} / {} all-time aggregate periods", processed, total_hours);
+            }
+        }
+
+        tracing::info!(
+            "All-time aggregate backfill completed: {} periods in {:?}",
+            processed,
             start_time.elapsed()
         );
         Ok(())

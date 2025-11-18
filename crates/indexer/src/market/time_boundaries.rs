@@ -84,12 +84,23 @@ pub fn get_next_month(timestamp: u64) -> u64 {
     next_month.timestamp() as u64
 }
 
+/// Returns the start of the current hour (aligned to hour boundary)
+pub fn get_hour_start(timestamp: u64) -> u64 {
+    (timestamp / SECONDS_PER_HOUR) * SECONDS_PER_HOUR
+}
+
+/// Returns the start of the previous completed hour
+pub fn get_previous_finished_hour(timestamp: u64) -> u64 {
+    let current_hour = get_hour_start(timestamp);
+    current_hour.saturating_sub(SECONDS_PER_HOUR)
+}
+
 /// Returns an iterator over hourly periods from start_ts to end_ts (inclusive).
 /// Each iteration yields (period_start, period_end) where period_end is the start of the next hour.
 pub fn iter_hourly_periods(start_ts: u64, end_ts: u64) -> impl Iterator<Item = (u64, u64)> {
     // Align to hour boundaries
-    let start_hour = (start_ts / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
-    let end_hour = (end_ts / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+    let start_hour = get_hour_start(start_ts);
+    let end_hour = get_hour_start(end_ts);
 
     (start_hour..=end_hour)
         .step_by(SECONDS_PER_HOUR as usize)

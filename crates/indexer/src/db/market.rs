@@ -151,16 +151,16 @@ pub struct PeriodMarketSummary {
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
     pub unique_requesters_submitting_requests: u64,
-    pub total_fees_locked: String,
-    pub total_collateral_locked: String,
-    pub total_locked_and_expired_collateral: String,
-    pub p10_lock_price_per_cycle: String,
-    pub p25_lock_price_per_cycle: String,
-    pub p50_lock_price_per_cycle: String,
-    pub p75_lock_price_per_cycle: String,
-    pub p90_lock_price_per_cycle: String,
-    pub p95_lock_price_per_cycle: String,
-    pub p99_lock_price_per_cycle: String,
+    pub total_fees_locked: U256,
+    pub total_collateral_locked: U256,
+    pub total_locked_and_expired_collateral: U256,
+    pub p10_lock_price_per_cycle: U256,
+    pub p25_lock_price_per_cycle: U256,
+    pub p50_lock_price_per_cycle: U256,
+    pub p75_lock_price_per_cycle: U256,
+    pub p90_lock_price_per_cycle: U256,
+    pub p95_lock_price_per_cycle: U256,
+    pub p99_lock_price_per_cycle: U256,
     pub total_requests_submitted: u64,
     pub total_requests_submitted_onchain: u64,
     pub total_requests_submitted_offchain: u64,
@@ -185,6 +185,34 @@ pub type HourlyMarketSummary = PeriodMarketSummary;
 pub type DailyMarketSummary = PeriodMarketSummary;
 pub type WeeklyMarketSummary = PeriodMarketSummary;
 pub type MonthlyMarketSummary = PeriodMarketSummary;
+
+#[derive(Debug, Clone)]
+pub struct AllTimeMarketSummary {
+    pub period_timestamp: u64,
+    pub total_fulfilled: u64,
+    pub unique_provers_locking_requests: u64,
+    pub unique_requesters_submitting_requests: u64,
+    pub total_fees_locked: U256,
+    pub total_collateral_locked: U256,
+    pub total_locked_and_expired_collateral: U256,
+    pub total_requests_submitted: u64,
+    pub total_requests_submitted_onchain: u64,
+    pub total_requests_submitted_offchain: u64,
+    pub total_requests_locked: u64,
+    pub total_requests_slashed: u64,
+    pub total_expired: u64,
+    pub total_locked_and_expired: u64,
+    pub total_locked_and_fulfilled: u64,
+    pub locked_orders_fulfillment_rate: f32,
+    pub total_program_cycles: U256,
+    pub total_cycles: U256,
+    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz_prover: Option<String>,
+    pub best_peak_prove_mhz_request_id: Option<U256>,
+    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz_prover: Option<String>,
+    pub best_effective_prove_mhz_request_id: Option<U256>,
+}
 
 #[derive(Debug, Clone)]
 pub struct RequestStatus {
@@ -478,6 +506,32 @@ pub trait IndexerDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<MonthlyMarketSummary>, DbError>;
+
+    async fn upsert_all_time_market_summary(
+        &self,
+        summary: AllTimeMarketSummary,
+    ) -> Result<(), DbError>;
+
+    async fn get_latest_all_time_market_summary(
+        &self,
+    ) -> Result<Option<AllTimeMarketSummary>, DbError>;
+
+    async fn get_all_time_market_summary_by_timestamp(
+        &self,
+        period_timestamp: u64,
+    ) -> Result<Option<AllTimeMarketSummary>, DbError>;
+
+    async fn get_hourly_market_summaries_by_range(
+        &self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<Vec<PeriodMarketSummary>, DbError>;
+
+    async fn get_all_time_unique_provers(&self, end_ts: u64) -> Result<u64, DbError>;
+
+    async fn get_all_time_unique_requesters(&self, end_ts: u64) -> Result<u64, DbError>;
+
+    async fn get_earliest_hourly_summary_timestamp(&self) -> Result<Option<u64>, DbError>;
 
     /// Upserts request statuses.
     /// Note on conflict, this function will not update all fields.
@@ -2224,6 +2278,305 @@ impl IndexerDb for MarketDb {
         .await
     }
 
+    async fn upsert_all_time_market_summary(
+        &self,
+        summary: AllTimeMarketSummary,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO all_time_market_summary (
+                period_timestamp,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                unique_requesters_submitting_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                total_locked_and_expired_collateral,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed,
+                total_expired,
+                total_locked_and_expired,
+                total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate,
+                total_program_cycles,
+                total_cycles,
+                best_peak_prove_mhz,
+                best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz,
+                best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CURRENT_TIMESTAMP)
+            ON CONFLICT (period_timestamp) DO UPDATE SET
+                total_fulfilled = EXCLUDED.total_fulfilled,
+                unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
+                unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
+                total_fees_locked = EXCLUDED.total_fees_locked,
+                total_collateral_locked = EXCLUDED.total_collateral_locked,
+                total_locked_and_expired_collateral = EXCLUDED.total_locked_and_expired_collateral,
+                total_requests_submitted = EXCLUDED.total_requests_submitted,
+                total_requests_submitted_onchain = EXCLUDED.total_requests_submitted_onchain,
+                total_requests_submitted_offchain = EXCLUDED.total_requests_submitted_offchain,
+                total_requests_locked = EXCLUDED.total_requests_locked,
+                total_requests_slashed = EXCLUDED.total_requests_slashed,
+                total_expired = EXCLUDED.total_expired,
+                total_locked_and_expired = EXCLUDED.total_locked_and_expired,
+                total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
+                total_program_cycles = EXCLUDED.total_program_cycles,
+                total_cycles = EXCLUDED.total_cycles,
+                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
+                best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
+                best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                updated_at = CURRENT_TIMESTAMP",
+        )
+        .bind(summary.period_timestamp as i64)
+        .bind(summary.total_fulfilled as i64)
+        .bind(summary.unique_provers_locking_requests as i64)
+        .bind(summary.unique_requesters_submitting_requests as i64)
+        .bind(u256_to_padded_string(summary.total_fees_locked))
+        .bind(u256_to_padded_string(summary.total_collateral_locked))
+        .bind(u256_to_padded_string(summary.total_locked_and_expired_collateral))
+        .bind(summary.total_requests_submitted as i64)
+        .bind(summary.total_requests_submitted_onchain as i64)
+        .bind(summary.total_requests_submitted_offchain as i64)
+        .bind(summary.total_requests_locked as i64)
+        .bind(summary.total_requests_slashed as i64)
+        .bind(summary.total_expired as i64)
+        .bind(summary.total_locked_and_expired as i64)
+        .bind(summary.total_locked_and_fulfilled as i64)
+        .bind(summary.locked_orders_fulfillment_rate)
+        .bind(u256_to_padded_string(summary.total_program_cycles))
+        .bind(u256_to_padded_string(summary.total_cycles))
+        .bind(summary.best_peak_prove_mhz as i64)
+        .bind(summary.best_peak_prove_mhz_prover)
+        .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+        .bind(summary.best_effective_prove_mhz as i64)
+        .bind(summary.best_effective_prove_mhz_prover)
+        .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_all_time_market_summary_by_timestamp(
+        &self,
+        period_timestamp: u64,
+    ) -> Result<Option<AllTimeMarketSummary>, DbError> {
+        let row = sqlx::query(
+            "SELECT 
+                period_timestamp,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                unique_requesters_submitting_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                total_locked_and_expired_collateral,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed,
+                total_expired,
+                total_locked_and_expired,
+                total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate,
+                total_program_cycles,
+                total_cycles,
+                best_peak_prove_mhz,
+                best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz,
+                best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id
+            FROM all_time_market_summary
+            WHERE period_timestamp = $1",
+        )
+        .bind(period_timestamp as i64)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        Ok(Some(AllTimeMarketSummary {
+            period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+            total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+            unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
+            unique_requesters_submitting_requests: row.get::<i64, _>("unique_requesters_submitting_requests") as u64,
+            total_fees_locked: padded_string_to_u256(&row.get::<String, _>("total_fees_locked"))?,
+            total_collateral_locked: padded_string_to_u256(&row.get::<String, _>("total_collateral_locked"))?,
+            total_locked_and_expired_collateral: padded_string_to_u256(&row.get::<String, _>("total_locked_and_expired_collateral"))?,
+            total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+            total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain") as u64,
+            total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
+            total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+            total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+            total_expired: row.get::<i64, _>("total_expired") as u64,
+            total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+            total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+            locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
+            total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles"))?,
+            total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
+            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
+            best_peak_prove_mhz_request_id: row
+                .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
+                .ok()
+                .flatten()
+                .and_then(|s| U256::from_str(&s).ok()),
+            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
+            best_effective_prove_mhz_request_id: row
+                .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
+                .ok()
+                .flatten()
+                .and_then(|s| U256::from_str(&s).ok()),
+        }))
+    }
+
+    async fn get_latest_all_time_market_summary(
+        &self,
+    ) -> Result<Option<AllTimeMarketSummary>, DbError> {
+        let row = sqlx::query(
+            "SELECT 
+                period_timestamp,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                unique_requesters_submitting_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                total_locked_and_expired_collateral,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed,
+                total_expired,
+                total_locked_and_expired,
+                total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate,
+                total_program_cycles,
+                total_cycles,
+                best_peak_prove_mhz,
+                best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz,
+                best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id
+            FROM all_time_market_summary
+            ORDER BY period_timestamp DESC
+            LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        Ok(Some(AllTimeMarketSummary {
+            period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+            total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+            unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
+            unique_requesters_submitting_requests: row.get::<i64, _>("unique_requesters_submitting_requests") as u64,
+            total_fees_locked: padded_string_to_u256(&row.get::<String, _>("total_fees_locked"))?,
+            total_collateral_locked: padded_string_to_u256(&row.get::<String, _>("total_collateral_locked"))?,
+            total_locked_and_expired_collateral: padded_string_to_u256(&row.get::<String, _>("total_locked_and_expired_collateral"))?,
+            total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+            total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain") as u64,
+            total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
+            total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+            total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+            total_expired: row.get::<i64, _>("total_expired") as u64,
+            total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+            total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+            locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
+            total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles"))?,
+            total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
+            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
+            best_peak_prove_mhz_request_id: row
+                .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
+                .ok()
+                .flatten()
+                .and_then(|s| U256::from_str(&s).ok()),
+            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
+            best_effective_prove_mhz_request_id: row
+                .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
+                .ok()
+                .flatten()
+                .and_then(|s| U256::from_str(&s).ok()),
+        }))
+    }
+
+    async fn get_hourly_market_summaries_by_range(
+        &self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<Vec<PeriodMarketSummary>, DbError> {
+        self.get_market_summaries_generic(
+            None,
+            i64::MAX,
+            SortDirection::Asc,
+            Some(end_ts as i64),
+            Some(start_ts as i64),
+            "hourly_market_summary",
+        )
+        .await
+    }
+
+    async fn get_all_time_unique_provers(&self, end_ts: u64) -> Result<u64, DbError> {
+        let row = sqlx::query(
+            "SELECT COUNT(DISTINCT prover_address) as count
+            FROM proof_delivered_events
+            WHERE block_timestamp <= $1",
+        )
+        .bind(end_ts as i64)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.get::<i64, _>("count") as u64)
+    }
+
+    async fn get_all_time_unique_requesters(&self, end_ts: u64) -> Result<u64, DbError> {
+        let row = sqlx::query(
+            "SELECT COUNT(DISTINCT client_address) as count
+            FROM request_status
+            WHERE created_at <= $1",
+        )
+        .bind(end_ts as i64)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row.get::<i64, _>("count") as u64)
+    }
+
+    async fn get_earliest_hourly_summary_timestamp(&self) -> Result<Option<u64>, DbError> {
+        let row = sqlx::query(
+            "SELECT MIN(period_timestamp) as min_ts
+            FROM hourly_market_summary",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let min_ts: Option<i64> = row.try_get("min_ts").ok();
+        Ok(min_ts.map(|ts| ts as u64))
+    }
+
     async fn upsert_request_statuses(&self, statuses: &[RequestStatus]) -> Result<(), DbError> {
         if statuses.is_empty() {
             return Ok(());
@@ -3643,16 +3996,16 @@ impl MarketDb {
             .bind(summary.total_fulfilled as i64)
             .bind(summary.unique_provers_locking_requests as i64)
             .bind(summary.unique_requesters_submitting_requests as i64)
-            .bind(summary.total_fees_locked)
-            .bind(summary.total_collateral_locked)
-            .bind(summary.total_locked_and_expired_collateral)
-            .bind(summary.p10_lock_price_per_cycle)
-            .bind(summary.p25_lock_price_per_cycle)
-            .bind(summary.p50_lock_price_per_cycle)
-            .bind(summary.p75_lock_price_per_cycle)
-            .bind(summary.p90_lock_price_per_cycle)
-            .bind(summary.p95_lock_price_per_cycle)
-            .bind(summary.p99_lock_price_per_cycle)
+            .bind(u256_to_padded_string(summary.total_fees_locked))
+            .bind(u256_to_padded_string(summary.total_collateral_locked))
+            .bind(u256_to_padded_string(summary.total_locked_and_expired_collateral))
+            .bind(u256_to_padded_string(summary.p10_lock_price_per_cycle))
+            .bind(u256_to_padded_string(summary.p25_lock_price_per_cycle))
+            .bind(u256_to_padded_string(summary.p50_lock_price_per_cycle))
+            .bind(u256_to_padded_string(summary.p75_lock_price_per_cycle))
+            .bind(u256_to_padded_string(summary.p90_lock_price_per_cycle))
+            .bind(u256_to_padded_string(summary.p95_lock_price_per_cycle))
+            .bind(u256_to_padded_string(summary.p99_lock_price_per_cycle))
             .bind(summary.total_requests_submitted as i64)
             .bind(summary.total_requests_submitted_onchain as i64)
             .bind(summary.total_requests_submitted_offchain as i64)
@@ -3791,61 +4144,63 @@ impl MarketDb {
 
         let summaries = rows
             .into_iter()
-            .map(|row| PeriodMarketSummary {
-                period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
-                total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
-                unique_provers_locking_requests: row
-                    .get::<i64, _>("unique_provers_locking_requests")
-                    as u64,
-                unique_requesters_submitting_requests: row
-                    .get::<i64, _>("unique_requesters_submitting_requests")
-                    as u64,
-                total_fees_locked: row.get("total_fees_locked"),
-                total_collateral_locked: row.get("total_collateral_locked"),
-                total_locked_and_expired_collateral: row.get("total_locked_and_expired_collateral"),
-                p10_lock_price_per_cycle: row.get("p10_lock_price_per_cycle"),
-                p25_lock_price_per_cycle: row.get("p25_lock_price_per_cycle"),
-                p50_lock_price_per_cycle: row.get("p50_lock_price_per_cycle"),
-                p75_lock_price_per_cycle: row.get("p75_lock_price_per_cycle"),
-                p90_lock_price_per_cycle: row.get("p90_lock_price_per_cycle"),
-                p95_lock_price_per_cycle: row.get("p95_lock_price_per_cycle"),
-                p99_lock_price_per_cycle: row.get("p99_lock_price_per_cycle"),
-                total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
-                total_requests_submitted_onchain: row
-                    .get::<i64, _>("total_requests_submitted_onchain")
-                    as u64,
-                total_requests_submitted_offchain: row
-                    .get::<i64, _>("total_requests_submitted_offchain")
-                    as u64,
-                total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
-                total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
-                total_expired: row.get::<i64, _>("total_expired") as u64,
-                total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
-                total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-                locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
-                    as f32,
-                total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
-                total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles")).unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
-                best_peak_prove_mhz_prover: row
-                    .try_get("best_peak_prove_mhz_prover")
-                    .ok()
-                    .flatten(),
-                best_peak_prove_mhz_request_id: row
-                    .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
-                    .ok()
-                    .flatten()
-                    .and_then(|s| U256::from_str_radix(&s, 16).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
-                best_effective_prove_mhz_prover: row
-                    .try_get("best_effective_prove_mhz_prover")
-                    .ok()
-                    .flatten(),
-                best_effective_prove_mhz_request_id: row
-                    .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
-                    .ok()
-                    .flatten()
-                    .and_then(|s| U256::from_str_radix(&s, 16).ok()),
+            .map(|row| {
+                PeriodMarketSummary {
+                    period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+                    total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+                    unique_provers_locking_requests: row
+                        .get::<i64, _>("unique_provers_locking_requests")
+                        as u64,
+                    unique_requesters_submitting_requests: row
+                        .get::<i64, _>("unique_requesters_submitting_requests")
+                        as u64,
+                    total_fees_locked: padded_string_to_u256(&row.get::<String, _>("total_fees_locked")).unwrap_or(U256::ZERO),
+                    total_collateral_locked: padded_string_to_u256(&row.get::<String, _>("total_collateral_locked")).unwrap_or(U256::ZERO),
+                    total_locked_and_expired_collateral: padded_string_to_u256(&row.get::<String, _>("total_locked_and_expired_collateral")).unwrap_or(U256::ZERO),
+                    p10_lock_price_per_cycle: padded_string_to_u256(&row.get::<String, _>("p10_lock_price_per_cycle")).unwrap_or(U256::ZERO),
+                    p25_lock_price_per_cycle: padded_string_to_u256(&row.get::<String, _>("p25_lock_price_per_cycle")).unwrap_or(U256::ZERO),
+                    p50_lock_price_per_cycle: padded_string_to_u256(&row.get::<String, _>("p50_lock_price_per_cycle")).unwrap_or(U256::ZERO),
+                    p75_lock_price_per_cycle: padded_string_to_u256(&row.get::<String, _>("p75_lock_price_per_cycle")).unwrap_or(U256::ZERO),
+                    p90_lock_price_per_cycle: padded_string_to_u256(&row.get::<String, _>("p90_lock_price_per_cycle")).unwrap_or(U256::ZERO),
+                    p95_lock_price_per_cycle: padded_string_to_u256(&row.get::<String, _>("p95_lock_price_per_cycle")).unwrap_or(U256::ZERO),
+                    p99_lock_price_per_cycle: padded_string_to_u256(&row.get::<String, _>("p99_lock_price_per_cycle")).unwrap_or(U256::ZERO),
+                    total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+                    total_requests_submitted_onchain: row
+                        .get::<i64, _>("total_requests_submitted_onchain")
+                        as u64,
+                    total_requests_submitted_offchain: row
+                        .get::<i64, _>("total_requests_submitted_offchain")
+                        as u64,
+                    total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+                    total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+                    total_expired: row.get::<i64, _>("total_expired") as u64,
+                    total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+                    total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                    locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
+                        as f32,
+                    total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
+                    total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles")).unwrap_or(U256::ZERO),
+                    best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                    best_peak_prove_mhz_prover: row
+                        .try_get("best_peak_prove_mhz_prover")
+                        .ok()
+                        .flatten(),
+                    best_peak_prove_mhz_request_id: row
+                        .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
+                        .ok()
+                        .flatten()
+                        .and_then(|s| U256::from_str_radix(&s, 16).ok()),
+                    best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                    best_effective_prove_mhz_prover: row
+                        .try_get("best_effective_prove_mhz_prover")
+                        .ok()
+                        .flatten(),
+                    best_effective_prove_mhz_request_id: row
+                        .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
+                        .ok()
+                        .flatten()
+                        .and_then(|s| U256::from_str_radix(&s, 16).ok()),
+                }
             })
             .collect();
 
@@ -4419,16 +4774,16 @@ mod tests {
                 total_fulfilled: i,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
-                total_fees_locked: format!("{}", i * 1000),
-                total_collateral_locked: format!("{}", i * 2000),
-                total_locked_and_expired_collateral: "0".to_string(),
-                p10_lock_price_per_cycle: format!("{}", i * 100),
-                p25_lock_price_per_cycle: format!("{}", i * 250),
-                p50_lock_price_per_cycle: format!("{}", i * 500),
-                p75_lock_price_per_cycle: format!("{}", i * 750),
-                p90_lock_price_per_cycle: format!("{}", i * 900),
-                p95_lock_price_per_cycle: format!("{}", i * 950),
-                p99_lock_price_per_cycle: format!("{}", i * 990),
+                total_fees_locked: U256::from(i * 1000),
+                total_collateral_locked: U256::from(i * 2000),
+                total_locked_and_expired_collateral: U256::ZERO,
+                p10_lock_price_per_cycle: U256::from(i * 100),
+                p25_lock_price_per_cycle: U256::from(i * 250),
+                p50_lock_price_per_cycle: U256::from(i * 500),
+                p75_lock_price_per_cycle: U256::from(i * 750),
+                p90_lock_price_per_cycle: U256::from(i * 900),
+                p95_lock_price_per_cycle: U256::from(i * 950),
+                p99_lock_price_per_cycle: U256::from(i * 990),
                 total_requests_submitted: i * 10,
                 total_requests_submitted_onchain: i * 6,
                 total_requests_submitted_offchain: i * 4,
@@ -4602,16 +4957,16 @@ mod tests {
                 total_fulfilled: i * 10,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
-                total_fees_locked: format!("{}", i * 1000),
-                total_collateral_locked: format!("{}", i * 2000),
-                total_locked_and_expired_collateral: "0".to_string(),
-                p10_lock_price_per_cycle: format!("{}", i * 100),
-                p25_lock_price_per_cycle: format!("{}", i * 250),
-                p50_lock_price_per_cycle: format!("{}", i * 500),
-                p75_lock_price_per_cycle: format!("{}", i * 750),
-                p90_lock_price_per_cycle: format!("{}", i * 900),
-                p95_lock_price_per_cycle: format!("{}", i * 950),
-                p99_lock_price_per_cycle: format!("{}", i * 990),
+                total_fees_locked: U256::from(i * 1000),
+                total_collateral_locked: U256::from(i * 2000),
+                total_locked_and_expired_collateral: U256::ZERO,
+                p10_lock_price_per_cycle: U256::from(i * 100),
+                p25_lock_price_per_cycle: U256::from(i * 250),
+                p50_lock_price_per_cycle: U256::from(i * 500),
+                p75_lock_price_per_cycle: U256::from(i * 750),
+                p90_lock_price_per_cycle: U256::from(i * 900),
+                p95_lock_price_per_cycle: U256::from(i * 950),
+                p99_lock_price_per_cycle: U256::from(i * 990),
                 total_requests_submitted: i * 10,
                 total_requests_submitted_onchain: i * 6,
                 total_requests_submitted_offchain: i * 4,
@@ -4658,16 +5013,16 @@ mod tests {
                 total_fulfilled: i * 100,
                 unique_provers_locking_requests: i * 20,
                 unique_requesters_submitting_requests: i * 30,
-                total_fees_locked: format!("{}", i * 10000),
-                total_collateral_locked: format!("{}", i * 20000),
-                total_locked_and_expired_collateral: "0".to_string(),
-                p10_lock_price_per_cycle: format!("{}", i * 1000),
-                p25_lock_price_per_cycle: format!("{}", i * 2500),
-                p50_lock_price_per_cycle: format!("{}", i * 5000),
-                p75_lock_price_per_cycle: format!("{}", i * 7500),
-                p90_lock_price_per_cycle: format!("{}", i * 9000),
-                p95_lock_price_per_cycle: format!("{}", i * 9500),
-                p99_lock_price_per_cycle: format!("{}", i * 9900),
+                total_fees_locked: U256::from(i * 10000),
+                total_collateral_locked: U256::from(i * 20000),
+                total_locked_and_expired_collateral: U256::ZERO,
+                p10_lock_price_per_cycle: U256::from(i * 1000),
+                p25_lock_price_per_cycle: U256::from(i * 2500),
+                p50_lock_price_per_cycle: U256::from(i * 5000),
+                p75_lock_price_per_cycle: U256::from(i * 7500),
+                p90_lock_price_per_cycle: U256::from(i * 9000),
+                p95_lock_price_per_cycle: U256::from(i * 9500),
+                p99_lock_price_per_cycle: U256::from(i * 9900),
                 total_requests_submitted: i * 100,
                 total_requests_submitted_onchain: i * 60,
                 total_requests_submitted_offchain: i * 40,
@@ -4718,16 +5073,16 @@ mod tests {
                 total_fulfilled: i * 1000,
                 unique_provers_locking_requests: i * 200,
                 unique_requesters_submitting_requests: i * 300,
-                total_fees_locked: format!("{}", i * 100000),
-                total_collateral_locked: format!("{}", i * 200000),
-                total_locked_and_expired_collateral: "0".to_string(),
-                p10_lock_price_per_cycle: format!("{}", i * 10000),
-                p25_lock_price_per_cycle: format!("{}", i * 25000),
-                p50_lock_price_per_cycle: format!("{}", i * 50000),
-                p75_lock_price_per_cycle: format!("{}", i * 75000),
-                p90_lock_price_per_cycle: format!("{}", i * 90000),
-                p95_lock_price_per_cycle: format!("{}", i * 95000),
-                p99_lock_price_per_cycle: format!("{}", i * 99000),
+                total_fees_locked: U256::from(i * 100000),
+                total_collateral_locked: U256::from(i * 200000),
+                total_locked_and_expired_collateral: U256::ZERO,
+                p10_lock_price_per_cycle: U256::from(i * 10000),
+                p25_lock_price_per_cycle: U256::from(i * 25000),
+                p50_lock_price_per_cycle: U256::from(i * 50000),
+                p75_lock_price_per_cycle: U256::from(i * 75000),
+                p90_lock_price_per_cycle: U256::from(i * 90000),
+                p95_lock_price_per_cycle: U256::from(i * 95000),
+                p99_lock_price_per_cycle: U256::from(i * 99000),
                 total_requests_submitted: i * 1000,
                 total_requests_submitted_onchain: i * 600,
                 total_requests_submitted_offchain: i * 400,
@@ -4777,16 +5132,16 @@ mod tests {
                 total_fulfilled: i,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
-                total_fees_locked: format!("{}", i * 1000),
-                total_collateral_locked: format!("{}", i * 2000),
-                total_locked_and_expired_collateral: "0".to_string(),
-                p10_lock_price_per_cycle: format!("{}", i * 100),
-                p25_lock_price_per_cycle: format!("{}", i * 250),
-                p50_lock_price_per_cycle: format!("{}", i * 500),
-                p75_lock_price_per_cycle: format!("{}", i * 750),
-                p90_lock_price_per_cycle: format!("{}", i * 900),
-                p95_lock_price_per_cycle: format!("{}", i * 950),
-                p99_lock_price_per_cycle: format!("{}", i * 990),
+                total_fees_locked: U256::from(i * 1000),
+                total_collateral_locked: U256::from(i * 2000),
+                total_locked_and_expired_collateral: U256::ZERO,
+                p10_lock_price_per_cycle: U256::from(i * 100),
+                p25_lock_price_per_cycle: U256::from(i * 250),
+                p50_lock_price_per_cycle: U256::from(i * 500),
+                p75_lock_price_per_cycle: U256::from(i * 750),
+                p90_lock_price_per_cycle: U256::from(i * 900),
+                p95_lock_price_per_cycle: U256::from(i * 950),
+                p99_lock_price_per_cycle: U256::from(i * 990),
                 total_requests_submitted: i * 10,
                 total_requests_submitted_onchain: i * 6,
                 total_requests_submitted_offchain: i * 4,

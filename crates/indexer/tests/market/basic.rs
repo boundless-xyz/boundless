@@ -116,9 +116,10 @@ async fn test_e2e() {
     assert_eq!(fulfilled_summary.total_fulfilled, 1, "Expected 1 fulfilled request");
     assert_eq!(fulfilled_summary.unique_provers_locking_requests, 1, "Expected 1 unique prover");
 
-    // Verify fees and collateral are present
-    assert!(!fulfilled_summary.total_fees_locked.is_empty(), "total_fees_locked should not be empty");
-    assert!(!fulfilled_summary.total_collateral_locked.is_empty(), "total_collateral_locked should not be empty");
+    // Verify fees are present (collateral may be zero if request has zero lockCollateral)
+    assert_ne!(fulfilled_summary.total_fees_locked, U256::ZERO, "total_fees_locked should not be zero");
+    // Note: total_collateral_locked may be zero if the request was created with lockCollateral: 0
+    // The aggregation correctly tracks collateral even when it's zero
     
     assert_eq!(fulfilled_summary.locked_orders_fulfillment_rate, 100.0, "Expected 100% fulfillment rate");
     
@@ -242,7 +243,7 @@ async fn test_monitoring() {
     let expired_request_collateral = get_lock_collateral(&fixture.test_db.pool, &first_request_id).await;
     let total_locked_and_expired_collateral: U256 = summaries
         .iter()
-        .map(|s| U256::from_str(&s.total_locked_and_expired_collateral).unwrap_or(U256::ZERO))
+        .map(|s| s.total_locked_and_expired_collateral)
         .sum();
     let expected_collateral = U256::from_str(&expired_request_collateral).unwrap_or(U256::ZERO);
     assert_eq!(
@@ -377,8 +378,8 @@ async fn test_aggregation_across_hours() {
     let summaries_with_fulfilled: Vec<_> = summaries.iter().filter(|s| s.total_fulfilled > 0).collect();
     assert!(!summaries_with_fulfilled.is_empty());
     for summary in summaries_with_fulfilled {
-        assert_ne!(summary.total_fees_locked.trim_start_matches('0'), "");
-        assert_ne!(summary.p50_lock_price_per_cycle.trim_start_matches('0'), "");
+        assert_ne!(summary.total_fees_locked, U256::ZERO);
+        assert_ne!(summary.p50_lock_price_per_cycle, U256::ZERO);
     }
 
     // Verify cycle count aggregations
@@ -400,12 +401,52 @@ async fn test_aggregation_across_hours() {
     // Verify p50_lock_price_per_cycle calculation
     let expected_p50_request1 = U256::from(one_eth) / U256::from(program_cycles1);
     let expected_p50_request2 = U256::from(one_eth) / U256::from(program_cycles2);
-    let p50_hour1: U256 = hours_with_fulfilled[0].p50_lock_price_per_cycle.trim_start_matches('0').parse().expect("Failed to parse p50");
-    let p50_hour2: U256 = hours_with_fulfilled[1].p50_lock_price_per_cycle.trim_start_matches('0').parse().expect("Failed to parse p50");
+    let p50_hour1: U256 = hours_with_fulfilled[0].p50_lock_price_per_cycle;
+    let p50_hour2: U256 = hours_with_fulfilled[1].p50_lock_price_per_cycle;
     assert_eq!(p50_hour1, expected_p50_request1, "First hour p50 mismatch");
     assert_eq!(p50_hour2, expected_p50_request2, "Second hour p50 mismatch");
 
     tracing::info!("Hour 1 p50: {} (expected {}), Hour 2 p50: {} (expected {})", p50_hour1, expected_p50_request1, p50_hour2, expected_p50_request2);
+
+    // Verify all-time aggregates
+    let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
+    assert!(!all_time_summaries.is_empty(), "Expected at least one all-time summary");
+    
+    // Verify all-time aggregates are cumulative (each hour should have >= previous hour's values)
+    for i in 1..all_time_summaries.len() {
+        let prev = &all_time_summaries[i - 1];
+        let curr = &all_time_summaries[i];
+        
+        assert!(curr.period_timestamp > prev.period_timestamp, "All-time summaries should be in chronological order");
+        assert!(curr.total_fulfilled >= prev.total_fulfilled, "Total fulfilled should be cumulative");
+        assert!(curr.total_requests_submitted >= prev.total_requests_submitted, "Total requests submitted should be cumulative");
+        assert!(curr.total_program_cycles >= prev.total_program_cycles, "Total program cycles should be cumulative");
+        assert!(curr.total_cycles >= prev.total_cycles, "Total cycles should be cumulative");
+    }
+    
+    // Verify all-time aggregates match sum of hourly aggregates
+    let latest_all_time = all_time_summaries.last().unwrap();
+    let total_hourly_fulfilled: u64 = summaries.iter().map(|s| s.total_fulfilled).sum();
+    let total_hourly_requests: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
+    let total_hourly_program_cycles: U256 = summaries.iter().map(|s| s.total_program_cycles).sum();
+    let total_hourly_cycles: U256 = summaries.iter().map(|s| s.total_cycles).sum();
+    
+    assert_eq!(latest_all_time.total_fulfilled, total_hourly_fulfilled, "All-time total_fulfilled should match sum of hourly");
+    assert_eq!(latest_all_time.total_requests_submitted, total_hourly_requests, "All-time total_requests_submitted should match sum of hourly");
+    assert_eq!(latest_all_time.total_program_cycles, total_hourly_program_cycles, "All-time total_program_cycles should match sum of hourly");
+    assert_eq!(latest_all_time.total_cycles, total_hourly_cycles, "All-time total_cycles should match sum of hourly");
+    
+    // Verify unique counts are correct (should be at least 1 for both provers and requesters)
+    assert!(latest_all_time.unique_provers_locking_requests >= 1, "Should have at least 1 unique prover");
+    assert!(latest_all_time.unique_requesters_submitting_requests >= 1, "Should have at least 1 unique requester");
+    
+    // Verify all-time summaries have entries for each hour that has hourly summaries
+    // Note: Due to recompute window, we only create all-time aggregates for recent hours
+    // So we check that at least the latest hourly summary has a corresponding all-time aggregate
+    if let Some(latest_hourly) = summaries.last() {
+        let all_time_for_latest_hour = all_time_summaries.iter().find(|s| s.period_timestamp == latest_hourly.period_timestamp);
+        assert!(all_time_for_latest_hour.is_some(), "All-time summary should exist for latest hour {}", latest_hourly.period_timestamp);
+    }
 
     cli_process.kill().unwrap();
 }
@@ -516,10 +557,10 @@ async fn test_aggregation_percentiles() {
         fulfilled_summary.p90_lock_price_per_cycle
     );
 
-    // Parse percentile values
-    let actual_p10: U256 = fulfilled_summary.p10_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
-    let actual_p50: U256 = fulfilled_summary.p50_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
-    let actual_p90: U256 = fulfilled_summary.p90_lock_price_per_cycle.trim_start_matches('0').parse().unwrap_or(U256::ZERO);
+    // Get percentile values (now U256 directly)
+    let actual_p10: U256 = fulfilled_summary.p10_lock_price_per_cycle;
+    let actual_p50: U256 = fulfilled_summary.p50_lock_price_per_cycle;
+    let actual_p90: U256 = fulfilled_summary.p90_lock_price_per_cycle;
 
     // Verify percentiles are in expected ranges
     let min_price_per_cycle = U256::from(1_000_000_000u64); // 0.1 ETH / 100M

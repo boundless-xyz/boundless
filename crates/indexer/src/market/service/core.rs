@@ -222,6 +222,7 @@ where
         self.aggregate_daily_market_data(to).await?;
         self.aggregate_weekly_market_data(to).await?;
         self.aggregate_monthly_market_data(to).await?;
+        self.aggregate_all_time_market_data(to).await?;
 
         // Update the last processed block.
         self.update_last_processed_block(to).await?;

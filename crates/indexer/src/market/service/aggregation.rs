@@ -17,12 +17,12 @@ use super::{
     MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_WEEK,
     WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
 };
-use crate::db::market::PeriodMarketSummary;
+use crate::db::market::{AllTimeMarketSummary, PeriodMarketSummary};
 use crate::market::{
     pricing::compute_percentiles,
     time_boundaries::{
-        get_day_start, get_month_start, get_week_start, iter_daily_periods, iter_hourly_periods,
-        iter_monthly_periods, iter_weekly_periods,
+        get_day_start, get_hour_start, get_month_start, get_previous_finished_hour, get_week_start,
+        iter_daily_periods, iter_hourly_periods, iter_monthly_periods, iter_weekly_periods,
     },
     ServiceError,
 };
@@ -57,9 +57,9 @@ where
         // Calculate hours ago based on configured recompute window
         let hours_ago = current_time - (HOURLY_AGGREGATION_RECOMPUTE_HOURS * SECONDS_PER_HOUR);
 
-        // Truncate to hour boundaries
-        let start_hour = (hours_ago / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
-        let current_hour = (current_time / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+        // Truncate to hour boundaries using DRY helper
+        let start_hour = get_hour_start(hours_ago);
+        let current_hour = get_hour_start(current_time);
 
         tracing::debug!(
             "Aggregating hours from {} to {} ({} hour window). Up to block timestamp: {}",
@@ -342,11 +342,6 @@ where
             vec![U256::ZERO; 7]
         };
 
-        // Format U256 values as zero-padded 78-character strings (matching rewards pattern)
-        fn format_u256(value: U256) -> String {
-            format!("{:0>78}", value)
-        }
-
         // TODO: Populate best prover metrics from fulfilled requests
         let best_peak_prove_mhz = 0;
         let best_peak_prove_mhz_prover = None;
@@ -360,16 +355,16 @@ where
             total_fulfilled,
             unique_provers_locking_requests: unique_provers,
             unique_requesters_submitting_requests: unique_requesters,
-            total_fees_locked: format_u256(total_fees),
-            total_collateral_locked: format_u256(total_collateral),
-            total_locked_and_expired_collateral: format_u256(total_locked_and_expired_collateral),
-            p10_lock_price_per_cycle: format_u256(percentiles[0]),
-            p25_lock_price_per_cycle: format_u256(percentiles[1]),
-            p50_lock_price_per_cycle: format_u256(percentiles[2]),
-            p75_lock_price_per_cycle: format_u256(percentiles[3]),
-            p90_lock_price_per_cycle: format_u256(percentiles[4]),
-            p95_lock_price_per_cycle: format_u256(percentiles[5]),
-            p99_lock_price_per_cycle: format_u256(percentiles[6]),
+            total_fees_locked: total_fees,
+            total_collateral_locked: total_collateral,
+            total_locked_and_expired_collateral,
+            p10_lock_price_per_cycle: percentiles[0],
+            p25_lock_price_per_cycle: percentiles[1],
+            p50_lock_price_per_cycle: percentiles[2],
+            p75_lock_price_per_cycle: percentiles[3],
+            p90_lock_price_per_cycle: percentiles[4],
+            p95_lock_price_per_cycle: percentiles[5],
+            p99_lock_price_per_cycle: percentiles[6],
             total_requests_submitted,
             total_requests_submitted_onchain,
             total_requests_submitted_offchain,
@@ -388,5 +383,218 @@ where
             best_effective_prove_mhz_prover,
             best_effective_prove_mhz_request_id,
         })
+    }
+}
+
+/// Helper function to sum hourly aggregates into a base all-time aggregate
+pub fn sum_hourly_aggregates_into_base(
+    base: &mut AllTimeMarketSummary,
+    hourly_summaries: &[PeriodMarketSummary],
+) {
+    if hourly_summaries.is_empty() {
+        return;
+    }
+
+    // Sum numeric fields
+    for hourly in hourly_summaries {
+        base.total_fulfilled += hourly.total_fulfilled;
+        base.total_requests_submitted += hourly.total_requests_submitted;
+        base.total_requests_submitted_onchain += hourly.total_requests_submitted_onchain;
+        base.total_requests_submitted_offchain += hourly.total_requests_submitted_offchain;
+        base.total_requests_locked += hourly.total_requests_locked;
+        base.total_requests_slashed += hourly.total_requests_slashed;
+        base.total_expired += hourly.total_expired;
+        base.total_locked_and_expired += hourly.total_locked_and_expired;
+        base.total_locked_and_fulfilled += hourly.total_locked_and_fulfilled;
+        base.total_program_cycles += hourly.total_program_cycles;
+        base.total_cycles += hourly.total_cycles;
+    }
+
+    // Sum U256 fields (fees, collateral)
+    for hourly in hourly_summaries {
+        base.total_fees_locked += hourly.total_fees_locked;
+        base.total_collateral_locked += hourly.total_collateral_locked;
+        base.total_locked_and_expired_collateral += hourly.total_locked_and_expired_collateral;
+    }
+
+    // Find best metrics (maximum mhz)
+    let mut best_peak_mhz = base.best_peak_prove_mhz;
+    let mut best_peak_prover = base.best_peak_prove_mhz_prover.clone();
+    let mut best_peak_request_id = base.best_peak_prove_mhz_request_id;
+
+    let mut best_effective_mhz = base.best_effective_prove_mhz;
+    let mut best_effective_prover = base.best_effective_prove_mhz_prover.clone();
+    let mut best_effective_request_id = base.best_effective_prove_mhz_request_id;
+
+    for hourly in hourly_summaries {
+        if hourly.best_peak_prove_mhz > best_peak_mhz {
+            best_peak_mhz = hourly.best_peak_prove_mhz;
+            best_peak_prover = hourly.best_peak_prove_mhz_prover.clone();
+            best_peak_request_id = hourly.best_peak_prove_mhz_request_id;
+        }
+        if hourly.best_effective_prove_mhz > best_effective_mhz {
+            best_effective_mhz = hourly.best_effective_prove_mhz;
+            best_effective_prover = hourly.best_effective_prove_mhz_prover.clone();
+            best_effective_request_id = hourly.best_effective_prove_mhz_request_id;
+        }
+    }
+
+    base.best_peak_prove_mhz = best_peak_mhz;
+    base.best_peak_prove_mhz_prover = best_peak_prover;
+    base.best_peak_prove_mhz_request_id = best_peak_request_id;
+    base.best_effective_prove_mhz = best_effective_mhz;
+    base.best_effective_prove_mhz_prover = best_effective_prover;
+    base.best_effective_prove_mhz_request_id = best_effective_request_id;
+
+    // Recalculate locked_orders_fulfillment_rate
+    let total_locked_outcomes = base.total_locked_and_fulfilled + base.total_locked_and_expired;
+    base.locked_orders_fulfillment_rate = if total_locked_outcomes > 0 {
+        (base.total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
+    } else {
+        0.0
+    };
+}
+
+impl<P, ANP> IndexerService<P, ANP>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
+{
+    pub(super) async fn aggregate_all_time_market_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Get current time from the block timestamp
+        let current_time = self.block_timestamp(to_block).await?;
+
+        tracing::debug!(
+            "Aggregating all-time market data for past {} hours from block {} timestamp {}",
+            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
+            to_block,
+            current_time
+        );
+
+        // Calculate hours ago based on configured recompute window (same as hourly aggregation)
+        let hours_ago = current_time - (HOURLY_AGGREGATION_RECOMPUTE_HOURS * SECONDS_PER_HOUR);
+
+        // Truncate to hour boundaries using DRY helper functions
+        let start_hour = get_hour_start(hours_ago);
+        let current_hour = get_hour_start(current_time);
+
+        tracing::debug!(
+            "Aggregating all-time summaries for hours from {} to {} ({} hour window). Up to block timestamp: {}",
+            start_hour,
+            current_hour,
+            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
+            current_time
+        );
+
+        // Query all hourly summaries from start_hour to current_hour (inclusive)
+        let hourly_summaries = self
+            .db
+            .get_hourly_market_summaries_by_range(start_hour, current_hour + 1)
+            .await?;
+
+        tracing::debug!(
+            "Found {} hourly summaries to aggregate from {} to {}",
+            hourly_summaries.len(),
+            start_hour,
+            current_hour
+        );
+
+        // Find the earliest hourly summary from our query - this is our starting point
+        let earliest_hourly_summary = hourly_summaries.first();
+        
+        // Get the all-time aggregate for the hour just before the earliest hourly summary
+        // If it doesn't exist, this is our first run - initialize with zeros
+        let base_timestamp = earliest_hourly_summary
+            .map(|s| s.period_timestamp.saturating_sub(SECONDS_PER_HOUR))
+            .unwrap_or(start_hour.saturating_sub(SECONDS_PER_HOUR));
+        
+        let mut cumulative_summary = match self.db.get_all_time_market_summary_by_timestamp(base_timestamp).await? {
+            Some(prev) => {
+                // We have a previous aggregate, use it as the base
+                tracing::debug!("Found existing all-time aggregate at timestamp {}", base_timestamp);
+                prev
+            }
+            None => {
+                // No previous aggregate exists - this is the first run
+                // Initialize with zeros, and if we have an earliest hourly summary, we'll add it in the loop
+                tracing::debug!("No previous all-time aggregate found at timestamp {}, initializing with zeros", base_timestamp);
+                AllTimeMarketSummary {
+                    period_timestamp: base_timestamp,
+                    total_fulfilled: 0,
+                    unique_provers_locking_requests: 0,
+                    unique_requesters_submitting_requests: 0,
+                    total_fees_locked: U256::ZERO,
+                    total_collateral_locked: U256::ZERO,
+                    total_locked_and_expired_collateral: U256::ZERO,
+                    total_requests_submitted: 0,
+                    total_requests_submitted_onchain: 0,
+                    total_requests_submitted_offchain: 0,
+                    total_requests_locked: 0,
+                    total_requests_slashed: 0,
+                    total_expired: 0,
+                    total_locked_and_expired: 0,
+                    total_locked_and_fulfilled: 0,
+                    locked_orders_fulfillment_rate: 0.0,
+                    total_program_cycles: U256::ZERO,
+                    total_cycles: U256::ZERO,
+                    best_peak_prove_mhz: 0,
+                    best_peak_prove_mhz_prover: None,
+                    best_peak_prove_mhz_request_id: None,
+                    best_effective_prove_mhz: 0,
+                    best_effective_prove_mhz_prover: None,
+                    best_effective_prove_mhz_request_id: None,
+                }
+            }
+        };
+
+        // Iteratively build up all-time aggregates from the earliest hourly summary
+        // Process each hour in the range, building cumulative all-time aggregates
+        // For each hour, we:
+        // 1. Add that hour's data to our cumulative summary
+        // 2. Update unique counts from the database
+        // 3. Save the all-time aggregate for that hour
+        // Note: We process up to and including the current hour (even if not finished),
+        // matching the behavior of other aggregation functions
+        for (hour_ts, _hour_end) in iter_hourly_periods(start_hour, current_hour) {
+            // Find the hourly summary for this hour
+            let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
+
+            // If no hourly summary exists for this hour, skip it
+            // (this can happen if the hour hasn't been aggregated yet)
+            if let Some(summary) = hour_summary {
+                // Add this hour's data to the cumulative summary
+                sum_hourly_aggregates_into_base(&mut cumulative_summary, &[summary.clone()]);
+            } else {
+                tracing::debug!("No hourly summary found for hour {}, skipping", hour_ts);
+                continue;
+            }
+
+            // Update period_timestamp to reflect this hour
+            cumulative_summary.period_timestamp = hour_ts;
+
+            // Query unique counts from DB for all data up to this hour
+            cumulative_summary.unique_provers_locking_requests = self
+                .db
+                .get_all_time_unique_provers(hour_ts)
+                .await?;
+            cumulative_summary.unique_requesters_submitting_requests = self
+                .db
+                .get_all_time_unique_requesters(hour_ts)
+                .await?;
+
+            // Save the all-time aggregate for this hour
+            self.db.upsert_all_time_market_summary(cumulative_summary.clone()).await?;
+        }
+
+        tracing::info!(
+            "aggregate_all_time_market_data completed in {:?}",
+            start.elapsed()
+        );
+        Ok(())
     }
 }
