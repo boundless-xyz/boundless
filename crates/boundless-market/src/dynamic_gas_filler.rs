@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use alloy::{
     network::{Network, TransactionBuilder},
@@ -24,15 +24,17 @@ use alloy::{
     transports::TransportResult,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
 /// Priority mode for transaction gas pricing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PriorityMode {
     /// Low gas price/priority fee.
     Low,
     /// Medium gas price/priority fee.
+    #[default]
     Medium,
     /// High gas price/priority fee.
     High,
@@ -120,20 +122,13 @@ impl DynamicGasFiller {
     }
 
     /// Sets the priority mode.
-    pub fn set_priority_mode(
-        &self,
-        mode: PriorityMode,
-    ) -> Result<(), std::sync::PoisonError<std::sync::RwLockWriteGuard<'_, PriorityMode>>> {
-        *self.priority_mode.write()? = mode;
-        Ok(())
+    pub async fn set_priority_mode(&self, mode: PriorityMode) {
+        *self.priority_mode.write().await = mode;
     }
 
     /// Gets the current priority mode.
-    pub fn get_priority_mode(
-        &self,
-    ) -> Result<PriorityMode, std::sync::PoisonError<std::sync::RwLockReadGuard<'_, PriorityMode>>>
-    {
-        Ok(*self.priority_mode.read()?)
+    pub async fn get_priority_mode(&self) -> PriorityMode {
+        *self.priority_mode.read().await
     }
 }
 
@@ -182,8 +177,7 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
             tx_diff
         );
 
-        let priority_mode = self.get_priority_mode().unwrap_or(PriorityMode::Medium);
-        let priority_config = priority_mode.config();
+        let priority_config = self.get_priority_mode().await.config();
 
         let multiplier = priority_config.estimate_additional_percentage
             + tx_diff.saturating_mul(priority_config.dynamic_multiplier_percentage);

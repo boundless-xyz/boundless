@@ -28,6 +28,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
+    dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
     override_gateway,
     selector::is_groth16_selector,
@@ -460,13 +461,19 @@ pub struct Broker<P> {
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
+    gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
 }
 
 impl<P> Broker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    pub async fn new(mut args: Args, provider: P, config_watcher: ConfigWatcher) -> Result<Self> {
+    pub async fn new(
+        mut args: Args,
+        provider: P,
+        config_watcher: ConfigWatcher,
+        gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    ) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
 
@@ -489,7 +496,14 @@ where
         let priority_requestors =
             requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
 
-        Ok(Self { args, db, provider: Arc::new(provider), config_watcher, priority_requestors })
+        Ok(Self {
+            args,
+            db,
+            provider: Arc::new(provider),
+            config_watcher,
+            priority_requestors,
+            gas_priority_mode,
+        })
     }
 
     pub fn deployment(&self) -> &Deployment {
@@ -956,6 +970,7 @@ where
                 retry_count: self.args.rpc_retry_max.into(),
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
+            self.gas_priority_mode.clone(),
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1193,9 +1208,12 @@ pub(crate) fn is_dev_mode() -> bool {
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
+    use std::sync::Arc;
+
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
+    use boundless_market::dynamic_gas_filler::PriorityMode;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
         market::TestCtx,
@@ -1249,11 +1267,13 @@ pub mod test_utils {
         }
 
         pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
+            let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
             Ok((
                 Broker::new(
                     self.args,
                     self.provider,
                     ConfigWatcher::new(self.config_file.path()).await?,
+                    gas_priority_mode,
                 )
                 .await?,
                 self.config_file,

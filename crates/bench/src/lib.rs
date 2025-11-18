@@ -560,6 +560,7 @@ mod tests {
             args,
             ctx.prover_provider,
             ConfigWatcher::new(config.path()).await.unwrap(),
+            Default::default(),
         )
         .await
         .unwrap();

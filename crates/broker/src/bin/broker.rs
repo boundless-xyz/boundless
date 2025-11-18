@@ -111,6 +111,9 @@ async fn main() -> Result<()> {
         wallet.default_signer().address(),
     );
 
+    // Clone the priority_mode Arc so we can pass it to the broker for runtime updates
+    let gas_priority_mode = dynamic_gas_filler.priority_mode.clone();
+
     let base_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .filler(ChainIdFiller::default())
@@ -119,7 +122,8 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker = Broker::new(args.clone(), provider.clone(), config_watcher).await?;
+    let broker =
+        Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
