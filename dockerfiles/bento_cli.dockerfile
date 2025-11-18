@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG RUST_IMG=rust:1.88-bookworm
+ARG RUST_IMG=rust:1.91.1-bookworm
 ARG S3_CACHE_PREFIX="public/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${RUST_IMG} AS rust-builder
@@ -18,7 +18,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # Install rust and target version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
-    && rustup install 1.88
+    && rustup install 1.91.1
 
 # # Install RISC0 and groth16 component early for better caching
 ENV RISC0_HOME=/usr/local/risc0
