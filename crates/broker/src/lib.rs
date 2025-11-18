@@ -85,6 +85,13 @@ pub struct Args {
     #[clap(long, env = "PROVER_RPC_URL", default_value = "http://localhost:8545")]
     pub rpc_url: Url,
 
+    /// Additional RPC URLs for automatic failover.
+    /// Can be specified multiple times or as a comma-separated list.
+    /// If provided along with rpc_url, they will be merged into a single list.
+    /// If 2+ URLs are provided total, a fallback provider will be used.
+    #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
+    pub rpc_urls: Vec<Url>,
+
     /// wallet key
     ///
     /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
@@ -1232,6 +1239,7 @@ pub mod test_utils {
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
                 rpc_url,
+                rpc_urls: Vec::new(),
                 private_key: Some(ctx.prover_signer.clone()),
                 bento_api_url: None,
                 bonsai_api_key: None,
