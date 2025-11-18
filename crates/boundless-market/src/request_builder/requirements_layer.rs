@@ -161,6 +161,12 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
 
         if let Some(selector) = &params.selector {
             if is_blake3_groth16_selector(*selector) {
+                if journal.bytes.len() != 32 {
+                    anyhow::bail!(
+                        "Blake3Groth16 proofs require a 32-byte journal, got {} bytes",
+                        journal.bytes.len()
+                    );
+                }
                 predicate = Some(params.predicate.clone().unwrap_or_else(|| {
                     let blake3_claim_digest = blake3_groth16::Blake3Groth16ReceiptClaim::ok(
                         image_id,
