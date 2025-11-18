@@ -24,13 +24,13 @@ use alloy::{
     },
     transports::{http::Http, layers::FallbackLayer},
 };
-use alloy_rpc_client::RpcClient;
-use tower::ServiceBuilder;
 use alloy_primitives::{Signature, B256};
+use alloy_rpc_client::RpcClient;
 use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
+use tower::ServiceBuilder;
 use url::Url;
 
 use crate::{
@@ -120,25 +120,22 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// If both are provided, they are merged into a single list.
     fn collect_rpc_urls(&self) -> Result<Vec<Url>, anyhow::Error> {
         let mut all_urls = Vec::new();
-        
+
         // Add the primary RPC URL if set
         if let Some(ref rpc_url) = self.rpc_url {
             all_urls.push(rpc_url.clone());
         }
-        
+
         // Add any additional URLs from rpc_urls
         all_urls.extend(self.rpc_urls.clone());
-        
+
         Ok(all_urls)
     }
 
     /// Build a custom RPC client transport with fallback support for multiple URLs.
     fn build_fallback_transport(&self, urls: &[Url]) -> Result<RpcClient, anyhow::Error> {
         // Create HTTP transports for each URL
-        let transports: Vec<Http<_>> = urls
-            .iter()
-            .map(|url| Http::new(url.clone()))
-            .collect();
+        let transports: Vec<Http<_>> = urls.iter().map(|url| Http::new(url.clone())).collect();
 
         // Configure FallbackLayer with all transports active
         let active_count =
@@ -152,14 +149,11 @@ impl<St, Si> ClientBuilder<St, Si> {
         );
 
         // Build transport with fallback layer
-        let transport = ServiceBuilder::new()
-            .layer(fallback_layer)
-            .service(transports);
+        let transport = ServiceBuilder::new().layer(fallback_layer).service(transports);
 
         // Create RPC client with the transport
         Ok(RpcClient::builder().transport(transport, false))
     }
-
 }
 
 impl<St, Si> ClientProviderBuilder for ClientBuilder<St, Si>
@@ -180,7 +174,7 @@ where
 
                 // Build provider without erasing first (NonceProvider needs FillProvider)
                 let balance_alerts = self.balance_alerts.clone().unwrap_or_default();
-                
+
                 let base_provider = if rpc_urls.len() > 1 {
                     // Multiple URLs - use fallback transport
                     let client = self.build_fallback_transport(&rpc_urls)?;
@@ -202,16 +196,14 @@ where
                         .await
                         .with_context(|| format!("failed to connect provider to {url}"))?
                 };
-                
+
                 NonceProvider::new(base_provider, EthereumWallet::from(signer)).erased()
             }
             None => {
                 if rpc_urls.len() > 1 {
                     // Multiple URLs - use fallback transport
                     let client = self.build_fallback_transport(&rpc_urls)?;
-                    ProviderBuilder::new()
-                        .connect_client(client)
-                        .erased()
+                    ProviderBuilder::new().connect_client(client).erased()
                 } else {
                     // Single URL - use regular provider
                     let url = rpc_urls.first().context("no RPC URL provided")?;
@@ -238,9 +230,7 @@ impl<St> ClientProviderBuilder for ClientBuilder<St, NotProvided> {
         let provider = if rpc_urls.len() > 1 {
             // Multiple URLs - use fallback transport
             let client = self.build_fallback_transport(&rpc_urls)?;
-            ProviderBuilder::new()
-                .connect_client(client)
-                .erased()
+            ProviderBuilder::new().connect_client(client).erased()
         } else {
             // Single URL - use regular provider
             let url = rpc_urls.first().unwrap();
@@ -355,9 +345,9 @@ impl<St, Si> ClientBuilder<St, Si> {
 
     /// Set additional RPC URLs for automatic failover.
     ///
-    /// When multiple URLs are provided (via `with_rpc_url` and/or `with_rpc_urls`), 
-    /// they are merged into a single list. If 2+ URLs are provided, the client will 
-    /// use Alloy's FallbackLayer to distribute requests across multiple RPC endpoints 
+    /// When multiple URLs are provided (via `with_rpc_url` and/or `with_rpc_urls`),
+    /// they are merged into a single list. If 2+ URLs are provided, the client will
+    /// use Alloy's FallbackLayer to distribute requests across multiple RPC endpoints
     /// with automatic failover. If only 1 URL is provided, a regular provider is used.
     ///
     /// # Example
@@ -370,7 +360,7 @@ impl<St, Si> ClientBuilder<St, Si> {
     ///         Url::parse("https://rpc2.example.com").unwrap(),
     ///         Url::parse("https://rpc3.example.com").unwrap(),
     ///     ]);
-    /// 
+    ///
     /// // Single URL - uses regular provider
     /// Client::builder()
     ///     .with_rpc_urls(vec![Url::parse("https://rpc.example.com").unwrap()]);

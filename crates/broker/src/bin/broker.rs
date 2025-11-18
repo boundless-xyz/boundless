@@ -16,9 +16,11 @@ use alloy::{
     primitives::utils::parse_ether,
     providers::{fillers::ChainIdFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
-    transports::{http::Http, layers::{FallbackLayer, RetryBackoffLayer}},
+    transports::{
+        http::Http,
+        layers::{FallbackLayer, RetryBackoffLayer},
+    },
 };
-use tower::ServiceBuilder;
 use anyhow::{Context, Result};
 use boundless_market::{
     balance_alerts_layer::{BalanceAlertConfig, BalanceAlertLayer},
@@ -28,6 +30,7 @@ use boundless_market::{
 };
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
+use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
@@ -74,12 +77,12 @@ async fn main() -> Result<()> {
     // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
     let mut all_rpc_urls = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    
+
     // Add rpc_url first if not already seen
     if seen.insert(args.rpc_url.clone()) {
         all_rpc_urls.push(args.rpc_url.clone());
     }
-    
+
     // Add rpc_urls, skipping duplicates
     for url in &args.rpc_urls {
         if seen.insert(url.clone()) {
@@ -97,10 +100,8 @@ async fn main() -> Result<()> {
     // Build RPC client with fallback support if multiple URLs are provided
     let client = if all_rpc_urls.len() > 1 {
         // Multiple URLs - use fallback transport
-        let transports: Vec<Http<_>> = all_rpc_urls
-            .iter()
-            .map(|url| Http::new(url.clone()))
-            .collect();
+        let transports: Vec<Http<_>> =
+            all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
 
         let active_count =
             std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
@@ -112,10 +113,8 @@ async fn main() -> Result<()> {
             all_rpc_urls
         );
 
-        let transport = ServiceBuilder::new()
-            .layer(retry_layer)
-            .layer(fallback_layer)
-            .service(transports);
+        let transport =
+            ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
 
         RpcClient::builder().transport(transport, false)
     } else {

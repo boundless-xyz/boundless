@@ -158,7 +158,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         warn_threshold: args.warn_balance_below,
         error_threshold: args.error_balance_below,
     };
-    
+
     let mut client = Client::builder();
     if let Some(rpc_url) = &args.rpc_url {
         client = client.with_rpc_url(rpc_url.clone());
