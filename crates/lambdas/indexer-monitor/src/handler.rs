@@ -72,7 +72,7 @@ fn debug_requests_if_any(metric_time: &str, count: usize, requests: &[String], m
 }
 
 /// Main Lambda handler function
-#[instrument(skip_all, err)]
+#[instrument(skip_all, err(Debug))]
 pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     let config = Config::from_env()?;
     let event = event.payload;
