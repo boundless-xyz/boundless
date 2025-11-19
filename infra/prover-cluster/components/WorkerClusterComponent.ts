@@ -16,12 +16,15 @@ export interface WorkerClusterConfig extends BaseComponentConfig {
     taskDBName: string;
     taskDBUsername: string;
     taskDBPassword: string;
-    minioUsername: string;
-    minioPassword: string;
     proverCount: number;
     executionCount: number;
     auxCount: number;
     alertsTopicArns: string[];
+    rdsEndpoint: pulumi.Output<string>;
+    redisEndpoint: pulumi.Output<string>;
+    s3BucketName: pulumi.Output<string>;
+    s3AccessKeyId: pulumi.Output<string>;
+    s3SecretAccessKey: pulumi.Output<string>;
 }
 
 export class WorkerClusterComponent extends BaseComponent {
@@ -82,7 +85,7 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-prover-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/prover`,
-            alarmDimensions: {AutoScalingGroupName: this.proverAsg.autoScalingGroup.name}
+            alarmDimensions: { AutoScalingGroupName: this.proverAsg.autoScalingGroup.name }
         });
     }
 
@@ -114,7 +117,7 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-execution-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/execution`,
-            alarmDimensions: {AutoScalingGroupName: this.executionAsg.autoScalingGroup.name}
+            alarmDimensions: { AutoScalingGroupName: this.executionAsg.autoScalingGroup.name }
         });
     }
 
@@ -146,7 +149,7 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-aux-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/aux`,
-            alarmDimensions: {AutoScalingGroupName: this.auxAsg.autoScalingGroup.name}
+            alarmDimensions: { AutoScalingGroupName: this.auxAsg.autoScalingGroup.name }
         });
     }
 }
