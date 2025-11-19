@@ -11,11 +11,11 @@ cuda = ["dep:risc0-groth16-sys", "blake3_groth16/cuda"]
 
 [dependencies]
 anyhow = "1.0"
-async-compression = { version = "0.4", default-features = false, features = ["lzma", "tokio"] }
 astral-tokio-tar = { version = "0.5" }
+async-compression = { version = "0.4", default-features = false, features = ["lzma", "tokio"] }
 aws-config = "1.0"
-aws-sdk-s3 = { version = "1.0" }
 aws-credential-types = "1.0"
+aws-sdk-s3 = { version = "1.0" }
 blake3_groth16 = { path = "../blake3_groth16", features = ["prove"] }
 boundless-market = { path = "../crates/boundless-market" }
 clap = { version = "4.5", features = ["derive", "env"] }
@@ -23,6 +23,7 @@ guest-util = { workspace = true }
 hex = { workspace = true }
 liblzma = { version = "0.4", features = ["static"] }
 memmap2 = { version = "0.9", optional = true }
+num_cpus = "1.0"
 regex = "1"
 risc0-circuit-recursion = { workspace = true }
 risc0-groth16-sys = { workspace = true, optional = true, features = ["cuda", "setup"] }
@@ -32,4 +33,3 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 xshell = "0.2"
-num_cpus = "1.0"
