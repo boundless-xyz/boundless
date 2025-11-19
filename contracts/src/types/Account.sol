@@ -37,10 +37,10 @@ library AccountLibrary {
     // forge-lint: disable-next-item(incorrect-shift)
     function requestFlags(Account storage self, uint32 idx) internal view returns (bool locked, bool fulfilled) {
         if (idx < REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH) {
-            uint64 masked = (
-                self.requestFlagsInitial
-                    & (uint64((1 << REQUEST_FLAGS_BITWIDTH) - 1) << uint64(idx * REQUEST_FLAGS_BITWIDTH))
-            ) >> (idx * REQUEST_FLAGS_BITWIDTH);
+            uint64 masked =
+                (self.requestFlagsInitial
+                        & (uint64((1 << REQUEST_FLAGS_BITWIDTH) - 1) << uint64(idx * REQUEST_FLAGS_BITWIDTH)))
+                    >> (idx * REQUEST_FLAGS_BITWIDTH);
             return (masked & uint64(1) != 0, masked & uint64(2) != 0);
         } else {
             uint256 idxShifted = idx - (REQUEST_FLAGS_INITIAL_BITS / REQUEST_FLAGS_BITWIDTH);

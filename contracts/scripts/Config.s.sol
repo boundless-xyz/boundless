@@ -14,6 +14,7 @@ struct DeploymentConfig {
     address admin;
     address admin2;
     address verifier;
+    address applicationVerifier;
     address setVerifier;
     address boundlessMarket;
     address boundlessMarketImpl;
@@ -102,6 +103,8 @@ library ConfigParser {
         deploymentConfig.admin = stdToml.readAddressOr(config, string.concat(chain, ".admin"), address(0));
         deploymentConfig.admin2 = stdToml.readAddressOr(config, string.concat(chain, ".admin-2"), address(0));
         deploymentConfig.verifier = stdToml.readAddressOr(config, string.concat(chain, ".verifier"), address(0));
+        deploymentConfig.applicationVerifier =
+            stdToml.readAddressOr(config, string.concat(chain, ".application-verifier"), address(0));
         deploymentConfig.setVerifier = stdToml.readAddressOr(config, string.concat(chain, ".set-verifier"), address(0));
         deploymentConfig.boundlessMarket =
             stdToml.readAddressOr(config, string.concat(chain, ".boundless-market"), address(0));
