@@ -2,6 +2,8 @@ secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secre
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGA9yGzYmX18KEh3qL46b5UAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM9oZ6wye2fTuMWV0GAgEQgDuEacQklGHw6WJN3N4UIAg9ChU4WeCn02cR3th7uPUpnjOJ6LMK9i1Fl8uP29fyw8O/lxuUeBZZi5E8MQ==
 config:
   base:BASE_STACK: organization/bootstrap/services-prod
+  base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
+  base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu-24.04-nvidia-*"
   prover-cluster:boundlessBentoVersion: "nightly"
   prover-cluster:boundlessBrokerVersion: "nightly"
@@ -33,3 +35,19 @@ config:
     secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=
   prover-cluster:apiKey:
     secure: v1:cQTlzOGOQeKDgN3q:xi9tY9JD1CKOjVZhxbnSczW3xiHs4dg+Ioi11z1lYiLkzuITbQQaqljkXtujYP/U1hirI5CLD7OzpOQ=
+  prover-cluster:mcyclePrice: "0.00000001"
+  prover-cluster:peakProveKhz: 10000
+  prover-cluster:minDeadline: 0
+  prover-cluster:lookbackBlocks: 300
+  prover-cluster:maxCollateral: "200"
+  prover-cluster:maxFileSize: "0"
+  prover-cluster:maxMcycleLimit: "0"
+  prover-cluster:maxConcurrentProofs: 1
+  prover-cluster:balanceWarnThreshold: "0"
+  prover-cluster:balanceErrorThreshold: "0"
+  prover-cluster:collateralBalanceWarnThreshold: "0"
+  prover-cluster:collateralBalanceErrorThreshold: "0"
+  prover-cluster:denyRequestorAddresses: ""
+  prover-cluster:maxFetchRetries: 3
+  prover-cluster:allowClientAddresses: ""
+  prover-cluster:lockinPriorityGas: "300"

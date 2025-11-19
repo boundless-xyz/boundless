@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import {BasePipelineArgs} from "./base";
-import {BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN} from "../accountConstants";
+import { BasePipelineArgs } from "./base";
+import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 
 interface ProverClusterPipelineArgs extends BasePipelineArgs {
     stagingAccountId: string;
@@ -116,12 +116,15 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     buildspec: PROVER_CLUSTER_BUILD_SPEC,
                 },
                 sourceVersion: "CODEPIPELINE",
-            }, {parent: this});
+                tags: {
+                    Name: `${APP_NAME}-${stackName}-deployment`,
+                    Component: "prover-cluster",
+                },
+            }, { parent: this });
         };
 
         const stagingBuildBaseSepoliaNightly = createCodeBuildProject("staging", stagingAccountId, "staging-nightly-84532");
         const stagingBuildBaseSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-84532");
-        const stagingBuildEthSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-11155111");
 
         const productionBuildBaseMainnetNightly = createCodeBuildProject("production", productionAccountId, "prod-nightly-8453");
         const productionBuildBaseMainnetRelease = createCodeBuildProject("production", productionAccountId, "prod-release-8453");
@@ -177,18 +180,6 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                                 ProjectName: stagingBuildBaseSepolia.name
                             },
                             outputArtifacts: ["staging_output_base_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        },
-                        {
-                            name: "DeployStagingEthSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            configuration: {
-                                ProjectName: stagingBuildEthSepolia.name
-                            },
-                            outputArtifacts: ["staging_output_eth_sepolia"],
                             inputArtifacts: ["source_output"],
                         }
                     ],
@@ -249,7 +240,11 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     },
                 },
             ],
-        }, {parent: this});
+            tags: {
+                Name: `${APP_NAME}-pipeline`,
+                Component: "prover-cluster",
+            },
+        }, { parent: this });
 
         // Create IAM role for EventBridge to execute the pipeline
         const eventBridgeRole = new aws.iam.Role(`${APP_NAME}-eventbridge-role`, {
@@ -263,7 +258,7 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     Action: "sts:AssumeRole"
                 }]
             }),
-        }, {parent: this});
+        }, { parent: this });
 
         // Grant EventBridge permission to start pipeline execution
         new aws.iam.RolePolicy(`${APP_NAME}-eventbridge-policy`, {
@@ -278,21 +273,21 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     }]
                 })
             )
-        }, {parent: this});
+        }, { parent: this });
 
         // Create EventBridge rule for daily 5am Central Time trigger
         // 10:00 UTC = 5am CDT (Central Daylight Time, UTC-5) / 4am CST (Central Standard Time, UTC-6)
         const dailyTrigger = new aws.cloudwatch.EventRule(`${APP_NAME}-daily-trigger`, {
             description: "Trigger prover-cluster pipeline daily at 5am Central Time (10:00 UTC)",
             scheduleExpression: "cron(0 10 * * ? *)",
-        }, {parent: this});
+        }, { parent: this });
 
         // Add pipeline as target for the EventBridge rule
         new aws.cloudwatch.EventTarget(`${APP_NAME}-daily-trigger-target`, {
             rule: dailyTrigger.name,
             arn: pipeline.arn,
             roleArn: eventBridgeRole.arn,
-        }, {parent: this});
+        }, { parent: this });
 
         // Create notification rule
         new aws.codestarnotifications.NotificationRule(`${APP_NAME}-pipeline-notifications`, {
@@ -308,6 +303,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     address: slackAlertsTopicArn.apply(arn => arn),
                 },
             ],
+            tags: {
+                Name: `${APP_NAME}-pipeline-notifications`,
+                Component: "prover-cluster",
+            },
         });
 
         // Outputs

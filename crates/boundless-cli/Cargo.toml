@@ -69,7 +69,7 @@ shadow-rs = "1.1"
 
 [dev-dependencies]
 alloy-node-bindings = { workspace = true }
-assert_cmd = "2.0"
+assert_cmd = "=2.0"
 assert_fs = "1.1"
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true, features = ["povw"] }

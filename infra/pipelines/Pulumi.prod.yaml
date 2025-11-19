@@ -21,5 +21,9 @@ config:
     secure: v1:Evl3B4eQ0vnqgnJA:cNDdYWW9NpBwD2bo3xJ0EPF3o2bloObGRB1t
   pipelines:BOUNDLESS_ALERTS_LAUNCH_SLACK_ID:
     secure: v1:N6h3KGSlz8CZOYNZ:D6mqYa81RL9sOakgzSggXy6lD1BHtQOidu+U
+  aws:defaultTags:
+    tags:
+      Project: boundless
+      Environment: prod
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFRXbSyr6AYSMcivVuIOKM1AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM99POLOpwmSAsUSA6AgEQgDtWlwiW1A4Ljv+YiqVnhqlhSZhL08n2udrkFcXJOak8aa7RyAbspSlyMy/J6r9TffIO8mXOioXADQfokg==

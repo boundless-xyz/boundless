@@ -162,7 +162,7 @@ pub struct Args {
     cleanup_poll_interval: u64,
 
     /// Disable cron to clean up completed jobs in taskdb.
-    #[clap(long, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
+    #[clap(long, default_value_t = true, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
     disable_completed_cleanup: bool,
 
     /// Disable cron to clean up stuck tasks in taskdb.

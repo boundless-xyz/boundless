@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as crypto from "crypto";
-import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
+import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 
 export interface AutoScalingGroupConfig extends BaseComponentConfig {
     launchTemplateId: pulumi.Output<string>;
@@ -46,8 +46,8 @@ export class AutoScalingGroupComponent extends BaseComponent {
                 },
                 {
                     key: "Name",
-                    value: this.generateTagName(`${config.componentType}-asg`),
-                    propagateAtLaunch: false,
+                    value: this.generateName(`${config.componentType}`),
+                    propagateAtLaunch: true,
                 },
                 {
                     key: "Type",
