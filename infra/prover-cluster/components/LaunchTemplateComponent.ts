@@ -78,7 +78,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       tagSpecifications: [{
         resourceType: "instance",
         tags: {
-          Name: this.generateTagName(config.componentType),
+          Name: this.generateName(config.componentType),
           Type: config.componentType,
           Environment: this.config.environment,
           Project: "boundless-bento-cluster",
