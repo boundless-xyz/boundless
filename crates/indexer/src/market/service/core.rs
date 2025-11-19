@@ -224,6 +224,13 @@ where
         self.aggregate_monthly_market_data(to).await?;
         self.aggregate_all_time_market_data(to).await?;
 
+        // Aggregate per-requestor data.
+        self.aggregate_hourly_requestor_data(to).await?;
+        self.aggregate_daily_requestor_data(to).await?;
+        self.aggregate_weekly_requestor_data(to).await?;
+        self.aggregate_monthly_requestor_data(to).await?;
+        self.aggregate_all_time_requestor_data(to).await?;
+
         // Update the last processed block.
         self.update_last_processed_block(to).await?;
 

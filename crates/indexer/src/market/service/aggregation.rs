@@ -21,7 +21,7 @@ use crate::db::market::{AllTimeMarketSummary, PeriodMarketSummary};
 use crate::market::{
     pricing::compute_percentiles,
     time_boundaries::{
-        get_day_start, get_hour_start, get_month_start, get_previous_finished_hour, get_week_start,
+        get_day_start, get_hour_start, get_month_start, get_week_start,
         iter_daily_periods, iter_hourly_periods, iter_monthly_periods, iter_weekly_periods,
     },
     ServiceError,
@@ -596,5 +596,503 @@ where
             start.elapsed()
         );
         Ok(())
+    }
+
+    // Per-Requestor Aggregation Methods
+
+    pub(super) async fn aggregate_hourly_requestor_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        let current_time = self.block_timestamp(to_block).await?;
+
+        tracing::debug!(
+            "Aggregating hourly requestor data for past {} hours from block {} timestamp {}",
+            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
+            to_block,
+            current_time
+        );
+
+        let hours_ago = current_time - (HOURLY_AGGREGATION_RECOMPUTE_HOURS * SECONDS_PER_HOUR);
+        let start_hour = get_hour_start(hours_ago);
+        let current_hour = get_hour_start(current_time);
+
+        // Get all active requestors in this time period
+        let requestors = self.db
+            .get_active_requestor_addresses_in_period(start_hour, current_hour + SECONDS_PER_HOUR)
+            .await?;
+
+        tracing::debug!(
+            "Found {} active requestors in hour range {} to {}",
+            requestors.len(),
+            start_hour,
+            current_hour
+        );
+
+        for requestor in requestors {
+            for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
+                let summary = self.compute_period_requestor_summary(hour_ts, hour_end, requestor).await?;
+                // Only insert if there's activity
+                if summary.total_requests_submitted > 0 {
+                    self.db.upsert_hourly_requestor_summary(summary).await?;
+                }
+            }
+        }
+
+        tracing::info!("aggregate_hourly_requestor_data completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    pub(super) async fn aggregate_daily_requestor_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        let current_time = self.block_timestamp(to_block).await?;
+
+        tracing::debug!(
+            "Aggregating daily requestor data for past {} days from block {} timestamp {}",
+            DAILY_AGGREGATION_RECOMPUTE_DAYS,
+            to_block,
+            current_time
+        );
+
+        let current_day_start = get_day_start(current_time);
+        let start_day = current_day_start.saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
+
+        let requestors = self.db
+            .get_active_requestor_addresses_in_period(start_day, current_day_start + SECONDS_PER_DAY)
+            .await?;
+
+        tracing::debug!(
+            "Found {} active requestors in day range {} to {}",
+            requestors.len(),
+            start_day,
+            current_day_start
+        );
+
+        for requestor in requestors {
+            for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
+                let summary = self.compute_period_requestor_summary(day_ts, day_end, requestor).await?;
+                if summary.total_requests_submitted > 0 {
+                    self.db.upsert_daily_requestor_summary(summary).await?;
+                }
+            }
+        }
+
+        tracing::info!("aggregate_daily_requestor_data completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    pub(super) async fn aggregate_weekly_requestor_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        let current_time = self.block_timestamp(to_block).await?;
+
+        tracing::debug!(
+            "Aggregating weekly requestor data for past {} weeks from block {} timestamp {}",
+            WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
+            to_block,
+            current_time
+        );
+
+        let current_week_start = get_week_start(current_time);
+        let start_week = current_week_start.saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
+
+        let requestors = self.db
+            .get_active_requestor_addresses_in_period(start_week, current_week_start + SECONDS_PER_WEEK)
+            .await?;
+
+        tracing::debug!(
+            "Found {} active requestors in week range {} to {}",
+            requestors.len(),
+            start_week,
+            current_week_start
+        );
+
+        for requestor in requestors {
+            for (week_ts, week_end) in iter_weekly_periods(start_week, current_week_start) {
+                let summary = self.compute_period_requestor_summary(week_ts, week_end, requestor).await?;
+                if summary.total_requests_submitted > 0 {
+                    self.db.upsert_weekly_requestor_summary(summary).await?;
+                }
+            }
+        }
+
+        tracing::info!("aggregate_weekly_requestor_data completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    pub(super) async fn aggregate_monthly_requestor_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        let current_time = self.block_timestamp(to_block).await?;
+
+        tracing::debug!(
+            "Aggregating monthly requestor data for past {} months from block {} timestamp {}",
+            MONTHLY_AGGREGATION_RECOMPUTE_MONTHS,
+            to_block,
+            current_time
+        );
+
+        let current_month_start = get_month_start(current_time);
+
+        use chrono::{Datelike, TimeZone, Utc};
+        let mut start_month = current_month_start;
+        for _ in 0..(MONTHLY_AGGREGATION_RECOMPUTE_MONTHS - 1) {
+            let dt = Utc.timestamp_opt(start_month as i64, 0).unwrap();
+            let prev_month = if dt.month() == 1 {
+                Utc.with_ymd_and_hms(dt.year() - 1, 12, 1, 0, 0, 0).unwrap()
+            } else {
+                Utc.with_ymd_and_hms(dt.year(), dt.month() - 1, 1, 0, 0, 0).unwrap()
+            };
+            start_month = prev_month.timestamp() as u64;
+        }
+
+        let next_month = {
+            let dt = Utc.timestamp_opt(current_month_start as i64, 0).unwrap();
+            let next = if dt.month() == 12 {
+                Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).unwrap()
+            } else {
+                Utc.with_ymd_and_hms(dt.year(), dt.month() + 1, 1, 0, 0, 0).unwrap()
+            };
+            next.timestamp() as u64
+        };
+
+        let requestors = self.db
+            .get_active_requestor_addresses_in_period(start_month, next_month)
+            .await?;
+
+        tracing::debug!(
+            "Found {} active requestors in month range {} to {}",
+            requestors.len(),
+            start_month,
+            current_month_start
+        );
+
+        for requestor in requestors {
+            for (month_ts, month_end) in iter_monthly_periods(start_month, current_month_start) {
+                let summary = self.compute_period_requestor_summary(month_ts, month_end, requestor).await?;
+                if summary.total_requests_submitted > 0 {
+                    self.db.upsert_monthly_requestor_summary(summary).await?;
+                }
+            }
+        }
+
+        tracing::info!("aggregate_monthly_requestor_data completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    pub(super) async fn aggregate_all_time_requestor_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+        let current_time = self.block_timestamp(to_block).await?;
+
+        tracing::debug!(
+            "Aggregating all-time requestor data for past {} hours from block {} timestamp {}",
+            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
+            to_block,
+            current_time
+        );
+
+        let hours_ago = current_time - (HOURLY_AGGREGATION_RECOMPUTE_HOURS * SECONDS_PER_HOUR);
+        let start_hour = get_hour_start(hours_ago);
+        let current_hour = get_hour_start(current_time);
+
+        let requestors = self.db
+            .get_active_requestor_addresses_in_period(start_hour, current_hour + SECONDS_PER_HOUR)
+            .await?;
+
+        tracing::debug!(
+            "Aggregating all-time summaries for {} requestors from {} to {}",
+            requestors.len(),
+            start_hour,
+            current_hour
+        );
+
+        for requestor in requestors {
+            // Get all hourly summaries for this requestor
+            let hourly_summaries = self.db
+                .get_hourly_requestor_summaries_by_range(requestor, start_hour, current_hour + 1)
+                .await?;
+
+            if hourly_summaries.is_empty() {
+                continue;
+            }
+
+            let earliest_hour = hourly_summaries.first().unwrap().period_timestamp;
+            let base_timestamp = earliest_hour.saturating_sub(SECONDS_PER_HOUR);
+
+            let mut cumulative_summary = match self.db
+                .get_all_time_requestor_summary_by_timestamp(requestor, base_timestamp)
+                .await?
+            {
+                Some(prev) => prev,
+                None => crate::db::market::AllTimeRequestorSummary {
+                    period_timestamp: base_timestamp,
+                    requestor_address: requestor,
+                    total_fulfilled: 0,
+                    unique_provers_locking_requests: 0,
+                    total_fees_locked: alloy::primitives::U256::ZERO,
+                    total_collateral_locked: alloy::primitives::U256::ZERO,
+                    total_locked_and_expired_collateral: alloy::primitives::U256::ZERO,
+                    total_requests_submitted: 0,
+                    total_requests_submitted_onchain: 0,
+                    total_requests_submitted_offchain: 0,
+                    total_requests_locked: 0,
+                    total_requests_slashed: 0,
+                    total_expired: 0,
+                    total_locked_and_expired: 0,
+                    total_locked_and_fulfilled: 0,
+                    locked_orders_fulfillment_rate: 0.0,
+                    total_program_cycles: alloy::primitives::U256::ZERO,
+                    total_cycles: alloy::primitives::U256::ZERO,
+                    best_peak_prove_mhz: 0,
+                    best_peak_prove_mhz_prover: None,
+                    best_peak_prove_mhz_request_id: None,
+                    best_effective_prove_mhz: 0,
+                    best_effective_prove_mhz_prover: None,
+                    best_effective_prove_mhz_request_id: None,
+                },
+            };
+
+            for (hour_ts, _hour_end) in iter_hourly_periods(start_hour, current_hour) {
+                let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
+
+                if let Some(summary) = hour_summary {
+                    // Add this hour's data
+                    cumulative_summary.total_fulfilled += summary.total_fulfilled;
+                    cumulative_summary.total_requests_submitted += summary.total_requests_submitted;
+                    cumulative_summary.total_requests_submitted_onchain += summary.total_requests_submitted_onchain;
+                    cumulative_summary.total_requests_submitted_offchain += summary.total_requests_submitted_offchain;
+                    cumulative_summary.total_requests_locked += summary.total_requests_locked;
+                    cumulative_summary.total_requests_slashed += summary.total_requests_slashed;
+                    cumulative_summary.total_expired += summary.total_expired;
+                    cumulative_summary.total_locked_and_expired += summary.total_locked_and_expired;
+                    cumulative_summary.total_locked_and_fulfilled += summary.total_locked_and_fulfilled;
+                    cumulative_summary.total_program_cycles += summary.total_program_cycles;
+                    cumulative_summary.total_cycles += summary.total_cycles;
+                    cumulative_summary.total_fees_locked += summary.total_fees_locked;
+                    cumulative_summary.total_collateral_locked += summary.total_collateral_locked;
+                    cumulative_summary.total_locked_and_expired_collateral += summary.total_locked_and_expired_collateral;
+
+                    // Update best metrics
+                    if summary.best_peak_prove_mhz > cumulative_summary.best_peak_prove_mhz {
+                        cumulative_summary.best_peak_prove_mhz = summary.best_peak_prove_mhz;
+                        cumulative_summary.best_peak_prove_mhz_prover = summary.best_peak_prove_mhz_prover.clone();
+                        cumulative_summary.best_peak_prove_mhz_request_id = summary.best_peak_prove_mhz_request_id;
+                    }
+                    if summary.best_effective_prove_mhz > cumulative_summary.best_effective_prove_mhz {
+                        cumulative_summary.best_effective_prove_mhz = summary.best_effective_prove_mhz;
+                        cumulative_summary.best_effective_prove_mhz_prover = summary.best_effective_prove_mhz_prover.clone();
+                        cumulative_summary.best_effective_prove_mhz_request_id = summary.best_effective_prove_mhz_request_id;
+                    }
+                } else {
+                    continue;
+                }
+
+                cumulative_summary.period_timestamp = hour_ts;
+
+                // Query unique provers for this requestor up to this hour
+                cumulative_summary.unique_provers_locking_requests = self.db
+                    .get_all_time_requestor_unique_provers(hour_ts + 1, requestor)
+                    .await?;
+
+                // Recalculate fulfillment rate
+                let total_locked_outcomes = cumulative_summary.total_locked_and_fulfilled + cumulative_summary.total_locked_and_expired;
+                cumulative_summary.locked_orders_fulfillment_rate = if total_locked_outcomes > 0 {
+                    (cumulative_summary.total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
+                } else {
+                    0.0
+                };
+
+                self.db.upsert_all_time_requestor_summary(cumulative_summary.clone()).await?;
+            }
+        }
+
+        tracing::info!(
+            "aggregate_all_time_requestor_data completed in {:?}",
+            start.elapsed()
+        );
+        Ok(())
+    }
+
+    pub async fn compute_period_requestor_summary(
+        &self,
+        period_start: u64,
+        period_end: u64,
+        requestor_address: alloy::primitives::Address,
+    ) -> Result<crate::db::market::PeriodRequestorSummary, ServiceError> {
+        use crate::db::market::PeriodRequestorSummary;
+
+        // Execute all database queries in parallel
+        let (
+            total_fulfilled,
+            unique_provers,
+            total_requests_submitted,
+            total_requests_submitted_onchain,
+            total_requests_locked,
+            total_requests_slashed,
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            locks,
+            all_lock_collaterals,
+            locked_and_expired_collaterals,
+            total_program_cycles,
+            total_cycles,
+        ) = tokio::join!(
+            self.db.get_period_requestor_fulfilled_count(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_unique_provers(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_total_requests_submitted(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_total_requests_submitted_onchain(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_total_requests_locked(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_total_requests_slashed(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_expired_count(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_locked_and_expired_count(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_locked_and_fulfilled_count(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_lock_pricing_data(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_all_lock_collateral(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_locked_and_expired_collateral(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_total_program_cycles(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_total_cycles(period_start, period_end, requestor_address),
+        );
+
+        let total_fulfilled = total_fulfilled?;
+        let unique_provers = unique_provers?;
+        let total_requests_submitted = total_requests_submitted?;
+        let total_requests_submitted_onchain = total_requests_submitted_onchain?;
+        let total_requests_submitted_offchain = total_requests_submitted - total_requests_submitted_onchain;
+        let total_requests_locked = total_requests_locked?;
+        let total_requests_slashed = total_requests_slashed?;
+        let total_expired = total_expired?;
+        let total_locked_and_expired = total_locked_and_expired?;
+        let total_locked_and_fulfilled = total_locked_and_fulfilled?;
+        let locks = locks?;
+        let all_lock_collaterals = all_lock_collaterals?;
+        let locked_and_expired_collaterals = locked_and_expired_collaterals?;
+        let total_program_cycles = total_program_cycles?;
+        let total_cycles = total_cycles?;
+
+        let locked_orders_fulfillment_rate = {
+            let total_locked_outcomes = total_locked_and_fulfilled + total_locked_and_expired;
+            if total_locked_outcomes > 0 {
+                (total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
+            } else {
+                0.0
+            }
+        };
+
+        let mut total_fees = alloy::primitives::U256::ZERO;
+        let mut prices_per_cycle: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
+
+        for lock in locks {
+            let price = if let Some(lock_price_str) = &lock.lock_price {
+                alloy::primitives::U256::from_str(lock_price_str)
+                    .map_err(|e| ServiceError::Error(anyhow::anyhow!("Failed to parse lock_price: {}", e)))?
+            } else {
+                let min_price = alloy::primitives::U256::from_str(&lock.min_price)
+                    .map_err(|e| ServiceError::Error(anyhow::anyhow!("Failed to parse min_price: {}", e)))?;
+                let max_price = alloy::primitives::U256::from_str(&lock.max_price)
+                    .map_err(|e| ServiceError::Error(anyhow::anyhow!("Failed to parse max_price: {}", e)))?;
+
+                let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.bidding_start);
+                let lock_timeout = u32::try_from(lock_timeout_u64).unwrap_or_else(|_| {
+                    tracing::warn!(
+                        "Lock timeout {} exceeds u32::MAX for request, using u32::MAX as fallback",
+                        lock_timeout_u64
+                    );
+                    u32::MAX
+                });
+
+                price_at_time(
+                    min_price,
+                    max_price,
+                    lock.bidding_start,
+                    lock.ramp_up_period,
+                    lock_timeout,
+                    lock.lock_timestamp,
+                )
+            };
+
+            total_fees += price;
+
+            if let Some(price_per_cycle_str) = &lock.lock_price_per_cycle {
+                if let Ok(price_per_cycle) = alloy::primitives::U256::from_str(price_per_cycle_str) {
+                    prices_per_cycle.push(price_per_cycle);
+                }
+            }
+        }
+
+        let mut total_collateral = alloy::primitives::U256::ZERO;
+        for collateral_str in all_lock_collaterals {
+            let lock_collateral = alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
+                ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
+            })?;
+            total_collateral += lock_collateral;
+        }
+
+        let mut total_locked_and_expired_collateral = alloy::primitives::U256::ZERO;
+        for collateral_str in locked_and_expired_collaterals {
+            let lock_collateral = alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
+                ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
+            })?;
+            total_locked_and_expired_collateral += lock_collateral;
+        }
+
+        let percentiles = if !prices_per_cycle.is_empty() {
+            let mut sorted_prices = prices_per_cycle;
+            compute_percentiles(&mut sorted_prices, &[10, 25, 50, 75, 90, 95, 99])
+        } else {
+            vec![alloy::primitives::U256::ZERO; 7]
+        };
+
+        let best_peak_prove_mhz = 0;
+        let best_peak_prove_mhz_prover = None;
+        let best_peak_prove_mhz_request_id = None;
+        let best_effective_prove_mhz = 0;
+        let best_effective_prove_mhz_prover = None;
+        let best_effective_prove_mhz_request_id = None;
+
+        Ok(PeriodRequestorSummary {
+            period_timestamp: period_start,
+            requestor_address,
+            total_fulfilled,
+            unique_provers_locking_requests: unique_provers,
+            total_fees_locked: total_fees,
+            total_collateral_locked: total_collateral,
+            total_locked_and_expired_collateral,
+            p10_lock_price_per_cycle: percentiles[0],
+            p25_lock_price_per_cycle: percentiles[1],
+            p50_lock_price_per_cycle: percentiles[2],
+            p75_lock_price_per_cycle: percentiles[3],
+            p90_lock_price_per_cycle: percentiles[4],
+            p95_lock_price_per_cycle: percentiles[5],
+            p99_lock_price_per_cycle: percentiles[6],
+            total_requests_submitted,
+            total_requests_submitted_onchain,
+            total_requests_submitted_offchain,
+            total_requests_locked,
+            total_requests_slashed,
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            locked_orders_fulfillment_rate,
+            total_program_cycles,
+            total_cycles,
+            best_peak_prove_mhz,
+            best_peak_prove_mhz_prover,
+            best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz,
+            best_effective_prove_mhz_prover,
+            best_effective_prove_mhz_request_id,
+        })
     }
 }

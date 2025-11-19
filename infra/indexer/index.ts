@@ -140,6 +140,7 @@ export = () => {
       rdsSgId: infra.rdsSecurityGroupId,
       indexerSgId: infra.indexerSecurityGroup.id,
       rustLogLevel: rustLogLevel,
+      chainId: chainId,
       domain: indexerApiDomain,
       boundlessAlertsTopicArns: alertsTopicArns,
       databaseVersion: infra.databaseVersion,

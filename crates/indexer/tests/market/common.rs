@@ -253,6 +253,37 @@ pub async fn create_order_with_timeouts(
     (req, client_sig.as_bytes().into())
 }
 
+/// Helper to create an order with custom collateral
+pub async fn create_order_with_collateral(
+    signer: &impl Signer,
+    signer_addr: Address,
+    order_id: u32,
+    contract_addr: Address,
+    chain_id: u64,
+    now: u64,
+    lock_collateral: U256,
+) -> (ProofRequest, Bytes) {
+    let req = ProofRequest::new(
+        RequestId::new(signer_addr, order_id),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: U256::from(0),
+            maxPrice: U256::from(1),
+            rampUpStart: now - 3,
+            timeout: 3600, // Long timeout to ensure request doesn't expire
+            rampUpPeriod: 1,
+            lockTimeout: 3600, // Long lock timeout to ensure we have time to lock
+            lockCollateral: lock_collateral,
+        },
+    );
+
+    let client_sig = req.sign_request(signer, contract_addr, chain_id).await.unwrap();
+
+    (req, client_sig.as_bytes().into())
+}
+
 /// Helper to setup order stream server and client
 pub async fn setup_order_stream<P: Provider>(
     anvil: &alloy::node_bindings::AnvilInstance,
@@ -327,6 +358,32 @@ pub async fn update_order_timestamps(pool: &sqlx::PgPool, block_timestamp: u64) 
         .unwrap();
 }
 
+/// Helper to submit a request with automatic deposit if needed
+/// Ensures the customer has sufficient balance to cover the lock price
+pub async fn submit_request_with_deposit<P: Provider + WalletProvider + Clone + 'static>(
+    ctx: &TestCtx<P>,
+    request: &ProofRequest,
+    client_sig: Bytes,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check current balance
+    let current_balance = ctx.customer_market.balance_of(ctx.customer_signer.address()).await?;
+    
+    // Calculate required balance (use maxPrice as a safe estimate)
+    let required_balance = request.offer.maxPrice;
+    
+    // If balance is insufficient, deposit more
+    if current_balance < required_balance {
+        let needed = required_balance - current_balance;
+        // Add a small buffer for safety
+        let deposit_amount = needed + U256::from(10);
+        ctx.customer_market.deposit(deposit_amount).await?;
+    }
+    
+    ctx.customer_market.submit_request_with_signature(request, client_sig).await?;
+    
+    Ok(())
+}
+
 /// Helper to lock and fulfill a request
 pub async fn lock_and_fulfill_request<P: Provider + WalletProvider + Clone + 'static>(
     ctx: &TestCtx<P>,
@@ -336,6 +393,58 @@ pub async fn lock_and_fulfill_request<P: Provider + WalletProvider + Clone + 'st
 ) -> Result<(), Box<dyn std::error::Error>> {
     use boundless_cli::OrderFulfilled;
     use boundless_market::contracts::boundless_market::FulfillmentTx;
+
+    ctx.prover_market.lock_request(request, client_sig.clone(), None).await?;
+
+    let (fill, root_receipt, assessor_receipt) =
+        prover.fulfill(&[(request.clone(), client_sig)]).await?;
+    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt)?;
+
+    ctx.prover_market
+        .fulfill(
+            FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
+                .with_submit_root(
+                    ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
+        )
+        .await?;
+
+    Ok(())
+}
+
+/// Helper to lock and fulfill a request with collateral setup
+/// This ensures the prover has sufficient collateral deposited before locking
+pub async fn lock_and_fulfill_request_with_collateral<P: Provider + WalletProvider + Clone + 'static>(
+    ctx: &TestCtx<P>,
+    prover: &DefaultProver,
+    request: &ProofRequest,
+    client_sig: Bytes,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use boundless_cli::OrderFulfilled;
+    use boundless_market::contracts::boundless_market::FulfillmentTx;
+
+    // If request requires collateral, ensure prover has it deposited
+    if request.offer.lockCollateral > U256::ZERO {
+        // Check current collateral balance
+        let mut current_balance = ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await?;
+        
+        // If balance is insufficient, deposit more
+        if current_balance < request.offer.lockCollateral {
+            let needed = request.offer.lockCollateral - current_balance;
+            tracing::debug!("Prover needs {} collateral, current balance: {}, depositing {}", request.offer.lockCollateral, current_balance, needed);
+            ctx.prover_market.approve_deposit_collateral(needed).await?;
+            ctx.prover_market.deposit_collateral(needed).await?;
+            
+            // Verify deposit succeeded - deposit_collateral already waits for confirmation
+            current_balance = ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await?;
+            tracing::debug!("After deposit, prover collateral balance: {}", current_balance);
+            if current_balance < request.offer.lockCollateral {
+                return Err(format!("Failed to deposit sufficient collateral: have {}, need {}", current_balance, request.offer.lockCollateral).into());
+            }
+        }
+    }
 
     ctx.prover_market.lock_request(request, client_sig.clone(), None).await?;
 
@@ -407,9 +516,52 @@ pub async fn advance_time_and_mine<P: Provider + WalletProvider + Clone + 'stati
     Ok(())
 }
 
-/// Semantic wrapper for waiting for indexer to process
-pub async fn wait_for_indexer() {
-    tokio::time::sleep(INDEXER_WAIT_DURATION).await;
+/// Wait for indexer to process up to the current block number
+pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
+    // Get current block number from the chain
+    let current_block = match provider.get_block_number().await {
+        Ok(block) => block,
+        Err(e) => {
+            eprintln!("Failed to get current block number: {}, falling back to time-based wait", e);
+            tokio::time::sleep(INDEXER_WAIT_DURATION).await;
+            return;
+        }
+    };
+    
+    // Wait for indexer to process up to current block with timeout
+    let timeout = Duration::from_secs(30);
+    let start = std::time::Instant::now();
+    let poll_interval = Duration::from_millis(200);
+    
+    loop {
+        // Query last processed block from indexer (block is stored as TEXT)
+        let result: Result<(String,), _> = sqlx::query_as("SELECT block FROM last_block WHERE id = 0")
+            .fetch_one(pool)
+            .await;
+            
+        if let Ok((ref last_block_str,)) = result {
+            if let Ok(last_block) = last_block_str.parse::<u64>() {
+                if last_block >= current_block {
+                    tracing::debug!("Indexer caught up to block {}", current_block);
+                    return;
+                }
+            }
+        }
+        
+        if start.elapsed() > timeout {
+            let last_block_info = result.ok()
+                .and_then(|(s,)| s.parse::<u64>().ok())
+                .map(|b| format!("{}", b))
+                .unwrap_or_else(|| "None".to_string());
+            panic!(
+                "Timeout waiting for indexer to reach block {}. Last known block: {}",
+                current_block,
+                last_block_info
+            );
+        }
+        
+        tokio::time::sleep(poll_interval).await;
+    }
 }
 
 /// Count rows in any table

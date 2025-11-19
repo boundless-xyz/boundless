@@ -46,6 +46,8 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct IndexingStatusResponse {
+    /// Chain ID
+    pub chain_id: u64,
     /// Last indexed block number
     pub last_indexed_block: u64,
     /// Last indexed block timestamp (Unix timestamp)
@@ -96,6 +98,7 @@ async fn get_indexing_status_impl(state: Arc<AppState>) -> anyhow::Result<Indexi
     let timestamp_i64 = 0;
 
     Ok(IndexingStatusResponse {
+        chain_id: state.chain_id,
         last_indexed_block: last_block,
         last_indexed_block_timestamp: timestamp_i64,
         last_indexed_block_timestamp_iso: format_timestamp_iso(timestamp_i64),
@@ -171,6 +174,8 @@ fn decode_cursor(cursor_str: &str) -> Result<i64, anyhow::Error> {
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MarketAggregateEntry {
+    /// Chain ID
+    pub chain_id: u64,
     /// Timestamp for this aggregate period (Unix timestamp)
     pub timestamp: i64,
 
@@ -282,6 +287,8 @@ pub struct MarketAggregateEntry {
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MarketAggregatesResponse {
+    /// Chain ID
+    pub chain_id: u64,
     /// The aggregation granularity used: hourly, daily, weekly, or monthly
     pub aggregation: AggregationGranularity,
     pub data: Vec<MarketAggregateEntry>,
@@ -409,11 +416,6 @@ async fn get_market_aggregates_impl(
             // Format timestamp as ISO 8601 manually
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
 
-            // Normalize padded strings by parsing as U256 and converting back to clean string
-            let normalize = |s: &str| -> String {
-                U256::from_str(s).map(|v| v.to_string()).unwrap_or_else(|_| "0".to_string())
-            };
-
             // Convert U256 fields to strings (all currency fields are now U256 in struct)
             let total_fees_locked = summary.total_fees_locked.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
@@ -427,6 +429,7 @@ async fn get_market_aggregates_impl(
             let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
 
             MarketAggregateEntry {
+                chain_id: state.chain_id,
                 timestamp: summary.period_timestamp as i64,
                 timestamp_iso,
                 total_fulfilled: summary.total_fulfilled as i64,
@@ -468,6 +471,7 @@ async fn get_market_aggregates_impl(
         .collect();
 
     Ok(MarketAggregatesResponse { 
+        chain_id: state.chain_id,
         aggregation: params.aggregation,
         data, 
         next_cursor, 
@@ -513,6 +517,8 @@ fn decode_request_cursor(cursor_str: &str) -> Result<RequestCursor, anyhow::Erro
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RequestStatusResponse {
+    /// Chain ID
+    pub chain_id: u64,
     /// Request digest (unique identifier)
     pub request_digest: String,
     /// Request ID (can be non-unique)
@@ -547,6 +553,10 @@ pub struct RequestStatusResponse {
     pub slashed_at: Option<i64>,
     /// Slashed timestamp (ISO 8601)
     pub slashed_at_iso: Option<String>,
+    /// Lock prover delivered proof timestamp (Unix)
+    pub lock_prover_delivered_proof_at: Option<i64>,
+    /// Lock prover delivered proof timestamp (ISO 8601)
+    pub lock_prover_delivered_proof_at_iso: Option<String>,
     /// Submit block number
     pub submit_block: Option<i64>,
     /// Lock block number
@@ -637,22 +647,26 @@ pub struct RequestStatusResponse {
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RequestListResponse {
+    /// Chain ID
+    pub chain_id: u64,
     pub data: Vec<RequestStatusResponse>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }
 
-fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
+fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatusResponse {
     let created_at = status.created_at as i64;
     let updated_at = status.updated_at as i64;
     let locked_at = status.locked_at.map(|t| t as i64);
     let fulfilled_at = status.fulfilled_at.map(|t| t as i64);
     let slashed_at = status.slashed_at.map(|t| t as i64);
+    let lock_prover_delivered_proof_at = status.lock_prover_delivered_proof_at.map(|t| t as i64);
     let ramp_up_start = status.ramp_up_start as i64;
     let expires_at = status.expires_at as i64;
     let lock_end = status.lock_end as i64;
 
     RequestStatusResponse {
+        chain_id,
         request_digest: format!("{:#x}", status.request_digest),
         request_id: format!("0x{:x}", status.request_id),
         request_status: status.request_status.to_string(),
@@ -670,6 +684,8 @@ fn convert_request_status(status: RequestStatus) -> RequestStatusResponse {
         fulfilled_at_iso: fulfilled_at.map(format_timestamp_iso),
         slashed_at,
         slashed_at_iso: slashed_at.map(format_timestamp_iso),
+        lock_prover_delivered_proof_at,
+        lock_prover_delivered_proof_at_iso: lock_prover_delivered_proof_at.map(format_timestamp_iso),
         submit_block: status.submit_block.map(|b| b as i64),
         lock_block: status.lock_block.map(|b| b as i64),
         fulfill_block: status.fulfill_block.map(|b| b as i64),
@@ -763,11 +779,12 @@ async fn list_requests_impl(
 
     let (statuses, next_cursor) = state.market_db.list_requests(cursor, limit, sort_by).await?;
 
-    let data = statuses.into_iter().map(convert_request_status).collect();
-    let next_cursor_encoded = next_cursor.as_ref().map(|c| encode_request_cursor(c)).transpose()?;
+    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
+    let next_cursor_encoded = next_cursor.as_ref().map(encode_request_cursor).transpose()?;
     let has_more = next_cursor.is_some();
 
     Ok(RequestListResponse {
+        chain_id: state.chain_id,
         data,
         next_cursor: next_cursor_encoded,
         has_more,
@@ -831,11 +848,12 @@ async fn list_requests_by_requestor_impl(
         .list_requests_by_requestor(client_address, cursor, limit, sort_by)
         .await?;
 
-    let data = statuses.into_iter().map(convert_request_status).collect();
-    let next_cursor_encoded = next_cursor.as_ref().map(|c| encode_request_cursor(c)).transpose()?;
+    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
+    let next_cursor_encoded = next_cursor.as_ref().map(encode_request_cursor).transpose()?;
     let has_more = next_cursor.is_some();
 
     Ok(RequestListResponse {
+        chain_id: state.chain_id,
         data,
         next_cursor: next_cursor_encoded,
         has_more,
@@ -899,11 +917,12 @@ async fn list_requests_by_prover_impl(
         .list_requests_by_prover(prover_address, cursor, limit, sort_by)
         .await?;
 
-    let data = statuses.into_iter().map(convert_request_status).collect();
-    let next_cursor_encoded = next_cursor.as_ref().map(|c| encode_request_cursor(c)).transpose()?;
+    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
+    let next_cursor_encoded = next_cursor.as_ref().map(encode_request_cursor).transpose()?;
     let has_more = next_cursor.is_some();
 
     Ok(RequestListResponse {
+        chain_id: state.chain_id,
         data,
         next_cursor: next_cursor_encoded,
         has_more,
@@ -952,6 +971,6 @@ async fn get_requests_by_request_id_impl(
     let normalized_id = format!("{:x}", parsed);
 
     let statuses = state.market_db.get_requests_by_request_id(&normalized_id).await?;
-    let data = statuses.into_iter().map(convert_request_status).collect();
+    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
     Ok(data)
 }

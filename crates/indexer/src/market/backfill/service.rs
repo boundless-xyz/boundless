@@ -183,6 +183,9 @@ where
         // Recompute all-time aggregates
         self.backfill_all_time_aggregates(start_timestamp, end_timestamp).await?;
 
+        // Recompute per-requestor aggregates
+        self.backfill_requestor_aggregates(start_timestamp, end_timestamp).await?;
+
         tracing::info!("Aggregate backfill completed in {:?}", start_time.elapsed());
         Ok(())
     }
@@ -342,7 +345,7 @@ where
         use alloy::primitives::U256;
 
         // Get current hour and previous finished hour using DRY helper functions
-        let current_hour = get_hour_start(end_ts);
+        let _current_hour = get_hour_start(end_ts);
         let previous_finished_hour = get_previous_finished_hour(end_ts);
 
         // Get latest all-time aggregate (if exists)
@@ -499,6 +502,357 @@ where
         tracing::info!(
             "All-time aggregate backfill completed: {} periods in {:?}",
             processed,
+            start_time.elapsed()
+        );
+        Ok(())
+    }
+
+    // Per-Requestor Backfill Methods
+
+    async fn backfill_requestor_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+        tracing::info!("Starting per-requestor aggregate backfill...");
+
+        // Get all unique requestor addresses
+        let requestors = self.indexer.db.get_all_requestor_addresses().await?;
+        tracing::info!("Found {} unique requestors to process", requestors.len());
+
+        // Recompute hourly aggregates for all requestors
+        self.backfill_hourly_requestor_aggregates(start_ts, end_ts, &requestors).await?;
+
+        // Recompute daily aggregates for all requestors
+        self.backfill_daily_requestor_aggregates(start_ts, end_ts, &requestors).await?;
+
+        // Recompute weekly aggregates for all requestors
+        self.backfill_weekly_requestor_aggregates(start_ts, end_ts, &requestors).await?;
+
+        // Recompute monthly aggregates for all requestors
+        self.backfill_monthly_requestor_aggregates(start_ts, end_ts, &requestors).await?;
+
+        // Recompute all-time aggregates for all requestors
+        self.backfill_all_time_requestor_aggregates(start_ts, end_ts, &requestors).await?;
+
+        tracing::info!("Per-requestor aggregate backfill completed in {:?}", start_time.elapsed());
+        Ok(())
+    }
+
+    async fn backfill_hourly_requestor_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+        requestors: &[alloy::primitives::Address],
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+
+        let periods: Vec<_> = iter_hourly_periods(start_ts, end_ts).collect();
+        let total_hours = periods.len();
+
+        tracing::info!(
+            "Recomputing hourly requestor aggregates: {} requestors × {} hours = {} total",
+            requestors.len(),
+            total_hours,
+            requestors.len() * total_hours
+        );
+
+        let mut processed = 0;
+        for requestor in requestors {
+            for (hour_ts, hour_end) in &periods {
+                let summary = self.indexer
+                    .compute_period_requestor_summary(*hour_ts, *hour_end, *requestor)
+                    .await?;
+                
+                // Only insert if there's activity
+                if summary.total_requests_submitted > 0 {
+                    self.indexer.db.upsert_hourly_requestor_summary(summary).await?;
+                }
+
+                processed += 1;
+                if processed % 1000 == 0 {
+                    tracing::info!(
+                        "Processed {} / {} hourly requestor periods",
+                        processed,
+                        requestors.len() * total_hours
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            "Hourly requestor aggregate backfill completed: {} periods in {:?}",
+            processed,
+            start_time.elapsed()
+        );
+        Ok(())
+    }
+
+    async fn backfill_daily_requestor_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+        requestors: &[alloy::primitives::Address],
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+
+        let periods: Vec<_> = iter_daily_periods(start_ts, end_ts).collect();
+        let total_days = periods.len();
+
+        tracing::info!(
+            "Recomputing daily requestor aggregates: {} requestors × {} days = {} total",
+            requestors.len(),
+            total_days,
+            requestors.len() * total_days
+        );
+
+        let mut processed = 0;
+        for requestor in requestors {
+            for (day_ts, day_end) in &periods {
+                let summary = self.indexer
+                    .compute_period_requestor_summary(*day_ts, *day_end, *requestor)
+                    .await?;
+                
+                if summary.total_requests_submitted > 0 {
+                    self.indexer.db.upsert_daily_requestor_summary(summary).await?;
+                }
+
+                processed += 1;
+                if processed % 100 == 0 {
+                    tracing::info!(
+                        "Processed {} / {} daily requestor periods",
+                        processed,
+                        requestors.len() * total_days
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            "Daily requestor aggregate backfill completed: {} periods in {:?}",
+            processed,
+            start_time.elapsed()
+        );
+        Ok(())
+    }
+
+    async fn backfill_weekly_requestor_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+        requestors: &[alloy::primitives::Address],
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+
+        let periods: Vec<_> = iter_weekly_periods(start_ts, end_ts).collect();
+        let total_weeks = periods.len();
+
+        tracing::info!(
+            "Recomputing weekly requestor aggregates: {} requestors × {} weeks = {} total",
+            requestors.len(),
+            total_weeks,
+            requestors.len() * total_weeks
+        );
+
+        let mut processed = 0;
+        for requestor in requestors {
+            for (week_ts, week_end) in &periods {
+                let summary = self.indexer
+                    .compute_period_requestor_summary(*week_ts, *week_end, *requestor)
+                    .await?;
+                
+                if summary.total_requests_submitted > 0 {
+                    self.indexer.db.upsert_weekly_requestor_summary(summary).await?;
+                }
+
+                processed += 1;
+                if processed % 50 == 0 {
+                    tracing::info!(
+                        "Processed {} / {} weekly requestor periods",
+                        processed,
+                        requestors.len() * total_weeks
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            "Weekly requestor aggregate backfill completed: {} periods in {:?}",
+            processed,
+            start_time.elapsed()
+        );
+        Ok(())
+    }
+
+    async fn backfill_monthly_requestor_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+        requestors: &[alloy::primitives::Address],
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+
+        let periods: Vec<_> = iter_monthly_periods(start_ts, end_ts).collect();
+        let total_months = periods.len();
+
+        tracing::info!(
+            "Recomputing monthly requestor aggregates: {} requestors × {} months = {} total",
+            requestors.len(),
+            total_months,
+            requestors.len() * total_months
+        );
+
+        let mut processed = 0;
+        for requestor in requestors {
+            for (month_ts, month_end) in &periods {
+                let summary = self.indexer
+                    .compute_period_requestor_summary(*month_ts, *month_end, *requestor)
+                    .await?;
+                
+                if summary.total_requests_submitted > 0 {
+                    self.indexer.db.upsert_monthly_requestor_summary(summary).await?;
+                }
+
+                processed += 1;
+                if processed % 20 == 0 {
+                    tracing::info!(
+                        "Processed {} / {} monthly requestor periods",
+                        processed,
+                        requestors.len() * total_months
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            "Monthly requestor aggregate backfill completed: {} periods in {:?}",
+            processed,
+            start_time.elapsed()
+        );
+        Ok(())
+    }
+
+    async fn backfill_all_time_requestor_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+        requestors: &[alloy::primitives::Address],
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+
+        let periods: Vec<_> = iter_hourly_periods(start_ts, end_ts).collect();
+        let _total_hours = periods.len();
+
+        tracing::info!(
+            "Recomputing all-time requestor aggregates: {} requestors",
+            requestors.len()
+        );
+
+        let mut processed_requestors = 0;
+        for requestor in requestors {
+            // Initialize with zeros
+            let mut current_all_time = crate::db::market::AllTimeRequestorSummary {
+                period_timestamp: 0,
+                requestor_address: *requestor,
+                total_fulfilled: 0,
+                unique_provers_locking_requests: 0,
+                total_fees_locked: alloy::primitives::U256::ZERO,
+                total_collateral_locked: alloy::primitives::U256::ZERO,
+                total_locked_and_expired_collateral: alloy::primitives::U256::ZERO,
+                total_requests_submitted: 0,
+                total_requests_submitted_onchain: 0,
+                total_requests_submitted_offchain: 0,
+                total_requests_locked: 0,
+                total_requests_slashed: 0,
+                total_expired: 0,
+                total_locked_and_expired: 0,
+                total_locked_and_fulfilled: 0,
+                locked_orders_fulfillment_rate: 0.0,
+                total_program_cycles: alloy::primitives::U256::ZERO,
+                total_cycles: alloy::primitives::U256::ZERO,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
+            };
+
+            let mut has_activity = false;
+            for (hour_ts, _hour_end) in &periods {
+                // Try to get the hourly summary for this requestor
+                if let Ok(hourly_summaries) = self.indexer.db
+                    .get_hourly_requestor_summaries_by_range(*requestor, *hour_ts, hour_ts + 1)
+                    .await
+                {
+                    if let Some(hour_summary) = hourly_summaries.first() {
+                        has_activity = true;
+                        
+                        // Add this hour's data
+                        current_all_time.total_fulfilled += hour_summary.total_fulfilled;
+                        current_all_time.total_requests_submitted += hour_summary.total_requests_submitted;
+                        current_all_time.total_requests_submitted_onchain += hour_summary.total_requests_submitted_onchain;
+                        current_all_time.total_requests_submitted_offchain += hour_summary.total_requests_submitted_offchain;
+                        current_all_time.total_requests_locked += hour_summary.total_requests_locked;
+                        current_all_time.total_requests_slashed += hour_summary.total_requests_slashed;
+                        current_all_time.total_expired += hour_summary.total_expired;
+                        current_all_time.total_locked_and_expired += hour_summary.total_locked_and_expired;
+                        current_all_time.total_locked_and_fulfilled += hour_summary.total_locked_and_fulfilled;
+                        current_all_time.total_program_cycles += hour_summary.total_program_cycles;
+                        current_all_time.total_cycles += hour_summary.total_cycles;
+                        current_all_time.total_fees_locked += hour_summary.total_fees_locked;
+                        current_all_time.total_collateral_locked += hour_summary.total_collateral_locked;
+                        current_all_time.total_locked_and_expired_collateral += hour_summary.total_locked_and_expired_collateral;
+
+                        // Update best metrics
+                        if hour_summary.best_peak_prove_mhz > current_all_time.best_peak_prove_mhz {
+                            current_all_time.best_peak_prove_mhz = hour_summary.best_peak_prove_mhz;
+                            current_all_time.best_peak_prove_mhz_prover = hour_summary.best_peak_prove_mhz_prover.clone();
+                            current_all_time.best_peak_prove_mhz_request_id = hour_summary.best_peak_prove_mhz_request_id;
+                        }
+                        if hour_summary.best_effective_prove_mhz > current_all_time.best_effective_prove_mhz {
+                            current_all_time.best_effective_prove_mhz = hour_summary.best_effective_prove_mhz;
+                            current_all_time.best_effective_prove_mhz_prover = hour_summary.best_effective_prove_mhz_prover.clone();
+                            current_all_time.best_effective_prove_mhz_request_id = hour_summary.best_effective_prove_mhz_request_id;
+                        }
+                    }
+                }
+
+                current_all_time.period_timestamp = *hour_ts;
+
+                // Query unique provers for this requestor up to this hour
+                current_all_time.unique_provers_locking_requests = self.indexer.db
+                    .get_all_time_requestor_unique_provers(hour_ts + 1, *requestor)
+                    .await?;
+
+                // Recalculate fulfillment rate
+                let total_locked_outcomes = current_all_time.total_locked_and_fulfilled + current_all_time.total_locked_and_expired;
+                current_all_time.locked_orders_fulfillment_rate = if total_locked_outcomes > 0 {
+                    (current_all_time.total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
+                } else {
+                    0.0
+                };
+
+                // Upsert all-time aggregate for this hour only if there's activity
+                if has_activity {
+                    self.indexer.db.upsert_all_time_requestor_summary(current_all_time.clone()).await?;
+                }
+            }
+
+            processed_requestors += 1;
+            if processed_requestors % 10 == 0 {
+                tracing::info!(
+                    "Processed {} / {} requestors for all-time aggregates",
+                    processed_requestors,
+                    requestors.len()
+                );
+            }
+        }
+
+        tracing::info!(
+            "All-time requestor aggregate backfill completed: {} requestors in {:?}",
+            processed_requestors,
             start_time.elapsed()
         );
         Ok(())

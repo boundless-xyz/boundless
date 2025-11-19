@@ -24,12 +24,13 @@ use sqlx::any::AnyPoolOptions;
 pub struct AppState {
     pub rewards_db: RewardsDbObj,
     pub market_db: MarketDbObj,
+    pub chain_id: u64,
 }
 
 impl AppState {
     /// Create new application state with database connection
     /// Uses read-only constructors since Lambda API connects to reader endpoint
-    pub async fn new(database_url: &str) -> Result<Self> {
+    pub async fn new(database_url: &str, chain_id: u64) -> Result<Self> {
         tracing::info!("Connecting to database...");
 
         // Create rewards database connection (Lambda-optimized: 3 connections, short timeouts)
@@ -49,6 +50,6 @@ impl AppState {
 
         tracing::info!("Database connection established");
 
-        Ok(Self { rewards_db, market_db })
+        Ok(Self { rewards_db, market_db, chain_id })
     }
 }

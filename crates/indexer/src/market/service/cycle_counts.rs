@@ -238,8 +238,9 @@ mod tests {
         );
         assert!(cycles.is_some(), "SIGNAL_REQUESTOR should return cycle counts");
         let (program_cycles, total_cycles) = cycles.unwrap();
+        let program_cycles_u64 = program_cycles.to::<u64>();
         assert!(
-            (SIGNAL_REQUESTOR_MIN_CYCLES..=SIGNAL_REQUESTOR_MAX_CYCLES).contains(&program_cycles),
+            (SIGNAL_REQUESTOR_MIN_CYCLES..=SIGNAL_REQUESTOR_MAX_CYCLES).contains(&program_cycles.to::<u64>()),
             "SIGNAL_REQUESTOR program_cycles {} should be between {} and {}",
             program_cycles,
             SIGNAL_REQUESTOR_MIN_CYCLES,
@@ -342,10 +343,10 @@ mod tests {
     #[test]
     fn test_program_cycles_to_total() {
         // Test the 1.0158 multiplier
-        let program_cycles = 100_000_000;
+        let program_cycles = U256::from(100_000_000u64);
         let total_cycles = program_cycles_to_total(program_cycles);
-        let expected = (100_000_000.0 * 1.0158) as u64;
+        let expected = U256::from((100_000_000.0 * 1.0158) as u64);
         assert_eq!(total_cycles, expected, "total_cycles should be program_cycles * 1.0158");
-        assert_eq!(total_cycles, 101_580_000, "Expected 101,580,000 total cycles");
+        assert_eq!(total_cycles, U256::from(101_580_000u64), "Expected 101,580,000 total cycles");
     }
 }

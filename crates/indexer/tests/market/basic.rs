@@ -23,7 +23,7 @@ use alloy::{
 };
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::{
-    db::{market::{RequestStatusType, SlashedStatus, SortDirection}, DbError},
+    db::{market::{RequestStatusType, SlashedStatus, SortDirection}, DbError, IndexerDb},
     test_utils::TestDb,
 };
 use boundless_market::contracts::{
@@ -57,23 +57,26 @@ async fn test_e2e() {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     tracing::info!("Starting test at timestamp: {}", now);
 
-    // Create, submit, lock, and fulfill request
-    let (request, client_sig) = create_order(
+    // Create, submit, lock, and fulfill request with non-zero collateral
+    let collateral_amount = U256::from(1000);
+    let (request, client_sig) = create_order_with_collateral(
         &fixture.ctx.customer_signer,
         fixture.ctx.customer_signer.address(),
         1,
         fixture.ctx.deployment.boundless_market_address,
         fixture.anvil.chain_id(),
         now,
+        collateral_amount,
     )
     .await;
 
-    fixture.ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    fixture.ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
+    // Submit request with automatic deposit if needed
+    submit_request_with_deposit(&fixture.ctx, &request, client_sig.clone()).await.unwrap();
     
-    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request, client_sig.clone()).await.unwrap();
+    // Use helper that handles collateral deposits
+    lock_and_fulfill_request_with_collateral(&fixture.ctx, &fixture.prover, &request, client_sig.clone()).await.unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify all events were indexed
     let request_id_str = format!("{:x}", request.id);
@@ -116,16 +119,44 @@ async fn test_e2e() {
     assert_eq!(fulfilled_summary.total_fulfilled, 1, "Expected 1 fulfilled request");
     assert_eq!(fulfilled_summary.unique_provers_locking_requests, 1, "Expected 1 unique prover");
 
-    // Verify fees are present (collateral may be zero if request has zero lockCollateral)
+    // Verify fees and collateral are present
     assert_ne!(fulfilled_summary.total_fees_locked, U256::ZERO, "total_fees_locked should not be zero");
-    // Note: total_collateral_locked may be zero if the request was created with lockCollateral: 0
-    // The aggregation correctly tracks collateral even when it's zero
+    assert_eq!(fulfilled_summary.total_collateral_locked, collateral_amount, "total_collateral_locked should match the request's lockCollateral");
     
     assert_eq!(fulfilled_summary.locked_orders_fulfillment_rate, 100.0, "Expected 100% fulfillment rate");
     
     // Verify cycle counts (will be 0 since test uses random address)
     assert_eq!(fulfilled_summary.total_program_cycles, U256::ZERO, "Expected 0 total_program_cycles for non-hardcoded requestor");
     assert_eq!(fulfilled_summary.total_cycles, U256::ZERO, "Expected 0 total_cycles for non-hardcoded requestor");
+
+    // Verify collateral across all aggregation periods
+    // Sum collateral from all hourly summaries
+    let total_hourly_collateral: U256 = summaries.iter().map(|s| s.total_collateral_locked).sum();
+    assert_eq!(total_hourly_collateral, collateral_amount, "Sum of hourly collateral should match request collateral");
+
+    // Verify daily aggregation
+    let daily_summaries = fixture.test_db.db.get_daily_market_summaries(None, 10000, SortDirection::Asc, None, None).await.unwrap();
+    let total_daily_collateral: U256 = daily_summaries.iter().map(|s| s.total_collateral_locked).sum();
+    assert_eq!(total_daily_collateral, collateral_amount, "Sum of daily collateral should match request collateral");
+
+    // Verify all-time aggregation
+    let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
+    assert!(!all_time_summaries.is_empty(), "Expected at least one all-time summary");
+    
+    // Check that all-time collateral matches the sum of hourly collateral
+    let latest_all_time = all_time_summaries.last().unwrap();
+    assert_eq!(latest_all_time.total_collateral_locked, total_hourly_collateral, "All-time total_collateral_locked should match sum of hourly collateral");
+    assert_eq!(latest_all_time.total_collateral_locked, collateral_amount, "All-time total_collateral_locked should match request collateral");
+    
+    // Verify that locked_and_expired_collateral is zero (request was fulfilled, not expired)
+    assert_eq!(latest_all_time.total_locked_and_expired_collateral, U256::ZERO, "total_locked_and_expired_collateral should be zero for fulfilled requests");
+    
+    // Verify collateral is cumulative in all-time summaries
+    for i in 1..all_time_summaries.len() {
+        let prev = &all_time_summaries[i - 1];
+        let curr = &all_time_summaries[i];
+        assert!(curr.total_collateral_locked >= prev.total_collateral_locked, "All-time collateral should be cumulative");
+    }
 
     cli_process.kill().unwrap();
 }
@@ -177,7 +208,7 @@ async fn test_monitoring() {
         if now > request.expires_at() {
             break;
         }
-        wait_for_indexer().await;
+        wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
     }
 
     // Verify expired requests
@@ -208,7 +239,7 @@ async fn test_monitoring() {
     fixture.ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
     lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request, client_sig.clone()).await.unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify monitor metrics
     now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
@@ -341,7 +372,7 @@ async fn test_aggregation_across_hours() {
     let now3 = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     advance_time_and_mine(&fixture.ctx.customer_provider, 3700, 1).await.unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Check hourly aggregation across multiple hours
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
@@ -470,7 +501,7 @@ async fn test_aggregation_percentiles() {
     .spawn()
     .unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     let num_requests = 10;
@@ -539,7 +570,7 @@ async fn test_aggregation_percentiles() {
             .unwrap();
     }
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify percentile calculations
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
@@ -594,11 +625,9 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     // Submit 3 orders to order stream
     let (req1, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 1, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
     order_stream_client.submit_request(&req1, &fixture.ctx.customer_signer).await.unwrap();
-    wait_for_indexer().await;
 
     let (req2, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 2, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
     order_stream_client.submit_request(&req2, &fixture.ctx.customer_signer).await.unwrap();
-    wait_for_indexer().await;
 
     let (req3, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 3, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
     order_stream_client.submit_request(&req3, &fixture.ctx.customer_signer).await.unwrap();
@@ -622,7 +651,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     .spawn()
     .unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify all 3 orders were indexed as offchain
     assert_eq!(count_table_rows(&fixture.test_db.pool, "proof_requests").await, 3);
@@ -707,7 +736,7 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     .spawn()
     .unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify all 5 orders were indexed (2 onchain + 3 offchain)
     assert_eq!(count_table_rows(&fixture.test_db.pool, "proof_requests").await, 5);
@@ -773,7 +802,7 @@ async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     .spawn()
     .unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify onchain request timestamps
     let result = sqlx::query("SELECT block_timestamp, submission_timestamp, source FROM proof_requests WHERE request_id = $1")
@@ -844,9 +873,9 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     .spawn()
     .unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
     cli_process_receipts.kill().ok();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Run indexer with tx-by-hash strategy
     let mut cli_process_tx_by_hash = IndexerCliBuilder::new(
@@ -862,9 +891,9 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     .spawn()
     .unwrap();
 
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
     cli_process_tx_by_hash.kill().ok();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Compare results from both databases
     let count_receipts = count_table_rows(&test_db_receipts.pool, "transactions").await;
@@ -1002,7 +1031,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
     fixture.ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify submitted status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1013,7 +1042,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
 
     // Lock request
     fixture.ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify locked status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1023,7 +1052,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
 
     // Fulfill request (already locked, so use fulfill_request instead of lock_and_fulfill_request)
     fulfill_request(&fixture.ctx, &fixture.prover, &req, sig.clone()).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify fulfilled status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1059,7 +1088,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
     fixture.ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify submitted status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1067,7 +1096,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
 
     // Lock request
     fixture.ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify locked status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1078,7 +1107,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     tracing::info!("Request expires at: {}.", expires_at);
     fixture.ctx.customer_provider.anvil_set_next_block_timestamp(expires_at).await.unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify expired status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1130,7 +1159,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
     fixture.ctx.customer_market.submit_request_with_signature(&req, sig_bytes.clone()).await.unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(3), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify submitted status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1139,7 +1168,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     // Lock request
     fixture.ctx.prover_market.lock_request(&req, sig_bytes.clone(), None).await.unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(2), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify locked status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1149,7 +1178,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     // Advance time past lock expiration and fulfill late
     fixture.ctx.customer_provider.anvil_set_next_block_timestamp(lock_end as u64 + 1).await.unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Fulfill request (late fulfillment)
     let (fill, root_receipt, assessor_receipt) = fixture.prover.fulfill(&[(req.clone(), sig_bytes.clone())]).await.unwrap();
@@ -1162,7 +1191,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
         .await
         .unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(2), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify fulfilled status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
@@ -1172,9 +1201,9 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     // Advance time and slash
     fixture.ctx.customer_provider.anvil_set_next_block_timestamp(req.expires_at() + 1).await.unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
     fixture.ctx.prover_market.slash(req.id).await.unwrap();
-    wait_for_indexer().await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify slashed status (fulfilled takes priority)
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;

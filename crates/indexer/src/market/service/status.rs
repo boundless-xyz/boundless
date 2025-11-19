@@ -48,7 +48,8 @@ where
             SlashedStatus::Slashed
         } else if req.locked_at.is_some()
             && current_timestamp > req.expires_at
-            && req.fulfilled_at.is_none()
+            && (req.lock_prover_delivered_proof_at.is_none()
+                || req.lock_prover_delivered_proof_at.unwrap() > req.lock_end)
         {
             SlashedStatus::Pending
         } else {
@@ -113,6 +114,7 @@ where
             locked_at: req.locked_at,
             fulfilled_at: req.fulfilled_at,
             slashed_at: req.slashed_at,
+            lock_prover_delivered_proof_at: req.lock_prover_delivered_proof_at,
             submit_block: req.submit_block,
             lock_block: req.lock_block,
             fulfill_block: req.fulfill_block,

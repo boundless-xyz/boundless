@@ -34,9 +34,13 @@ use utoipa_swagger_ui::SwaggerUi;
 pub async fn create_handler() -> Result<Router, Error> {
     // Load configuration from environment
     let db_url = env::var("DB_URL").context("DB_URL environment variable is required")?;
+    let chain_id_str = env::var("CHAIN_ID").context("CHAIN_ID environment variable is required")?;
+    let chain_id = chain_id_str
+        .parse::<u64>()
+        .context("CHAIN_ID must be a valid u64")?;
 
     // Create application state with database connection
-    let state = AppState::new(&db_url).await?;
+    let state = AppState::new(&db_url, chain_id).await?;
     let shared_state = Arc::new(state);
 
     // Create the axum application with routes

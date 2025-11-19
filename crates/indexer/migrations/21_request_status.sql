@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS request_status (
     locked_at BIGINT,
     fulfilled_at BIGINT,
     slashed_at BIGINT,
+    lock_prover_delivered_proof_at BIGINT,  -- timestamp of first ProofDelivered event where prover = lock_prover_address
 
     -- Block numbers (for blockchain reference)
     submit_block BIGINT,               -- block where request was submitted (NULL for offchain)

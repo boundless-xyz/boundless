@@ -20,6 +20,8 @@ export interface IndexerApiArgs {
   indexerSgId: pulumi.Input<string>;
   /** RUST_LOG level */
   rustLogLevel: string;
+  /** Chain ID */
+  chainId: pulumi.Input<string>;
   /** Optional custom domain for CloudFront */
   domain?: pulumi.Input<string>;
   /** Boundless alerts topic ARNs */
@@ -134,6 +136,7 @@ export class IndexerApi extends pulumi.ComponentResource {
         DB_URL: dbUrl,
         RUST_LOG: args.rustLogLevel,
         SECRET_HASH: envHash,
+        CHAIN_ID: pulumi.output(args.chainId),
       },
       memorySize: 256,
       timeout: 30,
