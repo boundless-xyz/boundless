@@ -169,7 +169,7 @@ impl IntoResponse for AppError {
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Bind address for REST api
-    #[clap(long, default_value = "0.0.0.0:8080")]
+    #[clap(long, default_value = "0.0.0.0:8081")]
     bind_addr: String,
 
     /// SQL DB Connection pool connections
