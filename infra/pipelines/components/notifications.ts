@@ -383,6 +383,23 @@ export class Notifications extends pulumi.ComponentResource {
       managedPolicyArns: [
         'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
       ],
+      inlinePolicies: [
+        {
+          name: 'cloudwatchAlarmListTagsRolePolicy',
+          policy: pulumi.jsonStringify({
+            Version: "2012-10-17",
+            Statement: [{
+              Sid: "AllowAlarmListTagsAssumeRole",
+              Effect: 'Allow',
+              Action: 'sts:AssumeRole',
+              Resource: [
+                'arn:aws:iam::245178712747:role/alarmListTagsRole',
+                'arn:aws:iam::632745187633:role/alarmListTagsRole'
+              ]
+            }]
+          })
+        }
+      ]
     });
 
     const chatbotLogFetcher = new aws.lambda.Function("chatbot-debugger", {

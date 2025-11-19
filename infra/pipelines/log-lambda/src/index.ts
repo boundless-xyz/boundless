@@ -1,5 +1,6 @@
 import { Context, Handler } from "aws-lambda";
 import { CloudWatchClient, ListTagsForResourceCommand } from "@aws-sdk/client-cloudwatch";
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
 import { getLogGroupName } from "./logGroups";
 import { SERVICE_TO_QUERY_STRING_MAPPING } from "./logQueries";
 import { encodeCloudWatchLogsInsightsUrl, encodeAwsConsoleUrl } from "./urls";
@@ -50,12 +51,28 @@ interface AlarmTags {
   [key:string]: string;
 }
 
-async function queryAlarmTags(client: CloudWatchClient, alarmArn: string): Promise<AlarmTags> {
-  const command = new ListTagsForResourceCommand({
-    ResourceARN: alarmArn,
+async function queryAlarmTags(alarmArn: string, accountId: string, region: string): Promise<AlarmTags> {
+  const stsClient = new STSClient({
+    region: region
+  });
+  const stsResponse = await stsClient.send(new AssumeRoleCommand({
+    RoleArn: `arn:aws:iam::${accountId}:role/alarmListTagsRole`,
+    RoleSessionName: "Log-Lambda-list-alarm-tags"
+  }));
+
+  const cwClient = new CloudWatchClient({
+    region: region,
+    credentials: {
+      accessKeyId: stsResponse.Credentials.AccessKeyId,
+      secretAccessKey: stsResponse.Credentials.SecretAccessKey,
+      sessionToken: stsResponse.Credentials.SessionToken,
+    }
   });
   let tags: AlarmTags = {}
-  const tagsResponse = await client.send(command);
+  const tagsResponse = await cwClient.send(new ListTagsForResourceCommand({
+    ResourceARN: alarmArn,
+  }));
+
   tagsResponse.Tags.forEach( (tag) => {
     tags[tag.Key] = tag.Value;
   });
@@ -80,8 +97,11 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
   let service: string;
   let logGroupName: string;
 
+  const accountId = alarmArn.split(':')[4];
+  const region = alarmArn.split(':')[3];
+
   // Attempt to retrieve the needed information from alarm tags
-  const tagsResponse = await queryAlarmTags(client, alarmArn);
+  const tagsResponse = await queryAlarmTags(alarmArn, accountId, region);
   if (tagsResponse) {
     stage = tagsResponse["StackName"]
     chainId = tagsResponse["ChainId"]
@@ -105,8 +125,6 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
     console.log(`Parsed stage: ${stage}, chainId: ${chainId}, service: ${service}`);
   }
 
-  const accountId = alarmArn.split(':')[4];
-  const region = alarmArn.split(':')[3];
   const chainName = getChainName(chainId);
   const alarmTime = new Date(timestamp);
   const endTime = new Date(alarmTime.getTime() + LOG_QUERY_MINS_AFTER * 60 * 1000);
