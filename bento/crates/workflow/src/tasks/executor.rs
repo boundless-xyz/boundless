@@ -851,7 +851,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                 }
                 continue;
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 EXECUTION_ERRORS.with_label_values(&["task_failed"]).inc();
                 tracing::error!("queue monitor sub task failed: {err:?}");
                 bail!(err);
