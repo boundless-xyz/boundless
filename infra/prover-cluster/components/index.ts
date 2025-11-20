@@ -5,3 +5,4 @@ export { AutoScalingGroupComponent, AutoScalingGroupConfig } from "./AutoScaling
 export { ManagerComponent, ManagerComponentConfig } from "./ManagerComponent";
 export { WorkerClusterComponent, WorkerClusterConfig } from "./WorkerClusterComponent";
 export { ApiGatewayComponent, ApiGatewayComponentConfig } from "./ApiGatewayComponent";
+export { DataServicesComponent, DataServicesComponentConfig } from "./DataServicesComponent";
