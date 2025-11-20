@@ -51,7 +51,7 @@ struct MainArgs {
     #[clap(long, default_value = "10")]
     retries: u32,
     /// Number of blocks to process in each batch.
-    #[clap(long, default_value = "10000")]
+    #[clap(long, default_value = "9999")]
     batch_size: u64,
     /// Whether to log in JSON format.
     #[clap(long, env, default_value_t = false)]

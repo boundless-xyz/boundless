@@ -1237,3 +1237,283 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
 
     indexer_process.kill().unwrap();
 }
+
+#[tokio::test]
+#[traced_test]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_cumulative_carry_forward_with_no_activity_gaps() {
+    // This test verifies that:
+    // 1. All-time cumulatives properly carry forward during hours with no activity
+    // 2. There are no gaps in hour entries (every hour gets an entry)
+    // 3. Cumulative values never decrease
+
+    let fixture = common::new_market_test_fixture().await.unwrap();
+
+    let mut cli_process = IndexerCliBuilder::new(
+        fixture.test_db.db_url.clone(),
+        fixture.anvil.endpoint_url().to_string(),
+        fixture.ctx.deployment.boundless_market_address.to_string(),
+    )
+    .retries("1")
+    .spawn()
+    .unwrap();
+
+    let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let one_eth = parse_ether("1").unwrap().into();
+
+    // Create and fulfill first request with minimal collateral (0 to simplify test)
+    let request1 = ProofRequest::new(
+        RequestId::new(fixture.ctx.customer_signer.address(), 1),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: one_eth,
+            maxPrice: one_eth,
+            rampUpStart: now - 3,
+            timeout: 12,
+            rampUpPeriod: 1,
+            lockTimeout: 12,
+            lockCollateral: U256::from(0),
+        },
+    );
+    let client_sig1 = request1.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+
+    fixture.ctx.customer_market.deposit(one_eth * U256::from(2)).await.unwrap();
+    fixture.ctx.customer_market
+        .submit_request_with_signature(&request1, Bytes::from(client_sig1.as_bytes()))
+        .await
+        .unwrap();
+
+    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request1, client_sig1.as_bytes().into()).await.unwrap();
+
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Advance time by 3 hours with NO activity
+    tracing::info!("Advancing time by 3 hours with no activity");
+    advance_time_and_mine(&fixture.ctx.customer_provider, 3 * 3600 + 100, 3).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    let now2 = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    tracing::info!("Current time after 3 hour gap: {}", now2);
+
+    // Create and fulfill second request (different hour) with no collateral
+    let request2 = ProofRequest::new(
+        RequestId::new(fixture.ctx.customer_signer.address(), 2),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: one_eth,
+            maxPrice: one_eth,
+            rampUpStart: now2 - 3,
+            timeout: 12,
+            rampUpPeriod: 1,
+            lockTimeout: 12,
+            lockCollateral: U256::from(0),
+        },
+    );
+    let client_sig2 = request2.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+
+    fixture.ctx.customer_market
+        .submit_request_with_signature(&request2, Bytes::from(client_sig2.as_bytes()))
+        .await
+        .unwrap();
+
+    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request2, client_sig2.as_bytes().into()).await.unwrap();
+
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Get all hourly summaries and verify gaps are filled with zero-activity entries
+    let hourly_summaries = get_hourly_summaries(&fixture.test_db.db).await;
+    tracing::info!("Found {} hourly summaries", hourly_summaries.len());
+
+    // We should have at least 4 hours of data (hour with request1, 3 hours of no activity, hour with request2)
+    assert!(hourly_summaries.len() >= 4, "Expected at least 4 hourly summaries, got {}", hourly_summaries.len());
+
+    // Verify hour boundaries and NO GAPS
+    verify_hour_boundaries(&hourly_summaries);
+    
+    // Check for continuous hourly timestamps (no gaps)
+    for i in 1..hourly_summaries.len() {
+        let prev_hour = hourly_summaries[i - 1].period_timestamp;
+        let curr_hour = hourly_summaries[i].period_timestamp;
+        let hour_diff = curr_hour.saturating_sub(prev_hour);
+        assert_eq!(
+            hour_diff, 3600,
+            "Expected exactly 1 hour (3600s) between consecutive summaries, but got {}s between hour {} and {}",
+            hour_diff, prev_hour, curr_hour
+        );
+    }
+    tracing::info!("✓ No gaps in hourly summaries - all hours present");
+
+    // Identify hours with activity and hours without activity
+    let hours_with_activity: Vec<_> = hourly_summaries.iter()
+        .filter(|s| s.total_requests_submitted > 0)
+        .collect();
+    let hours_without_activity: Vec<_> = hourly_summaries.iter()
+        .filter(|s| s.total_requests_submitted == 0)
+        .collect();
+
+    tracing::info!("Hours with activity: {}, Hours without activity: {}", 
+        hours_with_activity.len(), hours_without_activity.len());
+    
+    assert_eq!(hours_with_activity.len(), 2, "Expected 2 hours with activity");
+    assert!(hours_without_activity.len() >= 2, "Expected at least 2 hours without activity");
+
+    // Verify zero-activity hours have all zero values
+    for zero_hour in &hours_without_activity {
+        assert_eq!(zero_hour.total_fulfilled, 0, "Zero-activity hour should have 0 fulfilled");
+        assert_eq!(zero_hour.total_requests_submitted, 0, "Zero-activity hour should have 0 submitted");
+        assert_eq!(zero_hour.total_requests_locked, 0, "Zero-activity hour should have 0 locked");
+        assert_eq!(zero_hour.total_fees_locked, U256::ZERO, "Zero-activity hour should have 0 fees");
+        assert_eq!(zero_hour.total_collateral_locked, U256::ZERO, "Zero-activity hour should have 0 collateral");
+    }
+    tracing::info!("✓ All zero-activity hours have correct zero values");
+
+    // Get all-time summaries and verify cumulative behavior
+    let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
+    tracing::info!("Found {} all-time summaries", all_time_summaries.len());
+    
+    assert!(all_time_summaries.len() >= 4, "Expected at least 4 all-time summaries, got {}", all_time_summaries.len());
+
+    // Verify all-time summaries have NO GAPS (one for each hour)
+    for i in 1..all_time_summaries.len() {
+        let prev_ts = all_time_summaries[i - 1].period_timestamp;
+        let curr_ts = all_time_summaries[i].period_timestamp;
+        let time_diff = curr_ts.saturating_sub(prev_ts);
+        assert_eq!(
+            time_diff, 3600,
+            "Expected exactly 1 hour between consecutive all-time summaries, but got {}s between {} and {}",
+            time_diff, prev_ts, curr_ts
+        );
+    }
+    tracing::info!("✓ No gaps in all-time summaries - all hours present");
+
+    // Verify all-time cumulatives NEVER decrease (always monotonically increasing or staying the same)
+    for i in 1..all_time_summaries.len() {
+        let prev = &all_time_summaries[i - 1];
+        let curr = &all_time_summaries[i];
+        
+        assert!(curr.total_fulfilled >= prev.total_fulfilled, 
+            "All-time total_fulfilled should never decrease: hour {} has {}, hour {} has {}", 
+            prev.period_timestamp, prev.total_fulfilled, curr.period_timestamp, curr.total_fulfilled);
+        
+        assert!(curr.total_requests_submitted >= prev.total_requests_submitted,
+            "All-time total_requests_submitted should never decrease: hour {} has {}, hour {} has {}",
+            prev.period_timestamp, prev.total_requests_submitted, curr.period_timestamp, curr.total_requests_submitted);
+        
+        assert!(curr.total_requests_locked >= prev.total_requests_locked,
+            "All-time total_requests_locked should never decrease: hour {} has {}, hour {} has {}",
+            prev.period_timestamp, prev.total_requests_locked, curr.period_timestamp, curr.total_requests_locked);
+        
+        assert!(curr.total_fees_locked >= prev.total_fees_locked,
+            "All-time total_fees_locked should never decrease: hour {} has {}, hour {} has {}",
+            prev.period_timestamp, prev.total_fees_locked, curr.period_timestamp, curr.total_fees_locked);
+        
+        assert!(curr.total_collateral_locked >= prev.total_collateral_locked,
+            "All-time total_collateral_locked should never decrease: hour {} has {}, hour {} has {}",
+            prev.period_timestamp, prev.total_collateral_locked, curr.period_timestamp, curr.total_collateral_locked);
+    }
+    tracing::info!("✓ All-time cumulatives never decrease (monotonically increasing)");
+
+    // Verify that during no-activity hours, all-time values stay constant (carry forward)
+    // and match the exact expected values
+    let first_activity_hour = hourly_summaries.iter()
+        .position(|s| s.total_requests_submitted > 0)
+        .expect("Should find first activity hour");
+    
+    let second_activity_hour = hourly_summaries.iter()
+        .skip(first_activity_hour + 1)
+        .position(|s| s.total_requests_submitted > 0)
+        .map(|pos| pos + first_activity_hour + 1)
+        .expect("Should find second activity hour");
+
+    // Check all-time summaries between the two activity periods
+    if second_activity_hour > first_activity_hour + 1 {
+        // There are hours in between - verify they all have the same cumulative values
+        let first_activity_ts = hourly_summaries[first_activity_hour].period_timestamp;
+        let second_activity_ts = hourly_summaries[second_activity_hour].period_timestamp;
+        
+        // Find corresponding all-time summaries
+        let first_all_time_idx = all_time_summaries.iter()
+            .position(|s| s.period_timestamp == first_activity_ts)
+            .expect("Should find all-time for first activity");
+        
+        let second_all_time_idx = all_time_summaries.iter()
+            .position(|s| s.period_timestamp == second_activity_ts)
+            .expect("Should find all-time for second activity");
+
+        // After first request, we should have: 1 submitted, 1 locked, 1 fulfilled, 0 collateral
+        let expected_after_first = &all_time_summaries[first_all_time_idx];
+        assert_eq!(expected_after_first.total_requests_submitted, 1, 
+            "After first request: should have exactly 1 submitted");
+        assert_eq!(expected_after_first.total_requests_locked, 1, 
+            "After first request: should have exactly 1 locked");
+        assert_eq!(expected_after_first.total_fulfilled, 1, 
+            "After first request: should have exactly 1 fulfilled");
+        assert_eq!(expected_after_first.total_collateral_locked, U256::ZERO, 
+            "After first request: should have exactly 0 collateral (none used)");
+        tracing::info!("✓ First activity hour has correct cumulative values: 1 submitted, 1 locked, 1 fulfilled, 0 collateral");
+
+        // Verify carry-forward during gap - values should stay at first request totals
+        for gap_idx in (first_all_time_idx + 1)..second_all_time_idx {
+            let gap_summary = &all_time_summaries[gap_idx];
+            
+            // During no-activity periods, cumulative values should stay exactly at first request values
+            assert_eq!(gap_summary.total_fulfilled, 1,
+                "During no-activity hour {}: total_fulfilled should stay at 1 (not increase or decrease)", gap_summary.period_timestamp);
+            assert_eq!(gap_summary.total_requests_submitted, 1,
+                "During no-activity hour {}: total_requests_submitted should stay at 1", gap_summary.period_timestamp);
+            assert_eq!(gap_summary.total_requests_locked, 1,
+                "During no-activity hour {}: total_requests_locked should stay at 1", gap_summary.period_timestamp);
+            assert_eq!(gap_summary.total_collateral_locked, U256::ZERO,
+                "During no-activity hour {}: total_collateral_locked should stay at 0", gap_summary.period_timestamp);
+            
+            tracing::debug!("  Gap hour {}: correctly carries forward values (1, 1, 1, 0)", gap_summary.period_timestamp);
+        }
+        let num_gap_hours = second_all_time_idx - first_all_time_idx - 1;
+        tracing::info!("✓ Cumulatives properly carry forward during {} no-activity hours (all stayed at: 1 submitted, 1 locked, 1 fulfilled, 0 collateral)", num_gap_hours);
+        
+        // After second request, we should have: 2 submitted, 2 locked, 2 fulfilled, 0 collateral
+        let after_second = &all_time_summaries[second_all_time_idx];
+        assert_eq!(after_second.total_requests_submitted, 2, 
+            "After second request: should have exactly 2 submitted (1 + 1)");
+        assert_eq!(after_second.total_requests_locked, 2, 
+            "After second request: should have exactly 2 locked (1 + 1)");
+        assert_eq!(after_second.total_fulfilled, 2, 
+            "After second request: should have exactly 2 fulfilled (1 + 1)");
+        assert_eq!(after_second.total_collateral_locked, U256::ZERO, 
+            "After second request: should have exactly 0 collateral (0 + 0)");
+        tracing::info!("✓ Second activity hour has correct cumulative values: 2 submitted, 2 locked, 2 fulfilled, 0 collateral");
+    }
+
+    // Verify final cumulative totals match the exact sum of all activity (2 requests total)
+    let latest_all_time = all_time_summaries.last().unwrap();
+    assert_eq!(latest_all_time.total_fulfilled, 2, 
+        "Final cumulative fulfilled should be exactly 2 (request 1 + request 2)");
+    assert_eq!(latest_all_time.total_requests_submitted, 2, 
+        "Final cumulative submitted should be exactly 2 (request 1 + request 2)");
+    assert_eq!(latest_all_time.total_requests_locked, 2, 
+        "Final cumulative locked should be exactly 2 (request 1 + request 2)");
+    assert_eq!(latest_all_time.total_requests_submitted_onchain, 2,
+        "Final cumulative onchain requests should be exactly 2 (both were onchain)");
+    assert_eq!(latest_all_time.total_requests_submitted_offchain, 0,
+        "Final cumulative offchain requests should be exactly 0 (none were offchain)");
+    assert_eq!(latest_all_time.total_collateral_locked, U256::ZERO, 
+        "Final cumulative collateral should be exactly 0 (0 from request 1 + 0 from request 2)");
+    assert_eq!(latest_all_time.total_locked_and_fulfilled, 2,
+        "Final cumulative locked_and_fulfilled should be exactly 2 (both requests)");
+    assert_eq!(latest_all_time.total_locked_and_expired, 0,
+        "Final cumulative locked_and_expired should be exactly 0 (no expired requests)");
+    assert_eq!(latest_all_time.total_expired, 0,
+        "Final cumulative expired should be exactly 0 (no expired requests)");
+    assert_eq!(latest_all_time.total_requests_slashed, 0,
+        "Final cumulative slashed should be exactly 0 (no slashed requests)");
+    assert!(latest_all_time.total_fees_locked > U256::ZERO,
+        "Final cumulative fees should be non-zero (2 fulfilled requests with fees)");
+    
+    tracing::info!("✓ Final cumulative values are correct: 2 submitted, 2 locked, 2 fulfilled, 0 collateral, 0 expired, 0 slashed");
+
+    cli_process.kill().unwrap();
+}

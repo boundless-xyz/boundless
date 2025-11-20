@@ -158,7 +158,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
             // Note, due to the way the caching works (cache files are stored based on the block range they were queried for),
             // changing this value invalidates old cache entries, and thus will slow down re-indexing
             '--batch-size',
-            '10000',
+            '9999',
             '--tx-fetch-strategy',
             'tx-by-hash',
             '--log-json',

@@ -74,8 +74,10 @@ where
         );
 
         // Process each hour using shared iteration helper
+        // Always write an entry for each hour, even if there's no activity (creates zero-value entry)
         for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
             let summary = self.compute_period_summary(hour_ts, hour_end).await?;
+            // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_hourly_market_summary(summary).await?;
         }
 
@@ -111,8 +113,10 @@ where
         );
 
         // Process each day using shared iteration helper
+        // Always write an entry for each day, even if there's no activity (creates zero-value entry)
         for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
             let summary = self.compute_period_summary(day_ts, day_end).await?;
+            // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_daily_market_summary(summary).await?;
         }
 
@@ -148,8 +152,10 @@ where
         );
 
         // Process each week using shared iteration helper
+        // Always write an entry for each week, even if there's no activity (creates zero-value entry)
         for (week_ts, week_end) in iter_weekly_periods(start_week, current_week_start) {
             let summary = self.compute_period_summary(week_ts, week_end).await?;
+            // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_weekly_market_summary(summary).await?;
         }
 
@@ -197,8 +203,10 @@ where
         );
 
         // Process each month using shared iteration helper
+        // Always write an entry for each month, even if there's no activity (creates zero-value entry)
         for (month_ts, month_end) in iter_monthly_periods(start_month, current_month_start) {
             let summary = self.compute_period_summary(month_ts, month_end).await?;
+            // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_monthly_market_summary(summary).await?;
         }
 
@@ -516,25 +524,40 @@ where
             current_hour
         );
 
+        // Check if we have a previous all-time summary and if there's a gap
+        // If so, extend start_hour to cover the gap so the main loop will backfill it
+        let latest_all_time = self.db.get_latest_all_time_market_summary().await?;
+        let actual_start_hour = if let Some(latest) = &latest_all_time {
+            let next_expected_hour = latest.period_timestamp + SECONDS_PER_HOUR;
+            if next_expected_hour < start_hour {
+                let gap_hours = (start_hour - latest.period_timestamp) / SECONDS_PER_HOUR;
+                tracing::info!(
+                    "Detected gap of {} hours in all-time summaries (latest: {}, recompute window start: {}). Extending processing range to backfill.",
+                    gap_hours, latest.period_timestamp, start_hour
+                );
+                next_expected_hour
+            } else {
+                start_hour
+            }
+        } else {
+            start_hour
+        };
+        
         // Find the earliest hourly summary from our query - this is our starting point
         let earliest_hourly_summary = hourly_summaries.first();
         
-        // Get the all-time aggregate for the hour just before the earliest hourly summary
-        // If it doesn't exist, this is our first run - initialize with zeros
-        let base_timestamp = earliest_hourly_summary
-            .map(|s| s.period_timestamp.saturating_sub(SECONDS_PER_HOUR))
-            .unwrap_or(start_hour.saturating_sub(SECONDS_PER_HOUR));
+        // Get the all-time aggregate for the hour just before actual_start_hour
+        // If it doesn't exist, initialize with zeros (first run)
+        let base_timestamp = actual_start_hour.saturating_sub(SECONDS_PER_HOUR);
         
         let mut cumulative_summary = match self.db.get_all_time_market_summary_by_timestamp(base_timestamp).await? {
             Some(prev) => {
-                // We have a previous aggregate, use it as the base
                 tracing::debug!("Found existing all-time aggregate at timestamp {}", base_timestamp);
                 prev
             }
             None => {
-                // No previous aggregate exists - this is the first run
-                // Initialize with zeros, and if we have an earliest hourly summary, we'll add it in the loop
-                tracing::debug!("No previous all-time aggregate found at timestamp {}, initializing with zeros", base_timestamp);
+                // No previous aggregate exists - this is the first run, initialize with zeros
+                tracing::debug!("No previous all-time aggregate found, initializing with zeros at timestamp {}", base_timestamp);
                 AllTimeMarketSummary {
                     period_timestamp: base_timestamp,
                     total_fulfilled: 0,
@@ -564,26 +587,26 @@ where
             }
         };
 
-        // Iteratively build up all-time aggregates from the earliest hourly summary
+        // Iteratively build up all-time aggregates from actual_start_hour (which may be extended to cover gaps)
         // Process each hour in the range, building cumulative all-time aggregates
         // For each hour, we:
-        // 1. Add that hour's data to our cumulative summary
+        // 1. Add that hour's data to our cumulative summary (if available)
         // 2. Update unique counts from the database
-        // 3. Save the all-time aggregate for that hour
+        // 3. Save the all-time aggregate for that hour (always, even if no activity)
         // Note: We process up to and including the current hour (even if not finished),
         // matching the behavior of other aggregation functions
-        for (hour_ts, _hour_end) in iter_hourly_periods(start_hour, current_hour) {
+        for (hour_ts, _hour_end) in iter_hourly_periods(actual_start_hour, current_hour) {
             // Find the hourly summary for this hour
             let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
 
-            // If no hourly summary exists for this hour, skip it
-            // (this can happen if the hour hasn't been aggregated yet)
+            // If a hourly summary exists for this hour, add its data to the cumulative
             if let Some(summary) = hour_summary {
                 // Add this hour's data to the cumulative summary
                 sum_hourly_aggregates_into_base(&mut cumulative_summary, &[summary.clone()]);
             } else {
-                tracing::debug!("No hourly summary found for hour {}, skipping", hour_ts);
-                continue;
+                // No activity this hour - cumulative values stay the same, but we still
+                // need to save an all-time entry for this hour to maintain the cumulative chain
+                tracing::debug!("No hourly summary found for hour {}, maintaining cumulative with no change", hour_ts);
             }
 
             // Update period_timestamp to reflect this hour
@@ -599,7 +622,8 @@ where
                 .get_all_time_unique_requesters(hour_ts)
                 .await?;
 
-            // Save the all-time aggregate for this hour
+            // ALWAYS save the all-time aggregate for this hour, even if there was no activity
+            // This ensures the cumulative chain is never broken
             self.db.upsert_all_time_market_summary(cumulative_summary.clone()).await?;
         }
 
@@ -893,52 +917,77 @@ where
                 .map(|requestor| {
                     let service = self;
                     async move {
+                        // Check if we have a previous all-time summary for this requestor and if there's a gap
+                        // If so, extend start_hour to cover the gap
+                        let latest_all_time = service.db.get_latest_all_time_requestor_summary(requestor).await?;
+                        let actual_start_hour = if let Some(latest) = &latest_all_time {
+                            let next_expected_hour = latest.period_timestamp + SECONDS_PER_HOUR;
+                            if next_expected_hour < start_hour {
+                                let gap_hours = (start_hour - latest.period_timestamp) / SECONDS_PER_HOUR;
+                                tracing::info!(
+                                    "Detected gap of {} hours in all-time requestor summaries for {:?} (latest: {}, recompute window start: {}). Extending processing range to backfill.",
+                                    gap_hours, requestor, latest.period_timestamp, start_hour
+                                );
+                                next_expected_hour
+                            } else {
+                                start_hour
+                            }
+                        } else {
+                            start_hour
+                        };
+                        
                         // Get all hourly summaries for this requestor
                         let hourly_summaries = service.db
-                            .get_hourly_requestor_summaries_by_range(requestor, start_hour, current_hour + 1)
+                            .get_hourly_requestor_summaries_by_range(requestor, actual_start_hour, current_hour + 1)
                             .await?;
 
-                        if hourly_summaries.is_empty() {
+                        if hourly_summaries.is_empty() && latest_all_time.is_none() {
+                            // No historical data and no current data - skip this requestor
                             return Ok::<(), ServiceError>(());
                         }
 
-                        let earliest_hour = hourly_summaries.first().unwrap().period_timestamp;
-                        let base_timestamp = earliest_hour.saturating_sub(SECONDS_PER_HOUR);
+                        let base_timestamp = actual_start_hour.saturating_sub(SECONDS_PER_HOUR);
 
                         let mut cumulative_summary = match service.db
                             .get_all_time_requestor_summary_by_timestamp(requestor, base_timestamp)
                             .await?
                         {
-                            Some(prev) => prev,
-                            None => crate::db::market::AllTimeRequestorSummary {
-                                period_timestamp: base_timestamp,
-                                requestor_address: requestor,
-                                total_fulfilled: 0,
-                                unique_provers_locking_requests: 0,
-                                total_fees_locked: alloy::primitives::U256::ZERO,
-                                total_collateral_locked: alloy::primitives::U256::ZERO,
-                                total_locked_and_expired_collateral: alloy::primitives::U256::ZERO,
-                                total_requests_submitted: 0,
-                                total_requests_submitted_onchain: 0,
-                                total_requests_submitted_offchain: 0,
-                                total_requests_locked: 0,
-                                total_requests_slashed: 0,
-                                total_expired: 0,
-                                total_locked_and_expired: 0,
-                                total_locked_and_fulfilled: 0,
-                                locked_orders_fulfillment_rate: 0.0,
-                                total_program_cycles: alloy::primitives::U256::ZERO,
-                                total_cycles: alloy::primitives::U256::ZERO,
-                                best_peak_prove_mhz: 0,
-                                best_peak_prove_mhz_prover: None,
-                                best_peak_prove_mhz_request_id: None,
-                                best_effective_prove_mhz: 0,
-                                best_effective_prove_mhz_prover: None,
-                                best_effective_prove_mhz_request_id: None,
-                            },
+                            Some(prev) => {
+                                tracing::debug!("Found existing all-time requestor aggregate for {:?} at timestamp {}", requestor, base_timestamp);
+                                prev
+                            }
+                            None => {
+                                tracing::debug!("No previous all-time requestor aggregate for {:?}, initializing with zeros", requestor);
+                                crate::db::market::AllTimeRequestorSummary {
+                                    period_timestamp: base_timestamp,
+                                    requestor_address: requestor,
+                                    total_fulfilled: 0,
+                                    unique_provers_locking_requests: 0,
+                                    total_fees_locked: alloy::primitives::U256::ZERO,
+                                    total_collateral_locked: alloy::primitives::U256::ZERO,
+                                    total_locked_and_expired_collateral: alloy::primitives::U256::ZERO,
+                                    total_requests_submitted: 0,
+                                    total_requests_submitted_onchain: 0,
+                                    total_requests_submitted_offchain: 0,
+                                    total_requests_locked: 0,
+                                    total_requests_slashed: 0,
+                                    total_expired: 0,
+                                    total_locked_and_expired: 0,
+                                    total_locked_and_fulfilled: 0,
+                                    locked_orders_fulfillment_rate: 0.0,
+                                    total_program_cycles: alloy::primitives::U256::ZERO,
+                                    total_cycles: alloy::primitives::U256::ZERO,
+                                    best_peak_prove_mhz: 0,
+                                    best_peak_prove_mhz_prover: None,
+                                    best_peak_prove_mhz_request_id: None,
+                                    best_effective_prove_mhz: 0,
+                                    best_effective_prove_mhz_prover: None,
+                                    best_effective_prove_mhz_request_id: None,
+                                }
+                            }
                         };
 
-                        for (hour_ts, _hour_end) in iter_hourly_periods(start_hour, current_hour) {
+                        for (hour_ts, _hour_end) in iter_hourly_periods(actual_start_hour, current_hour) {
                             let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
 
                             if let Some(summary) = hour_summary {
@@ -970,7 +1019,8 @@ where
                                     cumulative_summary.best_effective_prove_mhz_request_id = summary.best_effective_prove_mhz_request_id;
                                 }
                             } else {
-                                continue;
+                                // No activity this hour - cumulative stays the same, but we still save an entry
+                                tracing::debug!("No hourly requestor summary found for hour {}, maintaining cumulative", hour_ts);
                             }
 
                             cumulative_summary.period_timestamp = hour_ts;
@@ -988,6 +1038,7 @@ where
                                 0.0
                             };
 
+                            // ALWAYS save the all-time requestor aggregate, even if there was no activity
                             service.db.upsert_all_time_requestor_summary(cumulative_summary.clone()).await?;
                         }
                         Ok::<(), ServiceError>(())

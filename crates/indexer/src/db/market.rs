@@ -873,6 +873,46 @@ pub trait IndexerDb {
         end_ts: u64,
     ) -> Result<Vec<MonthlyRequestorSummary>, DbError>;
 
+    async fn get_hourly_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<PeriodRequestorSummary>, DbError>;
+
+    async fn get_daily_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<DailyRequestorSummary>, DbError>;
+
+    async fn get_weekly_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<WeeklyRequestorSummary>, DbError>;
+
+    async fn get_all_time_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<AllTimeRequestorSummary>, DbError>;
+
     async fn get_latest_all_time_requestor_summary(
         &self,
         requestor_address: Address,
@@ -3715,7 +3755,7 @@ impl IndexerDb for MarketDb {
         let rows = if let Some(c) = &cursor {
             let query_str = format!(
                 "SELECT * FROM request_status
-                 WHERE prover_address = $1
+                 WHERE (lock_prover_address = $1 OR fulfill_prover_address = $1)
                    AND ({} < $2 OR ({} = $2 AND request_digest < $3))
                  ORDER BY {} DESC, request_digest DESC
                  LIMIT $4",
@@ -3731,7 +3771,7 @@ impl IndexerDb for MarketDb {
         } else {
             let query_str = format!(
                 "SELECT * FROM request_status
-                 WHERE prover_address = $1
+                 WHERE (lock_prover_address = $1 OR fulfill_prover_address = $1)
                  ORDER BY {} DESC, request_digest DESC
                  LIMIT $2",
                 sort_field
@@ -4274,6 +4314,93 @@ impl IndexerDb for MarketDb {
         end_ts: u64,
     ) -> Result<Vec<MonthlyRequestorSummary>, DbError> {
         MarketDb::get_monthly_requestor_summaries_by_range_impl(self, requestor_address, start_ts, end_ts).await
+    }
+
+    async fn get_hourly_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<PeriodRequestorSummary>, DbError> {
+        MarketDb::get_requestor_summaries_generic(
+            self,
+            requestor_address,
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "hourly_requestor_summary",
+        )
+        .await
+    }
+
+    async fn get_daily_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<DailyRequestorSummary>, DbError> {
+        MarketDb::get_requestor_summaries_generic(
+            self,
+            requestor_address,
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "daily_requestor_summary",
+        )
+        .await
+    }
+
+    async fn get_weekly_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<WeeklyRequestorSummary>, DbError> {
+        MarketDb::get_requestor_summaries_generic(
+            self,
+            requestor_address,
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "weekly_requestor_summary",
+        )
+        .await
+    }
+
+    async fn get_all_time_requestor_summaries(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<AllTimeRequestorSummary>, DbError> {
+        MarketDb::get_all_time_requestor_summaries_generic(
+            self,
+            requestor_address,
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+        )
+        .await
     }
 
     async fn get_latest_all_time_requestor_summary(
@@ -5874,6 +6001,275 @@ impl MarketDb {
         for row in rows {
             summaries.push(self.parse_period_requestor_summary_row(&row)?);
         }
+
+        Ok(summaries)
+    }
+
+    async fn get_requestor_summaries_generic(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+        table_name: &str,
+    ) -> Result<Vec<PeriodRequestorSummary>, DbError> {
+        let mut conditions = Vec::new();
+        let mut bind_count = 0;
+
+        // Always filter by requestor_address
+        bind_count += 1;
+        conditions.push(format!("requestor_address = ${}", bind_count));
+
+        // Add cursor condition
+        let cursor_condition = match (cursor, sort) {
+            (Some(_), SortDirection::Asc) => {
+                bind_count += 1;
+                Some(format!("period_timestamp > ${}", bind_count))
+            }
+            (Some(_), SortDirection::Desc) => {
+                bind_count += 1;
+                Some(format!("period_timestamp < ${}", bind_count))
+            }
+            (None, _) => None,
+        };
+
+        if let Some(cond) = cursor_condition {
+            conditions.push(cond);
+        }
+
+        // Add after condition
+        if after.is_some() {
+            bind_count += 1;
+            conditions.push(format!("period_timestamp > ${}", bind_count));
+        }
+
+        // Add before condition
+        if before.is_some() {
+            bind_count += 1;
+            conditions.push(format!("period_timestamp < ${}", bind_count));
+        }
+
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+
+        let order_clause = match sort {
+            SortDirection::Asc => "ORDER BY period_timestamp ASC",
+            SortDirection::Desc => "ORDER BY period_timestamp DESC",
+        };
+
+        bind_count += 1;
+        let query_str = format!(
+            "SELECT
+                period_timestamp, requestor_address, total_fulfilled, unique_provers_locking_requests,
+                total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
+                p10_lock_price_per_cycle, p25_lock_price_per_cycle, p50_lock_price_per_cycle,
+                p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle, p99_lock_price_per_cycle,
+                total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
+                total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
+                total_locked_and_fulfilled, locked_orders_fulfillment_rate,
+                total_program_cycles, total_cycles,
+                best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+            FROM {}
+            {}
+            {}
+            LIMIT ${}",
+            table_name, where_clause, order_clause, bind_count
+        );
+
+        let mut query = sqlx::query(&query_str);
+
+        // Bind parameters in the same order as bind_count increments
+        query = query.bind(format!("{:x}", requestor_address));
+
+        if let Some(cursor_ts) = cursor {
+            query = query.bind(cursor_ts);
+        }
+
+        if let Some(after_ts) = after {
+            query = query.bind(after_ts);
+        }
+
+        if let Some(before_ts) = before {
+            query = query.bind(before_ts);
+        }
+
+        query = query.bind(limit);
+
+        let rows = query.fetch_all(&self.pool).await?;
+
+        let summaries = rows
+            .into_iter()
+            .map(|row| self.parse_period_requestor_summary_row(&row))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(summaries)
+    }
+
+    async fn get_all_time_requestor_summaries_generic(
+        &self,
+        requestor_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<AllTimeRequestorSummary>, DbError> {
+        let mut conditions = Vec::new();
+        let mut bind_count = 0;
+
+        // Always filter by requestor_address
+        bind_count += 1;
+        conditions.push(format!("requestor_address = ${}", bind_count));
+
+        // Add cursor condition
+        let cursor_condition = match (cursor, sort) {
+            (Some(_), SortDirection::Asc) => {
+                bind_count += 1;
+                Some(format!("period_timestamp > ${}", bind_count))
+            }
+            (Some(_), SortDirection::Desc) => {
+                bind_count += 1;
+                Some(format!("period_timestamp < ${}", bind_count))
+            }
+            (None, _) => None,
+        };
+
+        if let Some(cond) = cursor_condition {
+            conditions.push(cond);
+        }
+
+        // Add after condition
+        if after.is_some() {
+            bind_count += 1;
+            conditions.push(format!("period_timestamp > ${}", bind_count));
+        }
+
+        // Add before condition
+        if before.is_some() {
+            bind_count += 1;
+            conditions.push(format!("period_timestamp < ${}", bind_count));
+        }
+
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+
+        let order_clause = match sort {
+            SortDirection::Asc => "ORDER BY period_timestamp ASC",
+            SortDirection::Desc => "ORDER BY period_timestamp DESC",
+        };
+
+        bind_count += 1;
+        let query_str = format!(
+            "SELECT
+                period_timestamp,
+                requestor_address,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                total_locked_and_expired_collateral,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed,
+                total_expired,
+                total_locked_and_expired,
+                total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate,
+                total_program_cycles,
+                total_cycles,
+                best_peak_prove_mhz,
+                best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz,
+                best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id
+            FROM all_time_requestor_summary
+            {}
+            {}
+            LIMIT ${}",
+            where_clause, order_clause, bind_count
+        );
+
+        let mut query = sqlx::query(&query_str);
+
+        // Bind parameters in the same order as bind_count increments
+        query = query.bind(format!("{:x}", requestor_address));
+
+        if let Some(cursor_ts) = cursor {
+            query = query.bind(cursor_ts);
+        }
+
+        if let Some(after_ts) = after {
+            query = query.bind(after_ts);
+        }
+
+        if let Some(before_ts) = before {
+            query = query.bind(before_ts);
+        }
+
+        query = query.bind(limit);
+
+        let rows = query.fetch_all(&self.pool).await?;
+
+        let summaries = rows
+            .into_iter()
+            .map(|row| -> Result<AllTimeRequestorSummary, DbError> {
+                let requestor_address_str: String = row.get("requestor_address");
+                let requestor_address = Address::from_str(&requestor_address_str)
+                    .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+                
+                Ok(AllTimeRequestorSummary {
+                    period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+                    requestor_address,
+                    total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+                    unique_provers_locking_requests: row
+                        .get::<i64, _>("unique_provers_locking_requests")
+                        as u64,
+                    total_fees_locked: padded_string_to_u256(&row.get::<String, _>("total_fees_locked")).unwrap_or(U256::ZERO),
+                    total_collateral_locked: padded_string_to_u256(&row.get::<String, _>("total_collateral_locked")).unwrap_or(U256::ZERO),
+                    total_locked_and_expired_collateral: padded_string_to_u256(&row.get::<String, _>("total_locked_and_expired_collateral")).unwrap_or(U256::ZERO),
+                    total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+                    total_requests_submitted_onchain: row
+                        .get::<i64, _>("total_requests_submitted_onchain")
+                        as u64,
+                    total_requests_submitted_offchain: row
+                        .get::<i64, _>("total_requests_submitted_offchain")
+                        as u64,
+                    total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+                    total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+                    total_expired: row.get::<i64, _>("total_expired") as u64,
+                    total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+                    total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                    locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
+                        as f32,
+                    total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
+                    total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles")).unwrap_or(U256::ZERO),
+                    best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                    best_peak_prove_mhz_prover: row
+                        .try_get("best_peak_prove_mhz_prover")
+                        .ok()
+                        .flatten(),
+                    best_peak_prove_mhz_request_id: row
+                        .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
+                        .ok()
+                        .flatten()
+                        .and_then(|s| U256::from_str(&s).ok()),
+                    best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                    best_effective_prove_mhz_prover: row
+                        .try_get("best_effective_prove_mhz_prover")
+                        .ok()
+                        .flatten(),
+                    best_effective_prove_mhz_request_id: row
+                        .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
+                        .ok()
+                        .flatten()
+                        .and_then(|s| U256::from_str(&s).ok()),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(summaries)
     }
@@ -8583,6 +8979,282 @@ mod tests {
         let (results, _) = db.list_requests_by_requestor(addr2, None, 10, RequestSortField::CreatedAt).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].client_address, addr2);
+    }
+
+    #[tokio::test]
+    async fn test_list_requests_by_prover() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0xAA; 20]);
+        let prover2 = Address::from([0xBB; 20]);
+        let prover3 = Address::from([0xCC; 20]);
+        let client_addr = Address::from([0x11; 20]);
+        let base_ts = 1700000000u64;
+
+        // Create requests where prover1 only locked (not fulfilled)
+        for i in 0..3 {
+            let status = RequestStatus {
+                request_digest: B256::from([i as u8; 32]),
+                request_id: U256::from(i),
+                request_status: RequestStatusType::Locked,
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: client_addr,
+                lock_prover_address: Some(prover1),
+                fulfill_prover_address: None,
+                created_at: base_ts + (i as u64 * 100),
+                updated_at: base_ts + (i as u64 * 100),
+                locked_at: Some(base_ts + (i as u64 * 100)),
+                fulfilled_at: None,
+                slashed_at: None,
+                lock_prover_delivered_proof_at: None,
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: None,
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: "1000".to_string(),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 10000,
+                lock_end: base_ts + 10000,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: None,
+                total_cycles: None,
+                peak_prove_mhz: None,
+                effective_prove_mhz: None,
+                cycle_status: None,
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("100".to_string()),
+                submit_tx_hash: Some(B256::ZERO),
+                lock_tx_hash: Some(B256::from([0x01; 32])),
+                fulfill_tx_hash: None,
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: None,
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: "0x00".to_string(),
+                fulfill_journal: None,
+                fulfill_seal: None,
+            };
+            db.upsert_request_statuses(&[status]).await.unwrap();
+        }
+
+        // Create requests where prover1 both locked and fulfilled
+        for i in 3..5 {
+            let status = RequestStatus {
+                request_digest: B256::from([i as u8; 32]),
+                request_id: U256::from(i),
+                request_status: RequestStatusType::Fulfilled,
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: client_addr,
+                lock_prover_address: Some(prover1),
+                fulfill_prover_address: Some(prover1),
+                created_at: base_ts + (i as u64 * 100),
+                updated_at: base_ts + (i as u64 * 100) + 50,
+                locked_at: Some(base_ts + (i as u64 * 100)),
+                fulfilled_at: Some(base_ts + (i as u64 * 100) + 50),
+                slashed_at: None,
+                lock_prover_delivered_proof_at: None,
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: Some(102),
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: "1000".to_string(),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 10000,
+                lock_end: base_ts + 10000,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: Some(U256::from(1000000)),
+                total_cycles: Some(U256::from(1015800)),
+                peak_prove_mhz: Some(1000),
+                effective_prove_mhz: Some(950),
+                cycle_status: Some("COMPLETED".to_string()),
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("100".to_string()),
+                submit_tx_hash: Some(B256::ZERO),
+                lock_tx_hash: Some(B256::from([0x01; 32])),
+                fulfill_tx_hash: Some(B256::from([0x02; 32])),
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: None,
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: "0x00".to_string(),
+                fulfill_journal: Some("0x1234".to_string()),
+                fulfill_seal: Some("0x5678".to_string()),
+            };
+            db.upsert_request_statuses(&[status]).await.unwrap();
+        }
+
+        // Create request where prover2 locked but prover1 fulfilled
+        let status_mixed = RequestStatus {
+            request_digest: B256::from([0x10; 32]),
+            request_id: U256::from(10),
+            request_status: RequestStatusType::Fulfilled,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: client_addr,
+            lock_prover_address: Some(prover2),
+            fulfill_prover_address: Some(prover1),
+            created_at: base_ts + 1000,
+            updated_at: base_ts + 1050,
+            locked_at: Some(base_ts + 1000),
+            fulfilled_at: Some(base_ts + 1050),
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: Some(101),
+            fulfill_block: Some(102),
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "1000".to_string(),
+            ramp_up_start: base_ts,
+            ramp_up_period: 10,
+            expires_at: base_ts + 10000,
+            lock_end: base_ts + 10000,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: Some(U256::from(2000000)),
+            total_cycles: Some(U256::from(2031600)),
+            peak_prove_mhz: Some(2000),
+            effective_prove_mhz: Some(1900),
+            cycle_status: Some("COMPLETED".to_string()),
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: Some("100".to_string()),
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: Some(B256::from([0x03; 32])),
+            fulfill_tx_hash: Some(B256::from([0x04; 32])),
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: Some("0xabcd".to_string()),
+            fulfill_seal: Some("0xef01".to_string()),
+        };
+        db.upsert_request_statuses(&[status_mixed]).await.unwrap();
+
+        // Create request where prover3 only fulfilled (didn't lock)
+        let status_fulfill_only = RequestStatus {
+            request_digest: B256::from([0x20; 32]),
+            request_id: U256::from(20),
+            request_status: RequestStatusType::Fulfilled,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: client_addr,
+            lock_prover_address: None,
+            fulfill_prover_address: Some(prover3),
+            created_at: base_ts + 2000,
+            updated_at: base_ts + 2050,
+            locked_at: None,
+            fulfilled_at: Some(base_ts + 2050),
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: None,
+            fulfill_block: Some(102),
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "0".to_string(),
+            ramp_up_start: base_ts,
+            ramp_up_period: 10,
+            expires_at: base_ts + 10000,
+            lock_end: base_ts + 10000,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: Some(U256::from(3000000)),
+            total_cycles: Some(U256::from(3047400)),
+            peak_prove_mhz: Some(3000),
+            effective_prove_mhz: Some(2800),
+            cycle_status: Some("COMPLETED".to_string()),
+            lock_price: None,
+            lock_price_per_cycle: None,
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: None,
+            fulfill_tx_hash: Some(B256::from([0x05; 32])),
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: Some("0xfedc".to_string()),
+            fulfill_seal: Some("0xba98".to_string()),
+        };
+        db.upsert_request_statuses(&[status_fulfill_only]).await.unwrap();
+
+        // List requests for prover1 - should get all requests where prover1 locked OR fulfilled
+        // This includes: 3 locked-only, 2 locked+fulfilled, 1 fulfilled-only (mixed)
+        // Total: 6 requests
+        let (results, _cursor) = db.list_requests_by_prover(prover1, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 6, "prover1 should have 6 requests (3 locked-only + 2 locked+fulfilled + 1 fulfilled-only)");
+        assert!(results.iter().all(|r| {
+            r.lock_prover_address == Some(prover1) || r.fulfill_prover_address == Some(prover1)
+        }), "All results should have prover1 as lock_prover or fulfill_prover");
+
+        // List with limit
+        let (results, cursor) = db.list_requests_by_prover(prover1, None, 2, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(cursor.is_some());
+
+        // Use cursor for pagination
+        let (results2, _) = db.list_requests_by_prover(prover1, cursor, 2, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results2.len(), 2);
+        // Results should be different from first page
+        assert_ne!(results[0].request_id, results2[0].request_id);
+
+        // Test sorting by updated_at
+        let (results_updated, _) = db.list_requests_by_prover(prover1, None, 10, RequestSortField::UpdatedAt).await.unwrap();
+        assert_eq!(results_updated.len(), 6);
+        // Verify descending order
+        if results_updated.len() >= 2 {
+            assert!(
+                results_updated[0].updated_at >= results_updated[1].updated_at,
+                "Should be sorted by updated_at descending"
+            );
+        }
+
+        // List for prover2 - should only get the one request where prover2 locked
+        let (results, _) = db.list_requests_by_prover(prover2, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].lock_prover_address, Some(prover2));
+        assert_eq!(results[0].fulfill_prover_address, Some(prover1)); // prover1 fulfilled it
+
+        // List for prover3 - should only get the one request where prover3 fulfilled
+        let (results, _) = db.list_requests_by_prover(prover3, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].lock_prover_address, None);
+        assert_eq!(results[0].fulfill_prover_address, Some(prover3));
+
+        // List for a prover with no requests - should return empty
+        let prover_no_requests = Address::from([0xFF; 20]);
+        let (results, _) = db.list_requests_by_prover(prover_no_requests, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 0);
     }
 
     // Helper to setup period query test data

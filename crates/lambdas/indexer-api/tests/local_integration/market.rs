@@ -2,6 +2,7 @@
 
 use indexer_api::routes::market::{
     MarketAggregatesResponse, MarketCumulativesResponse, RequestListResponse, RequestStatusResponse,
+    RequestorAggregatesResponse, RequestorCumulativesResponse,
 };
 
 use super::TestEnv;
@@ -647,6 +648,20 @@ async fn test_market_aggregates_hourly() {
         !first.total_collateral_locked_formatted.is_empty(),
         "total_collateral_locked_formatted should not be empty"
     );
+
+    // Verify no hour gaps (consecutive entries should be exactly 1 hour apart)
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs(); // Use abs since order depends on sort direction
+            assert_eq!(
+                gap, 3600,
+                "Hourly aggregates should have exactly 1 hour (3600s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+        }
+    }
 }
 
 #[tokio::test]
@@ -687,6 +702,20 @@ async fn test_market_aggregates_daily() {
             entry.timestamp_iso,
             entry.timestamp
         );
+    }
+
+    // Verify no day gaps (consecutive entries should be exactly 1 day apart)
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 86400,
+                "Daily aggregates should have exactly 1 day (86400s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+        }
     }
 }
 
@@ -736,6 +765,20 @@ async fn test_market_aggregates_weekly() {
             entry.timestamp
         );
     }
+
+    // Verify no week gaps (consecutive entries should be exactly 1 week apart)
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 604800,
+                "Weekly aggregates should have exactly 1 week (604800s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+        }
+    }
 }
 
 #[tokio::test]
@@ -783,6 +826,22 @@ async fn test_market_aggregates_monthly() {
             entry.timestamp_iso,
             entry.timestamp
         );
+    }
+
+    // Verify no month gaps (consecutive entries should be approximately 1 month apart)
+    // Note: Months vary in length, so we check for reasonable range (28-31 days)
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            let days = gap / 86400;
+            assert!(
+                days >= 28 && days <= 31,
+                "Monthly aggregates should have approximately 1 month (28-31 days) gap between consecutive entries. Found gap: {} days ({}s) between {} and {}",
+                days, gap, prev_ts, curr_ts
+            );
+        }
     }
 }
 
@@ -1090,6 +1149,214 @@ async fn test_market_cumulatives() {
             assert!(
                 response_desc.data[i - 1].timestamp >= response_desc.data[i].timestamp,
                 "Should be sorted descending by timestamp"
+            );
+        }
+
+        // Verify no hour gaps (cumulatives are created hourly, so consecutive entries should be 1 hour apart)
+        for i in 1..response_desc.data.len() {
+            let prev_ts = response_desc.data[i - 1].timestamp;
+            let curr_ts = response_desc.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 3600,
+                "Market cumulatives should have exactly 1 hour (3600s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_requestor_aggregates() {
+    let env = TestEnv::market().await;
+
+    // First get a request to obtain a valid requestor address
+    let list_response: RequestListResponse = env.get("/v1/market/requests?limit=1").await.unwrap();
+
+    let first = list_response.data.first().unwrap();
+    let requestor_address = &first.client_address;
+
+    // Test hourly aggregation
+    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=hourly&limit=10", requestor_address);
+    let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "hourly");
+    assert_eq!(response.requestor_address, *requestor_address);
+    assert!(response.data.len() <= 10);
+
+    // Verify response structure
+    if !response.data.is_empty() {
+        let first_entry = &response.data[0];
+        assert_eq!(first_entry.requestor_address, *requestor_address);
+        assert!(!first_entry.timestamp_iso.is_empty());
+        assert!(!first_entry.total_fees_locked_formatted.is_empty());
+        // Verify percentile fields exist
+        assert!(!first_entry.p50_lock_price_per_cycle_formatted.is_empty());
+    }
+
+    // Verify no hour gaps for hourly aggregates
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 3600,
+                "Hourly requestor aggregates should have exactly 1 hour (3600s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+        }
+    }
+
+    // Test daily aggregation
+    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=daily&limit=5", requestor_address);
+    let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "daily");
+    assert_eq!(response.requestor_address, *requestor_address);
+
+    // Verify no day gaps for daily aggregates
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 86400,
+                "Daily requestor aggregates should have exactly 1 day (86400s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+        }
+    }
+
+    // Test weekly aggregation
+    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=weekly&limit=5", requestor_address);
+    let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "weekly");
+    assert_eq!(response.requestor_address, *requestor_address);
+
+    // Verify no week gaps for weekly aggregates
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 604800,
+                "Weekly requestor aggregates should have exactly 1 week (604800s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+        }
+    }
+
+    // Test that monthly is rejected
+    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=monthly&limit=5", requestor_address);
+    let result: Result<RequestorAggregatesResponse, _> = env.get(&path).await;
+    assert!(result.is_err(), "Monthly aggregation should be rejected");
+
+    // Test pagination
+    if let Some(cursor) = &response.next_cursor {
+        let path = format!("/v1/market/requestors/{}/aggregates?aggregation=weekly&limit=10&cursor={}", requestor_address, cursor);
+        let page2: RequestorAggregatesResponse = env.get(&path).await.unwrap();
+
+        if !response.data.is_empty() && !page2.data.is_empty() {
+            assert_ne!(
+                response.data[0].timestamp, page2.data[0].timestamp,
+                "Pages should contain different timestamps"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_requestor_cumulatives() {
+    let env = TestEnv::market().await;
+
+    // First get a request to obtain a valid requestor address
+    let list_response: RequestListResponse = env.get("/v1/market/requests?limit=1").await.unwrap();
+
+    let first = list_response.data.first().unwrap();
+    let requestor_address = &first.client_address;
+
+    // Test basic endpoint
+    let path = format!("/v1/market/requestors/{}/cumulatives?limit=10", requestor_address);
+    let response: RequestorCumulativesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.requestor_address, *requestor_address);
+    assert!(response.data.len() <= 10);
+    assert!(!response.data.is_empty());
+
+    // Verify response structure
+    let first_entry = response.data.first().unwrap();
+    assert_eq!(first_entry.requestor_address, *requestor_address);
+    assert!(!first_entry.timestamp_iso.is_empty());
+    assert!(!first_entry.total_fees_locked_formatted.is_empty());
+
+    // Verify cumulative nature
+    if response.data.len() >= 2 {
+        let sorted_data: Vec<_> = response.data.iter().collect();
+        for i in 1..sorted_data.len() {
+            let prev = &sorted_data[i - 1];
+            let curr = &sorted_data[i];
+            
+            if prev.timestamp > curr.timestamp {
+                // Descending order - previous should have >= values
+                assert!(
+                    prev.total_fulfilled >= curr.total_fulfilled,
+                    "Cumulative values should be non-decreasing"
+                );
+            } else {
+                // Ascending order - current should have >= values
+                assert!(
+                    curr.total_fulfilled >= prev.total_fulfilled,
+                    "Cumulative values should be non-decreasing"
+                );
+            }
+        }
+    }
+
+    // Test pagination
+    if let Some(cursor) = &response.next_cursor {
+        let path = format!("/v1/market/requestors/{}/cumulatives?limit=10&cursor={}", requestor_address, cursor);
+        let page2: RequestorCumulativesResponse = env.get(&path).await.unwrap();
+
+        if !response.data.is_empty() && !page2.data.is_empty() {
+            assert_ne!(
+                response.data[0].timestamp, page2.data[0].timestamp,
+                "Pages should contain different timestamps"
+            );
+        }
+    }
+
+    // Test time filtering
+    if !response.data.is_empty() {
+        let before_ts = response.data[0].timestamp;
+        let path = format!("/v1/market/requestors/{}/cumulatives?limit=10&before={}", requestor_address, before_ts);
+        let filtered: RequestorCumulativesResponse = env.get(&path).await.unwrap();
+
+        for entry in &filtered.data {
+            assert!(
+                entry.timestamp < before_ts,
+                "All entries should be before {}: found {}",
+                before_ts,
+                entry.timestamp
+            );
+        }
+    }
+
+    // Verify no hour gaps (requestor cumulatives are created hourly, so consecutive entries should be 1 hour apart)
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 3600,
+                "Requestor cumulatives should have exactly 1 hour (3600s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
             );
         }
     }

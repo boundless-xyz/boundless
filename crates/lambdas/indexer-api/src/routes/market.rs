@@ -42,6 +42,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/requests", get(list_requests))
         .route("/requests/:request_id", get(get_requests_by_request_id))
         .route("/requestors/:address/requests", get(list_requests_by_requestor))
+        .route("/requestors/:address/aggregates", get(get_requestor_aggregates))
+        .route("/requestors/:address/cumulatives", get(get_requestor_cumulatives))
         .route("/provers/:address/requests", get(list_requests_by_prover))
 }
 
@@ -172,7 +174,57 @@ pub struct MarketCumulativesParams {
     #[serde(default)]
     limit: Option<u64>,
 
+    /// Sort order: "asc" or "desc" (default "desc" - newest first)
+    #[serde(default)]
+    sort: Option<String>,
+
+    /// Unix timestamp to fetch cumulatives before this time
+    #[serde(default)]
+    before: Option<i64>,
+
+    /// Unix timestamp to fetch cumulatives after this time
+    #[serde(default)]
+    after: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
+pub struct RequestorAggregatesParams {
+    /// Aggregation granularity: hourly, daily, or weekly (monthly not supported)
+    #[serde(default)]
+    aggregation: AggregationGranularity,
+
+    /// Base64-encoded cursor from previous response for pagination
+    #[serde(default)]
+    cursor: Option<String>,
+
+    /// Limit of aggregates returned, max 1000 (default 100)
+    #[serde(default)]
+    limit: Option<u64>,
+
     /// Sort order: "asc" or "desc" (default "desc")
+    #[serde(default)]
+    sort: Option<String>,
+
+    /// Unix timestamp to fetch aggregates before this time
+    #[serde(default)]
+    before: Option<i64>,
+
+    /// Unix timestamp to fetch aggregates after this time
+    #[serde(default)]
+    after: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
+pub struct RequestorCumulativesParams {
+    /// Base64-encoded cursor from previous response for pagination
+    #[serde(default)]
+    cursor: Option<String>,
+
+    /// Limit of cumulatives returned, max 1000 (default 100)
+    #[serde(default)]
+    limit: Option<u64>,
+
+    /// Sort order: "asc" or "desc" (default "desc" - newest first)
     #[serde(default)]
     sort: Option<String>,
 
@@ -400,6 +452,212 @@ pub struct MarketCumulativesResponse {
     pub has_more: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RequestorAggregateEntry {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Requestor address
+    pub requestor_address: String,
+    /// Timestamp for this aggregate period (Unix timestamp)
+    pub timestamp: i64,
+
+    /// ISO 8601 formatted timestamp
+    pub timestamp_iso: String,
+
+    /// Total number of fulfilled orders in this period
+    pub total_fulfilled: i64,
+
+    /// Unique provers who locked requests in this period
+    pub unique_provers_locking_requests: i64,
+
+    /// Total fees locked (as string)
+    pub total_fees_locked: String,
+
+    /// Total fees locked (formatted for display)
+    pub total_fees_locked_formatted: String,
+
+    /// Total collateral locked (as string)
+    pub total_collateral_locked: String,
+
+    /// Total collateral locked (formatted for display)
+    pub total_collateral_locked_formatted: String,
+
+    /// Total collateral from locked requests that expired (as string)
+    pub total_locked_and_expired_collateral: String,
+
+    /// Total collateral from locked requests that expired (formatted for display)
+    pub total_locked_and_expired_collateral_formatted: String,
+
+    /// 10th percentile lock price per cycle (as string)
+    pub p10_lock_price_per_cycle: String,
+
+    /// 10th percentile lock price per cycle (formatted for display)
+    pub p10_lock_price_per_cycle_formatted: String,
+
+    /// 25th percentile lock price per cycle (as string)
+    pub p25_lock_price_per_cycle: String,
+
+    /// 25th percentile lock price per cycle (formatted for display)
+    pub p25_lock_price_per_cycle_formatted: String,
+
+    /// Median (p50) lock price per cycle (as string)
+    pub p50_lock_price_per_cycle: String,
+
+    /// Median (p50) lock price per cycle (formatted for display)
+    pub p50_lock_price_per_cycle_formatted: String,
+
+    /// 75th percentile lock price per cycle (as string)
+    pub p75_lock_price_per_cycle: String,
+
+    /// 75th percentile lock price per cycle (formatted for display)
+    pub p75_lock_price_per_cycle_formatted: String,
+
+    /// 90th percentile lock price per cycle (as string)
+    pub p90_lock_price_per_cycle: String,
+
+    /// 90th percentile lock price per cycle (formatted for display)
+    pub p90_lock_price_per_cycle_formatted: String,
+
+    /// 95th percentile lock price per cycle (as string)
+    pub p95_lock_price_per_cycle: String,
+
+    /// 95th percentile lock price per cycle (formatted for display)
+    pub p95_lock_price_per_cycle_formatted: String,
+
+    /// 99th percentile lock price per cycle (as string)
+    pub p99_lock_price_per_cycle: String,
+
+    /// 99th percentile lock price per cycle (formatted for display)
+    pub p99_lock_price_per_cycle_formatted: String,
+
+    /// Total number of requests submitted in this period
+    pub total_requests_submitted: i64,
+
+    /// Total number of requests submitted onchain in this period
+    pub total_requests_submitted_onchain: i64,
+
+    /// Total number of requests submitted offchain in this period
+    pub total_requests_submitted_offchain: i64,
+
+    /// Total number of requests locked in this period
+    pub total_requests_locked: i64,
+
+    /// Total number of requests slashed in this period
+    pub total_requests_slashed: i64,
+
+    /// Total number of requests that expired in this period
+    pub total_expired: i64,
+
+    /// Total number of locked requests that expired in this period
+    pub total_locked_and_expired: i64,
+
+    /// Total number of locked requests that were fulfilled in this period
+    pub total_locked_and_fulfilled: i64,
+
+    /// Fulfillment rate for locked orders (percentage)
+    pub locked_orders_fulfillment_rate: f32,
+
+    /// Total program cycles computed across all fulfilled requests in this period
+    pub total_program_cycles: String,
+
+    /// Total cycles (program + overhead) computed across all fulfilled requests in this period
+    pub total_cycles: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RequestorAggregatesResponse {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Requestor address
+    pub requestor_address: String,
+    /// The aggregation granularity used: hourly, daily, or weekly
+    pub aggregation: AggregationGranularity,
+    pub data: Vec<RequestorAggregateEntry>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RequestorCumulativeEntry {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Requestor address
+    pub requestor_address: String,
+    /// Timestamp for this cumulative snapshot (Unix timestamp)
+    pub timestamp: i64,
+
+    /// ISO 8601 formatted timestamp
+    pub timestamp_iso: String,
+
+    /// Total number of fulfilled orders (cumulative)
+    pub total_fulfilled: i64,
+
+    /// Unique provers who locked requests (cumulative)
+    pub unique_provers_locking_requests: i64,
+
+    /// Total fees locked (as string)
+    pub total_fees_locked: String,
+
+    /// Total fees locked (formatted for display)
+    pub total_fees_locked_formatted: String,
+
+    /// Total collateral locked (as string)
+    pub total_collateral_locked: String,
+
+    /// Total collateral locked (formatted for display)
+    pub total_collateral_locked_formatted: String,
+
+    /// Total collateral from locked requests that expired (as string)
+    pub total_locked_and_expired_collateral: String,
+
+    /// Total collateral from locked requests that expired (formatted for display)
+    pub total_locked_and_expired_collateral_formatted: String,
+
+    /// Total number of requests submitted (cumulative)
+    pub total_requests_submitted: i64,
+
+    /// Total number of requests submitted onchain (cumulative)
+    pub total_requests_submitted_onchain: i64,
+
+    /// Total number of requests submitted offchain (cumulative)
+    pub total_requests_submitted_offchain: i64,
+
+    /// Total number of requests locked (cumulative)
+    pub total_requests_locked: i64,
+
+    /// Total number of requests slashed (cumulative)
+    pub total_requests_slashed: i64,
+
+    /// Total number of requests that expired (cumulative)
+    pub total_expired: i64,
+
+    /// Total number of locked requests that expired (cumulative)
+    pub total_locked_and_expired: i64,
+
+    /// Total number of locked requests that were fulfilled (cumulative)
+    pub total_locked_and_fulfilled: i64,
+
+    /// Fulfillment rate for locked orders (percentage)
+    pub locked_orders_fulfillment_rate: f32,
+
+    /// Total program cycles computed across all fulfilled requests (cumulative)
+    pub total_program_cycles: String,
+
+    /// Total cycles (program + overhead) computed across all fulfilled requests (cumulative)
+    pub total_cycles: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RequestorCumulativesResponse {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Requestor address
+    pub requestor_address: String,
+    pub data: Vec<RequestorCumulativeEntry>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
 /// GET /v1/market/aggregates
 /// Returns aggregated market data for the specified time period
 #[utoipa::path(
@@ -598,7 +856,7 @@ async fn get_market_aggregates_impl(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_market_cumulatives(
+pub async fn get_market_cumulatives(
     State(state): State<Arc<AppState>>,
     Query(params): Query<MarketCumulativesParams>,
 ) -> Response {
@@ -723,6 +981,346 @@ async fn get_market_cumulatives_impl(
 
     Ok(MarketCumulativesResponse { 
         chain_id: state.chain_id,
+        data, 
+        next_cursor, 
+        has_more 
+    })
+}
+
+/// GET /v1/market/requestors/:address/aggregates
+/// Returns aggregated requestor data for the specified time period
+#[utoipa::path(
+    get,
+    path = "/v1/market/requestors/{address}/aggregates",
+    tag = "Market",
+    params(
+        ("address" = String, Path, description = "Requestor address"),
+        RequestorAggregatesParams
+    ),
+    responses(
+        (status = 200, description = "Requestor aggregates", body = RequestorAggregatesResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_requestor_aggregates(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+    Query(params): Query<RequestorAggregatesParams>,
+) -> Response {
+    let params_clone = params.clone();
+    match get_requestor_aggregates_impl(state, address, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            // Use shorter cache for recent data, longer for historical
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            // If querying recent data (no before filter or before is within last 24h), use short cache
+            let is_recent = params_clone.before.is_none_or(|before| before > now - 86400);
+            let cache_duration = if is_recent {
+                "public, max-age=60" // 1 minute for recent data
+            } else {
+                "public, max-age=300" // 5 minutes for historical data
+            };
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_requestor_aggregates_impl(
+    state: Arc<AppState>,
+    address: String,
+    params: RequestorAggregatesParams,
+) -> anyhow::Result<RequestorAggregatesResponse> {
+    let requestor_address = Address::from_str(&address)?;
+
+    // Validate aggregation is not monthly
+    if matches!(params.aggregation, AggregationGranularity::Monthly) {
+        anyhow::bail!("Monthly aggregation is not supported for requestor aggregates");
+    }
+
+    tracing::debug!(
+        "Fetching requestor aggregates: address={}, aggregation={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
+        address,
+        params.aggregation,
+        params.cursor,
+        params.limit,
+        params.sort,
+        params.before,
+        params.after
+    );
+
+    // Parse cursor if provided
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        Some(decode_cursor(cursor_str)?)
+    } else {
+        None
+    };
+
+    // Apply limit with max and default
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
+    let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
+    let limit_i64 = i64::try_from(limit)?;
+
+    // Parse sort direction
+    let sort = match params.sort.as_deref() {
+        Some("asc") => SortDirection::Asc,
+        Some("desc") | None => SortDirection::Desc,
+        _ => anyhow::bail!("Invalid sort direction. Must be 'asc' or 'desc'"),
+    };
+
+    // Request one extra item to efficiently determine if more pages exist
+    let limit_plus_one = limit_i64 + 1;
+    
+    // Route to appropriate database method based on aggregation type
+    let mut summaries = match params.aggregation {
+        AggregationGranularity::Hourly => state
+            .market_db
+            .get_hourly_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
+            .await?,
+        AggregationGranularity::Daily => state
+            .market_db
+            .get_daily_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
+            .await?,
+        AggregationGranularity::Weekly => state
+            .market_db
+            .get_weekly_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
+            .await?,
+        AggregationGranularity::Monthly => {
+            // This should never happen due to validation above, but include for completeness
+            anyhow::bail!("Monthly aggregation is not supported");
+        }
+    };
+
+    let has_more = summaries.len() > limit as usize;
+    if has_more {
+        summaries.pop();
+    }
+
+    // Generate next cursor if there are more results
+    let next_cursor = if has_more && !summaries.is_empty() {
+        let last_summary = summaries.last().unwrap();
+        Some(encode_cursor(last_summary.period_timestamp as i64)?)
+    } else {
+        None
+    };
+
+    // Convert to response format
+    let data = summaries
+        .into_iter()
+        .map(|summary| {
+            let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
+
+            let total_fees_locked = summary.total_fees_locked.to_string();
+            let total_collateral_locked = summary.total_collateral_locked.to_string();
+            let total_locked_and_expired_collateral = summary.total_locked_and_expired_collateral.to_string();
+            let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
+            let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
+            let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
+            let p75_lock_price_per_cycle = summary.p75_lock_price_per_cycle.to_string();
+            let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
+            let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
+            let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            RequestorAggregateEntry {
+                chain_id: state.chain_id,
+                requestor_address: format!("{:#x}", summary.requestor_address),
+                timestamp: summary.period_timestamp as i64,
+                timestamp_iso,
+                total_fulfilled: summary.total_fulfilled as i64,
+                unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
+                total_fees_locked: total_fees_locked.clone(),
+                total_fees_locked_formatted: format_eth(&total_fees_locked),
+                total_collateral_locked: total_collateral_locked.clone(),
+                total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
+                total_locked_and_expired_collateral_formatted: format_zkc(&total_locked_and_expired_collateral),
+                p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
+                p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
+                p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
+                p25_lock_price_per_cycle_formatted: format_eth(&p25_lock_price_per_cycle),
+                p50_lock_price_per_cycle: p50_lock_price_per_cycle.clone(),
+                p50_lock_price_per_cycle_formatted: format_eth(&p50_lock_price_per_cycle),
+                p75_lock_price_per_cycle: p75_lock_price_per_cycle.clone(),
+                p75_lock_price_per_cycle_formatted: format_eth(&p75_lock_price_per_cycle),
+                p90_lock_price_per_cycle: p90_lock_price_per_cycle.clone(),
+                p90_lock_price_per_cycle_formatted: format_eth(&p90_lock_price_per_cycle),
+                p95_lock_price_per_cycle: p95_lock_price_per_cycle.clone(),
+                p95_lock_price_per_cycle_formatted: format_eth(&p95_lock_price_per_cycle),
+                p99_lock_price_per_cycle: p99_lock_price_per_cycle.clone(),
+                p99_lock_price_per_cycle_formatted: format_eth(&p99_lock_price_per_cycle),
+                total_requests_submitted: summary.total_requests_submitted as i64,
+                total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
+                total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
+                total_requests_locked: summary.total_requests_locked as i64,
+                total_requests_slashed: summary.total_requests_slashed as i64,
+                total_expired: summary.total_expired as i64,
+                total_locked_and_expired: summary.total_locked_and_expired as i64,
+                total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                total_program_cycles: summary.total_program_cycles.to_string(),
+                total_cycles: summary.total_cycles.to_string(),
+            }
+        })
+        .collect();
+
+    Ok(RequestorAggregatesResponse { 
+        chain_id: state.chain_id,
+        requestor_address: format!("{:#x}", requestor_address),
+        aggregation: params.aggregation,
+        data, 
+        next_cursor, 
+        has_more 
+    })
+}
+
+/// GET /v1/market/requestors/:address/cumulatives
+/// Returns all-time requestor statistics over time with pagination
+#[utoipa::path(
+    get,
+    path = "/v1/market/requestors/{address}/cumulatives",
+    tag = "Market",
+    params(
+        ("address" = String, Path, description = "Requestor address"),
+        RequestorCumulativesParams
+    ),
+    responses(
+        (status = 200, description = "Requestor cumulatives", body = RequestorCumulativesResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_requestor_cumulatives(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+    Query(params): Query<RequestorCumulativesParams>,
+) -> Response {
+    let params_clone = params.clone();
+    match get_requestor_cumulatives_impl(state, address, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            // Use shorter cache for recent data, longer for historical
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            // If querying recent data (no before filter or before is within last 24h), use short cache
+            let is_recent = params_clone.before.is_none_or(|before| before > now - 86400);
+            let cache_duration = if is_recent {
+                "public, max-age=60" // 1 minute for recent data
+            } else {
+                "public, max-age=300" // 5 minutes for historical data
+            };
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_requestor_cumulatives_impl(
+    state: Arc<AppState>,
+    address: String,
+    params: RequestorCumulativesParams,
+) -> anyhow::Result<RequestorCumulativesResponse> {
+    let requestor_address = Address::from_str(&address)?;
+
+    tracing::debug!(
+        "Fetching requestor cumulatives: address={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
+        address,
+        params.cursor,
+        params.limit,
+        params.sort,
+        params.before,
+        params.after
+    );
+
+    // Parse cursor if provided
+    let cursor = if let Some(cursor_str) = &params.cursor {
+        Some(decode_cursor(cursor_str)?)
+    } else {
+        None
+    };
+
+    // Apply limit with max and default
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
+    let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
+    let limit_i64 = i64::try_from(limit)?;
+
+    // Parse sort direction
+    let sort = match params.sort.as_deref() {
+        Some("asc") => SortDirection::Asc,
+        Some("desc") | None => SortDirection::Desc,
+        _ => anyhow::bail!("Invalid sort direction. Must be 'asc' or 'desc'"),
+    };
+
+    // Request one extra item to efficiently determine if more pages exist
+    let limit_plus_one = limit_i64 + 1;
+    
+    // Fetch all-time requestor summaries
+    let mut summaries = state
+        .market_db
+        .get_all_time_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
+        .await?;
+
+    let has_more = summaries.len() > limit as usize;
+    if has_more {
+        summaries.pop();
+    }
+
+    // Generate next cursor if there are more results
+    let next_cursor = if has_more && !summaries.is_empty() {
+        let last_summary = summaries.last().unwrap();
+        Some(encode_cursor(last_summary.period_timestamp as i64)?)
+    } else {
+        None
+    };
+
+    // Convert to response format
+    let data = summaries
+        .into_iter()
+        .map(|summary| {
+            let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
+
+            let total_fees_locked = summary.total_fees_locked.to_string();
+            let total_collateral_locked = summary.total_collateral_locked.to_string();
+            let total_locked_and_expired_collateral = summary.total_locked_and_expired_collateral.to_string();
+
+            RequestorCumulativeEntry {
+                chain_id: state.chain_id,
+                requestor_address: format!("{:#x}", summary.requestor_address),
+                timestamp: summary.period_timestamp as i64,
+                timestamp_iso,
+                total_fulfilled: summary.total_fulfilled as i64,
+                unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
+                total_fees_locked: total_fees_locked.clone(),
+                total_fees_locked_formatted: format_eth(&total_fees_locked),
+                total_collateral_locked: total_collateral_locked.clone(),
+                total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
+                total_locked_and_expired_collateral_formatted: format_zkc(&total_locked_and_expired_collateral),
+                total_requests_submitted: summary.total_requests_submitted as i64,
+                total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
+                total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
+                total_requests_locked: summary.total_requests_locked as i64,
+                total_requests_slashed: summary.total_requests_slashed as i64,
+                total_expired: summary.total_expired as i64,
+                total_locked_and_expired: summary.total_locked_and_expired as i64,
+                total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                total_program_cycles: summary.total_program_cycles.to_string(),
+                total_cycles: summary.total_cycles.to_string(),
+            }
+        })
+        .collect();
+
+    Ok(RequestorCumulativesResponse { 
+        chain_id: state.chain_id,
+        requestor_address: format!("{:#x}", requestor_address),
         data, 
         next_cursor, 
         has_more 

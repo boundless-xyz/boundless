@@ -228,7 +228,8 @@ where
         self.aggregate_hourly_requestor_data(to).await?;
         self.aggregate_daily_requestor_data(to).await?;
         self.aggregate_weekly_requestor_data(to).await?;
-        self.aggregate_monthly_requestor_data(to).await?;
+        // TODO: Debug speed issues.
+        // self.aggregate_monthly_requestor_data(to).await?;
         self.aggregate_all_time_requestor_data(to).await?;
 
         // Update the last processed block.
