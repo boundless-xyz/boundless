@@ -65,16 +65,11 @@ bytemuck = "1.16"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
-distributor = { path = "crates/distributor" }
 futures-util = "0.3"
-guest-assessor = { path = "crates/guest/assessor" }
 guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", tag = "aggregation-v0.8.1" }
-guest-util = { path = "crates/guest/util" }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
-order-stream = { path = "crates/order-stream" }
 postcard = { version = "1.0" }
 rand = { version = "0.9" }
-requestor-lists = { path = "crates/requestor-lists" }
 reqwest = "0.12"
 risc0-aggregation = { version = "0.9.0" }
 risc0-build = { version = "3.0.3", features = ["docker", "unstable"] }
