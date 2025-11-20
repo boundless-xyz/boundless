@@ -28,10 +28,14 @@ use crate::market::{
 };
 use ::boundless_market::contracts::pricing::price_at_time;
 use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::U256;
+use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
 use anyhow::anyhow;
+use futures_util::future::try_join_all;
 use std::str::FromStr;
+
+/// Number of requestors to process in parallel per chunk
+const REQUESTOR_CHUNK_SIZE: usize = 5;
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -286,8 +290,8 @@ where
                 let max_price = U256::from_str(&lock.max_price)
                     .map_err(|e| ServiceError::Error(anyhow!("Failed to parse max_price: {}", e)))?;
 
-                // Compute lock_timeout from lock_end and bidding_start
-                let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.bidding_start);
+                // Compute lock_timeout from lock_end and ramp_up_start
+                let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.ramp_up_start);
                 let lock_timeout = u32::try_from(lock_timeout_u64).unwrap_or_else(|_| {
                     tracing::warn!(
                         "Lock timeout {} exceeds u32::MAX for request, using u32::MAX as fallback",
@@ -299,7 +303,7 @@ where
                 price_at_time(
                     min_price,
                     max_price,
-                    lock.bidding_start,
+                    lock.ramp_up_start,
                     lock.ramp_up_period,
                     lock_timeout,
                     lock.lock_timestamp,
@@ -384,6 +388,14 @@ where
             best_effective_prove_mhz_request_id,
         })
     }
+}
+
+/// Helper function to chunk a vector into smaller chunks
+fn chunk_requestors(requestors: &[Address], chunk_size: usize) -> Vec<Vec<Address>> {
+    requestors
+        .chunks(chunk_size)
+        .map(|chunk| chunk.to_vec())
+        .collect()
 }
 
 /// Helper function to sum hourly aggregates into a base all-time aggregate
@@ -630,14 +642,28 @@ where
             current_hour
         );
 
-        for requestor in requestors {
-            for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
-                let summary = self.compute_period_requestor_summary(hour_ts, hour_end, requestor).await?;
-                // Only insert if there's activity
-                if summary.total_requests_submitted > 0 {
-                    self.db.upsert_hourly_requestor_summary(summary).await?;
-                }
-            }
+        // Process requestors in chunks in parallel
+        let chunks = chunk_requestors(&requestors, REQUESTOR_CHUNK_SIZE);
+        for chunk in chunks {
+            let requestor_futures: Vec<_> = chunk
+                .into_iter()
+                .map(|requestor| {
+                    let service = self;
+                    async move {
+                        for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
+                            let summary = service.compute_period_requestor_summary(hour_ts, hour_end, requestor).await?;
+                            // Only insert if there's activity
+                            if summary.total_requests_submitted > 0 {
+                                service.db.upsert_hourly_requestor_summary(summary).await?;
+                            }
+                        }
+                        Ok::<(), ServiceError>(())
+                    }
+                })
+                .collect();
+            
+            // Wait for all requestors in this chunk to complete
+            try_join_all(requestor_futures).await?;
         }
 
         tracing::info!("aggregate_hourly_requestor_data completed in {:?}", start.elapsed());
@@ -672,13 +698,27 @@ where
             current_day_start
         );
 
-        for requestor in requestors {
-            for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
-                let summary = self.compute_period_requestor_summary(day_ts, day_end, requestor).await?;
-                if summary.total_requests_submitted > 0 {
-                    self.db.upsert_daily_requestor_summary(summary).await?;
-                }
-            }
+        // Process requestors in chunks in parallel
+        let chunks = chunk_requestors(&requestors, REQUESTOR_CHUNK_SIZE);
+        for chunk in chunks {
+            let requestor_futures: Vec<_> = chunk
+                .into_iter()
+                .map(|requestor| {
+                    let service = self;
+                    async move {
+                        for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
+                            let summary = service.compute_period_requestor_summary(day_ts, day_end, requestor).await?;
+                            if summary.total_requests_submitted > 0 {
+                                service.db.upsert_daily_requestor_summary(summary).await?;
+                            }
+                        }
+                        Ok::<(), ServiceError>(())
+                    }
+                })
+                .collect();
+            
+            // Wait for all requestors in this chunk to complete
+            try_join_all(requestor_futures).await?;
         }
 
         tracing::info!("aggregate_daily_requestor_data completed in {:?}", start.elapsed());
@@ -713,13 +753,27 @@ where
             current_week_start
         );
 
-        for requestor in requestors {
-            for (week_ts, week_end) in iter_weekly_periods(start_week, current_week_start) {
-                let summary = self.compute_period_requestor_summary(week_ts, week_end, requestor).await?;
-                if summary.total_requests_submitted > 0 {
-                    self.db.upsert_weekly_requestor_summary(summary).await?;
-                }
-            }
+        // Process requestors in chunks in parallel
+        let chunks = chunk_requestors(&requestors, REQUESTOR_CHUNK_SIZE);
+        for chunk in chunks {
+            let requestor_futures: Vec<_> = chunk
+                .into_iter()
+                .map(|requestor| {
+                    let service = self;
+                    async move {
+                        for (week_ts, week_end) in iter_weekly_periods(start_week, current_week_start) {
+                            let summary = service.compute_period_requestor_summary(week_ts, week_end, requestor).await?;
+                            if summary.total_requests_submitted > 0 {
+                                service.db.upsert_weekly_requestor_summary(summary).await?;
+                            }
+                        }
+                        Ok::<(), ServiceError>(())
+                    }
+                })
+                .collect();
+            
+            // Wait for all requestors in this chunk to complete
+            try_join_all(requestor_futures).await?;
         }
 
         tracing::info!("aggregate_weekly_requestor_data completed in {:?}", start.elapsed());
@@ -775,13 +829,27 @@ where
             current_month_start
         );
 
-        for requestor in requestors {
-            for (month_ts, month_end) in iter_monthly_periods(start_month, current_month_start) {
-                let summary = self.compute_period_requestor_summary(month_ts, month_end, requestor).await?;
-                if summary.total_requests_submitted > 0 {
-                    self.db.upsert_monthly_requestor_summary(summary).await?;
-                }
-            }
+        // Process requestors in chunks in parallel
+        let chunks = chunk_requestors(&requestors, REQUESTOR_CHUNK_SIZE);
+        for chunk in chunks {
+            let requestor_futures: Vec<_> = chunk
+                .into_iter()
+                .map(|requestor| {
+                    let service = self;
+                    async move {
+                        for (month_ts, month_end) in iter_monthly_periods(start_month, current_month_start) {
+                            let summary = service.compute_period_requestor_summary(month_ts, month_end, requestor).await?;
+                            if summary.total_requests_submitted > 0 {
+                                service.db.upsert_monthly_requestor_summary(summary).await?;
+                            }
+                        }
+                        Ok::<(), ServiceError>(())
+                    }
+                })
+                .collect();
+            
+            // Wait for all requestors in this chunk to complete
+            try_join_all(requestor_futures).await?;
         }
 
         tracing::info!("aggregate_monthly_requestor_data completed in {:?}", start.elapsed());
@@ -817,104 +885,118 @@ where
             current_hour
         );
 
-        for requestor in requestors {
-            // Get all hourly summaries for this requestor
-            let hourly_summaries = self.db
-                .get_hourly_requestor_summaries_by_range(requestor, start_hour, current_hour + 1)
-                .await?;
+        // Process requestors in chunks in parallel
+        let chunks = chunk_requestors(&requestors, REQUESTOR_CHUNK_SIZE);
+        for chunk in chunks {
+            let requestor_futures: Vec<_> = chunk
+                .into_iter()
+                .map(|requestor| {
+                    let service = self;
+                    async move {
+                        // Get all hourly summaries for this requestor
+                        let hourly_summaries = service.db
+                            .get_hourly_requestor_summaries_by_range(requestor, start_hour, current_hour + 1)
+                            .await?;
 
-            if hourly_summaries.is_empty() {
-                continue;
-            }
+                        if hourly_summaries.is_empty() {
+                            return Ok::<(), ServiceError>(());
+                        }
 
-            let earliest_hour = hourly_summaries.first().unwrap().period_timestamp;
-            let base_timestamp = earliest_hour.saturating_sub(SECONDS_PER_HOUR);
+                        let earliest_hour = hourly_summaries.first().unwrap().period_timestamp;
+                        let base_timestamp = earliest_hour.saturating_sub(SECONDS_PER_HOUR);
 
-            let mut cumulative_summary = match self.db
-                .get_all_time_requestor_summary_by_timestamp(requestor, base_timestamp)
-                .await?
-            {
-                Some(prev) => prev,
-                None => crate::db::market::AllTimeRequestorSummary {
-                    period_timestamp: base_timestamp,
-                    requestor_address: requestor,
-                    total_fulfilled: 0,
-                    unique_provers_locking_requests: 0,
-                    total_fees_locked: alloy::primitives::U256::ZERO,
-                    total_collateral_locked: alloy::primitives::U256::ZERO,
-                    total_locked_and_expired_collateral: alloy::primitives::U256::ZERO,
-                    total_requests_submitted: 0,
-                    total_requests_submitted_onchain: 0,
-                    total_requests_submitted_offchain: 0,
-                    total_requests_locked: 0,
-                    total_requests_slashed: 0,
-                    total_expired: 0,
-                    total_locked_and_expired: 0,
-                    total_locked_and_fulfilled: 0,
-                    locked_orders_fulfillment_rate: 0.0,
-                    total_program_cycles: alloy::primitives::U256::ZERO,
-                    total_cycles: alloy::primitives::U256::ZERO,
-                    best_peak_prove_mhz: 0,
-                    best_peak_prove_mhz_prover: None,
-                    best_peak_prove_mhz_request_id: None,
-                    best_effective_prove_mhz: 0,
-                    best_effective_prove_mhz_prover: None,
-                    best_effective_prove_mhz_request_id: None,
-                },
-            };
+                        let mut cumulative_summary = match service.db
+                            .get_all_time_requestor_summary_by_timestamp(requestor, base_timestamp)
+                            .await?
+                        {
+                            Some(prev) => prev,
+                            None => crate::db::market::AllTimeRequestorSummary {
+                                period_timestamp: base_timestamp,
+                                requestor_address: requestor,
+                                total_fulfilled: 0,
+                                unique_provers_locking_requests: 0,
+                                total_fees_locked: alloy::primitives::U256::ZERO,
+                                total_collateral_locked: alloy::primitives::U256::ZERO,
+                                total_locked_and_expired_collateral: alloy::primitives::U256::ZERO,
+                                total_requests_submitted: 0,
+                                total_requests_submitted_onchain: 0,
+                                total_requests_submitted_offchain: 0,
+                                total_requests_locked: 0,
+                                total_requests_slashed: 0,
+                                total_expired: 0,
+                                total_locked_and_expired: 0,
+                                total_locked_and_fulfilled: 0,
+                                locked_orders_fulfillment_rate: 0.0,
+                                total_program_cycles: alloy::primitives::U256::ZERO,
+                                total_cycles: alloy::primitives::U256::ZERO,
+                                best_peak_prove_mhz: 0,
+                                best_peak_prove_mhz_prover: None,
+                                best_peak_prove_mhz_request_id: None,
+                                best_effective_prove_mhz: 0,
+                                best_effective_prove_mhz_prover: None,
+                                best_effective_prove_mhz_request_id: None,
+                            },
+                        };
 
-            for (hour_ts, _hour_end) in iter_hourly_periods(start_hour, current_hour) {
-                let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
+                        for (hour_ts, _hour_end) in iter_hourly_periods(start_hour, current_hour) {
+                            let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
 
-                if let Some(summary) = hour_summary {
-                    // Add this hour's data
-                    cumulative_summary.total_fulfilled += summary.total_fulfilled;
-                    cumulative_summary.total_requests_submitted += summary.total_requests_submitted;
-                    cumulative_summary.total_requests_submitted_onchain += summary.total_requests_submitted_onchain;
-                    cumulative_summary.total_requests_submitted_offchain += summary.total_requests_submitted_offchain;
-                    cumulative_summary.total_requests_locked += summary.total_requests_locked;
-                    cumulative_summary.total_requests_slashed += summary.total_requests_slashed;
-                    cumulative_summary.total_expired += summary.total_expired;
-                    cumulative_summary.total_locked_and_expired += summary.total_locked_and_expired;
-                    cumulative_summary.total_locked_and_fulfilled += summary.total_locked_and_fulfilled;
-                    cumulative_summary.total_program_cycles += summary.total_program_cycles;
-                    cumulative_summary.total_cycles += summary.total_cycles;
-                    cumulative_summary.total_fees_locked += summary.total_fees_locked;
-                    cumulative_summary.total_collateral_locked += summary.total_collateral_locked;
-                    cumulative_summary.total_locked_and_expired_collateral += summary.total_locked_and_expired_collateral;
+                            if let Some(summary) = hour_summary {
+                                // Add this hour's data
+                                cumulative_summary.total_fulfilled += summary.total_fulfilled;
+                                cumulative_summary.total_requests_submitted += summary.total_requests_submitted;
+                                cumulative_summary.total_requests_submitted_onchain += summary.total_requests_submitted_onchain;
+                                cumulative_summary.total_requests_submitted_offchain += summary.total_requests_submitted_offchain;
+                                cumulative_summary.total_requests_locked += summary.total_requests_locked;
+                                cumulative_summary.total_requests_slashed += summary.total_requests_slashed;
+                                cumulative_summary.total_expired += summary.total_expired;
+                                cumulative_summary.total_locked_and_expired += summary.total_locked_and_expired;
+                                cumulative_summary.total_locked_and_fulfilled += summary.total_locked_and_fulfilled;
+                                cumulative_summary.total_program_cycles += summary.total_program_cycles;
+                                cumulative_summary.total_cycles += summary.total_cycles;
+                                cumulative_summary.total_fees_locked += summary.total_fees_locked;
+                                cumulative_summary.total_collateral_locked += summary.total_collateral_locked;
+                                cumulative_summary.total_locked_and_expired_collateral += summary.total_locked_and_expired_collateral;
 
-                    // Update best metrics
-                    if summary.best_peak_prove_mhz > cumulative_summary.best_peak_prove_mhz {
-                        cumulative_summary.best_peak_prove_mhz = summary.best_peak_prove_mhz;
-                        cumulative_summary.best_peak_prove_mhz_prover = summary.best_peak_prove_mhz_prover.clone();
-                        cumulative_summary.best_peak_prove_mhz_request_id = summary.best_peak_prove_mhz_request_id;
+                                // Update best metrics
+                                if summary.best_peak_prove_mhz > cumulative_summary.best_peak_prove_mhz {
+                                    cumulative_summary.best_peak_prove_mhz = summary.best_peak_prove_mhz;
+                                    cumulative_summary.best_peak_prove_mhz_prover = summary.best_peak_prove_mhz_prover.clone();
+                                    cumulative_summary.best_peak_prove_mhz_request_id = summary.best_peak_prove_mhz_request_id;
+                                }
+                                if summary.best_effective_prove_mhz > cumulative_summary.best_effective_prove_mhz {
+                                    cumulative_summary.best_effective_prove_mhz = summary.best_effective_prove_mhz;
+                                    cumulative_summary.best_effective_prove_mhz_prover = summary.best_effective_prove_mhz_prover.clone();
+                                    cumulative_summary.best_effective_prove_mhz_request_id = summary.best_effective_prove_mhz_request_id;
+                                }
+                            } else {
+                                continue;
+                            }
+
+                            cumulative_summary.period_timestamp = hour_ts;
+
+                            // Query unique provers for this requestor up to this hour
+                            cumulative_summary.unique_provers_locking_requests = service.db
+                                .get_all_time_requestor_unique_provers(hour_ts + 1, requestor)
+                                .await?;
+
+                            // Recalculate fulfillment rate
+                            let total_locked_outcomes = cumulative_summary.total_locked_and_fulfilled + cumulative_summary.total_locked_and_expired;
+                            cumulative_summary.locked_orders_fulfillment_rate = if total_locked_outcomes > 0 {
+                                (cumulative_summary.total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
+                            } else {
+                                0.0
+                            };
+
+                            service.db.upsert_all_time_requestor_summary(cumulative_summary.clone()).await?;
+                        }
+                        Ok::<(), ServiceError>(())
                     }
-                    if summary.best_effective_prove_mhz > cumulative_summary.best_effective_prove_mhz {
-                        cumulative_summary.best_effective_prove_mhz = summary.best_effective_prove_mhz;
-                        cumulative_summary.best_effective_prove_mhz_prover = summary.best_effective_prove_mhz_prover.clone();
-                        cumulative_summary.best_effective_prove_mhz_request_id = summary.best_effective_prove_mhz_request_id;
-                    }
-                } else {
-                    continue;
-                }
-
-                cumulative_summary.period_timestamp = hour_ts;
-
-                // Query unique provers for this requestor up to this hour
-                cumulative_summary.unique_provers_locking_requests = self.db
-                    .get_all_time_requestor_unique_provers(hour_ts + 1, requestor)
-                    .await?;
-
-                // Recalculate fulfillment rate
-                let total_locked_outcomes = cumulative_summary.total_locked_and_fulfilled + cumulative_summary.total_locked_and_expired;
-                cumulative_summary.locked_orders_fulfillment_rate = if total_locked_outcomes > 0 {
-                    (cumulative_summary.total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
-                } else {
-                    0.0
-                };
-
-                self.db.upsert_all_time_requestor_summary(cumulative_summary.clone()).await?;
-            }
+                })
+                .collect();
+            
+            // Wait for all requestors in this chunk to complete
+            try_join_all(requestor_futures).await?;
         }
 
         tracing::info!(
@@ -1003,7 +1085,7 @@ where
                 let max_price = alloy::primitives::U256::from_str(&lock.max_price)
                     .map_err(|e| ServiceError::Error(anyhow::anyhow!("Failed to parse max_price: {}", e)))?;
 
-                let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.bidding_start);
+                let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.ramp_up_start);
                 let lock_timeout = u32::try_from(lock_timeout_u64).unwrap_or_else(|_| {
                     tracing::warn!(
                         "Lock timeout {} exceeds u32::MAX for request, using u32::MAX as fallback",
@@ -1015,7 +1097,7 @@ where
                 price_at_time(
                     min_price,
                     max_price,
-                    lock.bidding_start,
+                    lock.ramp_up_start,
                     lock.ramp_up_period,
                     lock_timeout,
                     lock.lock_timestamp,

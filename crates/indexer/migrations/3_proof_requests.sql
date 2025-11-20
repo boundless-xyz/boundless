@@ -44,3 +44,9 @@ CREATE INDEX IF NOT EXISTS idx_proof_requests_expires_at ON proof_requests(expir
 
 -- Add an index on submission_timestamp for aggregation queries
 CREATE INDEX IF NOT EXISTS idx_proof_requests_submission_timestamp ON proof_requests(submission_timestamp);
+
+-- Composite index for active requestor lookup in aggregation queries
+-- Optimizes: get_active_requestor_addresses_in_period
+-- Query pattern: WHERE submission_timestamp >= $1 AND submission_timestamp < $2
+CREATE INDEX IF NOT EXISTS idx_proof_requests_submission_timestamp_client
+    ON proof_requests (submission_timestamp, client_address);

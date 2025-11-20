@@ -1,7 +1,7 @@
 // Integration tests for Market API endpoints
 
 use indexer_api::routes::market::{
-    MarketAggregatesResponse, RequestListResponse, RequestStatusResponse,
+    MarketAggregatesResponse, MarketCumulativesResponse, RequestListResponse, RequestStatusResponse,
 };
 
 use super::TestEnv;
@@ -378,10 +378,10 @@ async fn test_market_requests_list() {
         }
 
         // Performance metrics
-        if let Some(cycles) = first.total_cycles {
+        if let Some(cycles) = &first.total_cycles {
             assert!(
-                cycles >= 0,
-                "cycles should be non-negative: {}",
+                cycles.parse::<u64>().unwrap_or(0) > 0,
+                "total cycles should be greater than 0: {}",
                 cycles
             );
         }
@@ -927,5 +927,170 @@ async fn test_market_requests_by_request_id_hex_parsing() {
             req1.request_digest, req2.request_digest,
             "Request digests should match"
         );
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_market_cumulatives() {
+    let env = TestEnv::market().await;
+
+    // Test basic endpoint
+    let response: MarketCumulativesResponse =
+        env.get("/v1/market/cumulatives?limit=10").await.unwrap();
+
+    assert!(response.data.len() <= 10);
+    assert!(!response.data.is_empty());
+
+    // Verify response structure and data types
+    let first = response.data.first().unwrap();
+
+    // Verify timestamp_iso format (ISO 8601)
+    assert!(
+        !first.timestamp_iso.is_empty(),
+        "timestamp_iso should not be empty"
+    );
+    assert!(
+        first.timestamp_iso.contains('T'),
+        "timestamp_iso should be ISO 8601 format: {}",
+        first.timestamp_iso
+    );
+
+    // Verify formatted currency fields exist
+    assert!(
+        !first.total_fees_locked_formatted.is_empty(),
+        "total_fees_locked_formatted should not be empty"
+    );
+    assert!(
+        !first.total_collateral_locked_formatted.is_empty(),
+        "total_collateral_locked_formatted should not be empty"
+    );
+    assert!(
+        !first.total_locked_and_expired_collateral_formatted.is_empty(),
+        "total_locked_and_expired_collateral_formatted should not be empty"
+    );
+
+    // Verify cumulative nature: later timestamps should have >= values than earlier ones
+    if response.data.len() >= 2 {
+        let sorted_data: Vec<_> = response.data.iter().collect();
+        for i in 1..sorted_data.len() {
+            let prev = &sorted_data[i - 1];
+            let curr = &sorted_data[i];
+            
+            // If sorted descending, prev should have >= values
+            // If sorted ascending, curr should have >= values
+            // For simplicity, check that values are non-decreasing when sorted by timestamp
+            if prev.timestamp > curr.timestamp {
+                // Descending order - previous should have >= values
+                assert!(
+                    prev.total_fulfilled >= curr.total_fulfilled,
+                    "Cumulative values should be non-decreasing: prev.total_fulfilled={}, curr.total_fulfilled={}",
+                    prev.total_fulfilled,
+                    curr.total_fulfilled
+                );
+                assert!(
+                    prev.total_requests_submitted >= curr.total_requests_submitted,
+                    "Cumulative values should be non-decreasing: prev.total_requests_submitted={}, curr.total_requests_submitted={}",
+                    prev.total_requests_submitted,
+                    curr.total_requests_submitted
+                );
+            } else {
+                // Ascending order - current should have >= values
+                assert!(
+                    curr.total_fulfilled >= prev.total_fulfilled,
+                    "Cumulative values should be non-decreasing: prev.total_fulfilled={}, curr.total_fulfilled={}",
+                    prev.total_fulfilled,
+                    curr.total_fulfilled
+                );
+                assert!(
+                    curr.total_requests_submitted >= prev.total_requests_submitted,
+                    "Cumulative values should be non-decreasing: prev.total_requests_submitted={}, curr.total_requests_submitted={}",
+                    prev.total_requests_submitted,
+                    curr.total_requests_submitted
+                );
+            }
+        }
+    }
+
+    // Test pagination with cursor
+    if let Some(cursor) = &response.next_cursor {
+        let page2: MarketCumulativesResponse =
+            env.get(&format!("/v1/market/cumulatives?limit=10&cursor={}", cursor))
+                .await
+                .unwrap();
+
+        // Verify we got different data
+        if !response.data.is_empty() && !page2.data.is_empty() {
+            assert_ne!(
+                response.data[0].timestamp, page2.data[0].timestamp,
+                "Pages should contain different timestamps"
+            );
+        }
+    }
+
+    // Test time filtering with before param
+    if !response.data.is_empty() {
+        let before_ts = response.data[0].timestamp;
+        let filtered: MarketCumulativesResponse =
+            env.get(&format!("/v1/market/cumulatives?limit=10&before={}", before_ts))
+                .await
+                .unwrap();
+
+        // All results should be before the specified timestamp
+        for entry in &filtered.data {
+            assert!(
+                entry.timestamp < before_ts,
+                "All entries should be before {}: found {}",
+                before_ts,
+                entry.timestamp
+            );
+        }
+    }
+
+    // Test time filtering with after param
+    if !response.data.is_empty() {
+        let after_ts = response.data.last().unwrap().timestamp;
+        let filtered: MarketCumulativesResponse =
+            env.get(&format!("/v1/market/cumulatives?limit=10&after={}", after_ts))
+                .await
+                .unwrap();
+
+        // All results should be after the specified timestamp
+        for entry in &filtered.data {
+            assert!(
+                entry.timestamp > after_ts,
+                "All entries should be after {}: found {}",
+                after_ts,
+                entry.timestamp
+            );
+        }
+    }
+
+    // Test sorting (asc)
+    let response_asc: MarketCumulativesResponse =
+        env.get("/v1/market/cumulatives?limit=10&sort=asc").await.unwrap();
+
+    if response_asc.data.len() >= 2 {
+        // Verify ascending order
+        for i in 1..response_asc.data.len() {
+            assert!(
+                response_asc.data[i - 1].timestamp <= response_asc.data[i].timestamp,
+                "Should be sorted ascending by timestamp"
+            );
+        }
+    }
+
+    // Test sorting (desc - default)
+    let response_desc: MarketCumulativesResponse =
+        env.get("/v1/market/cumulatives?limit=10&sort=desc").await.unwrap();
+
+    if response_desc.data.len() >= 2 {
+        // Verify descending order
+        for i in 1..response_desc.data.len() {
+            assert!(
+                response_desc.data[i - 1].timestamp >= response_desc.data[i].timestamp,
+                "Should be sorted descending by timestamp"
+            );
+        }
     }
 }

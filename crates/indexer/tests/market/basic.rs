@@ -335,6 +335,8 @@ async fn test_aggregation_across_hours() {
 
     lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request1, client_sig1.as_bytes().into()).await.unwrap();
 
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
     // Advance time by more than an hour
     advance_time_and_mine(&fixture.ctx.customer_provider, 3700, 1).await.unwrap();
     let now2 = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
@@ -368,6 +370,8 @@ async fn test_aggregation_across_hours() {
     insert_cycle_counts_with_overhead(&fixture.test_db, request2_digest, program_cycles2).await.unwrap();
 
     lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request2, client_sig2.as_bytes().into()).await.unwrap();
+
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     let now3 = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     advance_time_and_mine(&fixture.ctx.customer_provider, 3700, 1).await.unwrap();
@@ -661,6 +665,22 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
         .unwrap()
         .get::<i64, _>("count");
     assert_eq!(offchain_count, 3, "Expected all 3 requests to be offchain");
+
+    // Verify created_at is populated for offchain requests in request_status table
+    let status_rows = sqlx::query("SELECT request_id, created_at, source FROM request_status WHERE source = 'offchain'")
+        .fetch_all(&fixture.test_db.pool)
+        .await
+        .unwrap();
+    assert_eq!(status_rows.len(), 3, "Expected 3 offchain requests in request_status table");
+    
+    for row in status_rows {
+        let request_id: String = row.get("request_id");
+        let created_at: i64 = row.get("created_at");
+        let source: String = row.get("source");
+        assert_eq!(source, "offchain");
+        assert!(created_at > 0, "created_at should be populated for offchain request {}, but got {}", request_id, created_at);
+        assert!(created_at <= now as i64 + 100, "created_at should be reasonable for offchain request {}", request_id);
+    }
 
     // Verify order stream state and tx_hash
     let timestamp: Option<String> = sqlx::query("SELECT last_processed_timestamp FROM order_stream_state")
@@ -1076,7 +1096,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
         fixture.anvil.endpoint_url().to_string(),
         fixture.ctx.deployment.boundless_market_address.to_string(),
     )
-    .retries("3")
+    .retries("1")
     .start_block(&start_block.to_string())
     .spawn()
     .unwrap();
@@ -1105,7 +1125,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     // Advance time past request expiration
     let expires_at = req.expires_at();
     tracing::info!("Request expires at: {}.", expires_at);
-    fixture.ctx.customer_provider.anvil_set_next_block_timestamp(expires_at).await.unwrap();
+    fixture.ctx.customer_provider.anvil_set_next_block_timestamp(expires_at + 1).await.unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 

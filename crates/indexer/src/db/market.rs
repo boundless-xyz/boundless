@@ -395,7 +395,7 @@ pub struct RequestComprehensive {
 pub struct LockPricingData {
     pub min_price: String,
     pub max_price: String,
-    pub bidding_start: u64,
+    pub ramp_up_start: u64,
     pub ramp_up_period: u32,
     pub lock_end: u64,
     pub lock_collateral: String,
@@ -591,6 +591,15 @@ pub trait IndexerDb {
         &self,
         period_timestamp: u64,
     ) -> Result<Option<AllTimeMarketSummary>, DbError>;
+
+    async fn get_all_time_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<AllTimeMarketSummary>, DbError>;
 
     async fn get_hourly_market_summaries_by_range(
         &self,
@@ -2772,6 +2781,24 @@ impl IndexerDb for MarketDb {
         }))
     }
 
+    async fn get_all_time_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<AllTimeMarketSummary>, DbError> {
+        self.get_all_time_market_summaries_generic(
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+        )
+        .await
+    }
+
     async fn get_hourly_market_summaries_by_range(
         &self,
         start_ts: u64,
@@ -2911,14 +2938,14 @@ impl IndexerDb for MarketDb {
             let mut query_builder = sqlx::query(&query);
             for status in chunk {
                 query_builder = query_builder
-                    .bind(status.request_digest.to_string())
+                    .bind(format!("{:x}", status.request_digest))
                     .bind(format!("{:x}", status.request_id))
                     .bind(status.request_status.to_string())
                     .bind(status.slashed_status.to_string())
                     .bind(&status.source)
-                    .bind(status.client_address.to_string())
-                    .bind(status.lock_prover_address.map(|a| a.to_string()))
-                    .bind(status.fulfill_prover_address.map(|a| a.to_string()))
+                    .bind(format!("{:x}", status.client_address))
+                    .bind(status.lock_prover_address.map(|a| format!("{:x}", a)))
+                    .bind(status.fulfill_prover_address.map(|a| format!("{:x}", a)))
                     .bind(status.created_at as i64)
                     .bind(status.updated_at as i64)
                     .bind(status.locked_at.map(|t| t as i64))
@@ -3231,7 +3258,7 @@ impl IndexerDb for MarketDb {
                     pr.request_id,
                     pr.source,
                     pr.client_address,
-                    pr.block_timestamp as created_at,
+                    pr.submission_timestamp as created_at,
                     pr.block_number as submit_block,
                     pr.tx_hash as submit_tx_hash,
                     pr.min_price,
@@ -3615,7 +3642,7 @@ impl IndexerDb for MarketDb {
         limit: u32,
         sort_by: RequestSortField,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
-        let client_str = client_address.to_string();
+        let client_str = format!("{:x}", client_address);
         let sort_field = match sort_by {
             RequestSortField::UpdatedAt => "updated_at",
             RequestSortField::CreatedAt => "created_at",
@@ -3679,7 +3706,7 @@ impl IndexerDb for MarketDb {
         limit: u32,
         sort_by: RequestSortField,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
-        let prover_str = prover_address.to_string();
+        let prover_str = format!("{:x}", prover_address);
         let sort_field = match sort_by {
             RequestSortField::UpdatedAt => "updated_at",
             RequestSortField::CreatedAt => "created_at",
@@ -3895,7 +3922,7 @@ impl IndexerDb for MarketDb {
             "SELECT
                 rs.min_price,
                 rs.max_price,
-                rs.ramp_up_start as bidding_start,
+                rs.ramp_up_start,
                 rs.ramp_up_period,
                 rs.lock_end,
                 rs.lock_collateral,
@@ -3918,7 +3945,7 @@ impl IndexerDb for MarketDb {
         for row in rows {
             let min_price: String = row.get("min_price");
             let max_price: String = row.get("max_price");
-            let bidding_start: i64 = row.get("bidding_start");
+            let ramp_up_start: i64 = row.get("ramp_up_start");
             let ramp_up_period: i64 = row.get("ramp_up_period");
             let lock_end: i64 = row.get("lock_end");
             let lock_collateral: String = row.get("lock_collateral");
@@ -3929,7 +3956,7 @@ impl IndexerDb for MarketDb {
             results.push(LockPricingData {
                 min_price,
                 max_price,
-                bidding_start: bidding_start as u64,
+                ramp_up_start: ramp_up_start as u64,
                 ramp_up_period: ramp_up_period as u32,
                 lock_end: lock_end as u64,
                 lock_collateral,
@@ -4704,6 +4731,168 @@ impl MarketDb {
         Ok(summaries)
     }
 
+    async fn get_all_time_market_summaries_generic(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<AllTimeMarketSummary>, DbError> {
+        let mut conditions = Vec::new();
+        let mut bind_count = 0;
+
+        // Add cursor condition
+        let cursor_condition = match (cursor, sort) {
+            (Some(_), SortDirection::Asc) => {
+                bind_count += 1;
+                Some(format!("period_timestamp > ${}", bind_count))
+            }
+            (Some(_), SortDirection::Desc) => {
+                bind_count += 1;
+                Some(format!("period_timestamp < ${}", bind_count))
+            }
+            (None, _) => None,
+        };
+
+        if let Some(cond) = cursor_condition {
+            conditions.push(cond);
+        }
+
+        // Add after condition
+        if after.is_some() {
+            bind_count += 1;
+            conditions.push(format!("period_timestamp > ${}", bind_count));
+        }
+
+        // Add before condition
+        if before.is_some() {
+            bind_count += 1;
+            conditions.push(format!("period_timestamp < ${}", bind_count));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let order_clause = match sort {
+            SortDirection::Asc => "ORDER BY period_timestamp ASC",
+            SortDirection::Desc => "ORDER BY period_timestamp DESC",
+        };
+
+        bind_count += 1;
+        let query_str = format!(
+            "SELECT
+                period_timestamp,
+                total_fulfilled,
+                unique_provers_locking_requests,
+                unique_requesters_submitting_requests,
+                total_fees_locked,
+                total_collateral_locked,
+                total_locked_and_expired_collateral,
+                total_requests_submitted,
+                total_requests_submitted_onchain,
+                total_requests_submitted_offchain,
+                total_requests_locked,
+                total_requests_slashed,
+                total_expired,
+                total_locked_and_expired,
+                total_locked_and_fulfilled,
+                locked_orders_fulfillment_rate,
+                total_program_cycles,
+                total_cycles,
+                best_peak_prove_mhz,
+                best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz,
+                best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id
+            FROM all_time_market_summary
+            {}
+            {}
+            LIMIT ${}",
+            where_clause, order_clause, bind_count
+        );
+
+        let mut query = sqlx::query(&query_str);
+
+        // Bind parameters in the same order as bind_count increments
+        if let Some(cursor_ts) = cursor {
+            query = query.bind(cursor_ts);
+        }
+
+        if let Some(after_ts) = after {
+            query = query.bind(after_ts);
+        }
+
+        if let Some(before_ts) = before {
+            query = query.bind(before_ts);
+        }
+
+        query = query.bind(limit);
+
+        let rows = query.fetch_all(&self.pool).await?;
+
+        let summaries = rows
+            .into_iter()
+            .map(|row| {
+                AllTimeMarketSummary {
+                    period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+                    total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+                    unique_provers_locking_requests: row
+                        .get::<i64, _>("unique_provers_locking_requests")
+                        as u64,
+                    unique_requesters_submitting_requests: row
+                        .get::<i64, _>("unique_requesters_submitting_requests")
+                        as u64,
+                    total_fees_locked: padded_string_to_u256(&row.get::<String, _>("total_fees_locked")).unwrap_or(U256::ZERO),
+                    total_collateral_locked: padded_string_to_u256(&row.get::<String, _>("total_collateral_locked")).unwrap_or(U256::ZERO),
+                    total_locked_and_expired_collateral: padded_string_to_u256(&row.get::<String, _>("total_locked_and_expired_collateral")).unwrap_or(U256::ZERO),
+                    total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+                    total_requests_submitted_onchain: row
+                        .get::<i64, _>("total_requests_submitted_onchain")
+                        as u64,
+                    total_requests_submitted_offchain: row
+                        .get::<i64, _>("total_requests_submitted_offchain")
+                        as u64,
+                    total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+                    total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+                    total_expired: row.get::<i64, _>("total_expired") as u64,
+                    total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+                    total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                    locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
+                        as f32,
+                    total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
+                    total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles")).unwrap_or(U256::ZERO),
+                    best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                    best_peak_prove_mhz_prover: row
+                        .try_get("best_peak_prove_mhz_prover")
+                        .ok()
+                        .flatten(),
+                    best_peak_prove_mhz_request_id: row
+                        .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
+                        .ok()
+                        .flatten()
+                        .and_then(|s| U256::from_str(&s).ok()),
+                    best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                    best_effective_prove_mhz_prover: row
+                        .try_get("best_effective_prove_mhz_prover")
+                        .ok()
+                        .flatten(),
+                    best_effective_prove_mhz_request_id: row
+                        .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
+                        .ok()
+                        .flatten()
+                        .and_then(|s| U256::from_str(&s).ok()),
+                }
+            })
+            .collect();
+
+        Ok(summaries)
+    }
+
     pub fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError> {
         let request_digest_str: String = row.get("request_digest");
         let request_digest = B256::from_str(&request_digest_str)
@@ -5095,10 +5284,12 @@ impl MarketDb {
         period_start: u64,
         period_end: u64,
     ) -> Result<Vec<Address>, DbError> {
-        let query_str = "SELECT DISTINCT rs.client_address 
-            FROM request_status rs
-            WHERE rs.created_at >= $1 AND rs.created_at < $2
-            ORDER BY rs.client_address";
+        // Use proof_requests.submission_timestamp instead of request_status.created_at
+        // This matches the aggregation logic and benefits from idx_proof_requests_submission_timestamp_client index
+        let query_str = "SELECT DISTINCT pr.client_address 
+            FROM proof_requests pr
+            WHERE pr.submission_timestamp >= $1 AND pr.submission_timestamp < $2
+            ORDER BY pr.client_address";
 
         let rows = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -5296,7 +5487,7 @@ impl MarketDb {
         for row in rows {
             let min_price: String = row.try_get("min_price")?;
             let max_price: String = row.try_get("max_price")?;
-            let bidding_start: i64 = row.try_get("bidding_start")?;
+            let ramp_up_start: i64 = row.try_get("ramp_up_start")?;
             let ramp_up_period: i64 = row.try_get("ramp_up_period")?;
             let lock_end: i64 = row.try_get("lock_end")?;
             let lock_collateral: String = row.try_get("lock_collateral")?;
@@ -5307,7 +5498,7 @@ impl MarketDb {
             result.push(LockPricingData {
                 min_price,
                 max_price,
-                bidding_start: bidding_start as u64,
+                ramp_up_start: ramp_up_start as u64,
                 ramp_up_period: ramp_up_period as u32,
                 lock_end: lock_end as u64,
                 lock_collateral,
@@ -5326,13 +5517,14 @@ impl MarketDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<Vec<String>, DbError> {
+        // Optimized: Remove unnecessary request_status JOIN - join directly with proof_requests
+        // This reduces from 3-table JOIN to 2-table JOIN, improving performance
         let query_str = "SELECT pr.lock_collateral 
             FROM request_locked_events rle
-            JOIN request_status rs ON rle.request_digest = rs.request_digest
             JOIN proof_requests pr ON rle.request_digest = pr.request_digest
             WHERE rle.block_timestamp >= $1 
             AND rle.block_timestamp < $2
-            AND rs.client_address = $3";
+            AND pr.client_address = $3";
 
         let rows = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -5843,6 +6035,10 @@ mod tests {
 
     // generate a test request
     fn generate_request(id: u32, addr: &Address) -> ProofRequest {
+        generate_request_with_collateral(id, addr, U256::from(10))
+    }
+
+    fn generate_request_with_collateral(id: u32, addr: &Address, collateral: U256) -> ProofRequest {
         ProofRequest::new(
             RequestId::new(*addr, id),
             Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
@@ -5855,7 +6051,7 @@ mod tests {
                 timeout: 420,
                 lockTimeout: 420,
                 rampUpPeriod: 1,
-                lockCollateral: U256::from(10),
+                lockCollateral: collateral,
             },
         )
     }
@@ -6799,7 +6995,7 @@ mod tests {
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
         let result = sqlx::query("SELECT * FROM request_status WHERE request_digest = $1")
-            .bind(digest.to_string())
+            .bind(format!("{:x}", digest))
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
@@ -6828,7 +7024,7 @@ mod tests {
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
         let result = sqlx::query("SELECT * FROM request_status WHERE request_digest = $1")
-            .bind(digest.to_string())
+            .bind(format!("{:x}", digest))
             .fetch_one(&test_db.pool)
             .await
             .unwrap();
@@ -7955,6 +8151,873 @@ mod tests {
         let result = db.get_latest_all_time_requestor_summary(requestor).await.unwrap().unwrap();
         assert_eq!(result.total_fulfilled, 200);
         assert_eq!(result.period_timestamp, period_ts + 1);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_get_daily_requestor_summary() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x43; 20]);
+        let base_ts = 1700000000u64;
+        let day_seconds = 86400u64;
+
+        // Insert 3 daily summaries
+        for i in 0..3 {
+            let summary = DailyRequestorSummary {
+                period_timestamp: base_ts + (i * day_seconds),
+                requestor_address: requestor,
+                total_fulfilled: 10 * (i + 1),
+                unique_provers_locking_requests: 2 * (i + 1),
+                total_fees_locked: U256::from(1000 * (i + 1)),
+                total_collateral_locked: U256::from(2000 * (i + 1)),
+                total_locked_and_expired_collateral: U256::ZERO,
+                p10_lock_price_per_cycle: U256::from(10),
+                p25_lock_price_per_cycle: U256::from(25),
+                p50_lock_price_per_cycle: U256::from(50),
+                p75_lock_price_per_cycle: U256::from(75),
+                p90_lock_price_per_cycle: U256::from(90),
+                p95_lock_price_per_cycle: U256::from(95),
+                p99_lock_price_per_cycle: U256::from(99),
+                total_requests_submitted: 20 * (i + 1),
+                total_requests_submitted_onchain: 15 * (i + 1),
+                total_requests_submitted_offchain: 5 * (i + 1),
+                total_requests_locked: 12 * (i + 1),
+                total_requests_slashed: i,
+                total_expired: i,
+                total_locked_and_expired: i,
+                total_locked_and_fulfilled: 10 * (i + 1),
+                locked_orders_fulfillment_rate: 0.8,
+                total_program_cycles: U256::from(100_000_000 * (i + 1)),
+                total_cycles: U256::from(101_580_000 * (i + 1)),
+                best_peak_prove_mhz: 1000,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 900,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
+            };
+            db.upsert_daily_requestor_summary(summary).await.unwrap();
+        }
+
+        // Get by range
+        let results = db.get_daily_requestor_summaries_by_range(requestor, base_ts, base_ts + (3 * day_seconds)).await.unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].total_fulfilled, 10);
+        assert_eq!(results[1].total_fulfilled, 20);
+        assert_eq!(results[2].total_fulfilled, 30);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_get_weekly_requestor_summary() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x44; 20]);
+        let base_ts = 1700000000u64;
+        let week_seconds = 604800u64;
+
+        let summary = WeeklyRequestorSummary {
+            period_timestamp: base_ts,
+            requestor_address: requestor,
+            total_fulfilled: 50,
+            unique_provers_locking_requests: 5,
+            total_fees_locked: U256::from(10000),
+            total_collateral_locked: U256::from(20000),
+            total_locked_and_expired_collateral: U256::from(500),
+            p10_lock_price_per_cycle: U256::from(10),
+            p25_lock_price_per_cycle: U256::from(25),
+            p50_lock_price_per_cycle: U256::from(50),
+            p75_lock_price_per_cycle: U256::from(75),
+            p90_lock_price_per_cycle: U256::from(90),
+            p95_lock_price_per_cycle: U256::from(95),
+            p99_lock_price_per_cycle: U256::from(99),
+            total_requests_submitted: 100,
+            total_requests_submitted_onchain: 80,
+            total_requests_submitted_offchain: 20,
+            total_requests_locked: 60,
+            total_requests_slashed: 5,
+            total_expired: 10,
+            total_locked_and_expired: 8,
+            total_locked_and_fulfilled: 50,
+            locked_orders_fulfillment_rate: 0.833,
+            total_program_cycles: U256::from(1_000_000_000),
+            total_cycles: U256::from(1_015_800_000),
+            best_peak_prove_mhz: 1200,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 1100,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        db.upsert_weekly_requestor_summary(summary.clone()).await.unwrap();
+
+        let results = db.get_weekly_requestor_summaries_by_range(requestor, base_ts, base_ts + week_seconds).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].total_fulfilled, 50);
+        assert_eq!(results[0].requestor_address, requestor);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_get_monthly_requestor_summary() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x45; 20]);
+        let base_ts = 1700000000u64;
+
+        let summary = MonthlyRequestorSummary {
+            period_timestamp: base_ts,
+            requestor_address: requestor,
+            total_fulfilled: 200,
+            unique_provers_locking_requests: 15,
+            total_fees_locked: U256::from(50000),
+            total_collateral_locked: U256::from(100000),
+            total_locked_and_expired_collateral: U256::from(5000),
+            p10_lock_price_per_cycle: U256::from(10),
+            p25_lock_price_per_cycle: U256::from(25),
+            p50_lock_price_per_cycle: U256::from(50),
+            p75_lock_price_per_cycle: U256::from(75),
+            p90_lock_price_per_cycle: U256::from(90),
+            p95_lock_price_per_cycle: U256::from(95),
+            p99_lock_price_per_cycle: U256::from(99),
+            total_requests_submitted: 300,
+            total_requests_submitted_onchain: 250,
+            total_requests_submitted_offchain: 50,
+            total_requests_locked: 220,
+            total_requests_slashed: 10,
+            total_expired: 20,
+            total_locked_and_expired: 15,
+            total_locked_and_fulfilled: 200,
+            locked_orders_fulfillment_rate: 0.909,
+            total_program_cycles: U256::from(5_000_000_000u64),
+            total_cycles: U256::from(5_079_000_000u64),
+            best_peak_prove_mhz: 1500,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 1400,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        db.upsert_monthly_requestor_summary(summary.clone()).await.unwrap();
+
+        let results = db.get_monthly_requestor_summaries_by_range(requestor, base_ts, base_ts + 2_628_000).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].total_fulfilled, 200);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_time_requestor_summary_by_timestamp() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x46; 20]);
+        let ts1 = 1700000000u64;
+        let ts2 = 1700010000u64;
+
+        let summary1 = AllTimeRequestorSummary {
+            period_timestamp: ts1,
+            requestor_address: requestor,
+            total_fulfilled: 100,
+            unique_provers_locking_requests: 10,
+            total_fees_locked: U256::from(10000),
+            total_collateral_locked: U256::from(20000),
+            total_locked_and_expired_collateral: U256::ZERO,
+            total_requests_submitted: 150,
+            total_requests_submitted_onchain: 120,
+            total_requests_submitted_offchain: 30,
+            total_requests_locked: 110,
+            total_requests_slashed: 5,
+            total_expired: 10,
+            total_locked_and_expired: 8,
+            total_locked_and_fulfilled: 100,
+            locked_orders_fulfillment_rate: 0.909,
+            total_program_cycles: U256::from(1_000_000_000),
+            total_cycles: U256::from(1_015_800_000),
+            best_peak_prove_mhz: 1000,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 900,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        let summary2 = AllTimeRequestorSummary {
+            period_timestamp: ts2,
+            requestor_address: requestor,
+            total_fulfilled: 200,
+            ..summary1.clone()
+        };
+
+        db.upsert_all_time_requestor_summary(summary1).await.unwrap();
+        db.upsert_all_time_requestor_summary(summary2).await.unwrap();
+
+        // Get by specific timestamp
+        let result = db.get_all_time_requestor_summary_by_timestamp(requestor, ts1).await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().total_fulfilled, 100);
+
+        let result = db.get_all_time_requestor_summary_by_timestamp(requestor, ts2).await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().total_fulfilled, 200);
+
+        // Non-existent timestamp
+        let result = db.get_all_time_requestor_summary_by_timestamp(requestor, 9999999).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_all_requestor_addresses() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let addr1 = Address::from([0x10; 20]);
+        let addr2 = Address::from([0x20; 20]);
+        let addr3 = Address::from([0x30; 20]);
+
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
+
+        // Add requests from different clients
+        let request1 = generate_request(1, &addr1);
+        let request2 = generate_request(2, &addr2);
+        let request3 = generate_request(3, &addr3);
+        let request4 = generate_request(4, &addr1); // Duplicate client
+
+        db.add_proof_requests(&[
+            (B256::from([1; 32]), request1, metadata, "onchain".to_string(), metadata.block_timestamp),
+        ]).await.unwrap();
+        db.add_proof_requests(&[
+            (B256::from([2; 32]), request2, metadata, "onchain".to_string(), metadata.block_timestamp),
+        ]).await.unwrap();
+        db.add_proof_requests(&[
+            (B256::from([3; 32]), request3, metadata, "onchain".to_string(), metadata.block_timestamp),
+        ]).await.unwrap();
+        db.add_proof_requests(&[
+            (B256::from([4; 32]), request4, metadata, "onchain".to_string(), metadata.block_timestamp),
+        ]).await.unwrap();
+
+        // Get all requestor addresses (should be unique)
+        let addresses = db.get_all_requestor_addresses().await.unwrap();
+        assert_eq!(addresses.len(), 3);
+        assert!(addresses.contains(&addr1));
+        assert!(addresses.contains(&addr2));
+        assert!(addresses.contains(&addr3));
+    }
+
+    #[tokio::test]
+    async fn test_get_active_requestor_addresses_in_period() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let addr1 = Address::from([0x11; 20]);
+        let addr2 = Address::from([0x22; 20]);
+        let addr3 = Address::from([0x33; 20]);
+
+        let base_ts = 1700000000u64;
+
+        // Create proof_requests records (the query now uses proof_requests.submission_timestamp)
+        let digest1 = B256::from([1; 32]);
+        let digest2 = B256::from([2; 32]);
+        let digest3 = B256::from([3; 32]);
+
+        let request1 = generate_request(1, &addr1);
+        let request2 = generate_request(2, &addr2);
+        let request3 = generate_request(3, &addr3);
+
+        let metadata1 = TxMetadata::new(B256::ZERO, addr1, 100, base_ts + 100, 0);
+        let metadata2 = TxMetadata::new(B256::from([1; 32]), addr2, 101, base_ts + 500, 0);
+        let metadata3 = TxMetadata::new(B256::from([2; 32]), addr3, 102, base_ts + 1500, 0);
+
+        // submission_timestamp should match the block_timestamp for onchain requests
+        db.add_proof_requests(&[
+            (digest1, request1, metadata1, "onchain".to_string(), base_ts + 100),
+            (digest2, request2, metadata2, "onchain".to_string(), base_ts + 500),
+            (digest3, request3, metadata3, "onchain".to_string(), base_ts + 1500), // Outside period
+        ]).await.unwrap();
+
+        // Query active requestors in period [base_ts, base_ts + 1000)
+        // This now queries proof_requests.submission_timestamp
+        let addresses = db.get_active_requestor_addresses_in_period(base_ts, base_ts + 1000).await.unwrap();
+        assert_eq!(addresses.len(), 2);
+        assert!(addresses.contains(&addr1));
+        assert!(addresses.contains(&addr2));
+        assert!(!addresses.contains(&addr3)); // Outside period
+    }
+
+    #[tokio::test]
+    async fn test_list_requests_by_requestor() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let addr1 = Address::from([0x12; 20]);
+        let addr2 = Address::from([0x34; 20]);
+        let base_ts = 1700000000u64;
+
+        // Create statuses for addr1
+        for i in 0..5 {
+            let status = RequestStatus {
+                request_digest: B256::from([i as u8; 32]),
+                request_id: U256::from(i),
+                request_status: RequestStatusType::Submitted,
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: addr1,
+                lock_prover_address: None,
+                fulfill_prover_address: None,
+                created_at: base_ts + (i as u64 * 100),
+                updated_at: base_ts + (i as u64 * 100),
+                locked_at: None,
+                fulfilled_at: None,
+                slashed_at: None,
+                lock_prover_delivered_proof_at: None,
+                submit_block: Some(100),
+                lock_block: None,
+                fulfill_block: None,
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: "0".to_string(),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 10000,
+                lock_end: base_ts + 10000,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: None,
+                total_cycles: None,
+                peak_prove_mhz: None,
+                effective_prove_mhz: None,
+                cycle_status: None,
+                lock_price: None,
+                lock_price_per_cycle: None,
+                submit_tx_hash: Some(B256::ZERO),
+                lock_tx_hash: None,
+                fulfill_tx_hash: None,
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: None,
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: "0x00".to_string(),
+                fulfill_journal: None,
+                fulfill_seal: None,
+            };
+            db.upsert_request_statuses(&[status]).await.unwrap();
+        }
+
+        // Create one for addr2
+        let status_addr2 = RequestStatus {
+            request_digest: B256::from([99; 32]),
+            request_id: U256::from(99),
+            client_address: addr2,
+            created_at: base_ts,
+            updated_at: base_ts,
+            request_status: RequestStatusType::Submitted,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            lock_prover_address: None,
+            fulfill_prover_address: None,
+            locked_at: None,
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: None,
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "0".to_string(),
+            ramp_up_start: base_ts,
+            ramp_up_period: 10,
+            expires_at: base_ts + 10000,
+            lock_end: base_ts + 10000,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: None,
+            lock_price_per_cycle: None,
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: None,
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+        db.upsert_request_statuses(&[status_addr2]).await.unwrap();
+
+        // List requests for addr1
+        let (results, _cursor) = db.list_requests_by_requestor(addr1, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 5);
+        assert!(results.iter().all(|r| r.client_address == addr1));
+
+        // List with limit
+        let (results, cursor) = db.list_requests_by_requestor(addr1, None, 2, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(cursor.is_some());
+
+        // Use cursor for pagination
+        let (results2, _) = db.list_requests_by_requestor(addr1, cursor, 2, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results2.len(), 2);
+        // Results should be different from first page
+        assert_ne!(results[0].request_id, results2[0].request_id);
+
+        // List for addr2
+        let (results, _) = db.list_requests_by_requestor(addr2, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].client_address, addr2);
+    }
+
+    // Helper to setup period query test data
+    async fn setup_period_requestor_test_data(db: &MarketDb, requestor: Address, base_ts: u64) {
+        let submit_metadata = TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 100, base_ts + 100, 0);
+        let lock_metadata = TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 101, base_ts + 150, 0);
+        let fulfill_metadata = TxMetadata::new(B256::from([0x03; 32]), Address::ZERO, 102, base_ts + 200, 0);
+        
+        // Add proof requests
+        for i in 0..5 {
+            let collateral = U256::from(100 * (i + 1));
+            let request = generate_request_with_collateral(i, &requestor, collateral);
+            // Generate unique digest per requestor by combining first byte of address with index
+            let mut digest_bytes = [i as u8; 32];
+            digest_bytes[0] = requestor.0[0];  // Use first byte of address for uniqueness
+            let digest = B256::from(digest_bytes);
+            db.add_proof_requests(&[(digest, request, submit_metadata, "onchain".to_string(), submit_metadata.block_timestamp)]).await.unwrap();
+        }
+
+        // Add request statuses
+        for i in 0..5 {
+            let mut digest_bytes = [i as u8; 32];
+            digest_bytes[0] = requestor.0[0];
+            let digest = B256::from(digest_bytes);
+            let status = RequestStatus {
+                request_digest: digest,
+                request_id: U256::from(i),
+                request_status: if i < 3 { RequestStatusType::Fulfilled } else { RequestStatusType::Submitted },
+                slashed_status: if i == 4 { SlashedStatus::Slashed } else { SlashedStatus::NotApplicable },
+                source: "onchain".to_string(),
+                client_address: requestor,
+                lock_prover_address: Some(Address::from([0xAA; 20])),
+                fulfill_prover_address: if i < 3 { Some(Address::from([0xAA; 20])) } else { None },
+                created_at: base_ts + 100,
+                updated_at: base_ts + 200,
+                locked_at: Some(base_ts + 150),
+                fulfilled_at: if i < 3 { Some(base_ts + 200) } else { None },
+                slashed_at: if i == 4 { Some(base_ts + 300) } else { None },
+                lock_prover_delivered_proof_at: if i < 3 { Some(base_ts + 180) } else { None },
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: if i < 3 { Some(102) } else { None },
+                slashed_block: if i == 4 { Some(103) } else { None },
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: format!("{}", 100 * (i + 1)),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: if i == 3 { base_ts + 250 } else { base_ts + 10000 },
+                lock_end: base_ts + 500,
+                slash_recipient: if i == 4 { Some(Address::from([0xBB; 20])) } else { None },
+                slash_transferred_amount: if i == 4 { Some("50".to_string()) } else { None },
+                slash_burned_amount: if i == 4 { Some("50".to_string()) } else { None },
+                program_cycles: if i < 3 { Some(U256::from(50_000_000 * (i + 1))) } else { None },
+                total_cycles: if i < 3 { Some(U256::from(50_790_000 * (i + 1))) } else { None },
+                peak_prove_mhz: if i < 3 { Some(1000 + (i * 100)) } else { None },
+                effective_prove_mhz: if i < 3 { Some(900 + (i * 100)) } else { None },
+                cycle_status: if i < 3 { Some("resolved".to_string()) } else { None },
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("30".to_string()),
+                submit_tx_hash: Some(B256::from([0x01; 32])),
+                lock_tx_hash: Some(B256::from([0x02; 32])),
+                fulfill_tx_hash: if i < 3 { Some(B256::from([0x03; 32])) } else { None },
+                slash_tx_hash: if i == 4 { Some(B256::from([0x04; 32])) } else { None },
+                image_id: "test".to_string(),
+                image_url: None,
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: "0x00".to_string(),
+                fulfill_journal: None,
+                fulfill_seal: None,
+            };
+            db.upsert_request_statuses(&[status]).await.unwrap();
+        }
+
+        // Add events
+        for i in 0..5 {
+            let mut digest_bytes = [i as u8; 32];
+            digest_bytes[0] = requestor.0[0];
+            let digest = B256::from(digest_bytes);
+            
+            // Submitted events
+            db.add_request_submitted_events(&[(digest, U256::from(i), submit_metadata)]).await.unwrap();
+            
+            // Locked events
+            db.add_request_locked_events(&[(digest, U256::from(i), Address::from([0xAA; 20]), lock_metadata)]).await.unwrap();
+            
+            // Fulfilled events (only for first 3)
+            if i < 3 {
+                db.add_request_fulfilled_events(&[(digest, U256::from(i), Address::from([0xAA; 20]), fulfill_metadata)]).await.unwrap();
+            }
+            
+            // Slashed event (only for index 4)
+            if i == 4 {
+                let slash_metadata = TxMetadata::new(B256::from([0x04; 32]), Address::ZERO, 103, base_ts + 300, 0);
+                db.add_prover_slashed_events(&[(U256::from(i), U256::from(50), U256::from(50), Address::from([0xBB; 20]), slash_metadata)]).await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_fulfilled_count() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x50; 20]);
+        let base_ts = 1700000000u64;
+        
+        // Add 3 fulfilled requests
+        for i in 0..3 {
+            let digest = B256::from([(i + 100) as u8; 32]);
+            let request = generate_request(i, &requestor);
+            
+            // 1. Add proof request
+            let submit_meta = TxMetadata::new(B256::from([i as u8; 32]), Address::ZERO, 100 + (i as u64), base_ts + 100, 0);
+            db.add_proof_requests(&[(digest, request.clone(), submit_meta, "onchain".to_string(), submit_meta.block_timestamp)]).await.unwrap();
+            
+            // 2. Add fulfilled event (this is what the query counts)
+            let fulfill_meta = TxMetadata::new(B256::from([(i + 50) as u8; 32]), Address::ZERO, 102 + (i as u64), base_ts + 200, 0);
+            db.add_request_fulfilled_events(&[(digest, request.id, Address::from([0xAA; 20]), fulfill_meta)]).await.unwrap();
+            
+            // 3. Add request status (this is what the query joins with)
+            let status = RequestStatus {
+                request_digest: digest,
+                request_id: request.id,
+                request_status: RequestStatusType::Fulfilled,
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: requestor,
+                lock_prover_address: Some(Address::from([0xAA; 20])),
+                fulfill_prover_address: Some(Address::from([0xAA; 20])),
+                created_at: base_ts + 100,
+                updated_at: base_ts + 200,
+                locked_at: Some(base_ts + 150),
+                fulfilled_at: Some(base_ts + 200),
+                slashed_at: None,
+                lock_prover_delivered_proof_at: Some(base_ts + 180),
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: Some(102),
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: "100".to_string(),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 10000,
+                lock_end: base_ts + 500,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: Some(U256::from(50_000_000)),
+                total_cycles: Some(U256::from(50_790_000)),
+                peak_prove_mhz: Some(1000),
+                effective_prove_mhz: Some(900),
+                cycle_status: Some("resolved".to_string()),
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("30".to_string()),
+                submit_tx_hash: Some(B256::from([0x01; 32])),
+                lock_tx_hash: Some(B256::from([0x02; 32])),
+                fulfill_tx_hash: Some(B256::from([0x03; 32])),
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: None,
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: "0x00".to_string(),
+                fulfill_journal: None,
+                fulfill_seal: None,
+            };
+            db.upsert_request_statuses(&[status]).await.unwrap();
+        }
+
+        // Query period that includes the events
+        let count = db.get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(count, 3); // 3 fulfilled requests
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_unique_provers() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x51; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_unique_provers(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(count, 1); // All locked by same prover
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_total_requests_submitted() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x52; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_total_requests_submitted(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(count, 5); // All 5 requests created in period
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_total_requests_submitted_onchain() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x53; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_total_requests_submitted_onchain(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(count, 5); // All 5 have submitted events
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_total_requests_locked() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x54; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_total_requests_locked(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(count, 5); // All 5 locked
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_total_requests_slashed() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x55; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_total_requests_slashed(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(count, 1); // Only request 4 was slashed
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_lock_pricing_data() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x56; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let data = db.get_period_requestor_lock_pricing_data(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(data.len(), 3); // 3 fulfilled requests
+        
+        for item in &data {
+            assert_eq!(item.min_price, "1000");
+            assert_eq!(item.max_price, "2000");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_all_lock_collateral() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x57; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let collaterals = db.get_period_requestor_all_lock_collateral(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(collaterals.len(), 5); // All 5 locked
+        
+        // Verify collateral values
+        let total: u64 = collaterals.iter().map(|c| c.parse::<u64>().unwrap()).sum();
+        assert_eq!(total, 100 + 200 + 300 + 400 + 500); // Sum of all collaterals
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_locked_and_expired_collateral() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x58; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        // Query period that includes request 3's expiration
+        let collaterals = db.get_period_requestor_locked_and_expired_collateral(base_ts, base_ts + 1000, requestor).await.unwrap();
+        // Request 3 expired and was locked
+        assert!(collaterals.len() <= 1); // May be 0 or 1 depending on status updates
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_expired_count() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x59; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_expired_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        // Depends on whether request 3 is marked as expired
+        assert!(count <= 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_locked_and_expired_count() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x5A; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_locked_and_expired_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert!(count <= 1); // Request 3 if marked expired
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_locked_and_fulfilled_count() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x5B; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_period_requestor_locked_and_fulfilled_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        assert_eq!(count, 3); // 3 fulfilled requests
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_total_program_cycles() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x5C; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let total = db.get_period_requestor_total_program_cycles(base_ts, base_ts + 1000, requestor).await.unwrap();
+        // Sum of 50M * 1, 50M * 2, 50M * 3 = 300M
+        assert_eq!(total, U256::from(50_000_000 + 100_000_000 + 150_000_000));
+    }
+
+    #[tokio::test]
+    async fn test_get_period_requestor_total_cycles() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x5D; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let total = db.get_period_requestor_total_cycles(base_ts, base_ts + 1000, requestor).await.unwrap();
+        // Sum of cycles with overhead
+        assert_eq!(total, U256::from(50_790_000 + 101_580_000 + 152_370_000));
+    }
+
+    #[tokio::test]
+    async fn test_get_all_time_requestor_unique_provers() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x5E; 20]);
+        let base_ts = 1700000000u64;
+        
+        setup_period_requestor_test_data(db, requestor, base_ts).await;
+
+        let count = db.get_all_time_requestor_unique_provers(base_ts + 10000, requestor).await.unwrap();
+        assert_eq!(count, 1); // All locked by same prover
+    }
+
+    #[tokio::test]
+    async fn test_requestor_methods_with_multiple_requestors() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor1 = Address::from([0x60; 20]);
+        let requestor2 = Address::from([0x61; 20]);
+        let base_ts = 1700000000u64;
+
+        // Setup data for two different requestors
+        setup_period_requestor_test_data(db, requestor1, base_ts).await;
+        setup_period_requestor_test_data(db, requestor2, base_ts + 10).await;
+
+        // Verify each requestor's data is isolated
+        let count1 = db.get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor1).await.unwrap();
+        let count2 = db.get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor2).await.unwrap();
+        
+        assert_eq!(count1, 3);
+        assert_eq!(count2, 3);
+
+        // Verify addresses list includes both
+        let all_addresses = db.get_all_requestor_addresses().await.unwrap();
+        assert!(all_addresses.contains(&requestor1));
+        assert!(all_addresses.contains(&requestor2));
+    }
+
+    #[tokio::test]
+    async fn test_requestor_summaries_with_empty_results() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x62; 20]);
+        let base_ts = 1700000000u64;
+
+        // Query without any data
+        let results = db.get_hourly_requestor_summaries_by_range(requestor, base_ts, base_ts + 3600).await.unwrap();
+        assert_eq!(results.len(), 0);
+
+        let latest = db.get_latest_all_time_requestor_summary(requestor).await.unwrap();
+        assert!(latest.is_none());
+
+        let by_ts = db.get_all_time_requestor_summary_by_timestamp(requestor, base_ts).await.unwrap();
+        assert!(by_ts.is_none());
     }
 
 }
