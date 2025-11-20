@@ -59,68 +59,69 @@ export class LaunchTemplateComponent extends BaseComponent {
   private createLaunchTemplate(config: LaunchTemplateConfig): aws.ec2.LaunchTemplate {
     const userData = this.generateUserData(config);
 
-        let networkingConfig
-        if (config.networkInterfaceId) {
-            // If a network interface ID is provided, use it
-            networkingConfig = {
-                networkInterfaces: this.generateNetworkInterfaceConfig(config)
-            }
-        } else {
-            // Without a network interface ID, must specify security group IDs
-            networkingConfig = {
-                vpcSecurityGroupIds: [config.securityGroupId]
-            }
-        }
-
-        return new aws.ec2.LaunchTemplate(`${config.componentType}-launch-template`, {
-            name: this.generateName(`${config.componentType}-template`),
-            imageId: config.imageId,
-            instanceType: config.instanceType,
-            iamInstanceProfile: {
-                name: config.iamInstanceProfileName,
-            },
-            userData: userData,
-            blockDeviceMappings: [{
-                deviceName: "/dev/sda1",
-                ebs: {
-                    volumeSize: config.volumeSize || 100,
-                    volumeType: "gp3",
-                    deleteOnTermination: "true",
-                },
-            }],
-            updateDefaultVersion: true,
-            tagSpecifications: [{
-                resourceType: "instance",
-                tags: {
-                    Name: this.generateName(config.componentType),
-                    Type: config.componentType,
-                    Environment: this.config.environment,
-                    Project: "boundless-bento-cluster",
-                    InstanceType: config.instanceType,
-                    "ssm:bootstrap": config.componentType,
-                },
-            }],
-            ...networkingConfig
-        });
+    let networkingConfig
+    if (config.networkInterfaceId) {
+      // If a network interface ID is provided, use it
+      networkingConfig = {
+        networkInterfaces: this.generateNetworkInterfaceConfig(config)
+      }
+    } else {
+      // Without a network interface ID, must specify security group IDs
+      networkingConfig = {
+        vpcSecurityGroupIds: [config.securityGroupId]
+      }
     }
+
+    return new aws.ec2.LaunchTemplate(`${config.componentType}-launch-template`, {
+      name: this.generateName(`${config.componentType}-template`),
+      imageId: config.imageId,
+      instanceType: config.instanceType,
+      iamInstanceProfile: {
+        name: config.iamInstanceProfileName,
+      },
+      userData: userData,
+      blockDeviceMappings: [{
+        deviceName: "/dev/sda1",
+        ebs: {
+          volumeSize: config.volumeSize || 100,
+          volumeType: "gp3",
+          deleteOnTermination: "true",
+        },
+      }],
+      updateDefaultVersion: true,
+      tagSpecifications: [{
+        resourceType: "instance",
+        tags: {
+          Name: this.generateName(config.componentType),
+          Type: config.componentType,
+          Environment: this.config.environment,
+          Project: "boundless-bento-cluster",
+          InstanceType: config.instanceType,
+          "ssm:bootstrap": config.componentType,
+        },
+      }],
+      ...networkingConfig
+    });
+  }
 
   private generateUserData(config: LaunchTemplateConfig): pulumi.Output<string> {
     if (config.componentType === "manager") {
       return this.generateManagerUserData(config);
     } else {
       return this.generateWorkerUserData(config);
+    }
   }
 
   private generateNetworkInterfaceConfig(config: LaunchTemplateConfig): Partial<inputs.ec2.LaunchTemplateNetworkInterface>[] {
-        // Providing subnets, security groups, or public IP allocation policy is not allowed when
-        // also providing a network interface ID. That configuration must be on the network interface
-        return [{
-            deleteOnTermination: "false",
-            networkInterfaceId: config.networkInterfaceId,
-            deviceIndex: 0
-        }]
-    }
-  
+    // Providing subnets, security groups, or public IP allocation policy is not allowed when
+    // also providing a network interface ID. That configuration must be on the network interface
+    return [{
+      deleteOnTermination: "false",
+      networkInterfaceId: config.networkInterfaceId,
+      deviceIndex: 0
+    }]
+  }
+
   private generateManagerUserData(config: LaunchTemplateConfig): pulumi.Output<string> {
     return pulumi.all([
       config.taskDBName,
