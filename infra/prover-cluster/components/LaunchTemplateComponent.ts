@@ -22,7 +22,6 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   componentType: "manager" | "prover" | "execution" | "aux";
   volumeSize?: number;
   rdsEndpoint?: pulumi.Output<string>;
-  redisEndpoint?: pulumi.Output<string>;
   s3BucketName?: pulumi.Output<string>;
   s3AccessKeyId?: pulumi.Output<string>;
   s3SecretAccessKey?: pulumi.Output<string>;
@@ -112,7 +111,6 @@ export class LaunchTemplateComponent extends BaseComponent {
       this.config.stackName,
       config.componentType,
       config.rdsEndpoint!,
-      config.redisEndpoint!,
       config.s3BucketName!,
       config.s3AccessKeyId!,
       config.s3SecretAccessKey!,
@@ -133,14 +131,14 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFetchRetries || 3,
       config.allowClientAddresses || "",
       config.lockinPriorityGas || "0",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, redisEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, priorityRequestorAddresses, denyRequestorAddresses, maxFetchRetries, allowClientAddresses, lockinPriorityGas]) => {
+    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, priorityRequestorAddresses, denyRequestorAddresses, maxFetchRetries, allowClientAddresses, lockinPriorityGas]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
-      const redisEndpointStr = String(redisEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
       const rdsPort = rdsEndpointStr.split(':')[1] || '5432';
-      const redisHost = redisEndpointStr.split(':')[0];
-      const redisPort = redisEndpointStr.split(':')[1] || '6379';
+      // Manager runs Redis/Valkey locally, so use localhost
+      const redisHost = "127.0.0.1";
+      const redisPort = "6379";
 
       const brokerTomlContent = `[market]
 mcycle_price = "${mcyclePrice}"
@@ -234,6 +232,29 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
 
 runcmd:
   - |
+    # Install Valkey (Redis fork) as a systemd service
+    apt-get update
+    apt-get install -y software-properties-common
+    add-apt-repository -y ppa:valkey/valkey
+    apt-get update
+    apt-get install -y valkey-server
+  - |
+    # Configure Valkey to listen on all interfaces (for worker nodes to connect)
+    cat > /etc/valkey/valkey.conf << 'VALKEYEOF'
+    bind 0.0.0.0
+    port 6379
+    protected-mode no
+    maxmemory 12gb
+    maxmemory-policy allkeys-lru
+    save ""
+    VALKEYEOF
+  - |
+    # Enable and start Valkey service
+    systemctl enable valkey-server
+    systemctl restart valkey-server
+  - |
+    # Allow Redis/Valkey connections from worker nodes in the security group
+    # (Security group rules are managed by Pulumi, but we ensure the service is ready)
     cat /etc/environment.d/bento.conf >> /etc/environment
   - |
     /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
@@ -269,18 +290,17 @@ runcmd:
       this.config.stackName,
       config.componentType,
       config.rdsEndpoint!,
-      config.redisEndpoint!,
       config.s3BucketName!,
       config.s3AccessKeyId!,
       config.s3SecretAccessKey!
-    ]).apply(([managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsEndpoint, redisEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey]) => {
+    ]).apply(([managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
-      const redisEndpointStr = String(redisEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
       const rdsPort = rdsEndpointStr.split(':')[1] || '5432';
-      const redisHost = redisEndpointStr.split(':')[0];
-      const redisPort = redisEndpointStr.split(':')[1] || '6379';
+      // Workers connect to Redis/Valkey on the manager node
+      const redisHost = managerIp;
+      const redisPort = "6379";
       const commonEnvVars = this.generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsHost, rdsPort, redisHost, redisPort, s3BucketName, s3AccessKeyId, s3SecretAccessKey);
 
       let componentSpecificVars = "";

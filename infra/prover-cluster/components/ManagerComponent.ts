@@ -22,7 +22,6 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     chainId: string;
     alertsTopicArns: string[];
     rdsEndpoint: pulumi.Output<string>;
-    redisEndpoint: pulumi.Output<string>;
     s3BucketName: pulumi.Output<string>;
     s3AccessKeyId: pulumi.Output<string>;
     s3SecretAccessKey: pulumi.Output<string>;
