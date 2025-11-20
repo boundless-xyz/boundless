@@ -117,7 +117,7 @@ impl ProvingService {
                             .prover
                             .compress_blake3_groth16(stark_proof_id)
                             .await
-                            .context("Failed to shrink proof")?,
+                            .context("Failed to compress blake3 groth16 proof")?,
                         CompressionType::None => {
                             unreachable!("Compression type should not be None here")
                         }
