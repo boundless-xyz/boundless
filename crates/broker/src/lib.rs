@@ -765,7 +765,11 @@ where
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
-            (config.market.lookback_blocks, config.market.events_poll_blocks, config.market.events_poll_ms)
+            (
+                config.market.lookback_blocks,
+                config.market.events_poll_blocks,
+                config.market.events_poll_ms,
+            )
         };
 
         // Create two cancellation tokens for graceful shutdown:
