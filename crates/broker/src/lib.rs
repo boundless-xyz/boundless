@@ -760,12 +760,12 @@ where
 
         let config = self.config_watcher.config.clone();
 
-        let lookback_blocks = {
+        let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
             let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
-            config.market.lookback_blocks
+            (config.market.lookback_blocks, config.market.events_poll_blocks, config.market.events_poll_ms)
         };
 
         // Create two cancellation tokens for graceful shutdown:
@@ -816,7 +816,8 @@ where
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             lookback_blocks,
-            self.args.rpc_retry_backoff,
+            events_poll_blocks,
+            events_poll_ms,
             self.deployment().boundless_market_address,
             self.provider.clone(),
             self.db.clone(),

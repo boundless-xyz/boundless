@@ -66,6 +66,8 @@ Below are all `broker.toml` settings organized by section:
 | max\_journal\_bytes | Max journal size in bytes. Orders that produce a journal larger than this size in preflight will be skipped. Since journals must be posted onchain to complete an order, an excessively large journal may prevent completion of a request. |
 | min\_deadline | Min seconds left before the deadline to consider bidding on a request. If there is not enough time left before the deadline, the prover may not be able to complete proving of the request and finalize the batch for publishing before expiration. |
 | lookback\_blocks | On startup, the number of blocks to look back for possible open orders. |
+| events\_poll\_blocks | Number of blocks to query per batch when polling for new market events. After the initial lookback completes, the market monitor will query this many blocks at a time when polling for new events. A higher value reduces RPC calls but may increase response latency. A lower value provides more real-time updates but increases RPC load. Default: 50. |
+| events\_poll\_ms | Polling interval for market events (in milliseconds). The time between polls for new market events. A lower value provides more real-time updates but increases RPC load. A higher value reduces RPC calls but may increase response latency. Default: 3000. |
 | max\_collateral | Maximum collateral amount, denominated in the Boundless collateral token, that the broker will use to lock orders. Requests that require a higher collateral amount than this will be skipped. |
 | max\_file\_size | Max input / image file size allowed for downloading from request URLs. |
 | max\_fetch\_retries | Max retries for fetching input / image contents from URLs. |
