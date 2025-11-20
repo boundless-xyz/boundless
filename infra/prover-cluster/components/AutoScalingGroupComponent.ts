@@ -60,8 +60,8 @@ export class AutoScalingGroupComponent extends BaseComponent {
                 },
                 {
                     key: "Name",
-                    value: this.generateTagName(`${config.componentType}-asg`),
-                    propagateAtLaunch: false,
+                    value: this.generateName(`${config.componentType}`),
+                    propagateAtLaunch: true,
                 },
                 {
                     key: "Type",

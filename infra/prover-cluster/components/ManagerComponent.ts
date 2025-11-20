@@ -13,8 +13,6 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     taskDBName: string;
     taskDBUsername: string;
     taskDBPassword: string;
-    minioUsername: string;
-    minioPassword: string;
     ethRpcUrl: pulumi.Output<string>;
     privateKey: pulumi.Output<string>;
     orderStreamUrl: string;
@@ -24,6 +22,29 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     collateralTokenAddress: string;
     chainId: string;
     alertsTopicArns: string[];
+    rdsEndpoint: pulumi.Output<string>;
+    redisEndpoint: pulumi.Output<string>;
+    s3BucketName: pulumi.Output<string>;
+    s3AccessKeyId: pulumi.Output<string>;
+    s3SecretAccessKey: pulumi.Output<string>;
+    // Broker configuration
+    mcyclePrice: string;
+    peakProveKhz: number;
+    minDeadline: number;
+    lookbackBlocks: number;
+    maxCollateral: string;
+    maxFileSize: string;
+    maxMcycleLimit: string;
+    maxConcurrentProofs: number;
+    balanceWarnThreshold: string;
+    balanceErrorThreshold: string;
+    collateralBalanceWarnThreshold: string;
+    collateralBalanceErrorThreshold: string;
+    priorityRequestorAddresses: string;
+    denyRequestorAddresses: string;
+    maxFetchRetries: number;
+    allowClientAddresses: string;
+    lockinPriorityGas: string;
 }
 
 export class ManagerComponent extends BaseComponent {

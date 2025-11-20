@@ -8,12 +8,21 @@ export class SecurityComponent extends BaseComponent {
     public readonly ec2Role: aws.iam.Role;
     public readonly ec2Profile: aws.iam.InstanceProfile;
     public readonly securityGroup: aws.ec2.SecurityGroup;
+    public readonly s3User: aws.iam.User;
+    public readonly s3AccessKey: aws.iam.AccessKey;
+    public readonly s3AccessKeyId: pulumi.Output<string>;
+    public readonly s3SecretAccessKey: pulumi.Output<string>;
 
     constructor(config: SecurityComponentConfig) {
         super(config, "boundless-bento");
         this.ec2Role = this.createEC2Role();
         this.ec2Profile = this.createInstanceProfile();
         this.securityGroup = this.createSecurityGroup();
+        const s3UserResources = this.createS3User();
+        this.s3User = s3UserResources.user;
+        this.s3AccessKey = s3UserResources.accessKey;
+        this.s3AccessKeyId = s3UserResources.accessKeyId;
+        this.s3SecretAccessKey = s3UserResources.secretAccessKey;
     }
 
     private createEC2Role(): aws.iam.Role {
@@ -55,6 +64,32 @@ export class SecurityComponent extends BaseComponent {
             })
         });
 
+        // Attach S3 access policy - scoped to the bento-storage bucket
+        const bucketName = this.generateName("bento-storage");
+        new aws.iam.RolePolicy("ec2-s3-scoped-policy", {
+            role: role.id,
+            policy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:ListBucket",
+                            "s3:GetBucketLocation"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}`
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:*"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}/*`
+                    }
+                ]
+            })
+        });
+
         return role;
     }
 
@@ -76,20 +111,6 @@ export class SecurityComponent extends BaseComponent {
                     toPort: 22,
                     cidrBlocks: ["0.0.0.0/0"],
                     description: "SSH access"
-                },
-                {
-                    protocol: "tcp",
-                    fromPort: 6379,
-                    toPort: 6379,
-                    self: true,
-                    description: "Redis access from same security group"
-                },
-                {
-                    protocol: "tcp",
-                    fromPort: 5432,
-                    toPort: 5432,
-                    self: true,
-                    description: "PostgreSQL access from same security group"
                 },
                 {
                     protocol: "tcp",
@@ -119,20 +140,6 @@ export class SecurityComponent extends BaseComponent {
                     cidrBlocks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
                     description: "VPC Link access to Bento API"
                 },
-                {
-                    protocol: "tcp",
-                    fromPort: 9000,
-                    toPort: 9000,
-                    cidrBlocks: ["0.0.0.0/0"],
-                    description: "MinIO S3 API access"
-                },
-                {
-                    protocol: "tcp",
-                    fromPort: 9001,
-                    toPort: 9001,
-                    cidrBlocks: ["0.0.0.0/0"],
-                    description: "MinIO Console access"
-                }
             ],
             egress: [
                 {
@@ -144,5 +151,55 @@ export class SecurityComponent extends BaseComponent {
                 }
             ],
         });
+    }
+
+    private createS3User(): {
+        user: aws.iam.User;
+        accessKey: aws.iam.AccessKey;
+        accessKeyId: pulumi.Output<string>;
+        secretAccessKey: pulumi.Output<string>;
+    } {
+        const user = new aws.iam.User("s3User", {
+            name: this.generateName("s3-user"),
+            path: "/boundless/",
+        });
+
+        // Attach S3 access policy - scoped to the bento-storage bucket
+        const bucketName = this.generateName("bento-storage");
+        new aws.iam.UserPolicy("s3UserScopedPolicy", {
+            user: user.name,
+            policy: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:ListBucket",
+                            "s3:GetBucketLocation"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}`
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: [
+                            "s3:*"
+                        ],
+                        Resource: `arn:aws:s3:::${bucketName}/*`
+                    }
+                ]
+            })
+        });
+
+        // Create access key
+        const accessKey = new aws.iam.AccessKey("s3AccessKey", {
+            user: user.name,
+        });
+
+        return {
+            user,
+            accessKey,
+            accessKeyId: accessKey.id,
+            secretAccessKey: accessKey.secret,
+        };
     }
 }
