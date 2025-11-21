@@ -8925,8 +8925,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-steel"
-version = "2.4.0"
-source = "git+https://github.com/boundless-xyz/steel?branch=release-2.4#3731e48e9a7ba4bb0c6ef800b635d95f4114ca85"
+version = "2.4.1"
+source = "git+https://github.com/boundless-xyz/steel?branch=fix%2Fv2.4%2Fconsensus-fulu#165837fba44562f355c36826e66a0bee2abe56b6"
 dependencies = [
  "alloy",
  "alloy-consensus",

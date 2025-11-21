@@ -28,7 +28,7 @@ risc0-aggregation = { workspace = true }
 risc0-circuit-recursion = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-povw = { workspace = true, features = ["prover"], optional = true }
-risc0-steel = { git = "https://github.com/boundless-xyz/steel", branch = "release-2.4", optional = true }
+risc0-steel = { git = "https://github.com/boundless-xyz/steel", branch = "fix/v2.4/consensus-fulu", optional = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
