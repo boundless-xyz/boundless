@@ -5,6 +5,8 @@ import {
     ManagerComponent,
     WorkerClusterComponent,
     ApiGatewayComponent,
+    DataServicesComponent,
+    ScalerComponent,
     BaseComponentConfig
 } from "./components";
 
@@ -21,7 +23,7 @@ const config = new pulumi.Config();
 // Configuration with proper types
 const environment: string = config.get("environment") || "custom";
 
-// Required configuration
+// Required base configuration
 const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
 const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
 const managerInstanceType: string = config.require("managerInstanceType");
@@ -33,19 +35,34 @@ const collateralTokenAddress: string = config.require("collateralTokenAddress");
 const chainId: string = config.require("chainId");
 const apiKey: pulumi.Output<string> = config.requireSecret("apiKey");
 
-// Contract addresses
+// DB vars
 const taskDBUsername: string = config.require("taskDBUsername");
 const taskDBPassword: string = config.require("taskDBPassword");
 const taskDBName: string = config.require("taskDBName");
-
-// MinIO configuration
-const minioUsername: string = config.get("minioUsername") || "minioadmin";
-const minioPassword: string = config.get("minioPassword") || "minioadmin123";
 
 // Worker counts
 const executionCount: number = config.getNumber("executionCount") || 1;
 const proverCount: number = config.getNumber("proverWorkerCount") || 1;
 const auxCount: number = config.getNumber("auxWorkerCount") || 1;
+
+// Broker configuration
+const mcyclePrice: string = config.get("mcyclePrice") || "0.00000001";
+const peakProveKhz: number = config.getNumber("peakProveKhz") || 100;
+const minDeadline: number = config.getNumber("minDeadline") || 0;
+const lookbackBlocks: number = config.getNumber("lookbackBlocks") || 0;
+const maxCollateral: string = config.get("maxCollateral") || "200";
+const maxFileSize: string = config.get("maxFileSize") || "0";
+const maxMcycleLimit: string = config.get("maxMcycleLimit") || "0";
+const maxConcurrentProofs: number = config.getNumber("maxConcurrentProofs") || 1;
+const balanceWarnThreshold: string = config.get("balanceWarnThreshold") || "0";
+const balanceErrorThreshold: string = config.get("balanceErrorThreshold") || "0";
+const collateralBalanceWarnThreshold: string = config.get("collateralBalanceWarnThreshold") || "0";
+const collateralBalanceErrorThreshold: string = config.get("collateralBalanceErrorThreshold") || "0";
+const priorityRequestorAddresses: string = config.get("priorityRequestorAddresses") || "";
+const denyRequestorAddresses: string = config.get("denyRequestorAddresses") || "";
+const maxFetchRetries: number = config.getNumber("maxFetchRetries") || 3;
+const allowClientAddresses: string = config.get("allowClientAddresses") || "";
+const lockinPriorityGas: string = config.get("lockinPriorityGas") || "0";
 
 // Look up the latest packer-built AMI
 const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
@@ -77,10 +94,20 @@ const baseComponentConfig: BaseComponentConfig = {
     publicSubnetIds: pubSubNetIds,
 };
 
-// Create security components
+// Add security components
 const security = new SecurityComponent(baseComponentConfig);
 
-// Create manager instance
+// Create data services (RDS PostgreSQL)
+const dataServices = new DataServicesComponent({
+    ...baseComponentConfig,
+    taskDBName,
+    taskDBUsername,
+    taskDBPassword,
+    securityGroupId: security.securityGroup.id,
+    rdsInstanceClass: config.get("rdsInstanceClass") || "db.t4g.micro",
+});
+
+// Create manager (single instance) cluster
 const manager = new ManagerComponent({
     ...baseComponentConfig,
     imageId,
@@ -90,8 +117,6 @@ const manager = new ManagerComponent({
     taskDBName,
     taskDBUsername,
     taskDBPassword,
-    minioUsername,
-    minioPassword,
     ethRpcUrl,
     privateKey,
     orderStreamUrl,
@@ -101,6 +126,28 @@ const manager = new ManagerComponent({
     collateralTokenAddress,
     chainId,
     alertsTopicArns: alertsTopicArns,
+    rdsEndpoint: dataServices.rdsEndpoint,
+    s3BucketName: dataServices.s3BucketName,
+    s3AccessKeyId: security.s3AccessKeyId,
+    s3SecretAccessKey: security.s3SecretAccessKey,
+    // Broker configuration
+    mcyclePrice,
+    peakProveKhz,
+    minDeadline,
+    lookbackBlocks,
+    maxCollateral,
+    maxFileSize,
+    maxMcycleLimit,
+    maxConcurrentProofs,
+    balanceWarnThreshold,
+    balanceErrorThreshold,
+    collateralBalanceWarnThreshold,
+    collateralBalanceErrorThreshold,
+    priorityRequestorAddresses,
+    denyRequestorAddresses,
+    maxFetchRetries,
+    allowClientAddresses,
+    lockinPriorityGas,
 });
 
 // Create worker clusters
@@ -109,30 +156,49 @@ const workerCluster = new WorkerClusterComponent({
     imageId,
     securityGroupId: security.securityGroup.id,
     iamInstanceProfileName: security.ec2Profile.name,
-    managerIp: manager.instance.privateIp,
+    managerIp: manager.managerNetworkInterface.privateIp,
     taskDBName,
     taskDBUsername,
     taskDBPassword,
-    minioUsername,
-    minioPassword,
     proverCount,
     executionCount,
     auxCount,
+    chainId,
     alertsTopicArns: alertsTopicArns,
+    rdsEndpoint: dataServices.rdsEndpoint,
+    s3BucketName: dataServices.s3BucketName,
+    s3AccessKeyId: security.s3AccessKeyId,
+    s3SecretAccessKey: security.s3SecretAccessKey,
 });
 
 // Create API Gateway with NLB
 const apiGateway = new ApiGatewayComponent({
     ...baseComponentConfig,
-    managerPrivateIp: manager.instance.privateIp,
+    managerPrivateIp: manager.managerNetworkInterface.privateIp,
     securityGroupId: security.securityGroup.id,
     apiKey: apiKey.apply(key => key),
 });
 
+// Create scaler Lambda to auto-scale prover ASG based on queue depth
+const scaler = new ScalerComponent({
+    ...baseComponentConfig,
+    rdsEndpoint: dataServices.rdsEndpoint,
+    rdsSecurityGroupId: dataServices.rdsSecurityGroup.id,
+    taskDBName,
+    taskDBUsername,
+    taskDBPassword,
+    proverAsgName: workerCluster.proverAsg.autoScalingGroup.name,
+    proverAsgArn: workerCluster.proverAsg.autoScalingGroup.arn,
+    scheduleExpression: config.get("scalerSchedule") || "rate(5 minutes)",
+});
+
 // Outputs
-export const managerInstanceId = manager.instance.id;
-export const managerPrivateIp = manager.instance.privateIp;
-export const managerPublicIp = manager.instance.publicIp;
+export const managerPrivateIp = manager.managerNetworkInterface.privateIp;
+export const managerAsgName = manager.managerAsg.autoScalingGroup.name;
+export const managerAsgArn = manager.managerAsg.autoScalingGroup.arn;
+export const managerDesiredCapacity = manager.managerAsg.autoScalingGroup.desiredCapacity;
+export const managerMinSize = manager.managerAsg.autoScalingGroup.minSize;
+export const managerMaxSize = manager.managerAsg.autoScalingGroup.maxSize;
 
 // AMI information
 export const amiId = imageId;
@@ -161,22 +227,25 @@ export const auxDesiredCapacity = workerCluster.auxAsg.autoScalingGroup.desiredC
 export const auxMinSize = workerCluster.auxAsg.autoScalingGroup.minSize;
 export const auxMaxSize = workerCluster.auxAsg.autoScalingGroup.maxSize;
 
-// Redis connection details
-export const redisHost = manager.instance.privateIp;
-export const redisPort = "6379";
+// Data services outputs
+export const rdsEndpoint = dataServices.rdsEndpoint;
+export const s3BucketName = dataServices.s3BucketName;
 
 // Shared credentials for prover nodes
-export const sharedCredentials = {
-    postgresHost: manager.instance.privateIp,
-    postgresPort: "5432",
-    postgresDb: taskDBName,
-    postgresUser: taskDBUsername,
-    postgresPassword: taskDBPassword,
-    redisHost: manager.instance.privateIp,
-    redisPort: "6379",
-    s3Bucket: "bento",
-    s3Region: "us-west-2",
-};
+export const sharedCredentials = pulumi.all([dataServices.rdsEndpoint, manager.managerNetworkInterface.privateIp, dataServices.s3BucketName]).apply(([rdsEp, managerIp, s3Bucket]) => {
+    const rdsHost = rdsEp.split(':')[0];
+    return {
+        postgresHost: rdsHost,
+        postgresPort: "5432",
+        postgresDb: taskDBName,
+        postgresUser: taskDBUsername,
+        postgresPassword: taskDBPassword,
+        redisHost: managerIp,
+        redisPort: "6379",
+        s3Bucket: s3Bucket,
+        s3Region: "us-west-2",
+    };
+});
 
 // ALB outputs
 export const albUrl = apiGateway.albUrl;
@@ -186,9 +255,12 @@ export const targetGroupArn = apiGateway.targetGroup.arn;
 // Cluster info
 export const clusterInfo = {
     manager: {
-        instanceId: manager.instance.id,
-        publicIp: manager.instance.publicIp,
-        privateIp: manager.instance.privateIp,
+        name: manager.managerAsg.autoScalingGroup.name,
+        arn: manager.managerAsg.autoScalingGroup.arn,
+        desiredCapacity: manager.managerAsg.autoScalingGroup.desiredCapacity,
+        minSize: manager.managerAsg.autoScalingGroup.minSize,
+        maxSize: manager.managerAsg.autoScalingGroup.maxSize,
+        privateIp: manager.managerNetworkInterface.privateIp,
     },
     proverAsg: {
         name: workerCluster.proverAsg.autoScalingGroup.name,
