@@ -119,15 +119,17 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Collect all RPC URLs by merging rpc_url and rpc_urls.
     /// If both are provided, they are merged into a single list.
     fn collect_rpc_urls(&self) -> Result<Vec<Url>, anyhow::Error> {
-        let mut all_urls = Vec::new();
-
-        // Add the primary RPC URL if set
+        // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
+        let mut seen = std::collections::HashSet::new();
         if let Some(ref rpc_url) = self.rpc_url {
-            all_urls.push(rpc_url.clone());
+            seen.insert(rpc_url.clone());
         }
+        seen.extend(self.rpc_urls.iter().cloned());
+        let all_urls: Vec<Url> = seen.into_iter().collect();
 
-        // Add any additional URLs from rpc_urls
-        all_urls.extend(self.rpc_urls.clone());
+        if all_urls.is_empty() {
+            bail!("no RPC URLs provided, set at least one using with_rpc_url or with_rpc_urls");
+        }
 
         Ok(all_urls)
     }
@@ -139,7 +141,7 @@ impl<St, Si> ClientBuilder<St, Si> {
 
         // Configure FallbackLayer with all transports active
         let active_count =
-            std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
+            std::num::NonZeroUsize::new(transports.len()).expect("at least one transport is required");
         let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
 
         tracing::info!(

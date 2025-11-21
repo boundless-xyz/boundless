@@ -75,19 +75,13 @@ async fn main() -> Result<()> {
     let wallet = EthereumWallet::from(private_key.clone());
 
     // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
-    let mut all_rpc_urls = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    seen.insert(args.rpc_url.clone());
+    seen.extend(args.rpc_urls.iter().cloned());
+    let all_rpc_urls: Vec<Url> = seen.into_iter().collect();
 
-    // Add rpc_url first if not already seen
-    if seen.insert(args.rpc_url.clone()) {
-        all_rpc_urls.push(args.rpc_url.clone());
-    }
-
-    // Add rpc_urls, skipping duplicates
-    for url in &args.rpc_urls {
-        if seen.insert(url.clone()) {
-            all_rpc_urls.push(url.clone());
-        }
+    if all_rpc_urls.is_empty() {
+        anyhow::bail!("no RPC URLs provided, please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables");
     }
 
     let retry_layer = RetryBackoffLayer::new_with_policy(
