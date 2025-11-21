@@ -33,14 +33,14 @@ use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
 
+use super::{
+    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
+    IBoundlessMarket::{self, IBoundlessMarketErrors, IBoundlessMarketInstance, ProofDelivered},
+    Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+};
 use crate::{
     contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
     deployments::collateral_token_supports_permit,
-};
-use super::{
-    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
-    IBoundlessMarket::{self, IBoundlessMarketInstance, ProofDelivered, IBoundlessMarketErrors},
-    Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Fraction of collateral the protocol gives to the prover who fills an order that was locked by another prover but expired
@@ -220,7 +220,7 @@ fn validate_fulfill_receipt(receipt: TransactionReceipt) -> Result<(), MarketErr
     if let Some(log) = receipt.decoded_log::<IBoundlessMarket::PaymentRequirementsFailed>() {
         match IBoundlessMarketErrors::abi_decode(&**log.error) {
             Ok(err) => Err(MarketError::PaymentRequirementsFailed(err)),
-            Err(_) => Err(MarketError::PaymentRequirementsFailedUnknownError)
+            Err(_) => Err(MarketError::PaymentRequirementsFailedUnknownError),
         }
     } else {
         Ok(())
