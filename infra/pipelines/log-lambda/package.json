@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.817.0",
+    "@aws-sdk/client-sts": "^3.934.0",
     "jsurl": "^0.1.5"
   }
 }

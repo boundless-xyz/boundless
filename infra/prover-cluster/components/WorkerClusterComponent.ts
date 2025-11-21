@@ -19,6 +19,7 @@ export interface WorkerClusterConfig extends BaseComponentConfig {
     proverCount: number;
     executionCount: number;
     auxCount: number;
+    chainId: string;
     alertsTopicArns: string[];
     rdsEndpoint: pulumi.Output<string>;
     s3BucketName: pulumi.Output<string>;
@@ -84,7 +85,8 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-prover-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/prover`,
-            alarmDimensions: { AutoScalingGroupName: this.proverAsg.autoScalingGroup.name }
+            alarmDimensions: { AutoScalingGroupName: this.proverAsg.autoScalingGroup.name },
+            minAsgSize: this.proverAsg.autoScalingGroup.minSize
         });
     }
 
@@ -116,7 +118,8 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-execution-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/execution`,
-            alarmDimensions: { AutoScalingGroupName: this.executionAsg.autoScalingGroup.name }
+            alarmDimensions: { AutoScalingGroupName: this.executionAsg.autoScalingGroup.name },
+            minAsgSize: this.executionAsg.autoScalingGroup.minSize
         });
     }
 
@@ -148,7 +151,8 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             serviceName: "bento-aux-cluster",
             logGroupName: `/boundless/bento/${config.stackName}/aux`,
-            alarmDimensions: { AutoScalingGroupName: this.auxAsg.autoScalingGroup.name }
+            alarmDimensions: { AutoScalingGroupName: this.auxAsg.autoScalingGroup.name },
+            minAsgSize: this.auxAsg.autoScalingGroup.minSize
         });
     }
 }
