@@ -6,6 +6,7 @@ import {
     WorkerClusterComponent,
     ApiGatewayComponent,
     DataServicesComponent,
+    ScalerComponent,
     BaseComponentConfig
 } from "./components";
 
@@ -96,7 +97,7 @@ const baseComponentConfig: BaseComponentConfig = {
 // Add security components
 const security = new SecurityComponent(baseComponentConfig);
 
-// Create data services (RDS PostgreSQL and ElastiCache Redis)
+// Create data services (RDS PostgreSQL)
 const dataServices = new DataServicesComponent({
     ...baseComponentConfig,
     taskDBName,
@@ -104,10 +105,9 @@ const dataServices = new DataServicesComponent({
     taskDBPassword,
     securityGroupId: security.securityGroup.id,
     rdsInstanceClass: config.get("rdsInstanceClass") || "db.t4g.micro",
-    redisNodeType: config.get("redisNodeType") || "cache.t4g.micro",
 });
 
-// Create manager instance
+// Create manager (single instance) cluster
 const manager = new ManagerComponent({
     ...baseComponentConfig,
     imageId,
@@ -127,7 +127,6 @@ const manager = new ManagerComponent({
     chainId,
     alertsTopicArns: alertsTopicArns,
     rdsEndpoint: dataServices.rdsEndpoint,
-    redisEndpoint: dataServices.redisEndpoint,
     s3BucketName: dataServices.s3BucketName,
     s3AccessKeyId: security.s3AccessKeyId,
     s3SecretAccessKey: security.s3SecretAccessKey,
@@ -157,7 +156,7 @@ const workerCluster = new WorkerClusterComponent({
     imageId,
     securityGroupId: security.securityGroup.id,
     iamInstanceProfileName: security.ec2Profile.name,
-    managerIp: manager.instance.privateIp,
+    managerIp: manager.managerNetworkInterface.privateIp,
     taskDBName,
     taskDBUsername,
     taskDBPassword,
@@ -167,7 +166,6 @@ const workerCluster = new WorkerClusterComponent({
     chainId,
     alertsTopicArns: alertsTopicArns,
     rdsEndpoint: dataServices.rdsEndpoint,
-    redisEndpoint: dataServices.redisEndpoint,
     s3BucketName: dataServices.s3BucketName,
     s3AccessKeyId: security.s3AccessKeyId,
     s3SecretAccessKey: security.s3SecretAccessKey,
@@ -176,15 +174,31 @@ const workerCluster = new WorkerClusterComponent({
 // Create API Gateway with NLB
 const apiGateway = new ApiGatewayComponent({
     ...baseComponentConfig,
-    managerPrivateIp: manager.instance.privateIp,
+    managerPrivateIp: manager.managerNetworkInterface.privateIp,
     securityGroupId: security.securityGroup.id,
     apiKey: apiKey.apply(key => key),
 });
 
+// Create scaler Lambda to auto-scale prover ASG based on queue depth
+const scaler = new ScalerComponent({
+    ...baseComponentConfig,
+    rdsEndpoint: dataServices.rdsEndpoint,
+    rdsSecurityGroupId: dataServices.rdsSecurityGroup.id,
+    taskDBName,
+    taskDBUsername,
+    taskDBPassword,
+    proverAsgName: workerCluster.proverAsg.autoScalingGroup.name,
+    proverAsgArn: workerCluster.proverAsg.autoScalingGroup.arn,
+    scheduleExpression: config.get("scalerSchedule") || "rate(5 minutes)",
+});
+
 // Outputs
-export const managerInstanceId = manager.instance.id;
-export const managerPrivateIp = manager.instance.privateIp;
-export const managerPublicIp = manager.instance.publicIp;
+export const managerPrivateIp = manager.managerNetworkInterface.privateIp;
+export const managerAsgName = manager.managerAsg.autoScalingGroup.name;
+export const managerAsgArn = manager.managerAsg.autoScalingGroup.arn;
+export const managerDesiredCapacity = manager.managerAsg.autoScalingGroup.desiredCapacity;
+export const managerMinSize = manager.managerAsg.autoScalingGroup.minSize;
+export const managerMaxSize = manager.managerAsg.autoScalingGroup.maxSize;
 
 // AMI information
 export const amiId = imageId;
@@ -215,20 +229,18 @@ export const auxMaxSize = workerCluster.auxAsg.autoScalingGroup.maxSize;
 
 // Data services outputs
 export const rdsEndpoint = dataServices.rdsEndpoint;
-export const redisEndpoint = dataServices.redisEndpoint;
 export const s3BucketName = dataServices.s3BucketName;
 
 // Shared credentials for prover nodes
-export const sharedCredentials = pulumi.all([dataServices.rdsEndpoint, dataServices.redisEndpoint, dataServices.s3BucketName]).apply(([rdsEp, redisEp, s3Bucket]) => {
+export const sharedCredentials = pulumi.all([dataServices.rdsEndpoint, manager.managerNetworkInterface.privateIp, dataServices.s3BucketName]).apply(([rdsEp, managerIp, s3Bucket]) => {
     const rdsHost = rdsEp.split(':')[0];
-    const redisHost = redisEp.split(':')[0];
     return {
         postgresHost: rdsHost,
         postgresPort: "5432",
         postgresDb: taskDBName,
         postgresUser: taskDBUsername,
         postgresPassword: taskDBPassword,
-        redisHost: redisHost,
+        redisHost: managerIp,
         redisPort: "6379",
         s3Bucket: s3Bucket,
         s3Region: "us-west-2",
@@ -243,9 +255,12 @@ export const targetGroupArn = apiGateway.targetGroup.arn;
 // Cluster info
 export const clusterInfo = {
     manager: {
-        instanceId: manager.instance.id,
-        publicIp: manager.instance.publicIp,
-        privateIp: manager.instance.privateIp,
+        name: manager.managerAsg.autoScalingGroup.name,
+        arn: manager.managerAsg.autoScalingGroup.arn,
+        desiredCapacity: manager.managerAsg.autoScalingGroup.desiredCapacity,
+        minSize: manager.managerAsg.autoScalingGroup.minSize,
+        maxSize: manager.managerAsg.autoScalingGroup.maxSize,
+        privateIp: manager.managerNetworkInterface.privateIp,
     },
     proverAsg: {
         name: workerCluster.proverAsg.autoScalingGroup.name,

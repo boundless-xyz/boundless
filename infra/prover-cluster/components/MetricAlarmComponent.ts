@@ -337,6 +337,18 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
 
     private createManagerMetricAlarms = (config: MetricAlarmConfig): void => {
 
+        this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
+            metricName: 'GroupInServiceInstances',
+            namespace: `AWS/AutoScaling`,
+            period: 60,
+            dimensions: config.alarmDimensions,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 0,
+            comparisonOperator: 'LessThanOrEqualToThreshold'
+        }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+
         // Unexpected error threshold for entire broker.
         const brokerUnexpectedErrorThreshold = 5;
         const supervisorUnexpectedErrorThreshold = 5;
