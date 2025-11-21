@@ -41,7 +41,7 @@ config:
   prover-cluster:minDeadline: 0
   prover-cluster:lookbackBlocks: 300
   prover-cluster:maxCollateral: "200"
-  prover-cluster:maxFileSize: "0"
+  prover-cluster:maxFileSize: 500000000000
   prover-cluster:maxMcycleLimit: "0"
   prover-cluster:maxConcurrentProofs: 1
   prover-cluster:balanceWarnThreshold: "0"
