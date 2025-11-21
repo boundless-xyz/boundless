@@ -57,11 +57,11 @@ impl PriorityMode {
                 dynamic_multiplier_percentage: 3,
             },
             PriorityMode::Medium => PriorityModeConfig {
-                estimate_additional_percentage: 10,
+                estimate_additional_percentage: 20,
                 dynamic_multiplier_percentage: 5,
             },
             PriorityMode::High => PriorityModeConfig {
-                estimate_additional_percentage: 20,
+                estimate_additional_percentage: 30,
                 dynamic_multiplier_percentage: 7,
             },
             PriorityMode::Custom { multiplier_percentage } => PriorityModeConfig {
