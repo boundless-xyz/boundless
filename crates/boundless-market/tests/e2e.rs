@@ -36,6 +36,7 @@ use risc0_zkvm::{
     sha::{Digest, Digestible},
     ReceiptClaim,
 };
+use std::time::Duration;
 use tracing_test::traced_test;
 
 fn now_timestamp() -> u64 {
@@ -573,4 +574,43 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
     let fulfillment_data = fulfillment_result.data().unwrap();
     assert_eq!(fulfillment_data, expected_fulfillment_data);
     assert_eq!(fulfillment_result.seal, fulfillment.seal);
+}
+
+#[tokio::test]
+#[traced_test]
+async fn test_lock_request_with_retry() {
+    let anvil = Anvil::new().block_time(1).spawn();
+
+    let mut ctx = create_test_ctx(&anvil).await.unwrap();
+
+    let request = new_request(1, &ctx).await;
+
+    let request_id =
+        ctx.customer_market.submit_request(&request, &ctx.customer_signer).await.unwrap();
+
+    let deposit = default_allowance();
+    ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
+
+    let eip712_domain = ctx.customer_market.eip712_domain().await.unwrap();
+    let customer_sig = request
+        .sign_request(&ctx.customer_signer, eip712_domain.verifying_contract, anvil.chain_id())
+        .await
+        .unwrap()
+        .as_bytes();
+
+    ctx.prover_market = ctx
+        .prover_market
+        .clone()
+        .with_timeout(Duration::from_millis(200))
+        .with_receipt_retry_count(6);
+
+    let block_number =
+        ctx.prover_market.lock_request_with_retry(&request, customer_sig, 2).await.unwrap();
+
+    assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
+    assert!(
+        ctx.customer_market.get_status(request_id, None).await.unwrap() == RequestStatus::Locked
+    );
+    assert!(block_number > 0);
+    assert!(logs_contain("bumped fees"));
 }
