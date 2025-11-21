@@ -31,17 +31,14 @@ use tokio::sync::RwLock;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PriorityMode {
-    /// Low gas price/priority fee.
+    /// Use the eth_feeHistory as is and only add `+3%` per pending tx.
     Low,
-    /// Medium gas price/priority fee.
+    /// Add a `+20%` increase to the base/priority fee and `+5%` per pending transaction.
     #[default]
     Medium,
-    /// High gas price/priority fee.
+    /// Add a `+30%` increase to the base/priority fee and `+7%` per pending transaction.
     High,
-    /// Custom gas price/priority fee override.
-    ///
-    /// The supplied `multiplier_percentage` is applied as a static percentage bump
-    /// on top of the base gas estimation (e.g., 25 = 25% increase).
+    /// Add a custom static increase to the base/priority fee and `+5%` per pending transaction.
     Custom {
         /// The static multiplier percentage to apply (0 = no change).
         multiplier_percentage: u64,
@@ -75,9 +72,9 @@ impl PriorityMode {
 /// Configuration for a priority mode.
 #[derive(Clone, Debug)]
 struct PriorityModeConfig {
-    /// The base percentage increase applied to every transaction (e.g., 0 = no change, 10 = 10% increase).
+    /// The base percentage increase applied to the base fee and priority fee of every transaction (e.g., 0 = no change, 10 = 10% increase).
     estimate_additional_percentage: u64,
-    /// The incremental percentage applied per pending transaction (e.g., 0 = no change, 5 = +5% per pending tx).
+    /// The incremental percentage applied to the base fee and priority fee per pending transaction (e.g., 0 = no change, 5 = +5% per pending tx).
     dynamic_multiplier_percentage: u64,
 }
 

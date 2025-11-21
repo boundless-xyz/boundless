@@ -283,9 +283,11 @@ pub struct MarketConf {
     pub deny_requestor_addresses: Option<HashSet<Address>>,
     /// Transaction priority mode (low, medium, high, or custom)
     ///
-    /// Controls the gas price/priority fee multipliers for transactions.
-    /// Defaults to "medium" if not set.
-    /// Use the `custom` variant to explicitly set a static multiplier, e.g.:
+    /// Controls the multipliers applied to the provider's baseline EIP-1559
+    /// estimate. The baseline uses the median 20th-percentile tip from the last
+    /// 10 blocks as `max_priority_fee_per_gas` and doubles the current base fee
+    /// for `max_fee_per_gas`; `PriorityMode` then scales up that value based on the priority mode.
+    ///  Defaults to "medium". Use the `custom` variant to explicitly set a static multiplier, e.g.:
     /// `gas_priority_mode = { custom = { multiplier_percentage = 25 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
