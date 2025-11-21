@@ -8,20 +8,15 @@ export interface DataServicesComponentConfig extends BaseComponentConfig {
     taskDBPassword: string;
     securityGroupId: pulumi.Output<string>;
     rdsInstanceClass?: string;
-    redisNodeType?: string;
 }
 
 export class DataServicesComponent extends BaseComponent {
     public readonly rdsInstance: aws.rds.Instance;
     public readonly rdsEndpoint: pulumi.Output<string>;
-    public readonly redisCluster: aws.elasticache.ReplicationGroup;
-    public readonly redisEndpoint: pulumi.Output<string>;
     public readonly s3Bucket: aws.s3.Bucket;
     public readonly s3BucketName: pulumi.Output<string>;
     public readonly dbSubnetGroup: aws.rds.SubnetGroup;
     public readonly rdsSecurityGroup: aws.ec2.SecurityGroup;
-    public readonly redisSecurityGroup: aws.ec2.SecurityGroup;
-    public readonly redisSubnetGroup: aws.elasticache.SubnetGroup;
 
     constructor(config: DataServicesComponentConfig) {
         super(config, "boundless-bento");
@@ -63,51 +58,6 @@ export class DataServicesComponent extends BaseComponent {
             },
         });
 
-        // Create Redis subnet group
-        // ElastiCache subnet group names must be unique across account and max 40 chars
-        // Use format: bb-redis-{stackName} (truncated to fit 40 chars)
-        const prefix = "bb-redis-";
-        const maxStackNameLength = 40 - prefix.length;
-        const truncatedStackName = config.stackName.length > maxStackNameLength
-            ? config.stackName.substring(0, maxStackNameLength)
-            : config.stackName;
-        const redisSubnetGroupName = `${prefix}${truncatedStackName}`;
-        this.redisSubnetGroup = new aws.elasticache.SubnetGroup(`${config.stackName}-redis-subnet-group`, {
-            name: redisSubnetGroupName,
-            subnetIds: config.privateSubnetIds,
-            tags: {
-                Environment: config.environment,
-                Stack: config.stackName,
-                Component: "data-services",
-            },
-        });
-
-        // Create Redis security group
-        this.redisSecurityGroup = new aws.ec2.SecurityGroup(`${config.stackName}-redis`, {
-            name: config.stackName,
-            vpcId: config.vpcId,
-            description: "Security group for ElastiCache Redis",
-            ingress: [{
-                protocol: "tcp",
-                fromPort: 6379,
-                toPort: 6379,
-                securityGroups: [config.securityGroupId],
-                description: "Redis access from cluster instances",
-            }],
-            egress: [{
-                protocol: "-1",
-                fromPort: 0,
-                toPort: 0,
-                cidrBlocks: ["0.0.0.0/0"],
-                description: "All outbound traffic",
-            }],
-            tags: {
-                Environment: config.environment,
-                Stack: config.stackName,
-                Component: "redis",
-            },
-        });
-
         // Create RDS PostgreSQL instance
         this.rdsInstance = new aws.rds.Instance(`${config.stackName}`, {
             identifier: this.generateName("postgres"),
@@ -136,37 +86,6 @@ export class DataServicesComponent extends BaseComponent {
 
         // RDS endpoint is just the hostname, need to append port
         this.rdsEndpoint = pulumi.interpolate`${this.rdsInstance.endpoint}:${this.rdsInstance.port}`;
-
-        // Create ElastiCache Redis replication group
-        // ElastiCache replication group IDs must be 1-40 characters
-        // Use a shorter name: stackName-redis (max 40 chars)
-        const redisGroupId = config.stackName.length > 35
-            ? `${config.stackName.substring(0, 34)}-redis`
-            : `${config.stackName}-redis`;
-        this.redisCluster = new aws.elasticache.ReplicationGroup(`${config.stackName}`, {
-            replicationGroupId: redisGroupId,
-            description: `Redis cluster for ${config.stackName}`,
-            engine: "redis",
-            engineVersion: "7.1",
-            nodeType: config.redisNodeType || "cache.t4g.micro",
-            port: 6379,
-            parameterGroupName: "default.redis7",
-            numCacheClusters: 1,
-            subnetGroupName: this.redisSubnetGroup.name,
-            securityGroupIds: [this.redisSecurityGroup.id],
-            atRestEncryptionEnabled: true,
-            transitEncryptionEnabled: false,
-            automaticFailoverEnabled: false,
-            tags: {
-                Name: config.stackName,
-                Environment: config.environment,
-                Stack: config.stackName,
-                Component: "redis",
-            },
-        });
-
-        // Redis endpoint is just the hostname, need to append port
-        this.redisEndpoint = pulumi.interpolate`${this.redisCluster.primaryEndpointAddress}:${this.redisCluster.port}`;
 
         // Create S3 bucket for workflow storage
         const bucketName = this.generateName("bento-storage");
