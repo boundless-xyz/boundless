@@ -586,13 +586,13 @@ where
                     return Ok(());
                 }
                 Err(SubmitterErr::MarketError(
-                    MarketError::PaymentRequirementsFailedUnknownError,
+                    MarketError::PaymentRequirementsFailedUnknownError(raw),
                 )) => {
                     tracing::warn!(
-                        "Payment requirement failed for one or more orders, will not retry"
+                        "Payment requirement failed for one or more orders, will not retry (raw error: {raw:?})"
                     );
                     errors.push(SubmitterErr::MarketError(
-                        MarketError::PaymentRequirementsFailedUnknownError,
+                        MarketError::PaymentRequirementsFailedUnknownError(raw),
                     ));
                     break;
                 }

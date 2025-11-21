@@ -118,8 +118,10 @@ pub enum MarketError {
     PaymentRequirementsFailed(IBoundlessMarketErrors),
 
     /// Payment requirements failed, unable to decode error
-    #[error("Payment requirements failed during order fulfillment: error unknown")]
-    PaymentRequirementsFailedUnknownError,
+    #[error(
+        "Payment requirements failed during order fulfillment: unrecognized error payload {0:?}"
+    )]
+    PaymentRequirementsFailedUnknownError(Bytes),
 }
 
 impl From<alloy::contract::Error> for MarketError {
@@ -218,9 +220,10 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
 
 fn validate_fulfill_receipt(receipt: TransactionReceipt) -> Result<(), MarketError> {
     if let Some(log) = receipt.decoded_log::<IBoundlessMarket::PaymentRequirementsFailed>() {
-        match IBoundlessMarketErrors::abi_decode(&**log.error) {
+        let raw_error = Bytes::copy_from_slice(&log.error);
+        match IBoundlessMarketErrors::abi_decode(&raw_error) {
             Ok(err) => Err(MarketError::PaymentRequirementsFailed(err)),
-            Err(_) => Err(MarketError::PaymentRequirementsFailedUnknownError),
+            Err(_) => Err(MarketError::PaymentRequirementsFailedUnknownError(raw_error)),
         }
     } else {
         Ok(())
