@@ -33,6 +33,11 @@ use crate::{
 };
 use boundless_indexer::db::market::{RequestCursor, RequestSortField, RequestStatus, SortDirection};
 
+const MAX_AGGREGATES: u64 = 500;
+const DEFAULT_AGGREGATES_LIMIT: u64 = 50;
+const MAX_REQUESTS: u32 = 500;
+const DEFAULT_REQUESTS_LIMIT: u32 = 50;
+
 /// Create market routes
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -108,8 +113,6 @@ async fn get_indexing_status_impl(state: Arc<AppState>) -> anyhow::Result<Indexi
     })
 }
 
-const MAX_AGGREGATES: u64 = 1000;
-const DEFAULT_LIMIT: u64 = 100;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -722,7 +725,7 @@ async fn get_market_aggregates_impl(
     };
 
     // Apply limit with max and default
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
     let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
     let limit_i64 = i64::try_from(limit)?;
 
@@ -904,7 +907,7 @@ async fn get_market_cumulatives_impl(
     };
 
     // Apply limit with max and default
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
     let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
     let limit_i64 = i64::try_from(limit)?;
 
@@ -1062,7 +1065,7 @@ async fn get_requestor_aggregates_impl(
     };
 
     // Apply limit with max and default
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
     let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
     let limit_i64 = i64::try_from(limit)?;
 
@@ -1247,7 +1250,7 @@ async fn get_requestor_cumulatives_impl(
     };
 
     // Apply limit with max and default
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
     let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
     let limit_i64 = i64::try_from(limit)?;
 
@@ -1334,8 +1337,6 @@ fn format_timestamp_iso(timestamp: i64) -> String {
         .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
 }
 
-const MAX_REQUESTS: u32 = 100;
-const DEFAULT_REQUESTS_LIMIT: u32 = 20;
 
 #[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct RequestListParams {
@@ -1343,7 +1344,7 @@ pub struct RequestListParams {
     #[serde(default)]
     cursor: Option<String>,
 
-    /// Limit of requests returned, max 100 (default 20)
+    /// Limit of requests returned, max 500 (default 50)
     #[serde(default)]
     limit: Option<u32>,
 
