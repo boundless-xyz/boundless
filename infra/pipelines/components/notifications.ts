@@ -1,5 +1,6 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import { BOUNDLESS_PROD_ACCOUNT_ID, BOUNDLESS_STAGING_ACCOUNT_ID } from "../accountConstants";
 
 export class Notifications extends pulumi.ComponentResource {
   // Mainnet Beta
@@ -393,8 +394,8 @@ export class Notifications extends pulumi.ComponentResource {
               Effect: 'Allow',
               Action: 'sts:AssumeRole',
               Resource: [
-                'arn:aws:iam::245178712747:role/alarmListTagsRole',
-                'arn:aws:iam::632745187633:role/alarmListTagsRole'
+                `arn:aws:iam::${BOUNDLESS_STAGING_ACCOUNT_ID}:role/alarmListTagsRole`,
+                `arn:aws:iam::${BOUNDLESS_PROD_ACCOUNT_ID}:role/alarmListTagsRole`
               ]
             }]
           })
