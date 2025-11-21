@@ -4,11 +4,12 @@ import { ChainId, Severity } from "../../util";
 import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 
 export interface MetricAlarmConfig extends BaseComponentConfig {
-    serviceName: string,
-    logGroupName: string,
-    alertsTopicArns: string[],
-    alarmDimensions: { [key: string]: pulumi.Input<string> },
+    serviceName: string;
+    logGroupName: string;
+    alertsTopicArns: string[];
+    alarmDimensions: { [key: string]: pulumi.Input<string> };
     chainId: string,
+    minAsgSize: pulumi.Output<number>;
 }
 
 // Creates and manages general metric filters and alarms that can be common to multiple components
@@ -211,17 +212,21 @@ export class WorkerClusterAlarmComponent extends MetricAlarmComponent {
     }
 
     private createAutoScalingGroupAlarms = (config: MetricAlarmConfig): void => {
-        this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
-            metricName: 'GroupInServiceInstances',
-            namespace: `AWS/AutoScaling`,
-            period: 60,
-            dimensions: config.alarmDimensions,
-            evaluationPeriods: 20,
-            datapointsToAlarm: 20,
-            statistic: 'Maximum',
-            threshold: 0,
-            comparisonOperator: 'LessThanOrEqualToThreshold'
-        }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+        config.minAsgSize.apply((size => {
+            if (size > 0) {
+                this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
+                    metricName: 'GroupInServiceInstances',
+                    namespace: `AWS/AutoScaling`,
+                    period: 60,
+                    dimensions: config.alarmDimensions,
+                    evaluationPeriods: 20,
+                    datapointsToAlarm: 20,
+                    statistic: 'Maximum',
+                    threshold: 0,
+                    comparisonOperator: 'LessThanOrEqualToThreshold'
+                }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+            }
+        }));
 
         // Errors from Bento logs
 
