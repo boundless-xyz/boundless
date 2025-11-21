@@ -231,7 +231,7 @@ export const rdsEndpoint = dataServices.rdsEndpoint;
 export const s3BucketName = dataServices.s3BucketName;
 
 // Shared credentials for prover nodes
-export const sharedCredentials = pulumi.all([dataServices.rdsEndpoint, manager.instance.privateIp, dataServices.s3BucketName]).apply(([rdsEp, managerIp, s3Bucket]) => {
+export const sharedCredentials = pulumi.all([dataServices.rdsEndpoint, manager.managerNetworkInterface.privateIp, dataServices.s3BucketName]).apply(([rdsEp, managerIp, s3Bucket]) => {
     const rdsHost = rdsEp.split(':')[0];
     return {
         postgresHost: rdsHost,
