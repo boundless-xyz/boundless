@@ -140,8 +140,8 @@ impl<St, Si> ClientBuilder<St, Si> {
         let transports: Vec<Http<_>> = urls.iter().map(|url| Http::new(url.clone())).collect();
 
         // Configure FallbackLayer with all transports active
-        let active_count =
-            std::num::NonZeroUsize::new(transports.len()).expect("at least one transport is required");
+        let active_count = std::num::NonZeroUsize::new(transports.len())
+            .expect("at least one transport is required");
         let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
 
         tracing::info!(
