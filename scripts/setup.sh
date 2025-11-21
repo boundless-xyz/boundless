@@ -148,11 +148,17 @@ install_rust() {
             exit 1
         fi
     else
-        # On Ubuntu 24.04 rustup has an apt package
         {
-          sudo apt install -y rustup
-          rustup default stable
+            # On Ubuntu 24.04 rustup has an apt package
+            sudo apt install -y rustup
+            rustup default stable
         }  >> "$LOG_FILE" 2>&1
+        if command -v rustc &> /dev/null; then
+            success "Rust installed successfully."
+        else
+            error "Rust installation failed. Rustc not found."
+            exit 1
+        fi
     fi
 }
 
@@ -175,10 +181,10 @@ install_just() {
             | sudo bash -s -- --to /usr/local/bin
         } >> "$LOG_FILE" 2>&1
     else
-        # On Ubuntu 24.04 just has an apt package
         {
+            # On Ubuntu 24.04 just has an apt package
             sudo apt install -y just
-        }  >> "$LOG_FILE" 2>&1
+        } >> "$LOG_FILE" 2>&1
     fi
 
     success "'just' installed successfully."
