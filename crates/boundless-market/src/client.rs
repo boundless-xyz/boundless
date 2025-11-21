@@ -141,7 +141,7 @@ impl<St, Si> ClientBuilder<St, Si> {
 
         // Configure FallbackLayer with all transports active
         let active_count = std::num::NonZeroUsize::new(transports.len())
-            .expect("at least one transport is required");
+            .context("at least one transport is required")?;
         let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
 
         tracing::info!(
