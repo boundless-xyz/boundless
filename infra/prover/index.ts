@@ -22,6 +22,7 @@ export = () => {
   const chainId = baseConfig.require('CHAIN_ID');
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : baseConfig.requireSecret('ETH_RPC_URL');
+  const ethRpcUrls = isDev ? getEnvVar("ETH_RPC_URLS") : baseConfig.requireSecret('ETH_RPC_URLS');
   const orderStreamUrl = isDev ? getEnvVar("ORDER_STREAM_URL") : baseConfig.requireSecret('ORDER_STREAM_URL');
   const dockerDir = baseConfig.require('DOCKER_DIR');
   const dockerTag = baseConfig.require('DOCKER_TAG');
@@ -51,11 +52,18 @@ export = () => {
   const bentoBroker2ServiceName = getServiceNameV1(stackName, "bento-prover-2", chainId);
   let bentoBroker1: BentoEC2Broker | undefined;
   let bentoBroker2: BentoEC2Broker | undefined;
+
+  // For instance 1, we use a single RPC URL
+  // For instance 2, we use multiple RPC URLs
+  // This allows us to compare the reliability of the two configurations
+  let bentoBroker1RpcUrls: string | pulumi.Output<string> = ethRpcUrl;
+  let bentoBroker2RpcUrls: string | pulumi.Output<string> = ethRpcUrls;
+
   if (process.env.SKIP_BENTO !== "true") {
     bentoBroker1 = new BentoEC2Broker(bentoBroker1ServiceName, {
       chainId: getChainId(chainId),
       collateralTokenAddress,
-      ethRpcUrl,
+      ethRpcUrls: bentoBroker1RpcUrls,
       gitBranch: bentoProverBranch,
       privateKey: bentoProverPrivateKey1,
       baseStackName,
@@ -80,7 +88,7 @@ export = () => {
     bentoBroker2 = new BentoEC2Broker(bentoBroker2ServiceName, {
       chainId: getChainId(chainId),
       collateralTokenAddress,
-      ethRpcUrl,
+      ethRpcUrls: bentoBroker2RpcUrls,
       gitBranch: bentoProverBranch,
       privateKey: bentoProverPrivateKey2,
       baseStackName,
