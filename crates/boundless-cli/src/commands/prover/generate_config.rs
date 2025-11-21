@@ -931,7 +931,7 @@ impl ProverGenerateConfig {
         prices_per_mcycle.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         // Calculate median (50th percentile)
-        let median_price = if prices_per_mcycle.len() % 2 == 0 {
+        let median_price = if prices_per_mcycle.len().is_multiple_of(2) {
             let mid = prices_per_mcycle.len() / 2;
             (prices_per_mcycle[mid - 1] + prices_per_mcycle[mid]) / 2.0
         } else {
