@@ -74,6 +74,7 @@ export class SecurityComponent extends BaseComponent {
                     {
                         Effect: "Allow",
                         Action: [
+                            "s3:CreateBucket",
                             "s3:ListBucket",
                             "s3:GetBucketLocation"
                         ],
@@ -140,6 +141,13 @@ export class SecurityComponent extends BaseComponent {
                     cidrBlocks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
                     description: "VPC Link access to Bento API"
                 },
+                {
+                    protocol: "tcp",
+                    fromPort: 6379,
+                    toPort: 6379,
+                    self: true,
+                    description: "Redis/Valkey access from cluster instances"
+                },
             ],
             egress: [
                 {
@@ -174,6 +182,7 @@ export class SecurityComponent extends BaseComponent {
                     {
                         Effect: "Allow",
                         Action: [
+                            "s3:CreateBucket",
                             "s3:ListBucket",
                             "s3:GetBucketLocation"
                         ],

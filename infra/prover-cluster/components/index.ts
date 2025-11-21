@@ -6,3 +6,4 @@ export { ManagerComponent, ManagerComponentConfig } from "./ManagerComponent";
 export { WorkerClusterComponent, WorkerClusterConfig } from "./WorkerClusterComponent";
 export { ApiGatewayComponent, ApiGatewayComponentConfig } from "./ApiGatewayComponent";
 export { DataServicesComponent, DataServicesComponentConfig } from "./DataServicesComponent";
+export { ScalerComponent, ScalerComponentConfig } from "./ScalerComponent";
