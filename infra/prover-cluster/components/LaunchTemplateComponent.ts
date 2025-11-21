@@ -145,19 +145,17 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.minDeadline || 0,
       config.lookbackBlocks || 0,
       config.maxCollateral || "200",
-      config.maxFileSize || "0",
-      config.maxMcycleLimit || "0",
+      config.maxFileSize || "500000000000",
+      config.maxMcycleLimit || "1000000000000",
       config.maxConcurrentProofs || 1,
-      config.balanceWarnThreshold || "0",
-      config.balanceErrorThreshold || "0",
-      config.collateralBalanceWarnThreshold || "0",
-      config.collateralBalanceErrorThreshold || "0",
-      config.priorityRequestorAddresses || "",
-      config.denyRequestorAddresses || "",
+      config.balanceWarnThreshold || "50",
+      config.balanceErrorThreshold || "100",
+      config.collateralBalanceWarnThreshold || "50",
+      config.collateralBalanceErrorThreshold || "100",
       config.maxFetchRetries || 3,
       config.allowClientAddresses || "",
       config.lockinPriorityGas || "0",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, priorityRequestorAddresses, denyRequestorAddresses, maxFetchRetries, allowClientAddresses, lockinPriorityGas]) => {
+    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
@@ -173,18 +171,19 @@ peak_prove_khz = ${peakProveKhz}
 min_deadline = ${minDeadline}
 lookback_blocks = ${lookbackBlocks}
 max_collateral = "${maxCollateral}"
-max_file_size = "${maxFileSize}"
-max_mcycle_limit = "${maxMcycleLimit}"
+max_file_size = ${maxFileSize}
+max_mcycle_limit = ${maxMcycleLimit}
 max_concurrent_proofs = ${maxConcurrentProofs}
 balance_warn_threshold = "${balanceWarnThreshold}"
 balance_error_threshold = "${balanceErrorThreshold}"
 collateral_balance_warn_threshold = "${collateralBalanceWarnThreshold}"
 collateral_balance_error_threshold = "${collateralBalanceErrorThreshold}"
-priority_requestor_addresses = "${priorityRequestorAddresses}"
-deny_requestor_addresses = "${denyRequestorAddresses}"
 max_fetch_retries = ${maxFetchRetries}
-allow_client_addresses = "${allowClientAddresses}"
-lockin_priority_gas = "${lockinPriorityGas}"
+${allowClientAddresses ? `allow_client_addresses = ${allowClientAddresses}\n` : ''}
+${lockinPriorityGas ? `lockin_priority_gas = ${lockinPriorityGas}\n` : ''}
+priority_requestor_lists = [
+	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+]
 
 [prover]
 status_poll_retry_count = 3
