@@ -115,7 +115,7 @@ async fn test_basic_usage() {
 
     // Do the operations that should trigger the slash
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone()).await.unwrap();
 
     // Wait for the slash event with timeout
     tokio::select! {
@@ -187,7 +187,7 @@ async fn test_slash_fulfilled() {
 
     // Do the operations that should trigger the slash
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone()).await.unwrap();
     let client =
         boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
