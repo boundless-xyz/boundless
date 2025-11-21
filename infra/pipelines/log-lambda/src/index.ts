@@ -1,5 +1,6 @@
 import { Context, Handler } from "aws-lambda";
-import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
+import { CloudWatchClient, ListTagsForResourceCommand } from "@aws-sdk/client-cloudwatch";
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
 import { getLogGroupName } from "./logGroups";
 import { SERVICE_TO_QUERY_STRING_MAPPING } from "./logQueries";
 import { encodeCloudWatchLogsInsightsUrl, encodeAwsConsoleUrl } from "./urls";
@@ -46,6 +47,39 @@ export const handler: Handler = async (event: AlarmEvent, context: Context): Pro
   };
 };
 
+interface AlarmTags {
+  [key:string]: string;
+}
+
+async function queryAlarmTags(alarmArn: string, accountId: string, region: string): Promise<AlarmTags> {
+  const stsClient = new STSClient({
+    region: region
+  });
+  const stsResponse = await stsClient.send(new AssumeRoleCommand({
+    RoleArn: `arn:aws:iam::${accountId}:role/alarmListTagsRole`,
+    RoleSessionName: "Log-Lambda-list-alarm-tags"
+  }));
+
+  const cwClient = new CloudWatchClient({
+    region: region,
+    credentials: {
+      accessKeyId: stsResponse.Credentials.AccessKeyId,
+      secretAccessKey: stsResponse.Credentials.SecretAccessKey,
+      sessionToken: stsResponse.Credentials.SessionToken,
+    }
+  });
+  let tags: AlarmTags = {}
+  const tagsResponse = await cwClient.send(new ListTagsForResourceCommand({
+    ResourceARN: alarmArn,
+  }));
+
+  tagsResponse.Tags.forEach( (tag) => {
+    tags[tag.Key] = tag.Value;
+  });
+
+  return tags
+}
+
 export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, client: CloudWatchClient, event: AlarmEvent): Promise<string> => {
   const { alarmArn, alarmDescription, timestamp, metricAlarmName } = event;
 
@@ -61,27 +95,45 @@ export const processAlarmEvent = async (ssoBaseUrl: string, runbookUrl: string, 
   let stage: string;
   let chainId: string;
   let service: string;
-
-  const format1Match = metricAlarmName.match(format1Regex);
-  if (format1Match) {
-    [, stage, chainId, service] = format1Match;
-  } else {
-    const format2Match = metricAlarmName.match(format2Regex);
-    if (!format2Match) {
-      throw new Error(`Unable to parse metric alarm name: ${metricAlarmName} to extract stage, service, and chainId`);
-    }
-    [, stage, service, chainId] = format2Match;
-  }
-  console.log(`Parsed stage: ${stage}, chainId: ${chainId}, service: ${service}`);
+  let logGroupName: string;
 
   const accountId = alarmArn.split(':')[4];
   const region = alarmArn.split(':')[3];
+
+  // Attempt to retrieve the needed information from alarm tags
+  const tagsResponse = await queryAlarmTags(alarmArn, accountId, region);
+  if (tagsResponse) {
+    stage = tagsResponse["StackName"]
+    chainId = tagsResponse["ChainId"]
+    service = tagsResponse["ServiceName"]
+    logGroupName = tagsResponse["LogGroupName"]
+    console.log(`Retrieved from tags stage: ${stage}, chainId: ${chainId}, service: ${service}, logGroupName: ${logGroupName}`)
+  }
+
+  // Attempt to parse the needed information from the alarm name if any variables are still undefined
+  if (stage === undefined || chainId === undefined || service === undefined) {
+    const format1Match = metricAlarmName.match(format1Regex);
+    if (format1Match) {
+      [, stage, chainId, service] = format1Match;
+    } else {
+      const format2Match = metricAlarmName.match(format2Regex);
+      if (!format2Match) {
+        throw new Error(`Unable to parse metric alarm name: ${metricAlarmName} to extract stage, service, and chainId`);
+      }
+      [, stage, service, chainId] = format2Match;
+    }
+    console.log(`Parsed stage: ${stage}, chainId: ${chainId}, service: ${service}`);
+  }
+
   const chainName = getChainName(chainId);
   const alarmTime = new Date(timestamp);
   const endTime = new Date(alarmTime.getTime() + LOG_QUERY_MINS_AFTER * 60 * 1000);
   const startTime = new Date(alarmTime.getTime() - LOG_QUERY_MINS_BEFORE * 60 * 1000);
 
-  const logGroupName = getLogGroupName(stage, chainId, service);
+  // Map to a log group name if we haven't already found one
+  if (logGroupName === undefined) {
+    logGroupName = getLogGroupName(stage, chainId, service);
+  }
   const queryString = SERVICE_TO_QUERY_STRING_MAPPING(service, logGroupName, metricAlarmName);
 
   const logsUrl = await encodeCloudWatchLogsInsightsUrl({
