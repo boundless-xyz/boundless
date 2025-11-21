@@ -74,7 +74,7 @@ mod defaults {
     }
 
     pub const fn max_lock_retry_attempts() -> u32 {
-        2
+        3
     }
 
     pub const fn reaper_interval_secs() -> u32 {
