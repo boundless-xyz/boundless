@@ -103,6 +103,7 @@ export class ManagerComponent extends BaseComponent {
             serviceName: "bento-manager",
             logGroupName: `/boundless/bento/${config.stackName}/manager`,
             alarmDimensions: {AutoScalingGroupName: this.managerAsg.autoScalingGroup.name},
+            minAsgSize: this.managerAsg.autoScalingGroup.minSize
         });
     }
 }

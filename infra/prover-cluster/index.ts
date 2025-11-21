@@ -163,6 +163,7 @@ const workerCluster = new WorkerClusterComponent({
     proverCount,
     executionCount,
     auxCount,
+    chainId,
     alertsTopicArns: alertsTopicArns,
     rdsEndpoint: dataServices.rdsEndpoint,
     s3BucketName: dataServices.s3BucketName,
