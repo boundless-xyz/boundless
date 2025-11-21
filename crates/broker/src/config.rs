@@ -330,7 +330,7 @@ pub struct MarketConf {
     /// Maximum number of retry attempts for lock transactions (including initial attempt)
     ///
     /// When a lock transaction times out, it will be retried with the same nonce for better RBF handling.
-    /// Defaults to 2 (1 initial attempt + 1 retry).
+    /// Defaults to 3 (1 initial attempt + 2 retries).
     #[serde(default = "defaults::max_lock_retry_attempts")]
     pub max_lock_retry_attempts: u32,
 
