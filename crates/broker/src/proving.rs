@@ -383,6 +383,8 @@ impl ProvingService {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
+                // Note: this sanity check isn't strictly necessary, but is to avoid submitting the
+                // order when the fulfillment event was missed.
                 if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
                     let is_fulfilled = self
                         .fulfillment_market
