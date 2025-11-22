@@ -254,8 +254,13 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                                 `export CONFIG=$(aws --region ${region} ssm get-parameter --name "/boundless/${name}/broker-config" --query Parameter.Value --output text)`,
                                 `export BUCKET=$(echo $CONFIG | jq -r '.brokerBucket')`,
                                 `export GIT_BRANCH=$(echo $CONFIG | jq -r '.gitBranch')`,
+                                `echo "GIT_BRANCH: $GIT_BRANCH"`,
+                                `echo "BUCKET: $BUCKET"`,
+                                `echo "CONFIG: $CONFIG"`,
                                 `echo "Stopping Broker"`,
+                                `echo "--------------------------------"`,
                                 "systemctl stop boundless-broker.service",
+                                `echo "--------------------------------"`,
                                 `echo "Updating source code to latest on $GIT_BRANCH"`,
                                 "git reset --hard",
                                 `git checkout $GIT_BRANCH`,
@@ -362,6 +367,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         // User data script to set up the Boundless Prover
         const userData = pulumi.interpolate`#!/bin/bash
 set -euxo pipefail
+
+echo "Formatting and mounting the instance store volume."
 
 # Format and mount the instance store volume. 
 # We use instance storage rather than EBS to avoid issues with sqlite.

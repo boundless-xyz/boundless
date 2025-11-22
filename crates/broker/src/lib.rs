@@ -684,19 +684,20 @@ where
         });
 
         let chain_id = self.provider.get_chain_id().await.context("Failed to get chain ID")?;
-        let client = self
-            .deployment()
-            .order_stream_url
-            .clone()
-            .map(|url| -> Result<OrderStreamClient> {
-                let url = Url::parse(&url).context("Failed to parse order stream URL")?;
-                Ok(OrderStreamClient::new(
-                    url,
-                    self.deployment().boundless_market_address,
-                    chain_id,
-                ))
-            })
-            .transpose()?;
+        // let client = self
+        //     .deployment()
+        //     .order_stream_url
+        //     .clone()
+        //     .map(|url| -> Result<OrderStreamClient> {
+        //         let url = Url::parse(&url).context("Failed to parse order stream URL")?;
+        //         Ok(OrderStreamClient::new(
+        //             url,
+        //             self.deployment().boundless_market_address,
+        //             chain_id,
+        //         ))
+        //     })
+        //     .transpose()?;
+        let client = None;
 
         // Create a channel for new orders to be sent to the OrderPicker / from monitors
         let (new_order_tx, new_order_rx) = mpsc::channel(NEW_ORDER_CHANNEL_CAPACITY);
