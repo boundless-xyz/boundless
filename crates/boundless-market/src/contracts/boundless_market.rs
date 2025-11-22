@@ -28,20 +28,19 @@ use alloy::{
     signers::Signer,
 };
 
-use alloy_sol_types::{SolCall, SolEvent};
+use alloy_sol_types::{SolCall, SolEvent, SolInterface};
 use anyhow::{anyhow, Context, Result};
 use risc0_ethereum_contracts::event_query::EventQueryConfig;
 use thiserror::Error;
 
+use super::{
+    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
+    IBoundlessMarket::{self, IBoundlessMarketErrors, IBoundlessMarketInstance, ProofDelivered},
+    Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
+};
 use crate::{
     contracts::token::{IERC20Permit, IHitPoints::IHitPointsErrors, Permit, IERC20},
     deployments::collateral_token_supports_permit,
-};
-
-use super::{
-    eip712_domain, AssessorReceipt, EIP712DomainSaltless, Fulfillment,
-    IBoundlessMarket::{self, IBoundlessMarketInstance, ProofDelivered},
-    Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
 /// Fraction of collateral the protocol gives to the prover who fills an order that was locked by another prover but expired
@@ -113,6 +112,16 @@ pub enum MarketError {
     /// Timeout reached.
     #[error("Timeout: 0x{0:x}")]
     TimeoutReached(U256),
+
+    /// Payment requirements failed
+    #[error("Payment requirements failed during order fulfillment: {0:?}")]
+    PaymentRequirementsFailed(IBoundlessMarketErrors),
+
+    /// Payment requirements failed, unable to decode error
+    #[error(
+        "Payment requirements failed during order fulfillment: unrecognized error payload {0:?}"
+    )]
+    PaymentRequirementsFailedUnknownError(Bytes),
 }
 
 impl From<alloy::contract::Error> for MarketError {
@@ -206,6 +215,18 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
             E::SIGNATURE,
             logs
         )),
+    }
+}
+
+fn validate_fulfill_receipt(receipt: TransactionReceipt) -> Result<(), MarketError> {
+    if let Some(log) = receipt.decoded_log::<IBoundlessMarket::PaymentRequirementsFailed>() {
+        let raw_error = Bytes::copy_from_slice(&log.error);
+        match IBoundlessMarketErrors::abi_decode(&raw_error) {
+            Ok(err) => Err(MarketError::PaymentRequirementsFailed(err)),
+            Err(_) => Err(MarketError::PaymentRequirementsFailedUnknownError(raw_error)),
+        }
+    } else {
+        Ok(())
     }
 }
 
@@ -729,7 +750,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(receipt)
     }
 
     /// Fulfill a batch of requests by delivering the proof for each application and withdraw from the prover balance.
@@ -751,7 +772,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Submitted proof for batch {:?}: {}", fill_ids, receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(receipt)
     }
 
     /// Combined function to submit a new merkle root to the set-verifier and call `fulfill`.
@@ -784,7 +805,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(tx_receipt)
     }
 
     /// Combined function to submit a new merkle root to the set-verifier and call `fulfillAndWithdraw`.
@@ -813,7 +834,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(tx_receipt)
     }
 
     /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfill`.
@@ -856,7 +877,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(tx_receipt)
     }
 
     /// A combined call to `IBoundlessMarket.priceRequest` and `IBoundlessMarket.fulfillAndWithdraw`.
@@ -899,7 +920,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Fulfilled proof for batch {}", tx_receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(tx_receipt)
     }
 
     /// Combined function to submit a new merkle root to the set-verifier and call `priceAndfulfill`.
@@ -938,7 +959,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(tx_receipt)
     }
 
     /// Combined function to submit a new merkle root to the set-verifier and call `priceAndFulfillAndWithdraw`.
@@ -977,7 +998,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
         tracing::info!("Submitted merkle root and proof for batch {}", tx_receipt.transaction_hash);
 
-        Ok(())
+        validate_fulfill_receipt(tx_receipt)
     }
 
     /// Checks if a request is locked in.
