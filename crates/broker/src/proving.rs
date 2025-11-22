@@ -383,20 +383,23 @@ impl ProvingService {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
 
-                let is_fulfilled = self
-                    .fulfillment_market
-                    .is_fulfilled(request_id)
-                    .await
-                    .inspect_err(|e| {
-                        tracing::warn!(
+                if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
+                    let is_fulfilled = self
+                        .fulfillment_market
+                        .is_fulfilled(request_id)
+                        .await
+                        .inspect_err(|e| {
+                            tracing::warn!(
                             "Failed to sanity check fulfillment status for order {order_id}: {e:?}"
                         );
-                    })
-                    .unwrap_or(false);
-                if is_fulfilled {
-                    tracing::warn!("Fulfillment event was missed, skipping aggregation for fulfilled order {order_id}");
-                    handle_order_failure(&self.db, &order_id, "Fulfilled before aggregation").await;
-                    return;
+                        })
+                        .unwrap_or(false);
+                    if is_fulfilled {
+                        tracing::warn!("Fulfillment event was missed, skipping aggregation for fulfilled order {order_id}");
+                        handle_order_failure(&self.db, &order_id, "Fulfilled before aggregation")
+                            .await;
+                        return;
+                    }
                 }
 
                 if let Err(e) = self.db.set_aggregation_status(&order_id, order_status).await {
