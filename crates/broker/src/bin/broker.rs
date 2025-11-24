@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
 
     let priority_mode = {
         let config = config_watcher.config.lock_all().context("Failed to read config")?;
-        config.market.gas_priority_mode
+        config.market.gas_priority_mode.clone()
     };
     let dynamic_gas_filler = DynamicGasFiller::new(
         20, // 20% increase of gas limit

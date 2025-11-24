@@ -872,7 +872,7 @@ where
                         // Extract config values before any async operations
                         let (monitor_config, config_gas_mode) = {
                             let config = self.config.lock_all().context("Failed to read config")?;
-                            let gas_mode = config.market.gas_priority_mode;
+                            let gas_mode = config.market.gas_priority_mode.clone();
                             let cfg = OrderMonitorConfig {
                                 min_deadline: config.market.min_deadline,
                                 peak_prove_khz: config.market.peak_prove_khz,
@@ -887,16 +887,17 @@ where
 
                         // Check if gas_priority_mode has changed and update if needed
                         // First check our cached value to avoid taking a write lock unnecessarily
-                        let needs_update = cached_gas_priority_mode != Some(config_gas_mode);
+                        let needs_update =
+                            cached_gas_priority_mode.as_ref() != Some(&config_gas_mode);
 
                         if needs_update {
                             // Only take the write lock if the value has actually changed
                             let mut current_mode = self.gas_priority_mode.write().await;
-                            let old_mode = *current_mode;
-                            *current_mode = config_gas_mode;
+                            let old_mode = current_mode.clone();
+                            *current_mode = config_gas_mode.clone();
                             drop(current_mode);
 
-                            cached_gas_priority_mode = Some(config_gas_mode);
+                            cached_gas_priority_mode = Some(config_gas_mode.clone());
 
                             tracing::info!(
                                 "Gas priority mode changed from {:?} to {:?}",

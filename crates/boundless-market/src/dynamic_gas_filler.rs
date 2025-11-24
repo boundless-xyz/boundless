@@ -15,19 +15,29 @@
 use std::sync::Arc;
 
 use alloy::{
-    network::{Network, TransactionBuilder},
+    consensus::BlockHeader,
+    eips::{eip1559::Eip1559Estimation, BlockNumberOrTag},
+    network::{BlockResponse, Network, TransactionBuilder},
     primitives::Address,
     providers::{
         fillers::{FillerControlFlow, GasFillable, GasFiller, TxFiller},
-        Provider, SendableTx,
+        utils::{self, Eip1559Estimator, Eip1559EstimatorFn},
+        Provider, RootProvider, SendableTx,
     },
-    transports::TransportResult,
+    transports::{RpcError, TransportResult},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
+const DEFAULT_FEE_HISTORY_PERCENTILES: [f64; 1] = [utils::EIP1559_FEE_ESTIMATION_REWARD_PERCENTILE];
+const LOW_PRIORITY_PERCENTILES: [f64; 1] = [10.0];
+const MEDIUM_PRIORITY_PERCENTILES: [f64; 1] = [20.0];
+const HIGH_PRIORITY_PERCENTILES: [f64; 1] = [30.0];
+const DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE: u64 =
+    (utils::EIP1559_BASE_FEE_MULTIPLIER as u64) * 100;
+
 /// Priority mode for transaction gas pricing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PriorityMode {
@@ -40,9 +50,39 @@ pub enum PriorityMode {
     High,
     /// Add a custom static increase to the base/priority fee and `+5%` per pending transaction.
     Custom {
-        /// The static multiplier percentage to apply (0 = no change).
-        multiplier_percentage: u64,
+        /// Multiplier percentage for the base fee component when building EIP-1559 estimates
+        /// (e.g. `200` doubles the base fee similar to Alloy defaults).
+        #[serde(default = "default_custom_base_fee_multiplier_percentage")]
+        base_fee_multiplier_percentage: u64,
+        /// Percentage multiplier applied to the computed priority fee (100 = unchanged, 120 = +20%).
+        #[serde(
+            default = "default_custom_priority_fee_multiplier_percentage",
+            alias = "multiplier_percentage"
+        )]
+        priority_fee_multiplier_percentage: u64,
+        /// Which percentiles to request via `eth_feeHistory`.
+        #[serde(default = "default_custom_reward_percentiles")]
+        reward_percentiles: Vec<f64>,
+        /// The incremental percentage applied per pending tx when scaling the final estimate.
+        #[serde(default = "default_custom_dynamic_multiplier_percentage")]
+        dynamic_multiplier_percentage: u64,
     },
+}
+
+const fn default_custom_base_fee_multiplier_percentage() -> u64 {
+    DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE
+}
+
+const fn default_custom_priority_fee_multiplier_percentage() -> u64 {
+    100
+}
+
+fn default_custom_reward_percentiles() -> Vec<f64> {
+    DEFAULT_FEE_HISTORY_PERCENTILES.to_vec()
+}
+
+const fn default_custom_dynamic_multiplier_percentage() -> u64 {
+    5
 }
 
 impl PriorityMode {
@@ -50,20 +90,33 @@ impl PriorityMode {
     fn config(self) -> PriorityModeConfig {
         match self {
             PriorityMode::Low => PriorityModeConfig {
-                estimate_additional_percentage: 0,
+                base_fee_multiplier_percentage: DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE,
+                priority_fee_multiplier_percentage: 100,
+                reward_percentiles: LOW_PRIORITY_PERCENTILES.to_vec(),
                 dynamic_multiplier_percentage: 3,
             },
             PriorityMode::Medium => PriorityModeConfig {
-                estimate_additional_percentage: 20,
+                base_fee_multiplier_percentage: DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE,
+                priority_fee_multiplier_percentage: 105,
+                reward_percentiles: MEDIUM_PRIORITY_PERCENTILES.to_vec(),
                 dynamic_multiplier_percentage: 5,
             },
             PriorityMode::High => PriorityModeConfig {
-                estimate_additional_percentage: 30,
+                base_fee_multiplier_percentage: 250,
+                priority_fee_multiplier_percentage: 110,
+                reward_percentiles: HIGH_PRIORITY_PERCENTILES.to_vec(),
                 dynamic_multiplier_percentage: 7,
             },
-            PriorityMode::Custom { multiplier_percentage } => PriorityModeConfig {
-                estimate_additional_percentage: multiplier_percentage,
-                dynamic_multiplier_percentage: 5,
+            PriorityMode::Custom {
+                base_fee_multiplier_percentage,
+                priority_fee_multiplier_percentage,
+                reward_percentiles,
+                dynamic_multiplier_percentage,
+            } => PriorityModeConfig {
+                base_fee_multiplier_percentage,
+                priority_fee_multiplier_percentage,
+                reward_percentiles,
+                dynamic_multiplier_percentage,
             },
         }
     }
@@ -72,10 +125,56 @@ impl PriorityMode {
 /// Configuration for a priority mode.
 #[derive(Clone, Debug)]
 struct PriorityModeConfig {
-    /// The base percentage increase applied to the base fee and priority fee of every transaction (e.g., 0 = no change, 10 = 10% increase).
-    estimate_additional_percentage: u64,
+    /// Multiplier percentage applied to the base fee estimate.
+    base_fee_multiplier_percentage: u64,
+    /// Multiplier percentage applied to the priority fee estimate.
+    priority_fee_multiplier_percentage: u64,
+    /// Reward percentiles used when fetching fee history.
+    reward_percentiles: Vec<f64>,
     /// The incremental percentage applied to the base fee and priority fee per pending transaction (e.g., 0 = no change, 5 = +5% per pending tx).
     dynamic_multiplier_percentage: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CustomizedFeeEstimator {
+    base_fee_multiplier_percentage: u64,
+    priority_fee_multiplier_percentage: u64,
+}
+
+impl Eip1559EstimatorFn for CustomizedFeeEstimator {
+    fn estimate(&self, base_fee: u128, rewards: &[Vec<u128>]) -> Eip1559Estimation {
+        let max_priority_fee_per_gas = estimate_priority_fee(rewards);
+        let scaled_priority_fee = max_priority_fee_per_gas
+            .saturating_mul(self.priority_fee_multiplier_percentage as u128)
+            / 100;
+        let potential_max_fee =
+            base_fee.saturating_mul(self.base_fee_multiplier_percentage as u128) / 100;
+
+        Eip1559Estimation {
+            max_fee_per_gas: potential_max_fee + scaled_priority_fee,
+            max_priority_fee_per_gas: scaled_priority_fee,
+        }
+    }
+}
+
+// Note: copied function from alloy as this is a private function.
+fn estimate_priority_fee(rewards: &[Vec<u128>]) -> u128 {
+    let mut rewards: Vec<u128> = rewards
+        .iter()
+        .filter_map(|reward| reward.first().copied())
+        .filter(|reward| *reward > 0_u128)
+        .collect();
+
+    if rewards.is_empty() {
+        return utils::EIP1559_MIN_PRIORITY_FEE;
+    }
+
+    rewards.sort_unstable();
+    let mid = rewards.len() / 2;
+    let median =
+        if rewards.len() % 2 == 0 { (rewards[mid - 1] + rewards[mid]) / 2 } else { rewards[mid] };
+
+    std::cmp::max(median, utils::EIP1559_MIN_PRIORITY_FEE)
 }
 
 /// A gas filler that adjusts gas prices based on priority mode.
@@ -125,7 +224,7 @@ impl DynamicGasFiller {
 
     /// Gets the current priority mode.
     pub async fn get_priority_mode(&self) -> PriorityMode {
-        *self.priority_mode.read().await
+        self.priority_mode.read().await.clone()
     }
 }
 
@@ -154,13 +253,16 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
     where
         P: Provider<N>,
     {
-        const _: () = {
-            // Assumptions about the default GasFiller params.
-            // Using default, as it is requires a lot of duplication to override.
-            assert!(alloy::providers::utils::EIP1559_FEE_ESTIMATION_REWARD_PERCENTILE == 20.0);
-            assert!(alloy::providers::utils::EIP1559_BASE_FEE_MULTIPLIER == 2);
-        };
-        let fillable = GasFiller.prepare(provider, tx).await?;
+        let priority_config = self.get_priority_mode().await.config();
+
+        let fee_override_provider = FeeEstimatorProvider::new(
+            provider,
+            priority_config.reward_percentiles.as_slice(),
+            priority_config.base_fee_multiplier_percentage,
+            priority_config.priority_fee_multiplier_percentage,
+        );
+
+        let fillable = GasFiller.prepare(&fee_override_provider, tx).await?;
 
         // Calculate dynamic multiplier based on pending transactions
         let confirmed_nonce = provider.get_transaction_count(self.address).latest().await?;
@@ -174,10 +276,7 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
             tx_diff
         );
 
-        let priority_config = self.get_priority_mode().await.config();
-
-        let multiplier = priority_config.estimate_additional_percentage
-            + tx_diff.saturating_mul(priority_config.dynamic_multiplier_percentage);
+        let multiplier = tx_diff.saturating_mul(priority_config.dynamic_multiplier_percentage);
 
         Ok(DynamicGasParams { fillable, multiplier })
     }
@@ -216,5 +315,88 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
         }
 
         Ok(tx)
+    }
+}
+
+struct FeeEstimatorProvider<'a, P, N> {
+    inner: &'a P,
+    reward_percentiles: &'a [f64],
+    base_fee_multiplier_percentage: u64,
+    priority_fee_multiplier_percentage: u64,
+    _network: std::marker::PhantomData<N>,
+}
+
+impl<'a, P, N> FeeEstimatorProvider<'a, P, N> {
+    fn new(
+        inner: &'a P,
+        reward_percentiles: &'a [f64],
+        base_fee_multiplier_percentage: u64,
+        priority_fee_multiplier_percentage: u64,
+    ) -> Self {
+        Self {
+            inner,
+            reward_percentiles,
+            base_fee_multiplier_percentage,
+            priority_fee_multiplier_percentage,
+            _network: std::marker::PhantomData,
+        }
+    }
+
+    fn reward_percentiles(&self) -> &[f64] {
+        if self.reward_percentiles.is_empty() {
+            &DEFAULT_FEE_HISTORY_PERCENTILES
+        } else {
+            self.reward_percentiles
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<'a, P, N> Provider<N> for FeeEstimatorProvider<'a, P, N>
+where
+    P: Provider<N>,
+    N: Network,
+{
+    fn root(&self) -> &RootProvider<N> {
+        self.inner.root()
+    }
+
+    async fn estimate_eip1559_fees_with(
+        &self,
+        estimator: Eip1559Estimator,
+    ) -> TransportResult<Eip1559Estimation> {
+        let fee_history = self
+            .inner
+            .get_fee_history(
+                utils::EIP1559_FEE_ESTIMATION_PAST_BLOCKS,
+                BlockNumberOrTag::Latest,
+                self.reward_percentiles(),
+            )
+            .await?;
+
+        let base_fee_per_gas = match fee_history.latest_block_base_fee() {
+            Some(base_fee) if base_fee != 0 => base_fee,
+            _ => self
+                .inner
+                .get_block_by_number(BlockNumberOrTag::Latest)
+                .await?
+                .ok_or(RpcError::NullResp)?
+                .header()
+                .as_ref()
+                .base_fee_per_gas()
+                .ok_or(RpcError::UnsupportedFeature("eip1559"))?
+                .into(),
+        };
+
+        Ok(estimator.estimate(base_fee_per_gas, &fee_history.reward.unwrap_or_default()))
+    }
+
+    async fn estimate_eip1559_fees(&self) -> TransportResult<Eip1559Estimation> {
+        let estimator = Eip1559Estimator::new_estimator(CustomizedFeeEstimator {
+            base_fee_multiplier_percentage: self.base_fee_multiplier_percentage,
+            priority_fee_multiplier_percentage: self.priority_fee_multiplier_percentage,
+        });
+
+        self.estimate_eip1559_fees_with(estimator).await
     }
 }
