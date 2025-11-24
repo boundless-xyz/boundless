@@ -23,7 +23,7 @@ config:
   prover-cluster:auxWorkerCount: "4"
   prover-cluster:proverWorkerCount: "15"
   prover-cluster:privateKey:
-    secure: v1:pNivS9eWP45vRLP3:tGQ1LNjIAs3in1GcMezJ0vBwukUSzy114wpgEWK1MnnnVDIKg+Es4Zym+78guM0S1igZI5CCCYrZzsHjz6A5Tov0bXfb3+MDSrMwQWl4kea5og==
+    secure: v1:3AaQEp2wXzLpFOcW:ARCk8v1ZWXaleGuDqnNwcQIOMoMMNi7fRNupFR7xhcz2vG9RYZj/N5KePrRxOlbhTUq9n95mnj38y0sX92PandFVzpqJkSvVdWXwtH0siU8=
   prover-cluster:ethRpcUrl:
     secure: v1:iTFjvkhfa975JrX1:1aBRNXBNfYaV68nLgOkgMsgBZ8hXkCs1VhYGtTpZ7GpdqT62R1ohM1L5etD/8kjxIt60xp07/2Y7bJ0H182cb6QeFPttWHkDCcLWVN8PjDE/kAzKC/ttQnkDZVI/nCegPrjIYQrsfGBb8ePL
   prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network"
