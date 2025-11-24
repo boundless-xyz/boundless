@@ -822,7 +822,7 @@ mod tests {
             .unwrap();
 
         // Lock the request
-        ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+        ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
         assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()

@@ -37,6 +37,7 @@ use boundless_market::contracts::{
     IBoundlessMarket::IBoundlessMarketErrors,
     RequestStatus, TxnErr,
 };
+use boundless_market::dynamic_gas_filler::PriorityMode;
 use boundless_market::selector::SupportedSelectors;
 use moka::{future::Cache, Expiry};
 use std::sync::Arc;
@@ -156,6 +157,7 @@ pub struct OrderMonitor<P> {
     prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     supported_selectors: SupportedSelectors,
     rpc_retry_config: RpcRetryConfig,
+    gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
 }
 
 impl<P> OrderMonitor<P>
@@ -174,6 +176,7 @@ where
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
+        gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -215,6 +218,7 @@ where
             prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
             supported_selectors: SupportedSelectors::default(),
             rpc_retry_config,
+            gas_priority_mode,
         };
         Ok(monitor)
     }
@@ -245,71 +249,65 @@ where
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
-        let conf_priority_gas = {
-            let conf = self.config.lock_all().context("Failed to lock config")?;
-            conf.market.lockin_priority_gas
-        };
-
         tracing::info!(
             "Locking request: 0x{:x} for stake: {}",
             request_id,
             order.request.offer.lockCollateral
         );
-        let lock_block = self
-            .market
-            .lock_request(&order.request, order.client_sig.clone(), conf_priority_gas)
-            .await
-            .map_err(|e| -> OrderMonitorErr {
-                match e {
-                    MarketError::TxnError(txn_err) => match txn_err {
-                        TxnErr::BoundlessMarketErr(IBoundlessMarketErrors::RequestIsLocked(_)) => {
-                            OrderMonitorErr::AlreadyLocked
+        let lock_block =
+            self.market.lock_request(&order.request, order.client_sig.clone()).await.map_err(
+                |e| -> OrderMonitorErr {
+                    match e {
+                        MarketError::TxnError(txn_err) => match txn_err {
+                            TxnErr::BoundlessMarketErr(
+                                IBoundlessMarketErrors::RequestIsLocked(_),
+                            ) => OrderMonitorErr::AlreadyLocked,
+                            _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
+                        },
+                        MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                        MarketError::TxnConfirmationError(e) => {
+                            OrderMonitorErr::LockTxNotConfirmed(e.to_string())
                         }
-                        _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
-                    },
-                    MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
-                    MarketError::TxnConfirmationError(e) => {
-                        OrderMonitorErr::LockTxNotConfirmed(e.to_string())
-                    }
-                    MarketError::LockRevert(e) => {
-                        // Note: lock revert could be for any number of reasons;
-                        // 1/ someone may have locked in the block before us,
-                        // 2/ the lock may have expired,
-                        // 3/ the request may have been fulfilled,
-                        // 4/ the requestor may have withdrawn their funds
-                        // Currently we don't have a way to determine the cause of the revert.
-                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
-                    }
-                    MarketError::Error(e) => {
-                        // Insufficient balance error is thrown both when the requestor has insufficient balance,
-                        // Requestor having insufficient balance can happen and is out of our control. The prover
-                        // having insufficient balance is unexpected as we should have checked for that before
-                        // committing to locking the order.
-                        let prover_addr_str =
-                            self.prover_addr.to_string().to_lowercase().replace("0x", "");
-                        if e.to_string().contains("InsufficientBalance") {
-                            if e.to_string().to_lowercase().contains(&prover_addr_str) {
-                                OrderMonitorErr::InsufficientBalance
+                        MarketError::LockRevert(e) => {
+                            // Note: lock revert could be for any number of reasons;
+                            // 1/ someone may have locked in the block before us,
+                            // 2/ the lock may have expired,
+                            // 3/ the request may have been fulfilled,
+                            // 4/ the requestor may have withdrawn their funds
+                            // Currently we don't have a way to determine the cause of the revert.
+                            OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
+                        }
+                        MarketError::Error(e) => {
+                            // Insufficient balance error is thrown both when the requestor has insufficient balance,
+                            // Requestor having insufficient balance can happen and is out of our control. The prover
+                            // having insufficient balance is unexpected as we should have checked for that before
+                            // committing to locking the order.
+                            let prover_addr_str =
+                                self.prover_addr.to_string().to_lowercase().replace("0x", "");
+                            if e.to_string().contains("InsufficientBalance") {
+                                if e.to_string().to_lowercase().contains(&prover_addr_str) {
+                                    OrderMonitorErr::InsufficientBalance
+                                } else {
+                                    OrderMonitorErr::LockTxFailed(format!(
+                                        "Requestor has insufficient balance at lock time: {e}"
+                                    ))
+                                }
+                            } else if e.to_string().contains("RequestIsLocked") {
+                                OrderMonitorErr::AlreadyLocked
                             } else {
-                                OrderMonitorErr::LockTxFailed(format!(
-                                    "Requestor has insufficient balance at lock time: {e}"
-                                ))
+                                OrderMonitorErr::UnexpectedError(e)
                             }
-                        } else if e.to_string().contains("RequestIsLocked") {
-                            OrderMonitorErr::AlreadyLocked
-                        } else {
-                            OrderMonitorErr::UnexpectedError(e)
+                        }
+                        _ => {
+                            if e.to_string().contains("RequestIsLocked") {
+                                OrderMonitorErr::AlreadyLocked
+                            } else {
+                                OrderMonitorErr::UnexpectedError(e.into())
+                            }
                         }
                     }
-                    _ => {
-                        if e.to_string().contains("RequestIsLocked") {
-                            OrderMonitorErr::AlreadyLocked
-                        } else {
-                            OrderMonitorErr::UnexpectedError(e.into())
-                        }
-                    }
-                }
-            })?;
+                },
+            )?;
 
         // Fetch the block to retrieve the lock timestamp. This has been observed to return
         // inconsistent state between the receipt being available but the block not yet.
@@ -840,6 +838,9 @@ where
         let mut new_orders = self.priced_order_rx.lock().await;
         let mut prev_orders_by_status = String::new();
 
+        // Cache the gas priority mode to avoid unnecessary write locks
+        let mut cached_gas_priority_mode: Option<PriorityMode> = None;
+
         loop {
             tokio::select! {
                 // Ensure cancellation is observed first, then new orders, then handling lock/prove
@@ -868,9 +869,11 @@ where
                             "Order monitor processing block {block_number} at timestamp {block_timestamp}"
                         );
 
-                        let monitor_config = {
+                        // Extract config values before any async operations
+                        let (monitor_config, config_gas_mode) = {
                             let config = self.config.lock_all().context("Failed to read config")?;
-                            OrderMonitorConfig {
+                            let gas_mode = config.market.gas_priority_mode.clone();
+                            let cfg = OrderMonitorConfig {
                                 min_deadline: config.market.min_deadline,
                                 peak_prove_khz: config.market.peak_prove_khz,
                                 max_concurrent_proofs: Some(config.market.max_concurrent_proofs),
@@ -878,8 +881,30 @@ where
                                 batch_buffer_time_secs: config.batcher.block_deadline_buffer_secs,
                                 order_commitment_priority: config.market.order_commitment_priority,
                                 priority_addresses: config.market.priority_requestor_addresses.clone(),
-                            }
+                            };
+                            (cfg, gas_mode)
                         };
+
+                        // Check if gas_priority_mode has changed and update if needed
+                        // First check our cached value to avoid taking a write lock unnecessarily
+                        let needs_update =
+                            cached_gas_priority_mode.as_ref() != Some(&config_gas_mode);
+
+                        if needs_update {
+                            // Only take the write lock if the value has actually changed
+                            let mut current_mode = self.gas_priority_mode.write().await;
+                            let old_mode = current_mode.clone();
+                            *current_mode = config_gas_mode.clone();
+                            drop(current_mode);
+
+                            cached_gas_priority_mode = Some(config_gas_mode.clone());
+
+                            tracing::info!(
+                                "Gas priority mode changed from {:?} to {:?}",
+                                old_mode,
+                                config_gas_mode
+                            );
+                        }
 
                         // Get orders that are valid and ready for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
                         let mut valid_orders = self.get_valid_orders(block_timestamp, monitor_config.min_deadline).await?;
@@ -1126,6 +1151,8 @@ pub(crate) mod tests {
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
 
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+
         let monitor = OrderMonitor::new(
             db.clone(),
             provider.clone(),
@@ -1137,6 +1164,7 @@ pub(crate) mod tests {
             priced_order_rx,
             collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
+            gas_priority_mode,
         )
         .unwrap();
 

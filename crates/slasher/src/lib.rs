@@ -114,7 +114,11 @@ impl SlashService<ProviderWallet> {
             error_threshold: config.balance_error_threshold,
         });
 
-        let dynamic_gas_filler = DynamicGasFiller::new(0.2, 0.05, 2.0, signer_address);
+        let dynamic_gas_filler = DynamicGasFiller::new(
+            20,
+            boundless_market::dynamic_gas_filler::PriorityMode::Medium,
+            signer_address,
+        );
         let base_provider = ProviderBuilder::new()
             .disable_recommended_fillers()
             .filler(ChainIdFiller::default())

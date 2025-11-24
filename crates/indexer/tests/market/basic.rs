@@ -122,7 +122,7 @@ async fn test_e2e() {
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
-    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone()).await.unwrap();
 
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
@@ -258,7 +258,7 @@ async fn test_monitoring() {
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
-    ctx.prover_market.lock_request(&request, client_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig).await.unwrap();
 
     // Fetch requests ids that expired in the last 30 seconds
     // This should be empty since the request is not expired yet
@@ -328,7 +328,7 @@ async fn test_monitoring() {
 
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
     ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
-    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone()).await.unwrap();
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();
     let order_fulfilled =
