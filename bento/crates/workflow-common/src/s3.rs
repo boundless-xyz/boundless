@@ -64,18 +64,52 @@ impl S3Client {
 
         let client = aws_sdk_s3::Client::from_conf(s3_config);
 
-        // Attempt to provision the bucket if it does not exist
-        let cfg = CreateBucketConfiguration::builder().location_constraint(region.into()).build();
-        let res =
-            client.create_bucket().create_bucket_configuration(cfg).bucket(bucket).send().await;
+        // Check if bucket exists first - only create if we're certain it doesn't exist
+        let bucket_exists = match client.head_bucket().bucket(bucket).send().await {
+            Ok(_) => true,
+            Err(err) => {
+                // Check if it's a NotFound error (bucket doesn't exist)
+                // Check both the error code and HTTP status code
+                let is_not_found = if let Some(service_err) = err.as_service_error() {
+                    service_err.code() == Some("NotFound") || service_err.code() == Some("404")
+                } else {
+                    false
+                };
 
-        if let Err(err) = res {
-            let Some(service_err) = err.as_service_error() else {
-                bail!(format!("Minio SDK error: {err:?}"));
-            };
-            match service_err {
-                CreateBucketError::BucketAlreadyOwnedByYou(_) => {}
-                _ => bail!(format!("Failed to create bucket: {err:?}")),
+                // Also check the raw response status code if available
+                let status_404 = err.raw_response()
+                    .and_then(|r| Some(r.status().as_u16() == 404))
+                    .unwrap_or(false);
+
+                // Only if we're certain it's a 404/NotFound, the bucket doesn't exist
+                // Otherwise, assume it exists (or we can't determine) and don't try to create
+                !(is_not_found || status_404)
+            }
+        };
+
+        // Only attempt to create the bucket if we're certain it doesn't exist
+        if !bucket_exists {
+            let cfg = CreateBucketConfiguration::builder().location_constraint(region.into()).build();
+            let res =
+                client.create_bucket().create_bucket_configuration(cfg).bucket(bucket).send().await;
+
+            if let Err(err) = res {
+                let Some(service_err) = err.as_service_error() else {
+                    bail!(format!("Minio SDK error: {err:?}"));
+                };
+                match service_err {
+                    CreateBucketError::BucketAlreadyOwnedByYou(_) => {
+                        // Bucket was created by another process between check and create
+                    }
+                    _ => {
+                        // Check if it's an OperationAborted error (transient conflict)
+                        if service_err.code() == Some("OperationAborted") {
+                            // Another process is creating the bucket - this is fine, assume success
+                        } else {
+                            bail!(format!("Failed to create bucket: {err:?}"));
+                        }
+                    }
+                }
             }
         }
 
