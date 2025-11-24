@@ -38,11 +38,11 @@ config:
   prover-cluster:allowClientAddresses: '["0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b", "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b", "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c", "0x1578934C9B006B9568D884C421704d996D402B78", "0x7276fa3c23c1783bdcb97258717f8f32b75919c9"]'
   prover-cluster:mcyclePrice: "0"
   prover-cluster:peakProveKhz: 10000
-  prover-cluster:minDeadline: 0
+  prover-cluster:minDeadline: 600
   prover-cluster:lookbackBlocks: 300
   prover-cluster:maxCollateral: "200"
   prover-cluster:maxFileSize: 500000000000
-  prover-cluster:maxMcycleLimit: "0"
+  prover-cluster:maxMcycleLimit: "500000000000"
   prover-cluster:maxConcurrentProofs: 1
   prover-cluster:balanceWarnThreshold: "0"
   prover-cluster:balanceErrorThreshold: "0"
