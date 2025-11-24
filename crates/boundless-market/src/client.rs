@@ -22,10 +22,10 @@ use alloy::{
         local::{LocalSignerError, PrivateKeySigner},
         Signer,
     },
+    rpc::client::RpcClient,
     transports::{http::Http, layers::FallbackLayer},
 };
 use alloy_primitives::{Signature, B256};
-use alloy_rpc_client::RpcClient;
 use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
