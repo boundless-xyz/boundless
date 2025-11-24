@@ -18,11 +18,11 @@ use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
     primitives::{Address, Bytes, U256},
     providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
+    rpc::client::RpcClient,
     signers::{
         local::{LocalSignerError, PrivateKeySigner},
         Signer,
     },
-    rpc::client::RpcClient,
     transports::{http::Http, layers::FallbackLayer},
 };
 use alloy_primitives::{Signature, B256};
