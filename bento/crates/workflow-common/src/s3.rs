@@ -77,7 +77,8 @@ impl S3Client {
                 };
 
                 // Also check the raw response status code if available
-                let status_404 = err.raw_response()
+                let status_404 = err
+                    .raw_response()
                     .and_then(|r| Some(r.status().as_u16() == 404))
                     .unwrap_or(false);
 
@@ -89,7 +90,8 @@ impl S3Client {
 
         // Only attempt to create the bucket if we're certain it doesn't exist
         if !bucket_exists {
-            let cfg = CreateBucketConfiguration::builder().location_constraint(region.into()).build();
+            let cfg =
+                CreateBucketConfiguration::builder().location_constraint(region.into()).build();
             let res =
                 client.create_bucket().create_bucket_configuration(cfg).bucket(bucket).send().await;
 
