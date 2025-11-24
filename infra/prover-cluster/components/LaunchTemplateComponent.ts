@@ -223,6 +223,26 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
     owner: root:root
     permissions: '0644'
 
+  - path: /etc/systemd/system/bento-api.service
+    content: |
+      [Unit]
+      Description=Boundless Bento API Service
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=ubuntu
+      EnvironmentFile=/etc/environment
+      WorkingDirectory=/opt/boundless
+      ExecStart=/usr/local/bin/api --bind-addr 0.0.0.0:8081
+      Restart=always
+      RestartSec=10
+      TimeoutStartSec=1800
+      TimeoutStopSec=300
+
+      [Install]
+      WantedBy=multi-user.target
+
   - path: /etc/environment.d/bento.conf
     content: |
       RUST_LOG=info
@@ -288,7 +308,6 @@ runcmd:
   - |
     /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
   - |
-    cp /opt/boundless/config/bento-api.service /etc/systemd/system/bento-api.service
     cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
     cp /opt/boundless/config/bento-broker.service /etc/systemd/system/bento-broker.service
   - |
@@ -300,7 +319,7 @@ runcmd:
   - |
     # Reload environment and start services
     systemctl daemon-reload
-    systemctl start bento-api.service bento-broker.service
+    systemctl restart bento-api.service bento-broker.service
     systemctl enable bento-api.service bento-broker.service
 `;
       // AWS Launch Templates require base64-encoded userdata (unlike EC2 Instances which accept plain text)
