@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 use aws_sdk_s3::{
     Client,
     config::{Builder, Credentials, Region},
+    error::ProvideErrorMetadata,
     operation::{create_bucket::CreateBucketError, head_object::HeadObjectError},
     primitives::ByteStream,
     types::CreateBucketConfiguration,
