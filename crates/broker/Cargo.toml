@@ -10,6 +10,9 @@ publish = false
 [package.metadata.release]
 release = false
 
+[features]
+test-utils = ["dep:boundless-test-utils"]
+
 [dependencies]
 alloy = { workspace = true, features = ["network", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "rpc", "rpc-types"] }
 alloy-chains = "0.2.0"
@@ -72,6 +75,3 @@ serial_test = "3.2"
 temp-env = { version = "0.3", features = ["async_closure"] }
 tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }
-
-[features]
-test-utils = ["dep:boundless-test-utils"]

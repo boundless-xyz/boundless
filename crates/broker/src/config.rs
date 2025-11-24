@@ -115,6 +115,14 @@ mod defaults {
         300
     }
 
+    pub const fn events_poll_blocks() -> u64 {
+        150
+    }
+
+    pub const fn events_poll_ms() -> u64 {
+        3000
+    }
+
     pub const fn max_concurrent_proofs() -> u32 {
         1
     }
@@ -268,6 +276,19 @@ pub struct MarketConf {
     /// On startup, the number of blocks to look back for possible open orders.
     #[serde(default = "defaults::lookback_blocks")]
     pub lookback_blocks: u64,
+    /// Number of blocks to query per batch when polling for new market events.
+    ///
+    /// After the initial lookback completes, the market monitor will query this many blocks
+    /// at a time when polling for new events. A higher value reduces RPC calls but may increase
+    /// response latency. A lower value provides more real-time updates but increases RPC load.
+    #[serde(default = "defaults::events_poll_blocks")]
+    pub events_poll_blocks: u64,
+    /// Polling interval for market events (in milliseconds).
+    ///
+    /// The time between polls for new market events. A lower value provides more real-time updates
+    /// but increases RPC load. A higher value reduces RPC calls but may increase response latency.
+    #[serde(default = "defaults::events_poll_ms")]
+    pub events_poll_ms: u64,
     /// Max collateral amount, denominated in the Boundless collateral token.
     ///
     /// Requests that require a higher collateral amount than this will not be considered.
@@ -409,6 +430,8 @@ impl Default for MarketConf {
             peak_prove_khz: None,
             min_deadline: defaults::min_deadline(),
             lookback_blocks: defaults::lookback_blocks(),
+            events_poll_blocks: defaults::events_poll_blocks(),
+            events_poll_ms: defaults::events_poll_ms(),
             max_collateral: "0.1".to_string(),
             allow_client_addresses: None,
             deny_requestor_addresses: None,

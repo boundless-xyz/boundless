@@ -4,10 +4,12 @@ import { ChainId, Severity } from "../../util";
 import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 
 export interface MetricAlarmConfig extends BaseComponentConfig {
-    serviceName: string,
-    logGroupName: string,
+    serviceName: string;
+    logGroupName: string;
     alertsTopicArns: string[];
     alarmDimensions: { [key: string]: pulumi.Input<string> };
+    chainId: string,
+    minAsgSize: pulumi.Output<number>;
 }
 
 // Creates and manages general metric filters and alarms that can be common to multiple components
@@ -111,6 +113,10 @@ export class MetricAlarmComponent extends BaseComponent {
                 Name: `${config.stackName}-${config.serviceName}-${metricName}-${severity}`,
                 Environment: this.config.environment,
                 Project: "boundless-bento-cluster",
+                ServiceName: config.serviceName,
+                LogGroupName: config.logGroupName,
+                StackName: config.stackName,
+                ChainId: config.chainId,
             },
             ...alarmConfig
         });
@@ -206,17 +212,21 @@ export class WorkerClusterAlarmComponent extends MetricAlarmComponent {
     }
 
     private createAutoScalingGroupAlarms = (config: MetricAlarmConfig): void => {
-        this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
-            metricName: 'GroupInServiceInstances',
-            namespace: `AWS/AutoScaling`,
-            period: 60,
-            dimensions: config.alarmDimensions,
-            evaluationPeriods: 20,
-            datapointsToAlarm: 20,
-            statistic: 'Maximum',
-            threshold: 0,
-            comparisonOperator: 'LessThanOrEqualToThreshold'
-        }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+        config.minAsgSize.apply((size => {
+            if (size > 0) {
+                this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
+                    metricName: 'GroupInServiceInstances',
+                    namespace: `AWS/AutoScaling`,
+                    period: 60,
+                    dimensions: config.alarmDimensions,
+                    evaluationPeriods: 20,
+                    datapointsToAlarm: 20,
+                    statistic: 'Maximum',
+                    threshold: 0,
+                    comparisonOperator: 'LessThanOrEqualToThreshold'
+                }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+            }
+        }));
 
         // Errors from Bento logs
 
@@ -321,20 +331,28 @@ export class ProverMetricAlarmComponent extends WorkerClusterAlarmComponent {
     }
 }
 
-export interface ManagerMetricAlarmConfig extends MetricAlarmConfig {
-    chainId: string
-}
-
 // Creates and manages metric filters and alarms that are specific to the manager component
 export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
 
-    constructor(config: ManagerMetricAlarmConfig) {
+    constructor(config: MetricAlarmConfig) {
         // The superclass will create the alarms that are common to all components
         super(config);
         this.createManagerMetricAlarms(config)
     }
 
-    private createManagerMetricAlarms = (config: ManagerMetricAlarmConfig): void => {
+    private createManagerMetricAlarms = (config: MetricAlarmConfig): void => {
+
+        this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
+            metricName: 'GroupInServiceInstances',
+            namespace: `AWS/AutoScaling`,
+            period: 60,
+            dimensions: config.alarmDimensions,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 0,
+            comparisonOperator: 'LessThanOrEqualToThreshold'
+        }, 'Number of in service instances is 0 for 20 consecutive minutes.')
 
         // Unexpected error threshold for entire broker.
         const brokerUnexpectedErrorThreshold = 5;

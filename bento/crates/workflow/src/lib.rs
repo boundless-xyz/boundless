@@ -23,7 +23,6 @@ use std::{
 use taskdb::ReadyTask;
 use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
-
 mod redis;
 mod tasks;
 
@@ -163,7 +162,7 @@ pub struct Args {
     cleanup_poll_interval: u64,
 
     /// Disable cron to clean up completed jobs in taskdb.
-    #[clap(long, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
+    #[clap(long, default_value_t = true, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
     disable_completed_cleanup: bool,
 
     /// Disable cron to clean up stuck tasks in taskdb.
@@ -193,6 +192,15 @@ impl Agent {
     /// Check if POVW is enabled for this agent instance
     pub fn is_povw_enabled(&self) -> bool {
         std::env::var("POVW_LOG_ID").is_ok()
+    }
+
+    /// Update database connection pool metrics
+    pub fn update_db_pool_metrics(&self) {
+        use workflow_common::metrics::helpers;
+        let size = self.db_pool.size() as i64;
+        let idle = self.db_pool.num_idle() as i64;
+        let active = size - idle;
+        helpers::update_db_pool_metrics(size, idle, active);
     }
 
     /// Initialize the [Agent] from the [Args] config params
@@ -334,6 +342,9 @@ impl Agent {
         }
 
         while !term_sig.load(Ordering::Relaxed) {
+            // Update database pool metrics periodically
+            self.update_db_pool_metrics();
+
             let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
                 .await
                 .context("[BENTO-WF-107] Failed to request_work")?;
@@ -575,6 +586,9 @@ impl Agent {
             let cleared_count = taskdb::clear_completed_jobs(&db_pool).await?;
             if cleared_count > 0 {
                 tracing::info!("Cleared {} completed jobs", cleared_count);
+                workflow_common::metrics::helpers::record_completed_jobs_garbage_collection_metrics(
+                    cleared_count as u64,
+                );
             }
         }
 
