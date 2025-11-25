@@ -17,11 +17,19 @@ library BoundlessMarketLib {
     /// signature of the BoundlessMarket constructor.
     function encodeConstructorArgs(
         IRiscZeroVerifier verifier,
+        IRiscZeroVerifier applicationVerifier,
         bytes32 assessorId,
         bytes32 deprecatedAssessorId,
         uint32 deprecatedAssessorDuration,
         address stakeTokenContract
     ) internal pure returns (bytes memory) {
-        return abi.encode(verifier, assessorId, deprecatedAssessorId, deprecatedAssessorDuration, stakeTokenContract);
+        return abi.encode(
+            verifier,
+            applicationVerifier,
+            assessorId,
+            deprecatedAssessorId,
+            deprecatedAssessorDuration,
+            stakeTokenContract
+        );
     }
 }
