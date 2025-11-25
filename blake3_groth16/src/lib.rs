@@ -24,8 +24,7 @@ use risc0_zkvm::ProverOpts;
 #[cfg(feature = "prove")]
 mod prove;
 pub mod receipt;
-#[cfg(feature = "prove")]
-mod seal_to_json;
+
 pub mod verify;
 
 /// Compresses a Receipt into a BLAKE3 Groth16 Receipt.
