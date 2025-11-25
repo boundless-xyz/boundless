@@ -14,7 +14,6 @@
 
 use anyhow::{bail, Context, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
-use derive_more::Debug;
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
 use risc0_zkvm::{
     sha::Digestible, Digest, Groth16Receipt, InnerReceipt, MaybePruned, Receipt, ReceiptClaim,

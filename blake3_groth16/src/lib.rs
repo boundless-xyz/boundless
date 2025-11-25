@@ -11,22 +11,25 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+#[cfg(not(target_os = "zkvm"))]
 use anyhow::{Context, Result};
 pub use boundless_market::blake3_groth16::Blake3Groth16ReceiptClaim;
 pub use receipt::*;
+#[cfg(not(target_os = "zkvm"))]
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
+#[cfg(not(target_os = "zkvm"))]
 use risc0_zkvm::{default_prover, sha::Digestible, InnerReceipt, MaybePruned, Receipt};
 
-#[cfg(feature = "prove")]
+#[cfg(all(feature = "prove", not(target_os = "zkvm")))]
 use risc0_zkvm::ProverOpts;
 
-#[cfg(feature = "prove")]
+#[cfg(all(feature = "prove", not(target_os = "zkvm")))]
 mod prove;
 pub mod receipt;
 
 pub mod verify;
 
+#[cfg(not(target_os = "zkvm"))]
 /// Compresses a Receipt into a BLAKE3 Groth16 Receipt.
 pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Blake3Groth16Receipt> {
     tracing::debug!("Compressing receipt to blake3 groth16");
@@ -86,6 +89,7 @@ pub async fn compress_blake3_groth16(receipt: &Receipt) -> Result<Blake3Groth16R
     .await?
 }
 
+#[cfg(not(target_os = "zkvm"))]
 async fn compress_blake3_groth16_bonsai(
     client: &bonsai_sdk::non_blocking::Client,
     succinct_receipt: &Receipt,
@@ -115,6 +119,7 @@ async fn compress_blake3_groth16_bonsai(
     }
 }
 
+#[cfg(not(target_os = "zkvm"))]
 fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
         .ok()
@@ -123,7 +128,7 @@ fn is_dev_mode() -> bool {
         .is_some()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "zkvm")))]
 mod tests {
     use super::*;
     use guest_util::ECHO_ELF;
