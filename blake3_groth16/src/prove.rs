@@ -26,7 +26,6 @@ use tempfile::tempdir;
 pub(crate) mod cuda;
 #[cfg(not(feature = "cuda"))]
 pub(crate) mod docker;
-pub(crate) mod witgen;
 
 /// Creates a BLAKE3 Groth16 proof from a Risc0 SuccinctReceipt.
 /// It will first run the identity_p254 program to convert the STARK to BN254,

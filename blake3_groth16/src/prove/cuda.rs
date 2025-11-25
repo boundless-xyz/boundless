@@ -31,7 +31,10 @@ impl CalcWitness {
 }
 
 fn calculate_witness(graph_path: &Path, inputs: &str) -> Result<CalcWitness> {
-    let witness_encoded = calculate_witness_encoded(graph_path, inputs)?;
+    tracing::debug!("blake3 groth16 calculate_witness");
+    let graph = std::fs::read(graph_path)?;
+    let witness_encoded = circom_witnesscalc::calc_witness(inputs, &graph)
+        .map_err(|err| anyhow!("witness failure: {err}"))?;
     let wtns_f = wtns_file::WtnsFile::read(Cursor::new(witness_encoded))?;
     Ok(CalcWitness { witness: wtns_f.witness.0 })
 }
