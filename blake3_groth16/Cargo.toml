@@ -6,8 +6,19 @@ homepage = { workspace = true }
 repository = { workspace = true }
 
 [features]
-default = []
+default = ["std"]
+std = [
+    "ark-bn254/std",
+    "ark-groth16/std",
+    "ark-serialize/std",
+    "hex/std",
+    "num-bigint/std",
+    "num-traits/std",
+    "risc0-groth16/std",
+    "serde/std",
+]
 prove = [
+    "std",
     "risc0-zkvm/prove",
     "dep:circom-witnesscalc",
     "dep:num-bigint",
@@ -25,6 +36,7 @@ ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = { version = "0.5.0", default-features = false }
 borsh = { workspace = true, features = ["derive"] }
 boundless-market = { workspace = true }
+<<<<<<< HEAD
 <<<<<<< HEAD
 bytemuck = { workspace = true }
 circom-witnesscalc = { version = "0.2.1", optional = true }
@@ -45,10 +57,12 @@ risc0-core = { workspace = true }
 =======
 >>>>>>> 900f2741 (Attempt to minimize lock file changes by target gating proving  to not zkvm)
 risc0-groth16 = { workspace = true }
+=======
+risc0-groth16 = { workspace = true, default-features = false }
+>>>>>>> 7ba0fb12 (update cargo toml)
 risc0-zkvm = { workspace = true, default-features = false }
-serde = { workspace = true }
+serde = { workspace = true, features = ["alloc", "derive"] }
 serde_json = { workspace = true }
-tracing = { workspace = true }
 
 # Host dependencies
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
@@ -63,6 +77,7 @@ risc0-zkvm = { workspace = true, default-features = false, features = ["bonsai"]
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 wtns-file = { version = "0.1.5", optional = true }
+tracing = { workspace = true }
 
 [target.'cfg(not(target_os = "zkvm"))'.dev-dependencies]
 guest-util = { workspace = true }

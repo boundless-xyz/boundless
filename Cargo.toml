@@ -86,7 +86,7 @@ risc0-build = { version = "3.0.4", features = ["docker", "unstable"] }
 risc0-circuit-recursion = { version = "4.0.3" }
 risc0-core = { version = "3.0.0" }
 risc0-ethereum-contracts = { version = "3.0.1" }
-risc0-groth16 = { version = "3.0.3" }
+risc0-groth16 = { version = "3.0.3", default-features = false }
 risc0-groth16-sys = { version = "0.1.0" }
 risc0-povw = { version = "0.4.1", default-features = false }
 risc0-zkp = { version = "3.0.3" }

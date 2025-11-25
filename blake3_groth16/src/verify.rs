@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+extern crate alloc;
+
+use alloc::vec;
 use anyhow::{ensure, Result};
 use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
 use ark_ff::PrimeField;
