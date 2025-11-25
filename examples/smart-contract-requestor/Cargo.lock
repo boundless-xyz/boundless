@@ -2129,7 +2129,6 @@ dependencies = [
  "alloy",
  "alloy-chains",
  "alloy-primitives",
- "alloy-rpc-client",
  "alloy-sol-types",
  "anyhow",
  "async-stream",
