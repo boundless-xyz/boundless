@@ -8,14 +8,18 @@ use anyhow::{Context as _, Result, bail};
 use risc0_zkvm::{InnerReceipt, ProverOpts, Receipt};
 use std::time::Instant;
 use workflow_common::{
-<<<<<<< HEAD
     CompressType, SnarkReq, SnarkResp,
-    s3::{BLAKE3_GROTH16_BUCKET_DIR, GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
-=======
-    SnarkReq, SnarkResp,
     metrics::helpers,
+<<<<<<< HEAD
     s3::{GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
+<<<<<<< HEAD
 >>>>>>> refs/rewritten/main-8
+=======
+>>>>>>> refs/rewritten/main-7
+=======
+    s3::{BLAKE3_GROTH16_BUCKET_DIR, GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
+>>>>>>> c71ca9b1 (fix bento)
+>>>>>>> aeba97ac (fix bento)
 };
 
 /// Converts a stark, stored in s3 to a snark
@@ -38,16 +42,24 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
 
     tracing::debug!("performing identity predicate on receipt, {job_id}");
 
-<<<<<<< HEAD
     let (snark_receipt_bytes, bucket_dir) = match req.compress_type {
         CompressType::None => bail!("Cannot convert to snark with no compression"),
         CompressType::Groth16 => {
-            let groth16_receipt = agent
+            let groth16_receipt = match agent
                 .prover
                 .as_ref()
-                .context("Missing prover from resolve task")?
+                .context("[BENTO-SNARK-002] Missing prover from resolve task")?
                 .compress(&ProverOpts::groth16(), &receipt)
-                .context("groth16 compress failed")?;
+            {
+                Ok(receipt) => {
+                    helpers::record_task_operation("snark", "compress", "success", 0.0);
+                    receipt
+                }
+                Err(e) => {
+                    helpers::record_task_operation("snark", "compress", "error", 0.0);
+                    return Err(e.context("groth16 compress failed"));
+                }
+            };
             if !matches!(groth16_receipt.inner, InnerReceipt::Groth16(_)) {
                 bail!("[BENTO-SNARK-004] failed to create groth16 receipt");
             }
@@ -57,13 +69,24 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
             (bincode::serialize(&groth16_receipt)?, GROTH16_BUCKET_DIR)
         }
         CompressType::Blake3Groth16 => {
-            let blake3_receipt = blake3_groth16::compress_blake3_groth16(&receipt)
+            let blake3_receipt = match blake3_groth16::compress_blake3_groth16(&receipt)
                 .await
-                .context("blake3 groth16 compress failed")?;
+                .context("[BENTO-SNARK-007] blake3 groth16 compress failed")
+            {
+                Ok(blake3_receipt) => {
+                    helpers::record_task_operation("snark", "compress", "success", 0.0);
+                    blake3_receipt
+                }
+                Err(e) => {
+                    helpers::record_task_operation("snark", "compress", "error", 0.0);
+                    return Err(e.context("blake3 groth16 compress failed"));
+                }
+            };
             blake3_receipt
                 .verify_integrity()
-                .context("[BENTO-SNARK-007] Failed to verify blake3 snark receipt")?;
+                .context("[BENTO-SNARK-008] Failed to verify blake3 snark receipt")?;
             (bincode::serialize(&blake3_receipt)?, BLAKE3_GROTH16_BUCKET_DIR)
+<<<<<<< HEAD
 =======
     let opts = ProverOpts::groth16();
     let snark_receipt = match agent
@@ -79,7 +102,13 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         Err(e) => {
             helpers::record_task_operation("snark", "compress", "error", 0.0);
             return Err(e.context("groth16 compress failed"));
+<<<<<<< HEAD
 >>>>>>> refs/rewritten/main-8
+=======
+>>>>>>> refs/rewritten/main-7
+=======
+>>>>>>> c71ca9b1 (fix bento)
+>>>>>>> aeba97ac (fix bento)
         }
     };
 
@@ -87,15 +116,8 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
 
     tracing::debug!("Uploading snark receipt to S3: {key}");
 
-<<<<<<< HEAD
-    agent
-        .s3_client
-        .write_buf_to_s3(key, snark_receipt_bytes)
-        .await
-        .context("[BENTO-SNARK-006] Failed to upload final receipt to obj store")?;
-=======
     let s3_write_start = Instant::now();
-    match agent.s3_client.write_to_s3(key, snark_receipt).await {
+    match agent.s3_client.write_buf_to_s3(key, snark_receipt_bytes).await {
         Ok(()) => {
             helpers::record_s3_operation(
                 "write",
@@ -116,7 +138,14 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         "success",
         start_time.elapsed().as_secs_f64(),
     );
+<<<<<<< HEAD
 >>>>>>> refs/rewritten/main-8
+=======
+<<<<<<< HEAD
+>>>>>>> refs/rewritten/main-7
+=======
+>>>>>>> c71ca9b1 (fix bento)
+>>>>>>> aeba97ac (fix bento)
 
     Ok(SnarkResp { snark: job_id.to_string() })
 }
