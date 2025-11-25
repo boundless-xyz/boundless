@@ -2471,7 +2471,7 @@ dependencies = [
  "bitflags 2.9.4",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.11.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2653,7 +2653,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-primitives 1.3.1",
@@ -2671,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-bench"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2699,7 +2699,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-cli"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-distributor"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2775,7 +2775,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-indexer"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2809,7 +2809,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2854,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2874,7 +2874,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-povw"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2907,7 +2907,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-rewards"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2922,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2947,7 +2947,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-primitives 1.3.1",
@@ -2981,7 +2981,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3001,7 +3001,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3060,7 +3060,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -4148,7 +4148,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4181,7 +4181,7 @@ checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
 name = "doc-test"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "alloy-primitives 1.3.1",
@@ -4511,7 +4511,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5130,7 +5130,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5148,7 +5148,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5607,7 +5607,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5796,7 +5796,7 @@ checksum = "4ee796ad498c8d9a1d68e477df8f754ed784ef875de1414ebdaf169f70a6a784"
 
 [[package]]
 name = "indexer-api"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5827,7 +5827,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-monitor"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7293,7 +7293,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7910,8 +7910,8 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
+ "heck 0.4.1",
+ "itertools 0.11.0",
  "log",
  "multimap",
  "once_cell",
@@ -7931,7 +7931,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -7990,7 +7990,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls 0.23.31",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
@@ -8027,9 +8027,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.0",
+ "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8265,7 +8265,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "requestor-lists"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alloy",
  "reqwest",
@@ -8925,8 +8925,8 @@ dependencies = [
 
 [[package]]
 name = "risc0-steel"
-version = "2.4.0"
-source = "git+https://github.com/boundless-xyz/steel?branch=release-2.4#3731e48e9a7ba4bb0c6ef800b635d95f4114ca85"
+version = "2.4.1"
+source = "git+https://github.com/boundless-xyz/steel?branch=release-2.4#6160a2f6689178561338dbfb4c9ddf490572157b"
 dependencies = [
  "alloy",
  "alloy-consensus",
@@ -9289,7 +9289,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10564,7 +10564,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -11737,7 +11737,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0978bf7171b3d90bac376700cb56d606feb40f251a475a5d6634613564460b22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
