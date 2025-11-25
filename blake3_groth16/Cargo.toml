@@ -8,12 +8,7 @@ repository = { workspace = true }
 [features]
 default = []
 prove = ["risc0-zkvm/prove", "dep:circom-witnesscalc"]
-cuda = [
-    "prove",
-    "risc0-zkvm/cuda",
-    "risc0-groth16/cuda",
-    "dep:risc0-groth16-sys",
-]
+cuda = ["prove", "risc0-zkvm/cuda", "risc0-groth16/cuda", "dep:risc0-groth16-sys"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -39,7 +34,7 @@ hex = { workspace = true }
 num-bigint = { version = "0.4", features = ["std"] }
 >>>>>>> 46bc63d4 (fix workspace in cargo)
 num-traits = "0.2.19"
-risc0-binfmt = { version = "3.0.2", default-features = false }
+risc0-binfmt = { workspace = true, default-features = false }
 risc0-circuit-recursion = { workspace = true }
 risc0-core = { workspace = true }
 risc0-groth16 = { workspace = true }
