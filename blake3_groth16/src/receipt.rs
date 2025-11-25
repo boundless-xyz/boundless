@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+extern crate alloc;
+
+use alloc::vec::Vec;
 use anyhow::{bail, Context, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use risc0_groth16::{ProofJson as Groth16ProofJson, Seal as Groth16Seal};
