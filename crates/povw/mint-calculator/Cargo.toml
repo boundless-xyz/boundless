@@ -10,7 +10,7 @@ alloy-primitives = { version = "1.0" }
 alloy-sol-types = { version = "1.0" }
 boundless-povw = { path = "..", default-features = false }
 risc0-steel = { git = "https://github.com/boundless-xyz/steel", branch = "release-2.4" }
-risc0-zkvm = { version = "3.0.3", default-features = false, features = ["std", "unstable"] }
+risc0-zkvm = { version = "3.0.4", default-features = false, features = ["std", "unstable"] }
 
 [patch.crates-io]
 # enable RISC Zero's precompiles
