@@ -85,6 +85,13 @@ pub struct Args {
     #[clap(long, env = "PROVER_RPC_URL", default_value = "http://localhost:8545")]
     pub rpc_url: Url,
 
+    /// Additional RPC URLs for automatic failover.
+    /// Can be specified multiple times or as a comma-separated list.
+    /// If provided along with rpc_url, they will be merged into a single list.
+    /// If 2+ URLs are provided total, a fallback provider will be used.
+    #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
+    pub rpc_urls: Vec<Url>,
+
     /// wallet key
     ///
     /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
@@ -779,12 +786,16 @@ where
 
         let config = self.config_watcher.config.clone();
 
-        let lookback_blocks = {
+        let (lookback_blocks, events_poll_blocks, events_poll_ms) = {
             let config = match config.lock_all() {
                 Ok(res) => res,
                 Err(err) => anyhow::bail!("Failed to lock config in watcher: {err:?}"),
             };
-            config.market.lookback_blocks
+            (
+                config.market.lookback_blocks,
+                config.market.events_poll_blocks,
+                config.market.events_poll_ms,
+            )
         };
 
         // Create two cancellation tokens for graceful shutdown:
@@ -835,7 +846,8 @@ where
         // spin up a supervisor for the market monitor
         let market_monitor = Arc::new(market_monitor::MarketMonitor::new(
             lookback_blocks,
-            self.args.rpc_retry_backoff,
+            events_poll_blocks,
+            events_poll_ms,
             self.deployment().boundless_market_address,
             self.provider.clone(),
             self.db.clone(),
@@ -1260,6 +1272,7 @@ pub mod test_utils {
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
                 rpc_url,
+                rpc_urls: Vec::new(),
                 private_key: Some(ctx.prover_signer.clone()),
                 bento_api_url: None,
                 bonsai_api_key: None,

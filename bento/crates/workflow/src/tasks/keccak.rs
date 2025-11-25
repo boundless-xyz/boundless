@@ -10,8 +10,9 @@ use crate::{
 };
 use anyhow::{Context, Result, anyhow, bail};
 use risc0_zkvm::ProveKeccakRequest;
+use std::time::Instant;
 use uuid::Uuid;
-use workflow_common::{KECCAK_RECEIPT_PATH, KeccakReq};
+use workflow_common::{KECCAK_RECEIPT_PATH, KeccakReq, metrics::helpers};
 
 fn try_keccak_bytes_to_input(input: &[u8]) -> Result<Vec<[u64; 25]>> {
     let chunks = input.chunks_exact(std::mem::size_of::<[u64; 25]>());
@@ -31,12 +32,16 @@ pub async fn keccak(
     task_id: &str,
     request: &KeccakReq,
 ) -> Result<()> {
+    let start_time = Instant::now();
     let mut conn = agent.redis_pool.get().await?;
     let keccak_input_path = format!("job:{job_id}:{}:{}", COPROC_CB_PATH, request.claim_digest);
-    let keccak_input: Vec<u8> = conn
-        .get::<_, Vec<u8>>(&keccak_input_path)
-        .await
-        .with_context(|| format!("segment data not found for segment key: {keccak_input_path}"))?;
+
+    // Get keccak input using Redis helper
+    let keccak_input: Vec<u8> =
+        redis::get_key(&mut conn, &keccak_input_path).await.map_err(|e| {
+            anyhow::anyhow!(e)
+                .context(format!("segment data not found for segment key: {keccak_input_path}"))
+        })?;
 
     let keccak_req = ProveKeccakRequest {
         claim_digest: request.claim_digest,
@@ -54,18 +59,29 @@ pub async fn keccak(
 
     tracing::debug!("Keccak proving {}", request.claim_digest);
 
-    let keccak_receipt = agent
+    // Record keccak proving operation
+    let keccak_receipt = match agent
         .prover
         .as_ref()
         .context("[BENTO-KECCAK-003] Missing prover from keccak prove task")?
         .prove_keccak(&keccak_req)
-        .context("[BENTO-KECCAK-004] Failed to prove_keccak")?;
+    {
+        Ok(receipt) => {
+            helpers::record_task_operation("keccak", "prove_keccak", "success", 0.0);
+            receipt
+        }
+        Err(e) => {
+            helpers::record_task_operation("keccak", "prove_keccak", "error", 0.0);
+            return Err(e.context("Failed to prove_keccak"));
+        }
+    };
 
     let job_prefix = format!("job:{job_id}");
     let receipts_key = format!("{job_prefix}:{KECCAK_RECEIPT_PATH}:{task_id}");
     let keccak_receipt_bytes = serialize_obj(&keccak_receipt)
         .context("[BENTO-KECCAK-005] Failed to serialize keccak receipt")?;
 
+    // Store keccak receipt using Redis helper
     redis::set_key_with_expiry(
         &mut conn,
         &receipts_key,
@@ -73,12 +89,29 @@ pub async fn keccak(
         Some(agent.args.redis_ttl),
     )
     .await
-    .context("[BENTO-KECCAK-006] Failed to write keccak receipt to redis")?;
+    .map_err(|e| anyhow::anyhow!(e).context("Failed to write keccak receipt to redis"))?;
 
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
-    conn.unlink::<_, ()>(&keccak_input_path)
-        .await
-        .context("[BENTO-KECCAK-007] Failed to delete keccak input path key")?;
+
+    // Clean up keccak input
+    let cleanup_start = Instant::now();
+    let cleanup_result = conn.unlink::<_, ()>(&keccak_input_path).await;
+    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(
+        "unlink",
+        cleanup_status,
+        cleanup_start.elapsed().as_secs_f64(),
+    );
+    cleanup_result
+        .map_err(|e| anyhow::anyhow!(e).context("Failed to delete keccak input path key"))?;
+
+    // Record total task duration and success
+    helpers::record_task_operation(
+        "keccak",
+        "complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
 
     Ok(())
 }

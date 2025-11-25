@@ -9,6 +9,7 @@
 #   - Installs Docker with NVIDIA support.
 #   - Installs Rust programming language.
 #   - Installs CUDA Toolkit.
+#   - Installs the Protobuf compiler.
 #   - Performs system cleanup.
 #   - Verifies Docker with NVIDIA support.
 #
@@ -125,8 +126,15 @@ install_gcc_version() {
 install_rust() {
     if command -v rustc &> /dev/null; then
         info "Rust is already installed. Skipping Rust installation."
-    else
-        info "Installing Rust programming language..."
+        return
+    fi
+
+    # Get Ubuntu version
+    local ubuntu_version
+    ubuntu_version=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
+
+    info "Installing Rust programming language..."
+    if [[ "$ubuntu_version" == "22.04" ]]; then
         {
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         } >> "$LOG_FILE" 2>&1
@@ -139,6 +147,18 @@ install_rust() {
             error "Rust installation failed. ~/.cargo/env not found."
             exit 1
         fi
+    else
+        {
+            # On Ubuntu 24.04 rustup has an apt package
+            sudo apt install -y rustup
+            rustup default stable
+        }  >> "$LOG_FILE" 2>&1
+        if command -v rustc &> /dev/null; then
+            success "Rust installed successfully."
+        else
+            error "Rust installation failed. Rustc not found."
+            exit 1
+        fi
     fi
 }
 
@@ -149,12 +169,23 @@ install_just() {
         return
     fi
 
+    # Get Ubuntu version
+    local ubuntu_version
+    ubuntu_version=$(grep '^VERSION_ID=' /etc/os-release | cut -d'=' -f2 | tr -d '"')
+
     info "Installing the 'just' command-runner…"
-    {
-        # Install the latest pre-built binary straight to /usr/local/bin
-        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-        | sudo bash -s -- --to /usr/local/bin
-    } >> "$LOG_FILE" 2>&1
+    if [[ "$ubuntu_version" == "22.04" ]]; then
+        {
+            # Install the latest pre-built binary straight to /usr/local/bin
+            curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+            | sudo bash -s -- --to /usr/local/bin
+        } >> "$LOG_FILE" 2>&1
+    else
+        {
+            # On Ubuntu 24.04 just has an apt package
+            sudo apt install -y just
+        } >> "$LOG_FILE" 2>&1
+    fi
 
     success "'just' installed successfully."
 }
@@ -307,6 +338,15 @@ EOF
     success "Docker configured to use NVIDIA runtime by default."
 }
 
+# Function to install protobuf-compiler
+install_protobuf() {
+    info "Installing protobuf compiler..."
+    {
+        sudo apt install -y protobuf-compiler
+    } >> "$LOG_FILE" 2>&1
+    success "Protobuf compiler installed successfully."
+}
+
 # Function to perform system cleanup
 cleanup() {
     info "Cleaning up unnecessary packages..."
@@ -371,6 +411,9 @@ install_just
 
 # Install CUDA Toolkit
 install_cuda
+
+# Install Protobuf compiler
+install_protobuf
 
 # Cleanup
 cleanup

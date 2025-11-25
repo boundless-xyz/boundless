@@ -56,12 +56,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 shadow-rs = { version = "1.1", default-features = false }
-sqlx = { workspace = true, features = [
-    "postgres",
-    "runtime-tokio",
-    "tls-rustls",
-    "chrono",
-] }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tabled = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 toml = "0.8"
@@ -82,12 +77,7 @@ boundless-test-utils = { workspace = true, features = ["povw"] }
 order-stream = { workspace = true }
 predicates = "3.1"
 rand = { workspace = true }
-sqlx = { workspace = true, features = [
-    "postgres",
-    "runtime-tokio",
-    "tls-rustls",
-    "chrono",
-] }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
 tempfile = { workspace = true }
 tokio-test = "0.4"
 tracing-test = { workspace = true }

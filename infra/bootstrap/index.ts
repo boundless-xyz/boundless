@@ -4,6 +4,7 @@ import * as vpc from './lib/vpc';
 import { getEnvVar } from '../util';
 
 const OPS_ACCOUNT_PIPELINE_ROLE_ARN = "arn:aws:iam::968153779208:role/pipeline-role-3b97f1a";
+const OPS_ACCOUNT_LOG_LAMBDA_ROLE_ARN = "arn:aws:iam::968153779208:role/chatbot-log-fetcher-role-4d93cb1"
 
 const stackName = pulumi.getStack();
 const isDev = stackName.includes("dev");
@@ -52,6 +53,38 @@ export = async () => {
         filterType: "WILDCARD",
       }],
     }],
+  });
+
+  // Create a role that the log fetcher Lambda can assume to list tags on Cloudwatch alarms in the current account
+  const alarmTagsRole = new aws.iam.Role(`${prefix}alarmListTagsRole`, {
+    name: `${prefix}alarmListTagsRole`,
+    assumeRolePolicy: pulumi.jsonStringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "sts:AssumeRole",
+          Principal: {
+            AWS: OPS_ACCOUNT_LOG_LAMBDA_ROLE_ARN
+          },
+          Effect: "Allow",
+          Sid: ""
+        }
+      ]
+    }),
+    inlinePolicies: [
+      {
+        name: 'cloudwatchAlarmListTagsPolicy',
+        policy: pulumi.jsonStringify({
+          Version: "2012-10-17",
+          Statement: [{
+            Sid: "AllowListTagsAnyAlarm",
+            Effect: "Allow",
+            Action: "cloudwatch:ListTagsForResource",
+            Resource: pulumi.interpolate`arn:aws:cloudwatch:us-west-2:${aws.getCallerIdentityOutput().accountId}:alarm:*`
+          }],
+        }),
+      }
+    ]
   });
 
   return {

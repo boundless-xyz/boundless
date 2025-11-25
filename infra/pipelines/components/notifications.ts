@@ -1,5 +1,6 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import { BOUNDLESS_PROD_ACCOUNT_ID, BOUNDLESS_STAGING_ACCOUNT_ID } from "../accountConstants";
 
 export class Notifications extends pulumi.ComponentResource {
   // Mainnet Beta
@@ -383,6 +384,23 @@ export class Notifications extends pulumi.ComponentResource {
       managedPolicyArns: [
         'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
       ],
+      inlinePolicies: [
+        {
+          name: 'cloudwatchAlarmListTagsRolePolicy',
+          policy: pulumi.jsonStringify({
+            Version: "2012-10-17",
+            Statement: [{
+              Sid: "AllowAlarmListTagsAssumeRole",
+              Effect: 'Allow',
+              Action: 'sts:AssumeRole',
+              Resource: [
+                `arn:aws:iam::${BOUNDLESS_STAGING_ACCOUNT_ID}:role/alarmListTagsRole`,
+                `arn:aws:iam::${BOUNDLESS_PROD_ACCOUNT_ID}:role/alarmListTagsRole`
+              ]
+            }]
+          })
+        }
+      ]
     });
 
     const chatbotLogFetcher = new aws.lambda.Function("chatbot-debugger", {

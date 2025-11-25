@@ -16,7 +16,8 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         segmentSize: number;
         snarkTimeout: number;
         privateKey: string | pulumi.Output<string>;
-        ethRpcUrl: string | pulumi.Output<string>;
+        // Comma separated list of RPC URLs
+        ethRpcUrls: string | pulumi.Output<string>;
         orderStreamUrl: string | pulumi.Output<string>;
         baseStackName: string;
         vpcId: pulumi.Output<any>;
@@ -41,7 +42,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
             boundlessMarketAddress,
             collateralTokenAddress,
             setVerifierAddress,
-            ethRpcUrl,
+            ethRpcUrls,
             sshPublicKey,
             brokerTomlPath,
             privateKey,
@@ -65,10 +66,10 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
             });
         }
 
-        const ethRpcUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerEthRpc`);
+        const ethRpcUrlsSecret = new aws.secretsmanager.Secret(`${serviceName}-brokerEthRpc`);
         new aws.secretsmanager.SecretVersion(`${serviceName}-brokerEthRpc`, {
-            secretId: ethRpcUrlSecret.id,
-            secretString: ethRpcUrl,
+            secretId: ethRpcUrlsSecret.id,
+            secretString: ethRpcUrls,
         });
 
         const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-brokerPrivateKey`);
@@ -177,7 +178,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                             "secretsmanager:ListSecrets"
                         ],
                         Resource: [
-                            ethRpcUrlSecret.arn,
+                            ethRpcUrlsSecret.arn,
                             privateKeySecret.arn,
                             orderStreamUrlSecret.arn
                         ],
@@ -331,7 +332,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
         // Store all config in a json string in SSM.
         // EC2 instances will fetch this config and use it to setup the environment.
         // During updates, the instance will fetch the latest config from SSM and overwrite the existing files.
-        const ethRpcUrlSecretArn = ethRpcUrlSecret.arn.apply(arn => arn);
+        const ethRpcUrlSecretArn = ethRpcUrlsSecret.arn.apply(arn => arn);
         const privateKeySecretArn = privateKeySecret.arn.apply(arn => arn);
         const orderStreamUrlSecretArn = orderStreamUrlSecret.arn.apply(arn => arn);
         const brokerConfigName = `/boundless/${name}/broker-config`;
@@ -359,7 +360,7 @@ export class BentoEC2Broker extends pulumi.ComponentResource {
                     segmentSize,
                     snarkTimeout,
                     secretArns: {
-                        ethRpcUrl: ethRpcArn,
+                        ethRpcUrls: ethRpcArn,
                         privateKey: privateKeyArn,
                         orderStreamUrl: orderStreamArn
                     },
@@ -527,7 +528,7 @@ BUCKET=$(echo $CONFIG | jq -r '.brokerBucket')
 SET_VERIFIER_ADDRESS=$(echo $CONFIG | jq -r '.setVerifierAddress')
 BOUNDLESS_MARKET_ADDRESS=$(echo $CONFIG | jq -r '.boundlessMarketAddress')
 COLLATERAL_TOKEN_ADDRESS=$(echo $CONFIG | jq -r '.collateralTokenAddress')
-ETH_RPC_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.ethRpcUrl')
+ETH_RPC_URLS_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.ethRpcUrls')
 PRIVATE_KEY_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.privateKey')
 ORDER_STREAM_URL_SECRET_ARN=$(echo $CONFIG | jq -r '.secretArns.orderStreamUrl')
 SEGMENT_SIZE=$(echo $CONFIG | jq -r '.segmentSize')
@@ -535,7 +536,7 @@ SNARK_TIMEOUT=$(echo $CONFIG | jq -r '.snarkTimeout')
 LOG_JSON=$(echo $CONFIG | jq -r '.logJson')
 POVW_LOG_ID=$(echo $CONFIG | jq -r '.povwLogId // empty')
 # Get secrets from AWS Secrets Manager
-RPC_URL=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ETH_RPC_URL_SECRET_ARN --query SecretString --output text)
+RPC_URLS=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ETH_RPC_URLS_SECRET_ARN --query SecretString --output text)
 PRIVATE_KEY=$(aws --region ${region} secretsmanager get-secret-value --secret-id $PRIVATE_KEY_SECRET_ARN --query SecretString --output text)
 ORDER_STREAM_URL=$(aws --region ${region} secretsmanager get-secret-value --secret-id $ORDER_STREAM_URL_SECRET_ARN --query SecretString --output text)
 
@@ -551,7 +552,7 @@ SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS
 BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS
 COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS
 AWS_REGION=$REGION
-RPC_URL=$RPC_URL
+PROVER_RPC_URLS=$RPC_URLS
 PRIVATE_KEY=$PRIVATE_KEY
 ORDER_STREAM_URL=$ORDER_STREAM_URL
 SEGMENT_SIZE=$SEGMENT_SIZE

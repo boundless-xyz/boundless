@@ -35,3 +35,5 @@ config:
     secure: v1:IWpfAGS+CBV8VliS:AU9aSMLv2UcoRa0i/Y30Pyc62I45FkiJsf7RjOOQ0Mxe4czkNHtI8jBXO9wS6rQkyhiNDP718cOg+w==
   bento-prover:POVW_LOG_ID_2:
     secure: v1:u3KGhXqINg/L5M3T:+TZ7D1ex3C1BkZbSUP45yl0LPZZOFRDeKeH2SsBp7p8qVl+U9KzBc8GHRyoFSPiVdS+cFFX2LxAXTQ==
+  base-prover:ETH_RPC_URLS:
+    secure: v1:5rbz86DKcFqvHRXM:RXrCArpqPbgqDZXI6Xe9azXaQS++8fPkJV1nhL25QFxffILSoxIES4G28o2XJ4Vay8qVDZK3cwNSAAM6pqDqneN4Y4au5DeZ11qraLS+cf4bmTY5J0f/tuo79/bd+Jc/wZRxZOjL0TdI8ydpsjNR3fM5wiHBLKhnPOw4xo8ljwIPrNxwGGZnoaJh6RHLqqVOsrei1Jru1AdtYZo5ivVmuHNMpzwwOkpenjo6MRHYr7zs6A==
