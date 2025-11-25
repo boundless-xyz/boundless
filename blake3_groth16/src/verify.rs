@@ -118,7 +118,7 @@ fn from_seal(seal_bytes: &[u8]) -> ark_groth16::Proof<ark_bn254::Bn254> {
     ark_groth16::Proof { a, b, c }
 }
 
-pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<ark_bn254::Bn254> {
+fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<ark_bn254::Bn254> {
     let alpha_g1 = G1Affine::new(Fq::from_str(ALPHA_X).unwrap(), Fq::from_str(ALPHA_Y).unwrap());
 
     let beta_g2 = G2Affine::new(
