@@ -14,11 +14,9 @@
 
 use std::{io::Cursor, path::Path};
 
-use anyhow::{Context as _, Result};
-use risc0_groth16_sys::{ProverParams, SetupParams, WitnessParams};
-
-use crate::prove::witgen::calculate_witness_encoded;
+use anyhow::{anyhow, Context as _, Result};
 use risc0_groth16::ProofJson as Groth16ProofJson;
+use risc0_groth16_sys::{ProverParams, SetupParams, WitnessParams};
 
 struct CalcWitness {
     witness: Vec<wtns_file::FieldElement<32>>,
