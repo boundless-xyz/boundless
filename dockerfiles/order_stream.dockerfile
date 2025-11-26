@@ -1,4 +1,4 @@
-FROM rust:1.88.0-bookworm AS init
+FROM rust:1.91.1-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -64,7 +64,7 @@ SHELL ["/bin/bash", "-c"]
 RUN cargo build --release -p order-stream --bin order_stream && \
     cp /src/target/release/order_stream /src/order_stream
 
-FROM rust:1.88.0-bookworm AS runtime
+FROM rust:1.91.1-bookworm AS runtime
 
 RUN mkdir /app/
 
