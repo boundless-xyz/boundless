@@ -86,16 +86,11 @@ check: check-links check-license check-format check-clippy check-docs check-depl
 # Check links in markdown files
 check-links:
     @echo "Checking links in markdown files..."
-    git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+    git ls-files '*.md' | xargs lychee --base . --cache --
 
 # Check licenses
 check-license:
     @python license-check.py
-
-# Check deployments addresses
-check-deployments:
-    @echo "Checking deployment addresses..."
-    @python deployments-check.py
 
 # Check code formatting
 check-format:
@@ -113,7 +108,6 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd documentation && bun install && bun run check
     dprint check
     forge fmt --check
 
@@ -140,11 +134,6 @@ check-clippy:
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
 
-check-docs:
-    cd documentation && bun install
-    # Matches the docs-rs job in CI 
-    RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
-
 # Format all code
 format:
     cargo sort --workspace
@@ -161,7 +150,6 @@ format:
     cd crates/guest/assessor && cargo fmt --all
     cd crates/guest/util && cargo sort --workspace
     cd crates/guest/util && cargo fmt --all
-    cd documentation && bun install && bun run format-markdown
     dprint fmt
     forge fmt
 
