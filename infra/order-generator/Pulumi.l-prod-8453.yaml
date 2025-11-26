@@ -21,7 +21,7 @@ config:
   order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
   order-generator-base:LOCK_COLLATERAL_RAW: "15000000000000000000" # 15 ZKC
   order-generator-base:LOCK_TIMEOUT: "900"
-  order-generator-base:LOG_LEVEL: info
+  order-generator-base:LOG_LEVEL: "info,boundless_market=debug"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-offchain:MAX_PRICE_PER_MCYCLE: "0.00000003"
   order-generator-onchain:MAX_PRICE_PER_MCYCLE: "0.00000003"
