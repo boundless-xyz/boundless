@@ -32,6 +32,8 @@ export class ScalerComponent extends BaseComponent {
         const lambdaSecurityGroup = this.createLambdaSecurityGroup(config);
 
         // Allow Lambda security group to access RDS
+        // AWS Lambda RDS connection requires:
+        // 1. Ingress rule on RDS security group to allow traffic from Lambda
         const rdsIngressRule = new aws.ec2.SecurityGroupRule(
             `${config.stackName}-lambda-rds-ingress`,
             {
