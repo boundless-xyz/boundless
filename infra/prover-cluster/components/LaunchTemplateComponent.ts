@@ -149,7 +149,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFileSize || "500000000000",
       config.maxMcycleLimit || "1000000000000",
       config.maxConcurrentProofs || 1,
-      config.maxJournalBytes || 1000000,
+      config.maxJournalBytes || 20000,
       config.balanceWarnThreshold || "50",
       config.balanceErrorThreshold || "100",
       config.collateralBalanceWarnThreshold || "50",
