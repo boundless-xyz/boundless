@@ -219,15 +219,36 @@ fn extract_tx_log<E: SolEvent + Debug + Clone>(
 }
 
 fn validate_fulfill_receipt(receipt: TransactionReceipt) -> Result<(), MarketError> {
-    if let Some(log) = receipt.decoded_log::<IBoundlessMarket::PaymentRequirementsFailed>() {
-        let raw_error = Bytes::copy_from_slice(&log.error);
-        match IBoundlessMarketErrors::abi_decode(&raw_error) {
-            Ok(err) => Err(MarketError::PaymentRequirementsFailed(err)),
-            Err(_) => Err(MarketError::PaymentRequirementsFailedUnknownError(raw_error)),
+    for (idx, log) in receipt.inner.logs().iter().enumerate() {
+        if log.topic0().is_some_and(|topic| {
+            *topic == IBoundlessMarket::PaymentRequirementsFailed::SIGNATURE_HASH
+        }) {
+            match log.log_decode::<IBoundlessMarket::PaymentRequirementsFailed>() {
+                Ok(decoded) => {
+                    let raw_error = Bytes::copy_from_slice(decoded.inner.data.error.as_ref());
+                    match IBoundlessMarketErrors::abi_decode(&raw_error) {
+                        Ok(err) => tracing::warn!(
+                            tx_hash = ?receipt.transaction_hash,
+                            log_index = idx,
+                            "Payment requirements failed for at least one fulfillment: {err:?}"
+                        ),
+                        Err(_) => tracing::warn!(
+                            tx_hash = ?receipt.transaction_hash,
+                            log_index = idx,
+                            raw = ?raw_error,
+                            "Payment requirements failed for at least one fulfillment, but error payload was unrecognized"
+                        ),
+                    }
+                }
+                Err(err) => tracing::warn!(
+                    tx_hash = ?receipt.transaction_hash,
+                    log_index = idx,
+                    "Failed to decode PaymentRequirementsFailed event: {err:?}"
+                ),
+            }
         }
-    } else {
-        Ok(())
     }
+    Ok(())
 }
 
 /// Data returned when querying for a RequestSubmitted event
