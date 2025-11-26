@@ -42,8 +42,8 @@ use risc0_aggregation::{
 use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
     compute_image_id,
-    sha::{Digest, Digestible},
-    Receipt, ReceiptClaim,
+    sha::{Digest, Digestible, Impl as ShaImpl, Sha256},
+    MaybePruned, Receipt, ReceiptClaim,
 };
 use std::sync::Arc;
 
@@ -447,7 +447,10 @@ impl OrderFulfiller {
                     .ok_or_else(|| anyhow::anyhow!("Order receipt not found"))?;
 
                 let order_journal = order_receipt.journal.bytes.clone();
-                let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
+                let order_claim = Self::prune_claim_journal(ReceiptClaim::ok(
+                    order_image_id,
+                    order_journal.clone(),
+                ));
                 let order_claim_digest = order_claim.digest();
 
                 let fulfillment_data = match req.requirements.predicate.predicateType {
@@ -495,7 +498,10 @@ impl OrderFulfiller {
             .await?
             .ok_or_else(|| anyhow::anyhow!("Assessor receipt not found"))?;
         let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_claim = ReceiptClaim::ok(self.assessor_image_id, assessor_journal.clone());
+        let assessor_claim = Self::prune_claim_journal(ReceiptClaim::ok(
+            self.assessor_image_id,
+            assessor_journal.clone(),
+        ));
         let assessor_receipt_journal: AssessorJournal =
             AssessorJournal::abi_decode(&assessor_journal)?;
 
@@ -583,6 +589,22 @@ impl OrderFulfiller {
         };
 
         Ok((boundless_fills, root_receipt, assessor_receipt))
+    }
+
+    fn prune_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
+        // Avoid pruning the journal in the zkvm to keep proof size small
+        if let MaybePruned::Value(Some(output)) = &mut claim.output {
+            let digest = match &output.journal {
+                MaybePruned::Value(bytes) => Some(*ShaImpl::hash_bytes(bytes)),
+                MaybePruned::Pruned(_) => None,
+            };
+
+            if let Some(digest) = digest {
+                output.journal = MaybePruned::Pruned(digest);
+            }
+        }
+
+        claim
     }
 }
 
