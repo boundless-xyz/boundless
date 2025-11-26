@@ -2066,6 +2066,7 @@ dependencies = [
  "boundless-market",
  "hex",
  "risc0-groth16",
+ "risc0-zkp",
  "risc0-zkvm",
  "serde",
  "serde_json",
