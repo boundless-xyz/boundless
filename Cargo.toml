@@ -26,7 +26,7 @@ members = [
 [workspace.package]
 version = "1.0.0"
 edition = "2021"
-homepage = "https://beboundless.xyz/"
+homepage = "https://boundless.network/"
 repository = "https://github.com/boundless-xyz/boundless/"
 
 [workspace.dependencies]
