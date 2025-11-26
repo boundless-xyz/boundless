@@ -34,7 +34,9 @@ def get_queue_depth(conn) -> int:
 def required_workers(queue_depth: int) -> int:
     """Calculate required workers using log2 rounding up."""
     if queue_depth == 0:
-        return 0
+        return 1
+    if queue_depth == 1:
+        return 1
     return int(math.ceil(math.log2(queue_depth)) * 2)
 
 
