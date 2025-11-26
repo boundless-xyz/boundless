@@ -5,4 +5,4 @@ Core to Boundless is a decentralized proof market. Competitive proving services 
 
 This crate is the SDK for interacting with the Boundless Market.
 
-For more information about using Boundless, see [docs.beboundless.xyz](https://docs.beboundless.xyz).
+For more information about using Boundless, see [docs.boundless.network](https://docs.boundless.network).
