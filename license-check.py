@@ -36,10 +36,12 @@ EXTENSIONS = [
 ]
 
 SKIP_PATHS = [
+    str(Path.cwd()) + "/blake3_groth16/src/seal_to_json.rs",
     # ImageID.sol is automatically generated.
     str(Path.cwd()) + "/contracts/src/SetBuilderImageID.sol",
     str(Path.cwd()) + "/contracts/src/libraries/AssessorImageID.sol",
     str(Path.cwd()) + "/contracts/src/libraries/UtilImageID.sol",
+    str(Path.cwd()) + "/contracts/src/blake3-groth16/Groth16Verifier.sol",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/artifacts",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/bytecode.rs",
     str(Path.cwd()) + "/crates/povw/src/contracts/artifacts",
@@ -48,6 +50,7 @@ SKIP_PATHS = [
 ]
 
 APACHE_PATHS = [
+    str(Path.cwd()) + "/blake3_groth16",
     str(Path.cwd()) + "/contracts/src/HitPoints.sol",
     str(Path.cwd()) + "/contracts/src/IBoundlessMarket.sol",
     str(Path.cwd()) + "/contracts/src/IHitPoints.sol",
@@ -72,6 +75,7 @@ APACHE_PATHS = [
     str(Path.cwd()) + "/examples",
     str(Path.cwd()) + "/crates/lambdas",
     str(Path.cwd()) + "/crates/rewards",
+    str(Path.cwd()) + "/xtask",
 ]
 
 def check_header(file, expected_year, lines_actual):

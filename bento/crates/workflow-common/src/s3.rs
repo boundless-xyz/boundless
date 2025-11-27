@@ -32,8 +32,11 @@ pub const PREFLIGHT_JOURNALS_BUCKET_DIR: &str = "preflight_journals";
 /// Object store stark receipt dir
 pub const STARK_BUCKET_DIR: &str = "stark";
 
-/// Object store receipts groth15 dir
+/// Object store receipts groth16 dir
 pub const GROTH16_BUCKET_DIR: &str = "groth16";
+
+/// Object store receipts blake3_groth16 dir
+pub const BLAKE3_GROTH16_BUCKET_DIR: &str = "blake3_groth16";
 
 /// Object store work receipts dir
 pub const WORK_RECEIPTS_BUCKET_DIR: &str = "work_receipts";

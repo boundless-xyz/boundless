@@ -1436,6 +1436,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "astral-tokio-tar"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec179a06c1769b1e42e1e2cbe74c7dcdb3d6383c838454d063eaac5bbb7ebbe5"
+dependencies = [
+ "filetime",
+ "futures-core",
+ "libc",
+ "portable-atomic",
+ "rustc-hash",
+ "tokio",
+ "tokio-stream",
+ "xattr",
+]
+
+[[package]]
 name = "async-attributes"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1466,6 +1482,19 @@ dependencies = [
  "event-listener-strategy",
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.4.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e86f6d3dc9dc4352edeea6b8e499e13e3f5dc3b964d7ca5fd411415a3498473"
+dependencies = [
+ "compression-codecs",
+ "compression-core",
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -2545,6 +2574,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3888aaa89e4b2a40fca9848e400f6a658a5a3978de7be858e209cafa8be9a4a0"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+]
+
+[[package]]
+name = "blake3_groth16"
+version = "1.2.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "bincode",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
+ "borsh",
+ "boundless-market",
+ "circom-witnesscalc",
+ "guest-util",
+ "hex",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "risc0-groth16",
+ "risc0-groth16-sys",
+ "risc0-zkp",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-log",
+ "tokio",
+ "tracing",
+ "wtns-file",
+]
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2598,6 +2671,18 @@ name = "bonsai-sdk"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21055e2f49cbbdbfe9f8f96d597c5527b0c6ab7933341fdc2f147180e48a988e"
+dependencies = [
+ "duplicate",
+ "maybe-async",
+ "reqwest",
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "bonsai-sdk"
+version = "1.4.1"
+source = "git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2#6ed3f0321638ae7eb9c097b8aa8becba3f4b1350"
 dependencies = [
  "duplicate",
  "maybe-async",
@@ -2687,7 +2772,8 @@ dependencies = [
  "assert_fs",
  "atomicwrites",
  "bincode",
- "bonsai-sdk",
+ "blake3_groth16",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
  "boundless-povw",
@@ -2798,6 +2884,8 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "blake3",
+ "borsh",
  "boundless-test-utils",
  "bytemuck",
  "chrono",
@@ -2811,6 +2899,7 @@ dependencies = [
  "rand 0.9.2",
  "reqwest",
  "risc0-aggregation",
+ "risc0-binfmt",
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
@@ -2942,6 +3031,7 @@ dependencies = [
  "guest-assessor",
  "guest-set-builder",
  "guest-util",
+ "hex",
  "postcard",
  "rand 0.9.2",
  "reqwest",
@@ -2993,7 +3083,8 @@ dependencies = [
  "aws-sdk-s3",
  "aws-smithy-http-client",
  "bincode",
- "bonsai-sdk",
+ "blake3_groth16",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
  "boundless-test-utils",
@@ -3010,6 +3101,8 @@ dependencies = [
  "httpmock",
  "moka",
  "notify",
+ "num-bigint 0.4.6",
+ "num-traits",
  "proptest",
  "proptest-derive",
  "rand 0.9.2",
@@ -3019,6 +3112,7 @@ dependencies = [
  "reqwest-retry",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
+ "risc0-groth16",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -3027,6 +3121,7 @@ dependencies = [
  "sqlx",
  "temp-env",
  "tempfile",
+ "test-log",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
@@ -3441,6 +3536,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "compression-codecs"
+version = "0.4.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "302266479cb963552d11bd042013a58ef1adc56768016c8b82b4199488f2d4ad"
+dependencies = [
+ "compression-core",
+ "liblzma",
+]
+
+[[package]]
+name = "compression-core"
+version = "0.4.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75984efb6ed102a0d42db99afb6c1948f0380d1d91808d5529916e6c08b49d8d"
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3499,6 +3610,12 @@ dependencies = [
  "quote",
  "unicode-xid",
 ]
+
+[[package]]
+name = "constant_time_eq"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
 name = "convert_case"
@@ -8988,7 +9105,7 @@ dependencies = [
  "addr2line 0.24.2",
  "anyhow",
  "bincode",
- "bonsai-sdk",
+ "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "borsh",
  "bytemuck",
  "bytes",
@@ -9043,6 +9160,15 @@ dependencies = [
  "num_enum",
  "paste",
  "stability",
+]
+
+[[package]]
+name = "rlimit"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7043b63bd0cd1aaa628e476b80e6d4023a3b50eb32789f2728908107bd0c793a"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -12211,10 +12337,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "xattr"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
+dependencies = [
+ "libc",
+ "rustix 1.1.2",
+]
+
+[[package]]
 name = "xmlparser"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
+
+[[package]]
+name = "xshell"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e7290c623014758632efe00737145b6867b66292c42167f2ec381eb566a373d"
+dependencies = [
+ "xshell-macros",
+]
+
+[[package]]
+name = "xshell-macros"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
+
+[[package]]
+name = "xtask"
+version = "1.2.0"
+dependencies = [
+ "anyhow",
+ "astral-tokio-tar",
+ "async-compression",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "blake3_groth16",
+ "boundless-market",
+ "clap",
+ "guest-util",
+ "hex",
+ "liblzma",
+ "memmap2 0.9.9",
+ "num_cpus",
+ "regex",
+ "risc0-circuit-recursion",
+ "risc0-groth16-sys",
+ "risc0-zkvm",
+ "rlimit",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+ "xshell",
+]
 
 [[package]]
 name = "xxhash-rust"
