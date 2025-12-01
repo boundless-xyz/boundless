@@ -72,7 +72,7 @@ pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
-pub(crate) mod utils;
+pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]

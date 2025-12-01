@@ -35,15 +35,18 @@ use alloy::{
 };
 use anyhow::{bail, Context, Result};
 use boundless_assessor::{AssessorInput, Fulfillment};
-use broker::provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover};
+use broker::{
+    provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover},
+    utils::prune_receipt_claim_journal,
+};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
 use risc0_ethereum_contracts::encode_seal;
 use risc0_zkvm::{
     compute_image_id,
-    sha::{Digest, Digestible, Impl as ShaImpl, Sha256},
-    MaybePruned, Receipt, ReceiptClaim,
+    sha::{Digest, Digestible},
+    Receipt, ReceiptClaim,
 };
 use std::sync::Arc;
 
@@ -447,7 +450,7 @@ impl OrderFulfiller {
                     .ok_or_else(|| anyhow::anyhow!("Order receipt not found"))?;
 
                 let order_journal = order_receipt.journal.bytes.clone();
-                let order_claim = Self::prune_claim_journal(ReceiptClaim::ok(
+                let order_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
                     order_image_id,
                     order_journal.clone(),
                 ));
@@ -498,7 +501,7 @@ impl OrderFulfiller {
             .await?
             .ok_or_else(|| anyhow::anyhow!("Assessor receipt not found"))?;
         let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_claim = Self::prune_claim_journal(ReceiptClaim::ok(
+        let assessor_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
             self.assessor_image_id,
             assessor_journal.clone(),
         ));
@@ -589,22 +592,6 @@ impl OrderFulfiller {
         };
 
         Ok((boundless_fills, root_receipt, assessor_receipt))
-    }
-
-    fn prune_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
-        // Avoid pruning the journal in the zkvm to keep proof size small
-        if let MaybePruned::Value(Some(output)) = &mut claim.output {
-            let digest = match &output.journal {
-                MaybePruned::Value(bytes) => Some(*ShaImpl::hash_bytes(bytes)),
-                MaybePruned::Pruned(_) => None,
-            };
-
-            if let Some(digest) = digest {
-                output.journal = MaybePruned::Pruned(digest);
-            }
-        }
-
-        claim
     }
 }
 
