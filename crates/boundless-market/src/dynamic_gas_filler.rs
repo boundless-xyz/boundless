@@ -29,10 +29,11 @@ use alloy::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-const DEFAULT_FEE_HISTORY_PERCENTILES: [f64; 1] = [utils::EIP1559_FEE_ESTIMATION_REWARD_PERCENTILE];
-const LOW_PRIORITY_PERCENTILES: [f64; 1] = [10.0];
-const MEDIUM_PRIORITY_PERCENTILES: [f64; 1] = [20.0];
-const HIGH_PRIORITY_PERCENTILES: [f64; 1] = [30.0];
+const DEFAULT_FEE_HISTORY_PERCENTILE: f64 = utils::EIP1559_FEE_ESTIMATION_REWARD_PERCENTILE;
+const DEFAULT_FEE_HISTORY_PERCENTILES: [f64; 1] = [DEFAULT_FEE_HISTORY_PERCENTILE];
+const LOW_PRIORITY_PERCENTILE: f64 = 20.0;
+const MEDIUM_PRIORITY_PERCENTILE: f64 = 30.0;
+const HIGH_PRIORITY_PERCENTILE: f64 = 50.0;
 const DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE: u64 =
     (utils::EIP1559_BASE_FEE_MULTIPLIER as u64) * 100;
 
@@ -41,14 +42,14 @@ const DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE: u64 =
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PriorityMode {
-    /// Use the eth_feeHistory as is and only add `+3%` per pending tx.
+    /// Uses the 20th percentile from eth_feeHistory with a dynamic multiplier of `+3%` per pending transaction.
     Low,
-    /// Add a `+20%` increase to the base/priority fee and `+5%` per pending transaction.
+    /// Uses the 30th percentile from eth_feeHistory with a dynamic multiplier of `+5%` per pending transaction.
     #[default]
     Medium,
-    /// Add a `+30%` increase to the base/priority fee and `+7%` per pending transaction.
+    /// Uses the 50th percentile from eth_feeHistory with a dynamic multiplier of `+7%` per pending transaction.
     High,
-    /// Add a custom static increase to the base/priority fee and `+5%` per pending transaction.
+    /// Uses a custom percentile from eth_feeHistory with a configurable dynamic multiplier per pending transaction.
     Custom {
         /// Multiplier percentage for the base fee component when building EIP-1559 estimates
         /// (e.g. `200` doubles the base fee similar to Alloy defaults).
@@ -60,9 +61,9 @@ pub enum PriorityMode {
             alias = "multiplier_percentage"
         )]
         priority_fee_multiplier_percentage: u64,
-        /// Which percentiles to request via `eth_feeHistory`.
-        #[serde(default = "default_custom_reward_percentiles")]
-        reward_percentiles: Vec<f64>,
+        /// The percentile to request via `eth_feeHistory` for priority fee estimation.
+        #[serde(default = "default_custom_priority_fee_percentile")]
+        priority_fee_percentile: f64,
         /// The incremental percentage applied per pending tx when scaling the final estimate.
         #[serde(default = "default_custom_dynamic_multiplier_percentage")]
         dynamic_multiplier_percentage: u64,
@@ -77,8 +78,8 @@ const fn default_custom_priority_fee_multiplier_percentage() -> u64 {
     100
 }
 
-fn default_custom_reward_percentiles() -> Vec<f64> {
-    DEFAULT_FEE_HISTORY_PERCENTILES.to_vec()
+const fn default_custom_priority_fee_percentile() -> f64 {
+    DEFAULT_FEE_HISTORY_PERCENTILE
 }
 
 const fn default_custom_dynamic_multiplier_percentage() -> u64 {
@@ -92,30 +93,30 @@ impl PriorityMode {
             PriorityMode::Low => PriorityModeConfig {
                 base_fee_multiplier_percentage: DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE,
                 priority_fee_multiplier_percentage: 100,
-                reward_percentiles: LOW_PRIORITY_PERCENTILES.to_vec(),
+                priority_fee_percentile: LOW_PRIORITY_PERCENTILE,
                 dynamic_multiplier_percentage: 3,
             },
             PriorityMode::Medium => PriorityModeConfig {
                 base_fee_multiplier_percentage: DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE,
-                priority_fee_multiplier_percentage: 105,
-                reward_percentiles: MEDIUM_PRIORITY_PERCENTILES.to_vec(),
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: MEDIUM_PRIORITY_PERCENTILE,
                 dynamic_multiplier_percentage: 5,
             },
             PriorityMode::High => PriorityModeConfig {
                 base_fee_multiplier_percentage: 250,
-                priority_fee_multiplier_percentage: 110,
-                reward_percentiles: HIGH_PRIORITY_PERCENTILES.to_vec(),
+                priority_fee_multiplier_percentage: 100,
+                priority_fee_percentile: HIGH_PRIORITY_PERCENTILE,
                 dynamic_multiplier_percentage: 7,
             },
             PriorityMode::Custom {
                 base_fee_multiplier_percentage,
                 priority_fee_multiplier_percentage,
-                reward_percentiles,
+                priority_fee_percentile,
                 dynamic_multiplier_percentage,
             } => PriorityModeConfig {
                 base_fee_multiplier_percentage,
                 priority_fee_multiplier_percentage,
-                reward_percentiles,
+                priority_fee_percentile,
                 dynamic_multiplier_percentage,
             },
         }
@@ -129,8 +130,8 @@ struct PriorityModeConfig {
     base_fee_multiplier_percentage: u64,
     /// Multiplier percentage applied to the priority fee estimate.
     priority_fee_multiplier_percentage: u64,
-    /// Reward percentiles used when fetching fee history.
-    reward_percentiles: Vec<f64>,
+    /// The percentile used when fetching fee history for priority fee estimation.
+    priority_fee_percentile: f64,
     /// The incremental percentage applied to the base fee and priority fee per pending transaction (e.g., 0 = no change, 5 = +5% per pending tx).
     dynamic_multiplier_percentage: u64,
 }
@@ -257,7 +258,7 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
 
         let fee_override_provider = FeeEstimatorProvider::new(
             provider,
-            priority_config.reward_percentiles.as_slice(),
+            priority_config.priority_fee_percentile,
             priority_config.base_fee_multiplier_percentage,
             priority_config.priority_fee_multiplier_percentage,
         );
@@ -320,7 +321,7 @@ impl<N: Network> TxFiller<N> for DynamicGasFiller {
 
 struct FeeEstimatorProvider<'a, P, N> {
     inner: &'a P,
-    reward_percentiles: &'a [f64],
+    priority_fee_percentile: f64,
     base_fee_multiplier_percentage: u64,
     priority_fee_multiplier_percentage: u64,
     _network: std::marker::PhantomData<N>,
@@ -329,13 +330,13 @@ struct FeeEstimatorProvider<'a, P, N> {
 impl<'a, P, N> FeeEstimatorProvider<'a, P, N> {
     fn new(
         inner: &'a P,
-        reward_percentiles: &'a [f64],
+        priority_fee_percentile: f64,
         base_fee_multiplier_percentage: u64,
         priority_fee_multiplier_percentage: u64,
     ) -> Self {
         Self {
             inner,
-            reward_percentiles,
+            priority_fee_percentile,
             base_fee_multiplier_percentage,
             priority_fee_multiplier_percentage,
             _network: std::marker::PhantomData,
@@ -343,10 +344,10 @@ impl<'a, P, N> FeeEstimatorProvider<'a, P, N> {
     }
 
     fn reward_percentiles(&self) -> &[f64] {
-        if self.reward_percentiles.is_empty() {
+        if self.priority_fee_percentile == 0.0 {
             &DEFAULT_FEE_HISTORY_PERCENTILES
         } else {
-            self.reward_percentiles
+            std::slice::from_ref(&self.priority_fee_percentile)
         }
     }
 }

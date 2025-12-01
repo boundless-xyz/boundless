@@ -309,9 +309,9 @@ pub struct MarketConf {
     /// 10 blocks as `max_priority_fee_per_gas` and doubles the current base fee
     /// for `max_fee_per_gas`; `PriorityMode` then scales up that value based on the priority mode.
     /// Defaults to "medium". Use the `custom` variant to explicitly set the base-fee multiplier
-    /// percentage (100 = 1x), priority-fee multiplier percentage, fee-history percentiles, and the
+    /// percentage (100 = 1x), priority-fee multiplier percentage, the fee-history percentile, and the
     /// dynamic multiplier, e.g.:
-    /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, reward_percentiles = [10.0, 25.0], dynamic_multiplier_percentage = 5 } }`.
+    /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
 
@@ -846,7 +846,7 @@ withdraw = true"#;
 mcycle_price = "0.2"
 mcycle_price_collateral_token = "0.2"
 max_stake = "0.1"
-gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, reward_percentiles = [15.0, 30.0], dynamic_multiplier_percentage = 9 } }
+gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 9 } }
 "#;
 
     const BAD_CONFIG: &str = r#"
@@ -904,7 +904,7 @@ error = ?"#;
             PriorityMode::Custom {
                 base_fee_multiplier_percentage: 200,
                 priority_fee_multiplier_percentage: 150,
-                reward_percentiles: vec![15.0, 30.0],
+                priority_fee_percentile: 15.0,
                 dynamic_multiplier_percentage: 9,
             }
         );
