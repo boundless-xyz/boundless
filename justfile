@@ -224,6 +224,14 @@ clean:
     @rm -rf {{LOGS_DIR}} ./broadcast
     cargo clean
     forge clean
+    cd bento && cargo clean
+    cd examples/counter && cargo clean
+    cd examples/composition && cargo clean
+    cd examples/counter-with-callback && cargo clean
+    cd examples/smart-contract-requestor && cargo clean
+    cd crates/guest/assessor && cargo clean
+    cd crates/guest/assessor/assessor-guest && cargo clean
+    cd crates/guest/util && cargo clean
     @echo "Cleanup complete."
 
 # Manage the development network (up or down, defaults to up)

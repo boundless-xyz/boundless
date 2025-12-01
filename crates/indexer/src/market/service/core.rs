@@ -164,6 +164,7 @@ where
         self.fetch_tx_metadata(&logs, from, to).await?;
         tracing::info!("Blocks being processed timestamp range: {} [{}] to {} [{}]", from, self.block_timestamp(from).await?, to, self.block_timestamp(to).await?);
 
+        // Process all events
         // Collect touched requests from each process_* call
         // Parallelize onchain and offchain request submission processing
         let (submitted_events_digests, submitted_offchain_digests) = tokio::try_join!(
@@ -290,7 +291,7 @@ fn find_starting_block(
     current_block: u64,
 ) -> u64 {
     if let Some(last) = last_processed.filter(|&b| b > 0) {
-        tracing::debug!("Using last processed block {} as starting block", last);
+        tracing::info!("Using last processed block {} as starting block", last);
         return last;
     }
 
@@ -303,7 +304,7 @@ fn find_starting_block(
         );
         current_block
     } else {
-        tracing::debug!("Using {} as starting block", from);
+        tracing::info!("Using {} as starting block", from);
         from
     }
 }

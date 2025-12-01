@@ -34,9 +34,13 @@ where
     ) -> crate::db::market::RequestStatus {
         use crate::db::market::RequestStatus;
 
+        // Set overall status
+        // Note: fulfilled events are only emitted if a proof is delivered before overall request timeout.
+        // Fulfilled event is also emitted in the case where lock timesout and the proof is delivered by a secondary prover.
         let request_status = if req.fulfilled_at.is_some() {
             RequestStatusType::Fulfilled
-        } else if current_timestamp > req.expires_at {
+        } else if current_timestamp > req.expires_at || (current_timestamp > req.lock_end && req.locked_at.is_none()) {
+            // Note: if the lock has expired and no-one locked, there is no incentive for a prover to deliver a proof, so we just mark as expired.
             RequestStatusType::Expired
         } else if req.locked_at.is_some() {
             RequestStatusType::Locked
@@ -44,10 +48,11 @@ where
             RequestStatusType::Submitted
         };
 
+        // Set slashed status
         let slashed_status = if req.slashed_at.is_some() {
             SlashedStatus::Slashed
         } else if req.locked_at.is_some()
-            && current_timestamp > req.expires_at
+            && current_timestamp > req.lock_end
             && (req.lock_prover_delivered_proof_at.is_none()
                 || req.lock_prover_delivered_proof_at.unwrap() > req.lock_end)
         {
@@ -56,12 +61,10 @@ where
             SlashedStatus::NotApplicable
         };
 
-        let updated_at = [req.submitted_at, req.locked_at, req.fulfilled_at, req.slashed_at]
-            .iter()
-            .filter_map(|&t| t)
-            .max()
-            .unwrap_or(req.created_at);
+        // Set updated_at field to the current timestamp
+        let updated_at = current_timestamp;
 
+        // Compute lock price and lock price per cycle if request was locked
         let (lock_price, lock_price_per_cycle) = if let Some(locked_at) = req.locked_at {
             let min_price = U256::from_str(&req.min_price).ok();
             let max_price = U256::from_str(&req.max_price).ok();
@@ -97,8 +100,6 @@ where
         } else {
             (None, None)
         };
-
-        tracing::debug!("Computed request status ({}) for request id: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]", request_status.to_string(), req.request_id, req.request_digest, req.submit_block.unwrap_or(0), req.created_at);
 
         RequestStatus {
             request_digest: req.request_digest,
