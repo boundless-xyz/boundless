@@ -5,6 +5,9 @@ import { Image } from '@pulumi/docker-build';
 import { getServiceNameV1, Severity } from '../../util';
 import * as crypto from 'crypto';
 
+const FARGATE_CPU = 512;
+const FARGATE_MEMORY = 512;
+
 interface OrderGeneratorArgs {
   chainId: string;
   stackName: string;
@@ -38,6 +41,12 @@ interface OrderGeneratorArgs {
   lockTimeout?: string;
   timeout?: string;
   execRateKhz?: string;
+  oneShotConfig?: {
+    // Number of requests to submit.
+    count: string;
+    // Schedule expression for the event bridge rule.
+    scheduleExpression: string;
+  };
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -160,8 +169,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
       });
     };
 
-    const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
-
     let ogArgs = [
       `--interval ${args.interval}`,
       `--min ${args.minPricePerMCycle}`,
@@ -204,28 +211,45 @@ export class OrderGenerator extends pulumi.ComponentResource {
     if (args.execRateKhz) {
       ogArgs.push(`--exec-rate-khz ${args.execRateKhz}`);
     }
+    if (args.oneShotConfig) {
+      ogArgs.push(`--count ${args.oneShotConfig.count}`);
+    }
 
-    const service = new awsx.ecs.FargateService(
-      `${serviceName}-service`,
-      {
-        name: serviceName,
-        cluster: cluster.arn,
-        networkConfiguration: {
-          securityGroups: [securityGroup.id],
-          subnets: args.privateSubnetIds,
-        },
-        taskDefinitionArgs: {
-          logGroup: {
-            args: { name: serviceName, retentionInDays: 0 },
-          },
-          executionRole: {
-            roleArn: execRole.arn,
-          },
+    const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
+
+    // Create Fargate definition based on mode
+    let logDependency: pulumi.Resource;
+    if (args.oneShotConfig) {
+      // Scheduled task mode: Create EventBridge rule + FargateTaskDefinition
+      const eventBridgeRole = new aws.iam.Role(`${serviceName}-ev-br-role`, {
+        assumeRolePolicy: JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Action: 'sts:AssumeRole',
+              Principal: { Service: 'events.amazonaws.com' },
+              Effect: 'Allow',
+            },
+          ],
+        }),
+        managedPolicyArns: [
+          aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy,
+          aws.iam.ManagedPolicy.AmazonEC2ContainerServiceEventsRole,
+        ],
+      });
+
+      const rule = new aws.cloudwatch.EventRule(`${serviceName}-schedule-rule`, {
+        scheduleExpression: args.oneShotConfig.scheduleExpression,
+      });
+
+      const fargateTask = new awsx.ecs.FargateTaskDefinition(
+        `${serviceName}-task`,
+        {
           container: {
             name: serviceName,
             image: args.image.ref,
-            cpu: 512,
-            memory: 512,
+            cpu: FARGATE_CPU,
+            memory: FARGATE_MEMORY,
             essential: true,
             entryPoint: ['/bin/sh', '-c'],
             command: [
@@ -234,11 +258,70 @@ export class OrderGenerator extends pulumi.ComponentResource {
             environment,
             secrets,
           },
+          logGroup: {
+            args: { name: serviceName, retentionInDays: 0 },
+          },
+          executionRole: {
+            roleArn: execRole.arn,
+          },
         },
-      },
-      { dependsOn: [execRole, execRolePolicy] }
-    );
+        { dependsOn: [execRole, execRolePolicy] }
+      );
 
+      new aws.cloudwatch.EventTarget(`${serviceName}-task-target`, {
+        rule: rule.name,
+        arn: cluster.arn,
+        roleArn: eventBridgeRole.arn,
+        ecsTarget: {
+          taskDefinitionArn: fargateTask.taskDefinition.arn,
+          launchType: 'FARGATE',
+          networkConfiguration: {
+            securityGroups: [securityGroup.id],
+            subnets: args.privateSubnetIds,
+          },
+        },
+      });
+
+      logDependency = fargateTask;
+    } else {
+      // Service mode: Create FargateService (existing behavior)
+      const service = new awsx.ecs.FargateService(
+        `${serviceName}-service`,
+        {
+          name: serviceName,
+          cluster: cluster.arn,
+          networkConfiguration: {
+            securityGroups: [securityGroup.id],
+            subnets: args.privateSubnetIds,
+          },
+          taskDefinitionArgs: {
+            logGroup: {
+              args: { name: serviceName, retentionInDays: 0 },
+            },
+            executionRole: {
+              roleArn: execRole.arn,
+            },
+            container: {
+              name: serviceName,
+              image: args.image.ref,
+              cpu: FARGATE_CPU,
+              memory: FARGATE_MEMORY,
+              essential: true,
+              entryPoint: ['/bin/sh', '-c'],
+              command: [
+                `/app/boundless-order-generator ${ogArgs.join(' ')}`,
+              ],
+              environment,
+              secrets,
+            },
+          },
+        },
+        { dependsOn: [execRole, execRolePolicy] }
+      );
+      logDependency = service;
+    }
+
+    // Common log metric filters and alarms for both modes
     // Exclude balance errors and transaction confirmation errors which have separate alarms.
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
       name: `${serviceName}-log-err-filter`,
@@ -250,7 +333,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: 'ERROR -"[B-BAL-ETH]" -"[B-OG-CONF]"',
-    }, { dependsOn: [service] });
+    }, { dependsOn: [logDependency] });
 
     // Create a separate metric filter for transaction confirmation errors
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-tx-conf-error-filter`, {
@@ -263,7 +346,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: '"[B-OG-CONF]"',
-    }, { dependsOn: [service] });
+    }, { dependsOn: [logDependency] });
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
       name: `${serviceName}-log-fatal-filter`,
@@ -275,7 +358,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: 'FATAL',
-    }, { dependsOn: [service] });
+    }, { dependsOn: [logDependency] });
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-bal-eth-filter-${Severity.SEV2}`, {
       name: `${serviceName}-log-bal-eth-filter-${Severity.SEV2}`,
@@ -287,7 +370,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: 'WARN "[B-BAL-ETH]"',
-    }, { dependsOn: [service] });
+    }, { dependsOn: [logDependency] });
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-bal-eth-filter-${Severity.SEV1}`, {
       name: `${serviceName}-log-bal-eth-filter-${Severity.SEV1}`,
@@ -299,7 +382,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: 'ERROR "[B-BAL-ETH]"',
-    }, { dependsOn: [service] });
+    }, { dependsOn: [logDependency] });
 
     const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
