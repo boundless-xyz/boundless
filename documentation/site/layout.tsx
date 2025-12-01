@@ -10,7 +10,7 @@ export default function RootLayout({ children }) {
       )}
 
       {/* Custom JS scripts */}
-      <script defer data-domain="docs.beboundless.xyz" src="https://plausible.io/js/script.outbound-links.js" />
+      <script defer data-domain="docs.boundless.network" src="https://plausible.io/js/script.outbound-links.js" />
 
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </>

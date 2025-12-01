@@ -35,6 +35,7 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     maxFileSize: string;
     maxMcycleLimit: string;
     maxConcurrentProofs: number;
+    maxJournalBytes: number;
     balanceWarnThreshold: string;
     balanceErrorThreshold: string;
     collateralBalanceWarnThreshold: string;
@@ -59,15 +60,15 @@ export class ManagerComponent extends BaseComponent {
         // the manager ASG to have a static private IP that the cluster agents can refer to,
         // but limits the ASG instances to 1
         this.managerNetworkInterface = new aws.ec2.NetworkInterface(this.generateName("manager-network-interface"), {
-                subnetId: config.privateSubnetIds[0],
-                description: "Static network interface for boundless-bento manager instance",
-                securityGroups: [config.securityGroupId],
-                tags: {
-                    Name: this.generateTagName("manager"),
-                    Type: "manager",
-                    Environment: this.config.environment,
-                }
+            subnetId: config.privateSubnetIds[0],
+            description: "Static network interface for boundless-bento manager instance",
+            securityGroups: [config.securityGroupId],
+            tags: {
+                Name: this.generateTagName("manager"),
+                Type: "manager",
+                Environment: this.config.environment,
             }
+        }
         )
 
         const launchTemplateConfig: LaunchTemplateConfig = {
@@ -102,7 +103,7 @@ export class ManagerComponent extends BaseComponent {
             ...config,
             serviceName: "bento-manager",
             logGroupName: `/boundless/bento/${config.stackName}/manager`,
-            alarmDimensions: {AutoScalingGroupName: this.managerAsg.autoScalingGroup.name},
+            alarmDimensions: { AutoScalingGroupName: this.managerAsg.autoScalingGroup.name },
             minAsgSize: this.managerAsg.autoScalingGroup.minSize
         });
     }

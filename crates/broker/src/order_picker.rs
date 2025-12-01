@@ -48,8 +48,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
-        RequestInputType,
+        boundless_market::BoundlessMarketService, FulfillmentData, Predicate, PredicateType,
+        RequestError, RequestInputType,
     },
     selector::{is_blake3_groth16_selector, SupportedSelectors},
 };
@@ -788,7 +788,10 @@ where
         // ensure the journal is a size we are willing to submit on-chain
         let max_journal_bytes =
             self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
-        if journal.len() > max_journal_bytes {
+        let order_predicate_type = order.request.requirements.predicate.predicateType;
+        if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)
+            && journal.len() > max_journal_bytes
+        {
             return Ok(Skip {
                 reason: format!(
                     "order journal larger than set limit ({} > {})",

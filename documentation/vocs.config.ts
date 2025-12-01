@@ -335,5 +335,5 @@ export default defineConfig({
     light: "/favicon.svg",
     dark: "/favicon.svg",
   },
-  ogImageUrl: "https://docs.beboundless.xyz/og.png",
+  ogImageUrl: "https://docs.boundless.network/og.png",
 });

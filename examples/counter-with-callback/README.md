@@ -79,7 +79,7 @@ cargo run --bin example-counter-with-callback -- --counter-address ${COUNTER_ADD
 
 > TIP: You can get more detail about what is happening with `RUST_LOG=info,boundless_market=debug`
 
-You can additionally monitor your request on the [Boundless Explorer](https://explorer.beboundless.xyz).
+You can additionally monitor your request on the [Boundless Explorer](https://explorer.boundless.network).
 
 ## Local development
 

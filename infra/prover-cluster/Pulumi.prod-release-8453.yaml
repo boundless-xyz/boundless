@@ -4,9 +4,8 @@ config:
   base:BASE_STACK: organization/bootstrap/services-prod
   base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  prover-cluster:boundlessAmiName: "boundless-v1.0.1-ubuntu-24.04-nvidia-*"
-  prover-cluster:boundlessBentoVersion: "v1.0.1"
-  prover-cluster:boundlessBrokerVersion: "v1.0.0"
+  prover-cluster:boundlessBentoVersion: "v1.1.2"
+  prover-cluster:boundlessBrokerVersion: "v1.1.2"
   prover-cluster:environment: prod
   prover-cluster:chainId: "8453"
   prover-cluster:managerInstanceType: t3a.2xlarge

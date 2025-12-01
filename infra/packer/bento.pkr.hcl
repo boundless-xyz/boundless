@@ -19,12 +19,12 @@ variable "instance_type" {
 
 variable "boundless_bento_version" {
   type    = string
-  default = "v1.0.1"
+  default = "v1.1.2"
 }
 
 variable "boundless_broker_version" {
   type    = string
-  default = "v1.0.0"
+  default = "v1.1.2"
 }
 
 variable "service_account_ids" {
