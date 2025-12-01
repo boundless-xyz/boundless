@@ -118,19 +118,6 @@ async fn main() -> Result<()> {
         tracing::info!("Configuring broker with single RPC URL: {}", args.rpc_url);
         RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone())
     };
-    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
-        watch_address: wallet.default_signer().address(),
-        warn_threshold: config
-            .market
-            .balance_warn_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-        error_threshold: config
-            .market
-            .balance_error_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-    });
 
     // Read config for balance alerts (scope the guard so we can move config_watcher later)
     let balance_alerts_config = {
