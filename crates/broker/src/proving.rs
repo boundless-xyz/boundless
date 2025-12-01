@@ -92,7 +92,7 @@ impl ProvingService {
             .await
             .context("Monitoring proof (stark) failed")?;
 
-        tracing::info!(
+        tracing::debug!(
             "compression_type: {compression_type:?}, snark_proof_id: {snark_proof_id:?}"
         );
         let is_compress = compression_type != CompressionType::None;

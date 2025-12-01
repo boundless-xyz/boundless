@@ -167,14 +167,24 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
                         journal.bytes.len()
                     );
                 }
-                predicate = Some(params.predicate.clone().unwrap_or_else(|| {
-                    let blake3_claim_digest = blake3_groth16::Blake3Groth16ReceiptClaim::ok(
-                        image_id,
-                        journal.bytes.clone(),
-                    )
-                    .digest();
-                    Predicate::claim_digest_match(blake3_claim_digest)
-                }));
+                if let Some(pred) = &predicate {
+                    matches!(pred, Predicate::ClaimDigestMatch(_)).then_some(()).ok_or_else(
+                        || {
+                            anyhow::anyhow!(
+                                "Blake3Groth16 proofs require a ClaimDigestMatch predicate"
+                            )
+                        },
+                    )?;
+                } else {
+                    predicate = Some(params.predicate.clone().unwrap_or_else(|| {
+                        let blake3_claim_digest = blake3_groth16::Blake3Groth16ReceiptClaim::ok(
+                            image_id,
+                            journal.bytes.clone(),
+                        )
+                        .digest();
+                        Predicate::claim_digest_match(blake3_claim_digest)
+                    }));
+                }
             }
         }
 

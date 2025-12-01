@@ -22,7 +22,6 @@ use boundless_market::contracts::bytecode::{
     Blake3Groth16Verifier, RiscZeroGroth16Verifier, RiscZeroMockVerifier, RiscZeroSetVerifier,
     RiscZeroVerifierRouter,
 };
-use hex::FromHex;
 use risc0_aggregation::SetInclusionReceiptVerifierParameters;
 use risc0_circuit_recursion::control_id::{ALLOWED_CONTROL_ROOT, BN254_IDENTITY_CONTROL_ID};
 use risc0_zkvm::sha::{Digest, Digestible};
@@ -152,10 +151,7 @@ pub async fn setup_verifiers<P: Provider + Clone>(
             let control_root = ALLOWED_CONTROL_ROOT;
             let mut bn254_control_id = BN254_IDENTITY_CONTROL_ID;
             bn254_control_id.as_mut_bytes().reverse();
-            let verifier_parameters_digest = Digest::from_hex(
-                "62f049f606e804744f1fac2485677bf7905c82a8174a55a1555532b0fc5b2ab3", // TODO(ec2): fixme
-            )
-            .unwrap();
+            let verifier_parameters_digest = blake3_groth16::verify::verifier_parameters().digest();
             let b3_groth16_verifier = deploy_blake3_groth16_verifier(
                 &deployer_provider,
                 <[u8; 32]>::from(control_root).into(),

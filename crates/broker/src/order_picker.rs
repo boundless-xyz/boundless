@@ -819,7 +819,7 @@ where
         let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
             .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
         let eval_data = if is_blake3_groth16_selector(order.request.requirements.selector) {
-            // These proofs have to have no journal delivery because they cannot be authenticated on chain.
+            // These proofs must have no journal delivery because they cannot be authenticated on chain.
             FulfillmentData::None
         } else {
             FulfillmentData::from_image_id_and_journal(Digest::from_hex(image_id).unwrap(), journal)
