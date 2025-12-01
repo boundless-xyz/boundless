@@ -542,6 +542,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "ascii"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
+
+[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1349,6 +1355,12 @@ dependencies = [
  "serde",
  "windows-link",
 ]
+
+[[package]]
+name = "chunked_transfer"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
 
 [[package]]
 name = "ciborium"
@@ -4215,6 +4227,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus_exporter"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caf17cbebe0bfdf4f279ef84eeefe0d50468b0b7116f078acf41d456e48fe81a"
+dependencies = [
+ "ascii",
+ "lazy_static",
+ "log",
+ "prometheus",
+ "thiserror 1.0.69",
+ "tiny_http",
+]
+
+[[package]]
 name = "proptest"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4648,9 +4674,9 @@ checksum = "3df6368f71f205ff9c33c076d170dd56ebf68e8161c733c0caa07a7a5509ed53"
 
 [[package]]
 name = "risc0-binfmt"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c8f97f81bcdead4101bca06469ecef481a2695cd04e7e877b49dea56a7f6f2a"
+checksum = "9dca096030bb4c52f99b12abcfe3531ea93b17b95a12a5aeb06fbf8ee588a275"
 dependencies = [
  "anyhow",
  "borsh",
@@ -4670,9 +4696,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "3.0.3"
+version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bbb512d728e011d03ce0958ca7954624ee13a215bcafd859623b3c63b2a3f60"
+checksum = "e744682b661f2a022fddffddfe242608f8b194e839d9e83ddbb3378974942241"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -4708,9 +4734,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak"
-version = "4.0.2"
+version = "4.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f195f865ac1afdc21a172d7756fdcc21be18e13eb01d78d3d7f2b128fa881ba"
+checksum = "4e1d23ef3648bb85b0bd37bc9f9f7d13f1a4388e5e779e18f7eea82b969e5dbc"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4746,9 +4772,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "4.0.2"
+version = "4.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dca8f15c8abc0fd8c097aa7459879110334d191c63dd51d4c28881c4a497279e"
+checksum = "028cd26e1b1f7bdd964d2f1eac8f812d1872b6b8fd24f10804f07d916b90000e"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4785,9 +4811,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "4.0.2"
+version = "4.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae1b0689f4a270a2f247b04397ebb431b8f64fe5170e98ee4f9d71bd04825205"
+checksum = "e7ecd73a71ddce62eab8a28552ee182dc2ea08cdce2a3474a616a80bf2d6e9be"
 dependencies = [
  "anyhow",
  "bit-vec",
@@ -4847,9 +4873,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "724285dc79604abfb2d40feaefe3e335420a6b293511661f77d6af62f1f5fae9"
+checksum = "73ff13f9b427254c5264e01aaa32e33f355525299b6829449295905778f3b1e8"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -4902,9 +4928,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkos-v1compat"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "840c2228803557a8b7dc035a8f196516b6fd68c9dc6ac092f0c86241b5b1bafb"
+checksum = "faf1f35f2ef61d8d86fdd06288c11d2f3bbf08f1af66b24ca0a1976ecbf324a1"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
@@ -4913,9 +4939,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkp"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb6bf356f469bb8744f72a07a37134c5812c1d55d6271bba80e87bdb7a58c8e"
+checksum = "beb493b3f007f04a11106a001c66bca77338d0fc375766189fd7ca3a1e8c3700"
 dependencies = [
  "anyhow",
  "blake2",
@@ -4945,9 +4971,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "3.0.3"
+version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fcce11648a9ff60b8e7af2f0ce7fbf8d25275ab6d414cc91b9da69ee75bc978"
+checksum = "c39d9943fe71decea1e8b6a99480cefa33799ab08b5abfccd7e2a18fb07121c1"
 dependencies = [
  "addr2line",
  "anyhow",
@@ -6181,6 +6207,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tiny_http"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5f8734c6d6943ad6df6b588d228a87b4af184998bcffa268ceddf05c2055a8c"
+dependencies = [
+ "ascii",
+ "chunked_transfer",
+ "log",
+ "time",
+ "url",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7168,6 +7207,7 @@ dependencies = [
  "hex",
  "nix",
  "prometheus",
+ "prometheus_exporter",
  "rand 0.8.5",
  "redis",
  "risc0-binfmt",
@@ -7194,8 +7234,10 @@ dependencies = [
  "bincode",
  "lazy_static",
  "prometheus",
+ "prometheus_exporter",
  "risc0-zkvm",
  "serde",
+ "tracing",
 ]
 
 [[package]]

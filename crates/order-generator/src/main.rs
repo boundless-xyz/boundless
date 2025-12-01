@@ -40,7 +40,10 @@ use url::Url;
 struct MainArgs {
     /// URL of the Ethereum RPC endpoint.
     #[clap(short, long, env)]
-    rpc_url: Url,
+    rpc_url: Option<Url>,
+    /// Additional RPC URLs for automatic failover.
+    #[clap(long, env = "RPC_URLS", value_delimiter = ',')]
+    rpc_urls: Option<Vec<Url>>,
     /// Private key used to sign and submit requests.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
@@ -156,8 +159,15 @@ async fn run(args: &MainArgs) -> Result<()> {
         error_threshold: args.error_balance_below,
     };
 
-    let client = Client::builder()
-        .with_rpc_url(args.rpc_url.clone())
+    let mut client = Client::builder();
+    if let Some(rpc_url) = &args.rpc_url {
+        client = client.with_rpc_url(rpc_url.clone());
+    }
+    if let Some(rpc_urls) = &args.rpc_urls {
+        client = client.with_rpc_urls(rpc_urls.clone());
+    }
+
+    let client = client
         .with_storage_provider_config(&args.storage_config)?
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
@@ -386,7 +396,8 @@ mod tests {
         let ctx = create_test_ctx(&anvil).await.unwrap();
 
         let args = MainArgs {
-            rpc_url: anvil.endpoint_url(),
+            rpc_url: Some(anvil.endpoint_url()),
+            rpc_urls: Some(Vec::new()),
             storage_config: StorageProviderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             deployment: Some(ctx.deployment.clone()),

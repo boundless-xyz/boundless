@@ -143,6 +143,7 @@ fn broker_args(
         config_file,
         deployment: Some(deployment),
         rpc_url,
+        rpc_urls: Vec::new(),
         private_key: Some(private_key),
         bento_api_url: None,
         bonsai_api_key,

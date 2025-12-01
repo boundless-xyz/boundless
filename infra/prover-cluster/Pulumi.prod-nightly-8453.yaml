@@ -4,7 +4,6 @@ config:
   base:BASE_STACK: organization/bootstrap/services-prod
   base:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
-  prover-cluster:boundlessAmiName: "boundless-nightly-ubuntu-24.04-nvidia-*"
   prover-cluster:boundlessBentoVersion: "nightly"
   prover-cluster:boundlessBrokerVersion: "nightly"
   prover-cluster:environment: nightly

@@ -54,6 +54,7 @@ const maxCollateral: string = config.get("maxCollateral") || "200";
 const maxFileSize: string = config.get("maxFileSize") || "0";
 const maxMcycleLimit: string = config.get("maxMcycleLimit") || "0";
 const maxConcurrentProofs: number = config.getNumber("maxConcurrentProofs") || 1;
+const maxJournalBytes: number = config.getNumber("maxJournalBytes") || 1000000;
 const balanceWarnThreshold: string = config.get("balanceWarnThreshold") || "0";
 const balanceErrorThreshold: string = config.get("balanceErrorThreshold") || "0";
 const collateralBalanceWarnThreshold: string = config.get("collateralBalanceWarnThreshold") || "0";
@@ -66,7 +67,7 @@ const lockinPriorityGas: string = config.get("lockinPriorityGas") || "0";
 
 // Look up the latest packer-built AMI
 const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
-const boundlessAmiName: string = config.get("boundlessAmiName") || `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
+const boundlessAmiName: string = `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
 const boundlessAmi = aws.ec2.getAmi({
     mostRecent: true,
     owners: ["self", "968153779208"], // Self and Boundless AWS account
@@ -139,6 +140,7 @@ const manager = new ManagerComponent({
     maxFileSize,
     maxMcycleLimit,
     maxConcurrentProofs,
+    maxJournalBytes,
     balanceWarnThreshold,
     balanceErrorThreshold,
     collateralBalanceWarnThreshold,
