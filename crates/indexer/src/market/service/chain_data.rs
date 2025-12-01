@@ -16,7 +16,7 @@ use super::{
     IndexerService, TransactionFetchStrategy, BLOCK_QUERY_SLEEP, GET_BLOCK_BY_NUMBER_CHUNK_SIZE,
     GET_BLOCK_RECEIPTS_CHUNK_SIZE, MARKET_EVENT_SIGNATURES,
 };
-use crate::db::market::TxMetadata;
+use crate::db::market::{IndexerDb, TxMetadata};
 use crate::market::ServiceError;
 use alloy::eips::{BlockId, BlockNumberOrTag};
 use alloy::network::{AnyNetwork, Ethereum};

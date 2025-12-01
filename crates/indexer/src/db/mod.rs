@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod events;
 pub mod market;
 pub mod rewards;
 
 use thiserror::Error;
 
 // Re-export common types from market module for backwards compatibility
-pub use market::{MarketDb, DbObj, IndexerDb, TxMetadata};
+pub use events::EventsDb;
+pub use market::{DbObj, IndexerDb, MarketDb, TxMetadata};
 
 #[derive(Error, Debug)]
 pub enum DbError {

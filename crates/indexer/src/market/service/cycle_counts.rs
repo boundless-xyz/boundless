@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::IndexerService;
-use crate::db::market::CycleCount;
+use crate::db::market::{CycleCount, IndexerDb};
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::{Address, B256, U256};

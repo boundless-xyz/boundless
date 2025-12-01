@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use super::IndexerService;
-use crate::db::market::TxMetadata;
+use crate::db::events::EventsDb;
+use crate::db::market::{IndexerDb, TxMetadata};
 use crate::market::ServiceError;
 use ::boundless_market::contracts::{IBoundlessMarket, RequestId};
 use ::boundless_market::order_stream_client::SortDirection;

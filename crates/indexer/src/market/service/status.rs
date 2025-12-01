@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::IndexerService;
-use crate::db::market::{RequestStatusType, SlashedStatus};
+use crate::db::market::{IndexerDb, RequestStatusType, SlashedStatus};
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::{B256, U256};

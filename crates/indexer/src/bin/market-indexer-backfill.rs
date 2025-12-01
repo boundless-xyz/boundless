@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
+use boundless_indexer::db::IndexerDb;
 use boundless_indexer::market::backfill::{BackfillMode, BackfillService};
 use boundless_indexer::market::service::TransactionFetchStrategy;
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
