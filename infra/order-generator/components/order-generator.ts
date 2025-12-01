@@ -284,7 +284,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
       logDependency = fargateTask;
     } else {
-      // Service mode: Create FargateService (existing behavior)
+      // Service mode, runs indefinitely
       const service = new awsx.ecs.FargateService(
         `${serviceName}-service`,
         {
