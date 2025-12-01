@@ -23,4 +23,8 @@ If using rapidsnark for CPU proving instead of CUDA, you will need to need to ma
 
 ## Proving
 
-The prover looks for an environment variable `BLAKE3_GROTH16_SETUP_DIR` which is the directory in which we output the artifacts from the setup step. The Bento docker contains will also look for this env variable, so before running a prover, make sure to set that environment variable.
+The prover looks for an environment variable `BLAKE3_GROTH16_SETUP_DIR` which is the directory in which we output the artifacts from the setup step. The Bento docker container will also look for this env variable, so before running a prover, make sure to set that environment variable.
+
+## Proving with Bento
+
+If Bento is used, all of these steps will be handled for you.
