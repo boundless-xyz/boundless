@@ -174,7 +174,7 @@ mod tests {
         RequestInput, Requirements,
     };
     use boundless_test_utils::{
-        guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
+        guests::{ECHO_ID, ECHO_PATH},
         market::create_test_ctx,
     };
     use broker::provers::DefaultProver;
