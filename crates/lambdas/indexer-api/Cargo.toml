@@ -19,14 +19,14 @@ path = "src/bin/local-server.rs"
 alloy = { workspace = true, default-features = false }
 anyhow = { workspace = true }
 aws-config = { version = "1.6", features = ["behavior-version-latest"] }
-base64 = "0.22"
-chrono = { workspace = true }
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
+base64 = "0.22"
 
 # Internal dependencies
 boundless-indexer = { path = "../../indexer" }
+chrono = { workspace = true }
 lambda_http = "0.13.0"
 
 # Lambda runtime
