@@ -43,7 +43,12 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub fn new(indexer: IndexerService<P, ANP>, mode: BackfillMode, start_block: u64, end_block: u64) -> Self {
+    pub fn new(
+        indexer: IndexerService<P, ANP>,
+        mode: BackfillMode,
+        start_block: u64,
+        end_block: u64,
+    ) -> Self {
         Self { indexer, mode, start_block, end_block }
     }
 
@@ -288,9 +293,7 @@ where
         let start_hour = get_hour_start(start_ts);
         let end_hour = get_hour_start(end_ts);
 
-        self.indexer
-            .aggregate_hourly_requestor_data_from(start_hour, end_hour)
-            .await
+        self.indexer.aggregate_hourly_requestor_data_from(start_hour, end_hour).await
     }
 
     async fn backfill_daily_requestor_aggregates(
@@ -302,9 +305,7 @@ where
         let start_day = get_day_start(start_ts);
         let end_day = get_day_start(end_ts);
 
-        self.indexer
-            .aggregate_daily_requestor_data_from(start_day, end_day)
-            .await
+        self.indexer.aggregate_daily_requestor_data_from(start_day, end_day).await
     }
 
     async fn backfill_weekly_requestor_aggregates(
@@ -316,9 +317,7 @@ where
         let start_week = get_week_start(start_ts);
         let end_week = get_week_start(end_ts);
 
-        self.indexer
-            .aggregate_weekly_requestor_data_from(start_week, end_week)
-            .await
+        self.indexer.aggregate_weekly_requestor_data_from(start_week, end_week).await
     }
 
     async fn backfill_monthly_requestor_aggregates(
@@ -330,9 +329,7 @@ where
         let start_month = get_month_start(start_ts);
         let end_month = get_month_start(end_ts);
 
-        self.indexer
-            .aggregate_monthly_requestor_data_from(start_month, end_month)
-            .await
+        self.indexer.aggregate_monthly_requestor_data_from(start_month, end_month).await
     }
 
     async fn backfill_all_time_requestor_aggregates(
@@ -344,8 +341,6 @@ where
         let start_hour = get_hour_start(start_ts);
         let end_hour = get_hour_start(end_ts);
 
-        self.indexer
-            .aggregate_all_time_requestor_data_from(start_hour, end_hour)
-            .await
+        self.indexer.aggregate_all_time_requestor_data_from(start_hour, end_hour).await
     }
 }

@@ -17,4 +17,3 @@ mod requestors;
 
 // Re-export the helper function used by backfill service
 pub use market::sum_hourly_aggregates_into_base;
-

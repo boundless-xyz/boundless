@@ -91,11 +91,7 @@ where
             )));
         }
 
-        tracing::debug!(
-            "Aggregating hours from {} to {}",
-            from_time,
-            to_time
-        );
+        tracing::debug!("Aggregating hours from {} to {}", from_time, to_time);
 
         // Process each hour using shared iteration helper
         // Always write an entry for each hour, even if there's no activity (creates zero-value entry)
@@ -160,11 +156,7 @@ where
             )));
         }
 
-        tracing::debug!(
-            "Aggregating days from {} to {}",
-            from_time,
-            to_time
-        );
+        tracing::debug!("Aggregating days from {} to {}", from_time, to_time);
 
         // Process each day using shared iteration helper
         // Always write an entry for each day, even if there's no activity (creates zero-value entry)
@@ -229,11 +221,7 @@ where
             )));
         }
 
-        tracing::debug!(
-            "Aggregating weeks from {} to {}",
-            from_time,
-            to_time
-        );
+        tracing::debug!("Aggregating weeks from {} to {}", from_time, to_time);
 
         // Process each week using shared iteration helper
         // Always write an entry for each week, even if there's no activity (creates zero-value entry)
@@ -309,11 +297,7 @@ where
             )));
         }
 
-        tracing::debug!(
-            "Aggregating months from {} to {}",
-            from_time,
-            to_time
-        );
+        tracing::debug!("Aggregating months from {} to {}", from_time, to_time);
 
         // Process each month using shared iteration helper
         // Always write an entry for each month, even if there's no activity (creates zero-value entry)
@@ -777,4 +761,3 @@ where
         Ok(())
     }
 }
-

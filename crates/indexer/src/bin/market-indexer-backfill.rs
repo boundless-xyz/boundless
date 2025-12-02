@@ -136,9 +136,15 @@ async fn main() -> Result<()> {
         }
     };
 
-    tracing::info!("Starting backfill with mode: {:?}, start_block: {}, end_block: {}", mode, args.start_block, end_block);
+    tracing::info!(
+        "Starting backfill with mode: {:?}, start_block: {}, end_block: {}",
+        mode,
+        args.start_block,
+        end_block
+    );
 
-    let mut backfill_service = BackfillService::new(indexer_service, mode, args.start_block, end_block);
+    let mut backfill_service =
+        BackfillService::new(indexer_service, mode, args.start_block, end_block);
 
     if let Err(err) = backfill_service.run().await {
         bail!("FATAL: Error running backfill: {err}");

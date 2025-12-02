@@ -194,10 +194,7 @@ where
         // or if one of their requests expired, etc.
         let requestors = self
             .db
-            .get_active_requestor_addresses_in_period(
-                from_time,
-                to_time + SECONDS_PER_DAY,
-            )
+            .get_active_requestor_addresses_in_period(from_time, to_time + SECONDS_PER_DAY)
             .await?;
 
         tracing::debug!(
@@ -289,10 +286,7 @@ where
         // or if one of their requests expired, etc.
         let requestors = self
             .db
-            .get_active_requestor_addresses_in_period(
-                from_time,
-                to_time + SECONDS_PER_WEEK,
-            )
+            .get_active_requestor_addresses_in_period(from_time, to_time + SECONDS_PER_WEEK)
             .await?;
 
         tracing::debug!(
@@ -310,9 +304,7 @@ where
                 .map(|requestor| {
                     let service = self;
                     async move {
-                        for (week_ts, week_end) in
-                            iter_weekly_periods(from_time, to_time)
-                        {
+                        for (week_ts, week_end) in iter_weekly_periods(from_time, to_time) {
                             let summary = service
                                 .compute_period_requestor_summary(week_ts, week_end, requestor)
                                 .await?;
@@ -407,7 +399,8 @@ where
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
         // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
         // or if one of their requests expired, etc.
-        let requestors = self.db.get_active_requestor_addresses_in_period(from_time, next_month).await?;
+        let requestors =
+            self.db.get_active_requestor_addresses_in_period(from_time, next_month).await?;
 
         tracing::debug!(
             "Processing {} requestors in month range {} to {}",
@@ -424,9 +417,7 @@ where
                 .map(|requestor| {
                     let service = self;
                     async move {
-                        for (month_ts, month_end) in
-                            iter_monthly_periods(from_time, to_time)
-                        {
+                        for (month_ts, month_end) in iter_monthly_periods(from_time, to_time) {
                             let summary = service
                                 .compute_period_requestor_summary(month_ts, month_end, requestor)
                                 .await?;
@@ -889,4 +880,3 @@ where
         })
     }
 }
-
