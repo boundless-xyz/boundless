@@ -223,6 +223,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn new_with_order_stream(
         rpc_url: Url,
         logs_rpc_url: Url,

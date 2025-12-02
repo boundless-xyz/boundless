@@ -389,7 +389,7 @@ where
             .db
             .get_earliest_hourly_summary_timestamp()
             .await?
-            .map(|ts| get_hour_start(ts))
+            .map(get_hour_start)
             .unwrap_or(start_hour);
 
         // Fetch ALL hourly summaries once (from earliest to end)

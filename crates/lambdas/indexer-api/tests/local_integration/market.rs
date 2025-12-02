@@ -15,7 +15,7 @@ async fn test_market_requests_list() {
     let response: RequestListResponse = env.get("/v1/market/requests?limit=20").await.unwrap();
 
     tracing::info!(target: "market-requests-list", "response: {:?}", response);
-    assert!(response.data.len() > 0 && response.data.len() <= 20);
+    assert!(!response.data.is_empty() && response.data.len() <= 20);
 
     // Verify request structure and all fields
     if !response.data.is_empty() {
@@ -666,7 +666,7 @@ async fn test_market_aggregates_monthly() {
             let gap = (prev_ts - curr_ts).abs();
             let days = gap / 86400;
             assert!(
-                days >= 28 && days <= 31,
+                (28..=31).contains(&days),
                 "Monthly aggregates should have approximately 1 month (28-31 days) gap between consecutive entries. Found gap: {} days ({}s) between {} and {}",
                 days, gap, prev_ts, curr_ts
             );
@@ -682,7 +682,7 @@ async fn test_market_requests_pagination() {
     // Get first page
     let page1: RequestListResponse = env.get("/v1/market/requests?limit=2").await.unwrap();
 
-    assert!(page1.data.len() > 0 && page1.data.len() <= 5);
+    assert!(!page1.data.is_empty() && page1.data.len() <= 5);
 
     // If there's a cursor, test pagination
     if let Some(cursor) = &page1.next_cursor {

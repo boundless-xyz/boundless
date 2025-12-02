@@ -176,7 +176,7 @@ impl CacheStorage for S3CacheStorage {
         let s3_key = self.logs_key(&cache_key);
 
         tracing::debug!("Getting cached logs from S3 bucket: {} key: {}", self.bucket, s3_key);
-        let data = match self.get_object(&s3_key).await.map_err(S3CacheStorageError::from)? {
+        let data = match self.get_object(&s3_key).await? {
             Some(data) => data,
             None => return Ok(None),
         };
@@ -202,7 +202,7 @@ impl CacheStorage for S3CacheStorage {
             .map_err(|e| CacheStorageError::from(S3CacheStorageError::from(e)))?;
         self.put_object(&s3_key, data)
             .await
-            .map_err(|e| CacheStorageError::from(S3CacheStorageError::from(e)))?;
+            .map_err(CacheStorageError::from)?;
 
         tracing::debug!("Cached {} logs to S3 bucket: {} key: {}", logs.len(), self.bucket, s3_key);
         Ok(())
@@ -223,7 +223,7 @@ impl CacheStorage for S3CacheStorage {
             self.bucket,
             s3_key
         );
-        let data = match self.get_object(&s3_key).await.map_err(S3CacheStorageError::from)? {
+        let data = match self.get_object(&s3_key).await? {
             Some(data) => data,
             None => return Ok(None),
         };
@@ -268,7 +268,7 @@ impl CacheStorage for S3CacheStorage {
             .map_err(|e| CacheStorageError::from(S3CacheStorageError::from(e)))?;
         self.put_object(&s3_key, data)
             .await
-            .map_err(|e| CacheStorageError::from(S3CacheStorageError::from(e)))?;
+            .map_err(CacheStorageError::from)?;
 
         tracing::debug!(
             "Cached {} tx metadata entries to S3 bucket: {} key: {}",

@@ -234,7 +234,7 @@ mod tests {
         let cycles = compute_cycle_counts(SIGNAL_REQUESTOR, "Inline", "0x1234");
         assert!(cycles.is_some(), "SIGNAL_REQUESTOR should return cycle counts");
         let (program_cycles, total_cycles) = cycles.unwrap();
-        let program_cycles_u64 = program_cycles.to::<u64>();
+        let _program_cycles_u64 = program_cycles.to::<u64>();
         assert!(
             (SIGNAL_REQUESTOR_MIN_CYCLES..=SIGNAL_REQUESTOR_MAX_CYCLES)
                 .contains(&program_cycles.to::<u64>()),

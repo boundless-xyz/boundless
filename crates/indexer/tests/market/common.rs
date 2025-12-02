@@ -104,6 +104,7 @@ impl IndexerCliBuilder {
         }
     }
 
+    #[allow(dead_code)]
     pub fn interval(mut self, interval: &str) -> Self {
         self.interval = interval.to_string();
         self
@@ -221,6 +222,7 @@ pub async fn create_order(
 }
 
 /// Helper to create an order with custom timeouts
+#[allow(clippy::too_many_arguments)]
 pub async fn create_order_with_timeouts(
     signer: &impl Signer,
     signer_addr: Address,
@@ -594,6 +596,7 @@ pub async fn verify_request_in_table(pool: &AnyPool, request_id: &str, table_nam
 }
 
 /// Get lock collateral for a request
+#[allow(dead_code)]
 pub async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
     let row = sqlx::query("SELECT lock_collateral FROM request_status WHERE request_id = $1")
         .bind(request_id)

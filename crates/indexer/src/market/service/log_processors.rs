@@ -230,7 +230,7 @@ where
                 Some(after_timestamp),
             )
             .await
-            .map_err(|e| ServiceError::Error(e))?;
+            .map_err(ServiceError::Error)?;
 
             if response.orders.is_empty() {
                 break;

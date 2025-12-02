@@ -314,12 +314,12 @@ impl OrderDb {
             conditions.push(cond);
         }
 
-        if let Some(_) = after {
+        if after.is_some() {
             bind_count += 1;
             conditions.push(format!("created_at > ${}", bind_count));
         }
 
-        if let Some(_) = before {
+        if before.is_some() {
             bind_count += 1;
             conditions.push(format!("created_at < ${}", bind_count));
         }

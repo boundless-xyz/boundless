@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(clippy::zombie_processes)]
+
 mod common;
 
 use std::str::FromStr;
@@ -21,11 +23,11 @@ use alloy::{
     providers::{ext::AnvilApi, Provider},
     rpc::types::BlockNumberOrTag,
 };
-use boundless_cli::{DefaultProver, OrderFulfilled};
+use boundless_cli::OrderFulfilled;
 use boundless_indexer::{
     db::{
         market::{RequestStatusType, SlashedStatus, SortDirection},
-        DbError, IndexerDb, RequestorDb,
+        IndexerDb, RequestorDb,
     },
     test_utils::TestDb,
 };
@@ -34,8 +36,7 @@ use boundless_market::contracts::{
     Requirements,
 };
 use boundless_test_utils::{
-    guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
-    market::{create_test_ctx, TestCtx},
+    guests::{ECHO_ID, ECHO_PATH},
 };
 use sqlx::{AnyPool, Row};
 use tracing_test::traced_test;
@@ -402,7 +403,7 @@ async fn test_aggregation_across_hours() {
     .unwrap();
 
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
-    let one_eth = parse_ether("1").unwrap().into();
+    let one_eth = parse_ether("1").unwrap();
 
     // Create and fulfill first order with cycle counts
     let request1 = ProofRequest::new(
@@ -513,7 +514,7 @@ async fn test_aggregation_across_hours() {
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
-    let now3 = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let _now3 = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     advance_time_and_mine(&fixture.ctx.customer_provider, 3700, 1).await.unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
@@ -1327,6 +1328,7 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
 
 // Helper struct for request status data
 #[derive(Debug)]
+#[allow(dead_code)]
 struct RequestStatusRow {
     request_digest: String,
     request_id: String,
@@ -1633,7 +1635,6 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
     assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
     assert!(status.fulfilled_at.is_some());
-    tracing::info!("Request status: {:?}", status);
 
     // Verify this is a secondary fulfillment (fulfilled after lock_end but before expires_at)
     let fulfilled_at = status.fulfilled_at.unwrap();
@@ -1667,10 +1668,12 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
         .get_hourly_requestor_summaries_by_range(
             requestor_address,
             current_block_timestamp.saturating_sub(7200), // Start from 2 hours before
-            current_block_timestamp + 3600,               // End 1 hour after
+            current_block_timestamp + 36000,               // End 1 hour after
         )
         .await
         .unwrap();
+
+    tracing::info!("Requestor summaries: {:?}", requestor_summaries);
 
     let total_requestor_secondary_fulfillments: u64 =
         requestor_summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
@@ -1735,7 +1738,7 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     .unwrap();
 
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
-    let one_eth = parse_ether("1").unwrap().into();
+    let one_eth = parse_ether("1").unwrap();
 
     // Create and fulfill first request with minimal collateral (0 to simplify test)
     let request1 = ProofRequest::new(
@@ -2013,8 +2016,7 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
         tracing::info!("✓ First activity hour has correct cumulative values: 1 submitted, 1 locked, 1 fulfilled, 0 collateral");
 
         // Verify carry-forward during gap - values should stay at first request totals
-        for gap_idx in (first_all_time_idx + 1)..second_all_time_idx {
-            let gap_summary = &all_time_summaries[gap_idx];
+        for gap_summary in all_time_summaries.iter().take(second_all_time_idx).skip(first_all_time_idx + 1) {
 
             // During no-activity periods, cumulative values should stay exactly at first request values
             assert_eq!(gap_summary.total_fulfilled, 1,

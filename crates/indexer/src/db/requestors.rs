@@ -1215,6 +1215,7 @@ async fn get_requestor_summaries_by_range_generic(
     Ok(summaries)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn get_requestor_summaries_generic(
     pool: &sqlx::AnyPool,
     requestor_address: Address,
@@ -2873,7 +2874,7 @@ mod tests {
             .unwrap();
         assert_eq!(results2.len(), 2);
         assert_eq!(results2[0].period_timestamp, base_ts + (2 * hour_seconds));
-        assert_eq!(results2[1].period_timestamp, base_ts + (1 * hour_seconds));
+        assert_eq!(results2[1].period_timestamp, base_ts + hour_seconds);
 
         // Test ASC order (oldest first)
         let results_asc = db

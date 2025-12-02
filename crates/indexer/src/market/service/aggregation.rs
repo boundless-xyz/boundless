@@ -550,59 +550,56 @@ where
         };
 
         // Find the earliest hourly summary from our query - this is our starting point
-        let earliest_hourly_summary = hourly_summaries.first();
+        let _earliest_hourly_summary = hourly_summaries.first();
 
         // Get the all-time aggregate for the hour just before actual_start_hour
         // If it doesn't exist, initialize with zeros (first run)
         let base_timestamp = actual_start_hour.saturating_sub(SECONDS_PER_HOUR);
 
-        let mut cumulative_summary = match self
-            .db
-            .get_all_time_market_summary_by_timestamp(base_timestamp)
-            .await?
-        {
-            Some(prev) => {
-                tracing::debug!(
-                    "Found existing all-time aggregate at timestamp {}",
-                    base_timestamp
-                );
-                prev
-            }
-            None => {
-                // No previous aggregate exists - this is the first run, initialize with zeros
-                tracing::debug!(
+        let mut cumulative_summary =
+            match self.db.get_all_time_market_summary_by_timestamp(base_timestamp).await? {
+                Some(prev) => {
+                    tracing::debug!(
+                        "Found existing all-time aggregate at timestamp {}",
+                        base_timestamp
+                    );
+                    prev
+                }
+                None => {
+                    // No previous aggregate exists - this is the first run, initialize with zeros
+                    tracing::debug!(
                     "No previous all-time aggregate found, initializing with zeros at timestamp {}",
                     base_timestamp
                 );
-                AllTimeMarketSummary {
-                    period_timestamp: base_timestamp,
-                    total_fulfilled: 0,
-                    unique_provers_locking_requests: 0,
-                    unique_requesters_submitting_requests: 0,
-                    total_fees_locked: U256::ZERO,
-                    total_collateral_locked: U256::ZERO,
-                    total_locked_and_expired_collateral: U256::ZERO,
-                    total_requests_submitted: 0,
-                    total_requests_submitted_onchain: 0,
-                    total_requests_submitted_offchain: 0,
-                    total_requests_locked: 0,
-                    total_requests_slashed: 0,
-                    total_expired: 0,
-                    total_locked_and_expired: 0,
-                    total_locked_and_fulfilled: 0,
-                    total_secondary_fulfillments: 0,
-                    locked_orders_fulfillment_rate: 0.0,
-                    total_program_cycles: U256::ZERO,
-                    total_cycles: U256::ZERO,
-                    best_peak_prove_mhz: 0,
-                    best_peak_prove_mhz_prover: None,
-                    best_peak_prove_mhz_request_id: None,
-                    best_effective_prove_mhz: 0,
-                    best_effective_prove_mhz_prover: None,
-                    best_effective_prove_mhz_request_id: None,
+                    AllTimeMarketSummary {
+                        period_timestamp: base_timestamp,
+                        total_fulfilled: 0,
+                        unique_provers_locking_requests: 0,
+                        unique_requesters_submitting_requests: 0,
+                        total_fees_locked: U256::ZERO,
+                        total_collateral_locked: U256::ZERO,
+                        total_locked_and_expired_collateral: U256::ZERO,
+                        total_requests_submitted: 0,
+                        total_requests_submitted_onchain: 0,
+                        total_requests_submitted_offchain: 0,
+                        total_requests_locked: 0,
+                        total_requests_slashed: 0,
+                        total_expired: 0,
+                        total_locked_and_expired: 0,
+                        total_locked_and_fulfilled: 0,
+                        total_secondary_fulfillments: 0,
+                        locked_orders_fulfillment_rate: 0.0,
+                        total_program_cycles: U256::ZERO,
+                        total_cycles: U256::ZERO,
+                        best_peak_prove_mhz: 0,
+                        best_peak_prove_mhz_prover: None,
+                        best_peak_prove_mhz_request_id: None,
+                        best_effective_prove_mhz: 0,
+                        best_effective_prove_mhz_prover: None,
+                        best_effective_prove_mhz_request_id: None,
+                    }
                 }
-            }
-        };
+            };
 
         // Iteratively build up all-time aggregates from actual_start_hour (which may be extended to cover gaps)
         // Process each hour in the range, building cumulative all-time aggregates
@@ -619,7 +616,7 @@ where
             // If a hourly summary exists for this hour, add its data to the cumulative
             if let Some(summary) = hour_summary {
                 // Add this hour's data to the cumulative summary
-                sum_hourly_aggregates_into_base(&mut cumulative_summary, &[summary.clone()]);
+                sum_hourly_aggregates_into_base(&mut cumulative_summary, std::slice::from_ref(summary));
             } else {
                 // No activity this hour - cumulative values stay the same, but we still
                 // need to save an all-time entry for this hour to maintain the cumulative chain
@@ -692,10 +689,7 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(hour_ts, hour_end, requestor)
                                 .await?;
-                            // Only insert if there's activity
-                            if summary.total_requests_submitted > 0 {
-                                service.db.upsert_hourly_requestor_summary(summary).await?;
-                            }
+                            service.db.upsert_hourly_requestor_summary(summary).await?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -755,9 +749,7 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(day_ts, day_end, requestor)
                                 .await?;
-                            if summary.total_requests_submitted > 0 {
-                                service.db.upsert_daily_requestor_summary(summary).await?;
-                            }
+                            service.db.upsert_daily_requestor_summary(summary).await?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -819,9 +811,7 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(week_ts, week_end, requestor)
                                 .await?;
-                            if summary.total_requests_submitted > 0 {
-                                service.db.upsert_weekly_requestor_summary(summary).await?;
-                            }
+                            service.db.upsert_weekly_requestor_summary(summary).await?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -836,6 +826,7 @@ where
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) async fn aggregate_monthly_requestor_data(
         &self,
         to_block: u64,
@@ -898,9 +889,7 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(month_ts, month_end, requestor)
                                 .await?;
-                            if summary.total_requests_submitted > 0 {
-                                service.db.upsert_monthly_requestor_summary(summary).await?;
-                            }
+                            service.db.upsert_monthly_requestor_summary(summary).await?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -971,7 +960,6 @@ where
                         } else {
                             start_hour
                         };
-                        
                         // Get all hourly summaries for this requestor
                         let hourly_summaries = service.db
                             .get_hourly_requestor_summaries_by_range(requestor, actual_start_hour, current_hour + 1)
