@@ -16,5 +16,9 @@ config:
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "30570944"
   indexer:ETH_RPC_URL:
-    secure: v1:RFcJD0WzJqADwtNQ:WDZbPzWwF77M0F5+VH7Tv0gKKVlGKUZhW4TJMeH9SskNSEgtn+f6Qwm85z4Dlx/5KOxYzIgDTfR7Kz7KFPQ9p18EFFhGedEfEZ3z
+    secure: v1:/yk3EyDn/zeBKeYt:yVddQoJCdKkAFHjUoED031293aH68HP/2vMDJlCKYBC4wmRz5TewrMgcVOOzUnv+xVz/nBDSDlJ8uv2VzZmQEFL9B5VHj8NBXMLYgQLa87IM6W0PpZorDI1GX1nGXS2tHLzcGHy4zkDm0rS+BRZF
   indexer:ORDER_STREAM_URL: https://base-sepolia.boundless.network
+  indexer:LOGS_ETH_RPC_URL:
+    secure: v1:/0rPNdjL1Pd1G+Ul:ZQjYsnr5r3dbvZnQRJ8BQRK8zYyDODOEjIlo6KwWiMe7byTgNA1UfUYpZof/pUSJCR0ccA9epyfKO02q2tk+097V/PyJI8GaxWTn
+  indexer:ORDER_STREAM_API_KEY:
+    secure: v1:m6WPylUvKKtSfmSv:8U9kK/h04l4lR7BCP2oi0ylQ1jMtIXVYAo/xl3q2
