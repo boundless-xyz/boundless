@@ -30,6 +30,7 @@ use ::boundless_market::contracts::pricing::price_at_time;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::Address;
 use alloy::providers::Provider;
+use anyhow::anyhow;
 use futures_util::future::try_join_all;
 use std::str::FromStr;
 
@@ -50,7 +51,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
         let current_time = self.block_timestamp(to_block).await?;
 
         tracing::debug!(
@@ -64,20 +64,52 @@ where
         let start_hour = get_hour_start(hours_ago);
         let current_hour = get_hour_start(current_time);
 
+        self.aggregate_hourly_requestor_data_from(start_hour, current_hour).await
+    }
+
+    pub(crate) async fn aggregate_hourly_requestor_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (hour starts for hourly aggregation)
+        let expected_from = get_hour_start(from_time);
+        let expected_to = get_hour_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow!(
+                "Time boundaries must be aligned to hour starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         // To know which requestors to process, we need to get the active requestors in the period.
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
         // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
         // or if one of their requests expired, etc.
         let requestors = self
             .db
-            .get_active_requestor_addresses_in_period(start_hour, current_hour + SECONDS_PER_HOUR)
+            .get_active_requestor_addresses_in_period(from_time, to_time + SECONDS_PER_HOUR)
             .await?;
 
         tracing::debug!(
-            "Found {} active requestors in hour range {} to {}",
+            "Processing {} requestors in hour range {} to {}",
             requestors.len(),
-            start_hour,
-            current_hour
+            from_time,
+            to_time
         );
 
         // Process requestors in chunks in parallel
@@ -88,7 +120,7 @@ where
                 .map(|requestor| {
                     let service = self;
                     async move {
-                        for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
+                        for (hour_ts, hour_end) in iter_hourly_periods(from_time, to_time) {
                             let summary = service
                                 .compute_period_requestor_summary(hour_ts, hour_end, requestor)
                                 .await?;
@@ -103,7 +135,7 @@ where
             try_join_all(requestor_futures).await?;
         }
 
-        tracing::info!("aggregate_hourly_requestor_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_hourly_requestor_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -111,7 +143,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
         let current_time = self.block_timestamp(to_block).await?;
 
         tracing::debug!(
@@ -125,6 +156,38 @@ where
         let start_day = current_day_start
             .saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
 
+        self.aggregate_daily_requestor_data_from(start_day, current_day_start).await
+    }
+
+    pub(crate) async fn aggregate_daily_requestor_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (day starts for daily aggregation)
+        let expected_from = get_day_start(from_time);
+        let expected_to = get_day_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow!(
+                "Time boundaries must be aligned to day starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         // To know which requestors to process, we need to get the active requestors in the period.
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
         // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
@@ -132,16 +195,16 @@ where
         let requestors = self
             .db
             .get_active_requestor_addresses_in_period(
-                start_day,
-                current_day_start + SECONDS_PER_DAY,
+                from_time,
+                to_time + SECONDS_PER_DAY,
             )
             .await?;
 
         tracing::debug!(
-            "Found {} active requestors in day range {} to {}",
+            "Processing {} requestors in day range {} to {}",
             requestors.len(),
-            start_day,
-            current_day_start
+            from_time,
+            to_time
         );
 
         // Process requestors in chunks in parallel
@@ -152,7 +215,7 @@ where
                 .map(|requestor| {
                     let service = self;
                     async move {
-                        for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
+                        for (day_ts, day_end) in iter_daily_periods(from_time, to_time) {
                             let summary = service
                                 .compute_period_requestor_summary(day_ts, day_end, requestor)
                                 .await?;
@@ -167,7 +230,7 @@ where
             try_join_all(requestor_futures).await?;
         }
 
-        tracing::info!("aggregate_daily_requestor_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_daily_requestor_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -175,7 +238,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
         let current_time = self.block_timestamp(to_block).await?;
 
         tracing::debug!(
@@ -189,6 +251,38 @@ where
         let start_week = current_week_start
             .saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
 
+        self.aggregate_weekly_requestor_data_from(start_week, current_week_start).await
+    }
+
+    pub(crate) async fn aggregate_weekly_requestor_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (week starts for weekly aggregation)
+        let expected_from = get_week_start(from_time);
+        let expected_to = get_week_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow!(
+                "Time boundaries must be aligned to week starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         // To know which requestors to process, we need to get the active requestors in the period.
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
         // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
@@ -196,16 +290,16 @@ where
         let requestors = self
             .db
             .get_active_requestor_addresses_in_period(
-                start_week,
-                current_week_start + SECONDS_PER_WEEK,
+                from_time,
+                to_time + SECONDS_PER_WEEK,
             )
             .await?;
 
         tracing::debug!(
-            "Found {} active requestors in week range {} to {}",
+            "Processing {} requestors in week range {} to {}",
             requestors.len(),
-            start_week,
-            current_week_start
+            from_time,
+            to_time
         );
 
         // Process requestors in chunks in parallel
@@ -217,7 +311,7 @@ where
                     let service = self;
                     async move {
                         for (week_ts, week_end) in
-                            iter_weekly_periods(start_week, current_week_start)
+                            iter_weekly_periods(from_time, to_time)
                         {
                             let summary = service
                                 .compute_period_requestor_summary(week_ts, week_end, requestor)
@@ -233,7 +327,7 @@ where
             try_join_all(requestor_futures).await?;
         }
 
-        tracing::info!("aggregate_weekly_requestor_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_weekly_requestor_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -242,7 +336,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
         let current_time = self.block_timestamp(to_block).await?;
 
         tracing::debug!(
@@ -266,8 +359,42 @@ where
             start_month = prev_month.timestamp() as u64;
         }
 
+        self.aggregate_monthly_requestor_data_from(start_month, current_month_start).await
+    }
+
+    pub(crate) async fn aggregate_monthly_requestor_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (month starts for monthly aggregation)
+        let expected_from = get_month_start(from_time);
+        let expected_to = get_month_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow!(
+                "Time boundaries must be aligned to month starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
+        // Compute the next month after to_time for getting active requestors
+        use chrono::{Datelike, TimeZone, Utc};
         let next_month = {
-            let dt = Utc.timestamp_opt(current_month_start as i64, 0).unwrap();
+            let dt = Utc.timestamp_opt(to_time as i64, 0).unwrap();
             let next = if dt.month() == 12 {
                 Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).unwrap()
             } else {
@@ -280,14 +407,13 @@ where
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
         // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
         // or if one of their requests expired, etc.
-        let requestors =
-            self.db.get_active_requestor_addresses_in_period(start_month, next_month).await?;
+        let requestors = self.db.get_active_requestor_addresses_in_period(from_time, next_month).await?;
 
         tracing::debug!(
-            "Found {} active requestors in month range {} to {}",
+            "Processing {} requestors in month range {} to {}",
             requestors.len(),
-            start_month,
-            current_month_start
+            from_time,
+            to_time
         );
 
         // Process requestors in chunks in parallel
@@ -299,7 +425,7 @@ where
                     let service = self;
                     async move {
                         for (month_ts, month_end) in
-                            iter_monthly_periods(start_month, current_month_start)
+                            iter_monthly_periods(from_time, to_time)
                         {
                             let summary = service
                                 .compute_period_requestor_summary(month_ts, month_end, requestor)
@@ -315,7 +441,7 @@ where
             try_join_all(requestor_futures).await?;
         }
 
-        tracing::info!("aggregate_monthly_requestor_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_monthly_requestor_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -323,7 +449,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
         let current_time = self.block_timestamp(to_block).await?;
 
         tracing::debug!(
@@ -337,16 +462,48 @@ where
         let start_hour = get_hour_start(hours_ago);
         let current_hour = get_hour_start(current_time);
 
+        self.aggregate_all_time_requestor_data_from(start_hour, current_hour).await
+    }
+
+    pub(crate) async fn aggregate_all_time_requestor_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (hour starts for all-time aggregation)
+        let expected_from = get_hour_start(from_time);
+        let expected_to = get_hour_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow!(
+                "Time boundaries must be aligned to hour starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         let requestors = self
             .db
-            .get_active_requestor_addresses_in_period(start_hour, current_hour + SECONDS_PER_HOUR)
+            .get_active_requestor_addresses_in_period(from_time, to_time + SECONDS_PER_HOUR)
             .await?;
 
         tracing::debug!(
             "Aggregating all-time summaries for {} requestors from {} to {}",
             requestors.len(),
-            start_hour,
-            current_hour
+            from_time,
+            to_time
         );
 
         // Process requestors in chunks in parallel
@@ -358,26 +515,26 @@ where
                     let service = self;
                     async move {
                         // Check if we have a previous all-time summary for this requestor and if there's a gap
-                        // If so, extend start_hour to cover the gap
+                        // If so, extend from_time to cover the gap
                         let latest_all_time = service.db.get_latest_all_time_requestor_summary(requestor).await?;
                         let actual_start_hour = if let Some(latest) = &latest_all_time {
                             let next_expected_hour = latest.period_timestamp + SECONDS_PER_HOUR;
-                            if next_expected_hour < start_hour {
-                                let gap_hours = (start_hour - latest.period_timestamp) / SECONDS_PER_HOUR;
+                            if next_expected_hour < from_time {
+                                let gap_hours = (from_time - latest.period_timestamp) / SECONDS_PER_HOUR;
                                 tracing::info!(
                                     "Detected gap of {} hours in all-time requestor summaries for {:?} (latest: {}, recompute window start: {}). Extending processing range to backfill.",
-                                    gap_hours, requestor, latest.period_timestamp, start_hour
+                                    gap_hours, requestor, latest.period_timestamp, from_time
                                 );
                                 next_expected_hour
                             } else {
-                                start_hour
+                                from_time
                             }
                         } else {
-                            start_hour
+                            from_time
                         };
                         // Get all hourly summaries for this requestor
                         let hourly_summaries = service.db
-                            .get_hourly_requestor_summaries_by_range(requestor, actual_start_hour, current_hour + 1)
+                            .get_hourly_requestor_summaries_by_range(requestor, actual_start_hour, to_time + 1)
                             .await?;
 
                         if hourly_summaries.is_empty() && latest_all_time.is_none() {
@@ -427,7 +584,7 @@ where
                             }
                         };
 
-                        for (hour_ts, _hour_end) in iter_hourly_periods(actual_start_hour, current_hour) {
+                        for (hour_ts, _hour_end) in iter_hourly_periods(actual_start_hour, to_time) {
                             let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
 
                             if let Some(summary) = hour_summary {
@@ -491,7 +648,7 @@ where
             try_join_all(requestor_futures).await?;
         }
 
-        tracing::info!("aggregate_all_time_requestor_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_all_time_requestor_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -623,16 +780,16 @@ where
         for lock in locks {
             let price = if let Some(lock_price_str) = &lock.lock_price {
                 alloy::primitives::U256::from_str(lock_price_str).map_err(|e| {
-                    ServiceError::Error(anyhow::anyhow!("Failed to parse lock_price: {}", e))
+                    ServiceError::Error(anyhow!("Failed to parse lock_price: {}", e))
                 })?
             } else {
                 let min_price =
                     alloy::primitives::U256::from_str(&lock.min_price).map_err(|e| {
-                        ServiceError::Error(anyhow::anyhow!("Failed to parse min_price: {}", e))
+                        ServiceError::Error(anyhow!("Failed to parse min_price: {}", e))
                     })?;
                 let max_price =
                     alloy::primitives::U256::from_str(&lock.max_price).map_err(|e| {
-                        ServiceError::Error(anyhow::anyhow!("Failed to parse max_price: {}", e))
+                        ServiceError::Error(anyhow!("Failed to parse max_price: {}", e))
                     })?;
 
                 let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.ramp_up_start);
@@ -668,7 +825,7 @@ where
         for collateral_str in all_lock_collaterals {
             let lock_collateral =
                 alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
-                    ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
+                    ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e))
                 })?;
             total_collateral += lock_collateral;
         }
@@ -677,7 +834,7 @@ where
         for collateral_str in locked_and_expired_collaterals {
             let lock_collateral =
                 alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
-                    ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
+                    ServiceError::Error(anyhow!("Failed to parse lock_collateral: {}", e))
                 })?;
             total_locked_and_expired_collateral += lock_collateral;
         }

@@ -42,8 +42,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
-
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
@@ -61,23 +59,53 @@ where
         let start_hour = get_hour_start(hours_ago);
         let current_hour = get_hour_start(current_time);
 
+        self.aggregate_hourly_market_data_from(start_hour, current_hour).await
+    }
+
+    pub(crate) async fn aggregate_hourly_market_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (hour starts for hourly aggregation)
+        let expected_from = get_hour_start(from_time);
+        let expected_to = get_hour_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Time boundaries must be aligned to hour starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         tracing::debug!(
-            "Aggregating hours from {} to {} ({} hour window). Up to block timestamp: {}",
-            start_hour,
-            current_hour,
-            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
-            current_time
+            "Aggregating hours from {} to {}",
+            from_time,
+            to_time
         );
 
         // Process each hour using shared iteration helper
         // Always write an entry for each hour, even if there's no activity (creates zero-value entry)
-        for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
+        for (hour_ts, hour_end) in iter_hourly_periods(from_time, to_time) {
             let summary = self.compute_period_summary(hour_ts, hour_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_hourly_market_summary(summary).await?;
         }
 
-        tracing::info!("aggregate_hourly_market_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_hourly_market_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -85,8 +113,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
-
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
@@ -102,22 +128,53 @@ where
         let start_day = current_day_start
             .saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
 
+        self.aggregate_daily_market_data_from(start_day, current_day_start).await
+    }
+
+    pub(crate) async fn aggregate_daily_market_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (day starts for daily aggregation)
+        let expected_from = get_day_start(from_time);
+        let expected_to = get_day_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Time boundaries must be aligned to day starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         tracing::debug!(
-            "Aggregating {} days from {} to {}",
-            DAILY_AGGREGATION_RECOMPUTE_DAYS,
-            start_day,
-            current_day_start
+            "Aggregating days from {} to {}",
+            from_time,
+            to_time
         );
 
         // Process each day using shared iteration helper
         // Always write an entry for each day, even if there's no activity (creates zero-value entry)
-        for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
+        for (day_ts, day_end) in iter_daily_periods(from_time, to_time) {
             let summary = self.compute_period_summary(day_ts, day_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_daily_market_summary(summary).await?;
         }
 
-        tracing::info!("aggregate_daily_market_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_daily_market_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -125,8 +182,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
-
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
@@ -142,22 +197,53 @@ where
         let start_week = current_week_start
             .saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
 
+        self.aggregate_weekly_market_data_from(start_week, current_week_start).await
+    }
+
+    pub(crate) async fn aggregate_weekly_market_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (week starts for weekly aggregation)
+        let expected_from = get_week_start(from_time);
+        let expected_to = get_week_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Time boundaries must be aligned to week starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         tracing::debug!(
-            "Aggregating {} weeks from {} to {}",
-            WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
-            start_week,
-            current_week_start
+            "Aggregating weeks from {} to {}",
+            from_time,
+            to_time
         );
 
         // Process each week using shared iteration helper
         // Always write an entry for each week, even if there's no activity (creates zero-value entry)
-        for (week_ts, week_end) in iter_weekly_periods(start_week, current_week_start) {
+        for (week_ts, week_end) in iter_weekly_periods(from_time, to_time) {
             let summary = self.compute_period_summary(week_ts, week_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_weekly_market_summary(summary).await?;
         }
 
-        tracing::info!("aggregate_weekly_market_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_weekly_market_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -165,8 +251,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
-
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
@@ -193,22 +277,53 @@ where
             start_month = prev_month.timestamp() as u64;
         }
 
+        self.aggregate_monthly_market_data_from(start_month, current_month_start).await
+    }
+
+    pub(crate) async fn aggregate_monthly_market_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (month starts for monthly aggregation)
+        let expected_from = get_month_start(from_time);
+        let expected_to = get_month_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Time boundaries must be aligned to month starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         tracing::debug!(
-            "Aggregating {} months from {} to {}",
-            MONTHLY_AGGREGATION_RECOMPUTE_MONTHS,
-            start_month,
-            current_month_start
+            "Aggregating months from {} to {}",
+            from_time,
+            to_time
         );
 
         // Process each month using shared iteration helper
         // Always write an entry for each month, even if there's no activity (creates zero-value entry)
-        for (month_ts, month_end) in iter_monthly_periods(start_month, current_month_start) {
+        for (month_ts, month_end) in iter_monthly_periods(from_time, to_time) {
             let summary = self.compute_period_summary(month_ts, month_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
             self.db.upsert_monthly_market_summary(summary).await?;
         }
 
-        tracing::info!("aggregate_monthly_market_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_monthly_market_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -482,8 +597,6 @@ where
         &self,
         to_block: u64,
     ) -> Result<(), ServiceError> {
-        let start = std::time::Instant::now();
-
         // Get current time from the block timestamp
         let current_time = self.block_timestamp(to_block).await?;
 
@@ -501,46 +614,73 @@ where
         let start_hour = get_hour_start(hours_ago);
         let current_hour = get_hour_start(current_time);
 
+        self.aggregate_all_time_market_data_from(start_hour, current_hour).await
+    }
+
+    pub(crate) async fn aggregate_all_time_market_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // Validate boundaries
+        if from_time >= to_time {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Invalid time range: from_time {} must be less than to_time {}",
+                from_time,
+                to_time
+            )));
+        }
+
+        // Verify boundaries are properly aligned (hour starts for all-time aggregation)
+        let expected_from = get_hour_start(from_time);
+        let expected_to = get_hour_start(to_time);
+        if from_time != expected_from || to_time != expected_to {
+            return Err(ServiceError::Error(anyhow::anyhow!(
+                "Time boundaries must be aligned to hour starts: from_time {} should be {}, to_time {} should be {}",
+                from_time,
+                expected_from,
+                to_time,
+                expected_to
+            )));
+        }
+
         tracing::debug!(
-            "Aggregating all-time summaries for hours from {} to {} ({} hour window). Up to block timestamp: {}",
-            start_hour,
-            current_hour,
-            HOURLY_AGGREGATION_RECOMPUTE_HOURS,
-            current_time
+            "Aggregating all-time summaries for hours from {} to {}",
+            from_time,
+            to_time
         );
 
-        // Query all hourly summaries from start_hour to current_hour (inclusive)
+        // Query all hourly summaries from from_time to to_time (inclusive)
         let hourly_summaries =
-            self.db.get_hourly_market_summaries_by_range(start_hour, current_hour + 1).await?;
+            self.db.get_hourly_market_summaries_by_range(from_time, to_time + 1).await?;
 
         tracing::debug!(
             "Found {} hourly summaries to aggregate from {} to {}",
             hourly_summaries.len(),
-            start_hour,
-            current_hour
+            from_time,
+            to_time
         );
 
         // Check if we have a previous all-time summary and if there's a gap
-        // If so, extend start_hour to cover the gap so the main loop will backfill it
+        // If so, extend from_time to cover the gap so the main loop will backfill it
         let latest_all_time = self.db.get_latest_all_time_market_summary().await?;
         let actual_start_hour = if let Some(latest) = &latest_all_time {
             let next_expected_hour = latest.period_timestamp + SECONDS_PER_HOUR;
-            if next_expected_hour < start_hour {
-                let gap_hours = (start_hour - latest.period_timestamp) / SECONDS_PER_HOUR;
+            if next_expected_hour < from_time {
+                let gap_hours = (from_time - latest.period_timestamp) / SECONDS_PER_HOUR;
                 tracing::info!(
                     "Detected gap of {} hours in all-time summaries (latest: {}, recompute window start: {}). Extending processing range to backfill.",
-                    gap_hours, latest.period_timestamp, start_hour
+                    gap_hours, latest.period_timestamp, from_time
                 );
                 next_expected_hour
             } else {
-                start_hour
+                from_time
             }
         } else {
-            start_hour
+            from_time
         };
-
-        // Find the earliest hourly summary from our query - this is our starting point
-        let _earliest_hourly_summary = hourly_summaries.first();
 
         // Get the all-time aggregate for the hour just before actual_start_hour
         // If it doesn't exist, initialize with zeros (first run)
@@ -597,9 +737,9 @@ where
         // 1. Add that hour's data to our cumulative summary (if available)
         // 2. Update unique counts from the database
         // 3. Save the all-time aggregate for that hour (always, even if no activity)
-        // Note: We process up to and including the current hour (even if not finished),
+        // Note: We process up to and including to_time (even if not finished),
         // matching the behavior of other aggregation functions
-        for (hour_ts, _hour_end) in iter_hourly_periods(actual_start_hour, current_hour) {
+        for (hour_ts, _hour_end) in iter_hourly_periods(actual_start_hour, to_time) {
             // Find the hourly summary for this hour
             let hour_summary = hourly_summaries.iter().find(|s| s.period_timestamp == hour_ts);
 
@@ -633,7 +773,7 @@ where
             self.db.upsert_all_time_market_summary(cumulative_summary.clone()).await?;
         }
 
-        tracing::info!("aggregate_all_time_market_data completed in {:?}", start.elapsed());
+        tracing::info!("aggregate_all_time_market_data_from completed in {:?}", start.elapsed());
         Ok(())
     }
 }
