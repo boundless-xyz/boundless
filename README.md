@@ -65,14 +65,7 @@ cargo build
 
 You can find the documentation in the [documentation](./documentation) folder.
 
-To build it and serve it locally, run the following commands:
-
-```sh
-bun install
-bun run docs
-```
-
-Then open your browser and navigate to `http://localhost:5173`.
+See the [README](./documentation/README.md) for instructions on how to build and contribute to the docs.
 
 ## Audits
 

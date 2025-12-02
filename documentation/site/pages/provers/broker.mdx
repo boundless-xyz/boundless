@@ -75,8 +75,8 @@ Below are all `broker.toml` settings organized by section:
 | set\_builder\_default\_image\_url | Default URL for set builder image. This URL will be tried first before falling back to the image URL from the set verifier contract. |
 | max\_concurrent\_proofs | Maximum number of concurrent proofs that can be processed at once. Used to limit proof tasks spawned to prevent overwhelming the system. |
 | max\_concurrent\_preflights | Maximum number of orders to concurrently preflight. Used to limit preflight tasks spawned to prevent overwhelming the system. |
-| order\_pricing\_priority | Determines how orders are prioritized for pricing. Options: "random" (process orders in random order), "observation_time" (FIFO), "shortest_expiry" (earliest deadline), "price" (highest ETH payment), "cycle_price" (highest ETH price per cycle, default). |
-| order\_commitment\_priority | Determines how orders are prioritized when committing to prove them. Options: "random" (process orders in random order, default), "shortest_expiry" (process orders by shortest expiry first). |
+| order\_pricing\_priority | Determines how orders are prioritized for pricing. Options: "random" (process orders in random order, default), "observation_time" (Process orders in the order they were observed (FIFO)), "shortest_expiry" (process orders by shortest expiry first). |
+| order\_commitment\_priority | Determines how orders are prioritized when committing to prove them. Options: "random" (process orders in random order), "shortest_expiry" (earliest deadline), "price" (highest ETH payment), "cycle_price" (highest ETH price per cycle, default). |
 | max\_critical\_task\_retries | Max critical task retries on recoverable failures. The broker service has a number of subtasks. Some are considered critical. If a task fails, it will be retried, but after this number of retries, the process will exit. |
 | allow\_client\_addresses | Optional allow list for customer address. If enabled, all requests from clients not in the allow list are skipped. |
 | deny\_requestor\_addresses | Optional deny list for requestor address. If enabled, all requests from clients in the deny list are skipped. |
