@@ -259,7 +259,7 @@ async fn test_monitoring() {
         .submit_request_with_signature(&request, client_sig.clone())
         .await
         .unwrap();
-    fixture.ctx.prover_market.lock_request(&request, client_sig, None).await.unwrap();
+    fixture.ctx.prover_market.lock_request(&request, client_sig).await.unwrap();
 
     // Verify no expired requests yet
     let expired = monitor.fetch_requests_expired((now - 30) as i64, now as i64).await.unwrap();
@@ -759,7 +759,7 @@ async fn test_aggregation_percentiles() {
         fixture
             .ctx
             .prover_market
-            .lock_request(&request, Bytes::from(client_sig.as_bytes()), None)
+            .lock_request(&request, Bytes::from(client_sig.as_bytes()))
             .await
             .unwrap();
         request_digests.push((request.clone(), client_sig, digest));
@@ -1422,7 +1422,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     assert!(status.fulfilled_at.is_none());
 
     // Lock request
-    fixture.ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
+    fixture.ctx.prover_market.lock_request(&req, sig.clone()).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify locked status
@@ -1491,7 +1491,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     assert_eq!(status.request_status, RequestStatusType::Submitted.to_string());
 
     // Lock request
-    fixture.ctx.prover_market.lock_request(&req, sig.clone(), None).await.unwrap();
+    fixture.ctx.prover_market.lock_request(&req, sig.clone()).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify locked status
@@ -1578,7 +1578,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     assert_eq!(status.request_status, RequestStatusType::Submitted.to_string());
 
     // Lock request
-    fixture.ctx.prover_market.lock_request(&req, sig_bytes.clone(), None).await.unwrap();
+    fixture.ctx.prover_market.lock_request(&req, sig_bytes.clone()).await.unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(2), None).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 

@@ -35,6 +35,7 @@ use crate::{
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     task::{RetryRes, RetryTask, SupervisorErr},
+    utils::prune_receipt_claim_journal,
     AggregationState, Batch, BatchStatus,
 };
 use thiserror::Error;
@@ -113,7 +114,7 @@ impl AggregatorService {
             .value()
             .with_context(|| format!("Failed to extract claim value for {proof_id}"))?;
 
-        Ok(claim)
+        Ok(prune_receipt_claim_journal(claim))
     }
 
     async fn prove_set_builder(

@@ -249,7 +249,7 @@ mod tests {
             .submit_request_with_signature(&request, client_sig.clone())
             .await
             .unwrap();
-        ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
+        ctx.prover_market.lock_request(&request, client_sig.clone()).await.unwrap();
 
         let (fill, root_receipt, assessor_receipt) =
             prover.fulfill(&[(request.clone(), client_sig.clone())]).await.unwrap();

@@ -23,7 +23,6 @@ use alloy::{
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
-use anyhow::bail;
 use assert_cmd::Command as AssertCommand;
 use boundless_cli::OrderFulfiller;
 use broker::provers::DefaultProver as BrokerDefaultProver;
@@ -40,9 +39,6 @@ use boundless_test_utils::{
     market::{create_test_ctx, TestCtx},
 };
 use sqlx::{AnyPool, Row};
-
-/// Constant for indexer wait time between actions
-pub const INDEXER_WAIT_DURATION: Duration = Duration::from_secs(5);
 
 /// Test fixture containing all common test setup
 pub struct MarketTestFixture<P: Provider + WalletProvider + Clone + 'static> {
@@ -382,7 +378,7 @@ pub async fn lock_and_fulfill_request<P: Provider + WalletProvider + Clone + 'st
     use boundless_market::contracts::boundless_market::FulfillmentTx;
 
     tracing::debug!("Locking request {}", request.id);
-    ctx.prover_market.lock_request(request, client_sig.clone(), None).await?;
+    ctx.prover_market.lock_request(request, client_sig.clone()).await?;
 
     tracing::debug!("Fulfilling request {}", request.id);
     let (fill, root_receipt, assessor_receipt) =
@@ -448,7 +444,7 @@ pub async fn lock_and_fulfill_request_with_collateral<
         }
     }
 
-    ctx.prover_market.lock_request(request, client_sig.clone(), None).await?;
+    ctx.prover_market.lock_request(request, client_sig.clone()).await?;
 
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig)]).await?;

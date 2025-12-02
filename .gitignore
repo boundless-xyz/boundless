@@ -10,6 +10,8 @@ out/
 build-info-reference/
 **/node_modules/
 
+*dev*.yaml
+
 # Ignores development broadcast logs
 /broadcast
 /broadcast/*/31337/
