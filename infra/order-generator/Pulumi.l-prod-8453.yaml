@@ -56,5 +56,7 @@ config:
   order-generator-random-requestor:MAX_PRICE_PER_MCYCLE: "0.00000004"
   order-generator-random-requestor:SCHEDULE_EXPRESSION: "rate(24 hours)"
   order-generator-random-requestor:COUNT: "10"
+  order-generator-random-requestor:LOCK_TIMEOUT: "1800"
+  order-generator-random-requestor:TIMEOUT: "1800"
   order-generator-random-requestor:PRIVATE_KEY:
     secure: v1:ghvpsT1eWQ22F33+:EMpFbZJALPWfvZUYgN0L3my543BcCTMILXuwzZ4Zch0JYWyCwqLcWXa8sGXsNghlKQRWQwUQjo3gGFE1KACtPtum4iMZVeMbyvTIGXRBdis=
