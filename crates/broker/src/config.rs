@@ -107,6 +107,10 @@ mod defaults {
         8000
     }
 
+    pub const fn min_mcycle_limit() -> u64 {
+        0
+    }
+
     pub const fn min_deadline() -> u64 {
         300
     }
@@ -245,6 +249,11 @@ pub struct MarketConf {
     /// Orders over this max_cycles will be skipped after preflight
     #[serde(default = "defaults::max_mcycle_limit")]
     pub max_mcycle_limit: u64,
+    /// Min cycles (in mcycles)
+    ///
+    /// Orders under this min_cycles will be skipped after preflight
+    #[serde(default = "defaults::min_mcycle_limit")]
+    pub min_mcycle_limit: u64,
     /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
     ///
     /// If enabled, the order will be preflighted without constraints.
@@ -424,6 +433,7 @@ impl Default for MarketConf {
             min_mcycle_price_collateral_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
+            min_mcycle_limit: defaults::min_mcycle_limit(),
             priority_requestor_addresses: None,
             priority_requestor_lists: defaults::priority_requestor_lists(),
             max_journal_bytes: defaults::max_journal_bytes(),
@@ -791,6 +801,7 @@ min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
 max_file_size = 50_000_000
+min_mcycle_limit = 5
 
 [prover]
 bonsai_r0_zkvm_ver = "1.0.1"
@@ -822,6 +833,7 @@ allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 deny_requestor_addresses = ["0x0000000000000000000000000000000000000000"]
 gas_priority_mode = "high"
 max_mcycle_limit = 10
+min_mcycle_limit = 5
 
 [prover]
 status_poll_retry_count = 2
@@ -873,6 +885,7 @@ error = ?"#;
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.market.max_collateral, "0.1");
         assert_eq!(config.market.max_file_size, 50_000_000);
+        assert_eq!(config.market.min_mcycle_limit, 5);
         assert_eq!(config.market.gas_priority_mode, PriorityMode::Medium);
 
         assert_eq!(config.prover.status_poll_ms, 1000);
@@ -934,6 +947,7 @@ error = ?"#;
             assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.max_mcycle_limit, 8000);
+            assert_eq!(config.market.min_mcycle_limit, 5);
             assert_eq!(config.prover.status_poll_ms, 1000);
         }
 
@@ -956,6 +970,7 @@ error = ?"#;
             assert_eq!(config.market.gas_priority_mode, PriorityMode::High);
             assert_eq!(config.market.max_fetch_retries, Some(10));
             assert_eq!(config.market.max_mcycle_limit, 10);
+            assert_eq!(config.market.min_mcycle_limit, 5);
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert_eq!(config.prover.status_poll_retry_count, 2);
             assert_eq!(config.prover.req_retry_count, 1);
