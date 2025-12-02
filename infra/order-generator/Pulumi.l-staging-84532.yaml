@@ -52,3 +52,9 @@ config:
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-base:ETH_RPC_URL:
     secure: v1:7O6m336P0g3ziaFC:CTmzggzb9qhX5GPZsSc8HfIoYW0Ef07gVMvI2xh3Udnz/z7b4LRezN8oLRg1IP01VakRSuXV2FC+TaFyxMLumMqaYL9Fe3EcUbyag4fGU/+U8GpjJfaMvAqiombg/xjREqL9LFJKANB1qTo+2CoQMw==
+  order-generator-random-requestor:PRIVATE_KEY:
+    secure: v1:613J8wSpSQteAYHw:l8qQcM5kByXDvi0arJJJ/5QkrSPxlk2HoSdBtnGF0gMyjgb9iM4fydeMT0DfX/58e3fNQae8ka0je2YUOk0fp29nhgn5lTS1jp2F+b36N1s=
+  order-generator-random-requestor:INPUT_MAX_MCYCLES: "100"
+  order-generator-random-requestor:MAX_PRICE_PER_MCYCLE: "0.000025"
+  order-generator-random-requestor:SCHEDULE_EXPRESSION: "rate(2 hours)"
+  order-generator-random-requestor:COUNT: "1"
