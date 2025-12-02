@@ -3810,7 +3810,6 @@ impl MarketDb {
             fulfill_seal: row.try_get("fulfill_seal").ok(),
         })
     }
-
 }
 
 #[cfg(test)]

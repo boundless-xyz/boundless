@@ -35,9 +35,7 @@ use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
     Requirements,
 };
-use boundless_test_utils::{
-    guests::{ECHO_ID, ECHO_PATH},
-};
+use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use sqlx::{AnyPool, Row};
 
 use common::*;
@@ -267,7 +265,9 @@ async fn test_monitoring() {
     let expired = monitor.fetch_requests_expired((now - 30) as i64, now as i64).await.unwrap();
     assert_eq!(expired.len(), 0);
 
-    advance_time_to_and_mine(&fixture.ctx.customer_provider, request.expires_at() + 1, 1).await.unwrap();
+    advance_time_to_and_mine(&fixture.ctx.customer_provider, request.expires_at() + 1, 1)
+        .await
+        .unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify expired requests
@@ -1650,7 +1650,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
         .get_hourly_requestor_summaries_by_range(
             requestor_address,
             current_block_timestamp.saturating_sub(7200), // Start from 2 hours before
-            current_block_timestamp + 36000,               // End 1 hour after
+            current_block_timestamp + 36000,              // End 1 hour after
         )
         .await
         .unwrap();
@@ -1709,7 +1709,10 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
 
     let fixture = common::new_market_test_fixture().await.unwrap();
 
-    tracing::info!("Starting test, block number: {}", fixture.ctx.customer_provider.get_block_number().await.unwrap());
+    tracing::info!(
+        "Starting test, block number: {}",
+        fixture.ctx.customer_provider.get_block_number().await.unwrap()
+    );
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -1816,8 +1819,11 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
-    
-    tracing::info!("Getting hourly summaries, block number: {}", fixture.ctx.customer_provider.get_block_number().await.unwrap());
+
+    tracing::info!(
+        "Getting hourly summaries, block number: {}",
+        fixture.ctx.customer_provider.get_block_number().await.unwrap()
+    );
 
     // Get all hourly summaries and verify gaps are filled with zero-activity entries
     let hourly_summaries = get_hourly_summaries(&fixture.test_db.db).await;
@@ -1989,8 +1995,9 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
         );
 
         // Verify carry-forward during gap - values should stay at first request totals
-        for gap_summary in all_time_summaries.iter().take(second_all_time_idx).skip(first_all_time_idx + 1) {
-
+        for gap_summary in
+            all_time_summaries.iter().take(second_all_time_idx).skip(first_all_time_idx + 1)
+        {
             // During no-activity periods, cumulative values should stay exactly at first request values
             assert_eq!(gap_summary.total_fulfilled, 1,
                 "During no-activity hour {}: total_fulfilled should stay at 1 (not increase or decrease)", gap_summary.period_timestamp);
@@ -2085,7 +2092,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
         latest_all_time.total_fees_locked > U256::ZERO,
         "Final cumulative fees should be non-zero (2 fulfilled requests with fees)"
     );
-
 
     cli_process.kill().unwrap();
 }

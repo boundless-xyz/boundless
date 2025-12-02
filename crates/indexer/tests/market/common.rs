@@ -25,8 +25,8 @@ use alloy::{
 };
 use anyhow::bail;
 use assert_cmd::Command as AssertCommand;
-use broker::provers::DefaultProver as BrokerDefaultProver;
 use boundless_cli::OrderFulfiller;
+use broker::provers::DefaultProver as BrokerDefaultProver;
 
 use boundless_indexer::{
     db::{market::SortDirection, IndexerDb, MarketDb},

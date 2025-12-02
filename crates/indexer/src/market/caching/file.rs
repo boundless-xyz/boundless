@@ -168,7 +168,6 @@ mod tests {
         network::TransactionResponse, node_bindings::Anvil, primitives::U256, providers::Provider,
         rpc::types::BlockNumberOrTag, sol_types::SolEvent,
     };
-    use broker::provers::DefaultProver;
     use boundless_cli::{OrderFulfilled, OrderFulfiller};
     use boundless_market::contracts::{
         boundless_market::FulfillmentTx, IBoundlessMarket, Offer, Predicate, ProofRequest,
@@ -178,6 +177,7 @@ mod tests {
         guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
         market::create_test_ctx,
     };
+    use broker::provers::DefaultProver;
     use std::{collections::HashSet, sync::Arc};
 
     async fn create_order(
@@ -239,10 +239,10 @@ mod tests {
         let (request, client_sig) = create_order(&ctx, 1, now).await;
 
         // Submit, lock, and fulfill the request
-        let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
-        let prover = OrderFulfiller::initialize(Arc::new(DefaultProver::default()), &client)
-            .await
-            .unwrap();
+        let client =
+            boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
+        let prover =
+            OrderFulfiller::initialize(Arc::new(DefaultProver::default()), &client).await.unwrap();
 
         ctx.customer_market.deposit(U256::from(10)).await.unwrap();
         ctx.customer_market

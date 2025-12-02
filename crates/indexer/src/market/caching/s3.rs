@@ -200,9 +200,7 @@ impl CacheStorage for S3CacheStorage {
         tracing::debug!("Putting cached logs to S3 bucket: {} key: {}", self.bucket, s3_key);
         let data = serde_json::to_vec(logs)
             .map_err(|e| CacheStorageError::from(S3CacheStorageError::from(e)))?;
-        self.put_object(&s3_key, data)
-            .await
-            .map_err(CacheStorageError::from)?;
+        self.put_object(&s3_key, data).await.map_err(CacheStorageError::from)?;
 
         tracing::debug!("Cached {} logs to S3 bucket: {} key: {}", logs.len(), self.bucket, s3_key);
         Ok(())
@@ -266,9 +264,7 @@ impl CacheStorage for S3CacheStorage {
 
         let data = serde_json::to_vec(&serializable_map)
             .map_err(|e| CacheStorageError::from(S3CacheStorageError::from(e)))?;
-        self.put_object(&s3_key, data)
-            .await
-            .map_err(CacheStorageError::from)?;
+        self.put_object(&s3_key, data).await.map_err(CacheStorageError::from)?;
 
         tracing::debug!(
             "Cached {} tx metadata entries to S3 bucket: {} key: {}",

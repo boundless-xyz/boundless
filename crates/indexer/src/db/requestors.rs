@@ -2770,26 +2770,14 @@ mod tests {
 
         // Verify expected requestors are included
         assert_eq!(addresses.len(), 6, "Should have 6 active requestors");
-        assert!(
-            addresses.contains(&addr_submissions),
-            "Should include requestor with submissions"
-        );
-        assert!(
-            addresses.contains(&addr_locks),
-            "Should include requestor with lock events"
-        );
+        assert!(addresses.contains(&addr_submissions), "Should include requestor with submissions");
+        assert!(addresses.contains(&addr_locks), "Should include requestor with lock events");
         assert!(
             addresses.contains(&addr_fulfilled),
             "Should include requestor with fulfillment events"
         );
-        assert!(
-            addresses.contains(&addr_slashed),
-            "Should include requestor with slash events"
-        );
-        assert!(
-            addresses.contains(&addr_expired),
-            "Should include requestor with expiration"
-        );
+        assert!(addresses.contains(&addr_slashed), "Should include requestor with slash events");
+        assert!(addresses.contains(&addr_expired), "Should include requestor with expiration");
         assert!(
             addresses.contains(&addr_multiple),
             "Should include requestor with multiple activities"

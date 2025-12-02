@@ -616,7 +616,10 @@ where
             // If a hourly summary exists for this hour, add its data to the cumulative
             if let Some(summary) = hour_summary {
                 // Add this hour's data to the cumulative summary
-                sum_hourly_aggregates_into_base(&mut cumulative_summary, std::slice::from_ref(summary));
+                sum_hourly_aggregates_into_base(
+                    &mut cumulative_summary,
+                    std::slice::from_ref(summary),
+                );
             } else {
                 // No activity this hour - cumulative values stay the same, but we still
                 // need to save an all-time entry for this hour to maintain the cumulative chain
@@ -666,7 +669,7 @@ where
 
         // To know which requestors to process, we need to get the active requestors in the period.
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
-        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
         // or if one of their requests expired, etc.
         let requestors = self
             .db
@@ -725,10 +728,9 @@ where
         let start_day = current_day_start
             .saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
 
-        
         // To know which requestors to process, we need to get the active requestors in the period.
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
-        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
         // or if one of their requests expired, etc.
         let requestors = self
             .db
@@ -792,7 +794,7 @@ where
 
         // To know which requestors to process, we need to get the active requestors in the period.
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
-        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
         // or if one of their requests expired, etc.
         let requestors = self
             .db
@@ -879,7 +881,7 @@ where
 
         // To know which requestors to process, we need to get the active requestors in the period.
         // Active here not only means they submitted a request, but also if someone locked one of their requests,
-        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests,
         // or if one of their requests expired, etc.
         let requestors =
             self.db.get_active_requestor_addresses_in_period(start_month, next_month).await?;
