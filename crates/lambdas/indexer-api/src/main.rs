@@ -27,7 +27,9 @@ mod utils;
 async fn main() -> Result<(), Error> {
     // Initialize tracing with JSON format for CloudWatch
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_ansi(false)
         .with_target(false)
         .with_line_number(true)

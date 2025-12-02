@@ -235,12 +235,29 @@ pub struct OrderStreamClient {
 impl OrderStreamClient {
     /// Create a new client
     pub fn new(base_url: Url, boundless_market_address: Address, chain_id: u64) -> Self {
-        Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id, api_key: None }
+        Self {
+            client: reqwest::Client::new(),
+            base_url,
+            boundless_market_address,
+            chain_id,
+            api_key: None,
+        }
     }
 
     /// Create a new client with API key
-    pub fn new_with_api_key(base_url: Url, boundless_market_address: Address, chain_id: u64, api_key: String) -> Self {
-        Self { client: reqwest::Client::new(), base_url, boundless_market_address, chain_id, api_key: Some(api_key) }
+    pub fn new_with_api_key(
+        base_url: Url,
+        boundless_market_address: Address,
+        chain_id: u64,
+        api_key: String,
+    ) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            base_url,
+            boundless_market_address,
+            chain_id,
+            api_key: Some(api_key),
+        }
     }
 
     /// Helper to add API key header to request if configured
@@ -267,10 +284,7 @@ impl OrderStreamClient {
         let order_json = serde_json::to_value(&order)?;
         let response = self
             .add_api_key_header(
-                self.client
-                    .post(url)
-                    .header("Content-Type", "application/json")
-                    .json(&order_json)
+                self.client.post(url).header("Content-Type", "application/json").json(&order_json),
             )
             .send()
             .await?;
@@ -533,7 +547,9 @@ impl OrderStreamClient {
 
         // Add API key header if configured
         if let Some(api_key) = &self.api_key {
-            request.headers_mut().insert("x-api-key", api_key.parse().context("failed to parse api key")?);
+            request
+                .headers_mut()
+                .insert("x-api-key", api_key.parse().context("failed to parse api key")?);
         }
 
         // Connect to the WebSocket server and return the socket

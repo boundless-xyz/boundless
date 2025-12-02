@@ -16,19 +16,19 @@
 
 use std::{process::Command, time::Duration};
 
-use assert_cmd::Command as AssertCommand;
 use alloy::{
     node_bindings::Anvil,
     primitives::{Address, Bytes, U256},
-    providers::{Provider, WalletProvider, ext::AnvilApi},
+    providers::{ext::AnvilApi, Provider, WalletProvider},
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
+use assert_cmd::Command as AssertCommand;
 use boundless_cli::DefaultProver;
 use std::sync::Arc;
 
 use boundless_indexer::{
-    db::{IndexerDb, market::SortDirection, MarketDb},
+    db::{market::SortDirection, IndexerDb, MarketDb},
     test_utils::TestDb,
 };
 use boundless_market::contracts::{
@@ -56,11 +56,14 @@ impl<P: Provider + WalletProvider + Clone + 'static> MarketTestFixture<P> {
 }
 
 /// Create a new test fixture with all setup
-pub async fn new_market_test_fixture() -> Result<MarketTestFixture<impl Provider + WalletProvider + Clone + 'static>, Box<dyn std::error::Error>> {
+pub async fn new_market_test_fixture() -> Result<
+    MarketTestFixture<impl Provider + WalletProvider + Clone + 'static>,
+    Box<dyn std::error::Error>,
+> {
     let test_db = TestDb::new().await?;
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await?;
-    
+
     let prover = DefaultProver::new(
         SET_BUILDER_ELF.to_vec(),
         ASSESSOR_GUEST_ELF.to_vec(),
@@ -68,12 +71,7 @@ pub async fn new_market_test_fixture() -> Result<MarketTestFixture<impl Provider
         ctx.customer_market.eip712_domain().await?,
     )?;
 
-    Ok(MarketTestFixture {
-        test_db,
-        anvil,
-        ctx,
-        prover,
-    })
+    Ok(MarketTestFixture { test_db, anvil, ctx, prover })
 }
 
 /// Builder for spawning indexer CLI with various configurations
@@ -142,8 +140,9 @@ impl IndexerCliBuilder {
     }
 
     pub fn spawn(self) -> std::io::Result<std::process::Child> {
-        let cmd = AssertCommand::cargo_bin("market-indexer")
-            .expect("market-indexer binary not found. Run `cargo build --bin market-indexer` first.");
+        let cmd = AssertCommand::cargo_bin("market-indexer").expect(
+            "market-indexer binary not found. Run `cargo build --bin market-indexer` first.",
+        );
         let exe_path = cmd.get_program().to_string_lossy().to_string();
 
         let mut args = vec![
@@ -289,11 +288,8 @@ pub async fn setup_order_stream<P: Provider>(
     anvil: &alloy::node_bindings::AnvilInstance,
     ctx: &TestCtx<P>,
     pool: sqlx::PgPool,
-) -> (
-    url::Url,
-    boundless_market::order_stream_client::OrderStreamClient,
-    tokio::task::JoinHandle<()>,
-) {
+) -> (url::Url, boundless_market::order_stream_client::OrderStreamClient, tokio::task::JoinHandle<()>)
+{
     use boundless_market::order_stream_client::OrderStreamClient;
     use order_stream::{run_from_parts, AppState, ConfigBuilder};
     use std::net::{Ipv4Addr, SocketAddr};
@@ -328,11 +324,7 @@ pub async fn setup_order_stream<P: Provider>(
 
 /// Helper to get block timestamp and start block number
 pub async fn get_block_info<P: Provider>(provider: &P) -> (u64, u64) {
-    let block = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
+    let block = provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
     let block_timestamp = block.header.timestamp;
     let start_block = block.header.number;
     (block_timestamp, start_block)
@@ -340,13 +332,7 @@ pub async fn get_block_info<P: Provider>(provider: &P) -> (u64, u64) {
 
 /// Helper to get latest block timestamp
 pub async fn get_latest_block_timestamp<P: Provider>(provider: &P) -> u64 {
-    provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .timestamp
+    provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap().header.timestamp
 }
 
 /// Helper to update all order created_at timestamps to be after a given block timestamp
@@ -367,10 +353,10 @@ pub async fn submit_request_with_deposit<P: Provider + WalletProvider + Clone + 
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check current balance
     let current_balance = ctx.customer_market.balance_of(ctx.customer_signer.address()).await?;
-    
+
     // Calculate required balance (use maxPrice as a safe estimate)
     let required_balance = request.offer.maxPrice;
-    
+
     // If balance is insufficient, deposit more
     if current_balance < required_balance {
         let needed = required_balance - current_balance;
@@ -378,9 +364,9 @@ pub async fn submit_request_with_deposit<P: Provider + WalletProvider + Clone + 
         let deposit_amount = needed + U256::from(10);
         ctx.customer_market.deposit(deposit_amount).await?;
     }
-    
+
     ctx.customer_market.submit_request_with_signature(request, client_sig).await?;
-    
+
     Ok(())
 }
 
@@ -416,7 +402,9 @@ pub async fn lock_and_fulfill_request<P: Provider + WalletProvider + Clone + 'st
 
 /// Helper to lock and fulfill a request with collateral setup
 /// This ensures the prover has sufficient collateral deposited before locking
-pub async fn lock_and_fulfill_request_with_collateral<P: Provider + WalletProvider + Clone + 'static>(
+pub async fn lock_and_fulfill_request_with_collateral<
+    P: Provider + WalletProvider + Clone + 'static,
+>(
     ctx: &TestCtx<P>,
     prover: &DefaultProver,
     request: &ProofRequest,
@@ -428,20 +416,31 @@ pub async fn lock_and_fulfill_request_with_collateral<P: Provider + WalletProvid
     // If request requires collateral, ensure prover has it deposited
     if request.offer.lockCollateral > U256::ZERO {
         // Check current collateral balance
-        let mut current_balance = ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await?;
-        
+        let mut current_balance =
+            ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await?;
+
         // If balance is insufficient, deposit more
         if current_balance < request.offer.lockCollateral {
             let needed = request.offer.lockCollateral - current_balance;
-            tracing::debug!("Prover needs {} collateral, current balance: {}, depositing {}", request.offer.lockCollateral, current_balance, needed);
+            tracing::debug!(
+                "Prover needs {} collateral, current balance: {}, depositing {}",
+                request.offer.lockCollateral,
+                current_balance,
+                needed
+            );
             ctx.prover_market.approve_deposit_collateral(needed).await?;
             ctx.prover_market.deposit_collateral(needed).await?;
-            
+
             // Verify deposit succeeded - deposit_collateral already waits for confirmation
-            current_balance = ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await?;
+            current_balance =
+                ctx.prover_market.balance_of_collateral(ctx.prover_signer.address()).await?;
             tracing::debug!("After deposit, prover collateral balance: {}", current_balance);
             if current_balance < request.offer.lockCollateral {
-                return Err(format!("Failed to deposit sufficient collateral: have {}, need {}", current_balance, request.offer.lockCollateral).into());
+                return Err(format!(
+                    "Failed to deposit sufficient collateral: have {}, need {}",
+                    current_balance, request.offer.lockCollateral
+                )
+                .into());
             }
         }
     }
@@ -501,7 +500,13 @@ pub async fn insert_cycle_counts_with_overhead(
     program_cycles: u64,
 ) -> Result<(), boundless_indexer::db::DbError> {
     let total_cycles = (program_cycles as f64 * 1.0158) as u64;
-    test_db.insert_test_cycle_counts(request_digest, U256::from(program_cycles), U256::from(total_cycles)).await
+    test_db
+        .insert_test_cycle_counts(
+            request_digest,
+            U256::from(program_cycles),
+            U256::from(total_cycles),
+        )
+        .await
 }
 
 /// Helper to advance time and mine blocks
@@ -538,18 +543,17 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
             return;
         }
     };
-    
+
     // Wait for indexer to process up to current block with timeout
     let timeout = Duration::from_secs(30);
     let start = std::time::Instant::now();
     let poll_interval = Duration::from_millis(200);
-    
+
     loop {
         // Query last processed block from indexer (block is stored as TEXT)
-        let result: Result<(String,), _> = sqlx::query_as("SELECT block FROM last_block WHERE id = 0")
-            .fetch_one(pool)
-            .await;
-            
+        let result: Result<(String,), _> =
+            sqlx::query_as("SELECT block FROM last_block WHERE id = 0").fetch_one(pool).await;
+
         if let Ok((ref last_block_str,)) = result {
             if let Ok(last_block) = last_block_str.parse::<u64>() {
                 if last_block >= current_block {
@@ -558,19 +562,19 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
                 }
             }
         }
-        
+
         if start.elapsed() > timeout {
-            let last_block_info = result.ok()
+            let last_block_info = result
+                .ok()
                 .and_then(|(s,)| s.parse::<u64>().ok())
                 .map(|b| format!("{}", b))
                 .unwrap_or_else(|| "None".to_string());
             panic!(
                 "Timeout waiting for indexer to reach block {}. Last known block: {}",
-                current_block,
-                last_block_info
+                current_block, last_block_info
             );
         }
-        
+
         tokio::time::sleep(poll_interval).await;
     }
 }
@@ -578,33 +582,24 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
 /// Count rows in any table
 pub async fn count_table_rows(pool: &AnyPool, table_name: &str) -> i64 {
     let query = format!("SELECT COUNT(*) as count FROM {}", table_name);
-    let result = sqlx::query(&query)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let result = sqlx::query(&query).fetch_one(pool).await.unwrap();
     result.get("count")
 }
 
 /// Verify a request exists in a specific table
 pub async fn verify_request_in_table(pool: &AnyPool, request_id: &str, table_name: &str) -> String {
     let query = format!("SELECT * FROM {} WHERE request_id = $1", table_name);
-    let result = sqlx::query(&query)
-        .bind(request_id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let result = sqlx::query(&query).bind(request_id).fetch_one(pool).await.unwrap();
     result.get::<String, _>("request_id")
 }
 
 /// Get lock collateral for a request
 pub async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
-    let row = sqlx::query(
-        "SELECT lock_collateral FROM request_status WHERE request_id = $1",
-    )
-    .bind(request_id)
-    .fetch_one(pool)
-    .await
-    .unwrap();
+    let row = sqlx::query("SELECT lock_collateral FROM request_status WHERE request_id = $1")
+        .bind(request_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
     row.get("lock_collateral")
 }
 
@@ -630,7 +625,11 @@ pub fn verify_summary_totals(
 ) {
     if let Some(expected) = expectations.total_requests_submitted {
         let total: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
-        assert_eq!(total, expected, "Expected {} total requests submitted, got {}", expected, total);
+        assert_eq!(
+            total, expected,
+            "Expected {} total requests submitted, got {}",
+            expected, total
+        );
     }
 
     if let Some(expected) = expectations.total_requests_onchain {
@@ -665,12 +664,20 @@ pub fn verify_summary_totals(
 
     if let Some(expected) = expectations.total_locked_and_expired {
         let total: u64 = summaries.iter().map(|s| s.total_locked_and_expired).sum();
-        assert_eq!(total, expected, "Expected {} locked and expired requests, got {}", expected, total);
+        assert_eq!(
+            total, expected,
+            "Expected {} locked and expired requests, got {}",
+            expected, total
+        );
     }
 
     if let Some(expected) = expectations.total_locked_and_fulfilled {
         let total: u64 = summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
-        assert_eq!(total, expected, "Expected {} locked and fulfilled requests, got {}", expected, total);
+        assert_eq!(
+            total, expected,
+            "Expected {} locked and fulfilled requests, got {}",
+            expected, total
+        );
     }
 
     if let Some(expected) = expectations.total_secondary_fulfillments {
@@ -695,9 +702,7 @@ pub fn verify_hour_boundaries(summaries: &[boundless_indexer::db::market::Hourly
 pub async fn get_hourly_summaries(
     db: &Arc<MarketDb>,
 ) -> Vec<boundless_indexer::db::market::HourlyMarketSummary> {
-    db.get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None)
-        .await
-        .unwrap()
+    db.get_hourly_market_summaries(None, 10000, SortDirection::Asc, None, None).await.unwrap()
 }
 
 /// Get all-time summaries from database using direct SQL query
@@ -706,14 +711,14 @@ pub async fn get_all_time_summaries(
 ) -> Vec<boundless_indexer::db::market::AllTimeMarketSummary> {
     use boundless_indexer::db::market::AllTimeMarketSummary;
     use std::str::FromStr;
-    
+
     // Helper to parse padded U256 strings
     let parse_u256 = |s: &str| -> U256 {
         let trimmed = s.trim_start_matches('0');
         let parse_str = if trimmed.is_empty() { "0" } else { trimmed };
         U256::from_str(parse_str).unwrap_or(U256::ZERO)
     };
-    
+
     let rows = sqlx::query(
         "SELECT 
             period_timestamp,
@@ -742,50 +747,56 @@ pub async fn get_all_time_summaries(
             best_effective_prove_mhz_prover,
             best_effective_prove_mhz_request_id
         FROM all_time_market_summary
-        ORDER BY period_timestamp ASC"
+        ORDER BY period_timestamp ASC",
     )
     .fetch_all(pool)
     .await
     .unwrap();
 
     rows.into_iter()
-        .map(|row| {
-            AllTimeMarketSummary {
-                period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
-                total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
-                unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests") as u64,
-                unique_requesters_submitting_requests: row.get::<i64, _>("unique_requesters_submitting_requests") as u64,
-                total_fees_locked: parse_u256(&row.get::<String, _>("total_fees_locked")),
-                total_collateral_locked: parse_u256(&row.get::<String, _>("total_collateral_locked")),
-                total_locked_and_expired_collateral: parse_u256(&row.get::<String, _>("total_locked_and_expired_collateral")),
-                total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
-                total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain") as u64,
-                total_requests_submitted_offchain: row.get::<i64, _>("total_requests_submitted_offchain") as u64,
-                total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
-                total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
-                total_expired: row.get::<i64, _>("total_expired") as u64,
-                total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
-                total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
-                total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
-                locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
-                total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
-                total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
-                best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
-                best_peak_prove_mhz_request_id: row
-                    .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
-                    .ok()
-                    .flatten()
-                    .and_then(|s| U256::from_str(&s).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
-                best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
-                best_effective_prove_mhz_request_id: row
-                    .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
-                    .ok()
-                    .flatten()
-                    .and_then(|s| U256::from_str(&s).ok()),
-            }
+        .map(|row| AllTimeMarketSummary {
+            period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+            total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
+            unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests")
+                as u64,
+            unique_requesters_submitting_requests: row
+                .get::<i64, _>("unique_requesters_submitting_requests")
+                as u64,
+            total_fees_locked: parse_u256(&row.get::<String, _>("total_fees_locked")),
+            total_collateral_locked: parse_u256(&row.get::<String, _>("total_collateral_locked")),
+            total_locked_and_expired_collateral: parse_u256(
+                &row.get::<String, _>("total_locked_and_expired_collateral"),
+            ),
+            total_requests_submitted: row.get::<i64, _>("total_requests_submitted") as u64,
+            total_requests_submitted_onchain: row.get::<i64, _>("total_requests_submitted_onchain")
+                as u64,
+            total_requests_submitted_offchain: row
+                .get::<i64, _>("total_requests_submitted_offchain")
+                as u64,
+            total_requests_locked: row.get::<i64, _>("total_requests_locked") as u64,
+            total_requests_slashed: row.get::<i64, _>("total_requests_slashed") as u64,
+            total_expired: row.get::<i64, _>("total_expired") as u64,
+            total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
+            total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+            total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
+            locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
+                as f32,
+            total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
+            total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),
+            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
+            best_peak_prove_mhz_request_id: row
+                .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
+                .ok()
+                .flatten()
+                .and_then(|s| U256::from_str(&s).ok()),
+            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
+            best_effective_prove_mhz_request_id: row
+                .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
+                .ok()
+                .flatten()
+                .and_then(|s| U256::from_str(&s).ok()),
         })
         .collect()
 }
-

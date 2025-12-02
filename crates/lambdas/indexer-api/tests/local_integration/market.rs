@@ -1,8 +1,8 @@
 // Integration tests for Market API endpoints
 
 use indexer_api::routes::market::{
-    MarketAggregatesResponse, MarketCumulativesResponse, RequestListResponse, RequestStatusResponse,
-    RequestorAggregatesResponse, RequestorCumulativesResponse,
+    MarketAggregatesResponse, MarketCumulativesResponse, RequestListResponse,
+    RequestStatusResponse, RequestorAggregatesResponse, RequestorCumulativesResponse,
 };
 
 use super::TestEnv;
@@ -33,16 +33,10 @@ async fn test_market_requests_list() {
             "request_digest should be 66 chars (0x + 64 hex): {}",
             first.request_digest
         );
-        assert!(
-            !first.request_id.is_empty(),
-            "request_id should not be empty"
-        );
+        assert!(!first.request_id.is_empty(), "request_id should not be empty");
 
         // Status and source
-        assert!(
-            !first.request_status.is_empty(),
-            "request_status should not be empty"
-        );
+        assert!(!first.request_status.is_empty(), "request_status should not be empty");
         assert!(
             matches!(
                 first.request_status.as_str(),
@@ -51,10 +45,7 @@ async fn test_market_requests_list() {
             "request_status should be valid: {}",
             first.request_status
         );
-        assert!(
-            !first.source.is_empty(),
-            "source should not be empty"
-        );
+        assert!(!first.source.is_empty(), "source should not be empty");
         assert!(
             matches!(first.source.as_str(), "onchain" | "offchain" | "unknown"),
             "source should be valid: {}",
@@ -75,17 +66,8 @@ async fn test_market_requests_list() {
         );
 
         if let Some(ref addr) = first.lock_prover_address {
-            assert!(
-                addr.starts_with("0x"),
-                "lock_prover_address should start with 0x: {}",
-                addr
-            );
-            assert_eq!(
-                addr.len(),
-                42,
-                "lock_prover_address should be 42 chars: {}",
-                addr
-            );
+            assert!(addr.starts_with("0x"), "lock_prover_address should start with 0x: {}", addr);
+            assert_eq!(addr.len(), 42, "lock_prover_address should be 42 chars: {}", addr);
         }
 
         if let Some(ref addr) = first.fulfill_prover_address {
@@ -94,110 +76,62 @@ async fn test_market_requests_list() {
                 "fulfill_prover_address should start with 0x: {}",
                 addr
             );
-            assert_eq!(
-                addr.len(),
-                42,
-                "fulfill_prover_address should be 42 chars: {}",
-                addr
-            );
+            assert_eq!(addr.len(), 42, "fulfill_prover_address should be 42 chars: {}", addr);
         }
 
         // Timestamp fields (Unix)
-        assert!(
-            first.created_at >= 0,
-            "created_at should be non-negative: {}",
-            first.created_at
-        );
-        assert!(
-            first.updated_at >= 0,
-            "updated_at should be non-negative: {}",
-            first.updated_at
-        );
+        assert!(first.created_at >= 0, "created_at should be non-negative: {}", first.created_at);
+        assert!(first.updated_at >= 0, "updated_at should be non-negative: {}", first.updated_at);
         assert!(
             first.ramp_up_start >= 0,
             "ramp_up_start should be non-negative: {}",
             first.ramp_up_start
         );
-        assert!(
-            first.expires_at >= 0,
-            "expires_at should be non-negative: {}",
-            first.expires_at
-        );
-        assert!(
-            first.lock_end >= 0,
-            "lock_end should be non-negative: {}",
-            first.lock_end
-        );
+        assert!(first.expires_at >= 0, "expires_at should be non-negative: {}", first.expires_at);
+        assert!(first.lock_end >= 0, "lock_end should be non-negative: {}", first.lock_end);
 
         if let Some(locked_at) = first.locked_at {
-            assert!(
-                locked_at >= 0,
-                "locked_at should be non-negative: {}",
-                locked_at
-            );
+            assert!(locked_at >= 0, "locked_at should be non-negative: {}", locked_at);
         }
 
         if let Some(fulfilled_at) = first.fulfilled_at {
-            assert!(
-                fulfilled_at >= 0,
-                "fulfilled_at should be non-negative: {}",
-                fulfilled_at
-            );
+            assert!(fulfilled_at >= 0, "fulfilled_at should be non-negative: {}", fulfilled_at);
         }
 
         if let Some(slashed_at) = first.slashed_at {
-            assert!(
-                slashed_at >= 0,
-                "slashed_at should be non-negative: {}",
-                slashed_at
-            );
+            assert!(slashed_at >= 0, "slashed_at should be non-negative: {}", slashed_at);
         }
 
         // Timestamp ISO fields
-        assert!(
-            !first.created_at_iso.is_empty(),
-            "created_at_iso should not be empty"
-        );
+        assert!(!first.created_at_iso.is_empty(), "created_at_iso should not be empty");
         assert!(
             first.created_at_iso.contains('T'),
             "created_at_iso should be ISO 8601 format: {}",
             first.created_at_iso
         );
 
-        assert!(
-            !first.updated_at_iso.is_empty(),
-            "updated_at_iso should not be empty"
-        );
+        assert!(!first.updated_at_iso.is_empty(), "updated_at_iso should not be empty");
         assert!(
             first.updated_at_iso.contains('T'),
             "updated_at_iso should be ISO 8601 format: {}",
             first.updated_at_iso
         );
 
-        assert!(
-            !first.ramp_up_start_iso.is_empty(),
-            "ramp_up_start_iso should not be empty"
-        );
+        assert!(!first.ramp_up_start_iso.is_empty(), "ramp_up_start_iso should not be empty");
         assert!(
             first.ramp_up_start_iso.contains('T'),
             "ramp_up_start_iso should be ISO 8601 format: {}",
             first.ramp_up_start_iso
         );
 
-        assert!(
-            !first.expires_at_iso.is_empty(),
-            "expires_at_iso should not be empty"
-        );
+        assert!(!first.expires_at_iso.is_empty(), "expires_at_iso should not be empty");
         assert!(
             first.expires_at_iso.contains('T'),
             "expires_at_iso should be ISO 8601 format: {}",
             first.expires_at_iso
         );
 
-        assert!(
-            !first.lock_end_iso.is_empty(),
-            "lock_end_iso should not be empty"
-        );
+        assert!(!first.lock_end_iso.is_empty(), "lock_end_iso should not be empty");
         assert!(
             first.lock_end_iso.contains('T'),
             "lock_end_iso should be ISO 8601 format: {}",
@@ -242,62 +176,37 @@ async fn test_market_requests_list() {
 
         // Block numbers
         if let Some(submit_block) = first.submit_block {
-            assert!(
-                submit_block >= 0,
-                "submit_block should be non-negative: {}",
-                submit_block
-            );
+            assert!(submit_block >= 0, "submit_block should be non-negative: {}", submit_block);
         }
 
         if let Some(lock_block) = first.lock_block {
-            assert!(
-                lock_block >= 0,
-                "lock_block should be non-negative: {}",
-                lock_block
-            );
+            assert!(lock_block >= 0, "lock_block should be non-negative: {}", lock_block);
         }
 
         if let Some(fulfill_block) = first.fulfill_block {
-            assert!(
-                fulfill_block >= 0,
-                "fulfill_block should be non-negative: {}",
-                fulfill_block
-            );
+            assert!(fulfill_block >= 0, "fulfill_block should be non-negative: {}", fulfill_block);
         }
 
         if let Some(slashed_block) = first.slashed_block {
-            assert!(
-                slashed_block >= 0,
-                "slashed_block should be non-negative: {}",
-                slashed_block
-            );
+            assert!(slashed_block >= 0, "slashed_block should be non-negative: {}", slashed_block);
         }
 
         // Price and collateral fields (raw)
-        assert!(
-            !first.min_price.is_empty(),
-            "min_price should not be empty"
-        );
+        assert!(!first.min_price.is_empty(), "min_price should not be empty");
         assert!(
             first.min_price.chars().all(|c| c.is_ascii_digit()),
             "min_price should be numeric: {}",
             first.min_price
         );
 
-        assert!(
-            !first.max_price.is_empty(),
-            "max_price should not be empty"
-        );
+        assert!(!first.max_price.is_empty(), "max_price should not be empty");
         assert!(
             first.max_price.chars().all(|c| c.is_ascii_digit()),
             "max_price should be numeric: {}",
             first.max_price
         );
 
-        assert!(
-            !first.lock_collateral.is_empty(),
-            "lock_collateral should not be empty"
-        );
+        assert!(!first.lock_collateral.is_empty(), "lock_collateral should not be empty");
         assert!(
             first.lock_collateral.chars().all(|c| c.is_ascii_digit()),
             "lock_collateral should be numeric: {}",
@@ -305,14 +214,8 @@ async fn test_market_requests_list() {
         );
 
         // Price and collateral fields (formatted)
-        assert!(
-            !first.min_price_formatted.is_empty(),
-            "min_price_formatted should not be empty"
-        );
-        assert!(
-            !first.max_price_formatted.is_empty(),
-            "max_price_formatted should not be empty"
-        );
+        assert!(!first.min_price_formatted.is_empty(), "min_price_formatted should not be empty");
+        assert!(!first.max_price_formatted.is_empty(), "max_price_formatted should not be empty");
         assert!(
             !first.lock_collateral_formatted.is_empty(),
             "lock_collateral_formatted should not be empty"
@@ -341,10 +244,7 @@ async fn test_market_requests_list() {
         }
 
         if let Some(ref amount) = first.slash_transferred_amount {
-            assert!(
-                !amount.is_empty(),
-                "slash_transferred_amount should not be empty if Some"
-            );
+            assert!(!amount.is_empty(), "slash_transferred_amount should not be empty if Some");
             assert!(
                 amount.chars().all(|c| c.is_ascii_digit()),
                 "slash_transferred_amount should be numeric: {}",
@@ -360,10 +260,7 @@ async fn test_market_requests_list() {
         }
 
         if let Some(ref amount) = first.slash_burned_amount {
-            assert!(
-                !amount.is_empty(),
-                "slash_burned_amount should not be empty if Some"
-            );
+            assert!(!amount.is_empty(), "slash_burned_amount should not be empty if Some");
             assert!(
                 amount.chars().all(|c| c.is_ascii_digit()),
                 "slash_burned_amount should be numeric: {}",
@@ -406,66 +303,27 @@ async fn test_market_requests_list() {
 
         // Transaction hashes
         if let Some(ref tx_hash) = first.submit_tx_hash {
-            assert!(
-                tx_hash.starts_with("0x"),
-                "submit_tx_hash should start with 0x: {}",
-                tx_hash
-            );
-            assert_eq!(
-                tx_hash.len(),
-                66,
-                "submit_tx_hash should be 66 chars: {}",
-                tx_hash
-            );
+            assert!(tx_hash.starts_with("0x"), "submit_tx_hash should start with 0x: {}", tx_hash);
+            assert_eq!(tx_hash.len(), 66, "submit_tx_hash should be 66 chars: {}", tx_hash);
         }
 
         if let Some(ref tx_hash) = first.lock_tx_hash {
-            assert!(
-                tx_hash.starts_with("0x"),
-                "lock_tx_hash should start with 0x: {}",
-                tx_hash
-            );
-            assert_eq!(
-                tx_hash.len(),
-                66,
-                "lock_tx_hash should be 66 chars: {}",
-                tx_hash
-            );
+            assert!(tx_hash.starts_with("0x"), "lock_tx_hash should start with 0x: {}", tx_hash);
+            assert_eq!(tx_hash.len(), 66, "lock_tx_hash should be 66 chars: {}", tx_hash);
         }
 
         if let Some(ref tx_hash) = first.fulfill_tx_hash {
-            assert!(
-                tx_hash.starts_with("0x"),
-                "fulfill_tx_hash should start with 0x: {}",
-                tx_hash
-            );
-            assert_eq!(
-                tx_hash.len(),
-                66,
-                "fulfill_tx_hash should be 66 chars: {}",
-                tx_hash
-            );
+            assert!(tx_hash.starts_with("0x"), "fulfill_tx_hash should start with 0x: {}", tx_hash);
+            assert_eq!(tx_hash.len(), 66, "fulfill_tx_hash should be 66 chars: {}", tx_hash);
         }
 
         if let Some(ref tx_hash) = first.slash_tx_hash {
-            assert!(
-                tx_hash.starts_with("0x"),
-                "slash_tx_hash should start with 0x: {}",
-                tx_hash
-            );
-            assert_eq!(
-                tx_hash.len(),
-                66,
-                "slash_tx_hash should be 66 chars: {}",
-                tx_hash
-            );
+            assert!(tx_hash.starts_with("0x"), "slash_tx_hash should start with 0x: {}", tx_hash);
+            assert_eq!(tx_hash.len(), 66, "slash_tx_hash should be 66 chars: {}", tx_hash);
         }
 
         // Image and predicate fields
-        assert!(
-            !first.image_id.is_empty(),
-            "image_id should not be empty"
-        );
+        assert!(!first.image_id.is_empty(), "image_id should not be empty");
         // image_id is typically 64 hex chars (32 bytes)
         assert!(
             first.image_id.len() == 64 || first.image_id.starts_with("0x"),
@@ -474,33 +332,22 @@ async fn test_market_requests_list() {
         );
 
         if let Some(ref image_url) = first.image_url {
+            assert!(!image_url.is_empty(), "image_url should not be empty if Some");
             assert!(
-                !image_url.is_empty(),
-                "image_url should not be empty if Some"
-            );
-            assert!(
-                image_url.starts_with("http://") || image_url.starts_with("https://") || image_url.starts_with("ipfs://") || image_url.starts_with("dweb://"),
+                image_url.starts_with("http://")
+                    || image_url.starts_with("https://")
+                    || image_url.starts_with("ipfs://")
+                    || image_url.starts_with("dweb://"),
                 "image_url should be a valid URL: {}",
                 image_url
             );
         }
 
-        assert!(
-            !first.selector.is_empty(),
-            "selector should not be empty"
-        );
+        assert!(!first.selector.is_empty(), "selector should not be empty");
         // selector is typically 8 hex chars (4 bytes)
-        assert_eq!(
-            first.selector.len(),
-            8,
-            "selector should be 8 hex chars: {}",
-            first.selector
-        );
+        assert_eq!(first.selector.len(), 8, "selector should be 8 hex chars: {}", first.selector);
 
-        assert!(
-            !first.predicate_type.is_empty(),
-            "predicate_type should not be empty"
-        );
+        assert!(!first.predicate_type.is_empty(), "predicate_type should not be empty");
         assert!(
             matches!(
                 first.predicate_type.as_str(),
@@ -510,10 +357,7 @@ async fn test_market_requests_list() {
             first.predicate_type
         );
 
-        assert!(
-            !first.predicate_data.is_empty(),
-            "predicate_data should not be empty"
-        );
+        assert!(!first.predicate_data.is_empty(), "predicate_data should not be empty");
         assert!(
             first.predicate_data.starts_with("0x"),
             "predicate_data should start with 0x: {}",
@@ -521,20 +365,14 @@ async fn test_market_requests_list() {
         );
 
         // Input fields
-        assert!(
-            !first.input_type.is_empty(),
-            "input_type should not be empty"
-        );
+        assert!(!first.input_type.is_empty(), "input_type should not be empty");
         assert!(
             matches!(first.input_type.as_str(), "Inline" | "Url" | "Storage"),
             "input_type should be valid: {}",
             first.input_type
         );
 
-        assert!(
-            !first.input_data.is_empty(),
-            "input_data should not be empty"
-        );
+        assert!(!first.input_data.is_empty(), "input_data should not be empty");
         assert!(
             first.input_data.starts_with("0x"),
             "input_data should start with 0x: {}",
@@ -543,10 +381,7 @@ async fn test_market_requests_list() {
 
         // Fulfillment fields
         if let Some(ref fulfill_journal) = first.fulfill_journal {
-            assert!(
-                !fulfill_journal.is_empty(),
-                "fulfill_journal should not be empty if Some"
-            );
+            assert!(!fulfill_journal.is_empty(), "fulfill_journal should not be empty if Some");
             assert!(
                 fulfill_journal.starts_with("0x"),
                 "fulfill_journal should start with 0x: {}",
@@ -555,10 +390,7 @@ async fn test_market_requests_list() {
         }
 
         if let Some(ref fulfill_seal) = first.fulfill_seal {
-            assert!(
-                !fulfill_seal.is_empty(),
-                "fulfill_seal should not be empty if Some"
-            );
+            assert!(!fulfill_seal.is_empty(), "fulfill_seal should not be empty if Some");
             assert!(
                 fulfill_seal.starts_with("0x"),
                 "fulfill_seal should start with 0x: {}",
@@ -610,10 +442,7 @@ async fn test_market_aggregates_hourly() {
     let first = response.data.first().unwrap();
 
     // Verify timestamp_iso exists
-    assert!(
-        !first.timestamp_iso.is_empty(),
-        "timestamp_iso should not be empty"
-    );
+    assert!(!first.timestamp_iso.is_empty(), "timestamp_iso should not be empty");
     assert!(
         first.timestamp_iso.contains('T'),
         "timestamp_iso should be ISO 8601 format: {}",
@@ -622,8 +451,8 @@ async fn test_market_aggregates_hourly() {
 
     // Verify timestamp is on hour boundary (minutes and seconds = 0)
     use chrono::{DateTime, Timelike, Utc};
-    let dt = DateTime::<Utc>::from_timestamp(first.timestamp, 0)
-        .expect("timestamp should be valid");
+    let dt =
+        DateTime::<Utc>::from_timestamp(first.timestamp, 0).expect("timestamp should be valid");
     assert_eq!(
         dt.minute(),
         0,
@@ -679,8 +508,8 @@ async fn test_market_aggregates_daily() {
     // Verify timestamps are at day boundaries (midnight UTC)
     use chrono::{DateTime, Timelike, Utc};
     for entry in &response.data {
-        let dt = DateTime::<Utc>::from_timestamp(entry.timestamp, 0)
-            .expect("timestamp should be valid");
+        let dt =
+            DateTime::<Utc>::from_timestamp(entry.timestamp, 0).expect("timestamp should be valid");
         assert_eq!(
             dt.hour(),
             0,
@@ -732,10 +561,10 @@ async fn test_market_aggregates_weekly() {
     assert!(!response.data.is_empty());
 
     // Verify timestamps are at week boundaries (Monday 00:00:00 UTC)
-    use chrono::{Datelike, DateTime, Timelike, Utc, Weekday};
+    use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
     for entry in &response.data {
-        let dt = DateTime::<Utc>::from_timestamp(entry.timestamp, 0)
-            .expect("timestamp should be valid");
+        let dt =
+            DateTime::<Utc>::from_timestamp(entry.timestamp, 0).expect("timestamp should be valid");
         assert_eq!(
             dt.weekday(),
             Weekday::Mon,
@@ -794,10 +623,10 @@ async fn test_market_aggregates_monthly() {
     assert!(!response.data.is_empty());
 
     // Verify timestamps are at month boundaries (1st day 00:00:00 UTC)
-    use chrono::{Datelike, DateTime, Timelike, Utc};
+    use chrono::{DateTime, Datelike, Timelike, Utc};
     for entry in &response.data {
-        let dt = DateTime::<Utc>::from_timestamp(entry.timestamp, 0)
-            .expect("timestamp should be valid");
+        let dt =
+            DateTime::<Utc>::from_timestamp(entry.timestamp, 0).expect("timestamp should be valid");
         assert_eq!(
             dt.day(),
             1,
@@ -972,7 +801,8 @@ async fn test_market_requests_by_request_id_hex_parsing() {
 
     // Test with 0x prefix
     let path_with_prefix = format!("/v1/market/requests/0x{}", request_id_no_prefix);
-    let response_with_prefix: Vec<RequestStatusResponse> = env.get(&path_with_prefix).await.unwrap();
+    let response_with_prefix: Vec<RequestStatusResponse> =
+        env.get(&path_with_prefix).await.unwrap();
     // Verify both return the same results
     assert_eq!(
         response_no_prefix.len(),
@@ -982,10 +812,7 @@ async fn test_market_requests_by_request_id_hex_parsing() {
 
     // Verify the results are identical
     for (req1, req2) in response_no_prefix.iter().zip(response_with_prefix.iter()) {
-        assert_eq!(
-            req1.request_digest, req2.request_digest,
-            "Request digests should match"
-        );
+        assert_eq!(req1.request_digest, req2.request_digest, "Request digests should match");
     }
 }
 
@@ -1005,10 +832,7 @@ async fn test_market_cumulatives() {
     let first = response.data.first().unwrap();
 
     // Verify timestamp_iso format (ISO 8601)
-    assert!(
-        !first.timestamp_iso.is_empty(),
-        "timestamp_iso should not be empty"
-    );
+    assert!(!first.timestamp_iso.is_empty(), "timestamp_iso should not be empty");
     assert!(
         first.timestamp_iso.contains('T'),
         "timestamp_iso should be ISO 8601 format: {}",
@@ -1035,7 +859,7 @@ async fn test_market_cumulatives() {
         for i in 1..sorted_data.len() {
             let prev = &sorted_data[i - 1];
             let curr = &sorted_data[i];
-            
+
             // If sorted descending, prev should have >= values
             // If sorted ascending, curr should have >= values
             // For simplicity, check that values are non-decreasing when sorted by timestamp
@@ -1074,9 +898,7 @@ async fn test_market_cumulatives() {
     // Test pagination with cursor
     if let Some(cursor) = &response.next_cursor {
         let page2: MarketCumulativesResponse =
-            env.get(&format!("/v1/market/cumulatives?limit=10&cursor={}", cursor))
-                .await
-                .unwrap();
+            env.get(&format!("/v1/market/cumulatives?limit=10&cursor={}", cursor)).await.unwrap();
 
         // Verify we got different data
         if !response.data.is_empty() && !page2.data.is_empty() {
@@ -1090,10 +912,10 @@ async fn test_market_cumulatives() {
     // Test time filtering with before param
     if !response.data.is_empty() {
         let before_ts = response.data[0].timestamp;
-        let filtered: MarketCumulativesResponse =
-            env.get(&format!("/v1/market/cumulatives?limit=10&before={}", before_ts))
-                .await
-                .unwrap();
+        let filtered: MarketCumulativesResponse = env
+            .get(&format!("/v1/market/cumulatives?limit=10&before={}", before_ts))
+            .await
+            .unwrap();
 
         // All results should be before the specified timestamp
         for entry in &filtered.data {
@@ -1110,9 +932,7 @@ async fn test_market_cumulatives() {
     if !response.data.is_empty() {
         let after_ts = response.data.last().unwrap().timestamp;
         let filtered: MarketCumulativesResponse =
-            env.get(&format!("/v1/market/cumulatives?limit=10&after={}", after_ts))
-                .await
-                .unwrap();
+            env.get(&format!("/v1/market/cumulatives?limit=10&after={}", after_ts)).await.unwrap();
 
         // All results should be after the specified timestamp
         for entry in &filtered.data {
@@ -1178,7 +998,10 @@ async fn test_requestor_aggregates() {
     let requestor_address = &first.client_address;
 
     // Test hourly aggregation
-    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=hourly&limit=10", requestor_address);
+    let path = format!(
+        "/v1/market/requestors/{}/aggregates?aggregation=hourly&limit=10",
+        requestor_address
+    );
     let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
 
     assert_eq!(response.aggregation.to_string(), "hourly");
@@ -1210,7 +1033,8 @@ async fn test_requestor_aggregates() {
     }
 
     // Test daily aggregation
-    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=daily&limit=5", requestor_address);
+    let path =
+        format!("/v1/market/requestors/{}/aggregates?aggregation=daily&limit=5", requestor_address);
     let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
 
     assert_eq!(response.aggregation.to_string(), "daily");
@@ -1231,7 +1055,10 @@ async fn test_requestor_aggregates() {
     }
 
     // Test weekly aggregation
-    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=weekly&limit=5", requestor_address);
+    let path = format!(
+        "/v1/market/requestors/{}/aggregates?aggregation=weekly&limit=5",
+        requestor_address
+    );
     let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
 
     assert_eq!(response.aggregation.to_string(), "weekly");
@@ -1252,13 +1079,19 @@ async fn test_requestor_aggregates() {
     }
 
     // Test that monthly is rejected
-    let path = format!("/v1/market/requestors/{}/aggregates?aggregation=monthly&limit=5", requestor_address);
+    let path = format!(
+        "/v1/market/requestors/{}/aggregates?aggregation=monthly&limit=5",
+        requestor_address
+    );
     let result: Result<RequestorAggregatesResponse, _> = env.get(&path).await;
     assert!(result.is_err(), "Monthly aggregation should be rejected");
 
     // Test pagination
     if let Some(cursor) = &response.next_cursor {
-        let path = format!("/v1/market/requestors/{}/aggregates?aggregation=weekly&limit=10&cursor={}", requestor_address, cursor);
+        let path = format!(
+            "/v1/market/requestors/{}/aggregates?aggregation=weekly&limit=10&cursor={}",
+            requestor_address, cursor
+        );
         let page2: RequestorAggregatesResponse = env.get(&path).await.unwrap();
 
         if !response.data.is_empty() && !page2.data.is_empty() {
@@ -1301,7 +1134,7 @@ async fn test_requestor_cumulatives() {
         for i in 1..sorted_data.len() {
             let prev = &sorted_data[i - 1];
             let curr = &sorted_data[i];
-            
+
             if prev.timestamp > curr.timestamp {
                 // Descending order - previous should have >= values
                 assert!(
@@ -1320,7 +1153,10 @@ async fn test_requestor_cumulatives() {
 
     // Test pagination
     if let Some(cursor) = &response.next_cursor {
-        let path = format!("/v1/market/requestors/{}/cumulatives?limit=10&cursor={}", requestor_address, cursor);
+        let path = format!(
+            "/v1/market/requestors/{}/cumulatives?limit=10&cursor={}",
+            requestor_address, cursor
+        );
         let page2: RequestorCumulativesResponse = env.get(&path).await.unwrap();
 
         if !response.data.is_empty() && !page2.data.is_empty() {
@@ -1334,7 +1170,10 @@ async fn test_requestor_cumulatives() {
     // Test time filtering
     if !response.data.is_empty() {
         let before_ts = response.data[0].timestamp;
-        let path = format!("/v1/market/requestors/{}/cumulatives?limit=10&before={}", requestor_address, before_ts);
+        let path = format!(
+            "/v1/market/requestors/{}/cumulatives?limit=10&before={}",
+            requestor_address, before_ts
+        );
         let filtered: RequestorCumulativesResponse = env.get(&path).await.unwrap();
 
         for entry in &filtered.data {

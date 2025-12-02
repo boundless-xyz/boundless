@@ -163,7 +163,13 @@ where
 
         // Batch fetch all transactions and blocks in parallel and populate cache
         self.fetch_tx_metadata(&logs, from, to).await?;
-        tracing::info!("Blocks being processed timestamp range: {} [{}] to {} [{}]", from, self.block_timestamp(from).await?, to, self.block_timestamp(to).await?);
+        tracing::info!(
+            "Blocks being processed timestamp range: {} [{}] to {} [{}]",
+            from,
+            self.block_timestamp(from).await?,
+            to,
+            self.block_timestamp(to).await?
+        );
 
         // Process all events
         // Collect touched requests from each process_* call
@@ -269,10 +275,8 @@ where
     ) -> Result<HashSet<B256>, ServiceError> {
         let from_timestamp = self.block_timestamp(from_block).await?;
         let to_timestamp = self.block_timestamp(to_block).await?;
-        let request_digests = self
-            .db
-            .get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp)
-            .await?;
+        let request_digests =
+            self.db.get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp).await?;
         Ok(request_digests)
     }
 

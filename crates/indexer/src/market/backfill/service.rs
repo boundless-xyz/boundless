@@ -343,7 +343,9 @@ where
 
         use crate::db::market::AllTimeMarketSummary;
         use crate::market::service::sum_hourly_aggregates_into_base;
-        use crate::market::time_boundaries::{get_hour_start, get_previous_finished_hour, iter_hourly_periods};
+        use crate::market::time_boundaries::{
+            get_hour_start, get_previous_finished_hour, iter_hourly_periods,
+        };
         use alloy::primitives::U256;
 
         // Get current hour and previous finished hour using DRY helper functions
@@ -357,7 +359,10 @@ where
         let start_hour_aligned = get_hour_start(start_ts);
         let start_hour = if let Some(ref latest) = latest_all_time {
             // Start from the hour after the latest aggregate, or start_ts if later
-            std::cmp::max(latest.period_timestamp + crate::market::service::SECONDS_PER_HOUR, start_hour_aligned)
+            std::cmp::max(
+                latest.period_timestamp + crate::market::service::SECONDS_PER_HOUR,
+                start_hour_aligned,
+            )
         } else {
             start_hour_aligned
         };
@@ -379,12 +384,18 @@ where
         );
 
         // Get earliest hourly summary timestamp for cumulative aggregation
-        let earliest_hourly_ts = self.indexer.db.get_earliest_hourly_summary_timestamp().await?
+        let earliest_hourly_ts = self
+            .indexer
+            .db
+            .get_earliest_hourly_summary_timestamp()
+            .await?
             .map(|ts| get_hour_start(ts))
             .unwrap_or(start_hour);
 
         // Fetch ALL hourly summaries once (from earliest to end)
-        let all_hourly_summaries = self.indexer.db
+        let all_hourly_summaries = self
+            .indexer
+            .db
             .get_hourly_market_summaries_by_range(earliest_hourly_ts, previous_finished_hour + 1)
             .await?;
 
@@ -472,7 +483,11 @@ where
             let hours_to_sum = if current_all_time.period_timestamp < hour_ts {
                 // Sum only hours after the previous aggregate
                 hourly_map
-                    .range((current_all_time.period_timestamp + crate::market::service::SECONDS_PER_HOUR)..=hour_ts)
+                    .range(
+                        (current_all_time.period_timestamp
+                            + crate::market::service::SECONDS_PER_HOUR)
+                            ..=hour_ts,
+                    )
                     .map(|(_, summary)| summary.clone())
                     .collect()
             } else {
@@ -487,19 +502,21 @@ where
             sum_hourly_aggregates_into_base(&mut current_all_time, &hours_to_sum);
 
             // Query unique counts from DB for this hour
-            current_all_time.unique_provers_locking_requests = self.indexer.db
-                .get_all_time_unique_provers(hour_ts)
-                .await?;
-            current_all_time.unique_requesters_submitting_requests = self.indexer.db
-                .get_all_time_unique_requesters(hour_ts)
-                .await?;
+            current_all_time.unique_provers_locking_requests =
+                self.indexer.db.get_all_time_unique_provers(hour_ts).await?;
+            current_all_time.unique_requesters_submitting_requests =
+                self.indexer.db.get_all_time_unique_requesters(hour_ts).await?;
 
             // Upsert all-time aggregate for this hour
             self.indexer.db.upsert_all_time_market_summary(current_all_time.clone()).await?;
 
             processed += 1;
             if processed % 100 == 0 {
-                tracing::info!("Processed {} / {} all-time aggregate periods", processed, total_hours);
+                tracing::info!(
+                    "Processed {} / {} all-time aggregate periods",
+                    processed,
+                    total_hours
+                );
             }
         }
 
@@ -565,10 +582,11 @@ where
         let mut processed = 0;
         for requestor in requestors {
             for (hour_ts, hour_end) in &periods {
-                let summary = self.indexer
+                let summary = self
+                    .indexer
                     .compute_period_requestor_summary(*hour_ts, *hour_end, *requestor)
                     .await?;
-                
+
                 // Only insert if there's activity
                 if summary.total_requests_submitted > 0 {
                     self.indexer.db.upsert_hourly_requestor_summary(summary).await?;
@@ -614,10 +632,11 @@ where
         let mut processed = 0;
         for requestor in requestors {
             for (day_ts, day_end) in &periods {
-                let summary = self.indexer
+                let summary = self
+                    .indexer
                     .compute_period_requestor_summary(*day_ts, *day_end, *requestor)
                     .await?;
-                
+
                 if summary.total_requests_submitted > 0 {
                     self.indexer.db.upsert_daily_requestor_summary(summary).await?;
                 }
@@ -662,10 +681,11 @@ where
         let mut processed = 0;
         for requestor in requestors {
             for (week_ts, week_end) in &periods {
-                let summary = self.indexer
+                let summary = self
+                    .indexer
                     .compute_period_requestor_summary(*week_ts, *week_end, *requestor)
                     .await?;
-                
+
                 if summary.total_requests_submitted > 0 {
                     self.indexer.db.upsert_weekly_requestor_summary(summary).await?;
                 }
@@ -710,10 +730,11 @@ where
         let mut processed = 0;
         for requestor in requestors {
             for (month_ts, month_end) in &periods {
-                let summary = self.indexer
+                let summary = self
+                    .indexer
                     .compute_period_requestor_summary(*month_ts, *month_end, *requestor)
                     .await?;
-                
+
                 if summary.total_requests_submitted > 0 {
                     self.indexer.db.upsert_monthly_requestor_summary(summary).await?;
                 }
@@ -787,39 +808,57 @@ where
             let mut has_activity = false;
             for (hour_ts, _hour_end) in &periods {
                 // Try to get the hourly summary for this requestor
-                if let Ok(hourly_summaries) = self.indexer.db
+                if let Ok(hourly_summaries) = self
+                    .indexer
+                    .db
                     .get_hourly_requestor_summaries_by_range(*requestor, *hour_ts, hour_ts + 1)
                     .await
                 {
                     if let Some(hour_summary) = hourly_summaries.first() {
                         has_activity = true;
-                        
+
                         // Add this hour's data
                         current_all_time.total_fulfilled += hour_summary.total_fulfilled;
-                        current_all_time.total_requests_submitted += hour_summary.total_requests_submitted;
-                        current_all_time.total_requests_submitted_onchain += hour_summary.total_requests_submitted_onchain;
-                        current_all_time.total_requests_submitted_offchain += hour_summary.total_requests_submitted_offchain;
-                        current_all_time.total_requests_locked += hour_summary.total_requests_locked;
-                        current_all_time.total_requests_slashed += hour_summary.total_requests_slashed;
+                        current_all_time.total_requests_submitted +=
+                            hour_summary.total_requests_submitted;
+                        current_all_time.total_requests_submitted_onchain +=
+                            hour_summary.total_requests_submitted_onchain;
+                        current_all_time.total_requests_submitted_offchain +=
+                            hour_summary.total_requests_submitted_offchain;
+                        current_all_time.total_requests_locked +=
+                            hour_summary.total_requests_locked;
+                        current_all_time.total_requests_slashed +=
+                            hour_summary.total_requests_slashed;
                         current_all_time.total_expired += hour_summary.total_expired;
-                        current_all_time.total_locked_and_expired += hour_summary.total_locked_and_expired;
-                        current_all_time.total_locked_and_fulfilled += hour_summary.total_locked_and_fulfilled;
+                        current_all_time.total_locked_and_expired +=
+                            hour_summary.total_locked_and_expired;
+                        current_all_time.total_locked_and_fulfilled +=
+                            hour_summary.total_locked_and_fulfilled;
                         current_all_time.total_program_cycles += hour_summary.total_program_cycles;
                         current_all_time.total_cycles += hour_summary.total_cycles;
                         current_all_time.total_fees_locked += hour_summary.total_fees_locked;
-                        current_all_time.total_collateral_locked += hour_summary.total_collateral_locked;
-                        current_all_time.total_locked_and_expired_collateral += hour_summary.total_locked_and_expired_collateral;
+                        current_all_time.total_collateral_locked +=
+                            hour_summary.total_collateral_locked;
+                        current_all_time.total_locked_and_expired_collateral +=
+                            hour_summary.total_locked_and_expired_collateral;
 
                         // Update best metrics
                         if hour_summary.best_peak_prove_mhz > current_all_time.best_peak_prove_mhz {
                             current_all_time.best_peak_prove_mhz = hour_summary.best_peak_prove_mhz;
-                            current_all_time.best_peak_prove_mhz_prover = hour_summary.best_peak_prove_mhz_prover.clone();
-                            current_all_time.best_peak_prove_mhz_request_id = hour_summary.best_peak_prove_mhz_request_id;
+                            current_all_time.best_peak_prove_mhz_prover =
+                                hour_summary.best_peak_prove_mhz_prover.clone();
+                            current_all_time.best_peak_prove_mhz_request_id =
+                                hour_summary.best_peak_prove_mhz_request_id;
                         }
-                        if hour_summary.best_effective_prove_mhz > current_all_time.best_effective_prove_mhz {
-                            current_all_time.best_effective_prove_mhz = hour_summary.best_effective_prove_mhz;
-                            current_all_time.best_effective_prove_mhz_prover = hour_summary.best_effective_prove_mhz_prover.clone();
-                            current_all_time.best_effective_prove_mhz_request_id = hour_summary.best_effective_prove_mhz_request_id;
+                        if hour_summary.best_effective_prove_mhz
+                            > current_all_time.best_effective_prove_mhz
+                        {
+                            current_all_time.best_effective_prove_mhz =
+                                hour_summary.best_effective_prove_mhz;
+                            current_all_time.best_effective_prove_mhz_prover =
+                                hour_summary.best_effective_prove_mhz_prover.clone();
+                            current_all_time.best_effective_prove_mhz_request_id =
+                                hour_summary.best_effective_prove_mhz_request_id;
                         }
                     }
                 }
@@ -827,21 +866,29 @@ where
                 current_all_time.period_timestamp = *hour_ts;
 
                 // Query unique provers for this requestor up to this hour
-                current_all_time.unique_provers_locking_requests = self.indexer.db
+                current_all_time.unique_provers_locking_requests = self
+                    .indexer
+                    .db
                     .get_all_time_requestor_unique_provers(hour_ts + 1, *requestor)
                     .await?;
 
                 // Recalculate fulfillment rate
-                let total_locked_outcomes = current_all_time.total_locked_and_fulfilled + current_all_time.total_locked_and_expired;
+                let total_locked_outcomes = current_all_time.total_locked_and_fulfilled
+                    + current_all_time.total_locked_and_expired;
                 current_all_time.locked_orders_fulfillment_rate = if total_locked_outcomes > 0 {
-                    (current_all_time.total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
+                    (current_all_time.total_locked_and_fulfilled as f32
+                        / total_locked_outcomes as f32)
+                        * 100.0
                 } else {
                     0.0
                 };
 
                 // Upsert all-time aggregate for this hour only if there's activity
                 if has_activity {
-                    self.indexer.db.upsert_all_time_requestor_summary(current_all_time.clone()).await?;
+                    self.indexer
+                        .db
+                        .upsert_all_time_requestor_summary(current_all_time.clone())
+                        .await?;
                 }
             }
 

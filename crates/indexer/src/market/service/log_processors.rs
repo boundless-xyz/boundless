@@ -129,12 +129,22 @@ where
             );
 
             // Collect proof request for batch insert
-            proof_requests.push((request_digest, request, metadata, "onchain".to_string(), metadata.block_timestamp));
+            proof_requests.push((
+                request_digest,
+                request,
+                metadata,
+                "onchain".to_string(),
+                metadata.block_timestamp,
+            ));
 
             // Collect event for batch insert
             submitted_events.push((request_digest, event.requestId, metadata));
 
-            tracing::debug!("Adding request_digest to touched_requests: 0x{:x} for request: 0x{:x}", request_digest, event.requestId);
+            tracing::debug!(
+                "Adding request_digest to touched_requests: 0x{:x} for request: 0x{:x}",
+                request_digest,
+                event.requestId
+            );
             touched_requests.insert(request_digest);
         }
 
@@ -229,9 +239,8 @@ where
             tracing::debug!("Fetched {} orders from order stream", response.orders.len());
 
             // Collect all request digests to check in batch
-            let request_digests: Vec<B256> = response.orders.iter()
-                .map(|order_data| order_data.order.request_digest)
-                .collect();
+            let request_digests: Vec<B256> =
+                response.orders.iter().map(|order_data| order_data.order.request_digest).collect();
 
             // Batch check which requests already exist
             let existing_digests = self.db.has_proof_requests(&request_digests).await?;
@@ -261,7 +270,13 @@ where
                 tracing::debug!("Processing request submitted offchain event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]", request.id, request_digest, metadata.block_number, metadata.block_timestamp);
 
                 // Collect for batch insert
-                batch_proof_requests.push((request_digest, request.clone(), metadata, "offchain".to_string(), submission_timestamp));
+                batch_proof_requests.push((
+                    request_digest,
+                    request.clone(),
+                    metadata,
+                    "offchain".to_string(),
+                    submission_timestamp,
+                ));
 
                 touched_requests.insert(request_digest);
                 if latest_timestamp.is_none() || latest_timestamp.unwrap() < created_at {
@@ -340,7 +355,7 @@ where
             let event = decoded.inner.data;
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
-            
+
             // Get the request and calculate its digest
             let request = event.request.clone();
             let request_digest = request
@@ -408,7 +423,7 @@ where
             let request_digest = event.fulfillment.requestDigest;
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
-            
+
             tracing::debug!(
                 "Processing proof delivered event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
@@ -416,7 +431,7 @@ where
                 metadata.block_number,
                 metadata.block_timestamp
             );
-            
+
             proof_delivered_events.push((request_digest, event.requestId, event.prover, metadata));
 
             // Collect proof for batch insert
@@ -474,7 +489,7 @@ where
             let event = decoded.inner.data;
 
             let metadata = self.get_tx_metadata(log.clone()).await?;
-            
+
             tracing::debug!(
                 "Processing fulfilled event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]",
                 event.requestId,
@@ -559,7 +574,8 @@ where
 
         // Batch query all request digests
         if !request_ids.is_empty() {
-            let request_digests_map = self.db.get_request_digests_by_request_ids(&request_ids).await?;
+            let request_digests_map =
+                self.db.get_request_digests_by_request_ids(&request_ids).await?;
             for digests in request_digests_map.values() {
                 for digest in digests {
                     touched_requests.insert(*digest);
@@ -845,7 +861,8 @@ where
 
         // Batch query all request digests
         if !request_ids.is_empty() {
-            let request_digests_map = self.db.get_request_digests_by_request_ids(&request_ids).await?;
+            let request_digests_map =
+                self.db.get_request_digests_by_request_ids(&request_ids).await?;
             for digests in request_digests_map.values() {
                 for digest in digests {
                     touched_requests.insert(*digest);

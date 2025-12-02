@@ -162,7 +162,9 @@ where
                 }
             }
         } else {
-            tracing::debug!("No cache storage configured. Fetching tx metadata from RPC without caching.");
+            tracing::debug!(
+                "No cache storage configured. Fetching tx metadata from RPC without caching."
+            );
         }
 
         // Step 0: Collect unique transaction hashes from all logs
@@ -361,7 +363,9 @@ where
         }
 
         // Batch insert all fetched blocks into database
-        let blocks_to_insert: Vec<(u64, u64)> = self.block_num_to_timestamp.iter()
+        let blocks_to_insert: Vec<(u64, u64)> = self
+            .block_num_to_timestamp
+            .iter()
             .map(|(&block_num, &timestamp)| (block_num, timestamp))
             .collect();
         if !blocks_to_insert.is_empty() {
@@ -444,7 +448,7 @@ where
         if !block_numbers.is_empty() {
             let mut block_numbers_vec: Vec<u64> = block_numbers.into_iter().collect();
             let min_block_number = block_numbers_vec.iter().min().unwrap();
-            
+
             // We add the previous block number to the list of blocks to fetch. This ensures we cache the block info of the previous block
             // to the range we are indexing. This info is used later during indexing when we check for expired requests.
             if *min_block_number > 0 {
@@ -479,7 +483,9 @@ where
         }
 
         // Batch insert all fetched blocks into database
-        let blocks_to_insert: Vec<(u64, u64)> = self.block_num_to_timestamp.iter()
+        let blocks_to_insert: Vec<(u64, u64)> = self
+            .block_num_to_timestamp
+            .iter()
             .map(|(&block_num, &timestamp)| (block_num, timestamp))
             .collect();
         if !blocks_to_insert.is_empty() {

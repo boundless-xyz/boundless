@@ -65,7 +65,8 @@ async fn initialize_test_db() -> TestDbState {
     tracing::info!("Creating test database at: {}", db_path);
 
     // Create database connection
-    let db = Arc::new(RewardsDb::new(&db_url, None, false).await.expect("Failed to create database"));
+    let db =
+        Arc::new(RewardsDb::new(&db_url, None, false).await.expect("Failed to create database"));
 
     // Configure indexer
     let config = RewardsIndexerServiceConfig {

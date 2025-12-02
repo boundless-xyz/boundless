@@ -31,7 +31,9 @@ use crate::{
     handler::{cache_control, handle_error},
     utils::{format_eth, format_zkc},
 };
-use boundless_indexer::db::market::{RequestCursor, RequestSortField, RequestStatus, SortDirection};
+use boundless_indexer::db::market::{
+    RequestCursor, RequestSortField, RequestStatus, SortDirection,
+};
 use boundless_indexer::db::{IndexerDb, ProversDb, RequestorDb};
 
 const MAX_AGGREGATES: u64 = 500;
@@ -81,8 +83,7 @@ async fn get_indexing_status(State(state): State<Arc<AppState>>) -> Response {
     match get_indexing_status_impl(state).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
-            res.headers_mut()
-                .insert(header::CACHE_CONTROL, cache_control("public, max-age=10"));
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=10"));
             res
         }
         Err(err) => handle_error(err).into_response(),
@@ -97,7 +98,7 @@ async fn get_indexing_status_impl(state: Arc<AppState>) -> anyhow::Result<Indexi
         .ok_or_else(|| anyhow::anyhow!("No indexing data available"))?;
 
     // TODO
-    
+
     // let timestamp = state
     //     .market_db
     //     .get_block_timestamp(last_block)
@@ -113,7 +114,6 @@ async fn get_indexing_status_impl(state: Arc<AppState>) -> anyhow::Result<Indexi
         last_indexed_block_timestamp_iso: format_timestamp_iso(timestamp_i64),
     })
 }
-
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -719,11 +719,8 @@ async fn get_market_aggregates_impl(
     );
 
     // Parse cursor if provided
-    let cursor = if let Some(cursor_str) = &params.cursor {
-        Some(decode_cursor(cursor_str)?)
-    } else {
-        None
-    };
+    let cursor =
+        if let Some(cursor_str) = &params.cursor { Some(decode_cursor(cursor_str)?) } else { None };
 
     // Apply limit with max and default
     let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
@@ -741,25 +738,57 @@ async fn get_market_aggregates_impl(
     // without needing a separate COUNT query. If we get limit+1 items back,
     // we know there are more results, and we discard the extra item.
     let limit_plus_one = limit_i64 + 1;
-    
+
     // Route to appropriate database method based on aggregation type
     let mut summaries = match params.aggregation {
-        AggregationGranularity::Hourly => state
-            .market_db
-            .get_hourly_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
-            .await?,
-        AggregationGranularity::Daily => state
-            .market_db
-            .get_daily_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
-            .await?,
-        AggregationGranularity::Weekly => state
-            .market_db
-            .get_weekly_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
-            .await?,
-        AggregationGranularity::Monthly => state
-            .market_db
-            .get_monthly_market_summaries(cursor, limit_plus_one, sort, params.before, params.after)
-            .await?,
+        AggregationGranularity::Hourly => {
+            state
+                .market_db
+                .get_hourly_market_summaries(
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Daily => {
+            state
+                .market_db
+                .get_daily_market_summaries(
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Weekly => {
+            state
+                .market_db
+                .get_weekly_market_summaries(
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Monthly => {
+            state
+                .market_db
+                .get_monthly_market_summaries(
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
     };
 
     let has_more = summaries.len() > limit as usize;
@@ -785,7 +814,8 @@ async fn get_market_aggregates_impl(
             // Convert U256 fields to strings (all currency fields are now U256 in struct)
             let total_fees_locked = summary.total_fees_locked.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
-            let total_locked_and_expired_collateral = summary.total_locked_and_expired_collateral.to_string();
+            let total_locked_and_expired_collateral =
+                summary.total_locked_and_expired_collateral.to_string();
             let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
             let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
             let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
@@ -800,13 +830,16 @@ async fn get_market_aggregates_impl(
                 timestamp_iso,
                 total_fulfilled: summary.total_fulfilled as i64,
                 unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
-                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests as i64,
+                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests
+                    as i64,
                 total_fees_locked: total_fees_locked.clone(),
                 total_fees_locked_formatted: format_eth(&total_fees_locked),
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
                 total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
-                total_locked_and_expired_collateral_formatted: format_zkc(&total_locked_and_expired_collateral),
+                total_locked_and_expired_collateral_formatted: format_zkc(
+                    &total_locked_and_expired_collateral,
+                ),
                 p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
                 p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
                 p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
@@ -836,12 +869,12 @@ async fn get_market_aggregates_impl(
         })
         .collect();
 
-    Ok(MarketAggregatesResponse { 
+    Ok(MarketAggregatesResponse {
         chain_id: state.chain_id,
         aggregation: params.aggregation,
-        data, 
-        next_cursor, 
-        has_more 
+        data,
+        next_cursor,
+        has_more,
     })
 }
 
@@ -901,11 +934,8 @@ async fn get_market_cumulatives_impl(
     );
 
     // Parse cursor if provided
-    let cursor = if let Some(cursor_str) = &params.cursor {
-        Some(decode_cursor(cursor_str)?)
-    } else {
-        None
-    };
+    let cursor =
+        if let Some(cursor_str) = &params.cursor { Some(decode_cursor(cursor_str)?) } else { None };
 
     // Apply limit with max and default
     let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
@@ -923,7 +953,7 @@ async fn get_market_cumulatives_impl(
     // without needing a separate COUNT query. If we get limit+1 items back,
     // we know there are more results, and we discard the extra item.
     let limit_plus_one = limit_i64 + 1;
-    
+
     // Fetch all-time market summaries
     let mut summaries = state
         .market_db
@@ -953,7 +983,8 @@ async fn get_market_cumulatives_impl(
             // Convert U256 fields to strings (all currency fields are now U256 in struct)
             let total_fees_locked = summary.total_fees_locked.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
-            let total_locked_and_expired_collateral = summary.total_locked_and_expired_collateral.to_string();
+            let total_locked_and_expired_collateral =
+                summary.total_locked_and_expired_collateral.to_string();
 
             MarketCumulativeEntry {
                 chain_id: state.chain_id,
@@ -961,13 +992,16 @@ async fn get_market_cumulatives_impl(
                 timestamp_iso,
                 total_fulfilled: summary.total_fulfilled as i64,
                 unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
-                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests as i64,
+                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests
+                    as i64,
                 total_fees_locked: total_fees_locked.clone(),
                 total_fees_locked_formatted: format_eth(&total_fees_locked),
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
                 total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
-                total_locked_and_expired_collateral_formatted: format_zkc(&total_locked_and_expired_collateral),
+                total_locked_and_expired_collateral_formatted: format_zkc(
+                    &total_locked_and_expired_collateral,
+                ),
                 total_requests_submitted: summary.total_requests_submitted as i64,
                 total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
                 total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
@@ -983,12 +1017,7 @@ async fn get_market_cumulatives_impl(
         })
         .collect();
 
-    Ok(MarketCumulativesResponse { 
-        chain_id: state.chain_id,
-        data, 
-        next_cursor, 
-        has_more 
-    })
+    Ok(MarketCumulativesResponse { chain_id: state.chain_id, data, next_cursor, has_more })
 }
 
 /// GET /v1/market/requestors/:address/aggregates
@@ -1059,11 +1088,8 @@ async fn get_requestor_aggregates_impl(
     );
 
     // Parse cursor if provided
-    let cursor = if let Some(cursor_str) = &params.cursor {
-        Some(decode_cursor(cursor_str)?)
-    } else {
-        None
-    };
+    let cursor =
+        if let Some(cursor_str) = &params.cursor { Some(decode_cursor(cursor_str)?) } else { None };
 
     // Apply limit with max and default
     let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
@@ -1079,21 +1105,48 @@ async fn get_requestor_aggregates_impl(
 
     // Request one extra item to efficiently determine if more pages exist
     let limit_plus_one = limit_i64 + 1;
-    
+
     // Route to appropriate database method based on aggregation type
     let mut summaries = match params.aggregation {
-        AggregationGranularity::Hourly => state
-            .market_db
-            .get_hourly_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
-            .await?,
-        AggregationGranularity::Daily => state
-            .market_db
-            .get_daily_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
-            .await?,
-        AggregationGranularity::Weekly => state
-            .market_db
-            .get_weekly_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
-            .await?,
+        AggregationGranularity::Hourly => {
+            state
+                .market_db
+                .get_hourly_requestor_summaries(
+                    requestor_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Daily => {
+            state
+                .market_db
+                .get_daily_requestor_summaries(
+                    requestor_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Weekly => {
+            state
+                .market_db
+                .get_weekly_requestor_summaries(
+                    requestor_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
         AggregationGranularity::Monthly => {
             // This should never happen due to validation above, but include for completeness
             anyhow::bail!("Monthly aggregation is not supported");
@@ -1121,7 +1174,8 @@ async fn get_requestor_aggregates_impl(
 
             let total_fees_locked = summary.total_fees_locked.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
-            let total_locked_and_expired_collateral = summary.total_locked_and_expired_collateral.to_string();
+            let total_locked_and_expired_collateral =
+                summary.total_locked_and_expired_collateral.to_string();
             let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
             let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
             let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
@@ -1142,7 +1196,9 @@ async fn get_requestor_aggregates_impl(
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
                 total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
-                total_locked_and_expired_collateral_formatted: format_zkc(&total_locked_and_expired_collateral),
+                total_locked_and_expired_collateral_formatted: format_zkc(
+                    &total_locked_and_expired_collateral,
+                ),
                 p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
                 p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
                 p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
@@ -1172,13 +1228,13 @@ async fn get_requestor_aggregates_impl(
         })
         .collect();
 
-    Ok(RequestorAggregatesResponse { 
+    Ok(RequestorAggregatesResponse {
         chain_id: state.chain_id,
         requestor_address: format!("{:#x}", requestor_address),
         aggregation: params.aggregation,
-        data, 
-        next_cursor, 
-        has_more 
+        data,
+        next_cursor,
+        has_more,
     })
 }
 
@@ -1244,11 +1300,8 @@ async fn get_requestor_cumulatives_impl(
     );
 
     // Parse cursor if provided
-    let cursor = if let Some(cursor_str) = &params.cursor {
-        Some(decode_cursor(cursor_str)?)
-    } else {
-        None
-    };
+    let cursor =
+        if let Some(cursor_str) = &params.cursor { Some(decode_cursor(cursor_str)?) } else { None };
 
     // Apply limit with max and default
     let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
@@ -1264,11 +1317,18 @@ async fn get_requestor_cumulatives_impl(
 
     // Request one extra item to efficiently determine if more pages exist
     let limit_plus_one = limit_i64 + 1;
-    
+
     // Fetch all-time requestor summaries
     let mut summaries = state
         .market_db
-        .get_all_time_requestor_summaries(requestor_address, cursor, limit_plus_one, sort, params.before, params.after)
+        .get_all_time_requestor_summaries(
+            requestor_address,
+            cursor,
+            limit_plus_one,
+            sort,
+            params.before,
+            params.after,
+        )
         .await?;
 
     let has_more = summaries.len() > limit as usize;
@@ -1292,7 +1352,8 @@ async fn get_requestor_cumulatives_impl(
 
             let total_fees_locked = summary.total_fees_locked.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
-            let total_locked_and_expired_collateral = summary.total_locked_and_expired_collateral.to_string();
+            let total_locked_and_expired_collateral =
+                summary.total_locked_and_expired_collateral.to_string();
 
             RequestorCumulativeEntry {
                 chain_id: state.chain_id,
@@ -1306,7 +1367,9 @@ async fn get_requestor_cumulatives_impl(
                 total_collateral_locked: total_collateral_locked.clone(),
                 total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
                 total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
-                total_locked_and_expired_collateral_formatted: format_zkc(&total_locked_and_expired_collateral),
+                total_locked_and_expired_collateral_formatted: format_zkc(
+                    &total_locked_and_expired_collateral,
+                ),
                 total_requests_submitted: summary.total_requests_submitted as i64,
                 total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
                 total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
@@ -1322,12 +1385,12 @@ async fn get_requestor_cumulatives_impl(
         })
         .collect();
 
-    Ok(RequestorCumulativesResponse { 
+    Ok(RequestorCumulativesResponse {
         chain_id: state.chain_id,
         requestor_address: format!("{:#x}", requestor_address),
-        data, 
-        next_cursor, 
-        has_more 
+        data,
+        next_cursor,
+        has_more,
     })
 }
 
@@ -1337,7 +1400,6 @@ fn format_timestamp_iso(timestamp: i64) -> String {
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
 }
-
 
 #[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct RequestListParams {
@@ -1535,7 +1597,8 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         slashed_at,
         slashed_at_iso: slashed_at.map(format_timestamp_iso),
         lock_prover_delivered_proof_at,
-        lock_prover_delivered_proof_at_iso: lock_prover_delivered_proof_at.map(format_timestamp_iso),
+        lock_prover_delivered_proof_at_iso: lock_prover_delivered_proof_at
+            .map(format_timestamp_iso),
         submit_block: status.submit_block.map(|b| b as i64),
         lock_block: status.lock_block.map(|b| b as i64),
         fulfill_block: status.fulfill_block.map(|b| b as i64),
@@ -1559,7 +1622,10 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         lock_end_iso: format_timestamp_iso(lock_end),
         slash_recipient: status.slash_recipient.map(|addr| format!("{:#x}", addr)),
         slash_transferred_amount: status.slash_transferred_amount.clone(),
-        slash_transferred_amount_formatted: status.slash_transferred_amount.as_ref().map(|a| format_zkc(a)),
+        slash_transferred_amount_formatted: status
+            .slash_transferred_amount
+            .as_ref()
+            .map(|a| format_zkc(a)),
         slash_burned_amount: status.slash_burned_amount.clone(),
         slash_burned_amount_formatted: status.slash_burned_amount.as_ref().map(|a| format_zkc(a)),
         program_cycles: status.program_cycles.as_ref().map(|c| c.to_string()),
@@ -1629,7 +1695,8 @@ async fn list_requests_impl(
 
     let (statuses, next_cursor) = state.market_db.list_requests(cursor, limit, sort_by).await?;
 
-    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
+    let data =
+        statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
     let next_cursor_encoded = next_cursor.as_ref().map(encode_request_cursor).transpose()?;
     let has_more = next_cursor.is_some();
 
@@ -1693,12 +1760,11 @@ async fn list_requests_by_requestor_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let (statuses, next_cursor) = state
-        .market_db
-        .list_requests_by_requestor(client_address, cursor, limit, sort_by)
-        .await?;
+    let (statuses, next_cursor) =
+        state.market_db.list_requests_by_requestor(client_address, cursor, limit, sort_by).await?;
 
-    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
+    let data =
+        statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
     let next_cursor_encoded = next_cursor.as_ref().map(encode_request_cursor).transpose()?;
     let has_more = next_cursor.is_some();
 
@@ -1762,12 +1828,11 @@ async fn list_requests_by_prover_impl(
         _ => anyhow::bail!("Invalid sort_by. Must be 'updated_at' or 'created_at'"),
     };
 
-    let (statuses, next_cursor) = state
-        .market_db
-        .list_requests_by_prover(prover_address, cursor, limit, sort_by)
-        .await?;
+    let (statuses, next_cursor) =
+        state.market_db.list_requests_by_prover(prover_address, cursor, limit, sort_by).await?;
 
-    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
+    let data =
+        statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
     let next_cursor_encoded = next_cursor.as_ref().map(encode_request_cursor).transpose()?;
     let has_more = next_cursor.is_some();
 
@@ -1821,6 +1886,7 @@ async fn get_requests_by_request_id_impl(
     let normalized_id = format!("{:x}", parsed);
 
     let statuses = state.market_db.get_requests_by_request_id(&normalized_id).await?;
-    let data = statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
+    let data =
+        statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
     Ok(data)
 }

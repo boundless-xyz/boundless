@@ -65,10 +65,7 @@ pub trait ProversDb: IndexerDb {
                     RequestSortField::UpdatedAt => r.updated_at,
                     RequestSortField::CreatedAt => r.created_at,
                 };
-                RequestCursor {
-                    timestamp,
-                    request_digest: r.request_digest.to_string(),
-                }
+                RequestCursor { timestamp, request_digest: r.request_digest.to_string() }
             })
         } else {
             None
@@ -329,8 +326,7 @@ mod tests {
         );
         assert!(
             results.iter().all(|r| {
-                r.lock_prover_address == Some(prover1)
-                    || r.fulfill_prover_address == Some(prover1)
+                r.lock_prover_address == Some(prover1) || r.fulfill_prover_address == Some(prover1)
             }),
             "All results should have prover1 as lock_prover or fulfill_prover"
         );
@@ -393,4 +389,3 @@ mod tests {
         assert_eq!(results.len(), 0);
     }
 }
-

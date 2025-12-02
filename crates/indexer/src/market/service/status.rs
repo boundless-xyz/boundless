@@ -39,7 +39,9 @@ where
         // Fulfilled event is also emitted in the case where lock timesout and the proof is delivered by a secondary prover.
         let request_status = if req.fulfilled_at.is_some() {
             RequestStatusType::Fulfilled
-        } else if current_timestamp > req.expires_at || (current_timestamp > req.lock_end && req.locked_at.is_none()) {
+        } else if current_timestamp > req.expires_at
+            || (current_timestamp > req.lock_end && req.locked_at.is_none())
+        {
             // Note: if the lock has expired and no-one locked, there is no incentive for a prover to deliver a proof, so we just mark as expired.
             RequestStatusType::Expired
         } else if req.locked_at.is_some() {
@@ -226,12 +228,12 @@ where
         let start = std::time::Instant::now();
         let from_timestamp = self.block_timestamp(from_block).await?;
         let to_timestamp = self.block_timestamp(to_block).await?;
-        
-        // Note: to_timestamp is typically "now", so we use a half-open range to avoid including requests that 
+
+        // Note: to_timestamp is typically "now", so we use a half-open range to avoid including requests that
         // with timeout == now, as they are not expired yet.
         let expired_requests =
             self.db.find_newly_expired_requests(from_timestamp, to_timestamp).await?;
-        
+
         tracing::info!(
             "find_newly_expired_requests completed in {:?} [{} expired requests found]",
             start.elapsed(),

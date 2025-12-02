@@ -237,7 +237,9 @@ impl Monitor {
 
     /// Total number of fulfilled requests.
     pub async fn total_fulfilled_requests(&self) -> Result<i64> {
-        let row = sqlx::query("SELECT COUNT(*) FROM request_fulfilled_events").fetch_one(&self.db).await?;
+        let row = sqlx::query("SELECT COUNT(*) FROM request_fulfilled_events")
+            .fetch_one(&self.db)
+            .await?;
 
         Ok(row.get::<i64, _>(0))
     }
@@ -247,7 +249,12 @@ impl Monitor {
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// address: The client address to filter requests by.
-    pub async fn fetch_fulfilled_requests_from_client(&self, from: i64, to: i64, address: Address) -> Result<Vec<String>> {
+    pub async fn fetch_fulfilled_requests_from_client(
+        &self,
+        from: i64,
+        to: i64,
+        address: Address,
+    ) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
             SELECT request_id
@@ -271,7 +278,12 @@ impl Monitor {
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.
     /// prover: The prover address to filter requests by.
-    pub async fn fetch_fulfilled_requests_by_prover(&self, from: i64, to: i64, prover: Address) -> Result<Vec<String>> {
+    pub async fn fetch_fulfilled_requests_by_prover(
+        &self,
+        from: i64,
+        to: i64,
+        prover: Address,
+    ) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
             SELECT request_id
@@ -291,12 +303,13 @@ impl Monitor {
 
     /// Total number of fulfilled requests from a specific client address.
     pub async fn total_fulfilled_requests_from_client(&self, address: Address) -> Result<i64> {
-        let row = sqlx::query("SELECT COUNT(*) FROM request_fulfilled_events WHERE client_address = $1")
-            .bind(format!("{address:x}"))
-            .fetch_one(&self.db)
-            .await?;
+        let row =
+            sqlx::query("SELECT COUNT(*) FROM request_fulfilled_events WHERE client_address = $1")
+                .bind(format!("{address:x}"))
+                .fetch_one(&self.db)
+                .await?;
         Ok(row.get::<i64, _>(0))
-    }  
+    }
 
     /// Fetch the proofs delivered within the given range.
     ///

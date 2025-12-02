@@ -32,10 +32,7 @@ async fn main() -> Result<()> {
         .or_else(|_| env::var("DATABASE_URL"))
         .unwrap_or_else(|_| "sqlite:local_indexer.db".to_string());
 
-    let chain_id = env::var("CHAIN_ID")
-        .ok()
-        .and_then(|c| c.parse::<u64>().ok())
-        .unwrap_or(1); // Default to mainnet chain ID
+    let chain_id = env::var("CHAIN_ID").ok().and_then(|c| c.parse::<u64>().ok()).unwrap_or(1); // Default to mainnet chain ID
 
     let port = env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok()).unwrap_or(3000);
 
@@ -45,7 +42,8 @@ async fn main() -> Result<()> {
     tracing::info!("Port: {}", port);
 
     // Create application state with database connection
-    let state = AppState::new(&db_url, chain_id).await.context("Failed to create application state")?;
+    let state =
+        AppState::new(&db_url, chain_id).await.context("Failed to create application state")?;
     let shared_state = Arc::new(state);
 
     // Create the axum application with routes

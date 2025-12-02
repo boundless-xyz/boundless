@@ -17,13 +17,16 @@ mod common;
 use std::str::FromStr;
 
 use alloy::{
-    primitives::{Bytes, U256, utils::parse_ether},
-    providers::{Provider, ext::AnvilApi},
+    primitives::{utils::parse_ether, Bytes, U256},
+    providers::{ext::AnvilApi, Provider},
     rpc::types::BlockNumberOrTag,
 };
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::{
-    db::{market::{RequestStatusType, SlashedStatus, SortDirection}, DbError, IndexerDb, RequestorDb},
+    db::{
+        market::{RequestStatusType, SlashedStatus, SortDirection},
+        DbError, IndexerDb, RequestorDb,
+    },
     test_utils::TestDb,
 };
 use boundless_market::contracts::{
@@ -44,7 +47,7 @@ use common::*;
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_e2e() {
     let fixture = common::new_market_test_fixture().await.unwrap();
-    
+
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
         fixture.anvil.endpoint_url().to_string(),
@@ -72,20 +75,29 @@ async fn test_e2e() {
 
     // Submit request with automatic deposit if needed
     submit_request_with_deposit(&fixture.ctx, &request, client_sig.clone()).await.unwrap();
-    
+
     // Use helper that handles collateral deposits
-    lock_and_fulfill_request_with_collateral(&fixture.ctx, &fixture.prover, &request, client_sig.clone()).await.unwrap();
+    lock_and_fulfill_request_with_collateral(
+        &fixture.ctx,
+        &fixture.prover,
+        &request,
+        client_sig.clone(),
+    )
+    .await
+    .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify all events were indexed
     let request_id_str = format!("{:x}", request.id);
     verify_request_in_table(&fixture.test_db.pool, &request_id_str, "proof_requests").await;
-    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_submitted_events").await;
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_submitted_events")
+        .await;
     verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_locked_events").await;
     verify_request_in_table(&fixture.test_db.pool, &request_id_str, "proof_delivered_events").await;
     verify_request_in_table(&fixture.test_db.pool, &request_id_str, "proofs").await;
-    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_fulfilled_events").await;
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_fulfilled_events")
+        .await;
 
     // Verify hourly aggregation
     let summary_count = count_table_rows(&fixture.test_db.pool, "hourly_market_summary").await;
@@ -93,70 +105,123 @@ async fn test_e2e() {
 
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
     verify_hour_boundaries(&summaries);
-    
-    // Verify totals across all summaries (events might be in different hours)
-    verify_summary_totals(&summaries, SummaryExpectations {
-        total_requests_submitted: Some(1),
-        total_requests_onchain: Some(1),
-        total_requests_offchain: Some(0),
-        total_locked: Some(1),
-        total_slashed: Some(0),
-        total_fulfilled: Some(1),
-        total_expired: Some(0),
-        total_locked_and_expired: Some(0),
-        total_locked_and_fulfilled: Some(1),
-        total_secondary_fulfillments: Some(0), 
-    });
 
-    let request_summary = summaries.iter().find(|s| s.total_requests_submitted > 0)
+    // Verify totals across all summaries (events might be in different hours)
+    verify_summary_totals(
+        &summaries,
+        SummaryExpectations {
+            total_requests_submitted: Some(1),
+            total_requests_onchain: Some(1),
+            total_requests_offchain: Some(0),
+            total_locked: Some(1),
+            total_slashed: Some(0),
+            total_fulfilled: Some(1),
+            total_expired: Some(0),
+            total_locked_and_expired: Some(0),
+            total_locked_and_fulfilled: Some(1),
+            total_secondary_fulfillments: Some(0),
+        },
+    );
+
+    let request_summary = summaries
+        .iter()
+        .find(|s| s.total_requests_submitted > 0)
         .expect("Expected to find a summary with submitted requests");
     assert_eq!(request_summary.total_requests_submitted, 1, "Expected 1 submitted request");
-    assert_eq!(request_summary.unique_requesters_submitting_requests, 1, "Expected 1 unique requester");
+    assert_eq!(
+        request_summary.unique_requesters_submitting_requests, 1,
+        "Expected 1 unique requester"
+    );
     assert_eq!(request_summary.total_requests_submitted_onchain, 1, "Expected 1 onchain request");
-    
+
     // Find the summary with fulfilled requests and verify it
-    let fulfilled_summary = summaries.iter().find(|s| s.total_fulfilled > 0)
+    let fulfilled_summary = summaries
+        .iter()
+        .find(|s| s.total_fulfilled > 0)
         .expect("Expected to find a summary with fulfilled requests");
     assert_eq!(fulfilled_summary.total_fulfilled, 1, "Expected 1 fulfilled request");
     assert_eq!(fulfilled_summary.unique_provers_locking_requests, 1, "Expected 1 unique prover");
 
     // Verify fees and collateral are present
-    assert_ne!(fulfilled_summary.total_fees_locked, U256::ZERO, "total_fees_locked should not be zero");
-    assert_eq!(fulfilled_summary.total_collateral_locked, collateral_amount, "total_collateral_locked should match the request's lockCollateral");
-    
-    assert_eq!(fulfilled_summary.locked_orders_fulfillment_rate, 100.0, "Expected 100% fulfillment rate");
-    
+    assert_ne!(
+        fulfilled_summary.total_fees_locked,
+        U256::ZERO,
+        "total_fees_locked should not be zero"
+    );
+    assert_eq!(
+        fulfilled_summary.total_collateral_locked, collateral_amount,
+        "total_collateral_locked should match the request's lockCollateral"
+    );
+
+    assert_eq!(
+        fulfilled_summary.locked_orders_fulfillment_rate, 100.0,
+        "Expected 100% fulfillment rate"
+    );
+
     // Verify cycle counts (will be 0 since test uses random address)
-    assert_eq!(fulfilled_summary.total_program_cycles, U256::ZERO, "Expected 0 total_program_cycles for non-hardcoded requestor");
-    assert_eq!(fulfilled_summary.total_cycles, U256::ZERO, "Expected 0 total_cycles for non-hardcoded requestor");
+    assert_eq!(
+        fulfilled_summary.total_program_cycles,
+        U256::ZERO,
+        "Expected 0 total_program_cycles for non-hardcoded requestor"
+    );
+    assert_eq!(
+        fulfilled_summary.total_cycles,
+        U256::ZERO,
+        "Expected 0 total_cycles for non-hardcoded requestor"
+    );
 
     // Verify collateral across all aggregation periods
     // Sum collateral from all hourly summaries
     let total_hourly_collateral: U256 = summaries.iter().map(|s| s.total_collateral_locked).sum();
-    assert_eq!(total_hourly_collateral, collateral_amount, "Sum of hourly collateral should match request collateral");
+    assert_eq!(
+        total_hourly_collateral, collateral_amount,
+        "Sum of hourly collateral should match request collateral"
+    );
 
     // Verify daily aggregation
-    let daily_summaries = fixture.test_db.db.get_daily_market_summaries(None, 10000, SortDirection::Asc, None, None).await.unwrap();
-    let total_daily_collateral: U256 = daily_summaries.iter().map(|s| s.total_collateral_locked).sum();
-    assert_eq!(total_daily_collateral, collateral_amount, "Sum of daily collateral should match request collateral");
+    let daily_summaries = fixture
+        .test_db
+        .db
+        .get_daily_market_summaries(None, 10000, SortDirection::Asc, None, None)
+        .await
+        .unwrap();
+    let total_daily_collateral: U256 =
+        daily_summaries.iter().map(|s| s.total_collateral_locked).sum();
+    assert_eq!(
+        total_daily_collateral, collateral_amount,
+        "Sum of daily collateral should match request collateral"
+    );
 
     // Verify all-time aggregation
     let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
     assert!(!all_time_summaries.is_empty(), "Expected at least one all-time summary");
-    
+
     // Check that all-time collateral matches the sum of hourly collateral
     let latest_all_time = all_time_summaries.last().unwrap();
-    assert_eq!(latest_all_time.total_collateral_locked, total_hourly_collateral, "All-time total_collateral_locked should match sum of hourly collateral");
-    assert_eq!(latest_all_time.total_collateral_locked, collateral_amount, "All-time total_collateral_locked should match request collateral");
-    
+    assert_eq!(
+        latest_all_time.total_collateral_locked, total_hourly_collateral,
+        "All-time total_collateral_locked should match sum of hourly collateral"
+    );
+    assert_eq!(
+        latest_all_time.total_collateral_locked, collateral_amount,
+        "All-time total_collateral_locked should match request collateral"
+    );
+
     // Verify that locked_and_expired_collateral is zero (request was fulfilled, not expired)
-    assert_eq!(latest_all_time.total_locked_and_expired_collateral, U256::ZERO, "total_locked_and_expired_collateral should be zero for fulfilled requests");
-    
+    assert_eq!(
+        latest_all_time.total_locked_and_expired_collateral,
+        U256::ZERO,
+        "total_locked_and_expired_collateral should be zero for fulfilled requests"
+    );
+
     // Verify collateral is cumulative in all-time summaries
     for i in 1..all_time_summaries.len() {
         let prev = &all_time_summaries[i - 1];
         let curr = &all_time_summaries[i];
-        assert!(curr.total_collateral_locked >= prev.total_collateral_locked, "All-time collateral should be cumulative");
+        assert!(
+            curr.total_collateral_locked >= prev.total_collateral_locked,
+            "All-time collateral should be cumulative"
+        );
     }
 
     cli_process.kill().unwrap();
@@ -167,7 +232,7 @@ async fn test_e2e() {
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_monitoring() {
     let fixture = common::new_market_test_fixture().await.unwrap();
-    
+
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
         fixture.anvil.endpoint_url().to_string(),
@@ -193,14 +258,16 @@ async fn test_monitoring() {
     let first_request_id = format!("{:x}", request.id);
 
     fixture.ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    fixture.ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
+    fixture
+        .ctx
+        .customer_market
+        .submit_request_with_signature(&request, client_sig.clone())
+        .await
+        .unwrap();
     fixture.ctx.prover_market.lock_request(&request, client_sig, None).await.unwrap();
 
     // Verify no expired requests yet
-    let expired = monitor
-        .fetch_requests_expired((now - 30) as i64, now as i64)
-        .await
-        .unwrap();
+    let expired = monitor.fetch_requests_expired((now - 30) as i64, now as i64).await.unwrap();
     assert_eq!(expired.len(), 0);
 
     // Wait for the request to expire
@@ -216,7 +283,11 @@ async fn test_monitoring() {
     let expired = monitor.fetch_requests_expired((now - 30) as i64, now as i64).await.unwrap();
     assert_eq!(expired.len(), 1);
     let expired = monitor
-        .fetch_requests_expired_from((now - 30) as i64, now as i64, fixture.ctx.customer_signer.address())
+        .fetch_requests_expired_from(
+            (now - 30) as i64,
+            now as i64,
+            fixture.ctx.customer_signer.address(),
+        )
         .await
         .unwrap();
     assert_eq!(expired.len(), 1);
@@ -237,8 +308,15 @@ async fn test_monitoring() {
     .await;
 
     fixture.ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    fixture.ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
-    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request, client_sig.clone()).await.unwrap();
+    fixture
+        .ctx
+        .customer_market
+        .submit_request_with_signature(&request, client_sig.clone())
+        .await
+        .unwrap();
+    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request, client_sig.clone())
+        .await
+        .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -246,38 +324,58 @@ async fn test_monitoring() {
     now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     assert_eq!(monitor.total_requests().await.unwrap(), 2);
     assert_eq!(monitor.fetch_requests(0, now as i64).await.unwrap().len(), 2);
-    assert_eq!(monitor.total_requests_from_client(fixture.ctx.customer_signer.address()).await.unwrap(), 2);
+    assert_eq!(
+        monitor.total_requests_from_client(fixture.ctx.customer_signer.address()).await.unwrap(),
+        2
+    );
     assert_eq!(monitor.total_proofs().await.unwrap(), 1);
-    assert_eq!(monitor.total_proofs_from_client(fixture.ctx.customer_signer.address()).await.unwrap(), 1);
+    assert_eq!(
+        monitor.total_proofs_from_client(fixture.ctx.customer_signer.address()).await.unwrap(),
+        1
+    );
     assert_eq!(monitor.total_slashed().await.unwrap(), 1);
-    assert_eq!(monitor.total_slashed_by_prover(fixture.ctx.prover_signer.address()).await.unwrap(), 1);
-    assert_eq!(monitor.total_success_rate_from_client(fixture.ctx.customer_signer.address()).await.unwrap(), Some(0.5));
-    assert_eq!(monitor.total_success_rate_by_prover(fixture.ctx.prover_signer.address()).await.unwrap(), Some(0.5));
+    assert_eq!(
+        monitor.total_slashed_by_prover(fixture.ctx.prover_signer.address()).await.unwrap(),
+        1
+    );
+    assert_eq!(
+        monitor
+            .total_success_rate_from_client(fixture.ctx.customer_signer.address())
+            .await
+            .unwrap(),
+        Some(0.5)
+    );
+    assert_eq!(
+        monitor.total_success_rate_by_prover(fixture.ctx.prover_signer.address()).await.unwrap(),
+        Some(0.5)
+    );
 
     // Verify aggregation
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
     assert!(!summaries.is_empty(), "Expected at least one hourly summary");
-    
+
     verify_hour_boundaries(&summaries);
-    verify_summary_totals(&summaries, SummaryExpectations {
-        total_requests_submitted: Some(2),
-        total_requests_onchain: Some(2),
-        total_requests_offchain: Some(0),
-        total_locked: Some(2),
-        total_slashed: Some(1),
-        total_fulfilled: Some(1),
-        total_expired: Some(1),
-        total_locked_and_expired: Some(1),
-        total_locked_and_fulfilled: Some(1),
-        total_secondary_fulfillments: Some(0), // Not a secondary fulfillment
-    });
+    verify_summary_totals(
+        &summaries,
+        SummaryExpectations {
+            total_requests_submitted: Some(2),
+            total_requests_onchain: Some(2),
+            total_requests_offchain: Some(0),
+            total_locked: Some(2),
+            total_slashed: Some(1),
+            total_fulfilled: Some(1),
+            total_expired: Some(1),
+            total_locked_and_expired: Some(1),
+            total_locked_and_fulfilled: Some(1),
+            total_secondary_fulfillments: Some(0), // Not a secondary fulfillment
+        },
+    );
 
     // Verify collateral tracking
-    let expired_request_collateral = get_lock_collateral(&fixture.test_db.pool, &first_request_id).await;
-    let total_locked_and_expired_collateral: U256 = summaries
-        .iter()
-        .map(|s| s.total_locked_and_expired_collateral)
-        .sum();
+    let expired_request_collateral =
+        get_lock_collateral(&fixture.test_db.pool, &first_request_id).await;
+    let total_locked_and_expired_collateral: U256 =
+        summaries.iter().map(|s| s.total_locked_and_expired_collateral).sum();
     let expected_collateral = U256::from_str(&expired_request_collateral).unwrap_or(U256::ZERO);
     assert_eq!(
         total_locked_and_expired_collateral,
@@ -322,20 +420,40 @@ async fn test_aggregation_across_hours() {
             lockCollateral: U256::from(0),
         },
     );
-    let client_sig1 = request1.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+    let client_sig1 = request1
+        .sign_request(
+            &fixture.ctx.customer_signer,
+            fixture.ctx.deployment.boundless_market_address,
+            fixture.anvil.chain_id(),
+        )
+        .await
+        .unwrap();
 
     fixture.ctx.customer_market.deposit(one_eth * U256::from(2)).await.unwrap();
-    fixture.ctx.customer_market
+    fixture
+        .ctx
+        .customer_market
         .submit_request_with_signature(&request1, Bytes::from(client_sig1.as_bytes()))
         .await
         .unwrap();
 
-    let request1_digest = request1.signing_hash(fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).unwrap();
+    let request1_digest = request1
+        .signing_hash(fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id())
+        .unwrap();
     let program_cycles1 = 50_000_000; // 50M cycles
     let total_cycles1 = (program_cycles1 as f64 * 1.0158) as u64;
-    insert_cycle_counts_with_overhead(&fixture.test_db, request1_digest, program_cycles1).await.unwrap();
+    insert_cycle_counts_with_overhead(&fixture.test_db, request1_digest, program_cycles1)
+        .await
+        .unwrap();
 
-    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request1, client_sig1.as_bytes().into()).await.unwrap();
+    lock_and_fulfill_request(
+        &fixture.ctx,
+        &fixture.prover,
+        &request1,
+        client_sig1.as_bytes().into(),
+    )
+    .await
+    .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -359,19 +477,39 @@ async fn test_aggregation_across_hours() {
             lockCollateral: U256::from(0),
         },
     );
-    let client_sig2 = request2.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+    let client_sig2 = request2
+        .sign_request(
+            &fixture.ctx.customer_signer,
+            fixture.ctx.deployment.boundless_market_address,
+            fixture.anvil.chain_id(),
+        )
+        .await
+        .unwrap();
 
-    fixture.ctx.customer_market
+    fixture
+        .ctx
+        .customer_market
         .submit_request_with_signature(&request2, Bytes::from(client_sig2.as_bytes()))
         .await
         .unwrap();
 
-    let request2_digest = request2.signing_hash(fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).unwrap();
+    let request2_digest = request2
+        .signing_hash(fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id())
+        .unwrap();
     let program_cycles2 = 100_000_000; // 100M cycles
     let total_cycles2 = (program_cycles2 as f64 * 1.0158) as u64;
-    insert_cycle_counts_with_overhead(&fixture.test_db, request2_digest, program_cycles2).await.unwrap();
+    insert_cycle_counts_with_overhead(&fixture.test_db, request2_digest, program_cycles2)
+        .await
+        .unwrap();
 
-    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request2, client_sig2.as_bytes().into()).await.unwrap();
+    lock_and_fulfill_request(
+        &fixture.ctx,
+        &fixture.prover,
+        &request2,
+        client_sig2.as_bytes().into(),
+    )
+    .await
+    .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -385,7 +523,7 @@ async fn test_aggregation_across_hours() {
     assert!(summaries.len() >= 2, "Expected at least 2 different hours of data");
 
     verify_hour_boundaries(&summaries);
-    
+
     // Verify hour timestamps are different and at least 1 hour apart
     let hour1 = summaries[0].period_timestamp;
     let hour2 = summaries[1].period_timestamp;
@@ -393,18 +531,21 @@ async fn test_aggregation_across_hours() {
     assert!(hour2.saturating_sub(hour1) >= 3600, "Expected at least 1 hour difference");
 
     // Verify summary totals
-    verify_summary_totals(&summaries, SummaryExpectations {
-        total_requests_submitted: Some(2),
-        total_requests_onchain: Some(2),
-        total_requests_offchain: Some(0),
-        total_locked: Some(2),
-        total_slashed: Some(0),
-        total_fulfilled: Some(2),
-        total_expired: Some(0),
-        total_locked_and_expired: Some(0),
-        total_locked_and_fulfilled: Some(2),
-        total_secondary_fulfillments: Some(0), // Not secondary fulfillments (fulfilled before lock_end)
-    });
+    verify_summary_totals(
+        &summaries,
+        SummaryExpectations {
+            total_requests_submitted: Some(2),
+            total_requests_onchain: Some(2),
+            total_requests_offchain: Some(0),
+            total_locked: Some(2),
+            total_slashed: Some(0),
+            total_fulfilled: Some(2),
+            total_expired: Some(0),
+            total_locked_and_expired: Some(0),
+            total_locked_and_fulfilled: Some(2),
+            total_secondary_fulfillments: Some(0), // Not secondary fulfillments (fulfilled before lock_end)
+        },
+    );
 
     // Verify hour boundary formula
     let expected_hour1 = (now / 3600) * 3600;
@@ -413,7 +554,8 @@ async fn test_aggregation_across_hours() {
     assert!(summaries.iter().any(|s| s.period_timestamp == expected_hour2));
 
     // Verify fee metrics are populated for fulfilled requests
-    let summaries_with_fulfilled: Vec<_> = summaries.iter().filter(|s| s.total_fulfilled > 0).collect();
+    let summaries_with_fulfilled: Vec<_> =
+        summaries.iter().filter(|s| s.total_fulfilled > 0).collect();
     assert!(!summaries_with_fulfilled.is_empty());
     for summary in summaries_with_fulfilled {
         assert_ne!(summary.total_fees_locked, U256::ZERO);
@@ -422,7 +564,8 @@ async fn test_aggregation_across_hours() {
 
     // Verify cycle count aggregations
     let total_cycles_across_hours: U256 = summaries.iter().map(|s| s.total_cycles).sum();
-    let total_program_cycles_across_hours: U256 = summaries.iter().map(|s| s.total_program_cycles).sum();
+    let total_program_cycles_across_hours: U256 =
+        summaries.iter().map(|s| s.total_program_cycles).sum();
     let expected_total_cycles = U256::from(total_cycles1 + total_cycles2);
     let expected_total_program_cycles = U256::from(program_cycles1 + program_cycles2);
     assert_eq!(total_cycles_across_hours, expected_total_cycles);
@@ -444,55 +587,104 @@ async fn test_aggregation_across_hours() {
     assert_eq!(p50_hour1, expected_p50_request1, "First hour p50 mismatch");
     assert_eq!(p50_hour2, expected_p50_request2, "Second hour p50 mismatch");
 
-    tracing::info!("Hour 1 p50: {} (expected {}), Hour 2 p50: {} (expected {})", p50_hour1, expected_p50_request1, p50_hour2, expected_p50_request2);
+    tracing::info!(
+        "Hour 1 p50: {} (expected {}), Hour 2 p50: {} (expected {})",
+        p50_hour1,
+        expected_p50_request1,
+        p50_hour2,
+        expected_p50_request2
+    );
 
     // Verify all-time aggregates
     let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
     assert!(!all_time_summaries.is_empty(), "Expected at least one all-time summary");
-    
+
     // Verify all-time aggregates are cumulative (each hour should have >= previous hour's values)
     for i in 1..all_time_summaries.len() {
         let prev = &all_time_summaries[i - 1];
         let curr = &all_time_summaries[i];
-        
-        assert!(curr.period_timestamp > prev.period_timestamp, "All-time summaries should be in chronological order");
-        assert!(curr.total_fulfilled >= prev.total_fulfilled, "Total fulfilled should be cumulative");
-        assert!(curr.total_requests_submitted >= prev.total_requests_submitted, "Total requests submitted should be cumulative");
-        assert!(curr.total_program_cycles >= prev.total_program_cycles, "Total program cycles should be cumulative");
+
+        assert!(
+            curr.period_timestamp > prev.period_timestamp,
+            "All-time summaries should be in chronological order"
+        );
+        assert!(
+            curr.total_fulfilled >= prev.total_fulfilled,
+            "Total fulfilled should be cumulative"
+        );
+        assert!(
+            curr.total_requests_submitted >= prev.total_requests_submitted,
+            "Total requests submitted should be cumulative"
+        );
+        assert!(
+            curr.total_program_cycles >= prev.total_program_cycles,
+            "Total program cycles should be cumulative"
+        );
         assert!(curr.total_cycles >= prev.total_cycles, "Total cycles should be cumulative");
     }
-    
+
     // Verify all-time aggregates match sum of hourly aggregates
     let latest_all_time = all_time_summaries.last().unwrap();
     let total_hourly_fulfilled: u64 = summaries.iter().map(|s| s.total_fulfilled).sum();
     let total_hourly_requests: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
     let total_hourly_program_cycles: U256 = summaries.iter().map(|s| s.total_program_cycles).sum();
     let total_hourly_cycles: U256 = summaries.iter().map(|s| s.total_cycles).sum();
-    let total_hourly_secondary_fulfillments: u64 = summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
-    
-    assert_eq!(latest_all_time.total_fulfilled, total_hourly_fulfilled, "All-time total_fulfilled should match sum of hourly");
-    assert_eq!(latest_all_time.total_requests_submitted, total_hourly_requests, "All-time total_requests_submitted should match sum of hourly");
-    assert_eq!(latest_all_time.total_program_cycles, total_hourly_program_cycles, "All-time total_program_cycles should match sum of hourly");
-    assert_eq!(latest_all_time.total_cycles, total_hourly_cycles, "All-time total_cycles should match sum of hourly");
-    assert_eq!(latest_all_time.total_secondary_fulfillments, total_hourly_secondary_fulfillments, "All-time total_secondary_fulfillments should match sum of hourly");
-    
+    let total_hourly_secondary_fulfillments: u64 =
+        summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
+
+    assert_eq!(
+        latest_all_time.total_fulfilled, total_hourly_fulfilled,
+        "All-time total_fulfilled should match sum of hourly"
+    );
+    assert_eq!(
+        latest_all_time.total_requests_submitted, total_hourly_requests,
+        "All-time total_requests_submitted should match sum of hourly"
+    );
+    assert_eq!(
+        latest_all_time.total_program_cycles, total_hourly_program_cycles,
+        "All-time total_program_cycles should match sum of hourly"
+    );
+    assert_eq!(
+        latest_all_time.total_cycles, total_hourly_cycles,
+        "All-time total_cycles should match sum of hourly"
+    );
+    assert_eq!(
+        latest_all_time.total_secondary_fulfillments, total_hourly_secondary_fulfillments,
+        "All-time total_secondary_fulfillments should match sum of hourly"
+    );
+
     // Verify total_secondary_fulfillments is cumulative (non-decreasing)
     for i in 1..all_time_summaries.len() {
         let prev = &all_time_summaries[i - 1];
         let curr = &all_time_summaries[i];
-        assert!(curr.total_secondary_fulfillments >= prev.total_secondary_fulfillments, "Total secondary fulfillments should be cumulative (non-decreasing)");
+        assert!(
+            curr.total_secondary_fulfillments >= prev.total_secondary_fulfillments,
+            "Total secondary fulfillments should be cumulative (non-decreasing)"
+        );
     }
-    
+
     // Verify unique counts are correct (should be at least 1 for both provers and requesters)
-    assert!(latest_all_time.unique_provers_locking_requests >= 1, "Should have at least 1 unique prover");
-    assert!(latest_all_time.unique_requesters_submitting_requests >= 1, "Should have at least 1 unique requester");
-    
+    assert!(
+        latest_all_time.unique_provers_locking_requests >= 1,
+        "Should have at least 1 unique prover"
+    );
+    assert!(
+        latest_all_time.unique_requesters_submitting_requests >= 1,
+        "Should have at least 1 unique requester"
+    );
+
     // Verify all-time summaries have entries for each hour that has hourly summaries
     // Note: Due to recompute window, we only create all-time aggregates for recent hours
     // So we check that at least the latest hourly summary has a corresponding all-time aggregate
     if let Some(latest_hourly) = summaries.last() {
-        let all_time_for_latest_hour = all_time_summaries.iter().find(|s| s.period_timestamp == latest_hourly.period_timestamp);
-        assert!(all_time_for_latest_hour.is_some(), "All-time summary should exist for latest hour {}", latest_hourly.period_timestamp);
+        let all_time_for_latest_hour = all_time_summaries
+            .iter()
+            .find(|s| s.period_timestamp == latest_hourly.period_timestamp);
+        assert!(
+            all_time_for_latest_hour.is_some(),
+            "All-time summary should exist for latest hour {}",
+            latest_hourly.period_timestamp
+        );
     }
 
     cli_process.kill().unwrap();
@@ -551,36 +743,58 @@ async fn test_aggregation_percentiles() {
             },
         );
 
-        let client_sig = request.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+        let client_sig = request
+            .sign_request(
+                &fixture.ctx.customer_signer,
+                fixture.ctx.deployment.boundless_market_address,
+                fixture.anvil.chain_id(),
+            )
+            .await
+            .unwrap();
 
-        fixture.ctx.customer_market
+        fixture
+            .ctx
+            .customer_market
             .submit_request_with_signature(&request, Bytes::from(client_sig.as_bytes()))
             .await
             .unwrap();
 
-        let digest = request.signing_hash(fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).unwrap();
-        insert_cycle_counts_with_overhead(&fixture.test_db, digest, cycles_per_request).await.unwrap();
-        
-        fixture.ctx.prover_market.lock_request(&request, Bytes::from(client_sig.as_bytes()), None).await.unwrap();
+        let digest = request
+            .signing_hash(fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id())
+            .unwrap();
+        insert_cycle_counts_with_overhead(&fixture.test_db, digest, cycles_per_request)
+            .await
+            .unwrap();
+
+        fixture
+            .ctx
+            .prover_market
+            .lock_request(&request, Bytes::from(client_sig.as_bytes()), None)
+            .await
+            .unwrap();
         request_digests.push((request.clone(), client_sig, digest));
     }
 
     // Fulfill all requests
-    let fulfillment_requests: Vec<_> = request_digests.iter()
+    let fulfillment_requests: Vec<_> = request_digests
+        .iter()
         .map(|(req, sig, _)| (req.clone(), sig.as_bytes().to_vec().into()))
         .collect();
 
     for chunk in fulfillment_requests.chunks(5) {
         let (fill, root_receipt, assessor_receipt) = fixture.prover.fulfill(chunk).await.unwrap();
-        let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
-        fixture.ctx.prover_market
+        let order_fulfilled =
+            OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+        fixture
+            .ctx
+            .prover_market
             .fulfill(
                 FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
                     .with_submit_root(
                         fixture.ctx.deployment.set_verifier_address,
                         order_fulfilled.root,
                         order_fulfilled.seal,
-                    )
+                    ),
             )
             .await
             .unwrap();
@@ -592,7 +806,8 @@ async fn test_aggregation_percentiles() {
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
     tracing::info!("Retrieved {} hourly summaries", summaries.len());
 
-    let fulfilled_summary = summaries.iter()
+    let fulfilled_summary = summaries
+        .iter()
         .find(|s| s.total_fulfilled == num_requests as u64)
         .expect("Should have exactly one hour with all 10 fulfilled requests");
 
@@ -613,15 +828,32 @@ async fn test_aggregation_percentiles() {
     let min_price_per_cycle = U256::from(1_000_000_000u64); // 0.1 ETH / 100M
     let max_price_per_cycle = U256::from(10_000_000_000u64); // 1.0 ETH / 100M
 
-    assert!(actual_p10 >= min_price_per_cycle && actual_p10 <= U256::from(2_000_000_000u64), "p10 out of range: {}", actual_p10);
-    assert!(actual_p50 >= U256::from(4_000_000_000u64) && actual_p50 <= U256::from(6_000_000_000u64), "p50 out of range: {}", actual_p50);
-    assert!(actual_p90 >= U256::from(8_000_000_000u64) && actual_p90 <= max_price_per_cycle, "p90 out of range: {}", actual_p90);
+    assert!(
+        actual_p10 >= min_price_per_cycle && actual_p10 <= U256::from(2_000_000_000u64),
+        "p10 out of range: {}",
+        actual_p10
+    );
+    assert!(
+        actual_p50 >= U256::from(4_000_000_000u64) && actual_p50 <= U256::from(6_000_000_000u64),
+        "p50 out of range: {}",
+        actual_p50
+    );
+    assert!(
+        actual_p90 >= U256::from(8_000_000_000u64) && actual_p90 <= max_price_per_cycle,
+        "p90 out of range: {}",
+        actual_p90
+    );
 
     // Verify total cycles
     let expected_total_cycles = U256::from(total_cycles_per_request * num_requests as u64);
     assert_eq!(fulfilled_summary.total_cycles, expected_total_cycles, "Total cycles mismatch");
 
-    tracing::info!("All percentiles are in expected ranges: p10={}, p50={}, p90={}", actual_p10, actual_p50, actual_p90);
+    tracing::info!(
+        "All percentiles are in expected ranges: p10={}, p50={}, p90={}",
+        actual_p10,
+        actual_p50,
+        actual_p90
+    );
 
     cli_process.kill().unwrap();
 }
@@ -639,13 +871,37 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Submit 3 orders to order stream
-    let (req1, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 1, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+    let (req1, _) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
     order_stream_client.submit_request(&req1, &fixture.ctx.customer_signer).await.unwrap();
 
-    let (req2, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 2, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+    let (req2, _) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        2,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
     order_stream_client.submit_request(&req2, &fixture.ctx.customer_signer).await.unwrap();
 
-    let (req3, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 3, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+    let (req3, _) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        3,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
     order_stream_client.submit_request(&req3, &fixture.ctx.customer_signer).await.unwrap();
 
     update_order_timestamps(&pool, block_timestamp).await;
@@ -671,35 +927,48 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
 
     // Verify all 3 orders were indexed as offchain
     assert_eq!(count_table_rows(&fixture.test_db.pool, "proof_requests").await, 3);
-    let offchain_count = sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
-        .fetch_one(&fixture.test_db.pool)
-        .await
-        .unwrap()
-        .get::<i64, _>("count");
+    let offchain_count =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
+            .fetch_one(&fixture.test_db.pool)
+            .await
+            .unwrap()
+            .get::<i64, _>("count");
     assert_eq!(offchain_count, 3, "Expected all 3 requests to be offchain");
 
     // Verify created_at is populated for offchain requests in request_status table
-    let status_rows = sqlx::query("SELECT request_id, created_at, source FROM request_status WHERE source = 'offchain'")
-        .fetch_all(&fixture.test_db.pool)
-        .await
-        .unwrap();
+    let status_rows = sqlx::query(
+        "SELECT request_id, created_at, source FROM request_status WHERE source = 'offchain'",
+    )
+    .fetch_all(&fixture.test_db.pool)
+    .await
+    .unwrap();
     assert_eq!(status_rows.len(), 3, "Expected 3 offchain requests in request_status table");
-    
+
     for row in status_rows {
         let request_id: String = row.get("request_id");
         let created_at: i64 = row.get("created_at");
         let source: String = row.get("source");
         assert_eq!(source, "offchain");
-        assert!(created_at > 0, "created_at should be populated for offchain request {}, but got {}", request_id, created_at);
-        assert!(created_at <= now as i64 + 100, "created_at should be reasonable for offchain request {}", request_id);
+        assert!(
+            created_at > 0,
+            "created_at should be populated for offchain request {}, but got {}",
+            request_id,
+            created_at
+        );
+        assert!(
+            created_at <= now as i64 + 100,
+            "created_at should be reasonable for offchain request {}",
+            request_id
+        );
     }
 
     // Verify order stream state and tx_hash
-    let timestamp: Option<String> = sqlx::query("SELECT last_processed_timestamp FROM order_stream_state")
-        .fetch_one(&fixture.test_db.pool)
-        .await
-        .unwrap()
-        .get("last_processed_timestamp");
+    let timestamp: Option<String> =
+        sqlx::query("SELECT last_processed_timestamp FROM order_stream_state")
+            .fetch_one(&fixture.test_db.pool)
+            .await
+            .unwrap()
+            .get("last_processed_timestamp");
     assert!(timestamp.is_some());
 
     let tx_hash: String = sqlx::query("SELECT tx_hash FROM proof_requests WHERE request_id = $1")
@@ -714,14 +983,18 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
     assert!(!summaries.is_empty());
 
-    verify_summary_totals(&summaries, SummaryExpectations {
-        total_requests_submitted: Some(3),
-        total_requests_onchain: Some(0),
-        total_requests_offchain: Some(3),
-        ..Default::default()
-    });
+    verify_summary_totals(
+        &summaries,
+        SummaryExpectations {
+            total_requests_submitted: Some(3),
+            total_requests_onchain: Some(0),
+            total_requests_offchain: Some(3),
+            ..Default::default()
+        },
+    );
 
-    let unique_requesters: u64 = summaries.iter().map(|s| s.unique_requesters_submitting_requests).max().unwrap_or(0);
+    let unique_requesters: u64 =
+        summaries.iter().map(|s| s.unique_requesters_submitting_requests).max().unwrap_or(0);
     assert_eq!(unique_requesters, 1);
 
     cli_process.kill().unwrap();
@@ -741,16 +1014,40 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Submit 2 onchain requests
-    let (req1_onchain, sig1) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 1, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+    let (req1_onchain, sig1) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
     fixture.ctx.customer_market.submit_request_with_signature(&req1_onchain, sig1).await.unwrap();
 
-    let (req2_onchain, sig2) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 2, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+    let (req2_onchain, sig2) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        2,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
     fixture.ctx.customer_market.submit_request_with_signature(&req2_onchain, sig2).await.unwrap();
 
     // Submit 3 offchain requests
     for id in [10, 11, 12] {
-        let (req, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), id, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+        let (req, _) = create_order(
+            &fixture.ctx.customer_signer,
+            fixture.ctx.customer_signer.address(),
+            id,
+            fixture.ctx.deployment.boundless_market_address,
+            fixture.anvil.chain_id(),
+            now,
+        )
+        .await;
         order_stream_client.submit_request(&req, &fixture.ctx.customer_signer).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
@@ -772,11 +1069,19 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
 
     // Verify all 5 orders were indexed (2 onchain + 3 offchain)
     assert_eq!(count_table_rows(&fixture.test_db.pool, "proof_requests").await, 5);
-    
-    let onchain_count = sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'onchain'")
-        .fetch_one(&fixture.test_db.pool).await.unwrap().get::<i64, _>("count");
-    let offchain_count = sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
-        .fetch_one(&fixture.test_db.pool).await.unwrap().get::<i64, _>("count");
+
+    let onchain_count =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'onchain'")
+            .fetch_one(&fixture.test_db.pool)
+            .await
+            .unwrap()
+            .get::<i64, _>("count");
+    let offchain_count =
+        sqlx::query("SELECT COUNT(*) as count FROM proof_requests WHERE source = 'offchain'")
+            .fetch_one(&fixture.test_db.pool)
+            .await
+            .unwrap()
+            .get::<i64, _>("count");
     assert_eq!(onchain_count, 2);
     assert_eq!(offchain_count, 3);
 
@@ -784,14 +1089,18 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
     assert!(!summaries.is_empty());
 
-    verify_summary_totals(&summaries, SummaryExpectations {
-        total_requests_submitted: Some(5),
-        total_requests_onchain: Some(2),
-        total_requests_offchain: Some(3),
-        ..Default::default()
-    });
+    verify_summary_totals(
+        &summaries,
+        SummaryExpectations {
+            total_requests_submitted: Some(5),
+            total_requests_onchain: Some(2),
+            total_requests_offchain: Some(3),
+            ..Default::default()
+        },
+    );
 
-    let unique_requesters: u64 = summaries.iter().map(|s| s.unique_requesters_submitting_requests).max().unwrap_or(0);
+    let unique_requesters: u64 =
+        summaries.iter().map(|s| s.unique_requesters_submitting_requests).max().unwrap_or(0);
     assert_eq!(unique_requesters, 1);
 
     cli_process.kill().unwrap();
@@ -811,14 +1120,35 @@ async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Submit 1 onchain request
-    let (req_onchain, sig_onchain) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 1, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+    let (req_onchain, sig_onchain) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
-    fixture.ctx.customer_market.submit_request_with_signature(&req_onchain, sig_onchain).await.unwrap();
+    fixture
+        .ctx
+        .customer_market
+        .submit_request_with_signature(&req_onchain, sig_onchain)
+        .await
+        .unwrap();
 
     let onchain_block_timestamp = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Submit 1 offchain request
-    let (req_offchain, _) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 10, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
+    let (req_offchain, _) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        10,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
     order_stream_client.submit_request(&req_offchain, &fixture.ctx.customer_signer).await.unwrap();
 
     update_order_timestamps(&pool, block_timestamp).await;
@@ -881,11 +1211,26 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Submit and fulfill 1 request
-    let (request, client_sig) = create_order(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 1, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now).await;
-    
+    let (request, client_sig) = create_order(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+    )
+    .await;
+
     fixture.ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    fixture.ctx.customer_market.submit_request_with_signature(&request, client_sig.clone()).await.unwrap();
-    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request, client_sig.clone()).await.unwrap();
+    fixture
+        .ctx
+        .customer_market
+        .submit_request_with_signature(&request, client_sig.clone())
+        .await
+        .unwrap();
+    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request, client_sig.clone())
+        .await
+        .unwrap();
 
     // Mine blocks and get end block
     fixture.ctx.customer_provider.anvil_mine(Some(2), None).await.unwrap();
@@ -971,8 +1316,12 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
 
     // Compare proof requests count
     let count_requests_receipts = count_table_rows(&test_db_receipts.pool, "proof_requests").await;
-    let count_requests_tx_by_hash = count_table_rows(&test_db_tx_by_hash.pool, "proof_requests").await;
-    assert_eq!(count_requests_receipts, count_requests_tx_by_hash, "Proof request counts should match");
+    let count_requests_tx_by_hash =
+        count_table_rows(&test_db_tx_by_hash.pool, "proof_requests").await;
+    assert_eq!(
+        count_requests_receipts, count_requests_tx_by_hash,
+        "Proof request counts should match"
+    );
     assert_eq!(count_requests_receipts, 1);
 }
 
@@ -996,13 +1345,11 @@ struct RequestStatusRow {
 }
 
 async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
-    let row = sqlx::query(
-        "SELECT lock_collateral FROM request_status WHERE request_id = $1",
-    )
-    .bind(request_id)
-    .fetch_one(pool)
-    .await
-    .unwrap();
+    let row = sqlx::query("SELECT lock_collateral FROM request_status WHERE request_id = $1")
+        .bind(request_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
     row.get("lock_collateral")
 }
 
@@ -1042,8 +1389,14 @@ async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRo
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
-    
-    let block = fixture.ctx.customer_provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
+
+    let block = fixture
+        .ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
     let start_block = block.header.number.saturating_sub(1);
 
     let mut indexer_process = IndexerCliBuilder::new(
@@ -1059,8 +1412,18 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Create and submit request
-    let (req, sig) = create_order_with_timeouts(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 1, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now, 1000000, 1000000).await;
-    
+    let (req, sig) = create_order_with_timeouts(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+        1000000,
+        1000000,
+    )
+    .await;
+
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
     fixture.ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
@@ -1099,8 +1462,14 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
-    
-    let block = fixture.ctx.customer_provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
+
+    let block = fixture
+        .ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
     let start_block = block.header.number.saturating_sub(1);
 
     let mut indexer_process = IndexerCliBuilder::new(
@@ -1116,8 +1485,18 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Create and submit request with short timeout
-    let (req, sig) = create_order_with_timeouts(&fixture.ctx.customer_signer, fixture.ctx.customer_signer.address(), 1, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id(), now, 1000, 1000).await;
-    
+    let (req, sig) = create_order_with_timeouts(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+        1000,
+        1000,
+    )
+    .await;
+
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
     fixture.ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
@@ -1153,8 +1532,14 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
-    
-    let block = fixture.ctx.customer_provider.get_block_by_number(BlockNumberOrTag::Latest).await.unwrap().unwrap();
+
+    let block = fixture
+        .ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
     let start_block = block.header.number.saturating_sub(1);
 
     let mut indexer_process = IndexerCliBuilder::new(
@@ -1184,11 +1569,23 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
             lockCollateral: U256::from(0),
         },
     );
-    let sig = req.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+    let sig = req
+        .sign_request(
+            &fixture.ctx.customer_signer,
+            fixture.ctx.deployment.boundless_market_address,
+            fixture.anvil.chain_id(),
+        )
+        .await
+        .unwrap();
     let sig_bytes: Bytes = sig.as_bytes().into();
 
     fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
-    fixture.ctx.customer_market.submit_request_with_signature(&req, sig_bytes.clone()).await.unwrap();
+    fixture
+        .ctx
+        .customer_market
+        .submit_request_with_signature(&req, sig_bytes.clone())
+        .await
+        .unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(3), None).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -1211,12 +1608,20 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Fulfill request (late fulfillment)
-    let (fill, root_receipt, assessor_receipt) = fixture.prover.fulfill(&[(req.clone(), sig_bytes.clone())]).await.unwrap();
-    let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
-    fixture.ctx.prover_market
+    let (fill, root_receipt, assessor_receipt) =
+        fixture.prover.fulfill(&[(req.clone(), sig_bytes.clone())]).await.unwrap();
+    let order_fulfilled =
+        OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt).unwrap();
+    fixture
+        .ctx
+        .prover_market
         .fulfill(
             FulfillmentTx::new(order_fulfilled.fills, order_fulfilled.assessorReceipt)
-                .with_submit_root(fixture.ctx.deployment.set_verifier_address, order_fulfilled.root, order_fulfilled.seal),
+                .with_submit_root(
+                    fixture.ctx.deployment.set_verifier_address,
+                    order_fulfilled.root,
+                    order_fulfilled.seal,
+                ),
         )
         .await
         .unwrap();
@@ -1229,46 +1634,68 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
     assert!(status.fulfilled_at.is_some());
     tracing::info!("Request status: {:?}", status);
-    
+
     // Verify this is a secondary fulfillment (fulfilled after lock_end but before expires_at)
     let fulfilled_at = status.fulfilled_at.unwrap();
     assert!(fulfilled_at > lock_end, "Fulfillment should occur after lock_end");
     assert!(fulfilled_at < req.expires_at() as i64, "Fulfillment should occur before expires_at");
-    
+
     // Verify secondary fulfillments are counted in aggregates
     let summaries = get_hourly_summaries(&fixture.test_db.db).await;
     tracing::info!("Hourly summaries: {:?}", summaries);
-    let total_secondary_fulfillments: u64 = summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
-    assert_eq!(total_secondary_fulfillments, 1, "Should have 1 secondary fulfillment in aggregates");
-    
+    let total_secondary_fulfillments: u64 =
+        summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
+    assert_eq!(
+        total_secondary_fulfillments, 1,
+        "Should have 1 secondary fulfillment in aggregates"
+    );
+
     // Verify all-time aggregates also include secondary fulfillments
     let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
     let latest_all_time = all_time_summaries.last().unwrap();
-    assert_eq!(latest_all_time.total_secondary_fulfillments, 1, "All-time aggregates should show 1 secondary fulfillment");
-    
+    assert_eq!(
+        latest_all_time.total_secondary_fulfillments, 1,
+        "All-time aggregates should show 1 secondary fulfillment"
+    );
+
     // Verify requestor aggregates also include secondary fulfillments
     let requestor_address = fixture.ctx.customer_signer.address();
     let current_block_timestamp = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
-    let requestor_summaries = fixture.test_db.db.get_hourly_requestor_summaries_by_range(
-        requestor_address,
-        current_block_timestamp.saturating_sub(7200), // Start from 2 hours before
-        current_block_timestamp + 3600, // End 1 hour after
-    ).await.unwrap();
-    
-    let total_requestor_secondary_fulfillments: u64 = requestor_summaries.iter()
-        .map(|s| s.total_secondary_fulfillments)
-        .sum();
-    assert_eq!(total_requestor_secondary_fulfillments, 1, "Requestor hourly aggregates should show 1 secondary fulfillment");
-    
+    let requestor_summaries = fixture
+        .test_db
+        .db
+        .get_hourly_requestor_summaries_by_range(
+            requestor_address,
+            current_block_timestamp.saturating_sub(7200), // Start from 2 hours before
+            current_block_timestamp + 3600,               // End 1 hour after
+        )
+        .await
+        .unwrap();
+
+    let total_requestor_secondary_fulfillments: u64 =
+        requestor_summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
+    assert_eq!(
+        total_requestor_secondary_fulfillments, 1,
+        "Requestor hourly aggregates should show 1 secondary fulfillment"
+    );
+
     // Verify all-time requestor aggregates
-    let latest_requestor_all_time = fixture.test_db.db.get_latest_all_time_requestor_summary(requestor_address)
-        .await.unwrap();
+    let latest_requestor_all_time =
+        fixture.test_db.db.get_latest_all_time_requestor_summary(requestor_address).await.unwrap();
     assert!(latest_requestor_all_time.is_some(), "Should have all-time requestor summary");
     let requestor_all_time = latest_requestor_all_time.unwrap();
-    assert_eq!(requestor_all_time.total_secondary_fulfillments, 1, "All-time requestor aggregates should show 1 secondary fulfillment");
+    assert_eq!(
+        requestor_all_time.total_secondary_fulfillments, 1,
+        "All-time requestor aggregates should show 1 secondary fulfillment"
+    );
 
     // Advance time and slash
-    fixture.ctx.customer_provider.anvil_set_next_block_timestamp(req.expires_at() + 1).await.unwrap();
+    fixture
+        .ctx
+        .customer_provider
+        .anvil_set_next_block_timestamp(req.expires_at() + 1)
+        .await
+        .unwrap();
     fixture.ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
     fixture.ctx.prover_market.slash(req.id).await.unwrap();
@@ -1326,15 +1753,31 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             lockCollateral: U256::from(0),
         },
     );
-    let client_sig1 = request1.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+    let client_sig1 = request1
+        .sign_request(
+            &fixture.ctx.customer_signer,
+            fixture.ctx.deployment.boundless_market_address,
+            fixture.anvil.chain_id(),
+        )
+        .await
+        .unwrap();
 
     fixture.ctx.customer_market.deposit(one_eth * U256::from(2)).await.unwrap();
-    fixture.ctx.customer_market
+    fixture
+        .ctx
+        .customer_market
         .submit_request_with_signature(&request1, Bytes::from(client_sig1.as_bytes()))
         .await
         .unwrap();
 
-    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request1, client_sig1.as_bytes().into()).await.unwrap();
+    lock_and_fulfill_request(
+        &fixture.ctx,
+        &fixture.prover,
+        &request1,
+        client_sig1.as_bytes().into(),
+    )
+    .await
+    .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -1362,14 +1805,30 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             lockCollateral: U256::from(0),
         },
     );
-    let client_sig2 = request2.sign_request(&fixture.ctx.customer_signer, fixture.ctx.deployment.boundless_market_address, fixture.anvil.chain_id()).await.unwrap();
+    let client_sig2 = request2
+        .sign_request(
+            &fixture.ctx.customer_signer,
+            fixture.ctx.deployment.boundless_market_address,
+            fixture.anvil.chain_id(),
+        )
+        .await
+        .unwrap();
 
-    fixture.ctx.customer_market
+    fixture
+        .ctx
+        .customer_market
         .submit_request_with_signature(&request2, Bytes::from(client_sig2.as_bytes()))
         .await
         .unwrap();
 
-    lock_and_fulfill_request(&fixture.ctx, &fixture.prover, &request2, client_sig2.as_bytes().into()).await.unwrap();
+    lock_and_fulfill_request(
+        &fixture.ctx,
+        &fixture.prover,
+        &request2,
+        client_sig2.as_bytes().into(),
+    )
+    .await
+    .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -1378,11 +1837,15 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     tracing::info!("Found {} hourly summaries", hourly_summaries.len());
 
     // We should have at least 4 hours of data (hour with request1, 3 hours of no activity, hour with request2)
-    assert!(hourly_summaries.len() >= 4, "Expected at least 4 hourly summaries, got {}", hourly_summaries.len());
+    assert!(
+        hourly_summaries.len() >= 4,
+        "Expected at least 4 hourly summaries, got {}",
+        hourly_summaries.len()
+    );
 
     // Verify hour boundaries and NO GAPS
     verify_hour_boundaries(&hourly_summaries);
-    
+
     // Check for continuous hourly timestamps (no gaps)
     for i in 1..hourly_summaries.len() {
         let prev_hour = hourly_summaries[i - 1].period_timestamp;
@@ -1397,34 +1860,50 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     tracing::info!("✓ No gaps in hourly summaries - all hours present");
 
     // Identify hours with activity and hours without activity
-    let hours_with_activity: Vec<_> = hourly_summaries.iter()
-        .filter(|s| s.total_requests_submitted > 0)
-        .collect();
-    let hours_without_activity: Vec<_> = hourly_summaries.iter()
-        .filter(|s| s.total_requests_submitted == 0)
-        .collect();
+    let hours_with_activity: Vec<_> =
+        hourly_summaries.iter().filter(|s| s.total_requests_submitted > 0).collect();
+    let hours_without_activity: Vec<_> =
+        hourly_summaries.iter().filter(|s| s.total_requests_submitted == 0).collect();
 
-    tracing::info!("Hours with activity: {}, Hours without activity: {}", 
-        hours_with_activity.len(), hours_without_activity.len());
-    
+    tracing::info!(
+        "Hours with activity: {}, Hours without activity: {}",
+        hours_with_activity.len(),
+        hours_without_activity.len()
+    );
+
     assert_eq!(hours_with_activity.len(), 2, "Expected 2 hours with activity");
     assert!(hours_without_activity.len() >= 2, "Expected at least 2 hours without activity");
 
     // Verify zero-activity hours have all zero values
     for zero_hour in &hours_without_activity {
         assert_eq!(zero_hour.total_fulfilled, 0, "Zero-activity hour should have 0 fulfilled");
-        assert_eq!(zero_hour.total_requests_submitted, 0, "Zero-activity hour should have 0 submitted");
+        assert_eq!(
+            zero_hour.total_requests_submitted, 0,
+            "Zero-activity hour should have 0 submitted"
+        );
         assert_eq!(zero_hour.total_requests_locked, 0, "Zero-activity hour should have 0 locked");
-        assert_eq!(zero_hour.total_fees_locked, U256::ZERO, "Zero-activity hour should have 0 fees");
-        assert_eq!(zero_hour.total_collateral_locked, U256::ZERO, "Zero-activity hour should have 0 collateral");
+        assert_eq!(
+            zero_hour.total_fees_locked,
+            U256::ZERO,
+            "Zero-activity hour should have 0 fees"
+        );
+        assert_eq!(
+            zero_hour.total_collateral_locked,
+            U256::ZERO,
+            "Zero-activity hour should have 0 collateral"
+        );
     }
     tracing::info!("✓ All zero-activity hours have correct zero values");
 
     // Get all-time summaries and verify cumulative behavior
     let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
     tracing::info!("Found {} all-time summaries", all_time_summaries.len());
-    
-    assert!(all_time_summaries.len() >= 4, "Expected at least 4 all-time summaries, got {}", all_time_summaries.len());
+
+    assert!(
+        all_time_summaries.len() >= 4,
+        "Expected at least 4 all-time summaries, got {}",
+        all_time_summaries.len()
+    );
 
     // Verify all-time summaries have NO GAPS (one for each hour)
     for i in 1..all_time_summaries.len() {
@@ -1443,23 +1922,38 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     for i in 1..all_time_summaries.len() {
         let prev = &all_time_summaries[i - 1];
         let curr = &all_time_summaries[i];
-        
-        assert!(curr.total_fulfilled >= prev.total_fulfilled, 
-            "All-time total_fulfilled should never decrease: hour {} has {}, hour {} has {}", 
-            prev.period_timestamp, prev.total_fulfilled, curr.period_timestamp, curr.total_fulfilled);
-        
+
+        assert!(
+            curr.total_fulfilled >= prev.total_fulfilled,
+            "All-time total_fulfilled should never decrease: hour {} has {}, hour {} has {}",
+            prev.period_timestamp,
+            prev.total_fulfilled,
+            curr.period_timestamp,
+            curr.total_fulfilled
+        );
+
         assert!(curr.total_requests_submitted >= prev.total_requests_submitted,
             "All-time total_requests_submitted should never decrease: hour {} has {}, hour {} has {}",
             prev.period_timestamp, prev.total_requests_submitted, curr.period_timestamp, curr.total_requests_submitted);
-        
-        assert!(curr.total_requests_locked >= prev.total_requests_locked,
+
+        assert!(
+            curr.total_requests_locked >= prev.total_requests_locked,
             "All-time total_requests_locked should never decrease: hour {} has {}, hour {} has {}",
-            prev.period_timestamp, prev.total_requests_locked, curr.period_timestamp, curr.total_requests_locked);
-        
-        assert!(curr.total_fees_locked >= prev.total_fees_locked,
+            prev.period_timestamp,
+            prev.total_requests_locked,
+            curr.period_timestamp,
+            curr.total_requests_locked
+        );
+
+        assert!(
+            curr.total_fees_locked >= prev.total_fees_locked,
             "All-time total_fees_locked should never decrease: hour {} has {}, hour {} has {}",
-            prev.period_timestamp, prev.total_fees_locked, curr.period_timestamp, curr.total_fees_locked);
-        
+            prev.period_timestamp,
+            prev.total_fees_locked,
+            curr.period_timestamp,
+            curr.total_fees_locked
+        );
+
         assert!(curr.total_collateral_locked >= prev.total_collateral_locked,
             "All-time total_collateral_locked should never decrease: hour {} has {}, hour {} has {}",
             prev.period_timestamp, prev.total_collateral_locked, curr.period_timestamp, curr.total_collateral_locked);
@@ -1468,11 +1962,13 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
 
     // Verify that during no-activity hours, all-time values stay constant (carry forward)
     // and match the exact expected values
-    let first_activity_hour = hourly_summaries.iter()
+    let first_activity_hour = hourly_summaries
+        .iter()
         .position(|s| s.total_requests_submitted > 0)
         .expect("Should find first activity hour");
-    
-    let second_activity_hour = hourly_summaries.iter()
+
+    let second_activity_hour = hourly_summaries
+        .iter()
         .skip(first_activity_hour + 1)
         .position(|s| s.total_requests_submitted > 0)
         .map(|pos| pos + first_activity_hour + 1)
@@ -1483,85 +1979,141 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
         // There are hours in between - verify they all have the same cumulative values
         let first_activity_ts = hourly_summaries[first_activity_hour].period_timestamp;
         let second_activity_ts = hourly_summaries[second_activity_hour].period_timestamp;
-        
+
         // Find corresponding all-time summaries
-        let first_all_time_idx = all_time_summaries.iter()
+        let first_all_time_idx = all_time_summaries
+            .iter()
             .position(|s| s.period_timestamp == first_activity_ts)
             .expect("Should find all-time for first activity");
-        
-        let second_all_time_idx = all_time_summaries.iter()
+
+        let second_all_time_idx = all_time_summaries
+            .iter()
             .position(|s| s.period_timestamp == second_activity_ts)
             .expect("Should find all-time for second activity");
 
         // After first request, we should have: 1 submitted, 1 locked, 1 fulfilled, 0 collateral
         let expected_after_first = &all_time_summaries[first_all_time_idx];
-        assert_eq!(expected_after_first.total_requests_submitted, 1, 
-            "After first request: should have exactly 1 submitted");
-        assert_eq!(expected_after_first.total_requests_locked, 1, 
-            "After first request: should have exactly 1 locked");
-        assert_eq!(expected_after_first.total_fulfilled, 1, 
-            "After first request: should have exactly 1 fulfilled");
-        assert_eq!(expected_after_first.total_collateral_locked, U256::ZERO, 
-            "After first request: should have exactly 0 collateral (none used)");
+        assert_eq!(
+            expected_after_first.total_requests_submitted, 1,
+            "After first request: should have exactly 1 submitted"
+        );
+        assert_eq!(
+            expected_after_first.total_requests_locked, 1,
+            "After first request: should have exactly 1 locked"
+        );
+        assert_eq!(
+            expected_after_first.total_fulfilled, 1,
+            "After first request: should have exactly 1 fulfilled"
+        );
+        assert_eq!(
+            expected_after_first.total_collateral_locked,
+            U256::ZERO,
+            "After first request: should have exactly 0 collateral (none used)"
+        );
         tracing::info!("✓ First activity hour has correct cumulative values: 1 submitted, 1 locked, 1 fulfilled, 0 collateral");
 
         // Verify carry-forward during gap - values should stay at first request totals
         for gap_idx in (first_all_time_idx + 1)..second_all_time_idx {
             let gap_summary = &all_time_summaries[gap_idx];
-            
+
             // During no-activity periods, cumulative values should stay exactly at first request values
             assert_eq!(gap_summary.total_fulfilled, 1,
                 "During no-activity hour {}: total_fulfilled should stay at 1 (not increase or decrease)", gap_summary.period_timestamp);
-            assert_eq!(gap_summary.total_requests_submitted, 1,
-                "During no-activity hour {}: total_requests_submitted should stay at 1", gap_summary.period_timestamp);
-            assert_eq!(gap_summary.total_requests_locked, 1,
-                "During no-activity hour {}: total_requests_locked should stay at 1", gap_summary.period_timestamp);
-            assert_eq!(gap_summary.total_collateral_locked, U256::ZERO,
-                "During no-activity hour {}: total_collateral_locked should stay at 0", gap_summary.period_timestamp);
-            
-            tracing::debug!("  Gap hour {}: correctly carries forward values (1, 1, 1, 0)", gap_summary.period_timestamp);
+            assert_eq!(
+                gap_summary.total_requests_submitted, 1,
+                "During no-activity hour {}: total_requests_submitted should stay at 1",
+                gap_summary.period_timestamp
+            );
+            assert_eq!(
+                gap_summary.total_requests_locked, 1,
+                "During no-activity hour {}: total_requests_locked should stay at 1",
+                gap_summary.period_timestamp
+            );
+            assert_eq!(
+                gap_summary.total_collateral_locked,
+                U256::ZERO,
+                "During no-activity hour {}: total_collateral_locked should stay at 0",
+                gap_summary.period_timestamp
+            );
+
+            tracing::debug!(
+                "  Gap hour {}: correctly carries forward values (1, 1, 1, 0)",
+                gap_summary.period_timestamp
+            );
         }
         let num_gap_hours = second_all_time_idx - first_all_time_idx - 1;
         tracing::info!("✓ Cumulatives properly carry forward during {} no-activity hours (all stayed at: 1 submitted, 1 locked, 1 fulfilled, 0 collateral)", num_gap_hours);
-        
+
         // After second request, we should have: 2 submitted, 2 locked, 2 fulfilled, 0 collateral
         let after_second = &all_time_summaries[second_all_time_idx];
-        assert_eq!(after_second.total_requests_submitted, 2, 
-            "After second request: should have exactly 2 submitted (1 + 1)");
-        assert_eq!(after_second.total_requests_locked, 2, 
-            "After second request: should have exactly 2 locked (1 + 1)");
-        assert_eq!(after_second.total_fulfilled, 2, 
-            "After second request: should have exactly 2 fulfilled (1 + 1)");
-        assert_eq!(after_second.total_collateral_locked, U256::ZERO, 
-            "After second request: should have exactly 0 collateral (0 + 0)");
+        assert_eq!(
+            after_second.total_requests_submitted, 2,
+            "After second request: should have exactly 2 submitted (1 + 1)"
+        );
+        assert_eq!(
+            after_second.total_requests_locked, 2,
+            "After second request: should have exactly 2 locked (1 + 1)"
+        );
+        assert_eq!(
+            after_second.total_fulfilled, 2,
+            "After second request: should have exactly 2 fulfilled (1 + 1)"
+        );
+        assert_eq!(
+            after_second.total_collateral_locked,
+            U256::ZERO,
+            "After second request: should have exactly 0 collateral (0 + 0)"
+        );
         tracing::info!("✓ Second activity hour has correct cumulative values: 2 submitted, 2 locked, 2 fulfilled, 0 collateral");
     }
 
     // Verify final cumulative totals match the exact sum of all activity (2 requests total)
     let latest_all_time = all_time_summaries.last().unwrap();
-    assert_eq!(latest_all_time.total_fulfilled, 2, 
-        "Final cumulative fulfilled should be exactly 2 (request 1 + request 2)");
-    assert_eq!(latest_all_time.total_requests_submitted, 2, 
-        "Final cumulative submitted should be exactly 2 (request 1 + request 2)");
-    assert_eq!(latest_all_time.total_requests_locked, 2, 
-        "Final cumulative locked should be exactly 2 (request 1 + request 2)");
-    assert_eq!(latest_all_time.total_requests_submitted_onchain, 2,
-        "Final cumulative onchain requests should be exactly 2 (both were onchain)");
-    assert_eq!(latest_all_time.total_requests_submitted_offchain, 0,
-        "Final cumulative offchain requests should be exactly 0 (none were offchain)");
-    assert_eq!(latest_all_time.total_collateral_locked, U256::ZERO, 
-        "Final cumulative collateral should be exactly 0 (0 from request 1 + 0 from request 2)");
-    assert_eq!(latest_all_time.total_locked_and_fulfilled, 2,
-        "Final cumulative locked_and_fulfilled should be exactly 2 (both requests)");
-    assert_eq!(latest_all_time.total_locked_and_expired, 0,
-        "Final cumulative locked_and_expired should be exactly 0 (no expired requests)");
-    assert_eq!(latest_all_time.total_expired, 0,
-        "Final cumulative expired should be exactly 0 (no expired requests)");
-    assert_eq!(latest_all_time.total_requests_slashed, 0,
-        "Final cumulative slashed should be exactly 0 (no slashed requests)");
-    assert!(latest_all_time.total_fees_locked > U256::ZERO,
-        "Final cumulative fees should be non-zero (2 fulfilled requests with fees)");
-    
+    assert_eq!(
+        latest_all_time.total_fulfilled, 2,
+        "Final cumulative fulfilled should be exactly 2 (request 1 + request 2)"
+    );
+    assert_eq!(
+        latest_all_time.total_requests_submitted, 2,
+        "Final cumulative submitted should be exactly 2 (request 1 + request 2)"
+    );
+    assert_eq!(
+        latest_all_time.total_requests_locked, 2,
+        "Final cumulative locked should be exactly 2 (request 1 + request 2)"
+    );
+    assert_eq!(
+        latest_all_time.total_requests_submitted_onchain, 2,
+        "Final cumulative onchain requests should be exactly 2 (both were onchain)"
+    );
+    assert_eq!(
+        latest_all_time.total_requests_submitted_offchain, 0,
+        "Final cumulative offchain requests should be exactly 0 (none were offchain)"
+    );
+    assert_eq!(
+        latest_all_time.total_collateral_locked,
+        U256::ZERO,
+        "Final cumulative collateral should be exactly 0 (0 from request 1 + 0 from request 2)"
+    );
+    assert_eq!(
+        latest_all_time.total_locked_and_fulfilled, 2,
+        "Final cumulative locked_and_fulfilled should be exactly 2 (both requests)"
+    );
+    assert_eq!(
+        latest_all_time.total_locked_and_expired, 0,
+        "Final cumulative locked_and_expired should be exactly 0 (no expired requests)"
+    );
+    assert_eq!(
+        latest_all_time.total_expired, 0,
+        "Final cumulative expired should be exactly 0 (no expired requests)"
+    );
+    assert_eq!(
+        latest_all_time.total_requests_slashed, 0,
+        "Final cumulative slashed should be exactly 0 (no slashed requests)"
+    );
+    assert!(
+        latest_all_time.total_fees_locked > U256::ZERO,
+        "Final cumulative fees should be non-zero (2 fulfilled requests with fees)"
+    );
+
     tracing::info!("✓ Final cumulative values are correct: 2 submitted, 2 locked, 2 fulfilled, 0 collateral, 0 expired, 0 slashed");
 
     cli_process.kill().unwrap();

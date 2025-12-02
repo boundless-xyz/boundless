@@ -34,7 +34,8 @@ fn parse_period_requestor_summary_row(
     let p99_str: String = row.try_get("p99_lock_price_per_cycle")?;
     let total_requests_submitted: i64 = row.try_get("total_requests_submitted")?;
     let total_requests_submitted_onchain: i64 = row.try_get("total_requests_submitted_onchain")?;
-    let total_requests_submitted_offchain: i64 = row.try_get("total_requests_submitted_offchain")?;
+    let total_requests_submitted_offchain: i64 =
+        row.try_get("total_requests_submitted_offchain")?;
     let total_requests_locked: i64 = row.try_get("total_requests_locked")?;
     let total_requests_slashed: i64 = row.try_get("total_requests_slashed")?;
     let total_expired: i64 = row.try_get("total_expired")?;
@@ -110,7 +111,8 @@ fn parse_all_time_requestor_summary_row(
         row.try_get("total_locked_and_expired_collateral")?;
     let total_requests_submitted: i64 = row.try_get("total_requests_submitted")?;
     let total_requests_submitted_onchain: i64 = row.try_get("total_requests_submitted_onchain")?;
-    let total_requests_submitted_offchain: i64 = row.try_get("total_requests_submitted_offchain")?;
+    let total_requests_submitted_offchain: i64 =
+        row.try_get("total_requests_submitted_offchain")?;
     let total_requests_locked: i64 = row.try_get("total_requests_locked")?;
     let total_requests_slashed: i64 = row.try_get("total_requests_slashed")?;
     let total_expired: i64 = row.try_get("total_expired")?;
@@ -224,10 +226,7 @@ pub trait RequestorDb: IndexerDb {
                     RequestSortField::UpdatedAt => r.updated_at,
                     RequestSortField::CreatedAt => r.created_at,
                 };
-                RequestCursor {
-                    timestamp,
-                    request_digest: r.request_digest.to_string(),
-                }
+                RequestCursor { timestamp, request_digest: r.request_digest.to_string() }
             })
         } else {
             None
@@ -331,9 +330,7 @@ pub trait RequestorDb: IndexerDb {
             .bind(summary.unique_provers_locking_requests as i64)
             .bind(u256_to_padded_string(summary.total_fees_locked))
             .bind(u256_to_padded_string(summary.total_collateral_locked))
-            .bind(u256_to_padded_string(
-                summary.total_locked_and_expired_collateral,
-            ))
+            .bind(u256_to_padded_string(summary.total_locked_and_expired_collateral))
             .bind(summary.total_requests_submitted as i64)
             .bind(summary.total_requests_submitted_onchain as i64)
             .bind(summary.total_requests_submitted_offchain as i64)
@@ -569,7 +566,8 @@ pub trait RequestorDb: IndexerDb {
 
     /// Gets all unique requestor addresses that have submitted requests
     async fn get_all_requestor_addresses(&self) -> Result<Vec<Address>, DbError> {
-        let query_str = "SELECT DISTINCT client_address FROM proof_requests ORDER BY client_address";
+        let query_str =
+            "SELECT DISTINCT client_address FROM proof_requests ORDER BY client_address";
 
         let rows = sqlx::query(query_str).fetch_all(self.pool()).await?;
 
@@ -1147,9 +1145,7 @@ async fn upsert_requestor_summary_generic(
         .bind(summary.unique_provers_locking_requests as i64)
         .bind(u256_to_padded_string(summary.total_fees_locked))
         .bind(u256_to_padded_string(summary.total_collateral_locked))
-        .bind(u256_to_padded_string(
-            summary.total_locked_and_expired_collateral,
-        ))
+        .bind(u256_to_padded_string(summary.total_locked_and_expired_collateral))
         .bind(u256_to_padded_string(summary.p10_lock_price_per_cycle))
         .bind(u256_to_padded_string(summary.p25_lock_price_per_cycle))
         .bind(u256_to_padded_string(summary.p50_lock_price_per_cycle))
@@ -1441,10 +1437,14 @@ async fn get_all_time_requestor_summaries_generic(
 mod tests {
     use super::*;
     use crate::db::events::EventsDb;
-    use crate::db::market::{HourlyRequestorSummary, MarketDb, RequestStatusType, SlashedStatus, TxMetadata};
+    use crate::db::market::{
+        HourlyRequestorSummary, MarketDb, RequestStatusType, SlashedStatus, TxMetadata,
+    };
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
-    use boundless_market::contracts::{Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements};
+    use boundless_market::contracts::{
+        Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+    };
     use risc0_zkvm::Digest;
 
     // Helper functions for test data generation
@@ -1457,10 +1457,7 @@ mod tests {
             RequestId::new(*addr, id),
             Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
             "https://image_url.dev",
-            RequestInput::builder()
-                .write_slice(&[0x41, 0x41, 0x41, 0x41])
-                .build_inline()
-                .unwrap(),
+            RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
             Offer {
                 minPrice: U256::from(20000000000000u64),
                 maxPrice: U256::from(40000000000000u64),
@@ -1475,10 +1472,13 @@ mod tests {
 
     // Helper to setup period query test data
     async fn setup_period_requestor_test_data(db: &MarketDb, requestor: Address, base_ts: u64) {
-        let submit_metadata = TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 100, base_ts + 100, 0);
-        let lock_metadata = TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 101, base_ts + 150, 0);
-        let fulfill_metadata = TxMetadata::new(B256::from([0x03; 32]), Address::ZERO, 102, base_ts + 200, 0);
-        
+        let submit_metadata =
+            TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 100, base_ts + 100, 0);
+        let lock_metadata =
+            TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 101, base_ts + 150, 0);
+        let fulfill_metadata =
+            TxMetadata::new(B256::from([0x03; 32]), Address::ZERO, 102, base_ts + 200, 0);
+
         // Add proof requests
         for i in 0..5 {
             let collateral = U256::from(100 * (i + 1));
@@ -1486,7 +1486,15 @@ mod tests {
             let mut digest_bytes = [i as u8; 32];
             digest_bytes[0] = requestor.0[0];
             let digest = B256::from(digest_bytes);
-            db.add_proof_requests(&[(digest, request, submit_metadata, "onchain".to_string(), submit_metadata.block_timestamp)]).await.unwrap();
+            db.add_proof_requests(&[(
+                digest,
+                request,
+                submit_metadata,
+                "onchain".to_string(),
+                submit_metadata.block_timestamp,
+            )])
+            .await
+            .unwrap();
         }
 
         // Add request statuses
@@ -1497,8 +1505,16 @@ mod tests {
             let status = RequestStatus {
                 request_digest: digest,
                 request_id: U256::from(i),
-                request_status: if i < 3 { RequestStatusType::Fulfilled } else { RequestStatusType::Submitted },
-                slashed_status: if i == 4 { SlashedStatus::Slashed } else { SlashedStatus::NotApplicable },
+                request_status: if i < 3 {
+                    RequestStatusType::Fulfilled
+                } else {
+                    RequestStatusType::Submitted
+                },
+                slashed_status: if i == 4 {
+                    SlashedStatus::Slashed
+                } else {
+                    SlashedStatus::NotApplicable
+                },
                 source: "onchain".to_string(),
                 client_address: requestor,
                 lock_prover_address: Some(Address::from([0xAA; 20])),
@@ -1552,17 +1568,42 @@ mod tests {
             let mut digest_bytes = [i as u8; 32];
             digest_bytes[0] = requestor.0[0];
             let digest = B256::from(digest_bytes);
-            
-            db.add_request_submitted_events(&[(digest, U256::from(i), submit_metadata)]).await.unwrap();
-            db.add_request_locked_events(&[(digest, U256::from(i), Address::from([0xAA; 20]), lock_metadata)]).await.unwrap();
-            
+
+            db.add_request_submitted_events(&[(digest, U256::from(i), submit_metadata)])
+                .await
+                .unwrap();
+            db.add_request_locked_events(&[(
+                digest,
+                U256::from(i),
+                Address::from([0xAA; 20]),
+                lock_metadata,
+            )])
+            .await
+            .unwrap();
+
             if i < 3 {
-                db.add_request_fulfilled_events(&[(digest, U256::from(i), Address::from([0xAA; 20]), fulfill_metadata)]).await.unwrap();
+                db.add_request_fulfilled_events(&[(
+                    digest,
+                    U256::from(i),
+                    Address::from([0xAA; 20]),
+                    fulfill_metadata,
+                )])
+                .await
+                .unwrap();
             }
-            
+
             if i == 4 {
-                let slash_metadata = TxMetadata::new(B256::from([0x04; 32]), Address::ZERO, 103, base_ts + 300, 0);
-                db.add_prover_slashed_events(&[(U256::from(i), U256::from(50), U256::from(50), Address::from([0xBB; 20]), slash_metadata)]).await.unwrap();
+                let slash_metadata =
+                    TxMetadata::new(B256::from([0x04; 32]), Address::ZERO, 103, base_ts + 300, 0);
+                db.add_prover_slashed_events(&[(
+                    U256::from(i),
+                    U256::from(50),
+                    U256::from(50),
+                    Address::from([0xBB; 20]),
+                    slash_metadata,
+                )])
+                .await
+                .unwrap();
             }
         }
     }
@@ -1612,7 +1653,10 @@ mod tests {
 
         db.upsert_hourly_requestor_summary(summary.clone()).await.unwrap();
 
-        let results = db.get_hourly_requestor_summaries_by_range(requestor, period_ts, period_ts + 1).await.unwrap();
+        let results = db
+            .get_hourly_requestor_summaries_by_range(requestor, period_ts, period_ts + 1)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].period_timestamp, period_ts);
         assert_eq!(results[0].requestor_address, requestor);
@@ -1623,7 +1667,10 @@ mod tests {
         updated.total_fulfilled = 10;
         db.upsert_hourly_requestor_summary(updated).await.unwrap();
 
-        let results = db.get_hourly_requestor_summaries_by_range(requestor, period_ts, period_ts + 1).await.unwrap();
+        let results = db
+            .get_hourly_requestor_summaries_by_range(requestor, period_ts, period_ts + 1)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].total_fulfilled, 10);
     }
@@ -1672,7 +1719,10 @@ mod tests {
         assert_eq!(result.period_timestamp, period_ts);
         assert_eq!(result.requestor_address, requestor);
         assert_eq!(result.total_fulfilled, 100);
-        assert_eq!(result.total_secondary_fulfillments, 20, "Should have 20 secondary fulfillments");
+        assert_eq!(
+            result.total_secondary_fulfillments, 20,
+            "Should have 20 secondary fulfillments"
+        );
         assert_eq!(result.total_program_cycles, U256::from(500_000_000_000u64));
 
         let mut updated = summary.clone();
@@ -1683,17 +1733,23 @@ mod tests {
 
         let result = db.get_latest_all_time_requestor_summary(requestor).await.unwrap().unwrap();
         assert_eq!(result.total_fulfilled, 200);
-        assert_eq!(result.total_secondary_fulfillments, 25, "Should have updated secondary fulfillments");
+        assert_eq!(
+            result.total_secondary_fulfillments, 25,
+            "Should have updated secondary fulfillments"
+        );
         assert_eq!(result.period_timestamp, period_ts + 1);
-        
+
         // Test ON CONFLICT update by upserting with same timestamp
         let mut conflict_update = summary.clone();
         conflict_update.total_secondary_fulfillments = 30;
         conflict_update.period_timestamp = period_ts + 1; // Same timestamp as previous update
         db.upsert_all_time_requestor_summary(conflict_update).await.unwrap();
-        
+
         let result = db.get_latest_all_time_requestor_summary(requestor).await.unwrap().unwrap();
-        assert_eq!(result.total_secondary_fulfillments, 30, "ON CONFLICT should update total_secondary_fulfillments");
+        assert_eq!(
+            result.total_secondary_fulfillments, 30,
+            "ON CONFLICT should update total_secondary_fulfillments"
+        );
     }
 
     #[tokio::test]
@@ -1743,7 +1799,10 @@ mod tests {
             db.upsert_daily_requestor_summary(summary).await.unwrap();
         }
 
-        let results = db.get_daily_requestor_summaries_by_range(requestor, base_ts, base_ts + (3 * day_seconds)).await.unwrap();
+        let results = db
+            .get_daily_requestor_summaries_by_range(requestor, base_ts, base_ts + (3 * day_seconds))
+            .await
+            .unwrap();
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].total_fulfilled, 10);
         assert_eq!(results[1].total_fulfilled, 20);
@@ -1796,7 +1855,10 @@ mod tests {
 
         db.upsert_weekly_requestor_summary(summary.clone()).await.unwrap();
 
-        let results = db.get_weekly_requestor_summaries_by_range(requestor, base_ts, base_ts + week_seconds).await.unwrap();
+        let results = db
+            .get_weekly_requestor_summaries_by_range(requestor, base_ts, base_ts + week_seconds)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].total_fulfilled, 50);
         assert_eq!(results[0].requestor_address, requestor);
@@ -1847,7 +1909,10 @@ mod tests {
 
         db.upsert_monthly_requestor_summary(summary.clone()).await.unwrap();
 
-        let results = db.get_monthly_requestor_summaries_by_range(requestor, base_ts, base_ts + 2_628_000).await.unwrap();
+        let results = db
+            .get_monthly_requestor_summaries_by_range(requestor, base_ts, base_ts + 2_628_000)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].total_fulfilled, 200);
     }
@@ -1906,7 +1971,8 @@ mod tests {
         assert!(result.is_some());
         assert_eq!(result.unwrap().total_fulfilled, 200);
 
-        let result = db.get_all_time_requestor_summary_by_timestamp(requestor, 9999999).await.unwrap();
+        let result =
+            db.get_all_time_requestor_summary_by_timestamp(requestor, 9999999).await.unwrap();
         assert!(result.is_none());
     }
 
@@ -1926,10 +1992,42 @@ mod tests {
         let request3 = generate_request(3, &addr3);
         let request4 = generate_request(4, &addr1);
 
-        db.add_proof_requests(&[(B256::from([1; 32]), request1, metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
-        db.add_proof_requests(&[(B256::from([2; 32]), request2, metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
-        db.add_proof_requests(&[(B256::from([3; 32]), request3, metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
-        db.add_proof_requests(&[(B256::from([4; 32]), request4, metadata, "onchain".to_string(), metadata.block_timestamp)]).await.unwrap();
+        db.add_proof_requests(&[(
+            B256::from([1; 32]),
+            request1,
+            metadata,
+            "onchain".to_string(),
+            metadata.block_timestamp,
+        )])
+        .await
+        .unwrap();
+        db.add_proof_requests(&[(
+            B256::from([2; 32]),
+            request2,
+            metadata,
+            "onchain".to_string(),
+            metadata.block_timestamp,
+        )])
+        .await
+        .unwrap();
+        db.add_proof_requests(&[(
+            B256::from([3; 32]),
+            request3,
+            metadata,
+            "onchain".to_string(),
+            metadata.block_timestamp,
+        )])
+        .await
+        .unwrap();
+        db.add_proof_requests(&[(
+            B256::from([4; 32]),
+            request4,
+            metadata,
+            "onchain".to_string(),
+            metadata.block_timestamp,
+        )])
+        .await
+        .unwrap();
 
         let addresses = db.get_all_requestor_addresses().await.unwrap();
         assert_eq!(addresses.len(), 3);
@@ -1965,9 +2063,12 @@ mod tests {
             (digest1, request1, metadata1, "onchain".to_string(), base_ts + 100),
             (digest2, request2, metadata2, "onchain".to_string(), base_ts + 500),
             (digest3, request3, metadata3, "onchain".to_string(), base_ts + 1500),
-        ]).await.unwrap();
+        ])
+        .await
+        .unwrap();
 
-        let addresses = db.get_active_requestor_addresses_in_period(base_ts, base_ts + 1000).await.unwrap();
+        let addresses =
+            db.get_active_requestor_addresses_in_period(base_ts, base_ts + 1000).await.unwrap();
         assert_eq!(addresses.len(), 2);
         assert!(addresses.contains(&addr1));
         assert!(addresses.contains(&addr2));
@@ -2089,19 +2190,31 @@ mod tests {
         };
         db.upsert_request_statuses(&[status_addr2]).await.unwrap();
 
-        let (results, _cursor) = db.list_requests_by_requestor(addr1, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        let (results, _cursor) = db
+            .list_requests_by_requestor(addr1, None, 10, RequestSortField::CreatedAt)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 5);
         assert!(results.iter().all(|r| r.client_address == addr1));
 
-        let (results, cursor) = db.list_requests_by_requestor(addr1, None, 2, RequestSortField::CreatedAt).await.unwrap();
+        let (results, cursor) = db
+            .list_requests_by_requestor(addr1, None, 2, RequestSortField::CreatedAt)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert!(cursor.is_some());
 
-        let (results2, _) = db.list_requests_by_requestor(addr1, cursor, 2, RequestSortField::CreatedAt).await.unwrap();
+        let (results2, _) = db
+            .list_requests_by_requestor(addr1, cursor, 2, RequestSortField::CreatedAt)
+            .await
+            .unwrap();
         assert_eq!(results2.len(), 2);
         assert_ne!(results[0].request_id, results2[0].request_id);
 
-        let (results, _) = db.list_requests_by_requestor(addr2, None, 10, RequestSortField::CreatedAt).await.unwrap();
+        let (results, _) = db
+            .list_requests_by_requestor(addr2, None, 10, RequestSortField::CreatedAt)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].client_address, addr2);
     }
@@ -2113,17 +2226,44 @@ mod tests {
 
         let requestor = Address::from([0x50; 20]);
         let base_ts = 1700000000u64;
-        
+
         for i in 0..3 {
             let digest = B256::from([(i + 100) as u8; 32]);
             let request = generate_request(i, &requestor);
-            
-            let submit_meta = TxMetadata::new(B256::from([i as u8; 32]), Address::ZERO, 100 + (i as u64), base_ts + 100, 0);
-            db.add_proof_requests(&[(digest, request.clone(), submit_meta, "onchain".to_string(), submit_meta.block_timestamp)]).await.unwrap();
-            
-            let fulfill_meta = TxMetadata::new(B256::from([(i + 50) as u8; 32]), Address::ZERO, 102 + (i as u64), base_ts + 200, 0);
-            db.add_request_fulfilled_events(&[(digest, request.id, Address::from([0xAA; 20]), fulfill_meta)]).await.unwrap();
-            
+
+            let submit_meta = TxMetadata::new(
+                B256::from([i as u8; 32]),
+                Address::ZERO,
+                100 + (i as u64),
+                base_ts + 100,
+                0,
+            );
+            db.add_proof_requests(&[(
+                digest,
+                request.clone(),
+                submit_meta,
+                "onchain".to_string(),
+                submit_meta.block_timestamp,
+            )])
+            .await
+            .unwrap();
+
+            let fulfill_meta = TxMetadata::new(
+                B256::from([(i + 50) as u8; 32]),
+                Address::ZERO,
+                102 + (i as u64),
+                base_ts + 200,
+                0,
+            );
+            db.add_request_fulfilled_events(&[(
+                digest,
+                request.id,
+                Address::from([0xAA; 20]),
+                fulfill_meta,
+            )])
+            .await
+            .unwrap();
+
             let status = RequestStatus {
                 request_digest: digest,
                 request_id: request.id,
@@ -2177,7 +2317,10 @@ mod tests {
             db.upsert_request_statuses(&[status]).await.unwrap();
         }
 
-        let count = db.get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(count, 3);
     }
 
@@ -2188,10 +2331,13 @@ mod tests {
 
         let requestor = Address::from([0x51; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_unique_provers(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_unique_provers(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(count, 1);
     }
 
@@ -2202,10 +2348,13 @@ mod tests {
 
         let requestor = Address::from([0x52; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_total_requests_submitted(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_total_requests_submitted(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(count, 5);
     }
 
@@ -2216,10 +2365,17 @@ mod tests {
 
         let requestor = Address::from([0x53; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_total_requests_submitted_onchain(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_total_requests_submitted_onchain(
+                base_ts,
+                base_ts + 1000,
+                requestor,
+            )
+            .await
+            .unwrap();
         assert_eq!(count, 5);
     }
 
@@ -2230,10 +2386,13 @@ mod tests {
 
         let requestor = Address::from([0x54; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_total_requests_locked(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_total_requests_locked(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(count, 5);
     }
 
@@ -2244,10 +2403,13 @@ mod tests {
 
         let requestor = Address::from([0x55; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_total_requests_slashed(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_total_requests_slashed(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(count, 1);
     }
 
@@ -2258,12 +2420,15 @@ mod tests {
 
         let requestor = Address::from([0x56; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let data = db.get_period_requestor_lock_pricing_data(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let data = db
+            .get_period_requestor_lock_pricing_data(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(data.len(), 3);
-        
+
         for item in &data {
             assert_eq!(item.min_price, "1000");
             assert_eq!(item.max_price, "2000");
@@ -2277,12 +2442,15 @@ mod tests {
 
         let requestor = Address::from([0x57; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let collaterals = db.get_period_requestor_all_lock_collateral(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let collaterals = db
+            .get_period_requestor_all_lock_collateral(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(collaterals.len(), 5);
-        
+
         let total: u64 = collaterals.iter().map(|c| c.parse::<u64>().unwrap()).sum();
         assert_eq!(total, 100 + 200 + 300 + 400 + 500);
     }
@@ -2294,10 +2462,13 @@ mod tests {
 
         let requestor = Address::from([0x58; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let collaterals = db.get_period_requestor_locked_and_expired_collateral(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let collaterals = db
+            .get_period_requestor_locked_and_expired_collateral(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert!(collaterals.len() <= 1);
     }
 
@@ -2308,10 +2479,13 @@ mod tests {
 
         let requestor = Address::from([0x59; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_expired_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_expired_count(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert!(count <= 1);
     }
 
@@ -2322,10 +2496,13 @@ mod tests {
 
         let requestor = Address::from([0x5A; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_locked_and_expired_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_locked_and_expired_count(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert!(count <= 1);
     }
 
@@ -2336,10 +2513,13 @@ mod tests {
 
         let requestor = Address::from([0x5B; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_period_requestor_locked_and_fulfilled_count(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_locked_and_fulfilled_count(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(count, 3);
     }
 
@@ -2350,10 +2530,13 @@ mod tests {
 
         let requestor = Address::from([0x5C; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let total = db.get_period_requestor_total_program_cycles(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let total = db
+            .get_period_requestor_total_program_cycles(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
         assert_eq!(total, U256::from(50_000_000 + 100_000_000 + 150_000_000));
     }
 
@@ -2364,10 +2547,11 @@ mod tests {
 
         let requestor = Address::from([0x5D; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let total = db.get_period_requestor_total_cycles(base_ts, base_ts + 1000, requestor).await.unwrap();
+        let total =
+            db.get_period_requestor_total_cycles(base_ts, base_ts + 1000, requestor).await.unwrap();
         assert_eq!(total, U256::from(50_790_000 + 101_580_000 + 152_370_000));
     }
 
@@ -2378,54 +2562,93 @@ mod tests {
 
         let requestor = Address::from([0x5F; 20]);
         let base_ts = 1700000000u64;
-        
+
         // Create test data with different fulfillment scenarios:
         // - Request 0: fulfilled BEFORE lock_end (not secondary)
         // - Request 1: fulfilled AFTER lock_end but BEFORE expires_at (secondary)
         // - Request 2: fulfilled AFTER lock_end but BEFORE expires_at (secondary)
         // - Request 3: fulfilled AFTER expires_at (not secondary, edge case)
         // - Request 4: not fulfilled (not secondary)
-        
+
         let lock_end = base_ts + 500;
         let expires_at = base_ts + 1000;
-        
+
         for i in 0..5 {
             let digest = B256::from([(i + 200) as u8; 32]);
             let request = generate_request(i, &requestor);
-            
-            let submit_meta = TxMetadata::new(B256::from([i as u8; 32]), Address::ZERO, 100 + (i as u64), base_ts + 100, 0);
-            db.add_proof_requests(&[(digest, request.clone(), submit_meta, "onchain".to_string(), submit_meta.block_timestamp)]).await.unwrap();
-            
+
+            let submit_meta = TxMetadata::new(
+                B256::from([i as u8; 32]),
+                Address::ZERO,
+                100 + (i as u64),
+                base_ts + 100,
+                0,
+            );
+            db.add_proof_requests(&[(
+                digest,
+                request.clone(),
+                submit_meta,
+                "onchain".to_string(),
+                submit_meta.block_timestamp,
+            )])
+            .await
+            .unwrap();
+
             // Determine fulfillment timestamp based on scenario
             let fulfilled_at = match i {
                 0 => Some(base_ts + 400),  // Before lock_end (not secondary)
                 1 => Some(base_ts + 600),  // After lock_end, before expires_at (secondary)
                 2 => Some(base_ts + 700),  // After lock_end, before expires_at (secondary)
-                3 => Some(base_ts + 1100),  // After expires_at (not secondary)
-                4 => None,                  // Not fulfilled
+                3 => Some(base_ts + 1100), // After expires_at (not secondary)
+                4 => None,                 // Not fulfilled
                 _ => unreachable!(),
             };
-            
+
             if fulfilled_at.is_some() {
-                let fulfill_meta = TxMetadata::new(B256::from([(i + 50) as u8; 32]), Address::ZERO, 102 + (i as u64), fulfilled_at.unwrap(), 0);
-                db.add_request_fulfilled_events(&[(digest, request.id, Address::from([0xAA; 20]), fulfill_meta)]).await.unwrap();
+                let fulfill_meta = TxMetadata::new(
+                    B256::from([(i + 50) as u8; 32]),
+                    Address::ZERO,
+                    102 + (i as u64),
+                    fulfilled_at.unwrap(),
+                    0,
+                );
+                db.add_request_fulfilled_events(&[(
+                    digest,
+                    request.id,
+                    Address::from([0xAA; 20]),
+                    fulfill_meta,
+                )])
+                .await
+                .unwrap();
             }
-            
+
             let status = RequestStatus {
                 request_digest: digest,
                 request_id: request.id,
-                request_status: if fulfilled_at.is_some() { RequestStatusType::Fulfilled } else { RequestStatusType::Submitted },
+                request_status: if fulfilled_at.is_some() {
+                    RequestStatusType::Fulfilled
+                } else {
+                    RequestStatusType::Submitted
+                },
                 slashed_status: SlashedStatus::NotApplicable,
                 source: "onchain".to_string(),
                 client_address: requestor,
                 lock_prover_address: Some(Address::from([0xAA; 20])),
-                fulfill_prover_address: if fulfilled_at.is_some() { Some(Address::from([0xAA; 20])) } else { None },
+                fulfill_prover_address: if fulfilled_at.is_some() {
+                    Some(Address::from([0xAA; 20]))
+                } else {
+                    None
+                },
                 created_at: base_ts + 100,
                 updated_at: fulfilled_at.unwrap_or(base_ts + 200),
                 locked_at: Some(base_ts + 150),
                 fulfilled_at,
                 slashed_at: None,
-                lock_prover_delivered_proof_at: if fulfilled_at.is_some() { Some(fulfilled_at.unwrap() - 20) } else { None },
+                lock_prover_delivered_proof_at: if fulfilled_at.is_some() {
+                    Some(fulfilled_at.unwrap() - 20)
+                } else {
+                    None
+                },
                 submit_block: Some(100),
                 lock_block: Some(101),
                 fulfill_block: if fulfilled_at.is_some() { Some(102) } else { None },
@@ -2440,16 +2663,32 @@ mod tests {
                 slash_recipient: None,
                 slash_transferred_amount: None,
                 slash_burned_amount: None,
-                program_cycles: if fulfilled_at.is_some() { Some(U256::from(50_000_000)) } else { None },
-                total_cycles: if fulfilled_at.is_some() { Some(U256::from(50_790_000)) } else { None },
+                program_cycles: if fulfilled_at.is_some() {
+                    Some(U256::from(50_000_000))
+                } else {
+                    None
+                },
+                total_cycles: if fulfilled_at.is_some() {
+                    Some(U256::from(50_790_000))
+                } else {
+                    None
+                },
                 peak_prove_mhz: if fulfilled_at.is_some() { Some(1000) } else { None },
                 effective_prove_mhz: if fulfilled_at.is_some() { Some(900) } else { None },
-                cycle_status: if fulfilled_at.is_some() { Some("resolved".to_string()) } else { None },
+                cycle_status: if fulfilled_at.is_some() {
+                    Some("resolved".to_string())
+                } else {
+                    None
+                },
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("30".to_string()),
                 submit_tx_hash: Some(B256::from([0x01; 32])),
                 lock_tx_hash: Some(B256::from([0x02; 32])),
-                fulfill_tx_hash: if fulfilled_at.is_some() { Some(B256::from([0x03; 32])) } else { None },
+                fulfill_tx_hash: if fulfilled_at.is_some() {
+                    Some(B256::from([0x03; 32]))
+                } else {
+                    None
+                },
                 slash_tx_hash: None,
                 image_id: "test".to_string(),
                 image_url: None,
@@ -2465,16 +2704,32 @@ mod tests {
         }
 
         // Test period that includes all fulfillments
-        let count = db.get_period_requestor_secondary_fulfillments_count(base_ts, base_ts + 2000, requestor).await.unwrap();
+        let count = db
+            .get_period_requestor_secondary_fulfillments_count(base_ts, base_ts + 2000, requestor)
+            .await
+            .unwrap();
         // Should count requests 1 and 2 (fulfilled after lock_end but before expires_at)
         assert_eq!(count, 2, "Should count 2 secondary fulfillments (requests 1 and 2)");
 
         // Test period that only includes one secondary fulfillment
-        let count_partial = db.get_period_requestor_secondary_fulfillments_count(base_ts + 550, base_ts + 650, requestor).await.unwrap();
-        assert_eq!(count_partial, 1, "Should count 1 secondary fulfillment in partial period (request 1)");
+        let count_partial = db
+            .get_period_requestor_secondary_fulfillments_count(
+                base_ts + 550,
+                base_ts + 650,
+                requestor,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            count_partial, 1,
+            "Should count 1 secondary fulfillment in partial period (request 1)"
+        );
 
         // Test period that includes no secondary fulfillments
-        let count_none = db.get_period_requestor_secondary_fulfillments_count(base_ts, base_ts + 450, requestor).await.unwrap();
+        let count_none = db
+            .get_period_requestor_secondary_fulfillments_count(base_ts, base_ts + 450, requestor)
+            .await
+            .unwrap();
         assert_eq!(count_none, 0, "Should count 0 secondary fulfillments before lock_end");
     }
 
@@ -2485,10 +2740,11 @@ mod tests {
 
         let requestor = Address::from([0x5E; 20]);
         let base_ts = 1700000000u64;
-        
+
         setup_period_requestor_test_data(db, requestor, base_ts).await;
 
-        let count = db.get_all_time_requestor_unique_provers(base_ts + 10000, requestor).await.unwrap();
+        let count =
+            db.get_all_time_requestor_unique_provers(base_ts + 10000, requestor).await.unwrap();
         assert_eq!(count, 1);
     }
 
@@ -2504,9 +2760,15 @@ mod tests {
         setup_period_requestor_test_data(db, requestor1, base_ts).await;
         setup_period_requestor_test_data(db, requestor2, base_ts + 10).await;
 
-        let count1 = db.get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor1).await.unwrap();
-        let count2 = db.get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor2).await.unwrap();
-        
+        let count1 = db
+            .get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor1)
+            .await
+            .unwrap();
+        let count2 = db
+            .get_period_requestor_fulfilled_count(base_ts, base_ts + 1000, requestor2)
+            .await
+            .unwrap();
+
         assert_eq!(count1, 3);
         assert_eq!(count2, 3);
 
@@ -2523,13 +2785,17 @@ mod tests {
         let requestor = Address::from([0x62; 20]);
         let base_ts = 1700000000u64;
 
-        let results = db.get_hourly_requestor_summaries_by_range(requestor, base_ts, base_ts + 3600).await.unwrap();
+        let results = db
+            .get_hourly_requestor_summaries_by_range(requestor, base_ts, base_ts + 3600)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 0);
 
         let latest = db.get_latest_all_time_requestor_summary(requestor).await.unwrap();
         assert!(latest.is_none());
 
-        let by_ts = db.get_all_time_requestor_summary_by_timestamp(requestor, base_ts).await.unwrap();
+        let by_ts =
+            db.get_all_time_requestor_summary_by_timestamp(requestor, base_ts).await.unwrap();
         assert!(by_ts.is_none());
     }
 
@@ -2584,52 +2850,101 @@ mod tests {
         }
 
         // Test basic pagination with limit - DESC order (newest first)
-        let results = db.get_hourly_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None).await.unwrap();
+        let results = db
+            .get_hourly_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].period_timestamp, base_ts + (4 * hour_seconds)); // Newest
         assert_eq!(results[1].period_timestamp, base_ts + (3 * hour_seconds));
 
         // Test cursor pagination - get next page using last timestamp as cursor
         let cursor = results[1].period_timestamp as i64;
-        let results2 = db.get_hourly_requestor_summaries(requestor, Some(cursor), 2, SortDirection::Desc, None, None).await.unwrap();
+        let results2 = db
+            .get_hourly_requestor_summaries(
+                requestor,
+                Some(cursor),
+                2,
+                SortDirection::Desc,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results2.len(), 2);
         assert_eq!(results2[0].period_timestamp, base_ts + (2 * hour_seconds));
         assert_eq!(results2[1].period_timestamp, base_ts + (1 * hour_seconds));
 
         // Test ASC order (oldest first)
-        let results_asc = db.get_hourly_requestor_summaries(requestor, None, 2, SortDirection::Asc, None, None).await.unwrap();
+        let results_asc = db
+            .get_hourly_requestor_summaries(requestor, None, 2, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
         assert_eq!(results_asc.len(), 2);
         assert_eq!(results_asc[0].period_timestamp, base_ts); // Oldest
         assert_eq!(results_asc[1].period_timestamp, base_ts + hour_seconds);
 
         // Test 'after' filter - get summaries after a specific timestamp
-        let results_after = db.get_hourly_requestor_summaries(requestor, None, 10, SortDirection::Asc, None, Some((base_ts + (2 * hour_seconds)) as i64)).await.unwrap();
+        let results_after = db
+            .get_hourly_requestor_summaries(
+                requestor,
+                None,
+                10,
+                SortDirection::Asc,
+                None,
+                Some((base_ts + (2 * hour_seconds)) as i64),
+            )
+            .await
+            .unwrap();
         assert_eq!(results_after.len(), 2); // Only timestamps 3 and 4 hours
         assert_eq!(results_after[0].period_timestamp, base_ts + (3 * hour_seconds));
         assert_eq!(results_after[1].period_timestamp, base_ts + (4 * hour_seconds));
 
         // Test 'before' filter - get summaries before a specific timestamp
-        let results_before = db.get_hourly_requestor_summaries(requestor, None, 10, SortDirection::Desc, Some((base_ts + (2 * hour_seconds)) as i64), None).await.unwrap();
+        let results_before = db
+            .get_hourly_requestor_summaries(
+                requestor,
+                None,
+                10,
+                SortDirection::Desc,
+                Some((base_ts + (2 * hour_seconds)) as i64),
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results_before.len(), 2); // Only timestamps 0 and 1 hours
         assert_eq!(results_before[0].period_timestamp, base_ts + hour_seconds);
         assert_eq!(results_before[1].period_timestamp, base_ts);
 
         // Test combined before/after filters
-        let results_range = db.get_hourly_requestor_summaries(
-            requestor, 
-            None, 
-            10, 
-            SortDirection::Asc, 
-            Some((base_ts + (3 * hour_seconds)) as i64),  // before
-            Some((base_ts) as i64)                         // after
-        ).await.unwrap();
+        let results_range = db
+            .get_hourly_requestor_summaries(
+                requestor,
+                None,
+                10,
+                SortDirection::Asc,
+                Some((base_ts + (3 * hour_seconds)) as i64), // before
+                Some((base_ts) as i64),                      // after
+            )
+            .await
+            .unwrap();
         assert_eq!(results_range.len(), 2); // Timestamps 1 and 2 hours
         assert_eq!(results_range[0].period_timestamp, base_ts + hour_seconds);
         assert_eq!(results_range[1].period_timestamp, base_ts + (2 * hour_seconds));
 
         // Test empty results with no matching data
         let other_requestor = Address::from([0x71; 20]);
-        let results_empty = db.get_hourly_requestor_summaries(other_requestor, None, 10, SortDirection::Desc, None, None).await.unwrap();
+        let results_empty = db
+            .get_hourly_requestor_summaries(
+                other_requestor,
+                None,
+                10,
+                SortDirection::Desc,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results_empty.len(), 0);
     }
 
@@ -2682,25 +2997,51 @@ mod tests {
         }
 
         // Test basic pagination with DESC order
-        let results = db.get_daily_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None).await.unwrap();
+        let results = db
+            .get_daily_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].period_timestamp, base_ts + (4 * day_seconds));
         assert_eq!(results[1].period_timestamp, base_ts + (3 * day_seconds));
 
         // Test cursor pagination
         let cursor = results[1].period_timestamp as i64;
-        let results2 = db.get_daily_requestor_summaries(requestor, Some(cursor), 2, SortDirection::Desc, None, None).await.unwrap();
+        let results2 = db
+            .get_daily_requestor_summaries(
+                requestor,
+                Some(cursor),
+                2,
+                SortDirection::Desc,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results2.len(), 2);
         assert_eq!(results2[0].period_timestamp, base_ts + (2 * day_seconds));
 
         // Test ASC order
-        let results_asc = db.get_daily_requestor_summaries(requestor, None, 3, SortDirection::Asc, None, None).await.unwrap();
+        let results_asc = db
+            .get_daily_requestor_summaries(requestor, None, 3, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
         assert_eq!(results_asc.len(), 3);
         assert_eq!(results_asc[0].period_timestamp, base_ts);
         assert_eq!(results_asc[2].period_timestamp, base_ts + (2 * day_seconds));
 
         // Test 'after' filter
-        let results_after = db.get_daily_requestor_summaries(requestor, None, 10, SortDirection::Asc, None, Some((base_ts + day_seconds) as i64)).await.unwrap();
+        let results_after = db
+            .get_daily_requestor_summaries(
+                requestor,
+                None,
+                10,
+                SortDirection::Asc,
+                None,
+                Some((base_ts + day_seconds) as i64),
+            )
+            .await
+            .unwrap();
         assert_eq!(results_after.len(), 3); // Days 2, 3, 4
     }
 
@@ -2753,18 +3094,41 @@ mod tests {
         }
 
         // Test basic pagination
-        let results = db.get_weekly_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None).await.unwrap();
+        let results = db
+            .get_weekly_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].period_timestamp, base_ts + (3 * week_seconds));
         assert_eq!(results[1].period_timestamp, base_ts + (2 * week_seconds));
 
         // Test cursor pagination
         let cursor = results[1].period_timestamp as i64;
-        let results2 = db.get_weekly_requestor_summaries(requestor, Some(cursor), 2, SortDirection::Desc, None, None).await.unwrap();
+        let results2 = db
+            .get_weekly_requestor_summaries(
+                requestor,
+                Some(cursor),
+                2,
+                SortDirection::Desc,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results2.len(), 2);
 
         // Test 'before' filter
-        let results_before = db.get_weekly_requestor_summaries(requestor, None, 10, SortDirection::Desc, Some((base_ts + (2 * week_seconds)) as i64), None).await.unwrap();
+        let results_before = db
+            .get_weekly_requestor_summaries(
+                requestor,
+                None,
+                10,
+                SortDirection::Desc,
+                Some((base_ts + (2 * week_seconds)) as i64),
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results_before.len(), 2); // Weeks 0 and 1
     }
 
@@ -2810,7 +3174,10 @@ mod tests {
         }
 
         // Test basic pagination with DESC order (newest first)
-        let results = db.get_all_time_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None).await.unwrap();
+        let results = db
+            .get_all_time_requestor_summaries(requestor, None, 2, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].period_timestamp, base_ts + (4 * interval));
         assert_eq!(results[0].total_fulfilled, 500);
@@ -2818,38 +3185,84 @@ mod tests {
 
         // Test cursor pagination
         let cursor = results[1].period_timestamp as i64;
-        let results2 = db.get_all_time_requestor_summaries(requestor, Some(cursor), 2, SortDirection::Desc, None, None).await.unwrap();
+        let results2 = db
+            .get_all_time_requestor_summaries(
+                requestor,
+                Some(cursor),
+                2,
+                SortDirection::Desc,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results2.len(), 2);
         assert_eq!(results2[0].period_timestamp, base_ts + (2 * interval));
 
         // Test ASC order (oldest first)
-        let results_asc = db.get_all_time_requestor_summaries(requestor, None, 3, SortDirection::Asc, None, None).await.unwrap();
+        let results_asc = db
+            .get_all_time_requestor_summaries(requestor, None, 3, SortDirection::Asc, None, None)
+            .await
+            .unwrap();
         assert_eq!(results_asc.len(), 3);
         assert_eq!(results_asc[0].period_timestamp, base_ts);
         assert_eq!(results_asc[0].total_fulfilled, 100);
 
         // Test 'after' filter
-        let results_after = db.get_all_time_requestor_summaries(requestor, None, 10, SortDirection::Asc, None, Some((base_ts + (2 * interval)) as i64)).await.unwrap();
+        let results_after = db
+            .get_all_time_requestor_summaries(
+                requestor,
+                None,
+                10,
+                SortDirection::Asc,
+                None,
+                Some((base_ts + (2 * interval)) as i64),
+            )
+            .await
+            .unwrap();
         assert_eq!(results_after.len(), 2); // Timestamps 3 and 4
 
         // Test 'before' filter
-        let results_before = db.get_all_time_requestor_summaries(requestor, None, 10, SortDirection::Desc, Some((base_ts + (3 * interval)) as i64), None).await.unwrap();
+        let results_before = db
+            .get_all_time_requestor_summaries(
+                requestor,
+                None,
+                10,
+                SortDirection::Desc,
+                Some((base_ts + (3 * interval)) as i64),
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results_before.len(), 3); // Timestamps 0, 1, 2
 
         // Test combined cursor + before/after
-        let results_combined = db.get_all_time_requestor_summaries(
-            requestor,
-            Some((base_ts + (3 * interval)) as i64),  // cursor
-            10,
-            SortDirection::Desc,
-            Some((base_ts + interval) as i64),  // before
-            None
-        ).await.unwrap();
+        let results_combined = db
+            .get_all_time_requestor_summaries(
+                requestor,
+                Some((base_ts + (3 * interval)) as i64), // cursor
+                10,
+                SortDirection::Desc,
+                Some((base_ts + interval) as i64), // before
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results_combined.len(), 1); // Only timestamp 2 * interval
 
         // Test empty results
         let other_requestor = Address::from([0x75; 20]);
-        let results_empty = db.get_all_time_requestor_summaries(other_requestor, None, 10, SortDirection::Desc, None, None).await.unwrap();
+        let results_empty = db
+            .get_all_time_requestor_summaries(
+                other_requestor,
+                None,
+                10,
+                SortDirection::Desc,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(results_empty.len(), 0);
     }
 }

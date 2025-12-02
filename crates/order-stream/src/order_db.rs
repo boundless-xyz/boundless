@@ -615,8 +615,7 @@ mod tests {
         assert_eq!(orders[1].id, id2);
         assert_eq!(orders[2].id, id1);
 
-        let orders_asc =
-            db.list_orders_v2(None, 10, SortDirection::Asc, None, None).await.unwrap();
+        let orders_asc = db.list_orders_v2(None, 10, SortDirection::Asc, None, None).await.unwrap();
         assert_eq!(orders_asc.len(), 3);
         assert_eq!(orders_asc[0].id, id1);
         assert_eq!(orders_asc[1].id, id2);
@@ -637,17 +636,16 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         db.add_order(order3).await.unwrap();
 
-        let first_page =
-            db.list_orders_v2(None, 2, SortDirection::Desc, None, None).await.unwrap();
+        let first_page = db.list_orders_v2(None, 2, SortDirection::Desc, None, None).await.unwrap();
         assert_eq!(first_page.len(), 2);
 
         let cursor_ts = first_page[1].created_at.unwrap();
         let cursor_id = first_page[1].id;
 
-        let second_page =
-            db.list_orders_v2(Some((cursor_ts, cursor_id)), 2, SortDirection::Desc, None, None)
-                .await
-                .unwrap();
+        let second_page = db
+            .list_orders_v2(Some((cursor_ts, cursor_id)), 2, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
         assert_eq!(second_page.len(), 1);
         assert_ne!(second_page[0].id, first_page[0].id);
         assert_ne!(second_page[0].id, first_page[1].id);
@@ -667,17 +665,17 @@ mod tests {
         let order2 = create_order(U256::from(2)).await;
         db.add_order(order2).await.unwrap();
 
-        let after_orders =
-            db.list_orders_v2(None, 10, SortDirection::Desc, None, Some(middle_time))
-                .await
-                .unwrap();
+        let after_orders = db
+            .list_orders_v2(None, 10, SortDirection::Desc, None, Some(middle_time))
+            .await
+            .unwrap();
         assert_eq!(after_orders.len(), 1);
         assert_eq!(after_orders[0].order.request.id, U256::from(2));
 
-        let before_orders =
-            db.list_orders_v2(None, 10, SortDirection::Desc, Some(middle_time), None)
-                .await
-                .unwrap();
+        let before_orders = db
+            .list_orders_v2(None, 10, SortDirection::Desc, Some(middle_time), None)
+            .await
+            .unwrap();
         assert_eq!(before_orders.len(), 1);
         assert_eq!(before_orders[0].order.request.id, U256::from(1));
     }

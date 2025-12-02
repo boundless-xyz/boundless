@@ -57,13 +57,15 @@ pub trait EventsDb: IndexerDb {
             let mut seen = std::collections::HashSet::new();
             events
                 .iter()
-                .filter_map(|(_, _, metadata)| {
-                    if seen.insert(metadata.tx_hash) {
-                        Some(*metadata)
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(
+                    |(_, _, metadata)| {
+                        if seen.insert(metadata.tx_hash) {
+                            Some(*metadata)
+                        } else {
+                            None
+                        }
+                    },
+                )
                 .collect()
         };
 
@@ -134,13 +136,15 @@ pub trait EventsDb: IndexerDb {
             let mut seen = std::collections::HashSet::new();
             events
                 .iter()
-                .filter_map(|(_, _, _, metadata)| {
-                    if seen.insert(metadata.tx_hash) {
-                        Some(*metadata)
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(
+                    |(_, _, _, metadata)| {
+                        if seen.insert(metadata.tx_hash) {
+                            Some(*metadata)
+                        } else {
+                            None
+                        }
+                    },
+                )
                 .collect()
         };
 
@@ -376,17 +380,14 @@ pub trait EventsDb: IndexerDb {
             let mut tx = self.pool().begin().await?;
 
             // First, fetch prover addresses for all request IDs in this chunk
-            let request_ids: Vec<String> = chunk
-                .iter()
-                .map(|(request_id, _, _, _, _)| format!("{request_id:x}"))
-                .collect();
+            let request_ids: Vec<String> =
+                chunk.iter().map(|(request_id, _, _, _, _)| format!("{request_id:x}")).collect();
             let prover_map: std::collections::HashMap<String, String> = {
                 let mut map = std::collections::HashMap::new();
                 // Query in batches to avoid parameter limits
                 for request_id_batch in request_ids.chunks(500) {
-                    let placeholders: Vec<String> = (1..=request_id_batch.len())
-                        .map(|i| format!("${}", i))
-                        .collect();
+                    let placeholders: Vec<String> =
+                        (1..=request_id_batch.len()).map(|i| format!("${}", i)).collect();
                     let query_str = format!(
                         "SELECT request_id, prover_address FROM request_locked_events WHERE request_id IN ({})",
                         placeholders.join(", ")
@@ -441,13 +442,14 @@ pub trait EventsDb: IndexerDb {
             let mut query_builder = sqlx::query(&query);
             for (request_id, burn_value, transfer_value, collateral_recipient, metadata) in chunk {
                 let request_id_str = format!("{request_id:x}");
-                let prover_address = prover_map.get(&request_id_str).cloned().unwrap_or_else(|| {
-                    tracing::warn!(
-                        "Missing request locked event for slashed event for request id: {:x}",
-                        request_id
-                    );
-                    format!("{:x}", Address::ZERO)
-                });
+                let prover_address =
+                    prover_map.get(&request_id_str).cloned().unwrap_or_else(|| {
+                        tracing::warn!(
+                            "Missing request locked event for slashed event for request id: {:x}",
+                            request_id
+                        );
+                        format!("{:x}", Address::ZERO)
+                    });
                 query_builder = query_builder
                     .bind(request_id_str)
                     .bind(prover_address)
@@ -868,22 +870,10 @@ mod tests {
                     .await
                     .unwrap();
 
-            assert_eq!(
-                result.get::<String, _>("request_id"),
-                format!("{request_id:x}")
-            );
-            assert_eq!(
-                result.get::<String, _>("tx_hash"),
-                format!("{:x}", metadata.tx_hash)
-            );
-            assert_eq!(
-                result.get::<i64, _>("block_number"),
-                metadata.block_number as i64
-            );
-            assert_eq!(
-                result.get::<i64, _>("block_timestamp"),
-                metadata.block_timestamp as i64
-            );
+            assert_eq!(result.get::<String, _>("request_id"), format!("{request_id:x}"));
+            assert_eq!(result.get::<String, _>("tx_hash"), format!("{:x}", metadata.tx_hash));
+            assert_eq!(result.get::<i64, _>("block_number"), metadata.block_number as i64);
+            assert_eq!(result.get::<i64, _>("block_timestamp"), metadata.block_timestamp as i64);
         }
 
         // Test idempotency - adding same events again should not fail
@@ -928,10 +918,7 @@ mod tests {
                 .fetch_one(&test_db.pool)
                 .await
                 .unwrap();
-        assert_eq!(
-            result.get::<String, _>("request_id"),
-            format!("{sample_id:x}")
-        );
+        assert_eq!(result.get::<String, _>("request_id"), format!("{sample_id:x}"));
     }
 
     #[tokio::test]
@@ -991,19 +978,9 @@ mod tests {
 
             let db_request_id = row.get::<String, _>("request_id");
             let expected_request_id = format!("{request_id:x}");
-            assert_eq!(
-                db_request_id, expected_request_id,
-                "Request ID mismatch at index {}",
-                i
-            );
-            assert_eq!(
-                row.get::<String, _>("prover_address"),
-                format!("{prover:x}")
-            );
-            assert_eq!(
-                row.get::<i64, _>("block_number"),
-                metadata.block_number as i64
-            );
+            assert_eq!(db_request_id, expected_request_id, "Request ID mismatch at index {}", i);
+            assert_eq!(row.get::<String, _>("prover_address"), format!("{prover:x}"));
+            assert_eq!(row.get::<i64, _>("block_number"), metadata.block_number as i64);
         }
 
         // Verify total count
@@ -1077,18 +1054,9 @@ mod tests {
 
             assert!(result.is_some(), "Event {} should exist", i);
             let row = result.unwrap();
-            assert_eq!(
-                row.get::<String, _>("request_id"),
-                format!("{request_id:x}")
-            );
-            assert_eq!(
-                row.get::<String, _>("prover_address"),
-                format!("{prover:x}")
-            );
-            assert_eq!(
-                row.get::<i64, _>("block_number"),
-                metadata.block_number as i64
-            );
+            assert_eq!(row.get::<String, _>("request_id"), format!("{request_id:x}"));
+            assert_eq!(row.get::<String, _>("prover_address"), format!("{prover:x}"));
+            assert_eq!(row.get::<i64, _>("block_number"), metadata.block_number as i64);
         }
 
         // Verify total count
@@ -1166,24 +1134,11 @@ mod tests {
                     .await
                     .unwrap();
 
-            assert!(
-                result.is_some(),
-                "Event with digest {:x} should exist",
-                request_digest
-            );
+            assert!(result.is_some(), "Event with digest {:x} should exist", request_digest);
             let row = result.unwrap();
-            assert_eq!(
-                row.get::<String, _>("request_id"),
-                format!("{request_id:x}")
-            );
-            assert_eq!(
-                row.get::<String, _>("prover_address"),
-                format!("{prover:x}")
-            );
-            assert_eq!(
-                row.get::<i64, _>("block_number"),
-                metadata.block_number as i64
-            );
+            assert_eq!(row.get::<String, _>("request_id"), format!("{request_id:x}"));
+            assert_eq!(row.get::<String, _>("prover_address"), format!("{prover:x}"));
+            assert_eq!(row.get::<i64, _>("block_number"), metadata.block_number as i64);
         }
 
         // Verify count - should be 1000 unique events (all are unique now)
@@ -1246,7 +1201,13 @@ mod tests {
                 1600000000 + 1000 + i as u64,
                 i as u64,
             );
-            slashed_events.push((request_id, burn_value, transfer_value, collateral_recipient, metadata));
+            slashed_events.push((
+                request_id,
+                burn_value,
+                transfer_value,
+                collateral_recipient,
+                metadata,
+            ));
         }
 
         // Add slashed events
@@ -1256,39 +1217,26 @@ mod tests {
         for (i, (request_id, burn_value, transfer_value, collateral_recipient, metadata)) in
             slashed_events.iter().enumerate()
         {
-            let result =
-                sqlx::query("SELECT * FROM prover_slashed_events WHERE request_id = $1")
-                    .bind(format!("{request_id:x}"))
-                    .fetch_optional(&test_db.pool)
-                    .await
-                    .unwrap();
+            let result = sqlx::query("SELECT * FROM prover_slashed_events WHERE request_id = $1")
+                .bind(format!("{request_id:x}"))
+                .fetch_optional(&test_db.pool)
+                .await
+                .unwrap();
 
             assert!(result.is_some(), "Slashed event {} should exist", i);
             let row = result.unwrap();
 
             // Verify prover address was looked up from locked events
             let expected_prover = Address::from([(i + 50) as u8; 20]);
-            assert_eq!(
-                row.get::<String, _>("prover_address"),
-                format!("{expected_prover:x}")
-            );
+            assert_eq!(row.get::<String, _>("prover_address"), format!("{expected_prover:x}"));
             assert_eq!(row.get::<String, _>("burn_value"), burn_value.to_string());
-            assert_eq!(
-                row.get::<String, _>("transfer_value"),
-                transfer_value.to_string()
-            );
+            assert_eq!(row.get::<String, _>("transfer_value"), transfer_value.to_string());
             assert_eq!(
                 row.get::<String, _>("collateral_recipient"),
                 format!("{collateral_recipient:x}")
             );
-            assert_eq!(
-                row.get::<String, _>("tx_hash"),
-                format!("{:x}", metadata.tx_hash)
-            );
-            assert_eq!(
-                row.get::<i64, _>("block_number"),
-                metadata.block_number as i64
-            );
+            assert_eq!(row.get::<String, _>("tx_hash"), format!("{:x}", metadata.tx_hash));
+            assert_eq!(row.get::<i64, _>("block_number"), metadata.block_number as i64);
         }
 
         // Verify total count
@@ -1335,22 +1283,18 @@ mod tests {
 
         // Verify deposits were added correctly
         for (account, value, metadata) in &deposits {
-            let result = sqlx::query(
-                "SELECT * FROM deposit_events WHERE account = $1 AND tx_hash = $2",
-            )
-            .bind(format!("{account:x}"))
-            .bind(format!("{:x}", metadata.tx_hash))
-            .fetch_optional(&test_db.pool)
-            .await
-            .unwrap();
+            let result =
+                sqlx::query("SELECT * FROM deposit_events WHERE account = $1 AND tx_hash = $2")
+                    .bind(format!("{account:x}"))
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .fetch_optional(&test_db.pool)
+                    .await
+                    .unwrap();
 
             assert!(result.is_some());
             let row = result.unwrap();
             assert_eq!(row.get::<String, _>("value"), value.to_string());
-            assert_eq!(
-                row.get::<i64, _>("block_number"),
-                metadata.block_number as i64
-            );
+            assert_eq!(row.get::<i64, _>("block_number"), metadata.block_number as i64);
         }
 
         // Verify total count
@@ -1389,14 +1333,13 @@ mod tests {
 
         // Verify withdrawals were added correctly
         for (account, value, metadata) in &withdrawals {
-            let result = sqlx::query(
-                "SELECT * FROM withdrawal_events WHERE account = $1 AND tx_hash = $2",
-            )
-            .bind(format!("{account:x}"))
-            .bind(format!("{:x}", metadata.tx_hash))
-            .fetch_optional(&test_db.pool)
-            .await
-            .unwrap();
+            let result =
+                sqlx::query("SELECT * FROM withdrawal_events WHERE account = $1 AND tx_hash = $2")
+                    .bind(format!("{account:x}"))
+                    .bind(format!("{:x}", metadata.tx_hash))
+                    .fetch_optional(&test_db.pool)
+                    .await
+                    .unwrap();
 
             assert!(result.is_some());
             let row = result.unwrap();
@@ -1485,9 +1428,7 @@ mod tests {
         }
 
         // Add withdrawals in batch
-        db.add_collateral_withdrawal_events(&withdrawals)
-            .await
-            .unwrap();
+        db.add_collateral_withdrawal_events(&withdrawals).await.unwrap();
 
         // Verify withdrawals were added correctly
         for (account, value, metadata) in &withdrawals {
@@ -1554,10 +1495,7 @@ mod tests {
 
             assert!(result.is_some());
             let row = result.unwrap();
-            assert_eq!(
-                row.get::<String, _>("callback_address"),
-                format!("{callback_address:x}")
-            );
+            assert_eq!(row.get::<String, _>("callback_address"), format!("{callback_address:x}"));
         }
 
         // Verify total count
@@ -1568,4 +1506,3 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 10);
     }
 }
-

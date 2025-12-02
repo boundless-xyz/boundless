@@ -14,7 +14,10 @@
 
 use std::sync::Arc;
 
-use crate::db::{market::{CycleCount, IndexerDb}, MarketDb, DbError, DbObj};
+use crate::db::{
+    market::{CycleCount, IndexerDb},
+    DbError, DbObj, MarketDb,
+};
 use alloy::primitives::{B256, U256};
 use sqlx::any::install_default_drivers;
 use sqlx::AnyPool;
@@ -40,12 +43,7 @@ impl TestDb {
             if db_url.starts_with("postgres") {
                 let pool = AnyPool::connect(&db_url).await?;
                 let db = Arc::new(MarketDb::new(&db_url, None, false).await?);
-                let test_db = Self {
-                    db,
-                    db_url,
-                    pool,
-                    _temp_file: None
-                };
+                let test_db = Self { db, db_url, pool, _temp_file: None };
                 // Clean up any leftover data from previous test runs
                 test_db.cleanup().await?;
                 tracing::info!("Testing with Postgres. Must only run with --test-threads=1");
@@ -108,10 +106,8 @@ impl TestDb {
         program_cycles: U256,
         total_cycles: U256,
     ) -> Result<(), DbError> {
-        let current_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
         let cycle_count = CycleCount {
             request_digest,

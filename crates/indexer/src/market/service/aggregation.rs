@@ -22,8 +22,8 @@ use crate::db::RequestorDb;
 use crate::market::{
     pricing::compute_percentiles,
     time_boundaries::{
-        get_day_start, get_hour_start, get_month_start, get_week_start,
-        iter_daily_periods, iter_hourly_periods, iter_monthly_periods, iter_weekly_periods,
+        get_day_start, get_hour_start, get_month_start, get_week_start, iter_daily_periods,
+        iter_hourly_periods, iter_monthly_periods, iter_weekly_periods,
     },
     ServiceError,
 };
@@ -104,7 +104,8 @@ where
 
         // Get the current day start and calculate days ago
         let current_day_start = get_day_start(current_time);
-        let start_day = current_day_start.saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
+        let start_day = current_day_start
+            .saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
 
         tracing::debug!(
             "Aggregating {} days from {} to {}",
@@ -143,7 +144,8 @@ where
 
         // Get the current week start and calculate weeks ago
         let current_week_start = get_week_start(current_time);
-        let start_week = current_week_start.saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
+        let start_week = current_week_start
+            .saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
 
         tracing::debug!(
             "Aggregating {} weeks from {} to {}",
@@ -182,7 +184,7 @@ where
 
         // Get the current month start and calculate months ago
         let current_month_start = get_month_start(current_time);
-        
+
         // Calculate start month by going back N-1 months
         use chrono::{Datelike, TimeZone, Utc};
         let mut start_month = current_month_start;
@@ -294,13 +296,16 @@ where
         for lock in locks {
             // Use precomputed lock_price if available, otherwise compute it
             let price = if let Some(lock_price_str) = &lock.lock_price {
-                U256::from_str(lock_price_str)
-                    .map_err(|e| ServiceError::Error(anyhow!("Failed to parse lock_price: {}", e)))?
+                U256::from_str(lock_price_str).map_err(|e| {
+                    ServiceError::Error(anyhow!("Failed to parse lock_price: {}", e))
+                })?
             } else {
-                let min_price = U256::from_str(&lock.min_price)
-                    .map_err(|e| ServiceError::Error(anyhow!("Failed to parse min_price: {}", e)))?;
-                let max_price = U256::from_str(&lock.max_price)
-                    .map_err(|e| ServiceError::Error(anyhow!("Failed to parse max_price: {}", e)))?;
+                let min_price = U256::from_str(&lock.min_price).map_err(|e| {
+                    ServiceError::Error(anyhow!("Failed to parse min_price: {}", e))
+                })?;
+                let max_price = U256::from_str(&lock.max_price).map_err(|e| {
+                    ServiceError::Error(anyhow!("Failed to parse max_price: {}", e))
+                })?;
 
                 // Compute lock_timeout from lock_end and ramp_up_start
                 let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.ramp_up_start);
@@ -405,10 +410,7 @@ where
 
 /// Helper function to chunk a vector into smaller chunks
 fn chunk_requestors(requestors: &[Address], chunk_size: usize) -> Vec<Vec<Address>> {
-    requestors
-        .chunks(chunk_size)
-        .map(|chunk| chunk.to_vec())
-        .collect()
+    requestors.chunks(chunk_size).map(|chunk| chunk.to_vec()).collect()
 }
 
 /// Helper function to sum hourly aggregates into a base all-time aggregate
@@ -518,10 +520,8 @@ where
         );
 
         // Query all hourly summaries from start_hour to current_hour (inclusive)
-        let hourly_summaries = self
-            .db
-            .get_hourly_market_summaries_by_range(start_hour, current_hour + 1)
-            .await?;
+        let hourly_summaries =
+            self.db.get_hourly_market_summaries_by_range(start_hour, current_hour + 1).await?;
 
         tracing::debug!(
             "Found {} hourly summaries to aggregate from {} to {}",
@@ -548,22 +548,32 @@ where
         } else {
             start_hour
         };
-        
+
         // Find the earliest hourly summary from our query - this is our starting point
         let earliest_hourly_summary = hourly_summaries.first();
-        
+
         // Get the all-time aggregate for the hour just before actual_start_hour
         // If it doesn't exist, initialize with zeros (first run)
         let base_timestamp = actual_start_hour.saturating_sub(SECONDS_PER_HOUR);
-        
-        let mut cumulative_summary = match self.db.get_all_time_market_summary_by_timestamp(base_timestamp).await? {
+
+        let mut cumulative_summary = match self
+            .db
+            .get_all_time_market_summary_by_timestamp(base_timestamp)
+            .await?
+        {
             Some(prev) => {
-                tracing::debug!("Found existing all-time aggregate at timestamp {}", base_timestamp);
+                tracing::debug!(
+                    "Found existing all-time aggregate at timestamp {}",
+                    base_timestamp
+                );
                 prev
             }
             None => {
                 // No previous aggregate exists - this is the first run, initialize with zeros
-                tracing::debug!("No previous all-time aggregate found, initializing with zeros at timestamp {}", base_timestamp);
+                tracing::debug!(
+                    "No previous all-time aggregate found, initializing with zeros at timestamp {}",
+                    base_timestamp
+                );
                 AllTimeMarketSummary {
                     period_timestamp: base_timestamp,
                     total_fulfilled: 0,
@@ -613,31 +623,27 @@ where
             } else {
                 // No activity this hour - cumulative values stay the same, but we still
                 // need to save an all-time entry for this hour to maintain the cumulative chain
-                tracing::debug!("No hourly summary found for hour {}, maintaining cumulative with no change", hour_ts);
+                tracing::debug!(
+                    "No hourly summary found for hour {}, maintaining cumulative with no change",
+                    hour_ts
+                );
             }
 
             // Update period_timestamp to reflect this hour
             cumulative_summary.period_timestamp = hour_ts;
 
             // Query unique counts from DB for all data up to this hour
-            cumulative_summary.unique_provers_locking_requests = self
-                .db
-                .get_all_time_unique_provers(hour_ts)
-                .await?;
-            cumulative_summary.unique_requesters_submitting_requests = self
-                .db
-                .get_all_time_unique_requesters(hour_ts)
-                .await?;
+            cumulative_summary.unique_provers_locking_requests =
+                self.db.get_all_time_unique_provers(hour_ts).await?;
+            cumulative_summary.unique_requesters_submitting_requests =
+                self.db.get_all_time_unique_requesters(hour_ts).await?;
 
             // ALWAYS save the all-time aggregate for this hour, even if there was no activity
             // This ensures the cumulative chain is never broken
             self.db.upsert_all_time_market_summary(cumulative_summary.clone()).await?;
         }
 
-        tracing::info!(
-            "aggregate_all_time_market_data completed in {:?}",
-            start.elapsed()
-        );
+        tracing::info!("aggregate_all_time_market_data completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -662,7 +668,8 @@ where
         let current_hour = get_hour_start(current_time);
 
         // Get all active requestors in this time period
-        let requestors = self.db
+        let requestors = self
+            .db
             .get_active_requestor_addresses_in_period(start_hour, current_hour + SECONDS_PER_HOUR)
             .await?;
 
@@ -682,7 +689,9 @@ where
                     let service = self;
                     async move {
                         for (hour_ts, hour_end) in iter_hourly_periods(start_hour, current_hour) {
-                            let summary = service.compute_period_requestor_summary(hour_ts, hour_end, requestor).await?;
+                            let summary = service
+                                .compute_period_requestor_summary(hour_ts, hour_end, requestor)
+                                .await?;
                             // Only insert if there's activity
                             if summary.total_requests_submitted > 0 {
                                 service.db.upsert_hourly_requestor_summary(summary).await?;
@@ -692,7 +701,7 @@ where
                     }
                 })
                 .collect();
-            
+
             // Wait for all requestors in this chunk to complete
             try_join_all(requestor_futures).await?;
         }
@@ -716,10 +725,15 @@ where
         );
 
         let current_day_start = get_day_start(current_time);
-        let start_day = current_day_start.saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
+        let start_day = current_day_start
+            .saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
 
-        let requestors = self.db
-            .get_active_requestor_addresses_in_period(start_day, current_day_start + SECONDS_PER_DAY)
+        let requestors = self
+            .db
+            .get_active_requestor_addresses_in_period(
+                start_day,
+                current_day_start + SECONDS_PER_DAY,
+            )
             .await?;
 
         tracing::debug!(
@@ -738,7 +752,9 @@ where
                     let service = self;
                     async move {
                         for (day_ts, day_end) in iter_daily_periods(start_day, current_day_start) {
-                            let summary = service.compute_period_requestor_summary(day_ts, day_end, requestor).await?;
+                            let summary = service
+                                .compute_period_requestor_summary(day_ts, day_end, requestor)
+                                .await?;
                             if summary.total_requests_submitted > 0 {
                                 service.db.upsert_daily_requestor_summary(summary).await?;
                             }
@@ -747,7 +763,7 @@ where
                     }
                 })
                 .collect();
-            
+
             // Wait for all requestors in this chunk to complete
             try_join_all(requestor_futures).await?;
         }
@@ -771,10 +787,15 @@ where
         );
 
         let current_week_start = get_week_start(current_time);
-        let start_week = current_week_start.saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
+        let start_week = current_week_start
+            .saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
 
-        let requestors = self.db
-            .get_active_requestor_addresses_in_period(start_week, current_week_start + SECONDS_PER_WEEK)
+        let requestors = self
+            .db
+            .get_active_requestor_addresses_in_period(
+                start_week,
+                current_week_start + SECONDS_PER_WEEK,
+            )
             .await?;
 
         tracing::debug!(
@@ -792,8 +813,12 @@ where
                 .map(|requestor| {
                     let service = self;
                     async move {
-                        for (week_ts, week_end) in iter_weekly_periods(start_week, current_week_start) {
-                            let summary = service.compute_period_requestor_summary(week_ts, week_end, requestor).await?;
+                        for (week_ts, week_end) in
+                            iter_weekly_periods(start_week, current_week_start)
+                        {
+                            let summary = service
+                                .compute_period_requestor_summary(week_ts, week_end, requestor)
+                                .await?;
                             if summary.total_requests_submitted > 0 {
                                 service.db.upsert_weekly_requestor_summary(summary).await?;
                             }
@@ -802,7 +827,7 @@ where
                     }
                 })
                 .collect();
-            
+
             // Wait for all requestors in this chunk to complete
             try_join_all(requestor_futures).await?;
         }
@@ -849,9 +874,8 @@ where
             next.timestamp() as u64
         };
 
-        let requestors = self.db
-            .get_active_requestor_addresses_in_period(start_month, next_month)
-            .await?;
+        let requestors =
+            self.db.get_active_requestor_addresses_in_period(start_month, next_month).await?;
 
         tracing::debug!(
             "Found {} active requestors in month range {} to {}",
@@ -868,8 +892,12 @@ where
                 .map(|requestor| {
                     let service = self;
                     async move {
-                        for (month_ts, month_end) in iter_monthly_periods(start_month, current_month_start) {
-                            let summary = service.compute_period_requestor_summary(month_ts, month_end, requestor).await?;
+                        for (month_ts, month_end) in
+                            iter_monthly_periods(start_month, current_month_start)
+                        {
+                            let summary = service
+                                .compute_period_requestor_summary(month_ts, month_end, requestor)
+                                .await?;
                             if summary.total_requests_submitted > 0 {
                                 service.db.upsert_monthly_requestor_summary(summary).await?;
                             }
@@ -878,7 +906,7 @@ where
                     }
                 })
                 .collect();
-            
+
             // Wait for all requestors in this chunk to complete
             try_join_all(requestor_futures).await?;
         }
@@ -905,7 +933,8 @@ where
         let start_hour = get_hour_start(hours_ago);
         let current_hour = get_hour_start(current_time);
 
-        let requestors = self.db
+        let requestors = self
+            .db
             .get_active_requestor_addresses_in_period(start_hour, current_hour + SECONDS_PER_HOUR)
             .await?;
 
@@ -1054,15 +1083,12 @@ where
                     }
                 })
                 .collect();
-            
+
             // Wait for all requestors in this chunk to complete
             try_join_all(requestor_futures).await?;
         }
 
-        tracing::info!(
-            "aggregate_all_time_requestor_data completed in {:?}",
-            start.elapsed()
-        );
+        tracing::info!("aggregate_all_time_requestor_data completed in {:?}", start.elapsed());
         Ok(())
     }
 
@@ -1092,20 +1118,72 @@ where
             total_program_cycles,
             total_cycles,
         ) = tokio::join!(
-            self.db.get_period_requestor_fulfilled_count(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_unique_provers(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_total_requests_submitted(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_total_requests_submitted_onchain(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_total_requests_locked(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_total_requests_slashed(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_fulfilled_count(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_unique_provers(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_total_requests_submitted(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_total_requests_submitted_onchain(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_total_requests_locked(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_total_requests_slashed(
+                period_start,
+                period_end,
+                requestor_address
+            ),
             self.db.get_period_requestor_expired_count(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_locked_and_expired_count(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_locked_and_fulfilled_count(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_secondary_fulfillments_count(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_lock_pricing_data(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_all_lock_collateral(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_locked_and_expired_collateral(period_start, period_end, requestor_address),
-            self.db.get_period_requestor_total_program_cycles(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_locked_and_expired_count(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_locked_and_fulfilled_count(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_secondary_fulfillments_count(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_lock_pricing_data(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_all_lock_collateral(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_locked_and_expired_collateral(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_total_program_cycles(
+                period_start,
+                period_end,
+                requestor_address
+            ),
             self.db.get_period_requestor_total_cycles(period_start, period_end, requestor_address),
         );
 
@@ -1113,7 +1191,8 @@ where
         let unique_provers = unique_provers?;
         let total_requests_submitted = total_requests_submitted?;
         let total_requests_submitted_onchain = total_requests_submitted_onchain?;
-        let total_requests_submitted_offchain = total_requests_submitted - total_requests_submitted_onchain;
+        let total_requests_submitted_offchain =
+            total_requests_submitted - total_requests_submitted_onchain;
         let total_requests_locked = total_requests_locked?;
         let total_requests_slashed = total_requests_slashed?;
         let total_expired = total_expired?;
@@ -1140,13 +1219,18 @@ where
 
         for lock in locks {
             let price = if let Some(lock_price_str) = &lock.lock_price {
-                alloy::primitives::U256::from_str(lock_price_str)
-                    .map_err(|e| ServiceError::Error(anyhow::anyhow!("Failed to parse lock_price: {}", e)))?
+                alloy::primitives::U256::from_str(lock_price_str).map_err(|e| {
+                    ServiceError::Error(anyhow::anyhow!("Failed to parse lock_price: {}", e))
+                })?
             } else {
-                let min_price = alloy::primitives::U256::from_str(&lock.min_price)
-                    .map_err(|e| ServiceError::Error(anyhow::anyhow!("Failed to parse min_price: {}", e)))?;
-                let max_price = alloy::primitives::U256::from_str(&lock.max_price)
-                    .map_err(|e| ServiceError::Error(anyhow::anyhow!("Failed to parse max_price: {}", e)))?;
+                let min_price =
+                    alloy::primitives::U256::from_str(&lock.min_price).map_err(|e| {
+                        ServiceError::Error(anyhow::anyhow!("Failed to parse min_price: {}", e))
+                    })?;
+                let max_price =
+                    alloy::primitives::U256::from_str(&lock.max_price).map_err(|e| {
+                        ServiceError::Error(anyhow::anyhow!("Failed to parse max_price: {}", e))
+                    })?;
 
                 let lock_timeout_u64 = lock.lock_end.saturating_sub(lock.ramp_up_start);
                 let lock_timeout = u32::try_from(lock_timeout_u64).unwrap_or_else(|_| {
@@ -1170,7 +1254,8 @@ where
             total_fees += price;
 
             if let Some(price_per_cycle_str) = &lock.lock_price_per_cycle {
-                if let Ok(price_per_cycle) = alloy::primitives::U256::from_str(price_per_cycle_str) {
+                if let Ok(price_per_cycle) = alloy::primitives::U256::from_str(price_per_cycle_str)
+                {
                     prices_per_cycle.push(price_per_cycle);
                 }
             }
@@ -1178,17 +1263,19 @@ where
 
         let mut total_collateral = alloy::primitives::U256::ZERO;
         for collateral_str in all_lock_collaterals {
-            let lock_collateral = alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
-                ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
-            })?;
+            let lock_collateral =
+                alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
+                    ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
+                })?;
             total_collateral += lock_collateral;
         }
 
         let mut total_locked_and_expired_collateral = alloy::primitives::U256::ZERO;
         for collateral_str in locked_and_expired_collaterals {
-            let lock_collateral = alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
-                ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
-            })?;
+            let lock_collateral =
+                alloy::primitives::U256::from_str(&collateral_str).map_err(|e| {
+                    ServiceError::Error(anyhow::anyhow!("Failed to parse lock_collateral: {}", e))
+                })?;
             total_locked_and_expired_collateral += lock_collateral;
         }
 

@@ -85,9 +85,8 @@ fn encode_cursor(timestamp: DateTime<Utc>, id: i64) -> Result<String, AppError> 
 }
 
 fn decode_cursor(cursor_str: &str) -> Result<(DateTime<Utc>, i64), AppError> {
-    let json = BASE64
-        .decode(cursor_str)
-        .map_err(|_| AppError::QueryParamErr("cursor: invalid base64"))?;
+    let json =
+        BASE64.decode(cursor_str).map_err(|_| AppError::QueryParamErr("cursor: invalid base64"))?;
     let cursor_data: CursorData = serde_json::from_slice(&json)
         .map_err(|_| AppError::QueryParamErr("cursor: invalid format"))?;
     Ok((cursor_data.timestamp, cursor_data.id))
@@ -201,11 +200,8 @@ pub(crate) async fn list_orders_v2(
         _ => return Err(AppError::QueryParamErr("sort: must be 'asc' or 'desc'")),
     };
 
-    let cursor = if let Some(cursor_str) = &paging.cursor {
-        Some(decode_cursor(cursor_str)?)
-    } else {
-        None
-    };
+    let cursor =
+        if let Some(cursor_str) = &paging.cursor { Some(decode_cursor(cursor_str)?) } else { None };
 
     // Request one extra item to efficiently determine if more pages exist
     // without needing a separate COUNT query. If we get limit+1 items back,
