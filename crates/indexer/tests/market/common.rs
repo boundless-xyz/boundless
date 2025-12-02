@@ -516,6 +516,17 @@ pub async fn advance_time_and_mine<P: Provider + WalletProvider + Clone + 'stati
     Ok(())
 }
 
+/// Helper to advance time and mine blocks
+pub async fn advance_time_to_and_mine<P: Provider + WalletProvider + Clone + 'static>(
+    provider: &P,
+    target_timestamp: u64,
+    blocks: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    provider.anvil_set_next_block_timestamp(target_timestamp).await?;
+    provider.anvil_mine(Some(blocks), None).await?;
+    Ok(())
+}
+
 /// Wait for indexer to process up to the current block number
 pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
     // Get current block number from the chain
@@ -609,6 +620,7 @@ pub struct SummaryExpectations {
     pub total_expired: Option<u64>,
     pub total_locked_and_expired: Option<u64>,
     pub total_locked_and_fulfilled: Option<u64>,
+    pub total_secondary_fulfillments: Option<u64>,
 }
 
 /// Verify summary totals across all summaries
@@ -659,6 +671,11 @@ pub fn verify_summary_totals(
     if let Some(expected) = expectations.total_locked_and_fulfilled {
         let total: u64 = summaries.iter().map(|s| s.total_locked_and_fulfilled).sum();
         assert_eq!(total, expected, "Expected {} locked and fulfilled requests, got {}", expected, total);
+    }
+
+    if let Some(expected) = expectations.total_secondary_fulfillments {
+        let total: u64 = summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
+        assert_eq!(total, expected, "Expected {} secondary fulfillments, got {}", expected, total);
     }
 }
 
@@ -714,6 +731,7 @@ pub async fn get_all_time_summaries(
             total_expired,
             total_locked_and_expired,
             total_locked_and_fulfilled,
+            total_secondary_fulfillments,
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
@@ -748,6 +766,7 @@ pub async fn get_all_time_summaries(
                 total_expired: row.get::<i64, _>("total_expired") as u64,
                 total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
                 total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
                 locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
                 total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
                 total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),

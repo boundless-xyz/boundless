@@ -23,7 +23,7 @@ use alloy::{
 };
 use boundless_cli::{DefaultProver, OrderFulfilled};
 use boundless_indexer::{
-    db::{market::{RequestStatusType, SlashedStatus, SortDirection}, DbError, IndexerDb},
+    db::{market::{RequestStatusType, SlashedStatus, SortDirection}, DbError, IndexerDb, RequestorDb},
     test_utils::TestDb,
 };
 use boundless_market::contracts::{
@@ -105,6 +105,7 @@ async fn test_e2e() {
         total_expired: Some(0),
         total_locked_and_expired: Some(0),
         total_locked_and_fulfilled: Some(1),
+        total_secondary_fulfillments: Some(0), 
     });
 
     let request_summary = summaries.iter().find(|s| s.total_requests_submitted > 0)
@@ -268,6 +269,7 @@ async fn test_monitoring() {
         total_expired: Some(1),
         total_locked_and_expired: Some(1),
         total_locked_and_fulfilled: Some(1),
+        total_secondary_fulfillments: Some(0), // Not a secondary fulfillment
     });
 
     // Verify collateral tracking
@@ -401,6 +403,7 @@ async fn test_aggregation_across_hours() {
         total_expired: Some(0),
         total_locked_and_expired: Some(0),
         total_locked_and_fulfilled: Some(2),
+        total_secondary_fulfillments: Some(0), // Not secondary fulfillments (fulfilled before lock_end)
     });
 
     // Verify hour boundary formula
@@ -465,11 +468,20 @@ async fn test_aggregation_across_hours() {
     let total_hourly_requests: u64 = summaries.iter().map(|s| s.total_requests_submitted).sum();
     let total_hourly_program_cycles: U256 = summaries.iter().map(|s| s.total_program_cycles).sum();
     let total_hourly_cycles: U256 = summaries.iter().map(|s| s.total_cycles).sum();
+    let total_hourly_secondary_fulfillments: u64 = summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
     
     assert_eq!(latest_all_time.total_fulfilled, total_hourly_fulfilled, "All-time total_fulfilled should match sum of hourly");
     assert_eq!(latest_all_time.total_requests_submitted, total_hourly_requests, "All-time total_requests_submitted should match sum of hourly");
     assert_eq!(latest_all_time.total_program_cycles, total_hourly_program_cycles, "All-time total_program_cycles should match sum of hourly");
     assert_eq!(latest_all_time.total_cycles, total_hourly_cycles, "All-time total_cycles should match sum of hourly");
+    assert_eq!(latest_all_time.total_secondary_fulfillments, total_hourly_secondary_fulfillments, "All-time total_secondary_fulfillments should match sum of hourly");
+    
+    // Verify total_secondary_fulfillments is cumulative (non-decreasing)
+    for i in 1..all_time_summaries.len() {
+        let prev = &all_time_summaries[i - 1];
+        let curr = &all_time_summaries[i];
+        assert!(curr.total_secondary_fulfillments >= prev.total_secondary_fulfillments, "Total secondary fulfillments should be cumulative (non-decreasing)");
+    }
     
     // Verify unique counts are correct (should be at least 1 for both provers and requesters)
     assert!(latest_all_time.unique_provers_locking_requests >= 1, "Should have at least 1 unique prover");
@@ -1150,7 +1162,6 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
         fixture.anvil.endpoint_url().to_string(),
         fixture.ctx.deployment.boundless_market_address.to_string(),
     )
-    .retries("3")
     .start_block(&start_block.to_string())
     .spawn()
     .unwrap();
@@ -1196,8 +1207,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     let lock_end = status.lock_end;
 
     // Advance time past lock expiration and fulfill late
-    fixture.ctx.customer_provider.anvil_set_next_block_timestamp(lock_end as u64 + 1).await.unwrap();
-    fixture.ctx.customer_provider.anvil_mine(Some(1), None).await.unwrap();
+    advance_time_to_and_mine(&fixture.ctx.customer_provider, lock_end as u64 + 1, 1).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Fulfill request (late fulfillment)
@@ -1210,13 +1220,52 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
         )
         .await
         .unwrap();
-    fixture.ctx.customer_provider.anvil_mine(Some(2), None).await.unwrap();
+
+    advance_time_and_mine(&fixture.ctx.customer_provider, 2, 1).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify fulfilled status
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
     assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
     assert!(status.fulfilled_at.is_some());
+    tracing::info!("Request status: {:?}", status);
+    
+    // Verify this is a secondary fulfillment (fulfilled after lock_end but before expires_at)
+    let fulfilled_at = status.fulfilled_at.unwrap();
+    assert!(fulfilled_at > lock_end, "Fulfillment should occur after lock_end");
+    assert!(fulfilled_at < req.expires_at() as i64, "Fulfillment should occur before expires_at");
+    
+    // Verify secondary fulfillments are counted in aggregates
+    let summaries = get_hourly_summaries(&fixture.test_db.db).await;
+    tracing::info!("Hourly summaries: {:?}", summaries);
+    let total_secondary_fulfillments: u64 = summaries.iter().map(|s| s.total_secondary_fulfillments).sum();
+    assert_eq!(total_secondary_fulfillments, 1, "Should have 1 secondary fulfillment in aggregates");
+    
+    // Verify all-time aggregates also include secondary fulfillments
+    let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
+    let latest_all_time = all_time_summaries.last().unwrap();
+    assert_eq!(latest_all_time.total_secondary_fulfillments, 1, "All-time aggregates should show 1 secondary fulfillment");
+    
+    // Verify requestor aggregates also include secondary fulfillments
+    let requestor_address = fixture.ctx.customer_signer.address();
+    let current_block_timestamp = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let requestor_summaries = fixture.test_db.db.get_hourly_requestor_summaries_by_range(
+        requestor_address,
+        current_block_timestamp.saturating_sub(7200), // Start from 2 hours before
+        current_block_timestamp + 3600, // End 1 hour after
+    ).await.unwrap();
+    
+    let total_requestor_secondary_fulfillments: u64 = requestor_summaries.iter()
+        .map(|s| s.total_secondary_fulfillments)
+        .sum();
+    assert_eq!(total_requestor_secondary_fulfillments, 1, "Requestor hourly aggregates should show 1 secondary fulfillment");
+    
+    // Verify all-time requestor aggregates
+    let latest_requestor_all_time = fixture.test_db.db.get_latest_all_time_requestor_summary(requestor_address)
+        .await.unwrap();
+    assert!(latest_requestor_all_time.is_some(), "Should have all-time requestor summary");
+    let requestor_all_time = latest_requestor_all_time.unwrap();
+    assert_eq!(requestor_all_time.total_secondary_fulfillments, 1, "All-time requestor aggregates should show 1 secondary fulfillment");
 
     // Advance time and slash
     fixture.ctx.customer_provider.anvil_set_next_block_timestamp(req.expires_at() + 1).await.unwrap();

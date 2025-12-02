@@ -232,6 +232,7 @@ where
             total_expired,
             total_locked_and_expired,
             total_locked_and_fulfilled,
+            total_secondary_fulfillments,
             locks,
             all_lock_collaterals,
             locked_and_expired_collaterals,
@@ -248,6 +249,7 @@ where
             self.db.get_period_expired_count(period_start, period_end),
             self.db.get_period_locked_and_expired_count(period_start, period_end),
             self.db.get_period_locked_and_fulfilled_count(period_start, period_end),
+            self.db.get_period_secondary_fulfillments_count(period_start, period_end),
             self.db.get_period_lock_pricing_data(period_start, period_end),
             self.db.get_period_all_lock_collateral(period_start, period_end),
             self.db.get_period_locked_and_expired_collateral(period_start, period_end),
@@ -268,6 +270,7 @@ where
         let total_expired = total_expired?;
         let total_locked_and_expired = total_locked_and_expired?;
         let total_locked_and_fulfilled = total_locked_and_fulfilled?;
+        let total_secondary_fulfillments = total_secondary_fulfillments?;
         let locks = locks?;
         let all_lock_collaterals = all_lock_collaterals?;
         let locked_and_expired_collaterals = locked_and_expired_collaterals?;
@@ -386,6 +389,7 @@ where
             total_expired,
             total_locked_and_expired,
             total_locked_and_fulfilled,
+            total_secondary_fulfillments,
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
@@ -427,6 +431,7 @@ pub fn sum_hourly_aggregates_into_base(
         base.total_expired += hourly.total_expired;
         base.total_locked_and_expired += hourly.total_locked_and_expired;
         base.total_locked_and_fulfilled += hourly.total_locked_and_fulfilled;
+        base.total_secondary_fulfillments += hourly.total_secondary_fulfillments;
         base.total_program_cycles += hourly.total_program_cycles;
         base.total_cycles += hourly.total_cycles;
     }
@@ -575,6 +580,7 @@ where
                     total_expired: 0,
                     total_locked_and_expired: 0,
                     total_locked_and_fulfilled: 0,
+                    total_secondary_fulfillments: 0,
                     locked_orders_fulfillment_rate: 0.0,
                     total_program_cycles: U256::ZERO,
                     total_cycles: U256::ZERO,
@@ -975,6 +981,7 @@ where
                                     total_expired: 0,
                                     total_locked_and_expired: 0,
                                     total_locked_and_fulfilled: 0,
+                                    total_secondary_fulfillments: 0,
                                     locked_orders_fulfillment_rate: 0.0,
                                     total_program_cycles: alloy::primitives::U256::ZERO,
                                     total_cycles: alloy::primitives::U256::ZERO,
@@ -1002,6 +1009,7 @@ where
                                 cumulative_summary.total_expired += summary.total_expired;
                                 cumulative_summary.total_locked_and_expired += summary.total_locked_and_expired;
                                 cumulative_summary.total_locked_and_fulfilled += summary.total_locked_and_fulfilled;
+                                cumulative_summary.total_secondary_fulfillments += summary.total_secondary_fulfillments;
                                 cumulative_summary.total_program_cycles += summary.total_program_cycles;
                                 cumulative_summary.total_cycles += summary.total_cycles;
                                 cumulative_summary.total_fees_locked += summary.total_fees_locked;
@@ -1077,6 +1085,7 @@ where
             total_expired,
             total_locked_and_expired,
             total_locked_and_fulfilled,
+            total_secondary_fulfillments,
             locks,
             all_lock_collaterals,
             locked_and_expired_collaterals,
@@ -1092,6 +1101,7 @@ where
             self.db.get_period_requestor_expired_count(period_start, period_end, requestor_address),
             self.db.get_period_requestor_locked_and_expired_count(period_start, period_end, requestor_address),
             self.db.get_period_requestor_locked_and_fulfilled_count(period_start, period_end, requestor_address),
+            self.db.get_period_requestor_secondary_fulfillments_count(period_start, period_end, requestor_address),
             self.db.get_period_requestor_lock_pricing_data(period_start, period_end, requestor_address),
             self.db.get_period_requestor_all_lock_collateral(period_start, period_end, requestor_address),
             self.db.get_period_requestor_locked_and_expired_collateral(period_start, period_end, requestor_address),
@@ -1109,6 +1119,7 @@ where
         let total_expired = total_expired?;
         let total_locked_and_expired = total_locked_and_expired?;
         let total_locked_and_fulfilled = total_locked_and_fulfilled?;
+        let total_secondary_fulfillments = total_secondary_fulfillments?;
         let locks = locks?;
         let all_lock_collaterals = all_lock_collaterals?;
         let locked_and_expired_collaterals = locked_and_expired_collaterals?;
@@ -1218,6 +1229,7 @@ where
             total_expired,
             total_locked_and_expired,
             total_locked_and_fulfilled,
+            total_secondary_fulfillments,
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,

@@ -165,6 +165,7 @@ pub struct PeriodMarketSummary {
     pub total_expired: u64,
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
+    pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
@@ -199,6 +200,7 @@ pub struct AllTimeMarketSummary {
     pub total_expired: u64,
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
+    pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
@@ -234,6 +236,7 @@ pub struct PeriodRequestorSummary {
     pub total_expired: u64,
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
+    pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
@@ -268,6 +271,7 @@ pub struct AllTimeRequestorSummary {
     pub total_expired: u64,
     pub total_locked_and_expired: u64,
     pub total_locked_and_fulfilled: u64,
+    pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
@@ -718,6 +722,15 @@ pub trait IndexerDb {
     /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
     /// Note: These requests may have been locked in an earlier period.
     async fn get_period_locked_and_fulfilled_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError>;
+
+    /// Gets the count of secondary fulfillments in the half-open period [period_start, period_end).
+    /// A secondary fulfillment occurs when fulfilled_at > lock_end AND fulfilled_at < expires_at AND request_status = 'fulfilled'.
+    /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
+    async fn get_period_secondary_fulfillments_count(
         &self,
         period_start: u64,
         period_end: u64,
@@ -1543,6 +1556,7 @@ impl IndexerDb for MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -1553,7 +1567,7 @@ impl IndexerDb for MarketDb {
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -1569,6 +1583,7 @@ impl IndexerDb for MarketDb {
                 total_expired = EXCLUDED.total_expired,
                 total_locked_and_expired = EXCLUDED.total_locked_and_expired,
                 total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
+                total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
@@ -1595,6 +1610,7 @@ impl IndexerDb for MarketDb {
         .bind(summary.total_expired as i64)
         .bind(summary.total_locked_and_expired as i64)
         .bind(summary.total_locked_and_fulfilled as i64)
+        .bind(summary.total_secondary_fulfillments as i64)
         .bind(summary.locked_orders_fulfillment_rate)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
@@ -1631,6 +1647,7 @@ impl IndexerDb for MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -1667,6 +1684,7 @@ impl IndexerDb for MarketDb {
             total_expired: row.get::<i64, _>("total_expired") as u64,
             total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
             total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+            total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
             locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
             total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles"))?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
@@ -1707,6 +1725,7 @@ impl IndexerDb for MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -1743,6 +1762,7 @@ impl IndexerDb for MarketDb {
             total_expired: row.get::<i64, _>("total_expired") as u64,
             total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
             total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+            total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
             locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate") as f32,
             total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles"))?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
@@ -2943,6 +2963,29 @@ impl IndexerDb for MarketDb {
         Ok(count as u64)
     }
 
+    /// Gets the count of secondary fulfillments in the half-open period [period_start, period_end).
+    /// A secondary fulfillment occurs when fulfilled_at > lock_end AND fulfilled_at < expires_at AND request_status = 'fulfilled'.
+    /// Filters by `request_status.fulfilled_at` (when the fulfillment occurred).
+    async fn get_period_secondary_fulfillments_count(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<u64, DbError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_status
+             WHERE request_status = 'fulfilled'
+             AND fulfilled_at IS NOT NULL
+             AND fulfilled_at > lock_end
+             AND fulfilled_at < expires_at
+             AND fulfilled_at >= $1 AND fulfilled_at < $2",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
     async fn get_period_total_program_cycles(
         &self,
         period_start: u64,
@@ -3063,7 +3106,7 @@ impl MarketDb {
     // Generic helper for upserting market summaries to avoid code duplication
     async fn upsert_market_summary_generic(
         &self,
-        summary: PeriodMarketSummary, // Can be any alias type
+        summary: PeriodMarketSummary,
         table_name: &str,
     ) -> Result<(), DbError> {
         let query_str = format!(
@@ -3090,6 +3133,7 @@ impl MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -3100,7 +3144,7 @@ impl MarketDb {
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -3123,6 +3167,7 @@ impl MarketDb {
                 total_expired = EXCLUDED.total_expired,
                 total_locked_and_expired = EXCLUDED.total_locked_and_expired,
                 total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
+                total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
@@ -3159,6 +3204,7 @@ impl MarketDb {
             .bind(summary.total_expired as i64)
             .bind(summary.total_locked_and_expired as i64)
             .bind(summary.total_locked_and_fulfilled as i64)
+            .bind(summary.total_secondary_fulfillments as i64)
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
@@ -3252,6 +3298,7 @@ impl MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -3321,6 +3368,7 @@ impl MarketDb {
                     total_expired: row.get::<i64, _>("total_expired") as u64,
                     total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
                     total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                    total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
                     locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
                         as f32,
                     total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
@@ -3483,6 +3531,7 @@ impl MarketDb {
                     total_expired: row.get::<i64, _>("total_expired") as u64,
                     total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
                     total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                    total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
                     locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
                         as f32,
                     total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
@@ -3763,6 +3812,7 @@ impl MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -3773,7 +3823,7 @@ impl MarketDb {
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -3788,6 +3838,7 @@ impl MarketDb {
                 total_expired = EXCLUDED.total_expired,
                 total_locked_and_expired = EXCLUDED.total_locked_and_expired,
                 total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
+                total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
@@ -3815,6 +3866,7 @@ impl MarketDb {
             .bind(summary.total_expired as i64)
             .bind(summary.total_locked_and_expired as i64)
             .bind(summary.total_locked_and_fulfilled as i64)
+            .bind(summary.total_secondary_fulfillments as i64)
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
@@ -3899,7 +3951,7 @@ impl MarketDb {
                 total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
                 total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
-                total_locked_and_fulfilled, locked_orders_fulfillment_rate,
+                total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
                 best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
@@ -3929,7 +3981,7 @@ impl MarketDb {
                 total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
                 total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
-                total_locked_and_fulfilled, locked_orders_fulfillment_rate,
+                total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
                 best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
@@ -4329,6 +4381,33 @@ impl MarketDb {
         Ok(count as u64)
     }
 
+    pub(crate) async fn get_period_requestor_secondary_fulfillments_count_impl(
+        &self,
+        period_start: u64,
+        period_end: u64,
+        requestor_address: Address,
+    ) -> Result<u64, DbError> {
+        let query_str = "SELECT COUNT(*) as count 
+            FROM request_status 
+            WHERE request_status = 'fulfilled'
+            AND fulfilled_at IS NOT NULL
+            AND fulfilled_at > lock_end
+            AND fulfilled_at < expires_at
+            AND fulfilled_at >= $1 
+            AND fulfilled_at < $2
+            AND client_address = $3";
+
+        let row = sqlx::query(query_str)
+            .bind(period_start as i64)
+            .bind(period_end as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_one(&self.pool)
+            .await?;
+
+        let count: i64 = row.try_get("count")?;
+        Ok(count as u64)
+    }
+
     pub(crate) async fn get_period_requestor_total_program_cycles_impl(
         &self,
         period_start: u64,
@@ -4443,6 +4522,7 @@ impl MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -4453,7 +4533,7 @@ impl MarketDb {
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -4475,6 +4555,7 @@ impl MarketDb {
                 total_expired = EXCLUDED.total_expired,
                 total_locked_and_expired = EXCLUDED.total_locked_and_expired,
                 total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
+                total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
@@ -4541,7 +4622,7 @@ impl MarketDb {
                 p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle, p99_lock_price_per_cycle,
                 total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
-                total_locked_and_fulfilled, locked_orders_fulfillment_rate,
+                total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
                 best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
@@ -4626,7 +4707,7 @@ impl MarketDb {
                 p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle, p99_lock_price_per_cycle,
                 total_requests_submitted, total_requests_submitted_onchain, total_requests_submitted_offchain,
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
-                total_locked_and_fulfilled, locked_orders_fulfillment_rate,
+                total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
                 best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
                 best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
@@ -4802,6 +4883,7 @@ impl MarketDb {
                     total_expired: row.get::<i64, _>("total_expired") as u64,
                     total_locked_and_expired: row.get::<i64, _>("total_locked_and_expired") as u64,
                     total_locked_and_fulfilled: row.get::<i64, _>("total_locked_and_fulfilled") as u64,
+                    total_secondary_fulfillments: row.get::<i64, _>("total_secondary_fulfillments") as u64,
                     locked_orders_fulfillment_rate: row.get::<f64, _>("locked_orders_fulfillment_rate")
                         as f32,
                     total_program_cycles: padded_string_to_u256(&row.get::<String, _>("total_program_cycles")).unwrap_or(U256::ZERO),
@@ -4862,6 +4944,7 @@ impl MarketDb {
         let total_expired: i64 = row.try_get("total_expired")?;
         let total_locked_and_expired: i64 = row.try_get("total_locked_and_expired")?;
         let total_locked_and_fulfilled: i64 = row.try_get("total_locked_and_fulfilled")?;
+        let total_secondary_fulfillments: i64 = row.try_get("total_secondary_fulfillments")?;
         let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
         let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
         let total_cycles_str: String = row.try_get("total_cycles")?;
@@ -4897,6 +4980,7 @@ impl MarketDb {
             total_expired: total_expired as u64,
             total_locked_and_expired: total_locked_and_expired as u64,
             total_locked_and_fulfilled: total_locked_and_fulfilled as u64,
+            total_secondary_fulfillments: total_secondary_fulfillments as u64,
             locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
             total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
             total_cycles: padded_string_to_u256(&total_cycles_str)?,
@@ -4933,6 +5017,7 @@ impl MarketDb {
         let total_expired: i64 = row.try_get("total_expired")?;
         let total_locked_and_expired: i64 = row.try_get("total_locked_and_expired")?;
         let total_locked_and_fulfilled: i64 = row.try_get("total_locked_and_fulfilled")?;
+        let total_secondary_fulfillments: i64 = row.try_get("total_secondary_fulfillments")?;
         let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
         let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
         let total_cycles_str: String = row.try_get("total_cycles")?;
@@ -4961,6 +5046,7 @@ impl MarketDb {
             total_expired: total_expired as u64,
             total_locked_and_expired: total_locked_and_expired as u64,
             total_locked_and_fulfilled: total_locked_and_fulfilled as u64,
+            total_secondary_fulfillments: total_secondary_fulfillments as u64,
             locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
             total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
             total_cycles: padded_string_to_u256(&total_cycles_str)?,
@@ -4980,7 +5066,6 @@ impl MarketDb {
 mod tests {
     use super::*;
     use crate::db::events::EventsDb;
-    use crate::db::RequestorDb;
     use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
@@ -5347,6 +5432,7 @@ mod tests {
                 total_expired: i,
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i,
+                total_secondary_fulfillments: i / 3,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
@@ -5530,6 +5616,7 @@ mod tests {
                 total_expired: i,
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i * 10,
+                total_secondary_fulfillments: i / 3,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
@@ -5586,6 +5673,7 @@ mod tests {
                 total_expired: i * 10,
                 total_locked_and_expired: i * 5,
                 total_locked_and_fulfilled: i * 100,
+                total_secondary_fulfillments: i * 10,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
@@ -5646,6 +5734,7 @@ mod tests {
                 total_expired: i * 100,
                 total_locked_and_expired: i * 50,
                 total_locked_and_fulfilled: i * 1000,
+                total_secondary_fulfillments: i * 100,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
@@ -5705,6 +5794,7 @@ mod tests {
                 total_expired: i,
                 total_locked_and_expired: i / 2,
                 total_locked_and_fulfilled: i,
+                total_secondary_fulfillments: i / 3,
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
