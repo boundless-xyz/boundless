@@ -65,8 +65,10 @@ struct MainArgs {
     /// Optional cache storage URI (e.g., file:///path/to/cache or s3://bucket-name).
     #[clap(long, env)]
     cache_uri: Option<String>,
-    /// Transaction fetching strategy: "block-receipts" (default, more efficient) or "tx-by-hash" (fallback).
-    #[clap(long, env, default_value = "block-receipts")]
+    /// Transaction fetching strategy: "block-receipts" or "tx-by-hash".
+    /// I.e. should we use eth_getBlockReceipts or eth_getTransactionByHash to fetch transaction metadata
+    /// Depending on RPC provider, one may be more efficient than the other.
+    #[clap(long, env, default_value = "tx-by-hash")]
     tx_fetch_strategy: String,
 }
 
