@@ -179,7 +179,7 @@ def scale(
 
     if current_workers != target_capacity:
         logger.info(
-            f"Scaling ASG {asg_name}from {current_workers} to {target_capacity} workers "
+            f"Scaling ASG {asg_name} from {current_workers} to {target_capacity} workers "
             f"(required: {required_workers_count}, min: {min_size}, max: {max_size})"
         )
 
