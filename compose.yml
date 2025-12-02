@@ -11,6 +11,7 @@ x-base-environment: &base-environment
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
+  S3_TTL_SECONDS: ${S3_TTL_SECONDS:-604800} # 1 week in seconds
 x-agent-common: &agent-common
   runtime: nvidia
   build:

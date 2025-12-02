@@ -13,6 +13,7 @@ use aws_sdk_s3::{
     types::CreateBucketConfiguration,
 };
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Object store elf dir
 pub const ELF_BUCKET_DIR: &str = "elfs";
@@ -42,6 +43,7 @@ pub const WORK_RECEIPTS_BUCKET_DIR: &str = "work_receipts";
 pub struct S3Client {
     bucket: String,
     client: Client,
+    default_ttl_seconds: Option<u64>,
 }
 
 impl S3Client {
@@ -116,7 +118,17 @@ impl S3Client {
             }
         }
 
-        Ok(Self { bucket: bucket.to_string(), client })
+        // Read default TTL from environment variable, defaulting to 1 week (604800 seconds)
+        let default_ttl_seconds = std::env::var("S3_TTL_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .or(Some(7 * 24 * 60 * 60)); // Default: 1 week in seconds
+
+        Ok(Self {
+            bucket: bucket.to_string(),
+            client,
+            default_ttl_seconds,
+        })
     }
 
     /// Reads a s3 object encoded with bincode
@@ -138,26 +150,78 @@ impl S3Client {
     }
 
     /// Write a bincode serializable object to S3
+    ///
+    /// # Arguments
+    /// * `key` - The S3 object key
+    /// * `obj` - The object to serialize and write
+    ///
+    /// TTL is automatically applied from S3_TTL_SECONDS env var (defaults to 1 week if not set)
     pub async fn write_to_s3<T>(&self, key: &str, obj: T) -> Result<()>
     where
         T: serde::Serialize,
     {
         let bytes = bincode::serialize(&obj)?;
         let data_stream = ByteStream::from(bytes);
-        self.client.put_object().bucket(&self.bucket).key(key).body(data_stream).send().await?;
+        let mut request = self.client.put_object().bucket(&self.bucket).key(key).body(data_stream);
+
+        if let Some(ttl) = self.default_ttl_seconds {
+            let expires_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .context("Failed to get current time")?
+                .as_secs()
+                + ttl;
+            request = request.metadata("expires-at", expires_at.to_string());
+        }
+
+        request.send().await?;
         Ok(())
     }
 
     /// Write a buffer to S3
+    ///
+    /// # Arguments
+    /// * `key` - The S3 object key
+    /// * `bytes` - The byte buffer to write
+    ///
+    /// TTL is automatically applied from S3_TTL_SECONDS env var (defaults to 1 week if not set)
     pub async fn write_buf_to_s3(&self, key: &str, bytes: Vec<u8>) -> Result<()> {
         let data_stream = ByteStream::from(bytes);
-        self.client.put_object().bucket(&self.bucket).key(key).body(data_stream).send().await?;
+        let mut request = self.client.put_object().bucket(&self.bucket).key(key).body(data_stream);
+
+        if let Some(ttl) = self.default_ttl_seconds {
+            let expires_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .context("Failed to get current time")?
+                .as_secs()
+                + ttl;
+            request = request.metadata("expires-at", expires_at.to_string());
+        }
+
+        request.send().await?;
         Ok(())
     }
 
+    /// Write a file to S3
+    ///
+    /// # Arguments
+    /// * `key` - The S3 object key
+    /// * `in_path` - Path to the file to upload
+    ///
+    /// TTL is automatically applied from S3_TTL_SECONDS env var (defaults to 1 week if not set)
     pub async fn write_file_to_s3(&self, key: &str, in_path: &Path) -> Result<()> {
         let data_stream = ByteStream::read_from().path(in_path).build().await?;
-        self.client.put_object().bucket(&self.bucket).key(key).body(data_stream).send().await?;
+        let mut request = self.client.put_object().bucket(&self.bucket).key(key).body(data_stream);
+
+        if let Some(ttl) = self.default_ttl_seconds {
+            let expires_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .context("Failed to get current time")?
+                .as_secs()
+                + ttl;
+            request = request.metadata("expires-at", expires_at.to_string());
+        }
+
+        request.send().await?;
         Ok(())
     }
 
