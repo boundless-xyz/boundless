@@ -26,11 +26,22 @@ povw = [
 ]
 
 [dependencies]
-alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy = { workspace = true, features = [
+    "network",
+    "node-bindings",
+    "rpc-types",
+    "providers",
+    "transports",
+    "sol-types",
+    "contract",
+    "signers",
+    "signer-local",
+] }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
 bincode = { version = "1.3", optional = true }
+blake3_groth16 = { workspace = true }
 boundless-market = { workspace = true, features = ["test-utils"] }
 boundless-povw = { workspace = true, optional = true }
 boundless-zkc = { workspace = true }

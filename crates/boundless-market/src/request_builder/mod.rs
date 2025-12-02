@@ -24,13 +24,13 @@ use alloy::{
     providers::{DynProvider, Provider},
 };
 use derive_builder::Builder;
-use risc0_ethereum_contracts::selector::Selector;
 use risc0_zkvm::{Digest, Journal};
 use url::Url;
 
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
+    selector::SelectorExt,
     storage::{StandardStorageProvider, StorageProvider},
     util::NotProvided,
 };
@@ -547,9 +547,23 @@ impl RequestParams {
     pub fn with_groth16_proof(self) -> Self {
         let mut requirements = self.requirements;
         requirements.selector = match crate::util::is_dev_mode() {
-            true => Some((Selector::FakeReceipt as u32).into()),
-            false => Some((Selector::groth16_latest() as u32).into()),
+            true => Some((SelectorExt::FakeReceipt as u32).into()),
+            false => Some((SelectorExt::groth16_latest() as u32).into()),
         };
+        Self { requirements, ..self }
+    }
+
+    /// Request a stand-alone Blake3 Groth16 proof for this request.
+    ///
+    /// This is a convinience method to set the selector on the requirements. Note that calling
+    /// [RequestParams::with_requirements] after this function will overwrite the change.
+    pub fn with_blake3_groth16_proof(self) -> Self {
+        let mut requirements = self.requirements;
+        requirements.selector = match crate::util::is_dev_mode() {
+            true => Some((SelectorExt::FakeReceipt as u32).into()),
+            false => Some((SelectorExt::blake3_groth16_latest() as u32).into()),
+        };
+        // TODO(ec2): should we automatically set the predicate type to claim digest match here?
         Self { requirements, ..self }
     }
 }

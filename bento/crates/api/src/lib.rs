@@ -28,8 +28,9 @@ use workflow_common::{
     CompressType, ExecutorReq, SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT,
     SnarkReq as WorkflowSnarkReq, TaskType,
     s3::{
-        ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR, PREFLIGHT_JOURNALS_BUCKET_DIR,
-        RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR, WORK_RECEIPTS_BUCKET_DIR,
+        BLAKE3_GROTH16_BUCKET_DIR, ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR,
+        PREFLIGHT_JOURNALS_BUCKET_DIR, RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR,
+        WORK_RECEIPTS_BUCKET_DIR,
     },
 };
 
@@ -621,6 +622,63 @@ async fn prove_groth16(
     Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
 }
 
+const BLAKE3_GROTH16_START_PATH: &str = "/shrink_bitvm2/create";
+async fn prove_blake3_groth16(
+    State(state): State<Arc<AppState>>,
+    ExtractApiKey(api_key): ExtractApiKey,
+    Json(start_req): Json<SnarkReq>,
+) -> Result<Json<CreateSessRes>, AppError> {
+    let (_aux_stream, _exec_stream, gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
+        helpers::get_or_create_streams(&state.db_pool, &api_key)
+            .await
+            .context("Failed to get / create steams")?;
+
+    let task_def = serde_json::to_value(TaskType::Snark(WorkflowSnarkReq {
+        receipt: start_req.session_id,
+        compress_type: CompressType::Blake3Groth16,
+    }))
+    .context("Failed to serialize ExecutorReq")?;
+
+    let job_id = taskdb::create_job(
+        &state.db_pool,
+        &gpu_prove_stream,
+        &task_def,
+        state.snark_retries,
+        state.snark_timeout,
+        &api_key,
+    )
+    .await
+    .context("Failed to create exec / init task")?;
+    Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
+}
+
+const BLAKE3_GROTH16_STATUS_PATH: &str = "/shrink_bitvm2/status/:job_id";
+async fn blake3_groth16_status(
+    State(state): State<Arc<AppState>>,
+    ExtractApiKey(api_key): ExtractApiKey,
+    Path(job_id): Path<Uuid>,
+    Host(hostname): Host,
+) -> Result<Json<SnarkStatusRes>, AppError> {
+    let job_state = taskdb::get_job_state(&state.db_pool, &job_id, &api_key)
+        .await
+        .context("Failed to get job state")?;
+    let (error_msg, output) = match job_state {
+        JobState::Running => (None, None),
+        JobState::Done => {
+            (None, Some(format!("http://{hostname}/receipts/shrink_bitvm2/receipt/{job_id}")))
+        }
+        JobState::Failed => (
+            Some(
+                taskdb::get_job_failure(&state.db_pool, &job_id)
+                    .await
+                    .context("Failed to get job error message")?,
+            ),
+            None,
+        ),
+    };
+    Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
+}
+
 const SNARK_STATUS_PATH: &str = "/snark/status/:job_id";
 async fn groth16_status(
     State(state): State<Arc<AppState>>,
@@ -673,6 +731,30 @@ async fn groth16_download(
     Path(job_id): Path<Uuid>,
 ) -> Result<Vec<u8>, AppError> {
     let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
+    if !state
+        .s3_client
+        .object_exists(&receipt_key)
+        .await
+        .context("Failed to check if object exists")?
+    {
+        return Err(AppError::ReceiptMissing(job_id.to_string()));
+    }
+
+    let receipt = state
+        .s3_client
+        .read_buf_from_s3(&receipt_key)
+        .await
+        .context("Failed to read from object store")?;
+
+    Ok(receipt)
+}
+
+const GET_BLAKE3_GROTH16_PATH: &str = "/receipts/shrink_bitvm2/receipt/:job_id";
+async fn blake3_groth16_download(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<Uuid>,
+) -> Result<Vec<u8>, AppError> {
+    let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{BLAKE3_GROTH16_BUCKET_DIR}/{job_id}.bincode");
     if !state
         .s3_client
         .object_exists(&receipt_key)
@@ -849,7 +931,10 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(GET_JOURNAL_PATH, get(preflight_journal))
         .route(SNARK_START_PATH, post(prove_groth16))
         .route(SNARK_STATUS_PATH, get(groth16_status))
+        .route(BLAKE3_GROTH16_START_PATH, post(prove_blake3_groth16))
+        .route(BLAKE3_GROTH16_STATUS_PATH, get(blake3_groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
+        .route(GET_BLAKE3_GROTH16_PATH, get(blake3_groth16_download))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
         .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .with_state(state)
