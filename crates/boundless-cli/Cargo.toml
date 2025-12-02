@@ -9,8 +9,17 @@ repository = { workspace = true }
 license = "Apache-2.0"
 build = "build.rs"
 
-[build-dependencies]
-shadow-rs = "1.1"
+[[bin]]
+name = "boundless"
+
+[[bin]]
+name = "boundless-ffi"
+
+[features]
+# Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.
+prove = ["risc0-zkvm/prove"]
+# Enables the cuda feature on risc0-zkvm to build the prover directly into this CLI, with CUDA support.
+cuda = ["prove", "risc0-zkvm/cuda"]
 
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
@@ -23,6 +32,7 @@ boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
+broker = { workspace = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -33,7 +43,9 @@ futures = { version = "0.3" }
 hex = { workspace = true }
 inquire = "0.7"
 libc = "0.2.159"
+num_cpus = "1.16"
 num_enum = "0.7.4"
+rand = { workspace = true }
 reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
@@ -47,19 +59,17 @@ sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls"
 tabled = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 toml = "0.8"
+toml_edit = "0.22"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
-[[bin]]
-name = "boundless"
-
-[[bin]]
-name = "boundless-ffi"
+[build-dependencies]
+shadow-rs = "1.1"
 
 [dev-dependencies]
 alloy-node-bindings = { workspace = true }
-assert_cmd = "2.0"
+assert_cmd = "=2.0"
 assert_fs = "1.1"
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true, features = ["povw"] }
@@ -70,9 +80,3 @@ sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls"
 tempfile = { workspace = true }
 tokio-test = "0.4"
 tracing-test = { workspace = true }
-
-[features]
-# Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.
-prove = ["risc0-zkvm/prove"]
-# Enables the cuda feature on risc0-zkvm to build the prover directly into this CLI, with CUDA support.
-cuda = ["prove", "risc0-zkvm/cuda"]

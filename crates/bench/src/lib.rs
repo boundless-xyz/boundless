@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -514,6 +514,7 @@ mod tests {
                     .unwrap(),
             ),
             rpc_url,
+            rpc_urls: Vec::new(),
             private_key: Some(private_key),
             bento_api_url: None,
             bonsai_api_key,
@@ -534,10 +535,10 @@ mod tests {
         }
         config.prover.status_poll_ms = 1000;
         config.prover.req_retry_count = 3;
-        config.market.mcycle_price = "0.00001".into();
-        config.market.mcycle_price_collateral_token = "0.0".into();
+        config.market.min_mcycle_price = "0.00001".into();
+        config.market.min_mcycle_price_collateral_token = "0.0".into();
         config.market.min_deadline = min_deadline;
-        config.batcher.min_batch_size = Some(min_batch_size);
+        config.batcher.min_batch_size = min_batch_size;
         config.write(config_file.path()).await.unwrap();
         config_file
     }

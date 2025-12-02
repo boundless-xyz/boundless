@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -1074,6 +1074,13 @@ impl<P: Provider> BoundlessMarketService<P> {
         ));
 
         // Loop to progressively search through blocks
+        tracing::debug!(
+            "Querying ProofDelivered event for request ID {:x} in blocks {} to {} [iterations: {}]",
+            request_id,
+            start_block,
+            upper_block,
+            self.event_query_config.max_iterations
+        );
         for _ in 0..self.event_query_config.max_iterations {
             // If the current end block is less than or equal to the starting block, stop searching
             if upper_block <= start_block {
@@ -1085,7 +1092,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             // Set up the event filter for the specified block range
             let mut event_filter = self.instance.ProofDelivered_filter();
-            tracing::debug!(
+            tracing::trace!(
                 "Querying ProofDelivered event for request ID {:x} in blocks {} to {}",
                 request_id,
                 lower_block,
@@ -1138,6 +1145,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         };
 
         // Loop to progressively search through blocks
+        tracing::debug!("Querying RequestSubmitted event for request ID {:x} in blocks {} to {} [iterations: {}]", request_id, start_block, upper_block, iterations);
         for _ in 0..iterations {
             // If the current end block is less than or equal to the starting block, stop searching
             if upper_block <= start_block {
@@ -1149,7 +1157,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             // Set up the event filter for the specified block range
             let mut event_filter = self.instance.RequestSubmitted_filter();
-            tracing::debug!(
+            tracing::trace!(
                 "Querying RequestSubmitted event for request ID {:x} in blocks {} to {}",
                 request_id,
                 lower_block,
@@ -1210,6 +1218,13 @@ impl<P: Provider> BoundlessMarketService<P> {
             self.event_query_config.max_iterations
         };
 
+        tracing::debug!(
+            "Querying RequestLocked event for request ID {:x} in blocks {} to {} [iterations: {}]",
+            request_id,
+            start_block,
+            upper_block,
+            iterations
+        );
         // Loop to progressively search through blocks
         for _ in 0..iterations {
             // If the current end block is less than or equal to the starting block, stop searching
@@ -1222,7 +1237,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             // Set up the event filter for the specified block range
             let mut event_filter = self.instance.RequestLocked_filter();
-            tracing::info!(
+            tracing::trace!(
                 "Querying RequestLocked event for request ID {:x} in blocks {} to {}",
                 request_id,
                 lower_block,
@@ -1277,6 +1292,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             self.event_query_config.max_iterations
         };
 
+        tracing::debug!("Querying RequestFulfilled event for request ID {:x} in blocks {} to {} [iterations: {}]", request_id, start_block, upper_block, iterations);
         // Loop to progressively search through blocks
         for _ in 0..iterations {
             // If the current end block is less than or equal to the starting block, stop searching
@@ -1289,7 +1305,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             // Set up the event filter for the specified block range
             let mut event_filter = self.instance.RequestFulfilled_filter();
-            tracing::debug!(
+            tracing::trace!(
                 "Querying RequestFulfilled event for request ID {:x} in blocks {} to {}",
                 request_id,
                 lower_block,
@@ -1346,6 +1362,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         };
 
         // Loop to progressively search through blocks
+        tracing::debug!("Querying all ProofDelivered events for request ID {:x} in blocks {} to {} [iterations: {}]", request_id, start_block, upper_block, iterations);
         for _ in 0..iterations {
             // If the current end block is less than or equal to the starting block, stop searching
             if upper_block <= start_block {
@@ -1357,7 +1374,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             // Set up the event filter for the specified block range
             let mut event_filter = self.instance.ProofDelivered_filter();
-            tracing::debug!(
+            tracing::trace!(
                 "Querying ProofDelivered event for request ID {:x} in blocks {} to {}",
                 request_id,
                 lower_block,

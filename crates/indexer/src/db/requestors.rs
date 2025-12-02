@@ -589,10 +589,46 @@ pub trait RequestorDb: IndexerDb {
         period_start: u64,
         period_end: u64,
     ) -> Result<Vec<Address>, DbError> {
-        let query_str = "SELECT DISTINCT pr.client_address 
-            FROM proof_requests pr
-            WHERE pr.submission_timestamp >= $1 AND pr.submission_timestamp < $2
-            ORDER BY pr.client_address";
+        let query_str = "SELECT DISTINCT client_address 
+            FROM (
+                -- Submissions from proof_requests
+                SELECT DISTINCT pr.client_address 
+                FROM proof_requests pr
+                WHERE pr.submission_timestamp >= $1 AND pr.submission_timestamp < $2
+                
+                UNION
+                
+                -- Lock events
+                SELECT DISTINCT rs.client_address
+                FROM request_locked_events rle
+                JOIN request_status rs ON rle.request_digest = rs.request_digest
+                WHERE rle.block_timestamp >= $1 AND rle.block_timestamp < $2
+                
+                UNION
+                
+                -- Fulfillment events
+                SELECT DISTINCT rs.client_address
+                FROM request_fulfilled_events rfe
+                JOIN request_status rs ON rfe.request_digest = rs.request_digest
+                WHERE rfe.block_timestamp >= $1 AND rfe.block_timestamp < $2
+                
+                UNION
+                
+                -- Slash events
+                SELECT DISTINCT rs.client_address
+                FROM prover_slashed_events pse
+                JOIN request_status rs ON pse.request_id = rs.request_id
+                WHERE pse.block_timestamp >= $1 AND pse.block_timestamp < $2
+                
+                UNION
+                
+                -- Expiration events
+                SELECT DISTINCT rs.client_address
+                FROM request_status rs
+                WHERE rs.expires_at >= $1 AND rs.expires_at < $2
+                AND rs.request_status = 'expired'
+            ) AS active_requestors
+            ORDER BY client_address";
 
         let rows = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -2074,6 +2110,700 @@ mod tests {
         assert!(addresses.contains(&addr1));
         assert!(addresses.contains(&addr2));
         assert!(!addresses.contains(&addr3));
+    }
+
+    #[tokio::test]
+    async fn test_get_active_requestor_addresses_in_period_all_activities() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = &test_db.db;
+
+        // Period boundaries: activities should occur between period_start and period_end
+        let period_start = 1700000000u64;
+        let period_end = period_start + 1000;
+        let before_period = period_start - 1000; // Requests submitted before period
+        let after_period = period_end + 1000; // Activities after period (should be excluded)
+
+        // 1. Submissions only: Requestor with submissions in period
+        let addr_submissions = Address::from([0xA1; 20]);
+        let digest_submissions = B256::from([0xA1; 32]);
+        let request_submissions = generate_request(1, &addr_submissions);
+        let submit_meta = TxMetadata::new(
+            B256::from([0xA1; 32]),
+            Address::ZERO,
+            100,
+            period_start + 100, // During period
+            0,
+        );
+        db.add_proof_requests(&[(
+            digest_submissions,
+            request_submissions,
+            submit_meta,
+            "onchain".to_string(),
+            submit_meta.block_timestamp,
+        )])
+        .await
+        .unwrap();
+
+        // 2. Lock events only: Requestor who submitted before period but had requests locked during period
+        let addr_locks = Address::from([0xA2; 20]);
+        let digest_locks = B256::from([0xA2; 32]);
+        let request_locks = generate_request(2, &addr_locks);
+        let submit_meta_before = TxMetadata::new(
+            B256::from([0xA2; 32]),
+            Address::ZERO,
+            101,
+            before_period, // Before period
+            0,
+        );
+        db.add_proof_requests(&[(
+            digest_locks,
+            request_locks.clone(),
+            submit_meta_before,
+            "onchain".to_string(),
+            submit_meta_before.block_timestamp,
+        )])
+        .await
+        .unwrap();
+
+        // Add request status for lock event
+        let status_locks = RequestStatus {
+            request_digest: digest_locks,
+            request_id: request_locks.id,
+            request_status: RequestStatusType::Locked,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: addr_locks,
+            lock_prover_address: Some(Address::from([0xBB; 20])),
+            fulfill_prover_address: None,
+            created_at: before_period,
+            updated_at: period_start + 200,
+            locked_at: Some(period_start + 200), // During period
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(101),
+            lock_block: Some(102),
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: before_period,
+            ramp_up_period: 10,
+            expires_at: period_start + 10000,
+            lock_end: period_start + 500,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: Some("30".to_string()),
+            submit_tx_hash: Some(B256::from([0xA2; 32])),
+            lock_tx_hash: Some({
+                let mut bytes = [0xA2; 32];
+                bytes[1] = 0xA2;
+                B256::from(bytes)
+            }),
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+        db.upsert_request_statuses(&[status_locks]).await.unwrap();
+
+        let lock_meta = TxMetadata::new(
+            {
+                let mut bytes = [0xA2; 32];
+                bytes[1] = 0xA2;
+                B256::from(bytes)
+            },
+            Address::ZERO,
+            102,
+            period_start + 200, // During period
+            0,
+        );
+        db.add_request_locked_events(&[(
+            digest_locks,
+            request_locks.id,
+            Address::from([0xBB; 20]),
+            lock_meta,
+        )])
+        .await
+        .unwrap();
+
+        // 3. Fulfillment events only: Requestor who submitted before period but had requests fulfilled during period
+        let addr_fulfilled = Address::from([0xA3; 20]);
+        let digest_fulfilled = B256::from([0xA3; 32]);
+        let request_fulfilled = generate_request(3, &addr_fulfilled);
+        let submit_meta_before2 = TxMetadata::new(
+            B256::from([0xA3; 32]),
+            Address::ZERO,
+            103,
+            before_period, // Before period
+            0,
+        );
+        db.add_proof_requests(&[(
+            digest_fulfilled,
+            request_fulfilled.clone(),
+            submit_meta_before2,
+            "onchain".to_string(),
+            submit_meta_before2.block_timestamp,
+        )])
+        .await
+        .unwrap();
+
+        let status_fulfilled = RequestStatus {
+            request_digest: digest_fulfilled,
+            request_id: request_fulfilled.id,
+            request_status: RequestStatusType::Fulfilled,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: addr_fulfilled,
+            lock_prover_address: Some(Address::from([0xCC; 20])),
+            fulfill_prover_address: Some(Address::from([0xCC; 20])),
+            created_at: before_period,
+            updated_at: period_start + 300,
+            locked_at: Some(before_period + 50),
+            fulfilled_at: Some(period_start + 300), // During period
+            slashed_at: None,
+            lock_prover_delivered_proof_at: Some(before_period + 100),
+            submit_block: Some(103),
+            lock_block: Some(104),
+            fulfill_block: Some(105),
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: before_period,
+            ramp_up_period: 10,
+            expires_at: period_start + 10000,
+            lock_end: period_start + 500,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: Some(U256::from(50_000_000)),
+            total_cycles: Some(U256::from(50_790_000)),
+            peak_prove_mhz: Some(1000),
+            effective_prove_mhz: Some(900),
+            cycle_status: Some("resolved".to_string()),
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: Some("30".to_string()),
+            submit_tx_hash: Some(B256::from([0xA3; 32])),
+            lock_tx_hash: Some({
+                let mut bytes = [0xA3; 32];
+                bytes[1] = 0xA3;
+                B256::from(bytes)
+            }),
+            fulfill_tx_hash: Some({
+                let mut bytes = [0xA3; 32];
+                bytes[1] = 0xA3;
+                bytes[2] = 0xA3;
+                B256::from(bytes)
+            }),
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+        db.upsert_request_statuses(&[status_fulfilled]).await.unwrap();
+
+        let fulfill_meta = TxMetadata::new(
+            {
+                let mut bytes = [0xA3; 32];
+                bytes[1] = 0xA3;
+                bytes[2] = 0xA3;
+                B256::from(bytes)
+            },
+            Address::ZERO,
+            105,
+            period_start + 300, // During period
+            0,
+        );
+        db.add_request_fulfilled_events(&[(
+            digest_fulfilled,
+            request_fulfilled.id,
+            Address::from([0xCC; 20]),
+            fulfill_meta,
+        )])
+        .await
+        .unwrap();
+
+        // 4. Slash events only: Requestor who submitted before period but had provers slashed during period
+        let addr_slashed = Address::from([0xA4; 20]);
+        let digest_slashed = B256::from([0xA4; 32]);
+        let request_slashed = generate_request(4, &addr_slashed);
+        let submit_meta_before3 = TxMetadata::new(
+            B256::from([0xA4; 32]),
+            Address::ZERO,
+            106,
+            before_period, // Before period
+            0,
+        );
+        db.add_proof_requests(&[(
+            digest_slashed,
+            request_slashed.clone(),
+            submit_meta_before3,
+            "onchain".to_string(),
+            submit_meta_before3.block_timestamp,
+        )])
+        .await
+        .unwrap();
+
+        let status_slashed = RequestStatus {
+            request_digest: digest_slashed,
+            request_id: request_slashed.id,
+            request_status: RequestStatusType::Locked,
+            slashed_status: SlashedStatus::Slashed,
+            source: "onchain".to_string(),
+            client_address: addr_slashed,
+            lock_prover_address: Some(Address::from([0xDD; 20])),
+            fulfill_prover_address: None,
+            created_at: before_period,
+            updated_at: period_start + 400,
+            locked_at: Some(before_period + 50),
+            fulfilled_at: None,
+            slashed_at: Some(period_start + 400), // During period
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(106),
+            lock_block: Some(107),
+            fulfill_block: None,
+            slashed_block: Some(108),
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: before_period,
+            ramp_up_period: 10,
+            expires_at: period_start + 10000,
+            lock_end: period_start + 500,
+            slash_recipient: Some(Address::from([0xEE; 20])),
+            slash_transferred_amount: Some("50".to_string()),
+            slash_burned_amount: Some("50".to_string()),
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: Some("30".to_string()),
+            submit_tx_hash: Some(B256::from([0xA4; 32])),
+            lock_tx_hash: Some({
+                let mut bytes = [0xA4; 32];
+                bytes[1] = 0xA4;
+                B256::from(bytes)
+            }),
+            fulfill_tx_hash: None,
+            slash_tx_hash: Some({
+                let mut bytes = [0xA4; 32];
+                bytes[1] = 0xA4;
+                bytes[2] = 0xA4;
+                B256::from(bytes)
+            }),
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+        db.upsert_request_statuses(&[status_slashed]).await.unwrap();
+
+        let slash_meta = TxMetadata::new(
+            {
+                let mut bytes = [0xA4; 32];
+                bytes[1] = 0xA4;
+                bytes[2] = 0xA4;
+                B256::from(bytes)
+            },
+            Address::ZERO,
+            108,
+            period_start + 400, // During period
+            0,
+        );
+        db.add_prover_slashed_events(&[(
+            request_slashed.id,
+            U256::from(50),
+            U256::from(50),
+            Address::from([0xEE; 20]),
+            slash_meta,
+        )])
+        .await
+        .unwrap();
+
+        // 5. Expiration only: Requestor who submitted before period but had requests expire during period
+        let addr_expired = Address::from([0xA5; 20]);
+        let digest_expired = B256::from([0xA5; 32]);
+        let request_expired = generate_request(5, &addr_expired);
+        let submit_meta_before4 = TxMetadata::new(
+            B256::from([0xA5; 32]),
+            Address::ZERO,
+            109,
+            before_period, // Before period
+            0,
+        );
+        db.add_proof_requests(&[(
+            digest_expired,
+            request_expired.clone(),
+            submit_meta_before4,
+            "onchain".to_string(),
+            submit_meta_before4.block_timestamp,
+        )])
+        .await
+        .unwrap();
+
+        let status_expired = RequestStatus {
+            request_digest: digest_expired,
+            request_id: request_expired.id,
+            request_status: RequestStatusType::Expired,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: addr_expired,
+            lock_prover_address: None,
+            fulfill_prover_address: None,
+            created_at: before_period,
+            updated_at: period_start + 500,
+            locked_at: None,
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(109),
+            lock_block: None,
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: before_period,
+            ramp_up_period: 10,
+            expires_at: period_start + 500, // During period
+            lock_end: period_start + 500,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: None,
+            lock_price_per_cycle: None,
+            submit_tx_hash: Some(B256::from([0xA5; 32])),
+            lock_tx_hash: None,
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+        db.upsert_request_statuses(&[status_expired]).await.unwrap();
+
+        // 6. Multiple activities: Requestor with multiple activity types in period
+        let addr_multiple = Address::from([0xA6; 20]);
+        let digest_multiple1 = {
+            let mut bytes = [0xA6; 32];
+            bytes[1] = 0x01;
+            B256::from(bytes)
+        };
+        let digest_multiple2 = {
+            let mut bytes = [0xA6; 32];
+            bytes[1] = 0x02;
+            B256::from(bytes)
+        };
+        let request_multiple1 = generate_request(6, &addr_multiple);
+        let request_multiple2 = generate_request(7, &addr_multiple);
+        let submit_meta_multiple = TxMetadata::new(
+            B256::from([0xA6; 32]),
+            Address::ZERO,
+            110,
+            period_start + 100, // During period - submission
+            0,
+        );
+        db.add_proof_requests(&[
+            (
+                digest_multiple1,
+                request_multiple1.clone(),
+                submit_meta_multiple,
+                "onchain".to_string(),
+                submit_meta_multiple.block_timestamp,
+            ),
+            (
+                digest_multiple2,
+                request_multiple2.clone(),
+                submit_meta_multiple,
+                "onchain".to_string(),
+                submit_meta_multiple.block_timestamp,
+            ),
+        ])
+        .await
+        .unwrap();
+
+        // Add lock event for first request
+        let status_multiple1 = RequestStatus {
+            request_digest: digest_multiple1,
+            request_id: request_multiple1.id,
+            request_status: RequestStatusType::Locked,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: addr_multiple,
+            lock_prover_address: Some(Address::from([0xFF; 20])),
+            fulfill_prover_address: None,
+            created_at: period_start + 100,
+            updated_at: period_start + 200,
+            locked_at: Some(period_start + 200), // During period
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(110),
+            lock_block: Some(111),
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: period_start + 100,
+            ramp_up_period: 10,
+            expires_at: period_start + 10000,
+            lock_end: period_start + 500,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: Some("30".to_string()),
+            submit_tx_hash: Some(B256::from([0xA6; 32])),
+            lock_tx_hash: Some({
+                let mut bytes = [0xA6; 32];
+                bytes[1] = 0xA6;
+                B256::from(bytes)
+            }),
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+        db.upsert_request_statuses(&[status_multiple1]).await.unwrap();
+
+        let lock_meta_multiple = TxMetadata::new(
+            {
+                let mut bytes = [0xA6; 32];
+                bytes[1] = 0xA6;
+                B256::from(bytes)
+            },
+            Address::ZERO,
+            111,
+            period_start + 200, // During period
+            0,
+        );
+        db.add_request_locked_events(&[(
+            digest_multiple1,
+            request_multiple1.id,
+            Address::from([0xFF; 20]),
+            lock_meta_multiple,
+        )])
+        .await
+        .unwrap();
+
+        // Add fulfillment event for second request
+        let status_multiple2 = RequestStatus {
+            request_digest: digest_multiple2,
+            request_id: request_multiple2.id,
+            request_status: RequestStatusType::Fulfilled,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: addr_multiple,
+            lock_prover_address: Some(Address::from([0xFF; 20])),
+            fulfill_prover_address: Some(Address::from([0xFF; 20])),
+            created_at: period_start + 100,
+            updated_at: period_start + 300,
+            locked_at: Some(period_start + 150),
+            fulfilled_at: Some(period_start + 300), // During period
+            slashed_at: None,
+            lock_prover_delivered_proof_at: Some(period_start + 200),
+            submit_block: Some(110),
+            lock_block: Some(111),
+            fulfill_block: Some(112),
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: period_start + 100,
+            ramp_up_period: 10,
+            expires_at: period_start + 10000,
+            lock_end: period_start + 500,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: Some(U256::from(50_000_000)),
+            total_cycles: Some(U256::from(50_790_000)),
+            peak_prove_mhz: Some(1000),
+            effective_prove_mhz: Some(900),
+            cycle_status: Some("resolved".to_string()),
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: Some("30".to_string()),
+            submit_tx_hash: Some(B256::from([0xA6; 32])),
+            lock_tx_hash: Some({
+                let mut bytes = [0xA6; 32];
+                bytes[1] = 0xA6;
+                B256::from(bytes)
+            }),
+            fulfill_tx_hash: Some({
+                let mut bytes = [0xA6; 32];
+                bytes[1] = 0xA6;
+                bytes[2] = 0xA6;
+                B256::from(bytes)
+            }),
+            slash_tx_hash: None,
+            image_id: "test".to_string(),
+            image_url: None,
+            selector: "test".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        };
+        db.upsert_request_statuses(&[status_multiple2]).await.unwrap();
+
+        let fulfill_meta_multiple = TxMetadata::new(
+            {
+                let mut bytes = [0xA6; 32];
+                bytes[1] = 0xA6;
+                bytes[2] = 0xA6;
+                B256::from(bytes)
+            },
+            Address::ZERO,
+            112,
+            period_start + 300, // During period
+            0,
+        );
+        db.add_request_fulfilled_events(&[(
+            digest_multiple2,
+            request_multiple2.id,
+            Address::from([0xFF; 20]),
+            fulfill_meta_multiple,
+        )])
+        .await
+        .unwrap();
+
+        // 7. Activities outside period: Requestor with activities outside the period (should NOT be included)
+        let addr_outside = Address::from([0xA7; 20]);
+        let digest_outside = B256::from([0xA7; 32]);
+        let request_outside = generate_request(8, &addr_outside);
+        let submit_meta_outside = TxMetadata::new(
+            B256::from([0xA7; 32]),
+            Address::ZERO,
+            113,
+            after_period, // After period
+            0,
+        );
+        db.add_proof_requests(&[(
+            digest_outside,
+            request_outside,
+            submit_meta_outside,
+            "onchain".to_string(),
+            submit_meta_outside.block_timestamp,
+        )])
+        .await
+        .unwrap();
+
+        // 8. No activity: Requestor with no activity in period (should NOT be included)
+        let addr_no_activity = Address::from([0xA8; 20]);
+        let digest_no_activity = B256::from([0xA8; 32]);
+        let request_no_activity = generate_request(9, &addr_no_activity);
+        let submit_meta_no_activity = TxMetadata::new(
+            B256::from([0xA8; 32]),
+            Address::ZERO,
+            114,
+            before_period - 1000, // Well before period
+            0,
+        );
+        db.add_proof_requests(&[(
+            digest_no_activity,
+            request_no_activity,
+            submit_meta_no_activity,
+            "onchain".to_string(),
+            submit_meta_no_activity.block_timestamp,
+        )])
+        .await
+        .unwrap();
+
+        // Query active requestors in period
+        let addresses =
+            db.get_active_requestor_addresses_in_period(period_start, period_end).await.unwrap();
+
+        // Verify expected requestors are included
+        assert_eq!(addresses.len(), 6, "Should have 6 active requestors");
+        assert!(
+            addresses.contains(&addr_submissions),
+            "Should include requestor with submissions"
+        );
+        assert!(
+            addresses.contains(&addr_locks),
+            "Should include requestor with lock events"
+        );
+        assert!(
+            addresses.contains(&addr_fulfilled),
+            "Should include requestor with fulfillment events"
+        );
+        assert!(
+            addresses.contains(&addr_slashed),
+            "Should include requestor with slash events"
+        );
+        assert!(
+            addresses.contains(&addr_expired),
+            "Should include requestor with expiration"
+        );
+        assert!(
+            addresses.contains(&addr_multiple),
+            "Should include requestor with multiple activities"
+        );
+
+        // Verify requestors with activities outside period are NOT included
+        assert!(
+            !addresses.contains(&addr_outside),
+            "Should NOT include requestor with activities outside period"
+        );
+        assert!(
+            !addresses.contains(&addr_no_activity),
+            "Should NOT include requestor with no activity in period"
+        );
     }
 
     #[tokio::test]

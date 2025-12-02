@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -114,9 +114,9 @@ impl RewardsSubmitMining {
 
         ensure!(
             Address::from(state.log_id) == work_log_signer.address(),
-            "Signer does not match the state log ID: signer: {}, state: {}",
+            "Signer does not match the state log ID: signer: {}, state: {:x}",
             work_log_signer.address(),
-            format!("{:x}", state.log_id)
+            state.log_id,
         );
 
         // Connect to the chain

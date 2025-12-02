@@ -664,7 +664,10 @@ where
         let start_hour = get_hour_start(hours_ago);
         let current_hour = get_hour_start(current_time);
 
-        // Get all active requestors in this time period
+        // To know which requestors to process, we need to get the active requestors in the period.
+        // Active here not only means they submitted a request, but also if someone locked one of their requests,
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if one of their requests expired, etc.
         let requestors = self
             .db
             .get_active_requestor_addresses_in_period(start_hour, current_hour + SECONDS_PER_HOUR)
@@ -722,6 +725,11 @@ where
         let start_day = current_day_start
             .saturating_sub((DAILY_AGGREGATION_RECOMPUTE_DAYS - 1) * SECONDS_PER_DAY);
 
+        
+        // To know which requestors to process, we need to get the active requestors in the period.
+        // Active here not only means they submitted a request, but also if someone locked one of their requests,
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if one of their requests expired, etc.
         let requestors = self
             .db
             .get_active_requestor_addresses_in_period(
@@ -782,6 +790,10 @@ where
         let start_week = current_week_start
             .saturating_sub((WEEKLY_AGGREGATION_RECOMPUTE_WEEKS - 1) * SECONDS_PER_WEEK);
 
+        // To know which requestors to process, we need to get the active requestors in the period.
+        // Active here not only means they submitted a request, but also if someone locked one of their requests,
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if one of their requests expired, etc.
         let requestors = self
             .db
             .get_active_requestor_addresses_in_period(
@@ -865,6 +877,10 @@ where
             next.timestamp() as u64
         };
 
+        // To know which requestors to process, we need to get the active requestors in the period.
+        // Active here not only means they submitted a request, but also if someone locked one of their requests,
+        // or if someone fulfilled one of their requests, or if someone slashed one of their requests, 
+        // or if one of their requests expired, etc.
         let requestors =
             self.db.get_active_requestor_addresses_in_period(start_month, next_month).await?;
 

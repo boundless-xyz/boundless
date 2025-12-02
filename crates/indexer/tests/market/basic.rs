@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,12 +39,10 @@ use boundless_test_utils::{
     guests::{ECHO_ID, ECHO_PATH},
 };
 use sqlx::{AnyPool, Row};
-use tracing_test::traced_test;
 
 use common::*;
 
-#[tokio::test]
-#[traced_test]
+#[test_log::test(tokio::test)]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_e2e() {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -228,8 +226,7 @@ async fn test_e2e() {
     cli_process.kill().unwrap();
 }
 
-#[tokio::test]
-#[traced_test]
+#[test_log::test(tokio::test)]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_monitoring() {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -239,7 +236,6 @@ async fn test_monitoring() {
         fixture.anvil.endpoint_url().to_string(),
         fixture.ctx.deployment.boundless_market_address.to_string(),
     )
-    .retries("1")
     .spawn()
     .unwrap();
 
@@ -271,16 +267,11 @@ async fn test_monitoring() {
     let expired = monitor.fetch_requests_expired((now - 30) as i64, now as i64).await.unwrap();
     assert_eq!(expired.len(), 0);
 
-    // Wait for the request to expire
-    loop {
-        now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
-        if now > request.expires_at() {
-            break;
-        }
-        wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
-    }
+    advance_time_to_and_mine(&fixture.ctx.customer_provider, request.expires_at() + 1, 1).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     // Verify expired requests
+    now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     let expired = monitor.fetch_requests_expired((now - 30) as i64, now as i64).await.unwrap();
     assert_eq!(expired.len(), 1);
     let expired = monitor
@@ -387,8 +378,7 @@ async fn test_monitoring() {
     cli_process.kill().unwrap();
 }
 
-#[tokio::test]
-#[traced_test]
+#[test_log::test(tokio::test)]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_aggregation_across_hours() {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -415,9 +405,9 @@ async fn test_aggregation_across_hours() {
             minPrice: one_eth,
             maxPrice: one_eth,
             rampUpStart: now - 3,
-            timeout: 12,
+            timeout: 24,
             rampUpPeriod: 1,
-            lockTimeout: 12,
+            lockTimeout: 24,
             lockCollateral: U256::from(0),
         },
     );
@@ -691,8 +681,7 @@ async fn test_aggregation_across_hours() {
     cli_process.kill().unwrap();
 }
 
-#[tokio::test]
-#[traced_test]
+#[test_log::test(tokio::test)]
 #[ignore = "Slow without RISC0_DEV_MODE=1"]
 async fn test_aggregation_percentiles() {
     // Test multiple requests with different prices to validate percentile calculations
@@ -859,8 +848,7 @@ async fn test_aggregation_percentiles() {
     cli_process.kill().unwrap();
 }
 
-#[sqlx::test(migrations = "../order-stream/migrations")]
-#[traced_test]
+#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -1002,8 +990,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     order_stream_handle.abort();
 }
 
-#[sqlx::test(migrations = "../order-stream/migrations")]
-#[traced_test]
+#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -1108,8 +1095,7 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     order_stream_handle.abort();
 }
 
-#[sqlx::test(migrations = "../order-stream/migrations")]
-#[traced_test]
+#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -1202,8 +1188,7 @@ async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     order_stream_handle.abort();
 }
 
-#[tokio::test]
-#[traced_test]
+#[test_log::test(tokio::test)]
 async fn test_both_tx_fetch_strategies_produce_same_results() {
     let fixture = common::new_market_test_fixture().await.unwrap();
     let test_db_receipts = TestDb::new().await.unwrap();
@@ -1386,8 +1371,7 @@ async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRo
     }
 }
 
-#[sqlx::test(migrations = "../order-stream/migrations")]
-#[traced_test]
+#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -1459,8 +1443,7 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     indexer_process.kill().unwrap();
 }
 
-#[sqlx::test(migrations = "../order-stream/migrations")]
-#[traced_test]
+#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -1529,8 +1512,7 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     indexer_process.kill().unwrap();
 }
 
-#[sqlx::test(migrations = "../order-stream/migrations")]
-#[traced_test]
+#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     let fixture = common::new_market_test_fixture().await.unwrap();
@@ -1717,8 +1699,7 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     indexer_process.kill().unwrap();
 }
 
-#[tokio::test]
-#[traced_test]
+#[test_log::test(tokio::test)]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     // This test verifies that:
@@ -1727,6 +1708,8 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     // 3. Cumulative values never decrease
 
     let fixture = common::new_market_test_fixture().await.unwrap();
+
+    tracing::info!("Starting test, block number: {}", fixture.ctx.customer_provider.get_block_number().await.unwrap());
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -1740,7 +1723,7 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
     let one_eth = parse_ether("1").unwrap();
 
-    // Create and fulfill first request with minimal collateral (0 to simplify test)
+    // Create and fulfill first request with 0 collateral
     let request1 = ProofRequest::new(
         RequestId::new(fixture.ctx.customer_signer.address(), 1),
         Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
@@ -1750,9 +1733,9 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             minPrice: one_eth,
             maxPrice: one_eth,
             rampUpStart: now - 3,
-            timeout: 12,
+            timeout: 24,
             rampUpPeriod: 1,
-            lockTimeout: 12,
+            lockTimeout: 24,
             lockCollateral: U256::from(0),
         },
     );
@@ -1790,7 +1773,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
     let now2 = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
-    tracing::info!("Current time after 3 hour gap: {}", now2);
 
     // Create and fulfill second request (different hour) with no collateral
     let request2 = ProofRequest::new(
@@ -1834,15 +1816,18 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+    
+    tracing::info!("Getting hourly summaries, block number: {}", fixture.ctx.customer_provider.get_block_number().await.unwrap());
 
     // Get all hourly summaries and verify gaps are filled with zero-activity entries
     let hourly_summaries = get_hourly_summaries(&fixture.test_db.db).await;
-    tracing::info!("Found {} hourly summaries", hourly_summaries.len());
 
-    // We should have at least 4 hours of data (hour with request1, 3 hours of no activity, hour with request2)
+    // We should have at least 5 hours of data (hour with request1, 3 hours of no activity, hour with request2)
+    // Why at least? Because the indexer always reprocesses the past HOURLY_AGGREGATION_RECOMPUTE_HOURS hours of data on each run,
+    // so it will go back in the past and process the hours before the test even started.
     assert!(
-        hourly_summaries.len() >= 4,
-        "Expected at least 4 hourly summaries, got {}",
+        hourly_summaries.len() >= 5,
+        "Expected at least 5 hourly summaries, got {}",
         hourly_summaries.len()
     );
 
@@ -1860,7 +1845,7 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             hour_diff, prev_hour, curr_hour
         );
     }
-    tracing::info!("✓ No gaps in hourly summaries - all hours present");
+    tracing::info!("No gaps in hourly summaries - all hours present");
 
     // Identify hours with activity and hours without activity
     let hours_with_activity: Vec<_> =
@@ -1868,14 +1853,7 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
     let hours_without_activity: Vec<_> =
         hourly_summaries.iter().filter(|s| s.total_requests_submitted == 0).collect();
 
-    tracing::info!(
-        "Hours with activity: {}, Hours without activity: {}",
-        hours_with_activity.len(),
-        hours_without_activity.len()
-    );
-
     assert_eq!(hours_with_activity.len(), 2, "Expected 2 hours with activity");
-    assert!(hours_without_activity.len() >= 2, "Expected at least 2 hours without activity");
 
     // Verify zero-activity hours have all zero values
     for zero_hour in &hours_without_activity {
@@ -1896,11 +1874,9 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             "Zero-activity hour should have 0 collateral"
         );
     }
-    tracing::info!("✓ All zero-activity hours have correct zero values");
 
     // Get all-time summaries and verify cumulative behavior
     let all_time_summaries = get_all_time_summaries(&fixture.test_db.pool).await;
-    tracing::info!("Found {} all-time summaries", all_time_summaries.len());
 
     assert!(
         all_time_summaries.len() >= 4,
@@ -1919,7 +1895,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             time_diff, prev_ts, curr_ts
         );
     }
-    tracing::info!("✓ No gaps in all-time summaries - all hours present");
 
     // Verify all-time cumulatives NEVER decrease (always monotonically increasing or staying the same)
     for i in 1..all_time_summaries.len() {
@@ -1961,7 +1936,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             "All-time total_collateral_locked should never decrease: hour {} has {}, hour {} has {}",
             prev.period_timestamp, prev.total_collateral_locked, curr.period_timestamp, curr.total_collateral_locked);
     }
-    tracing::info!("✓ All-time cumulatives never decrease (monotonically increasing)");
 
     // Verify that during no-activity hours, all-time values stay constant (carry forward)
     // and match the exact expected values
@@ -2013,7 +1987,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             U256::ZERO,
             "After first request: should have exactly 0 collateral (none used)"
         );
-        tracing::info!("✓ First activity hour has correct cumulative values: 1 submitted, 1 locked, 1 fulfilled, 0 collateral");
 
         // Verify carry-forward during gap - values should stay at first request totals
         for gap_summary in all_time_summaries.iter().take(second_all_time_idx).skip(first_all_time_idx + 1) {
@@ -2043,8 +2016,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
                 gap_summary.period_timestamp
             );
         }
-        let num_gap_hours = second_all_time_idx - first_all_time_idx - 1;
-        tracing::info!("✓ Cumulatives properly carry forward during {} no-activity hours (all stayed at: 1 submitted, 1 locked, 1 fulfilled, 0 collateral)", num_gap_hours);
 
         // After second request, we should have: 2 submitted, 2 locked, 2 fulfilled, 0 collateral
         let after_second = &all_time_summaries[second_all_time_idx];
@@ -2065,7 +2036,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
             U256::ZERO,
             "After second request: should have exactly 0 collateral (0 + 0)"
         );
-        tracing::info!("✓ Second activity hour has correct cumulative values: 2 submitted, 2 locked, 2 fulfilled, 0 collateral");
     }
 
     // Verify final cumulative totals match the exact sum of all activity (2 requests total)
@@ -2116,7 +2086,6 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps() {
         "Final cumulative fees should be non-zero (2 fulfilled requests with fees)"
     );
 
-    tracing::info!("✓ Final cumulative values are correct: 2 submitted, 2 locked, 2 fulfilled, 0 collateral, 0 expired, 0 slashed");
 
     cli_process.kill().unwrap();
 }

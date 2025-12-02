@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -250,6 +250,27 @@ pub struct PeriodRequestorSummary {
     pub best_effective_prove_mhz: u64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
+}
+
+impl PeriodRequestorSummary {
+    /// Check if this summary has any activity (non-zero values in any total_ field)
+    pub fn has_activity(&self) -> bool {
+        self.total_fulfilled != 0
+            || self.total_fees_locked != U256::ZERO
+            || self.total_collateral_locked != U256::ZERO
+            || self.total_locked_and_expired_collateral != U256::ZERO
+            || self.total_requests_submitted != 0
+            || self.total_requests_submitted_onchain != 0
+            || self.total_requests_submitted_offchain != 0
+            || self.total_requests_locked != 0
+            || self.total_requests_slashed != 0
+            || self.total_expired != 0
+            || self.total_locked_and_expired != 0
+            || self.total_locked_and_fulfilled != 0
+            || self.total_secondary_fulfillments != 0
+            || self.total_program_cycles != U256::ZERO
+            || self.total_cycles != U256::ZERO
+    }
 }
 
 // Type aliases for different aggregation periods - they all use the same struct

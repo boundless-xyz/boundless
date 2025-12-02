@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,22 +16,20 @@
 
 use alloy::providers::Provider;
 use anyhow::Context;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Find a block number near a given timestamp using binary search.
+/// Find the nearest block number before a given timestamp using binary search.
 ///
 /// This function performs a two-phase search:
 /// 1. Linear search backwards in chunks to find a block <= target timestamp
-/// 2. Binary search within the chunk to find the exact block
+/// 2. Binary search within the chunk to find the exact nearest block
 ///
-/// The `approx` parameter allows early termination if we get within the approximation window.
+/// Returns the block number of the latest block with timestamp <= target timestamp.
 pub async fn block_number_near_timestamp(
     provider: impl Provider,
     latest_block_number: u64,
-    timestamp: SystemTime,
-    approx: Option<Duration>,
+    timestamp_seconds: u64,
 ) -> anyhow::Result<u64> {
-    tracing::debug!("Search for block with timestamp less than {timestamp:?}");
+    tracing::debug!("Searching for block with timestamp <= {}", timestamp_seconds);
 
     // Phase 1: Linear search backwards in chunks until we find a block <= target_timestamp
     const LINEAR_SEARCH_CHUNK_SIZE: u64 = 100000;
@@ -43,9 +41,9 @@ pub async fn block_number_near_timestamp(
             .with_context(|| format!("Failed to get block {}", probe))?
             .with_context(|| format!("Block {} not found", probe))?;
 
-        let block_timestamp = UNIX_EPOCH + Duration::from_secs(block.header.timestamp);
-        tracing::debug!("Linear search at block {probe}, timestamp {block_timestamp:?}");
-        if block_timestamp <= timestamp {
+        let block_timestamp = block.header.timestamp;
+        tracing::trace!("Linear search at block {probe}, timestamp {block_timestamp}");
+        if block_timestamp <= timestamp_seconds {
             break;
         }
 
@@ -55,7 +53,7 @@ pub async fn block_number_near_timestamp(
         }
     }
 
-    // Phase 2: binary search between [low, high]
+    // Phase 2: binary search between [low, high] to find exact nearest block
     let mut high = u64::min(probe + LINEAR_SEARCH_CHUNK_SIZE, latest_block_number);
     let mut low = probe;
     while low < high {
@@ -66,16 +64,10 @@ pub async fn block_number_near_timestamp(
             .with_context(|| format!("Failed to get block {}", mid))?
             .with_context(|| format!("Block {} not found", mid))?;
 
-        let block_timestamp = UNIX_EPOCH + Duration::from_secs(block.header.timestamp);
-        tracing::debug!("Binary search at block {mid}, timestamp {block_timestamp:?}");
-        if block_timestamp <= timestamp {
+        let block_timestamp = block.header.timestamp;
+        tracing::trace!("Binary search at block {mid}, timestamp {block_timestamp}");
+        if block_timestamp <= timestamp_seconds {
             low = mid;
-
-            if let Some(approx) = approx {
-                if block_timestamp >= timestamp.checked_sub(approx).unwrap_or(UNIX_EPOCH) {
-                    break;
-                }
-            }
         } else {
             high = mid - 1;
         }

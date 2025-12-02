@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,10 +35,17 @@ pub struct ProverBenchmark {
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
 }
+pub const RECOMMENDED_PEAK_PROVE_KHZ_FACTOR: f64 = 0.75;
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkResult {
+    pub worst_khz: f64,
+    pub worst_recommended_khz: f64,
+}
 
 impl ProverBenchmark {
     /// Run the benchmark command
-    pub async fn run(&self, global_config: &GlobalConfig) -> Result<()> {
+    pub async fn run(&self, global_config: &GlobalConfig) -> Result<BenchmarkResult> {
         let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
@@ -57,6 +64,7 @@ impl ProverBenchmark {
 
         // Track performance metrics across all runs
         let mut worst_khz = f64::MAX;
+        let mut worst_recommended_khz = 0.0;
         let mut worst_time = 0.0;
         let mut worst_cycles = 0.0;
         let mut worst_request_id = U256::ZERO;
@@ -110,7 +118,7 @@ impl ProverBenchmark {
             let assumptions = vec![];
             let start_time = std::time::Instant::now();
 
-            display.status("Status", "Generating proof", "yellow");
+            display.status("Status", "Generating proof (this may take a while)", "yellow");
             let proof_id =
                 prover.create_session(image_id, input_id, assumptions.clone(), false).await?;
             tracing::debug!("Created session {}", proof_id.uuid);
@@ -190,6 +198,15 @@ impl ProverBenchmark {
             display.item_colored("Cycles", format!("{:.0}", total_cycles), "cyan");
             display.item_colored("Time", format!("{:.2}s", elapsed_secs), "cyan");
             display.item_colored("Effective", format!("{:.2} KHz", effective_khz), "cyan");
+            let recommended_khz = effective_khz * RECOMMENDED_PEAK_PROVE_KHZ_FACTOR;
+            display.item_colored(
+                &format!(
+                    "Recommended `peak_prove_khz` ({:.0}% of effective)",
+                    RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0
+                ),
+                format!("{:.2} KHz", recommended_khz),
+                "cyan",
+            );
 
             if let Some(time) = elapsed_time {
                 tracing::debug!("Server side time: {:?}", time);
@@ -198,6 +215,7 @@ impl ProverBenchmark {
             // Track worst performance
             if effective_khz < worst_khz {
                 worst_khz = effective_khz;
+                worst_recommended_khz = recommended_khz;
                 worst_time = elapsed_secs;
                 worst_cycles = total_cycles;
                 worst_request_id = *request_id;
@@ -212,11 +230,19 @@ impl ProverBenchmark {
             display.note("Worst performance:");
             display.item_colored("Request ID", format!("{:#x}", worst_request_id), "yellow");
             display.item_colored("Effective", format!("{:.2} KHz", worst_khz), "yellow");
+            display.item_colored(
+                &format!(
+                    "Recommended `peak_prove_khz` ({:.0}% of effective)",
+                    RECOMMENDED_PEAK_PROVE_KHZ_FACTOR * 100.0
+                ),
+                format!("{:.2} KHz", worst_recommended_khz),
+                "yellow",
+            );
             display.item_colored("Cycles", format!("{:.0}", worst_cycles), "yellow");
             display.item_colored("Time", format!("{:.2}s", worst_time), "yellow");
         }
 
-        Ok(())
+        Ok(BenchmarkResult { worst_khz, worst_recommended_khz })
     }
 }
 

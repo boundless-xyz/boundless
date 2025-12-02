@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BasePipelineArgs } from "./base";
-import { BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
+import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
 
 interface ProverClusterPipelineArgs extends BasePipelineArgs {
     stagingAccountId: string;
@@ -50,7 +50,16 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
     constructor(name: string, args: ProverClusterPipelineArgs, opts?: pulumi.ComponentResourceOptions) {
         super("pulumi:aws:prover-cluster-pipeline", name, args, opts);
 
-        const { artifactBucket, connection, role, stagingAccountId, productionAccountId, amiId, githubToken } = args;
+        const {
+            artifactBucket,
+            connection,
+            role,
+            stagingAccountId,
+            productionAccountId,
+            amiId,
+            githubToken,
+            slackAlertsTopicArn
+        } = args;
         // Helper function to create CodeBuild projects
         const createCodeBuildProject = (environment: string, accountId: string, stackName: string) => {
             return new aws.codebuild.Project(`${APP_NAME}-${stackName}`, {
@@ -107,12 +116,15 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     buildspec: PROVER_CLUSTER_BUILD_SPEC,
                 },
                 sourceVersion: "CODEPIPELINE",
+                tags: {
+                    Name: `${APP_NAME}-${stackName}-deployment`,
+                    Component: "prover-cluster",
+                },
             }, { parent: this });
         };
 
         const stagingBuildBaseSepoliaNightly = createCodeBuildProject("staging", stagingAccountId, "staging-nightly-84532");
         const stagingBuildBaseSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-84532");
-        const stagingBuildEthSepolia = createCodeBuildProject("staging", stagingAccountId, "staging-11155111");
 
         const productionBuildBaseMainnetNightly = createCodeBuildProject("production", productionAccountId, "prod-nightly-8453");
         const productionBuildBaseMainnetRelease = createCodeBuildProject("production", productionAccountId, "prod-release-8453");
@@ -168,18 +180,6 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                                 ProjectName: stagingBuildBaseSepolia.name
                             },
                             outputArtifacts: ["staging_output_base_sepolia"],
-                            inputArtifacts: ["source_output"],
-                        },
-                        {
-                            name: "DeployStagingEthSepolia",
-                            category: "Build",
-                            owner: "AWS",
-                            provider: "CodeBuild",
-                            version: "1",
-                            configuration: {
-                                ProjectName: stagingBuildEthSepolia.name
-                            },
-                            outputArtifacts: ["staging_output_eth_sepolia"],
                             inputArtifacts: ["source_output"],
                         }
                     ],
@@ -240,6 +240,10 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
                     },
                 },
             ],
+            tags: {
+                Name: `${APP_NAME}-pipeline`,
+                Component: "prover-cluster",
+            },
         }, { parent: this });
 
         // Create IAM role for EventBridge to execute the pipeline
@@ -284,6 +288,26 @@ export class ProverClusterPipeline extends pulumi.ComponentResource {
             arn: pipeline.arn,
             roleArn: eventBridgeRole.arn,
         }, { parent: this });
+
+        // Create notification rule
+        new aws.codestarnotifications.NotificationRule(`${APP_NAME}-pipeline-notifications`, {
+            name: `${APP_NAME}-pipeline-notifications`,
+            eventTypeIds: [
+                "codepipeline-pipeline-manual-approval-succeeded",
+                "codepipeline-pipeline-action-execution-failed",
+            ],
+            resource: pipeline.arn,
+            detailType: "FULL",
+            targets: [
+                {
+                    address: slackAlertsTopicArn.apply(arn => arn),
+                },
+            ],
+            tags: {
+                Name: `${APP_NAME}-pipeline-notifications`,
+                Component: "prover-cluster",
+            },
+        });
 
         // Outputs
         this.pipelineName = pipeline.name;

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ fn debug_requests_if_any(metric_time: &str, count: usize, requests: &[String], m
 }
 
 /// Main Lambda handler function
-#[instrument(skip_all, err)]
+#[instrument(skip_all, err(Debug))]
 pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     let config = Config::from_env()?;
     let event = event.payload;

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -223,7 +223,7 @@ impl StorageProvider for S3StorageProvider {
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
         let digest = Sha256::digest(input);
-        let key = format!("input/{}", hex::encode(digest.as_slice()));
+        let key = format!("input/{}", hex::encode(digest));
         self.upload(input, &key).await
     }
 }

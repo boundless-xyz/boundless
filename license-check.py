@@ -6,14 +6,14 @@ from pathlib import Path
 import subprocess
 
 BSL_HEADER = """
-// Copyright {YEAR} RISC Zero, Inc.
+// Copyright {YEAR} Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 """.strip().splitlines()
 
 APACHE_HEADER = """
-// Copyright {YEAR} RISC Zero, Inc.
+// Copyright {YEAR} Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.

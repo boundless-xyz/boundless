@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -88,13 +88,24 @@ where
         let semaphore = self.get_account_semaphore(from_address).await;
         let _permit = semaphore.acquire().await.unwrap();
 
-        // Fetch the pending nonce if not already set
+        // Fetch the max between latest and pending nonce if not already set.
+        // We use the max to avoid stale responses from the RPC when querying pending nonce.
         if request.nonce.is_none() {
+            let latest_nonce = self.inner.get_transaction_count(from_address).latest().await?;
             let pending_nonce = self.inner.get_transaction_count(from_address).pending().await?;
-            request.nonce = Some(pending_nonce);
-            tracing::trace!(
-                "NonceProvider::send_with_nonce_management - set nonce {} for address: {}",
+            let next_nonce = std::cmp::max(latest_nonce, pending_nonce);
+            request.nonce = Some(next_nonce);
+            tracing::debug!(
+                "NonceProvider::send_with_nonce_management - set nonce {} [latest: {}, pending: {}] for address: {}",
+                next_nonce,
+                latest_nonce,
                 pending_nonce,
+                from_address
+            );
+        } else {
+            tracing::debug!(
+                "NonceProvider::send_with_nonce_management - nonce already set to {} for address: {}",
+                request.nonce.unwrap(),
                 from_address
             );
         }

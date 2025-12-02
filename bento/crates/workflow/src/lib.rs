@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -23,7 +23,6 @@ use std::{
 use taskdb::ReadyTask;
 use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
-
 mod redis;
 mod tasks;
 
@@ -161,6 +160,14 @@ pub struct Args {
     /// How often to clean up completed jobs
     #[clap(env, long, default_value_t = 60 * 60)]
     cleanup_poll_interval: u64,
+
+    /// Disable cron to clean up completed jobs in taskdb.
+    #[clap(long, default_value_t = true, env = "BENTO_DISABLE_COMPLETED_CLEANUP")]
+    disable_completed_cleanup: bool,
+
+    /// Disable cron to clean up stuck tasks in taskdb.
+    #[clap(long, env = "BENTO_DISABLE_STUCK_TASK_CLEANUP")]
+    disable_stuck_task_cleanup: bool,
 }
 
 /// Core agent context to hold all optional clients / pools and state
@@ -187,6 +194,15 @@ impl Agent {
         std::env::var("POVW_LOG_ID").is_ok()
     }
 
+    /// Update database connection pool metrics
+    pub fn update_db_pool_metrics(&self) {
+        use workflow_common::metrics::helpers;
+        let size = self.db_pool.size() as i64;
+        let idle = self.db_pool.num_idle() as i64;
+        let active = size - idle;
+        helpers::update_db_pool_metrics(size, idle, active);
+    }
+
     /// Initialize the [Agent] from the [Args] config params
     ///
     /// Starts any connection pools and establishes the agents configs
@@ -204,7 +220,7 @@ impl Agent {
             .max_connections(args.db_max_connections)
             .connect(&args.database_url)
             .await
-            .context("Failed to initialize postgresql pool")?;
+            .context("[BENTO-WF-100] Failed to initialize postgresql pool")?;
         let redis_pool = crate::redis::create_pool(&args.redis_url)?;
         let s3_client = S3Client::from_minio(
             &args.s3_url,
@@ -214,7 +230,7 @@ impl Agent {
             &args.s3_region,
         )
         .await
-        .context("Failed to initialize s3 client / bucket")?;
+        .context("[BENTO-WF-101] Failed to initialize s3 client / bucket")?;
 
         let verifier_ctx = VerifierContext::default();
         let prover = if args.task_stream == PROVE_WORK_TYPE
@@ -222,7 +238,8 @@ impl Agent {
             || args.task_stream == COPROC_WORK_TYPE
         {
             let opts = ProverOpts::default();
-            let prover = get_prover_server(&opts).context("Failed to initialize prover server")?;
+            let prover = get_prover_server(&opts)
+                .context("[BENTO-WF-102] Failed to initialize prover server")?;
             Some(prover)
         } else {
             None
@@ -254,7 +271,8 @@ impl Agent {
     /// the process is terminated. It also handles retries / failures depending on the
     /// [Self::process_work] result
     pub async fn poll_work(&self) -> Result<()> {
-        let term_sig = Self::create_sig_monitor().context("Failed to create signal hook")?;
+        let term_sig =
+            Self::create_sig_monitor().context("[BENTO-WF-103] Failed to create signal hook")?;
 
         // Enables task retry management background thread, good for 1-2 aux workers to run in the
         // cluster
@@ -272,7 +290,7 @@ impl Agent {
                     )
                     .await
                     {
-                        tracing::error!("Completed job cleanup failed: {:#}", e);
+                        tracing::error!("[BENTO-WF-104] Completed job cleanup failed: {:#}", e);
                         time::sleep(time::Duration::from_secs(requeue_interval)).await;
                     }
                 }
@@ -281,48 +299,55 @@ impl Agent {
 
         // Enable stuck task maintenance for aux workers
         if self.args.task_stream == AUX_WORK_TYPE {
-            let term_sig_copy = term_sig.clone();
-            let db_pool_copy = self.db_pool.clone();
-            let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
-            tokio::spawn(async move {
-                loop {
-                    if let Err(e) = Self::poll_for_stuck_tasks(
-                        term_sig_copy.clone(),
-                        db_pool_copy.clone(),
-                        stuck_tasks_interval,
-                    )
-                    .await
-                    {
-                        tracing::error!("Stuck tasks cleanup failed: {:#}", e);
-                        time::sleep(time::Duration::from_secs(60)).await;
+            if !self.args.disable_stuck_task_cleanup {
+                let term_sig_copy = term_sig.clone();
+                let db_pool_copy = self.db_pool.clone();
+                let stuck_tasks_interval = self.args.stuck_tasks_poll_interval;
+                tokio::spawn(async move {
+                    loop {
+                        if let Err(e) = Self::poll_for_stuck_tasks(
+                            term_sig_copy.clone(),
+                            db_pool_copy.clone(),
+                            stuck_tasks_interval,
+                        )
+                        .await
+                        {
+                            tracing::error!("[BENTO-WF-105] Stuck tasks cleanup failed: {:#}", e);
+                            time::sleep(time::Duration::from_secs(60)).await;
+                        }
                     }
-                }
-            });
+                });
+            }
 
             // Enable completed job cleanup for aux workers
-            let term_sig_copy = term_sig.clone();
-            let db_pool_copy = self.db_pool.clone();
-            let cleanup_interval = self.args.cleanup_poll_interval;
-            tokio::spawn(async move {
-                loop {
-                    if let Err(e) = Self::poll_for_completed_job_cleanup(
-                        term_sig_copy.clone(),
-                        db_pool_copy.clone(),
-                        cleanup_interval,
-                    )
-                    .await
-                    {
-                        tracing::error!("Completed job cleanup failed: {:#}", e);
-                        time::sleep(time::Duration::from_secs(cleanup_interval)).await;
+            if !self.args.disable_completed_cleanup {
+                let term_sig_copy = term_sig.clone();
+                let db_pool_copy = self.db_pool.clone();
+                let cleanup_interval = self.args.cleanup_poll_interval;
+                tokio::spawn(async move {
+                    loop {
+                        if let Err(e) = Self::poll_for_completed_job_cleanup(
+                            term_sig_copy.clone(),
+                            db_pool_copy.clone(),
+                            cleanup_interval,
+                        )
+                        .await
+                        {
+                            tracing::error!("[BENTO-WF-106] Completed job cleanup failed: {:#}", e);
+                            time::sleep(time::Duration::from_secs(cleanup_interval)).await;
+                        }
                     }
-                }
-            });
+                });
+            }
         }
 
         while !term_sig.load(Ordering::Relaxed) {
+            // Update database pool metrics periodically
+            self.update_db_pool_metrics();
+
             let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
                 .await
-                .context("Failed to request_work")?;
+                .context("[BENTO-WF-107] Failed to request_work")?;
             let Some(task) = task else {
                 time::sleep(time::Duration::from_secs(self.args.poll_time)).await;
                 continue;
@@ -333,7 +358,7 @@ impl Agent {
                 if !err_str.contains("stopped intentionally due to session limit")
                     && !err_str.contains("Session limit exceeded")
                 {
-                    tracing::error!("Failure during task processing: {err_str}");
+                    tracing::error!("[BENTO-WF-108] Failure during task processing: {err_str}");
                 }
 
                 if task.max_retries > 0 {
@@ -345,7 +370,7 @@ impl Agent {
                     .bind(&task.task_id)
                     .fetch_optional(&self.db_pool)
                     .await
-                    .context("Failed to read current retries")?
+                    .context("[BENTO-WF-109] Failed to read current retries")?
                         && current_retries + 1 > task.max_retries {
                             // Prevent massive errors from being reported to the DB
                             err_str.truncate(1024);
@@ -361,13 +386,13 @@ impl Agent {
                                 &final_err,
                             )
                             .await
-                            .context("Failed to report task failure")?;
+                            .context("[BENTO-WF-110] Failed to report task failure")?;
                             continue;
                         }
 
                     if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
                         .await
-                        .context("Failed to update task retries")?
+                        .context("[BENTO-WF-111] Failed to update task retries")?
                     {
                         tracing::info!("update_task_retried failed: {}", task.job_id);
                     }
@@ -381,7 +406,7 @@ impl Agent {
                         &err_str,
                     )
                     .await
-                    .context("Failed to report task failure")?;
+                    .context("[BENTO-WF-112] Failed to report task failure")?;
                 }
                 continue;
             }
@@ -401,29 +426,31 @@ impl Agent {
             TaskType::Executor(req) => serde_json::to_value(
                 tasks::executor::executor(self, &task.job_id, &req)
                     .await
-                    .context("Executor failed")?,
+                    .context("[BENTO-WF-113] Executor failed")?,
             )
-            .context("Failed to serialize executor response")?,
+            .context("[BENTO-WF-114] Failed to serialize executor response")?,
             TaskType::Prove(req) => serde_json::to_value(
                 tasks::prove::prover(self, &task.job_id, &task.task_id, &req)
                     .await
-                    .context("Prove failed")?,
+                    .context("[BENTO-WF-115] Prove failed")?,
             )
-            .context("Failed to serialize prove response")?,
+            .context("[BENTO-WF-116] Failed to serialize prove response")?,
             TaskType::Join(req) => {
                 // Route to POVW or regular join based on agent POVW setting
                 if self.is_povw_enabled() {
                     serde_json::to_value(
                         tasks::join_povw::join_povw(self, &task.job_id, &req)
                             .await
-                            .context("POVW join failed")?,
+                            .context("[BENTO-WF-117] POVW join failed")?,
                     )
-                    .context("Failed to serialize POVW join response")?
+                    .context("[BENTO-WF-118] Failed to serialize POVW join response")?
                 } else {
                     serde_json::to_value(
-                        tasks::join::join(self, &task.job_id, &req).await.context("Join failed")?,
+                        tasks::join::join(self, &task.job_id, &req)
+                            .await
+                            .context("[BENTO-WF-119] Join failed")?,
                     )
-                    .context("Failed to serialize join response")?
+                    .context("[BENTO-WF-120] Failed to serialize join response")?
                 }
             }
             TaskType::Resolve(req) => {
@@ -432,45 +459,47 @@ impl Agent {
                     serde_json::to_value(
                         tasks::resolve_povw::resolve_povw(self, &task.job_id, &req)
                             .await
-                            .context("POVW resolve failed")?,
+                            .context("[BENTO-WF-121] POVW resolve failed")?,
                     )
-                    .context("Failed to serialize POVW resolve response")?
+                    .context("[BENTO-WF-122] Failed to serialize POVW resolve response")?
                 } else {
                     serde_json::to_value(
                         tasks::resolve::resolver(self, &task.job_id, &req)
                             .await
-                            .context("Resolve failed")?,
+                            .context("[BENTO-WF-123] Resolve failed")?,
                     )
-                    .context("Failed to serialize resolve response")?
+                    .context("[BENTO-WF-124] Failed to serialize resolve response")?
                 }
             }
             TaskType::Finalize(req) => serde_json::to_value(
                 tasks::finalize::finalize(self, &task.job_id, &req)
                     .await
-                    .context("Finalize failed")?,
+                    .context("[BENTO-WF-125] Finalize failed")?,
             )
-            .context("Failed to serialize finalize response")?,
+            .context("[BENTO-WF-126] Failed to serialize finalize response")?,
             TaskType::Snark(req) => serde_json::to_value(
                 tasks::snark::stark2snark(self, &task.job_id.to_string(), &req)
                     .await
-                    .context("Snark failed")?,
+                    .context("[BENTO-WF-127] Snark failed")?,
             )
-            .context("failed to serialize snark response")?,
+            .context("[BENTO-WF-128] failed to serialize snark response")?,
             TaskType::Keccak(req) => serde_json::to_value(
                 tasks::keccak::keccak(self, &task.job_id, &task.task_id, &req)
                     .await
-                    .context("Keccak failed")?,
+                    .context("[BENTO-WF-129] Keccak failed")?,
             )
-            .context("failed to serialize keccak response")?,
+            .context("[BENTO-WF-130] failed to serialize keccak response")?,
             TaskType::Union(req) => serde_json::to_value(
-                tasks::union::union(self, &task.job_id, &req).await.context("Union failed")?,
+                tasks::union::union(self, &task.job_id, &req)
+                    .await
+                    .context("[BENTO-WF-131] Union failed")?,
             )
-            .context("failed to serialize union response")?,
+            .context("[BENTO-WF-132] failed to serialize union response")?,
         };
 
         taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, res)
             .await
-            .context("Failed to report task done")?;
+            .context("[BENTO-WF-133] Failed to report task done")?;
 
         Ok(())
     }
@@ -506,6 +535,9 @@ impl Agent {
         poll_interval: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
+            // Sleep before each check to avoid running on startup
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+
             tracing::debug!("Checking for stuck pending tasks...");
 
             // First check if there are any stuck tasks
@@ -531,9 +563,6 @@ impl Agent {
                     tracing::info!("Fixed {} stuck pending tasks", fixed_count);
                 }
             }
-
-            // Sleep before next check
-            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
         }
 
         Ok(())
@@ -549,15 +578,18 @@ impl Agent {
         poll_interval: u64,
     ) -> Result<()> {
         while !term_sig.load(Ordering::Relaxed) {
+            // Sleep before each check to avoid running on startup
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+
             tracing::debug!("Cleaning up completed jobs...");
 
             let cleared_count = taskdb::clear_completed_jobs(&db_pool).await?;
             if cleared_count > 0 {
                 tracing::info!("Cleared {} completed jobs", cleared_count);
+                workflow_common::metrics::helpers::record_completed_jobs_garbage_collection_metrics(
+                    cleared_count as u64,
+                );
             }
-
-            // Sleep before next cleanup
-            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
         }
 
         Ok(())

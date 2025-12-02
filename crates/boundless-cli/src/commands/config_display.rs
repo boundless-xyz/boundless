@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,6 +66,15 @@ impl ModuleType {
         }
     }
 
+    /// Get the environment variable name for RPC URL
+    pub fn rpc_url_env_var(&self) -> &'static str {
+        match self {
+            ModuleType::Requestor => "REQUESTOR_RPC_URL",
+            ModuleType::Prover => "PROVER_RPC_URL",
+            ModuleType::Rewards => "REWARD_RPC_URL",
+        }
+    }
+
     /// Get the label for address display
     pub fn address_label(&self) -> &'static str {
         match self {
@@ -101,10 +110,22 @@ pub fn get_private_key_with_source<'a>(
     }
 }
 
-/// Display RPC URL with obscuring
-pub fn display_rpc_url(display: &DisplayManager, rpc_url: Option<&str>) {
+/// Get RPC URL from environment or config, with source tracking
+pub fn get_rpc_url_with_source<'a>(
+    env_var_name: &str,
+    config_rpc: Option<&'a str>,
+) -> (Option<&'a str>, &'static str) {
+    if let Ok(env_url) = std::env::var(env_var_name) {
+        (Some(Box::leak(env_url.into_boxed_str())), "env")
+    } else {
+        (config_rpc, "config")
+    }
+}
+
+/// Display RPC URL with obscuring and source
+pub fn display_rpc_url(display: &DisplayManager, rpc_url: Option<&str>, source: &str) {
     if let Some(url) = rpc_url {
-        display.item_colored("RPC URL", obscure_url(url), "dimmed");
+        display.item_colored("RPC URL", format!("{} [{}]", obscure_url(url), source), "dimmed");
     }
 }
 

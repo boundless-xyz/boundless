@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,8 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-use std::time::{Duration, UNIX_EPOCH};
 
 use alloy::primitives::{Address, B256, U256};
 use anyhow::Result;
@@ -152,7 +150,7 @@ impl RequestorStatus {
         if self.timeline {
             // Build timeline
             display.info("Fetching timeline...");
-            let timeline = self.build_timeline(&client, &requestor_config).await?;
+            let (timeline, proof_request) = self.build_timeline(&client, &requestor_config).await?;
 
             if !timeline.is_empty() {
                 self.display_timeline(&timeline);
@@ -165,18 +163,13 @@ impl RequestorStatus {
                 };
 
                 if !has_order {
-                    let search_window = self.search_blocks.unwrap_or(100000);
                     println!("\n{}", "No events found".yellow().bold());
-                    println!(
-                        "  Searched the last {} blocks backwards from current block",
-                        search_window.to_string().cyan()
-                    );
-                    println!("  Try using {} to search further back", "--search-blocks <N>".cyan());
+                    println!("  Searched from deployment block to current block");
                 }
             }
 
             // Display order parameters if we have them
-            if let Some(request) = self.get_proof_request(&client).await {
+            if let Some(request) = proof_request {
                 self.display_order_parameters(&request, &display);
             }
         }
@@ -197,8 +190,6 @@ impl RequestorStatus {
     where
         P: alloy::providers::Provider + Clone,
     {
-        const DEFAULT_SEARCH_WINDOW: u64 = 100000;
-
         let deployment_block = client.deployment.deployment_block.unwrap_or(0);
         let latest_block = client
             .boundless_market
@@ -235,15 +226,14 @@ impl RequestorStatus {
         if let Some((order, created_at)) = order_data {
             tracing::debug!("Using order stream data to determine block range");
 
-            let submission_time = UNIX_EPOCH + Duration::from_secs(created_at.timestamp() as u64);
+            let submission_timestamp = created_at.timestamp() as u64;
             let expiration_timestamp =
                 order.request.offer.rampUpStart + order.request.offer.timeout as u64;
-            let expiration_time = UNIX_EPOCH + Duration::from_secs(expiration_timestamp);
 
             tracing::debug!(
                 "Submission time: {} (unix: {}), Expiration time: {} (unix: {})",
                 created_at.format("%Y-%m-%d %H:%M:%S UTC"),
-                created_at.timestamp(),
+                submission_timestamp,
                 DateTime::from_timestamp(expiration_timestamp as i64, 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
                     .unwrap_or_else(|| "Invalid timestamp".to_string()),
@@ -253,8 +243,7 @@ impl RequestorStatus {
             let start_block = block_number_near_timestamp(
                 client.boundless_market.instance().provider().clone(),
                 latest_block,
-                submission_time,
-                Some(Duration::from_secs(3600)),
+                submission_timestamp,
             )
             .await
             .unwrap_or(deployment_block);
@@ -262,8 +251,7 @@ impl RequestorStatus {
             let end_block = block_number_near_timestamp(
                 client.boundless_market.instance().provider().clone(),
                 latest_block,
-                expiration_time,
-                Some(Duration::from_secs(3600)),
+                expiration_timestamp,
             )
             .await
             .unwrap_or(latest_block);
@@ -276,16 +264,14 @@ impl RequestorStatus {
             return (start_block, end_block);
         }
 
-        let search_window = self.search_blocks.unwrap_or(DEFAULT_SEARCH_WINDOW);
-        let start_block = latest_block.saturating_sub(search_window).max(deployment_block);
+        let start_block = deployment_block;
         let end_block = latest_block;
 
         tracing::debug!(
-            "No order stream data available, searching backwards {} blocks from current block {}",
-            search_window,
+            "No order stream data available, searching from deployment block {} to current block {}",
+            deployment_block,
             latest_block
         );
-        tracing::debug!("Backward search range: blocks {} to {}", start_block, end_block);
         (start_block, end_block)
     }
 
@@ -293,7 +279,7 @@ impl RequestorStatus {
         &self,
         client: &boundless_market::Client<P, St, R, Si>,
         _requestor_config: &crate::config::RequestorConfig,
-    ) -> Result<Vec<TimelineEntry>>
+    ) -> Result<(Vec<TimelineEntry>, Option<ProofRequest>)>
     where
         P: alloy::providers::Provider + Clone,
     {
@@ -316,26 +302,41 @@ impl RequestorStatus {
             tracing::info!("Order not found in order stream");
         }
 
-        // Get ProofRequest to compute request digest
-        let proof_request = if let Some((ref order, _)) = order_stream_order_data {
-            Some(order.request.clone())
-        } else {
-            self.get_proof_request(client).await
-        };
-
-        // Compute request digest if we have the proof request
-        let request_digest = if let Some(ref request) = proof_request {
-            request.signing_hash(domain.verifying_contract, domain.chain_id)?
-        } else {
-            // If we can't get the request, we can't compute the digest
-            // This shouldn't happen according to user, but we need to handle it
-            anyhow::bail!("Could not retrieve proof request to compute request digest")
-        };
-
-        let (lower_bound, upper_bound) =
+        // Calculate block range for event searches
+        let (mut lower_bound, upper_bound) =
             self.find_event_search_blocks(client, &order_stream_order_data).await;
 
         tracing::debug!("Event search range determined: blocks {} to {}", lower_bound, upper_bound);
+
+        // Get ProofRequest to compute request digest
+        let proof_request_result = self
+            .get_proof_request(client, &order_stream_order_data, lower_bound, upper_bound)
+            .await;
+
+        let (proof_request, submission_block) = match proof_request_result {
+            Some((request, block)) => (Some(request), block),
+            None => {
+                anyhow::bail!("Could not find the request submitted event on-chain or the request on the order stream (if order stream is enabled)")
+            }
+        };
+
+        // Update lower_bound to submission block if we found it on-chain and user didn't specify search-start-block
+        if let Some(block) = submission_block {
+            if self.search_start_block.is_none() {
+                tracing::debug!(
+                    "Updated lower bound from {} to submission block {}",
+                    lower_bound,
+                    block
+                );
+                lower_bound = block;
+            }
+        }
+
+        // Compute request digest
+        let request_digest = proof_request
+            .as_ref()
+            .unwrap()
+            .signing_hash(domain.verifying_contract, domain.chain_id)?;
 
         let (submission_time, offer, submitted_block_number, submitted_tx_hash) = self
             .query_submission_info(client, &order_stream_order_data, lower_bound, upper_bound)
@@ -461,12 +462,10 @@ impl RequestorStatus {
             // Query for slash events only if NOT fulfilled before lock timeout
             if !fulfilled_before_lock_timeout {
                 // Calculate search window for slash events (after request expiration)
-                let expiration_time = UNIX_EPOCH + Duration::from_secs(request_timeout);
                 let slash_search_start = block_number_near_timestamp(
                     client.boundless_market.instance().provider().clone(),
                     upper_bound,
-                    expiration_time,
-                    Some(Duration::from_secs(3600)),
+                    request_timeout,
                 )
                 .await
                 .unwrap_or(upper_bound);
@@ -511,7 +510,7 @@ impl RequestorStatus {
         // Sort timeline chronologically
         timeline.sort_by_key(|entry| entry.timestamp_seconds());
 
-        Ok(timeline)
+        Ok((timeline, proof_request))
     }
 
     async fn query_submission_info<P, St, R, Si>(
@@ -568,22 +567,25 @@ impl RequestorStatus {
     async fn get_proof_request<P, St, R, Si>(
         &self,
         client: &boundless_market::Client<P, St, R, Si>,
-    ) -> Option<ProofRequest>
+        order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
+        lower_bound: u64,
+        upper_bound: u64,
+    ) -> Option<(ProofRequest, Option<u64>)>
     where
         P: alloy::providers::Provider + Clone,
     {
-        // Try order stream first if available
-        if let Some(ref offchain_client) = client.offchain_client {
-            if let Ok(order) = offchain_client.fetch_order(self.request_id, None).await {
-                return Some(order.request);
-            }
+        // Use already-fetched order data if available
+        if let Some((order, _)) = order_data {
+            return Some((order.request.clone(), None));
         }
 
-        // Fallback to chain events
-        if let Ok((request, _)) =
-            client.boundless_market.get_submitted_request(self.request_id, None).await
+        // Fallback to chain events with targeted block range
+        if let Ok(data) = client
+            .boundless_market
+            .query_request_submitted_event(self.request_id, Some(lower_bound), Some(upper_bound))
+            .await
         {
-            return Some(request);
+            return Some((data.request, Some(data.block_number)));
         }
 
         None

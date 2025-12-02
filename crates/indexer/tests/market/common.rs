@@ -14,7 +14,7 @@
 
 //! Common test fixtures and helpers for market indexer tests
 
-use std::{process::Command, time::Duration};
+use std::{process::Command, sync::Arc, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
@@ -23,9 +23,10 @@ use alloy::{
     rpc::types::BlockNumberOrTag,
     signers::Signer,
 };
+use anyhow::bail;
 use assert_cmd::Command as AssertCommand;
-use boundless_cli::DefaultProver;
-use std::sync::Arc;
+use broker::provers::DefaultProver as BrokerDefaultProver;
+use boundless_cli::OrderFulfiller;
 
 use boundless_indexer::{
     db::{market::SortDirection, IndexerDb, MarketDb},
@@ -35,7 +36,7 @@ use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_test_utils::{
-    guests::{ASSESSOR_GUEST_ELF, ECHO_ID, ECHO_PATH, SET_BUILDER_ELF},
+    guests::{ECHO_ID, ECHO_PATH},
     market::{create_test_ctx, TestCtx},
 };
 use sqlx::{AnyPool, Row};
@@ -48,7 +49,7 @@ pub struct MarketTestFixture<P: Provider + WalletProvider + Clone + 'static> {
     pub test_db: TestDb,
     pub anvil: alloy::node_bindings::AnvilInstance,
     pub ctx: TestCtx<P>,
-    pub prover: DefaultProver,
+    pub prover: OrderFulfiller,
 }
 
 impl<P: Provider + WalletProvider + Clone + 'static> MarketTestFixture<P> {
@@ -64,12 +65,10 @@ pub async fn new_market_test_fixture() -> Result<
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await?;
 
-    let prover = DefaultProver::new(
-        SET_BUILDER_ELF.to_vec(),
-        ASSESSOR_GUEST_ELF.to_vec(),
-        ctx.prover_signer.address(),
-        ctx.customer_market.eip712_domain().await?,
-    )?;
+    let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
+    let prover = OrderFulfiller::initialize(Arc::new(BrokerDefaultProver::default()), &client)
+        .await
+        .unwrap();
 
     Ok(MarketTestFixture { test_db, anvil, ctx, prover })
 }
@@ -209,9 +208,9 @@ pub async fn create_order(
             minPrice: U256::from(0),
             maxPrice: U256::from(1),
             rampUpStart: now - 3,
-            timeout: 12,
+            timeout: 24,
             rampUpPeriod: 1,
-            lockTimeout: 12,
+            lockTimeout: 24,
             lockCollateral: U256::from(0),
         },
     );
@@ -375,15 +374,17 @@ pub async fn submit_request_with_deposit<P: Provider + WalletProvider + Clone + 
 /// Helper to lock and fulfill a request
 pub async fn lock_and_fulfill_request<P: Provider + WalletProvider + Clone + 'static>(
     ctx: &TestCtx<P>,
-    prover: &DefaultProver,
+    prover: &OrderFulfiller,
     request: &ProofRequest,
     client_sig: Bytes,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use boundless_cli::OrderFulfilled;
     use boundless_market::contracts::boundless_market::FulfillmentTx;
 
+    tracing::debug!("Locking request {}", request.id);
     ctx.prover_market.lock_request(request, client_sig.clone(), None).await?;
 
+    tracing::debug!("Fulfilling request {}", request.id);
     let (fill, root_receipt, assessor_receipt) =
         prover.fulfill(&[(request.clone(), client_sig)]).await?;
     let order_fulfilled = OrderFulfilled::new(fill.clone(), root_receipt, assessor_receipt)?;
@@ -408,7 +409,7 @@ pub async fn lock_and_fulfill_request_with_collateral<
     P: Provider + WalletProvider + Clone + 'static,
 >(
     ctx: &TestCtx<P>,
-    prover: &DefaultProver,
+    prover: &OrderFulfiller,
     request: &ProofRequest,
     client_sig: Bytes,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -470,7 +471,7 @@ pub async fn lock_and_fulfill_request_with_collateral<
 /// Helper to fulfill a request that's already locked
 pub async fn fulfill_request<P: Provider + WalletProvider + Clone + 'static>(
     ctx: &TestCtx<P>,
-    prover: &DefaultProver,
+    prover: &OrderFulfiller,
     request: &ProofRequest,
     client_sig: Bytes,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -537,14 +538,7 @@ pub async fn advance_time_to_and_mine<P: Provider + WalletProvider + Clone + 'st
 /// Wait for indexer to process up to the current block number
 pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
     // Get current block number from the chain
-    let current_block = match provider.get_block_number().await {
-        Ok(block) => block,
-        Err(e) => {
-            eprintln!("Failed to get current block number: {}, falling back to time-based wait", e);
-            tokio::time::sleep(INDEXER_WAIT_DURATION).await;
-            return;
-        }
-    };
+    let current_block = provider.get_block_number().await.unwrap();
 
     // Wait for indexer to process up to current block with timeout
     let timeout = Duration::from_secs(30);
@@ -559,7 +553,7 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
         if let Ok((ref last_block_str,)) = result {
             if let Ok(last_block) = last_block_str.parse::<u64>() {
                 if last_block >= current_block {
-                    tracing::debug!("Indexer caught up to block {}", current_block);
+                    tracing::info!("Indexer caught up to block {} ", current_block);
                     return;
                 }
             }

@@ -1,12 +1,13 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
 
 use anyhow::{Context, Result};
-use deadpool_redis::Connection;
 pub use deadpool_redis::{Config, Pool as RedisPool, Runtime, redis::AsyncCommands};
-use redis::{RedisResult, ToRedisArgs};
+use redis::{FromRedisValue, RedisResult, ToRedisArgs};
+use std::time::Instant;
+use workflow_common::metrics::helpers;
 
 pub fn create_pool(redis_url: &str) -> Result<RedisPool> {
     Config::from_url(redis_url)
@@ -24,45 +25,31 @@ pub async fn set_key_with_expiry<T>(
 where
     T: ToRedisArgs + Send + Sync + 'static,
 {
-    match ttl {
-        Some(expiry) => conn.set_ex(key, value, expiry).await,
-        None => conn.set(key, value).await,
-    }
+    let redis_start = Instant::now();
+    let (operation, result) = match ttl {
+        Some(expiry) => {
+            let result = conn.set_ex(key, value, expiry).await;
+            ("set_ex", result)
+        }
+        None => {
+            let result = conn.set(key, value).await;
+            ("set", result)
+        }
+    };
+    let elapsed = redis_start.elapsed().as_secs_f64();
+    let status = if result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(operation, status, elapsed);
+    result
 }
 
-/// Scan and delete all keys at a given prefix
-pub async fn scan_and_delete(conn: &mut Connection, prefix: &str) -> RedisResult<()> {
-    // Initialize the cursor for SCAN
-    let mut cursor: u64 = 0;
-
-    loop {
-        // Use SCAN to get a batch of keys with the specified prefix
-        let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-            .cursor_arg(cursor)
-            .arg("MATCH")
-            .arg(format!("{prefix}*"))
-            .arg("COUNT")
-            .arg(100)
-            .query_async(conn)
-            .await?;
-        cursor = next_cursor;
-
-        // Delete keys if any are found
-        if !keys.is_empty() {
-            for key in keys {
-                // NOTE: <_, ()> is required to avoid the dependency_on_unit_never_type_fallback,
-                // which will be an error in the future. It may look like black magic, but you can
-                // simple think of it as the compiler winking at you.
-                // See Rust issue #123748 <https://github.com/rust-lang/rust/issues/123748>
-                conn.del::<_, ()>(key).await?;
-            }
-        }
-
-        // Exit the loop if we've scanned all keys
-        if cursor == 0 {
-            break;
-        }
-    }
-
-    Ok(())
+pub async fn get_key<T>(conn: &mut deadpool_redis::Connection, key: &str) -> RedisResult<T>
+where
+    T: FromRedisValue + Send + Sync + 'static,
+{
+    let redis_start = Instant::now();
+    let result = conn.get::<_, T>(key).await;
+    let elapsed = redis_start.elapsed().as_secs_f64();
+    let status = if result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation("get", status, elapsed);
+    result
 }

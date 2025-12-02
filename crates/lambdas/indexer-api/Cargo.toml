@@ -7,12 +7,12 @@ homepage = { workspace = true }
 repository = { workspace = true }
 publish = false
 
+[package.metadata.release]
+release = false
+
 [[bin]]
 name = "local-server"
 path = "src/bin/local-server.rs"
-
-[package.metadata.release]
-release = false
 
 [dependencies]
 # Core dependencies
@@ -63,7 +63,7 @@ utoipa-swagger-ui = { version = "8", features = ["axum"] }
 
 [dev-dependencies]
 # Command assertion for integration tests
-assert_cmd = "2.0"
+assert_cmd = "=2.0"
 # Random number generation for tests
 rand = "0.8"
 # HTTP client for integration tests

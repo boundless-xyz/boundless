@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -387,9 +387,10 @@ mod tests {
     use alloy::{
         primitives::{Bytes, U256},
         signers::local::LocalSigner,
+        sol_types::SolStruct,
     };
     use boundless_market::contracts::{
-        Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
+        eip712_domain, Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
     use futures_util::StreamExt;
     use risc0_zkvm::sha::Digest;
@@ -419,7 +420,8 @@ mod tests {
             },
         };
         let signature = req.sign_request(&signer, Address::ZERO, 31337).await.unwrap();
-        let request_digest = req.signing_hash(Address::ZERO, 31337).unwrap();
+        let domain = eip712_domain(Address::ZERO, 31337);
+        let request_digest = req.eip712_signing_hash(&domain.alloy_struct());
 
         Order::new(req, request_digest, signature)
     }

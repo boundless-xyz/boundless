@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,8 @@ use boundless_market::{
     storage::{fetch_url, StorageProviderConfig},
 };
 use clap::Args;
-use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, SessionInfo};
+use risc0_zkvm::sha::{Digest, Digestible};
+use risc0_zkvm::{compute_image_id, default_executor, ExecutorEnv, ReceiptClaim, SessionInfo};
 
 use crate::{
     config::{GlobalConfig, RequestorConfig},
@@ -104,7 +105,7 @@ impl RequestorSubmit {
         if !self.no_preflight {
             display.info("Running request preflight check");
             let (image_id, session_info) = execute(&request).await?;
-            let journal = session_info.journal.bytes;
+            let journal = &session_info.journal.bytes;
 
             // Verify image ID
             if let Some(claim) = &session_info.receipt_claim {
@@ -120,12 +121,15 @@ impl RequestorSubmit {
             }
             let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
+            let expected_claim_digest = ReceiptClaim::ok(image_id, journal.clone()).digest();
             ensure!(
                 predicate.eval(&FulfillmentData::from_image_id_and_journal(image_id, journal.clone())).is_some(),
-                "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}",
-                hex::encode(&journal),
+                "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}, Expected claim digest: {}, Expected journal digest: {}",
+                hex::encode(journal),
                 request.requirements.predicate.predicateType,
-                hex::encode(&request.requirements.predicate.data)
+                hex::encode(&request.requirements.predicate.data),
+                hex::encode(expected_claim_digest),
+                hex::encode(session_info.journal.digest())
             );
 
             display.success("Preflight check passed");

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,10 @@ use alloy::{
     primitives::utils::parse_ether,
     providers::{fillers::ChainIdFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
-    transports::layers::RetryBackoffLayer,
+    transports::{
+        http::Http,
+        layers::{FallbackLayer, RetryBackoffLayer},
+    },
 };
 use anyhow::{Context, Result};
 use boundless_market::{
@@ -27,11 +30,22 @@ use boundless_market::{
 };
 use broker::{Args, Broker, Config, CustomRetryPolicy};
 use clap::Parser;
+use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
+use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = Args::parse();
+
+    // Backward compatibility: allow RPC_URL when PROVER_RPC_URL is not set
+    if std::env::var("PROVER_RPC_URL").is_err() {
+        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
+            args.rpc_url =
+                Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
+            tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+        }
+    }
     let config = Config::load(&args.config_file).await?;
 
     if args.log_json {
@@ -60,13 +74,48 @@ async fn main() -> Result<()> {
 
     let wallet = EthereumWallet::from(private_key.clone());
 
+    // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(args.rpc_url.clone());
+    seen.extend(args.rpc_urls.iter().cloned());
+    let all_rpc_urls: Vec<Url> = seen.into_iter().collect();
+
+    if all_rpc_urls.is_empty() {
+        anyhow::bail!("no RPC URLs provided, please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables");
+    }
+
     let retry_layer = RetryBackoffLayer::new_with_policy(
         args.rpc_retry_max,
         args.rpc_retry_backoff,
         args.rpc_retry_cu,
         CustomRetryPolicy,
     );
-    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
+
+    // Build RPC client with fallback support if multiple URLs are provided
+    let client = if all_rpc_urls.len() > 1 {
+        // Multiple URLs - use fallback transport
+        let transports: Vec<Http<_>> =
+            all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
+
+        let active_count =
+            std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
+        let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
+
+        tracing::info!(
+            "Configuring broker with fallback RPC support: {} URLs: {:?}",
+            all_rpc_urls.len(),
+            all_rpc_urls
+        );
+
+        let transport =
+            ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
+
+        RpcClient::builder().transport(transport, false)
+    } else {
+        // Single URL - use regular provider
+        tracing::info!("Configuring broker with single RPC URL: {}", args.rpc_url);
+        RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone())
+    };
     let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
         watch_address: wallet.default_signer().address(),
         warn_threshold: config

@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -351,7 +351,7 @@ async fn test_claim_multi_epoch() -> anyhow::Result<()> {
     println!("Running claim command");
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "claim-mining-rewards", "--log-id", &format!("{:#x}", log_id)]);
+    cmd.args(["rewards", "claim-mining-rewards", "--reward-address", &format!("{:#x}", log_id)]);
 
     let result = cmd.assert().success().stdout(contains("Reward claim completed"));
     println!("claim command output:\n{}", String::from_utf8_lossy(&result.get_output().stdout));
@@ -483,7 +483,7 @@ async fn test_claim_partial_finalization() -> anyhow::Result<()> {
     println!("Running claim command");
     let mut cmd = cli_cmd()?;
     env.apply_to_cmd(&mut cmd);
-    cmd.args(["rewards", "claim-mining-rewards", "--log-id", &format!("{:#x}", log_id)]);
+    cmd.args(["rewards", "claim-mining-rewards", "--reward-address", &format!("{:#x}", log_id)]);
 
     let result = cmd
         .assert()

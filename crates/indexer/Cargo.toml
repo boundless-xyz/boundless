@@ -47,14 +47,16 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 url = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "2.0"
+assert_cmd = "=2.0"
 boundless-cli = { workspace = true }
 boundless-market = { workspace = true }
 boundless-test-utils = { workspace = true }
+broker = { workspace = true }
 futures-util = { workspace = true }
 indexer-monitor = { path = "../lambdas/indexer-monitor" }
 order-stream = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+test-log = { workspace = true }
 tracing-test = { workspace = true }
 

@@ -10,8 +10,11 @@ export interface ApiGatewayComponentConfig extends BaseComponentConfig {
 
 export class ApiGatewayComponent extends BaseComponent {
     public readonly alb: aws.lb.LoadBalancer;
+    public readonly internalAlb: aws.lb.LoadBalancer;
     public readonly targetGroup: aws.lb.TargetGroup;
+    public readonly internalTargetGroup: aws.lb.TargetGroup;
     public readonly albUrl: pulumi.Output<string>;
+    public readonly internalAlbUrl: pulumi.Output<string>;
     public readonly wafWebAcl: aws.wafv2.WebAcl;
     private readonly apiKey: pulumi.Output<string>;
 
@@ -21,14 +24,14 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Create public Application Load Balancer
         this.alb = new aws.lb.LoadBalancer("boundless-alb", {
-            name: `${this.config.stackName}-boundless-alb`,
+            name: `${this.config.stackName}-prover`,
             internal: false, // Public ALB
             loadBalancerType: "application",
             subnets: config.publicSubnetIds, // Use public subnets
             enableDeletionProtection: false,
             securityGroups: [config.securityGroupId],
             tags: {
-                Name: `${this.config.stackName}-boundless-alb`,
+                Name: `${this.config.stackName}-prover`,
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
@@ -36,7 +39,7 @@ export class ApiGatewayComponent extends BaseComponent {
 
         // Create target group for the manager instance
         this.targetGroup = new aws.lb.TargetGroup("boundless-tg", {
-            name: `${this.config.stackName}-boundless-tg`,
+            name: `${this.config.stackName}-prover`,
             port: 8081,
             protocol: "HTTP",
             vpcId: config.vpcId,
@@ -52,20 +55,67 @@ export class ApiGatewayComponent extends BaseComponent {
                 unhealthyThreshold: 2,
             },
             tags: {
-                Name: `${this.config.stackName}-boundless-tg`,
+                Name: `${this.config.stackName}-prover`,
                 Environment: this.config.stackName,
                 Component: "api-gateway"
             }
         });
 
-        // Register the manager instance as a target
+        // Register the manager instance as a target for the public ALB
         new aws.lb.TargetGroupAttachment("boundless-tg-attachment", {
             targetGroupArn: this.targetGroup.arn,
             targetId: config.managerPrivateIp,
             port: 8081,
         });
 
-        // Create ALB listener for HTTP (port 80)
+        // Create internal Application Load Balancer for VPC access
+        this.internalAlb = new aws.lb.LoadBalancer("boundless-internal-alb", {
+            name: `${this.config.stackName}-internal`,
+            internal: true, // Internal ALB - only accessible from within VPC
+            loadBalancerType: "application",
+            subnets: config.privateSubnetIds, // Use private subnets
+            enableDeletionProtection: false,
+            securityGroups: [config.securityGroupId],
+            tags: {
+                Name: `${this.config.stackName}-internal`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
+        });
+
+        // Create separate target group for the internal ALB
+        // AWS doesn't allow a target group to be associated with more than one load balancer
+        this.internalTargetGroup = new aws.lb.TargetGroup("boundless-internal-tg", {
+            name: `${this.config.stackName}-internal`,
+            port: 8081,
+            protocol: "HTTP",
+            vpcId: config.vpcId,
+            targetType: "ip",
+            healthCheck: {
+                enabled: true,
+                healthyThreshold: 2,
+                interval: 30,
+                port: "traffic-port",
+                protocol: "HTTP",
+                path: "/health",
+                timeout: 5,
+                unhealthyThreshold: 2,
+            },
+            tags: {
+                Name: `${this.config.stackName}-internal`,
+                Environment: this.config.stackName,
+                Component: "api-gateway"
+            }
+        });
+
+        // Register the manager instance as a target for the internal ALB
+        new aws.lb.TargetGroupAttachment("boundless-internal-tg-attachment", {
+            targetGroupArn: this.internalTargetGroup.arn,
+            targetId: config.managerPrivateIp,
+            port: 8081,
+        });
+
+        // Create ALB listener for HTTP (port 80) on public ALB
         new aws.lb.Listener("boundless-alb-listener", {
             loadBalancerArn: this.alb.arn,
             port: 80,
@@ -76,9 +126,23 @@ export class ApiGatewayComponent extends BaseComponent {
             }],
         });
 
-        // Create WAF Web ACL with API key enforcement
+        // Create ALB listener for HTTP (port 80) on internal ALB
+        // Use replaceOnChanges to force replacement when target group changes
+        // This is necessary because AWS won't allow updating a listener to use a different target group
+        new aws.lb.Listener("boundless-internal-alb-listener", {
+            loadBalancerArn: this.internalAlb.arn,
+            port: 80,
+            protocol: "HTTP",
+            defaultActions: [{
+                type: "forward",
+                targetGroupArn: this.internalTargetGroup.arn,
+            }],
+        });
+
+        // Create WAF Web ACL with API key enforcement (only for public ALB)
+        // Internal ALB doesn't need WAF since it's only accessible from within VPC
         this.wafWebAcl = new aws.wafv2.WebAcl("boundless-waf", {
-            name: `${this.config.stackName}-boundless-waf`,
+            name: `${this.config.stackName}-prover`,
             description: "WAF for Boundless Bento API with API key enforcement",
             scope: "REGIONAL",
             defaultAction: {
@@ -160,7 +224,8 @@ export class ApiGatewayComponent extends BaseComponent {
             webAclArn: this.wafWebAcl.arn
         });
 
-        // Set the ALB URL for external access
+        // Set the ALB URLs
         this.albUrl = this.alb.dnsName.apply(dnsName => `http://${dnsName}`);
+        this.internalAlbUrl = this.internalAlb.dnsName.apply(dnsName => `http://${dnsName}`);
     }
 }

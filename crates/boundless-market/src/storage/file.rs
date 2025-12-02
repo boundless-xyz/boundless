@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -94,7 +94,7 @@ impl StorageProvider for TempFileStorageProvider {
 
     async fn upload_input(&self, input: &[u8]) -> Result<Url, Self::Error> {
         let digest = Sha256::digest(input);
-        let filename = format!("{}.input", hex::encode(digest.as_slice()));
+        let filename = format!("{}.input", hex::encode(digest));
         let file_url = self.save_file(input, &filename).await?;
         Ok(file_url)
     }

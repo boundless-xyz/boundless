@@ -1,4 +1,4 @@
-// Copyright 2025 RISC Zero, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -169,7 +169,7 @@ impl IntoResponse for AppError {
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Bind address for REST api
-    #[clap(long, default_value = "0.0.0.0:8080")]
+    #[clap(long, default_value = "0.0.0.0:8081")]
     bind_addr: String,
 
     /// SQL DB Connection pool connections
@@ -726,10 +726,11 @@ async fn list_work_receipts(
         .await
         .context("Failed to list work receipt objects")?;
 
-    tracing::info!("Found {} objects in work receipts bucket: {:?}", objects.len(), objects);
+    tracing::info!("Found {} objects in work receipts bucket", objects.len());
     let mut receipts = Vec::new();
 
     for object_key in objects {
+        tracing::debug!("Processing object {}", object_key);
         // Extract the receipt ID from the object key
         // Object keys are in format: "work_receipts/{receipt_id}.bincode"
         if let Some(receipt_id) = object_key.strip_prefix(&format!("{WORK_RECEIPTS_BUCKET_DIR}/"))
