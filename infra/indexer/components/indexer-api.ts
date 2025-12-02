@@ -331,7 +331,7 @@ export class IndexerApi extends pulumi.ComponentResource {
             priority: 1,
             statement: {
               rateBasedStatement: {
-                limit: 75, // 75 requests per 5 minutes per IP
+                limit: 100, // 75 requests per 5 minutes per IP
                 aggregateKeyType: 'IP',
                 forwardedIpConfig: {
                   headerName: 'CF-Connecting-IP',

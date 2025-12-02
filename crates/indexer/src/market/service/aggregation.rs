@@ -18,6 +18,7 @@ use super::{
     WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
 };
 use crate::db::market::{AllTimeMarketSummary, IndexerDb, PeriodMarketSummary};
+use crate::db::RequestorDb;
 use crate::market::{
     pricing::compute_percentiles,
     time_boundaries::{

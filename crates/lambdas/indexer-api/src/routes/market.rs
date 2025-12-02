@@ -32,6 +32,7 @@ use crate::{
     utils::{format_eth, format_zkc},
 };
 use boundless_indexer::db::market::{RequestCursor, RequestSortField, RequestStatus, SortDirection};
+use boundless_indexer::db::{IndexerDb, ProversDb, RequestorDb};
 
 const MAX_AGGREGATES: u64 = 500;
 const DEFAULT_AGGREGATES_LIMIT: u64 = 50;

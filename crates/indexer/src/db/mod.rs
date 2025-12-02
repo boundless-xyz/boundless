@@ -14,13 +14,21 @@
 
 pub mod events;
 pub mod market;
+pub mod provers;
+pub mod requestors;
 pub mod rewards;
 
 use thiserror::Error;
 
 // Re-export common types from market module for backwards compatibility
 pub use events::EventsDb;
-pub use market::{DbObj, IndexerDb, MarketDb, TxMetadata};
+pub use market::{
+    AllTimeRequestorSummary, DailyRequestorSummary, DbObj, HourlyRequestorSummary, IndexerDb,
+    LockPricingData, MarketDb, MonthlyRequestorSummary, PeriodRequestorSummary, RequestCursor,
+    RequestSortField, RequestStatus, SortDirection, TxMetadata, WeeklyRequestorSummary,
+};
+pub use provers::ProversDb;
+pub use requestors::RequestorDb;
 
 #[derive(Error, Debug)]
 pub enum DbError {
