@@ -49,6 +49,16 @@ usage() {
     echo "  run-api <port> <database>         Run API server with debug logging"
     echo "                                     database: SQLite file path or PostgreSQL URL"
     echo ""
+    echo "  run-market-backfill <database> <mode> <start_block> [end_block] [cache_dir] [tx_fetch_strategy]"
+    echo "                                     Run market-indexer-backfill to recompute statuses/aggregates"
+    echo "                                     database: SQLite file path or PostgreSQL URL"
+    echo "                                               (e.g., 'local.db' or 'postgres://user:pass@host:port/db')"
+    echo "                                     mode: 'statuses_and_aggregates' or 'aggregates'"
+    echo "                                     start_block: block to start backfill from"
+    echo "                                     end_block: block to end backfill at (optional, default: latest indexed)"
+    echo "                                     cache_dir: directory for cache file storage (optional)"
+    echo "                                     tx_fetch_strategy: 'block-receipts' or 'tx-by-hash' (optional, default: block-receipts)"
+    echo ""
     echo "Environment variables (Rewards Indexer):"
     echo "  ZKC_RPC_URL                        Required: Ethereum RPC endpoint for ZKC/veZKC"
     echo "  VEZKC_ADDRESS                      Optional: veZKC contract address"
@@ -140,6 +150,11 @@ build_binaries() {
     if [ "$1" == "api" ] || [ "$1" == "both" ]; then
         echo "Building local-server..."
         cargo build -p indexer-api --bin local-server
+    fi
+
+    if [ "$1" == "market-backfill" ] || [ "$1" == "both" ]; then
+        echo "Building market-indexer-backfill..."
+        cargo build -p boundless-indexer --bin market-indexer-backfill
     fi
 
     cd - > /dev/null || exit 1
@@ -348,6 +363,120 @@ run_market_indexer() {
     echo "Database: $db_url"
 }
 
+# Function to run market backfill
+run_market_backfill() {
+    local db_input="$1"
+    local mode="$2"
+    local start_block="$3"
+    local end_block="$4"
+    local cache_dir="$5"
+    local tx_fetch_strategy="${6:-block-receipts}"
+
+    check_rpc_url "market"
+
+    # Validate arguments
+    if [ -z "$db_input" ] || [ -z "$mode" ] || [ -z "$start_block" ]; then
+        echo -e "${RED}Error: Database, mode, and start_block are required${NC}"
+        usage
+    fi
+
+    # Validate mode
+    if [ "$mode" != "statuses_and_aggregates" ] && [ "$mode" != "aggregates" ]; then
+        echo -e "${RED}Error: Invalid mode: $mode. Use 'statuses_and_aggregates' or 'aggregates'${NC}"
+        usage
+    fi
+
+    # Detect database type (don't recreate, just use existing)
+    local db_url=""
+    if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
+        # PostgreSQL URL
+        db_url="$db_input"
+        echo -e "${GREEN}Using PostgreSQL database${NC}"
+    else
+        # SQLite file path
+        local db_file="$db_input"
+
+        # Convert to absolute path if relative
+        if [[ ! "$db_file" = /* ]]; then
+            db_file="$(pwd)/$db_file"
+        fi
+
+        # Check if database file exists
+        if [ ! -f "$db_file" ]; then
+            echo -e "${RED}Error: Database file not found: $db_file${NC}"
+            echo "Run 'manage_local run-market-indexer' first to create and populate the database"
+            exit 1
+        fi
+
+        db_url="sqlite:$db_file"
+    fi
+
+    # Handle cache directory if provided
+    local cache_uri=""
+    if [ ! -z "$cache_dir" ]; then
+        # Convert to absolute path if relative
+        if [[ ! "$cache_dir" = /* ]]; then
+            cache_dir="$(pwd)/$cache_dir"
+        fi
+
+        # Create cache directory if it doesn't exist
+        if [ ! -d "$cache_dir" ]; then
+            echo -e "${GREEN}Creating cache directory: $cache_dir${NC}"
+            mkdir -p "$cache_dir"
+        fi
+
+        cache_uri="file://$cache_dir"
+    fi
+
+    # Build the backfill binary
+    build_binaries "market-backfill"
+
+    echo -e "${GREEN}Running market-indexer-backfill...${NC}"
+    echo "Database: $db_url"
+    echo "RPC URL: $MARKET_RPC_URL"
+    echo "Boundless Market Address: $BOUNDLESS_MARKET_ADDRESS"
+    echo "Mode: $mode"
+    echo "Start block: $start_block"
+    if [ ! -z "$end_block" ]; then
+        echo "End block: $end_block"
+    fi
+    if [ ! -z "$cache_uri" ]; then
+        echo "Cache directory: $cache_dir"
+    fi
+    echo "Transaction fetch strategy: $tx_fetch_strategy"
+    echo ""
+
+    # Build command with required and optional parameters
+    local cmd="../../../target/debug/market-indexer-backfill"
+    cmd="$cmd --mode \"$mode\""
+    cmd="$cmd --rpc-url \"$MARKET_RPC_URL\""
+    cmd="$cmd --boundless-market-address \"$BOUNDLESS_MARKET_ADDRESS\""
+    cmd="$cmd --db \"$db_url\""
+    cmd="$cmd --start-block $start_block"
+    cmd="$cmd --tx-fetch-strategy \"$tx_fetch_strategy\""
+
+    if [ ! -z "$end_block" ]; then
+        cmd="$cmd --end-block $end_block"
+    fi
+    if [ ! -z "$cache_uri" ]; then
+        cmd="$cmd --cache-uri \"$cache_uri\""
+    fi
+
+    # Run the backfill
+    DATABASE_URL="$db_url" \
+    BOUNDLESS_MARKET_ADDRESS="$BOUNDLESS_MARKET_ADDRESS" \
+    RUST_LOG="$RUST_LOG" \
+    eval "$cmd"
+
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}Backfill completed successfully!${NC}"
+        echo "Database: $db_url"
+    else
+        echo -e "${RED}Backfill failed${NC}"
+        exit 1
+    fi
+}
+
 # Function to run API
 run_api() {
     local port="$1"
@@ -414,6 +543,9 @@ case "$COMMAND" in
         ;;
     run-market-indexer)
         run_market_indexer "$@"
+        ;;
+    run-market-backfill)
+        run_market_backfill "$@"
         ;;
     run-api)
         run_api "$@"

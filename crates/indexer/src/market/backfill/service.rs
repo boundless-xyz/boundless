@@ -37,6 +37,7 @@ pub enum BackfillMode {
 pub struct BackfillService<P, ANP> {
     pub indexer: IndexerService<P, ANP>,
     pub mode: BackfillMode,
+    pub start_block: u64,
     pub end_block: u64,
 }
 
@@ -45,16 +46,17 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub fn new(indexer: IndexerService<P, ANP>, mode: BackfillMode, end_block: u64) -> Self {
-        Self { indexer, mode, end_block }
+    pub fn new(indexer: IndexerService<P, ANP>, mode: BackfillMode, start_block: u64, end_block: u64) -> Self {
+        Self { indexer, mode, start_block, end_block }
     }
 
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         let start_time = std::time::Instant::now();
 
         tracing::info!(
-            "Starting backfill with mode: {:?}, end_block: {}",
+            "Starting backfill with mode: {:?}, start_block: {}, end_block: {}",
             self.mode,
+            self.start_block,
             self.end_block
         );
 
@@ -157,16 +159,15 @@ where
         let start_time = std::time::Instant::now();
         tracing::info!("Starting aggregate backfill...");
 
-        // Get the timestamp range from start block (0 or earliest) to end block
-        let start_block = 0u64;
-        let start_timestamp = self.indexer.block_timestamp(start_block).await.unwrap_or(0);
+        // Get the timestamp range from start block to end block
+        let start_timestamp = self.indexer.block_timestamp(self.start_block).await.unwrap_or(0);
         let end_timestamp = self.indexer.block_timestamp(self.end_block).await?;
 
         tracing::info!(
             "Recomputing aggregates for timestamp range {} to {} (blocks {} to {})",
             start_timestamp,
             end_timestamp,
-            start_block,
+            self.start_block,
             self.end_block
         );
 

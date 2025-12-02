@@ -46,6 +46,10 @@ struct Args {
     #[clap(long, env = "DATABASE_URL")]
     db: String,
 
+    /// Start block number (backfill from this block)
+    #[clap(long)]
+    start_block: u64,
+
     /// End block number (backfill up to this block, default: latest indexed block)
     #[clap(long)]
     end_block: Option<u64>,
@@ -132,9 +136,9 @@ async fn main() -> Result<()> {
         }
     };
 
-    tracing::info!("Starting backfill with mode: {:?}, end_block: {}", mode, end_block);
+    tracing::info!("Starting backfill with mode: {:?}, start_block: {}, end_block: {}", mode, args.start_block, end_block);
 
-    let mut backfill_service = BackfillService::new(indexer_service, mode, end_block);
+    let mut backfill_service = BackfillService::new(indexer_service, mode, args.start_block, end_block);
 
     if let Err(err) = backfill_service.run().await {
         bail!("FATAL: Error running backfill: {err}");
