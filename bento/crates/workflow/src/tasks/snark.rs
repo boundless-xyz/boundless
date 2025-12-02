@@ -59,7 +59,7 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
-    tracing::debug!("Uploading snark receipt to S3: {key}");
+    tracing::info!("Uploading snark receipt to S3: {key}");
 
     let s3_write_start = Instant::now();
     match agent.s3_client.write_to_s3(key, snark_receipt).await {
