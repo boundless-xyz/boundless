@@ -186,6 +186,86 @@ impl IndexerCliBuilder {
     }
 }
 
+/// Builder for spawning backfill CLI with various configurations
+pub struct BackfillCliBuilder {
+    db_url: String,
+    rpc_url: String,
+    market_address: String,
+    mode: String,
+    start_block: u64,
+    end_block: Option<u64>,
+    tx_fetch_strategy: Option<String>,
+}
+
+impl BackfillCliBuilder {
+    pub fn new(db_url: String, rpc_url: String, market_address: String) -> Self {
+        Self {
+            db_url,
+            rpc_url,
+            market_address,
+            mode: "aggregates".to_string(),
+            start_block: 0,
+            end_block: None,
+            tx_fetch_strategy: None,
+        }
+    }
+
+    pub fn mode(mut self, mode: &str) -> Self {
+        self.mode = mode.to_string();
+        self
+    }
+
+    pub fn start_block(mut self, start_block: u64) -> Self {
+        self.start_block = start_block;
+        self
+    }
+
+    pub fn end_block(mut self, end_block: u64) -> Self {
+        self.end_block = Some(end_block);
+        self
+    }
+
+    pub fn tx_fetch_strategy(mut self, strategy: &str) -> Self {
+        self.tx_fetch_strategy = Some(strategy.to_string());
+        self
+    }
+
+    pub fn spawn(self) -> std::io::Result<std::process::Child> {
+        let cmd = AssertCommand::cargo_bin("market-indexer-backfill").expect(
+            "market-indexer-backfill binary not found. Run `cargo build --bin market-indexer-backfill` first.",
+        );
+        let exe_path = cmd.get_program().to_string_lossy().to_string();
+
+        let mut args = vec![
+            "--mode".to_string(),
+            self.mode,
+            "--rpc-url".to_string(),
+            self.rpc_url,
+            "--boundless-market-address".to_string(),
+            self.market_address,
+            "--db".to_string(),
+            self.db_url,
+            "--start-block".to_string(),
+            self.start_block.to_string(),
+        ];
+
+        if let Some(end_block) = self.end_block {
+            args.push("--end-block".to_string());
+            args.push(end_block.to_string());
+        }
+
+        if let Some(strategy) = self.tx_fetch_strategy {
+            args.push("--tx-fetch-strategy".to_string());
+            args.push(strategy);
+        }
+
+        println!("{} {:?}", exe_path, args);
+
+        #[allow(clippy::zombie_processes)]
+        Command::new(exe_path).args(args).spawn()
+    }
+}
+
 /// Helper to create an order with default configuration
 pub async fn create_order(
     signer: &impl Signer,

@@ -17,3 +17,6 @@
 // Test modules
 #[path = "market/basic.rs"]
 mod basic;
+
+#[path = "market/basic_backfill.rs"]
+mod basic_backfill;

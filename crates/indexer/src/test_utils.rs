@@ -77,7 +77,7 @@ impl TestDb {
                 "prover_slashed_events",
                 "callback_failed_events",
                 "assessor_receipts",
-                "fulfillments",
+                "proofs",
                 "request_status",
                 "cycle_counts",
                 "hourly_market_summary",

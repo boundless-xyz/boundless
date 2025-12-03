@@ -69,15 +69,6 @@ where
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
-        // Validate boundaries
-        if from_time >= to_time {
-            return Err(ServiceError::Error(anyhow::anyhow!(
-                "Invalid time range: from_time {} must be less than to_time {}",
-                from_time,
-                to_time
-            )));
-        }
-
         // Verify boundaries are properly aligned (hour starts for hourly aggregation)
         let expected_from = get_hour_start(from_time);
         let expected_to = get_hour_start(to_time);
@@ -134,15 +125,6 @@ where
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
-        // Validate boundaries
-        if from_time >= to_time {
-            return Err(ServiceError::Error(anyhow::anyhow!(
-                "Invalid time range: from_time {} must be less than to_time {}",
-                from_time,
-                to_time
-            )));
-        }
-
         // Verify boundaries are properly aligned (day starts for daily aggregation)
         let expected_from = get_day_start(from_time);
         let expected_to = get_day_start(to_time);
@@ -198,15 +180,6 @@ where
         to_time: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-
-        // Validate boundaries
-        if from_time >= to_time {
-            return Err(ServiceError::Error(anyhow::anyhow!(
-                "Invalid time range: from_time {} must be less than to_time {}",
-                from_time,
-                to_time
-            )));
-        }
 
         // Verify boundaries are properly aligned (week starts for weekly aggregation)
         let expected_from = get_week_start(from_time);
@@ -274,15 +247,6 @@ where
         to_time: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-
-        // Validate boundaries
-        if from_time >= to_time {
-            return Err(ServiceError::Error(anyhow::anyhow!(
-                "Invalid time range: from_time {} must be less than to_time {}",
-                from_time,
-                to_time
-            )));
-        }
 
         // Verify boundaries are properly aligned (month starts for monthly aggregation)
         let expected_from = get_month_start(from_time);
@@ -607,15 +571,6 @@ where
         to_time: u64,
     ) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
-
-        // Validate boundaries
-        if from_time >= to_time {
-            return Err(ServiceError::Error(anyhow::anyhow!(
-                "Invalid time range: from_time {} must be less than to_time {}",
-                from_time,
-                to_time
-            )));
-        }
 
         // Verify boundaries are properly aligned (hour starts for all-time aggregation)
         let expected_from = get_hour_start(from_time);

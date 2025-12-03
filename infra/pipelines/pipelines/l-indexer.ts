@@ -17,7 +17,7 @@ const config: LaunchPipelineConfig = {
         '. "$HOME/.cargo/env"',
         'npm install -g @ziglang/cli'
     ],
-    branchName: "main",
+    branchName: "willpote/market-indexer-api",
 };
 
 export class LIndexerPipeline extends LaunchDefaultPipeline {
@@ -26,45 +26,45 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
     }
 
     protected createPipeline(args: BasePipelineArgs) {
-        const {connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn} = args;
+        const { connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn } = args;
 
-        const {githubTokenSecret, dockerTokenSecret} = this.createSecretsAndPolicy(role, githubToken, dockerToken);
+        const { githubTokenSecret, dockerTokenSecret } = this.createSecretsAndPolicy(role, githubToken, dockerToken);
 
         // Create CodeBuild projects for each stack
         const stagingDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-staging-84532-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-staging-84532", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const stagingDeploymentEthSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-staging-11155111-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-staging-11155111", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-84532-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeploymentEthSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-11155111-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeploymentEthMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-1-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-1", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         // Create the pipeline
