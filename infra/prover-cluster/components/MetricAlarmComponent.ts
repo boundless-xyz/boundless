@@ -1,13 +1,15 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import {ChainId, Severity} from "../../util";
-import {BaseComponent, BaseComponentConfig} from "./BaseComponent";
+import { ChainId, Severity } from "../../util";
+import { BaseComponent, BaseComponentConfig } from "./BaseComponent";
 
 export interface MetricAlarmConfig extends BaseComponentConfig {
-    serviceName: string,
-    logGroupName: string,
+    serviceName: string;
+    logGroupName: string;
     alertsTopicArns: string[];
     alarmDimensions: { [key: string]: pulumi.Input<string> };
+    chainId: string,
+    minAsgSize: pulumi.Output<number>;
 }
 
 // Creates and manages general metric filters and alarms that can be common to multiple components
@@ -38,14 +40,14 @@ export class MetricAlarmComponent extends BaseComponent {
                 // Import the existing log group into a LogGroup resource
                 return new aws.cloudwatch.LogGroup(`${config.serviceName}-log-group`, {
                     name: existing.name,
-                    retentionInDays: existing.retentionInDays,
+                    retentionInDays: 90,
                 }, {import: existing.id});
             }
 
             // Otherwise create a new log group
             return new aws.cloudwatch.LogGroup(`${config.serviceName}-log-group`, {
                 name: config.logGroupName,
-                retentionInDays: 0,
+                retentionInDays: 90,
                 tags: {
                     Name: config.logGroupName,
                     Environment: this.config.environment,
@@ -111,6 +113,10 @@ export class MetricAlarmComponent extends BaseComponent {
                 Name: `${config.stackName}-${config.serviceName}-${metricName}-${severity}`,
                 Environment: this.config.environment,
                 Project: "boundless-bento-cluster",
+                ServiceName: config.serviceName,
+                LogGroupName: config.logGroupName,
+                StackName: config.stackName,
+                ChainId: config.chainId,
             },
             ...alarmConfig
         });
@@ -206,17 +212,76 @@ export class WorkerClusterAlarmComponent extends MetricAlarmComponent {
     }
 
     private createAutoScalingGroupAlarms = (config: MetricAlarmConfig): void => {
-        this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
-            metricName: 'GroupInServiceInstances',
-            namespace: `AWS/AutoScaling`,
-            period: 60,
-            dimensions: config.alarmDimensions,
-            evaluationPeriods: 20,
-            datapointsToAlarm: 20,
-            statistic: 'Maximum',
-            threshold: 0,
-            comparisonOperator: 'LessThanOrEqualToThreshold'
-        }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+        config.minAsgSize.apply((size => {
+            if (size > 0) {
+                this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
+                    metricName: 'GroupInServiceInstances',
+                    namespace: `AWS/AutoScaling`,
+                    period: 60,
+                    dimensions: config.alarmDimensions,
+                    evaluationPeriods: 20,
+                    datapointsToAlarm: 20,
+                    statistic: 'Maximum',
+                    threshold: 0,
+                    comparisonOperator: 'LessThanOrEqualToThreshold'
+                }, 'Number of in service instances is 0 for 20 consecutive minutes.')
+            }
+        }));
+
+        // Errors from Bento logs
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-AGENT-"', 'bento-agent-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-WF-"', 'bento-workflow-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+    }
+}
+
+export class ExecutorMetricAlarmComponent extends WorkerClusterAlarmComponent {
+    constructor(config: MetricAlarmConfig) {
+        super(config)
+        this.createExecutorMetricAlarms(config)
+    }
+
+    private createExecutorMetricAlarms = (config: MetricAlarmConfig): void => {
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-EXEC-"', 'bento-executor-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-FINALIZE-"', 'bento-finalize-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-JOIN-"', 'bento-join-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-JOINPOVW-"', 'bento-joinpovw-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-KECCAK-"', 'bento-keccak-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-PROVE-"', 'bento-prove-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-RESOLVE-"', 'bento-resolve-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-SNARK-"', 'bento-snark-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
+
+        this.createErrorCodeAlarm(config, 'ERROR "[BENTO-UNION-"', 'bento-union-error', Severity.SEV2, {
+            threshold: 5,
+        }, {period: 1800});
     }
 }
 
@@ -266,20 +331,28 @@ export class ProverMetricAlarmComponent extends WorkerClusterAlarmComponent {
     }
 }
 
-export interface ManagerMetricAlarmConfig extends MetricAlarmConfig {
-    chainId: string
-}
-
 // Creates and manages metric filters and alarms that are specific to the manager component
 export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
 
-    constructor(config: ManagerMetricAlarmConfig) {
+    constructor(config: MetricAlarmConfig) {
         // The superclass will create the alarms that are common to all components
         super(config);
         this.createManagerMetricAlarms(config)
     }
 
-    private createManagerMetricAlarms = (config: ManagerMetricAlarmConfig): void => {
+    private createManagerMetricAlarms = (config: MetricAlarmConfig): void => {
+
+        this.createMetricAlarm(config, 'asg-in-service-instances', Severity.SEV2, {
+            metricName: 'GroupInServiceInstances',
+            namespace: `AWS/AutoScaling`,
+            period: 60,
+            dimensions: config.alarmDimensions,
+            evaluationPeriods: 20,
+            datapointsToAlarm: 20,
+            statistic: 'Maximum',
+            threshold: 0,
+            comparisonOperator: 'LessThanOrEqualToThreshold'
+        }, 'Number of in service instances is 0 for 20 consecutive minutes.')
 
         // Unexpected error threshold for entire broker.
         const brokerUnexpectedErrorThreshold = 5;
@@ -602,13 +675,6 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         this.createErrorCodeAlarm(config, '"[B-SUB-500]"', 'submitter-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
         }, {period: 300});
-
-        //
-        // Reaper
-        //
-
-        // Any expired committed orders by the broker found triggers a SEV2 alarm.
-        this.createErrorCodeAlarm(config, '"[B-REAP-100]"', 'reaper-expired-orders-found', Severity.SEV2);
 
         //
         // Utils

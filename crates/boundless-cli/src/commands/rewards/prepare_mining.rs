@@ -344,6 +344,21 @@ fn check_work_receipt<T: Borrow<WorkReceipt>>(
     );
 
     ensure!(
+        work_claim.nonce_max.log == log_id,
+        "Receipt has a log ID that does not match the work log: receipt: {:x}, work log: {:x}",
+        work_claim.nonce_max.log,
+        log_id
+    );
+
+    ensure!(
+        work_claim.nonce_min.job == work_claim.nonce_max.job,
+        "Work claim nonce min and max job numbers do not match: {} != {}",
+        work_claim.nonce_min.job,
+        work_claim.nonce_max.job
+    );
+    ensure!(work_claim.nonce_min.segment == 0, "work claim nonce min segment number is not 0");
+
+    ensure!(
         !work_log.jobs.contains_key(&work_claim.nonce_min.job),
         "Receipt has job ID that is already in the work log: {}",
         work_claim.nonce_min.job,
@@ -442,8 +457,13 @@ async fn fetch_work_receipts(
     let mut work_receipts = Vec::new();
     for key in keys_to_fetch {
         // NOTE: We return the result so that the caller can decide whether to skip or bail
-        let work_receipt =
-            fetch_work_receipt(bento_url, &key).await.context("Failed to fetch work receipt");
+        let work_receipt = fetch_work_receipt(bento_url, &key)
+            .await
+            .context("Failed to fetch work receipt")
+            .and_then(|receipt| {
+                check_work_receipt(log_id, work_log, receipt)
+                    .with_context(|| format!("Receipt with key: {}", key))
+            });
 
         if work_receipt.is_ok() {
             tracing::debug!("Loaded receipt with key: {key}");

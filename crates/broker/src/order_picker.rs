@@ -48,8 +48,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{
-        boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestError,
-        RequestInputType,
+        boundless_market::BoundlessMarketService, FulfillmentData, Predicate, PredicateType,
+        RequestError, RequestInputType,
     },
     selector::SupportedSelectors,
 };
@@ -387,12 +387,13 @@ where
             return Ok(Skip { reason: "order has expired".to_string() });
         };
 
-        let (min_deadline, allowed_addresses_opt, denied_addresses_opt) = {
+        let (min_deadline, allowed_addresses_opt, denied_addresses_opt, min_mcycle_limit) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             (
                 config.market.min_deadline,
                 config.market.allow_client_addresses.clone(),
                 config.market.deny_requestor_addresses.clone(),
+                config.market.min_mcycle_limit,
             )
         };
 
@@ -786,6 +787,25 @@ where
             });
         }
 
+        if min_mcycle_limit > 0 {
+            let min_cycles = min_mcycle_limit.saturating_mul(1_000_000);
+            if proof_cycles < min_cycles {
+                tracing::debug!(
+                        "Order {order_id} skipped due to min_mcycle_limit config: {} cycles < {} cycles",
+                        proof_cycles,
+                        min_cycles
+                    );
+                return Ok(Skip {
+                        reason: format!(
+                            "order with {} cycles below min limit of {} cycles - min_mcycle_limit set to {} Mcycles in config",
+                            proof_cycles,
+                            min_cycles,
+                            min_mcycle_limit,
+                        ),
+                    });
+            }
+        }
+
         let journal = self
             .prover
             .get_preflight_journal(&proof_res.id)
@@ -796,7 +816,10 @@ where
         // ensure the journal is a size we are willing to submit on-chain
         let max_journal_bytes =
             self.config.lock_all().context("Failed to read config")?.market.max_journal_bytes;
-        if journal.len() > max_journal_bytes {
+        let order_predicate_type = order.request.requirements.predicate.predicateType;
+        if matches!(order_predicate_type, PredicateType::PrefixMatch | PredicateType::DigestMatch)
+            && journal.len() > max_journal_bytes
+        {
             return Ok(Skip {
                 reason: format!(
                     "order journal larger than set limit ({} > {})",
@@ -2425,6 +2448,38 @@ pub(crate) mod tests {
             U256::from(exec_limit) * ONE_MILLION,
             exec_limit
         )));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn min_mcycle_limit_skips_small_orders() {
+        let config = ConfigLock::default();
+        {
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.min_mcycle_price = "0.0000001".into();
+            cfg.market.min_mcycle_limit = 50; // Require at least 50 Mcycles
+            cfg.market.min_deadline = 0;
+        }
+        let ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
+
+        let order = ctx
+            .generate_loop_order(
+                OrderParams {
+                    min_price: parse_ether("1").unwrap(),
+                    max_price: parse_ether("1").unwrap(),
+                    timeout: 3600,
+                    lock_timeout: 300,
+                    ..Default::default()
+                },
+                10_000_000,
+            )
+            .await;
+
+        let order_id = order.id();
+        assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
+
+        assert!(logs_contain(&format!("Order {order_id} skipped due to min_mcycle_limit config")));
+        assert!(logs_contain("min_mcycle_limit set to 50 Mcycles in config"));
     }
 
     #[tokio::test]

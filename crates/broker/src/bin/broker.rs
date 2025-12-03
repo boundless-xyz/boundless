@@ -16,7 +16,10 @@ use alloy::{
     primitives::utils::parse_ether,
     providers::{fillers::ChainIdFiller, network::EthereumWallet, ProviderBuilder, WalletProvider},
     rpc::client::RpcClient,
-    transports::layers::RetryBackoffLayer,
+    transports::{
+        http::Http,
+        layers::{FallbackLayer, RetryBackoffLayer},
+    },
 };
 use anyhow::{Context, Result};
 use boundless_market::{
@@ -25,8 +28,9 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use broker::{Args, Broker, Config, CustomRetryPolicy};
+use broker::{config::ConfigWatcher, Args, Broker, CustomRetryPolicy};
 use clap::Parser;
+use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 
@@ -42,8 +46,6 @@ async fn main() -> Result<()> {
             tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
         }
     }
-    let config = Config::load(&args.config_file).await?;
-
     if args.log_json {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -58,6 +60,10 @@ async fn main() -> Result<()> {
             .init();
     }
 
+    // Create config watcher early so we can use it for the gas filler
+    let config_watcher =
+        ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
+
     // Handle private key fallback: PROVER_PRIVATE_KEY -> PRIVATE_KEY
     let private_key = args
         .private_key
@@ -70,33 +76,82 @@ async fn main() -> Result<()> {
 
     let wallet = EthereumWallet::from(private_key.clone());
 
+    // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(args.rpc_url.clone());
+    seen.extend(args.rpc_urls.iter().cloned());
+    let all_rpc_urls: Vec<Url> = seen.into_iter().collect();
+
+    if all_rpc_urls.is_empty() {
+        anyhow::bail!("no RPC URLs provided, please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables");
+    }
+
     let retry_layer = RetryBackoffLayer::new_with_policy(
         args.rpc_retry_max,
         args.rpc_retry_backoff,
         args.rpc_retry_cu,
         CustomRetryPolicy,
     );
-    let client = RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone());
-    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
-        watch_address: wallet.default_signer().address(),
-        warn_threshold: config
-            .market
-            .balance_warn_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-        error_threshold: config
-            .market
-            .balance_error_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-    });
 
+    // Build RPC client with fallback support if multiple URLs are provided
+    let client = if all_rpc_urls.len() > 1 {
+        // Multiple URLs - use fallback transport
+        let transports: Vec<Http<_>> =
+            all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
+
+        let active_count =
+            std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
+        let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
+
+        tracing::info!(
+            "Configuring broker with fallback RPC support: {} URLs: {:?}",
+            all_rpc_urls.len(),
+            all_rpc_urls
+        );
+
+        let transport =
+            ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
+
+        RpcClient::builder().transport(transport, false)
+    } else {
+        // Single URL - use regular provider
+        tracing::info!("Configuring broker with single RPC URL: {}", args.rpc_url);
+        RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone())
+    };
+
+    // Read config for balance alerts (scope the guard so we can move config_watcher later)
+    let balance_alerts_config = {
+        let config = config_watcher.config.lock_all().context("Failed to read config")?;
+        BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: config
+                .market
+                .balance_warn_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+            error_threshold: config
+                .market
+                .balance_error_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+        }
+    };
+    let balance_alerts_layer = BalanceAlertLayer::new(balance_alerts_config);
+
+    let priority_mode = {
+        let config = config_watcher.config.lock_all().context("Failed to read config")?;
+        config.market.gas_priority_mode.clone()
+    };
     let dynamic_gas_filler = DynamicGasFiller::new(
-        0.2,  // 20% increase of gas limit
-        0.05, // 5% increase of gas_price per pending transaction
-        2.0,  // 2x max gas multiplier
+        20, // 20% increase of gas limit
+        priority_mode,
         wallet.default_signer().address(),
     );
+
+    // Clone the priority_mode Arc so we can pass it to the broker for runtime updates
+    let gas_priority_mode = dynamic_gas_filler.priority_mode.clone();
 
     let base_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
@@ -106,7 +161,8 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker = Broker::new(args.clone(), provider.clone()).await?;
+    let broker =
+        Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {

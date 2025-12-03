@@ -1,9 +1,7 @@
-export const SERVICE_TO_QUERY_STRING_MAPPING = (service: string, logGroup: string, metricAlarmName: string) => {
-  switch (service) {
-    case 'bento-prover-1':
-      // Note we have to escape two backslashes in the query string. In
-      // CW it should look like: regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
-      return `
+function proverQuery(logGroup: string): string {
+    // Note we have to escape two backslashes in the query string. In
+    // CW it should look like: regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
+    return `
 SELECT
   \`@timestamp\`,
   regexp_replace(log, '\\\\x1b\\\\[[0-9;]*[mK]', '') AS msg
@@ -13,19 +11,38 @@ FROM \`${logGroup}\`
 -- AND log LIKE '%ERROR%' -- Only see error logs
 ORDER BY \`@timestamp\` ASC -- Note this uses the timestamps that Cloudwatch received the log at, not the original timestamp
 `.trim();
-    case 'bento-prover-2':
-      // Note we have to escape two backslashes in the query string. In
-      // CW it should look like: regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
-      return `
+}
+
+// Based on the single-instance prover log query above
+function proverClusterQuery(logGroup: string): string {
+  // Note we have to escape two backslashes in the query string. In
+  // CW it should look like: regexp_replace(log, '\\x1b\\[[0-9;]*[mK]', '') AS msg
+  return `
 SELECT
-\`@timestamp\`,
-regexp_replace(log, '\\\\x1b\\\\[[0-9;]*[mK]', '') AS msg
+  \`@timestamp\`,
+  regexp_replace(
+    get_json_object(\`@message\`, '$.message'),
+    '\\\x1b\\\\[[0-9;]*[mK]',
+    ''
+  ) AS msg
 FROM \`${logGroup}\`
 --WHERE
 -- log LIKE '%order_picker%' -- Filter to services
 -- AND log LIKE '%ERROR%' -- Only see error logs
 ORDER BY \`@timestamp\` ASC -- Note this uses the timestamps that Cloudwatch received the log at, not the original timestamp
 `.trim();
+}
+
+export const SERVICE_TO_QUERY_STRING_MAPPING = (service: string, logGroup: string, metricAlarmName: string) => {
+  switch (service) {
+    case 'bento-prover-1':
+    case 'bento-prover-2':
+      return proverQuery(logGroup);
+    case 'bento-manager':
+    case 'bento-execution-cluster':
+    case 'bento-prover-cluster':
+    case 'bento-aux-cluster':
+      return proverClusterQuery(logGroup);
     case 'bonsai-prover':
       const a = `
 parse @message /Z\\s+(?<log_level>[A-Z]+)\\s+(?<service>.+?):\\s+(?<message>.+)/

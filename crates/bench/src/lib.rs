@@ -461,7 +461,10 @@ mod tests {
     use boundless_market::contracts::hit_points::default_allowance;
     use boundless_market::storage::StorageProviderConfig;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
-    use broker::{config::Config, Args, Broker};
+    use broker::{
+        config::{Config, ConfigWatcher},
+        Args, Broker,
+    };
     use tracing_test::traced_test;
 
     use super::*;
@@ -505,6 +508,7 @@ mod tests {
                     .unwrap(),
             ),
             rpc_url,
+            rpc_urls: Vec::new(),
             private_key: Some(private_key),
             bento_api_url: None,
             bonsai_api_key,
@@ -553,7 +557,14 @@ mod tests {
             ctx.prover_signer,
         );
 
-        let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
+        let broker = Broker::new(
+            args,
+            ctx.prover_provider,
+            ConfigWatcher::new(config.path()).await.unwrap(),
+            Default::default(),
+        )
+        .await
+        .unwrap();
         let broker_task = tokio::spawn(async move { broker.start_service().await });
 
         let bench = Bench {

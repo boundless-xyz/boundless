@@ -19,12 +19,12 @@ variable "instance_type" {
 
 variable "boundless_bento_version" {
   type    = string
-  default = "v1.0.1"
+  default = "v1.1.2"
 }
 
 variable "boundless_broker_version" {
   type    = string
-  default = "v1.0.0"
+  default = "v1.1.2"
 }
 
 variable "service_account_ids" {
@@ -51,6 +51,12 @@ source "amazon-ebs" "boundless" {
     owners      = ["099720109477"] # Canonical
   }
   ssh_username = "ubuntu"
+
+  # Increase wait time for AMI to be ready
+  aws_polling {
+    delay_seconds = 30
+    max_attempts  = 1200
+  }
 
   # Increase root volume size to 100GB
   launch_block_device_mappings {
