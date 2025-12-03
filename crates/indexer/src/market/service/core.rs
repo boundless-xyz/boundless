@@ -296,8 +296,16 @@ fn find_starting_block(
     current_block: u64,
 ) -> u64 {
     if let Some(last) = last_processed.filter(|&b| b > 0) {
-        tracing::info!("Using last processed block {} as starting block", last);
-        return last;
+        // Start from last + 1 to avoid reprocessing the last block
+        // Cap to current_block if last + 1 exceeds it
+        let next_block = last + 1;
+        let start = if next_block > current_block {
+            current_block
+        } else {
+            next_block
+        };
+        tracing::info!("Using last processed block {} as starting block (next: {})", last, start);
+        return start;
     }
 
     let from = starting_block.unwrap_or(current_block);
@@ -320,40 +328,60 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_starting_block() {
+        // When last_processed is 50, should start from 51 (last + 1)
         let starting_block = Some(100);
         let last_processed = Some(50);
         let current_block = 200;
         let block = find_starting_block(starting_block, last_processed, current_block);
-        assert_eq!(block, 50);
+        assert_eq!(block, 51);
 
+        // When last_processed is 50, should start from 51 (last + 1)
         let starting_block = None;
         let last_processed = Some(50);
         let current_block = 200;
         let block = find_starting_block(starting_block, last_processed, current_block);
-        assert_eq!(block, 50);
+        assert_eq!(block, 51);
 
+        // When no last_processed, should use current_block
         let starting_block = None;
         let last_processed = None;
         let current_block = 200;
         let block = find_starting_block(starting_block, last_processed, current_block);
         assert_eq!(block, 200);
 
+        // When last_processed is 0 (filtered out), should use current_block
         let starting_block = None;
         let last_processed = Some(0);
         let current_block = 200;
         let block = find_starting_block(starting_block, last_processed, current_block);
         assert_eq!(block, 200);
 
+        // When starting_block > current_block, should cap to current_block
         let starting_block = Some(200);
         let last_processed = None;
         let current_block = 100;
         let block = find_starting_block(starting_block, last_processed, current_block);
         assert_eq!(block, 100);
 
+        // When last_processed is 10 and current_block is 100, should start from 11
         let starting_block = Some(200);
         let last_processed = Some(10);
         let current_block = 100;
         let block = find_starting_block(starting_block, last_processed, current_block);
-        assert_eq!(block, 10);
+        assert_eq!(block, 11);
+
+        // Edge case: last_processed + 1 equals current_block
+        let starting_block = None;
+        let last_processed = Some(99);
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 100); // 100 > 100? No, so should be 100
+
+        // Edge case: last_processed + 1 exceeds current_block
+        let starting_block = None;
+        let last_processed = Some(100);
+        let current_block = 100;
+        let block = find_starting_block(starting_block, last_processed, current_block);
+        assert_eq!(block, 100); // 101 > 100, so cap to 100
     }
 }
