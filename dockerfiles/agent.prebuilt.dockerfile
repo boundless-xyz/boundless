@@ -31,7 +31,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Install rust and target version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
-    && rustup install 1.88
+    && rustup install 1.91.1
 
 # Install RISC0 specifically for groth16 component - this layer will be cached unless RISC0_HOME changes
 RUN curl -L https://risczero.com/install | bash && \

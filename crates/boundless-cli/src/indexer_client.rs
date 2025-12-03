@@ -237,45 +237,6 @@ pub struct PaginationInfo {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct StakingEntry {
-    pub staker_address: String,
-    pub epoch: u64,
-    pub staked_amount: String,
-    pub staked_amount_formatted: String,
-    pub is_withdrawing: bool,
-    pub rewards_generated: String,
-    pub rewards_generated_formatted: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rank: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rewards_delegated_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub votes_delegated_to: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct StakingSummary {
-    pub staker_address: String,
-    pub total_staked: String,
-    pub total_staked_formatted: String,
-    pub is_withdrawing: bool,
-    pub epochs_participated: u64,
-    pub total_rewards_generated: String,
-    pub total_rewards_generated_formatted: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rewards_delegated_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub votes_delegated_to: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct StakingHistoryResponse {
-    pub entries: Vec<StakingEntry>,
-    pub pagination: PaginationInfo,
-    pub summary: Option<StakingSummary>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct EpochStakingSummary {
     pub epoch: u64,
     pub total_staked: String,
@@ -291,13 +252,6 @@ pub struct EpochStakingSummary {
     pub epoch_end_time: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_updated_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct EpochStakingResponse {
-    pub entries: Vec<StakingEntry>,
-    pub pagination: PaginationInfo,
-    pub summary: Option<EpochStakingSummary>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -347,13 +301,6 @@ pub struct EpochPovwSummary {
     pub num_participants: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_updated_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct EpochPovwResponse {
-    pub entries: Vec<PovwEntry>,
-    pub pagination: PaginationInfo,
-    pub summary: Option<EpochPovwSummary>,
 }
 
 ///Data for a specific address in a specific epoch

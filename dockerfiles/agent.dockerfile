@@ -19,7 +19,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # Install rust and target version (should match rust-toolchain.toml for best speed)
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
     && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
-    && rustup install 1.88
+    && rustup install 1.91.1
 
 # Install protoc
 RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
