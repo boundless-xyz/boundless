@@ -14,6 +14,10 @@
 
 //! Integration tests for market indexer
 
+// Common test utilities
+#[path = "market/common.rs"]
+mod common;
+
 // Test modules
 #[path = "market/basic.rs"]
 mod basic;

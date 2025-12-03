@@ -4636,7 +4636,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].period_timestamp, (base_timestamp + (1 * 3600)) as u64);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + 3600) as u64);
         assert_eq!(results[1].period_timestamp, base_timestamp as u64);
         // Verify total_secondary_fulfillments is correctly retrieved
         assert_eq!(results[0].total_secondary_fulfillments, 2);

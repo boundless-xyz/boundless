@@ -14,17 +14,15 @@
 
 #![allow(clippy::zombie_processes)]
 
-mod common;
-
 use alloy::{primitives::U256, providers::Provider};
 use sqlx::Row;
 
-use common::*;
+use super::common::*;
 
 #[test_log::test(tokio::test)]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_backfill_aggregates() {
-    let fixture = common::new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture().await.unwrap();
 
     // Start indexer
     let mut indexer_process = IndexerCliBuilder::new(

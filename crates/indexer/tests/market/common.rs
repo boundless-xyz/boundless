@@ -225,6 +225,7 @@ impl BackfillCliBuilder {
         self
     }
 
+    #[allow(dead_code)]
     pub fn tx_fetch_strategy(mut self, strategy: &str) -> Self {
         self.tx_fetch_strategy = Some(strategy.to_string());
         self
