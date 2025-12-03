@@ -223,7 +223,8 @@ export = () => {
   if (isDev && process.env.RANDOM_REQUESTOR_PRIVATE_KEY) {
     randomRequestorPrivateKey = pulumi.output(process.env.RANDOM_REQUESTOR_PRIVATE_KEY);
   } else {
-    randomRequestorPrivateKey = randomRequestorConfig.requireSecret('PRIVATE_KEY');
+    // We only deploy the random requestor on some networks, so we don't require private key.
+    randomRequestorPrivateKey = randomRequestorConfig.getSecret('PRIVATE_KEY');
   }
 
   if (randomRequestorPrivateKey) {
