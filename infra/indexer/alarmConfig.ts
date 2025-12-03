@@ -42,8 +42,27 @@ type ChainStageAlarmConfig = {
   }
 };
 
-
 export const alarmConfig: ChainStageAlarms = {
+  [ChainId.ETH_MAINNET]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
+  [ChainId.BASE_SEPOLIA]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
+  [ChainId.ETH_SEPOLIA]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
+  [ChainId.BASE]: {
+    [Stage.STAGING]: undefined,
+    [Stage.PROD]: undefined,
+  },
+};
+
+// TODO: Renable
+export const alarmConfig2: ChainStageAlarms = {
   [ChainId.ETH_MAINNET]: {
     [Stage.STAGING]: undefined,
     [Stage.PROD]: undefined,

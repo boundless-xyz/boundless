@@ -831,8 +831,7 @@ impl MarketDb {
         };
 
         if !skip_migrations {
-            // apply any migrations
-            sqlx::migrate!().run(&pool).await?;
+            sqlx::migrate!("./migrations").run(&pool).await?;
         }
 
         Ok(Self { pool })
@@ -3561,6 +3560,7 @@ impl MarketDb {
                 total_expired,
                 total_locked_and_expired,
                 total_locked_and_fulfilled,
+                total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
@@ -4528,6 +4528,115 @@ mod tests {
         assert_eq!(results[1].period_timestamp, feb);
         assert_eq!(results[2].period_timestamp, jan);
         assert_eq!(results[0].total_fulfilled, 2000); // March (index 2)
+    }
+
+    #[tokio::test]
+    async fn test_all_time_summaries_basic() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = test_db.get_db();
+
+        let base_timestamp = 1700000000i64; // 2023-11-14
+
+        // Insert 3 all-time summaries
+        for i in 0..3u64 {
+            let summary = AllTimeMarketSummary {
+                period_timestamp: (base_timestamp + (i as i64 * 3600)) as u64,
+                total_fulfilled: i * 10,
+                unique_provers_locking_requests: i * 2,
+                unique_requesters_submitting_requests: i * 3,
+                total_fees_locked: U256::from(i * 1000),
+                total_collateral_locked: U256::from(i * 2000),
+                total_locked_and_expired_collateral: U256::ZERO,
+                total_requests_submitted: i * 10,
+                total_requests_submitted_onchain: i * 6,
+                total_requests_submitted_offchain: i * 4,
+                total_requests_locked: i * 5,
+                total_requests_slashed: i,
+                total_expired: i,
+                total_locked_and_expired: i / 2,
+                total_locked_and_fulfilled: i * 10,
+                total_secondary_fulfillments: i * 2,
+                locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
+                total_program_cycles: U256::ZERO,
+                total_cycles: U256::ZERO,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
+            };
+            db.upsert_all_time_market_summary(summary).await.unwrap();
+        }
+
+        // Test retrieval
+        let results =
+            db.get_all_time_market_summaries(None, 10, SortDirection::Desc, None, None).await.unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (2 * 3600)) as u64);
+        assert_eq!(results[0].total_fulfilled, 20);
+        assert_eq!(results[0].total_secondary_fulfillments, 4);
+        assert_eq!(results[2].period_timestamp, base_timestamp as u64);
+        assert_eq!(results[2].total_secondary_fulfillments, 0);
+    }
+
+    #[tokio::test]
+    async fn test_all_time_summaries_cursor_pagination() {
+        let test_db = TestDb::new().await.unwrap();
+        let db = test_db.get_db();
+
+        let base_timestamp = 1700000000i64;
+
+        // Insert 5 all-time summaries
+        for i in 0..5u64 {
+            let summary = AllTimeMarketSummary {
+                period_timestamp: (base_timestamp + (i as i64 * 3600)) as u64,
+                total_fulfilled: i * 10,
+                unique_provers_locking_requests: i * 2,
+                unique_requesters_submitting_requests: i * 3,
+                total_fees_locked: U256::from(i * 1000),
+                total_collateral_locked: U256::from(i * 2000),
+                total_locked_and_expired_collateral: U256::ZERO,
+                total_requests_submitted: i * 10,
+                total_requests_submitted_onchain: i * 6,
+                total_requests_submitted_offchain: i * 4,
+                total_requests_locked: i * 5,
+                total_requests_slashed: i,
+                total_expired: i,
+                total_locked_and_expired: i / 2,
+                total_locked_and_fulfilled: i * 10,
+                total_secondary_fulfillments: i * 2,
+                locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
+                total_program_cycles: U256::ZERO,
+                total_cycles: U256::ZERO,
+                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz_prover: None,
+                best_peak_prove_mhz_request_id: None,
+                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz_prover: None,
+                best_effective_prove_mhz_request_id: None,
+            };
+            db.upsert_all_time_market_summary(summary).await.unwrap();
+        }
+
+        // Get first page
+        let first_page =
+            db.get_all_time_market_summaries(None, 3, SortDirection::Desc, None, None).await.unwrap();
+
+        // Use last item as cursor for next page
+        let cursor = first_page[2].period_timestamp as i64;
+        let results = db
+            .get_all_time_market_summaries(Some(cursor), 3, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].period_timestamp, (base_timestamp + (1 * 3600)) as u64);
+        assert_eq!(results[1].period_timestamp, base_timestamp as u64);
+        // Verify total_secondary_fulfillments is correctly retrieved
+        assert_eq!(results[0].total_secondary_fulfillments, 2);
+        assert_eq!(results[1].total_secondary_fulfillments, 0);
     }
 
     #[tokio::test]
