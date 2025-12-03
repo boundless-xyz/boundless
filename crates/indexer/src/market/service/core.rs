@@ -299,11 +299,7 @@ fn find_starting_block(
         // Start from last + 1 to avoid reprocessing the last block
         // Cap to current_block if last + 1 exceeds it
         let next_block = last + 1;
-        let start = if next_block > current_block {
-            current_block
-        } else {
-            next_block
-        };
+        let start = if next_block > current_block { current_block } else { next_block };
         tracing::info!("Using last processed block {} as starting block (next: {})", last, start);
         return start;
     }
