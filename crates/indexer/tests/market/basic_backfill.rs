@@ -103,11 +103,7 @@ async fn test_backfill_aggregates() {
 
         if !timestamps.is_empty() {
             before_timestamps.insert(table.to_string(), timestamps.clone());
-            tracing::info!(
-                "Found {} rows in {} before backfill",
-                timestamps.len(),
-                table
-            );
+            tracing::info!("Found {} rows in {} before backfill", timestamps.len(), table);
         }
     }
 
@@ -135,11 +131,7 @@ async fn test_backfill_aggregates() {
 
     // Wait for backfill to complete
     let exit_status = backfill_process.wait().unwrap();
-    assert!(
-        exit_status.success(),
-        "Backfill process exited with error: {:?}",
-        exit_status
-    );
+    assert!(exit_status.success(), "Backfill process exited with error: {:?}", exit_status);
 
     tracing::info!("Backfill completed successfully");
 
@@ -168,10 +160,7 @@ async fn test_backfill_aggregates() {
             // Verify all periods from before still exist
             for (period_ts, before_updated_at) in before_ts {
                 let after_updated_at = after_timestamps.get(period_ts).unwrap_or_else(|| {
-                    panic!(
-                        "Period {} missing from {} after backfill",
-                        period_ts, table
-                    )
+                    panic!("Period {} missing from {} after backfill", period_ts, table)
                 });
 
                 // Verify updated_at was refreshed
@@ -190,7 +179,10 @@ async fn test_backfill_aggregates() {
                         // Timestamps are different - backfill definitely updated the row
                         tracing::debug!(
                             "Period {} in {} was updated (updated_at changed from {} to {})",
-                            period_ts, table, before, after
+                            period_ts,
+                            table,
+                            before,
+                            after
                         );
                     }
                 } else if before_updated_at.is_none() && after_updated_at.is_some() {
@@ -202,11 +194,7 @@ async fn test_backfill_aggregates() {
                     );
                 } else {
                     // Both are None - this shouldn't happen but we'll allow it
-                    tracing::warn!(
-                        "Period {} in {} has no updated_at timestamp",
-                        period_ts,
-                        table
-                    );
+                    tracing::warn!("Period {} in {} has no updated_at timestamp", period_ts, table);
                 }
             }
 
@@ -220,14 +208,9 @@ async fn test_backfill_aggregates() {
                 after_timestamps.len()
             );
 
-            tracing::info!(
-                "Verified all {} rows in {} were updated",
-                before_ts.len(),
-                table
-            );
+            tracing::info!("Verified all {} rows in {} were updated", before_ts.len(), table);
         } else {
             tracing::info!("No rows in {} to verify", table);
         }
     }
 }
-

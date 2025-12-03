@@ -4570,8 +4570,10 @@ mod tests {
         }
 
         // Test retrieval
-        let results =
-            db.get_all_time_market_summaries(None, 10, SortDirection::Desc, None, None).await.unwrap();
+        let results = db
+            .get_all_time_market_summaries(None, 10, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].period_timestamp, (base_timestamp + (2 * 3600)) as u64);
@@ -4621,8 +4623,10 @@ mod tests {
         }
 
         // Get first page
-        let first_page =
-            db.get_all_time_market_summaries(None, 3, SortDirection::Desc, None, None).await.unwrap();
+        let first_page = db
+            .get_all_time_market_summaries(None, 3, SortDirection::Desc, None, None)
+            .await
+            .unwrap();
 
         // Use last item as cursor for next page
         let cursor = first_page[2].period_timestamp as i64;

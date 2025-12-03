@@ -38,7 +38,7 @@ const ALL_TIME_CHUNK_SIZE_HOURS: u64 = 48; // Process 2 days at a time (same as 
 
 /// Generic helper function to chunk a time range into smaller chunks
 /// Returns an iterator of (chunk_start, chunk_end) tuples where both are inclusive period boundaries
-/// 
+///
 /// # Arguments
 /// * `start` - Start timestamp (must be aligned to period boundary)
 /// * `end` - End timestamp (must be aligned to period boundary, inclusive)
@@ -54,20 +54,16 @@ where
     F: Fn(u64) -> u64,
 {
     // Require chunk_size > 1 to ensure from_time < to_time validation passes
-    assert!(
-        chunk_size > 1,
-        "chunk_size must be greater than 1, got {}",
-        chunk_size
-    );
-    
+    assert!(chunk_size > 1, "chunk_size must be greater than 1, got {}", chunk_size);
+
     let mut chunks: Vec<(u64, u64)> = Vec::new();
     let mut current = start;
-    
+
     while current <= end {
         // Try to advance chunk_size - 1 times to create a chunk of chunk_size periods
         let mut chunk_end = current;
         let mut advanced = false;
-        
+
         for _ in 1..chunk_size {
             let next = get_next(chunk_end);
             if next > end {
@@ -78,30 +74,30 @@ where
             chunk_end = next;
             advanced = true;
         }
-        
+
         // If we couldn't advance at all, handle the final period
         if !advanced {
             // current <= end but couldn't advance - clamp to end
             chunk_end = end;
         }
-        
+
         // Ensure chunk_end doesn't exceed end (safety check)
         if chunk_end > end {
             chunk_end = end;
         }
-        
+
         // Add chunk (aggregation functions handle from_time == to_time by processing single period)
         chunks.push((current, chunk_end));
-        
+
         // If we've reached or exceeded end, we're done
         if chunk_end >= end {
             break;
         }
-        
+
         // Move to the next chunk starting point
         current = get_next(chunk_end);
     }
-    
+
     chunks.into_iter()
 }
 
@@ -344,12 +340,13 @@ where
         end_ts: u64,
     ) -> Result<(), ServiceError> {
         use crate::market::service::SECONDS_PER_HOUR;
-        
+
         // Calculate chunks and process with progress messages
         // chunk_hourly_range automatically aligns timestamps to hour boundaries
-        let chunks: Vec<_> = chunk_hourly_range(start_ts, end_ts, HOURLY_CHUNK_SIZE_HOURS).collect();
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, HOURLY_CHUNK_SIZE_HOURS).collect();
         let total_chunks = chunks.len();
-        
+
         // Compute aligned values for logging
         let start_hour = get_hour_start(start_ts);
         let end_hour = get_hour_start(end_ts);
@@ -373,7 +370,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_hourly_market_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -388,12 +385,12 @@ where
         // Calculate chunks and process with progress messages
         // chunk_daily_range automatically aligns timestamps to day boundaries
         let chunks: Vec<_> = chunk_daily_range(start_ts, end_ts, DAILY_CHUNK_SIZE_DAYS).collect();
-        
+
         // Compute aligned values for logging
         let start_day = get_day_start(start_ts);
         let end_day = get_day_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         let total_days = {
             let mut count = 0;
             let mut current = start_day;
@@ -403,7 +400,7 @@ where
             }
             count
         };
-        
+
         tracing::info!(
             "Processing daily aggregates: {} days in {} chunks",
             total_days,
@@ -420,7 +417,7 @@ where
                 }
                 count
             };
-            
+
             tracing::info!(
                 "Processing daily chunk {}/{}: {} to {} ({} days)",
                 chunk_idx + 1,
@@ -429,7 +426,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_daily_market_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -443,13 +440,14 @@ where
     ) -> Result<(), ServiceError> {
         // Calculate chunks and process with progress messages
         // chunk_weekly_range automatically aligns timestamps to week boundaries
-        let chunks: Vec<_> = chunk_weekly_range(start_ts, end_ts, WEEKLY_CHUNK_SIZE_WEEKS).collect();
-        
+        let chunks: Vec<_> =
+            chunk_weekly_range(start_ts, end_ts, WEEKLY_CHUNK_SIZE_WEEKS).collect();
+
         // Compute aligned values for logging
         let start_week = get_week_start(start_ts);
         let end_week = get_week_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         let total_weeks = {
             let mut count = 0;
             let mut current = start_week;
@@ -459,7 +457,7 @@ where
             }
             count
         };
-        
+
         tracing::info!(
             "Processing weekly aggregates: {} weeks in {} chunks",
             total_weeks,
@@ -476,7 +474,7 @@ where
                 }
                 count
             };
-            
+
             tracing::info!(
                 "Processing weekly chunk {}/{}: {} to {} ({} weeks)",
                 chunk_idx + 1,
@@ -485,7 +483,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_weekly_market_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -499,13 +497,14 @@ where
     ) -> Result<(), ServiceError> {
         // Calculate chunks and process with progress messages
         // chunk_monthly_range automatically aligns timestamps to month boundaries
-        let chunks: Vec<_> = chunk_monthly_range(start_ts, end_ts, MONTHLY_CHUNK_SIZE_MONTHS).collect();
-        
+        let chunks: Vec<_> =
+            chunk_monthly_range(start_ts, end_ts, MONTHLY_CHUNK_SIZE_MONTHS).collect();
+
         // Compute aligned values for logging
         let start_month = get_month_start(start_ts);
         let end_month = get_month_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         let total_months = {
             let mut count = 0;
             let mut current = start_month;
@@ -515,7 +514,7 @@ where
             }
             count
         };
-        
+
         tracing::info!(
             "Processing monthly aggregates: {} months in {} chunks",
             total_months,
@@ -532,7 +531,7 @@ where
                 }
                 count
             };
-            
+
             tracing::info!(
                 "Processing monthly chunk {}/{}: {} to {} ({} months)",
                 chunk_idx + 1,
@@ -541,7 +540,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_monthly_market_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -554,16 +553,17 @@ where
         end_ts: u64,
     ) -> Result<(), ServiceError> {
         use crate::market::service::SECONDS_PER_HOUR;
-        
+
         // Calculate chunks and process with progress messages
         // chunk_hourly_range automatically aligns timestamps to hour boundaries
-        let chunks: Vec<_> = chunk_hourly_range(start_ts, end_ts, ALL_TIME_CHUNK_SIZE_HOURS).collect();
-        
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, ALL_TIME_CHUNK_SIZE_HOURS).collect();
+
         // Compute aligned values for logging
         let start_hour = get_hour_start(start_ts);
         let end_hour = get_hour_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         tracing::info!(
             "Processing all-time aggregates: {} hours in {} chunks",
             (end_hour - start_hour) / SECONDS_PER_HOUR + 1,
@@ -584,7 +584,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_all_time_market_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -626,16 +626,17 @@ where
         end_ts: u64,
     ) -> Result<(), ServiceError> {
         use crate::market::service::SECONDS_PER_HOUR;
-        
+
         // Calculate chunks and process with progress messages
         // chunk_hourly_range automatically aligns timestamps to hour boundaries
-        let chunks: Vec<_> = chunk_hourly_range(start_ts, end_ts, HOURLY_CHUNK_SIZE_HOURS).collect();
-        
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, HOURLY_CHUNK_SIZE_HOURS).collect();
+
         // Compute aligned values for logging
         let start_hour = get_hour_start(start_ts);
         let end_hour = get_hour_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         tracing::info!(
             "Processing hourly requestor aggregates: {} hours in {} chunks",
             (end_hour - start_hour) / SECONDS_PER_HOUR + 1,
@@ -656,7 +657,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_hourly_requestor_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -671,12 +672,12 @@ where
         // Calculate chunks and process with progress messages
         // chunk_daily_range automatically aligns timestamps to day boundaries
         let chunks: Vec<_> = chunk_daily_range(start_ts, end_ts, DAILY_CHUNK_SIZE_DAYS).collect();
-        
+
         // Compute aligned values for logging
         let start_day = get_day_start(start_ts);
         let end_day = get_day_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         let total_days = {
             let mut count = 0;
             let mut current = start_day;
@@ -686,7 +687,7 @@ where
             }
             count
         };
-        
+
         tracing::info!(
             "Processing daily requestor aggregates: {} days in {} chunks",
             total_days,
@@ -703,7 +704,7 @@ where
                 }
                 count
             };
-            
+
             tracing::info!(
                 "Processing daily requestor chunk {}/{}: {} to {} ({} days)",
                 chunk_idx + 1,
@@ -712,7 +713,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_daily_requestor_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -726,13 +727,14 @@ where
     ) -> Result<(), ServiceError> {
         // Calculate chunks and process with progress messages
         // chunk_weekly_range automatically aligns timestamps to week boundaries
-        let chunks: Vec<_> = chunk_weekly_range(start_ts, end_ts, WEEKLY_CHUNK_SIZE_WEEKS).collect();
-        
+        let chunks: Vec<_> =
+            chunk_weekly_range(start_ts, end_ts, WEEKLY_CHUNK_SIZE_WEEKS).collect();
+
         // Compute aligned values for logging
         let start_week = get_week_start(start_ts);
         let end_week = get_week_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         let total_weeks = {
             let mut count = 0;
             let mut current = start_week;
@@ -742,7 +744,7 @@ where
             }
             count
         };
-        
+
         tracing::info!(
             "Processing weekly requestor aggregates: {} weeks in {} chunks",
             total_weeks,
@@ -759,7 +761,7 @@ where
                 }
                 count
             };
-            
+
             tracing::info!(
                 "Processing weekly requestor chunk {}/{}: {} to {} ({} weeks)",
                 chunk_idx + 1,
@@ -768,7 +770,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_weekly_requestor_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -782,13 +784,14 @@ where
     ) -> Result<(), ServiceError> {
         // Calculate chunks and process with progress messages
         // chunk_monthly_range automatically aligns timestamps to month boundaries
-        let chunks: Vec<_> = chunk_monthly_range(start_ts, end_ts, MONTHLY_CHUNK_SIZE_MONTHS).collect();
-        
+        let chunks: Vec<_> =
+            chunk_monthly_range(start_ts, end_ts, MONTHLY_CHUNK_SIZE_MONTHS).collect();
+
         // Compute aligned values for logging
         let start_month = get_month_start(start_ts);
         let end_month = get_month_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         let total_months = {
             let mut count = 0;
             let mut current = start_month;
@@ -798,7 +801,7 @@ where
             }
             count
         };
-        
+
         tracing::info!(
             "Processing monthly requestor aggregates: {} months in {} chunks",
             total_months,
@@ -815,7 +818,7 @@ where
                 }
                 count
             };
-            
+
             tracing::info!(
                 "Processing monthly requestor chunk {}/{}: {} to {} ({} months)",
                 chunk_idx + 1,
@@ -824,7 +827,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_monthly_requestor_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -837,16 +840,17 @@ where
         end_ts: u64,
     ) -> Result<(), ServiceError> {
         use crate::market::service::SECONDS_PER_HOUR;
-        
+
         // Calculate chunks and process with progress messages
         // chunk_hourly_range automatically aligns timestamps to hour boundaries
-        let chunks: Vec<_> = chunk_hourly_range(start_ts, end_ts, ALL_TIME_CHUNK_SIZE_HOURS).collect();
-        
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, ALL_TIME_CHUNK_SIZE_HOURS).collect();
+
         // Compute aligned values for logging
         let start_hour = get_hour_start(start_ts);
         let end_hour = get_hour_start(end_ts);
         let total_chunks = chunks.len();
-        
+
         tracing::info!(
             "Processing all-time requestor aggregates: {} hours in {} chunks",
             (end_hour - start_hour) / SECONDS_PER_HOUR + 1,
@@ -867,7 +871,7 @@ where
                 chunk_end,
                 period_count
             );
-            
+
             self.indexer.aggregate_all_time_requestor_data_from(*chunk_start, *chunk_end).await?;
         }
 
@@ -896,34 +900,37 @@ mod tests {
         let chunks: Vec<_> = chunk_hourly_range(0, 0, 2).collect();
         assert_eq!(chunks.len(), 1, "Should create one chunk for single period");
         assert_eq!(chunks[0].0, 0, "Chunk should start at 0");
-        assert_eq!(chunks[0].1, 0, "Chunk should end at 0 (aggregation functions handle from_time == to_time)");
+        assert_eq!(
+            chunks[0].1, 0,
+            "Chunk should end at 0 (aggregation functions handle from_time == to_time)"
+        );
     }
 
     #[test]
     fn test_chunk_hourly_range_non_boundary_start() {
         use crate::market::time_boundaries::{get_hour_start, get_next_hour};
-        
+
         // Test: start=1800 (30 minutes into hour 0), end=7200 (aligned to hour 2)
         // The function should align start_ts to hour boundary (0) and end_ts to hour boundary (7200)
         // get_hour_start(1800) = 0, get_hour_start(7200) = 7200
         // So it should process from hour 0 to hour 2
         let start_ts = 1800; // 30 minutes into hour 0
         let end_ts = 7200; // Hour 2 boundary
-        
+
         let chunks: Vec<_> = chunk_hourly_range(start_ts, end_ts, 2).collect();
-        
+
         // The function should align the start to the hour boundary
         let expected_start = get_hour_start(start_ts);
         let expected_end = get_hour_start(end_ts);
         assert!(!chunks.is_empty(), "Should produce at least one chunk");
-        
+
         // First chunk should start at the aligned hour boundary
         assert_eq!(
             chunks[0].0, expected_start,
             "First chunk should start at aligned hour boundary {} (from start_ts {})",
             expected_start, start_ts
         );
-        
+
         // Verify chunks are valid
         for (chunk_start, chunk_end) in &chunks {
             assert!(
@@ -934,7 +941,8 @@ mod tests {
             );
             if expected_start == expected_end {
                 assert_eq!(
-                    *chunk_end, get_next_hour(expected_end),
+                    *chunk_end,
+                    get_next_hour(expected_end),
                     "Single period chunk should extend to next hour boundary {}",
                     get_next_hour(expected_end)
                 );
@@ -953,29 +961,30 @@ mod tests {
     fn test_chunk_hourly_range_non_boundary_end() {
         use crate::market::time_boundaries::get_hour_start;
         use crate::market::time_boundaries::get_next_hour;
-        
+
         // Test: start=0 (aligned), end=9000 (30 minutes into hour 2)
         // The function should align end_ts to hour boundary
         // get_hour_start(9000) = 7200, so it should process from hour 0 to hour 2
         let start_ts = 0;
         let end_ts = 9000; // 30 minutes into hour 2
-        
+
         let chunks: Vec<_> = chunk_hourly_range(start_ts, end_ts, 2).collect();
-        
+
         // Should still work without panicking
         assert!(!chunks.is_empty(), "Should produce at least one chunk");
-        
+
         // The end should be aligned to the hour boundary containing end_ts
         let expected_end = get_hour_start(end_ts);
         let last_chunk_end = chunks.last().unwrap().1;
-        
+
         // If there's only one period (start == end), chunk_end will extend to get_next(end)
         // to satisfy from_time < to_time validation
         let aligned_start = get_hour_start(start_ts);
         if aligned_start == expected_end {
             // Single period case: chunk_end extends beyond end to satisfy validation
             assert_eq!(
-                last_chunk_end, get_next_hour(expected_end),
+                last_chunk_end,
+                get_next_hour(expected_end),
                 "Single period chunk should extend to next hour boundary {}",
                 get_next_hour(expected_end)
             );
@@ -984,10 +993,11 @@ mod tests {
             assert!(
                 last_chunk_end <= get_next_hour(expected_end),
                 "Last chunk end {} should be at or before next hour boundary {}",
-                last_chunk_end, get_next_hour(expected_end)
+                last_chunk_end,
+                get_next_hour(expected_end)
             );
         }
-        
+
         // Verify chunks are valid
         for (chunk_start, chunk_end) in &chunks {
             assert!(
@@ -1002,19 +1012,19 @@ mod tests {
     #[test]
     fn test_chunk_hourly_range_both_non_boundary() {
         use crate::market::time_boundaries::{get_hour_start, get_next_hour};
-        
+
         // Test: start=1800 (30 min into hour 0), end=9000 (30 min into hour 2)
         // Both are non-boundary values
         // The function should align both: get_hour_start(1800) = 0, get_hour_start(9000) = 7200
         // So it should process from hour 0 to hour 2
         let start_ts = 1800;
         let end_ts = 9000;
-        
+
         let chunks: Vec<_> = chunk_hourly_range(start_ts, end_ts, 2).collect();
-        
+
         // Should still work without panicking
         assert!(!chunks.is_empty(), "Should produce at least one chunk");
-        
+
         // First chunk should start at the aligned hour boundary
         let expected_start = get_hour_start(start_ts);
         assert_eq!(
@@ -1022,14 +1032,15 @@ mod tests {
             "First chunk should start at aligned hour boundary {} (from start_ts {})",
             expected_start, start_ts
         );
-        
+
         // Last chunk should end at the aligned hour boundary or extend beyond if single period
         let expected_end = get_hour_start(end_ts);
         let last_chunk_end = chunks.last().unwrap().1;
         if expected_start == expected_end {
             // Single period case: chunk_end extends beyond end to satisfy validation
             assert_eq!(
-                last_chunk_end, get_next_hour(expected_end),
+                last_chunk_end,
+                get_next_hour(expected_end),
                 "Single period chunk should extend to next hour boundary {}",
                 get_next_hour(expected_end)
             );
@@ -1038,10 +1049,11 @@ mod tests {
             assert!(
                 last_chunk_end <= get_next_hour(expected_end),
                 "Last chunk end {} should be at or before next hour boundary {}",
-                last_chunk_end, get_next_hour(expected_end)
+                last_chunk_end,
+                get_next_hour(expected_end)
             );
         }
-        
+
         // Verify chunks are valid
         for (chunk_start, chunk_end) in &chunks {
             assert!(
@@ -1052,5 +1064,4 @@ mod tests {
             );
         }
     }
-
 }
