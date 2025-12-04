@@ -620,8 +620,6 @@ where
         prev_orders_by_status: &mut String,
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let num_orders = orders.len();
-        let order_ids_for_logging =
-            orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(",");
         // Get our current capacity for proving orders given our config and the number of orders that are currently committed to be proven + fulfilled.
         let capacity = self
             .get_proving_order_capacity(config.max_concurrent_proofs, prev_orders_by_status)
@@ -806,10 +804,9 @@ where
             }
         }
 
-        tracing::info!(
-            "Started with {} orders ready to be locked and/or proven ({}). Already commited to {} orders ({}). After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
+        tracing::debug!(
+            "Started with {} orders ready to be locked and/or proven. Already commited to {} orders ({}). After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
             num_orders,
-            order_ids_for_logging,
             num_commited_orders,
             committed_order_ids_for_logging,
             if let Some(max_concurrent_proofs) = config.max_concurrent_proofs {
