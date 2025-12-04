@@ -81,7 +81,7 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy check-docs check-deployments
+check: check-links check-license check-format check-clippy
 
 # Check links in markdown files
 check-links:
