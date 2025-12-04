@@ -2,7 +2,7 @@ name: bento
 # Anchors:
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
-  REDIS_URL: redis://${REDIS_HOST:-redis}:6379
+  VALKEY_URL: redis://${VALKEY_HOST:-valkey}:6379
   S3_URL: http://${MINIO_HOST:-minio}:9000
   S3_BUCKET: ${MINIO_BUCKET:-workflow}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
@@ -22,7 +22,7 @@ x-agent-common: &agent-common
   depends_on:
     postgres:
       condition: service_healthy
-    redis:
+    valkey:
       condition: service_healthy
     minio:
       condition: service_healthy
@@ -65,7 +65,7 @@ x-broker-common: &broker-common
       condition: service_started
     aux_agent:
       condition: service_started
-    redis:
+    valkey:
       condition: service_healthy
     postgres:
       condition: service_healthy
@@ -81,17 +81,17 @@ x-broker-common: &broker-common
   network_mode: host
 
 services:
-  redis:
-    hostname: ${REDIS_HOST:-redis}
-    image: ${REDIS_IMG:-redis:7.2.5-alpine3.19}
+  valkey:
+    hostname: ${VALKEY_HOST:-valkey}
+    image: ${VALKEY_IMG:-valkey/valkey:9.0.0}
     restart: always
     ports:
       - 6379:6379
     volumes:
-      - redis-data:/data
-    command: redis-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+      - valkey-data:/data
+    command: valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -164,7 +164,7 @@ services:
       - broker-data:/db
     depends_on:
       - postgres
-      - redis
+      - valkey
       - minio
 
   exec_agent:
@@ -288,7 +288,7 @@ services:
     entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 500000; done"
 
 volumes:
-  redis-data:
+  valkey-data:
   postgres-data:
   minio-data:
   grafana-data:
