@@ -417,10 +417,10 @@ where
         ) -> bool {
             let expiration = order.expiry();
             if expiration < current_block_timestamp {
-                tracing::debug!("Request {:x} has now expired. Skipping.", order.request.id);
+                tracing::info!("Request {:x} has now expired. Skipping.", order.request.id);
                 false
             } else if expiration.saturating_sub(now_timestamp()) < min_deadline {
-                tracing::debug!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, expiration, min_deadline);
+                tracing::info!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, expiration, min_deadline);
                 false
             } else {
                 true
@@ -459,7 +459,7 @@ where
                 .await
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
-                tracing::debug!(
+                tracing::info!(
                     "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
@@ -475,7 +475,7 @@ where
         for (_, order) in self.lock_and_prove_cache.iter() {
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
-                tracing::debug!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
+                tracing::info!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
                 self.skip_order(&order, "lock expired before we locked").await;
             } else if let Some((locker, _)) =
                 self.db.get_request_locked(U256::from(order.request.id)).await?
@@ -487,11 +487,11 @@ where
                 let locker_address_normalized = locker_address.trim_start_matches("0x");
 
                 if locker_address_normalized != our_address_normalized {
-                    tracing::debug!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
                     self.skip_order(&order, "locked by another prover").await;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
-                    tracing::debug!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
@@ -685,6 +685,8 @@ where
 
         // Apply peak khz limit if specified
         let num_commited_orders = committed_orders.len();
+        let committed_order_ids_for_logging =
+            committed_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(",");
         if config.peak_prove_khz.is_some() && !orders.is_empty() {
             let peak_prove_khz = config.peak_prove_khz.unwrap();
             let total_commited_cycles = committed_orders
@@ -802,10 +804,11 @@ where
             }
         }
 
-        tracing::info!(
-            "Started with {} orders ready to be locked and/or proven. Already commited to {} orders. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
+        tracing::debug!(
+            "Started with {} orders ready to be locked and/or proven. Already commited to {} orders ({}). After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
             num_orders,
             num_commited_orders,
+            committed_order_ids_for_logging,
             if let Some(max_concurrent_proofs) = config.max_concurrent_proofs {
                 max_concurrent_proofs.to_string()
             } else {
