@@ -9,6 +9,7 @@
 
 use crate::redis::RedisPool;
 use anyhow::{Context, Result};
+use byte_unit::Byte;
 use clap::Parser;
 use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -30,6 +31,11 @@ pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
     SNARK_TIMEOUT_DEFAULT, s3::S3Client,
 };
+
+/// Format a byte count into human-readable units (e.g. `15.5 GB`)
+pub(crate) fn format_bytes(bytes: u64) -> String {
+    format!("{:#}", Byte::from_u64(bytes))
+}
 
 /// Workflow agent
 ///
@@ -71,6 +77,18 @@ pub struct Args {
     /// Defaults to 8 hours
     #[clap(env,long, default_value_t = 8 * 60 * 60)]
     pub redis_ttl: u64,
+
+    /// Optional redis memory limit (in bytes) for queueing segments; executor will wait if usage exceeds this
+    #[clap(env, long, env = "REDIS_MAX_QUEUE_MEMORY")]
+    pub redis_max_queue_memory: Option<Byte>,
+
+    /// Poll interval, in milliseconds, while waiting for redis memory usage to drop below the queueing limit
+    #[clap(env, long, default_value_t = 250)]
+    pub redis_queue_memory_poll_ms: u64,
+
+    /// Interval, in seconds, for redis memory warning checks
+    #[clap(env, long, default_value_t = 5)]
+    pub redis_memory_warning_interval: u64,
 
     /// Executor limit, in millions of cycles
     #[clap(env, short, long, default_value_t = 100_000)]
@@ -336,6 +354,52 @@ impl Agent {
                             tracing::error!("[BENTO-WF-106] Completed job cleanup failed: {:#}", e);
                             time::sleep(time::Duration::from_secs(cleanup_interval)).await;
                         }
+                    }
+                });
+            }
+
+            if let Some(threshold) =
+                self.args.redis_max_queue_memory.filter(|value| value.as_u64() > 0)
+            {
+                let term_sig_copy = term_sig.clone();
+                let redis_pool = self.redis_pool.clone();
+                let poll_interval = self.args.redis_memory_warning_interval;
+                tokio::spawn(async move {
+                    let poll_duration = time::Duration::from_secs(poll_interval.max(1));
+                    while !term_sig_copy.load(Ordering::Relaxed) {
+                        match redis_pool.get().await {
+                            Ok(mut conn) => {
+                                match crate::redis::fetch_memory_info(&mut conn).await {
+                                    Ok(info) => {
+                                        if info.used_memory >= threshold.as_u64() {
+                                            tracing::warn!(
+                                                total_system_memory = ?info.total_system_memory,
+                                                "[BENTO-WF-134] Redis memory usage {} exceeded warning threshold {:#} (maxmemory: {})",
+                                                format_bytes(info.used_memory),
+                                                threshold,
+                                                format_bytes(info.maxmemory),
+                                            );
+                                        } else {
+                                            tracing::debug!(
+                                                "Redis memory usage {} is below warning threshold {:#} (maxmemory: {})",
+                                                format_bytes(info.used_memory),
+                                                threshold,
+                                                format_bytes(info.maxmemory),
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            "[BENTO-WF-135] Failed to query redis memory for warning check: {err:?}"
+                                        );
+                                    }
+                                }
+                            }
+                            Err(err) => tracing::warn!(
+                                "[BENTO-WF-136] Failed to acquire redis connection for memory warning check: {err:?}"
+                            ),
+                        }
+                        time::sleep(poll_duration).await;
                     }
                 });
             }
