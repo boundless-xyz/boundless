@@ -31,3 +31,4 @@ config:
   prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
   prover-cluster:apiKey:
     secure: v1:gZbbF3rCPv7mnSTo:xLw/sT1Hq45t2tciJQ4aDDp5QFkTHpkxwGC39DG17/wX8i7AFpKOy0T8rU3Y01TSzezueeP55ii0IfQ=
+  prover-cluster:maxFileSize: 500000000000
