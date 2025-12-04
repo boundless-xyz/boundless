@@ -4,15 +4,41 @@ AWS Lambda function providing REST API access to Boundless protocol staking, del
 
 ## Environment Variables
 
+### API Server
+
 - `DB_URL` (required) - PostgreSQL connection string to the indexer database (or SQLite for local testing)
 - `RUST_LOG` (optional) - Tracing log level (default: info)
 
-Additional environment variables for local testing:
+### Market Indexer
 
-- `ETH_RPC_URL` - **Required for indexer**: Ethereum RPC endpoint URL
-- `VEZKC_ADDRESS` - Optional: veZKC contract address (defaults to mainnet address)
-- `ZKC_ADDRESS` - Optional: ZKC token address (defaults to mainnet address)
-- `POVW_ACCOUNTING_ADDRESS` - Optional: PoVW accounting address (defaults to mainnet address)
+The following environment variables are required when running the market indexer:
+
+- `MARKET_RPC_URL` (required) - Ethereum RPC endpoint URL for the Boundless Market contract
+- `BOUNDLESS_MARKET_ADDRESS` (required) - Boundless Market contract address
+
+Optional environment variables:
+
+- `LOGS_RPC_URL` - Separate RPC endpoint for `eth_getLogs` calls. If not provided, uses `MARKET_RPC_URL` for all operations
+- `ORDER_STREAM_URL` - Optional URL of the order stream API for off-chain order indexing
+- `ORDER_STREAM_API_KEY` - Optional API key for authenticating with the order stream API
+- `TX_FETCH_STRATEGY` - Transaction fetching strategy: `"block-receipts"` or `"tx-by-hash"` (default: `"tx-by-hash"`)
+- `RUST_LOG` - Tracing log level (default: info)
+- `CACHE_URI` - Optional cache storage URI (e.g., `file:///path/to/cache` or `s3://bucket-name`)
+
+### Rewards Indexer
+
+The rewards indexer tracks staking, delegation, and PoVW rewards data. It is a separate indexer from the market indexer and can be run independently.
+
+The following environment variables are required when running the rewards indexer:
+
+- `ZKC_RPC_URL` (required) - Ethereum RPC endpoint URL for ZKC/veZKC contracts
+
+Optional environment variables:
+
+- `VEZKC_ADDRESS` - veZKC contract address (defaults to mainnet address)
+- `ZKC_ADDRESS` - ZKC token address (defaults to mainnet address)
+- `POVW_ACCOUNTING_ADDRESS` - PoVW accounting address (defaults to mainnet address)
+- `RUST_LOG` - Tracing log level (default: info)
 
 ## API Documentation
 
@@ -28,48 +54,129 @@ For detailed request/response schemas, query parameters, and data models, please
 
 ### Setup
 
-Export `ETH_MAINNET_RPC_URL` to be an archive node endpoint with support for querying events.
+The `manage_local` script provides convenient commands for running the indexer and API locally. It supports both SQLite and PostgreSQL databases.
 
-### Running the Services Locally
+### Available Commands
 
 Use the `manage_local` CLI tool to run the indexer and API:
 
 ```bash
-./manage-local --help
+./manage_local --help
 ```
 
-#### Example workflow
+**Commands:**
+
+- `run-market-indexer <database> [duration] [start_block] [end_block] [batch_size] [cache_dir]` - Run market-indexer to populate database with market data
+- `run-market-backfill <database> <mode> <start_block> [end_block] [cache_dir] [tx_fetch_strategy]` - Run market-indexer-backfill to recompute statuses/aggregates
+- `run-rewards-indexer <database> [duration] [end_epoch] [end_block] [batch_size]` - Run rewards-indexer to populate database with staking/delegation/PoVW data
+- `run-api <port> <database>` - Run API server
+
+### Example: Running Market Indexer and API
+
+#### 1. Run the Market Indexer
 
 ```bash
-# 1. Create and populate a test database (runs for 30 seconds)
-./manage_local run-indexer my_test.db 30
+# Set required environment variables
+export MARKET_RPC_URL="https://your-rpc-endpoint.com/v2/YOUR_API_KEY" # recommend quicknode
+export BOUNDLESS_MARKET_ADDRESS="0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
+export LOGS_RPC_URL="https://your-logs-rpc-endpoint.com/v2/YOUR_API_KEY"  # recommend alchemy
+export ORDER_STREAM_URL="https://order-stream.example.com"  # Optional
+export ORDER_STREAM_API_KEY="your-api-key"  # Optional
+export TX_FETCH_STRATEGY="tx-by-hash"  # Optional: "block-receipts" or "tx-by-hash"
+export RUST_LOG="info"  # Optional
 
-# 2. Start the API server on port 3000
-./manage_local run-api 3000 my_test.db
+# Run indexer for max of 7200 seconds (2 hours), processing blocks 35060420 to 38958539
+# Using PostgreSQL database with cache directory
+./manage_local run-market-indexer \
+  postgres://postgres:password@localhost:5432/postgres \
+  7200 \
+  35060420 \
+  38958539 \
+  9999 \
+  ./cache_market_x2
+```
+
+**Parameters:**
+
+- `database`: PostgreSQL URL or SQLite file path
+- `duration`: Seconds to run (default: 120)
+- `start_block`: Block to start from (optional)
+- `end_block`: Block to stop at (optional)
+- `batch_size`: Blocks per batch (default: 500)
+- `cache_dir`: Directory for cache file storage (optional)
+
+#### 2. Start the API Server
+
+```bash
+# Start API server on port 3000
+./manage_local run-api 3000 postgres://postgres:password@localhost:5432/postgres
 ```
 
 Once the API server is running, you can test it:
 
 ```bash
-# Health check
-curl http://localhost:3000/health
-
-# Get PoVW aggregate data
-curl http://localhost:3000/v1/povw
+curl http://localhost:3000/docs
 ```
 
-You can also access the swagger UI at http://localhost:3000/docs
+### Running Market Backfill
 
-### Database
+The `run-market-backfill` command recomputes request statuses and market aggregates from existing event data. This is useful for fixing inconsistencies or rebuilding computed tables after schema changes.
 
-The SQLite database file will be created in the current directory. You can inspect it with any SQLite client:
+**Modes:**
+
+- `statuses_and_aggregates`: Recompute both request statuses and all market summaries
+- `aggregates`: Recompute only market summaries (faster, skips status updates)
 
 ```bash
-sqlite3 test.db
-.tables  # Show all tables
-.schema povw_rewards  # Show schema for a table
-SELECT * FROM povw_summary_stats;  # Query data
+# Set required environment variables
+export MARKET_RPC_URL="https://your-rpc-endpoint.com"
+export BOUNDLESS_MARKET_ADDRESS="0x..."
+export TX_FETCH_STRATEGY="tx-by-hash"  # Optional
+
+# Recompute statuses and aggregates from block 35060420 to 38958539
+./manage_local run-market-backfill \
+  postgres://postgres:password@localhost:5432/postgres \
+  statuses_and_aggregates \
+  35060420 \
+  38958539 \
+  ./cache_market_x2 \
+  tx-by-hash
+
+# Or recompute only aggregates
+./manage_local run-market-backfill \
+  postgres://postgres:password@localhost:5432/postgres \
+  aggregates \
+  35060420 \
+  38958539
 ```
+
+**Parameters:**
+
+- `database`: PostgreSQL URL or SQLite file path
+- `mode`: `"statuses_and_aggregates"` or `"aggregates"`
+- `start_block`: Block to start backfill from (required)
+- `end_block`: Block to end backfill at (optional, default: latest indexed)
+- `cache_dir`: Directory for cache file storage (optional)
+- `tx_fetch_strategy`: `"block-receipts"` or `"tx-by-hash"` (optional, default: `"block-receipts"`)
+
+### Running Rewards Indexer
+
+The `run-rewards-indexer` command indexes staking, delegation, and PoVW rewards data from the blockchain.
+
+```bash
+# Set required environment variables
+export ZKC_RPC_URL="https://your-rpc-endpoint.com/v2/YOUR_API_KEY"
+export VEZKC_ADDRESS="0x..."  # Optional
+export ZKC_ADDRESS="0x..."  # Optional
+export POVW_ACCOUNTING_ADDRESS="0x..."  # Optional
+export RUST_LOG="info"  # Optional
+
+# Run rewards indexer for 120 seconds
+./manage_local run-rewards-indexer \
+  postgres://postgres:password@localhost:5432/postgres \
+  120
+```
+=
 
 ## Deployment
 
@@ -81,24 +188,6 @@ Build for Lambda deployment using cargo-lambda or similar tools. See `infra/inde
 Tests are ignored by default as they require an Ethereum RPC URL to be set, as they fetch real data from mainnet.
 
 ### Running the Tests
-
-Each test module:
-
-1. Spawns a rewards-indexer (see `crates/indexer`) process to populate a temporary SQLite database
-2. Starts the API server on a random port
-3. Makes HTTP requests to test various endpoints
-4. Cleans up processes and temporary files after completion
-
-```bash
-# Set your RPC URL (or add to .env file)
-export ETH_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
-
-# Run all integration tests (tests are ignored by default since they require RPC)
-cargo test --test local_integration -- --ignored
-
-# Run specific test modules
-cargo test --test local_integration povw_tests -- --ignored
-cargo test --test local_integration staking_tests -- --ignored
-cargo test --test local_integration delegations_tests -- --ignored
-cargo test --test local_integration docs_tests -- --ignored
+```
+just test-indexer-api
 ```
