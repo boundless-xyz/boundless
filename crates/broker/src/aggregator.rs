@@ -517,11 +517,7 @@ impl AggregatorService {
 
                 if let Err(err) = self
                     .db
-                    .set_order_failure_and_delete_input(
-                        &order.order_id,
-                        "Expired before aggregation",
-                        &self.prover,
-                    )
+                    .set_order_failure(&order.order_id, "Expired before aggregation", &self.prover)
                     .await
                 {
                     tracing::error!(

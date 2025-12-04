@@ -146,7 +146,7 @@ pub struct RpcRetryConfig {
 #[derive(Clone)]
 pub struct OrderMonitor<P> {
     db: DbObj,
-    prover: Option<ProverObj>,
+    prover: ProverObj,
     chain_monitor: Arc<ChainMonitorService<P>>,
     block_time: u64,
     config: ConfigLock,
@@ -168,7 +168,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
-        prover: Option<ProverObj>,
+        prover: ProverObj,
         provider: Arc<P>,
         chain_monitor: Arc<ChainMonitorService<P>>,
         config: ConfigLock,
@@ -392,7 +392,7 @@ where
 
     /// Helper method to skip an order in the database and invalidate the appropriate cache
     async fn skip_order(&self, order: &OrderRequest, reason: &str) {
-        if let Err(e) = self.db.insert_skipped_request(order).await {
+        if let Err(e) = self.db.insert_skipped_request(order, &self.prover).await {
             tracing::error!("Failed to skip order ({}): {} - {e:?}", reason, order.id());
         }
 
@@ -557,18 +557,13 @@ where
                                     );
                                 }
                             }
-                            if let Some(prover) = &self.prover {
-                            if let Err(err) = self.db.insert_skipped_request_and_delete_input(order, prover).await {
+                            if let Err(err) =
+                                self.db.insert_skipped_request(order, &self.prover).await
+                            {
                                 tracing::error!(
                                     "Failed to set DB failure state for order: {order_id} - {err:?}"
                                 );
                             }
-                            } else if let Err(err) = self.db.insert_skipped_request(order).await {
-                                tracing::error!(
-                                    "Failed to set DB failure state for order: {order_id} - {err:?}"
-                                );
-                            }
-
                         }
                     }
                     self.lock_and_prove_cache.invalidate(&order_id).await;
@@ -1000,7 +995,10 @@ where
 pub(crate) mod tests {
     use super::*;
     use crate::OrderStatus;
-    use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
+    use crate::{
+        db::{tests::db_test_prover, SqliteDb},
+        now_timestamp, FulfillmentType,
+    };
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{address, Bytes};
     use alloy::{
@@ -1163,9 +1161,10 @@ pub(crate) mod tests {
 
         let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
 
+        let prover = db_test_prover();
         let monitor = OrderMonitor::new(
             db.clone(),
-            None,
+            prover.clone(),
             provider.clone(),
             chain_monitor.clone(),
             config.clone(),

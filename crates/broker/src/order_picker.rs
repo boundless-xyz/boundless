@@ -275,7 +275,7 @@ where
                     tracing::info!("Order pricing cancelled during pricing for order {order_id}");
 
                     // Add the cancelled order to the database as skipped
-                    if let Err(e) = self.db.insert_skipped_request_and_delete_input(&order, &self.prover).await {
+                    if let Err(e) = self.db.insert_skipped_request(&order, &self.prover).await {
                         tracing::error!("Failed to add cancelled order to database: {e}");
                     }
 
@@ -338,7 +338,7 @@ where
 
                     // Add the skipped order to the database
                     self.db
-                        .insert_skipped_request_and_delete_input(&order, &self.prover)
+                        .insert_skipped_request(&order, &self.prover)
                         .await
                         .context("Failed to add skipped order to database")?;
 
@@ -347,7 +347,7 @@ where
                 Err(err) => {
                     tracing::warn!("Failed to price order {order_id}: {err}");
                     self.db
-                        .insert_skipped_request_and_delete_input(&order, &self.prover)
+                        .insert_skipped_request(&order, &self.prover)
                         .await
                         .context("Failed to skip failed priced order")?;
 

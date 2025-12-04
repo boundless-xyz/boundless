@@ -972,7 +972,7 @@ where
 
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
-            Some(prover.clone()),
+            prover.clone(),
             self.provider.clone(),
             chain_monitor.clone(),
             config.clone(),
