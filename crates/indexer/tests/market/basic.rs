@@ -1192,6 +1192,20 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     let test_db_receipts = TestDb::new().await.unwrap();
     let test_db_tx_by_hash = TestDb::new().await.unwrap();
 
+    // Verify databases are isolated (different URLs)
+    assert_ne!(
+        test_db_receipts.db_url, test_db_tx_by_hash.db_url,
+        "Databases should have different URLs"
+    );
+    assert_ne!(
+        test_db_receipts.db_url, fixture.test_db.db_url,
+        "Receipts database should be different from fixture database"
+    );
+    assert_ne!(
+        test_db_tx_by_hash.db_url, fixture.test_db.db_url,
+        "Tx-by-hash database should be different from fixture database"
+    );
+
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
 
     // Submit and fulfill 1 request
@@ -1220,13 +1234,18 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     fixture.ctx.customer_provider.anvil_mine(Some(2), None).await.unwrap();
     let end_block = fixture.ctx.customer_provider.get_block_number().await.unwrap().to_string();
 
+    // Verify both databases are empty before indexing
+    let count_before_receipts = count_table_rows(&test_db_receipts.pool, "transactions").await;
+    let count_before_tx_by_hash = count_table_rows(&test_db_tx_by_hash.pool, "transactions").await;
+    assert_eq!(count_before_receipts, 0, "Receipts database should be empty before indexing");
+    assert_eq!(count_before_tx_by_hash, 0, "Tx-by-hash database should be empty before indexing");
+
     // Run indexer with block-receipts strategy
     let mut cli_process_receipts = IndexerCliBuilder::new(
         test_db_receipts.db_url.clone(),
         fixture.anvil.endpoint_url().to_string(),
         fixture.ctx.deployment.boundless_market_address.to_string(),
     )
-    .retries("3")
     .batch_size("100")
     .tx_fetch_strategy("block-receipts")
     .start_block("0")
@@ -1234,9 +1253,19 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     .spawn()
     .unwrap();
 
-    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+    // Wait for receipts indexer to finish (using correct database)
+    wait_for_indexer(&fixture.ctx.customer_provider, &test_db_receipts.pool).await;
     cli_process_receipts.kill().ok();
-    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &test_db_receipts.pool).await;
+
+    // Verify receipts database has data, tx-by-hash database is still empty
+    let count_after_receipts = count_table_rows(&test_db_receipts.pool, "transactions").await;
+    let count_after_tx_by_hash_before = count_table_rows(&test_db_tx_by_hash.pool, "transactions").await;
+    assert!(count_after_receipts > 0, "Receipts database should have data after indexing");
+    assert_eq!(
+        count_after_tx_by_hash_before, 0,
+        "Tx-by-hash database should still be empty before its indexer runs"
+    );
 
     // Run indexer with tx-by-hash strategy
     let mut cli_process_tx_by_hash = IndexerCliBuilder::new(
@@ -1244,7 +1273,6 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
         fixture.anvil.endpoint_url().to_string(),
         fixture.ctx.deployment.boundless_market_address.to_string(),
     )
-    .retries("3")
     .batch_size("100")
     .tx_fetch_strategy("tx-by-hash")
     .start_block("0")
@@ -1252,9 +1280,18 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
     .spawn()
     .unwrap();
 
-    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+    // Wait for tx-by-hash indexer to finish (using correct database)
+    wait_for_indexer(&fixture.ctx.customer_provider, &test_db_tx_by_hash.pool).await;
     cli_process_tx_by_hash.kill().ok();
-    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+    wait_for_indexer(&fixture.ctx.customer_provider, &test_db_tx_by_hash.pool).await;
+
+    // Verify both databases now have data
+    let count_after_tx_by_hash = count_table_rows(&test_db_tx_by_hash.pool, "transactions").await;
+    assert!(count_after_tx_by_hash > 0, "Tx-by-hash database should have data after indexing");
+    assert_eq!(
+        count_after_receipts, count_after_tx_by_hash,
+        "Both databases should have the same number of transactions"
+    );
 
     // Compare results from both databases
     let count_receipts = count_table_rows(&test_db_receipts.pool, "transactions").await;
