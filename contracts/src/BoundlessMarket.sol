@@ -68,6 +68,7 @@ contract BoundlessMarket is
     // Using immutable here means the image ID and verifier address is linked to the implementation
     // contract, and not to the proxy. Any deployment that wants to update these values must deploy
     // a new implementation contract.
+    /// @dev Risc0 verifier router used for assessor seals.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IRiscZeroVerifier public immutable VERIFIER;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
