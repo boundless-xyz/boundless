@@ -112,12 +112,10 @@ export = () => {
   const offchainWarnBalanceBelow = offchainConfig.get('WARN_BALANCE_BELOW');
   const offchainErrorBalanceBelow = offchainConfig.get('ERROR_BALANCE_BELOW');
   let offchainPrivateKey: pulumi.Output<string> | undefined;
-  if (isDev) {
-    if (process.env.OFFCHAIN_PRIVATE_KEY) {
-      offchainPrivateKey = pulumi.output(process.env.OFFCHAIN_PRIVATE_KEY);
-    } else {
-      offchainPrivateKey = offchainConfig.getSecret('PRIVATE_KEY');
-    }
+  if (isDev && process.env.OFFCHAIN_PRIVATE_KEY) {
+    offchainPrivateKey = pulumi.output(process.env.OFFCHAIN_PRIVATE_KEY);
+  } else {
+    offchainPrivateKey = offchainConfig.requireSecret('PRIVATE_KEY');
   }
   const offchainInputMaxMCycles = offchainConfig.get('INPUT_MAX_MCYCLES') ?? "1000";
   const offchainRampUp = offchainConfig.get('RAMP_UP');
@@ -171,12 +169,10 @@ export = () => {
   const onchainWarnBalanceBelow = onchainConfig.get('WARN_BALANCE_BELOW');
   const onchainErrorBalanceBelow = onchainConfig.get('ERROR_BALANCE_BELOW');
   let onchainPrivateKey: pulumi.Output<string> | undefined;
-  if (isDev) {
-    if (process.env.ONCHAIN_PRIVATE_KEY) {
-      onchainPrivateKey = pulumi.output(process.env.ONCHAIN_PRIVATE_KEY);
-    } else {
-      onchainPrivateKey = onchainConfig.getSecret('PRIVATE_KEY');
-    }
+  if (isDev && process.env.ONCHAIN_PRIVATE_KEY) {
+    onchainPrivateKey = pulumi.output(process.env.ONCHAIN_PRIVATE_KEY);
+  } else {
+    onchainPrivateKey = onchainConfig.requireSecret('PRIVATE_KEY');
   }
   const onchainInputMaxMCycles = onchainConfig.get('INPUT_MAX_MCYCLES');
   const onchainRampUp = onchainConfig.get('RAMP_UP');
@@ -224,12 +220,11 @@ export = () => {
 
   const randomRequestorConfig = new pulumi.Config("order-generator-random-requestor");
   let randomRequestorPrivateKey: pulumi.Output<string> | undefined;
-  if (isDev) {
-    if (process.env.RANDOM_REQUESTOR_PRIVATE_KEY) {
-      randomRequestorPrivateKey = pulumi.output(process.env.RANDOM_REQUESTOR_PRIVATE_KEY);
-    } else {
-      randomRequestorPrivateKey = randomRequestorConfig.getSecret('PRIVATE_KEY');
-    }
+  if (isDev && process.env.RANDOM_REQUESTOR_PRIVATE_KEY) {
+    randomRequestorPrivateKey = pulumi.output(process.env.RANDOM_REQUESTOR_PRIVATE_KEY);
+  } else {
+    // We only deploy the random requestor on some networks, so we don't require private key.
+    randomRequestorPrivateKey = randomRequestorConfig.getSecret('PRIVATE_KEY');
   }
 
   if (randomRequestorPrivateKey) {
