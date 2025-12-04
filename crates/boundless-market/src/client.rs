@@ -18,16 +18,19 @@ use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
     primitives::{Address, Bytes, U256},
     providers::{fillers::ChainIdFiller, DynProvider, Provider, ProviderBuilder},
+    rpc::client::RpcClient,
     signers::{
         local::{LocalSignerError, PrivateKeySigner},
         Signer,
     },
+    transports::{http::Http, layers::FallbackLayer},
 };
 use alloy_primitives::{Signature, B256};
 use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
+use tower::ServiceBuilder;
 use url::Url;
 
 use crate::{
@@ -37,7 +40,7 @@ use crate::{
         Fulfillment, FulfillmentData, ProofRequest, RequestError,
     },
     deployments::Deployment,
-    dynamic_gas_filler::DynamicGasFiller,
+    dynamic_gas_filler::{DynamicGasFiller, PriorityMode},
     nonce_layer::NonceProvider,
     order_stream_client::OrderStreamClient,
     request_builder::{
@@ -57,6 +60,7 @@ use crate::{
 pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     deployment: Option<Deployment>,
     rpc_url: Option<Url>,
+    rpc_urls: Vec<Url>,
     signer: Option<Si>,
     storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
@@ -76,6 +80,7 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
         Self {
             deployment: None,
             rpc_url: None,
+            rpc_urls: Vec::new(),
             signer: None,
             storage_provider: None,
             tx_timeout: None,
@@ -100,14 +105,57 @@ pub trait ClientProviderBuilder {
     /// Error returned by methods on this [ClientProviderBuilder].
     type Error;
 
-    /// Build a provider connected to the given RPC URL.
+    /// Build a provider connected to the given RPC URLs.
     fn build_provider(
         &self,
-        rpc_url: impl AsRef<str>,
+        rpc_urls: Vec<Url>,
     ) -> impl Future<Output = Result<DynProvider, Self::Error>>;
 
     /// Get the default signer address that will be used by this provider, or `None` if no signer.
     fn signer_address(&self) -> Option<Address>;
+}
+
+impl<St, Si> ClientBuilder<St, Si> {
+    /// Collect all RPC URLs by merging rpc_url and rpc_urls.
+    /// If both are provided, they are merged into a single list.
+    fn collect_rpc_urls(&self) -> Result<Vec<Url>, anyhow::Error> {
+        // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
+        let mut seen = std::collections::HashSet::new();
+        if let Some(ref rpc_url) = self.rpc_url {
+            seen.insert(rpc_url.clone());
+        }
+        seen.extend(self.rpc_urls.iter().cloned());
+        let all_urls: Vec<Url> = seen.into_iter().collect();
+
+        if all_urls.is_empty() {
+            bail!("no RPC URLs provided, set at least one using with_rpc_url or with_rpc_urls");
+        }
+
+        Ok(all_urls)
+    }
+
+    /// Build a custom RPC client transport with fallback support for multiple URLs.
+    fn build_fallback_transport(&self, urls: &[Url]) -> Result<RpcClient, anyhow::Error> {
+        // Create HTTP transports for each URL
+        let transports: Vec<Http<_>> = urls.iter().map(|url| Http::new(url.clone())).collect();
+
+        // Configure FallbackLayer with all transports active
+        let active_count = std::num::NonZeroUsize::new(transports.len())
+            .context("at least one transport is required")?;
+        let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
+
+        tracing::info!(
+            "Configuring provider with fallback support: {} URLs: {:?}",
+            urls.len(),
+            urls
+        );
+
+        // Build transport with fallback layer
+        let transport = ServiceBuilder::new().layer(fallback_layer).service(transports);
+
+        // Create RPC client with the transport
+        Ok(RpcClient::builder().transport(transport, false))
+    }
 }
 
 impl<St, Si> ClientProviderBuilder for ClientBuilder<St, Si>
@@ -116,33 +164,57 @@ where
 {
     type Error = anyhow::Error;
 
-    async fn build_provider(&self, rpc_url: impl AsRef<str>) -> Result<DynProvider, Self::Error> {
-        let rpc_url = rpc_url.as_ref();
+    async fn build_provider(&self, rpc_urls: Vec<Url>) -> Result<DynProvider, Self::Error> {
         let provider = match self.signer.clone() {
             Some(signer) => {
                 let dynamic_gas_filler = DynamicGasFiller::new(
-                    0.2,  // 20% increase of gas limit
-                    0.05, // 5% increase of gas_price per pending transaction
-                    2.0,  // 2x max gas multiplier
+                    20, // 20% increase of gas limit
+                    PriorityMode::Medium,
                     signer.address(),
                 );
 
-                // Connect the RPC provider.
-                let base_provider = ProviderBuilder::new()
-                    .disable_recommended_fillers()
-                    .filler(ChainIdFiller::default())
-                    .filler(dynamic_gas_filler)
-                    .layer(BalanceAlertLayer::new(self.balance_alerts.clone().unwrap_or_default()))
-                    .connect(rpc_url)
-                    .await
-                    .with_context(|| format!("failed to connect provider to {rpc_url}"))?;
+                // Build provider without erasing first (NonceProvider needs FillProvider)
+                let balance_alerts = self.balance_alerts.clone().unwrap_or_default();
+
+                let base_provider = if rpc_urls.len() > 1 {
+                    // Multiple URLs - use fallback transport
+                    let client = self.build_fallback_transport(&rpc_urls)?;
+                    ProviderBuilder::new()
+                        .disable_recommended_fillers()
+                        .filler(ChainIdFiller::default())
+                        .filler(dynamic_gas_filler)
+                        .layer(BalanceAlertLayer::new(balance_alerts))
+                        .connect_client(client)
+                } else {
+                    // Single URL - use regular provider
+                    let url = rpc_urls.first().unwrap();
+                    ProviderBuilder::new()
+                        .disable_recommended_fillers()
+                        .filler(ChainIdFiller::default())
+                        .filler(dynamic_gas_filler)
+                        .layer(BalanceAlertLayer::new(balance_alerts))
+                        .connect(url.as_str())
+                        .await
+                        .with_context(|| format!("failed to connect provider to {url}"))?
+                };
+
                 NonceProvider::new(base_provider, EthereumWallet::from(signer)).erased()
             }
-            None => ProviderBuilder::new()
-                .connect(rpc_url)
-                .await
-                .with_context(|| format!("failed to connect provider to {rpc_url}"))?
-                .erased(),
+            None => {
+                if rpc_urls.len() > 1 {
+                    // Multiple URLs - use fallback transport
+                    let client = self.build_fallback_transport(&rpc_urls)?;
+                    ProviderBuilder::new().connect_client(client).erased()
+                } else {
+                    // Single URL - use regular provider
+                    let url = rpc_urls.first().context("no RPC URL provided")?;
+                    ProviderBuilder::new()
+                        .connect(url.as_str())
+                        .await
+                        .with_context(|| format!("failed to connect provider to {url}"))?
+                        .erased()
+                }
+            }
         };
         Ok(provider)
     }
@@ -155,13 +227,20 @@ where
 impl<St> ClientProviderBuilder for ClientBuilder<St, NotProvided> {
     type Error = anyhow::Error;
 
-    async fn build_provider(&self, rpc_url: impl AsRef<str>) -> Result<DynProvider, Self::Error> {
-        let rpc_url = rpc_url.as_ref();
-        let provider = ProviderBuilder::new()
-            .connect(rpc_url)
-            .await
-            .with_context(|| format!("failed to connect provider to {rpc_url}"))?
-            .erased();
+    async fn build_provider(&self, rpc_urls: Vec<Url>) -> Result<DynProvider, Self::Error> {
+        let provider = if rpc_urls.len() > 1 {
+            // Multiple URLs - use fallback transport
+            let client = self.build_fallback_transport(&rpc_urls)?;
+            ProviderBuilder::new().connect_client(client).erased()
+        } else {
+            // Single URL - use regular provider
+            let url = rpc_urls.first().unwrap();
+            ProviderBuilder::new()
+                .connect(url.as_str())
+                .await
+                .with_context(|| format!("failed to connect provider to {url}"))?
+                .erased()
+        };
         Ok(provider)
     }
 
@@ -179,8 +258,8 @@ impl<St, Si> ClientBuilder<St, Si> {
         St: Clone,
         Self: ClientProviderBuilder<Error = anyhow::Error>,
     {
-        let rpc_url = self.rpc_url.clone().context("rpc_url is not set on ClientBuilder")?;
-        let provider = self.build_provider(&rpc_url).await?;
+        let all_urls = self.collect_rpc_urls()?;
+        let provider = self.build_provider(all_urls).await?;
 
         // Resolve the deployment information.
         let chain_id =
@@ -265,6 +344,32 @@ impl<St, Si> ClientBuilder<St, Si> {
         Self { rpc_url: Some(rpc_url), ..self }
     }
 
+    /// Set additional RPC URLs for automatic failover.
+    ///
+    /// When multiple URLs are provided (via `with_rpc_url` and/or `with_rpc_urls`),
+    /// they are merged into a single list. If 2+ URLs are provided, the client will
+    /// use Alloy's FallbackLayer to distribute requests across multiple RPC endpoints
+    /// with automatic failover. If only 1 URL is provided, a regular provider is used.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use boundless_market::Client;
+    /// # use url::Url;
+    /// // Multiple URLs - uses fallback provider
+    /// Client::builder()
+    ///     .with_rpc_urls(vec![
+    ///         Url::parse("https://rpc2.example.com").unwrap(),
+    ///         Url::parse("https://rpc3.example.com").unwrap(),
+    ///     ]);
+    ///
+    /// // Single URL - uses regular provider
+    /// Client::builder()
+    ///     .with_rpc_urls(vec![Url::parse("https://rpc.example.com").unwrap()]);
+    /// ```
+    pub fn with_rpc_urls(self, rpc_urls: Vec<Url>) -> Self {
+        Self { rpc_urls, ..self }
+    }
+
     /// Set the signer from the given private key.
     /// ```rust
     /// # use boundless_market::Client;
@@ -305,6 +410,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             deployment: self.deployment,
             storage_provider: self.storage_provider,
             rpc_url: self.rpc_url,
+            rpc_urls: self.rpc_urls,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             offer_layer_config: self.offer_layer_config,
@@ -336,6 +442,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_provider,
             deployment: self.deployment,
             rpc_url: self.rpc_url,
+            rpc_urls: self.rpc_urls,
             signer: self.signer,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,

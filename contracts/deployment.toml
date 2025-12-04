@@ -292,7 +292,7 @@ collateral-token = "0x0000000000000000000000000000000000000000"
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
 assessor-image-id = "0x661051a91ef01febc96e11f38280281a08cfeeb37fb3a2d984f4a8f703965cc3"
-assessor-guest-url = "https://staging-signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin"
+assessor-guest-url = "https://staging-signal-artifacts.boundless.network/v3/assessor/assessor_guest.bin"
 deprecated-assessor-duration = 0
 
 # PoVW contracts
