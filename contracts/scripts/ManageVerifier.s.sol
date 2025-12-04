@@ -52,7 +52,8 @@ contract RiscZeroManagementScript is Script {
     IRiscZeroVerifier internal _verifier;
 
     function loadConfig() internal {
-        string memory configPath = vm.envOr("DEPLOYMENT_CONFIG", string.concat(vm.projectRoot(), "/", "contracts/deployment_verifier.toml"));
+        string memory configPath =
+            vm.envOr("DEPLOYMENT_CONFIG", string.concat(vm.projectRoot(), "/", "contracts/deployment_verifier.toml"));
         console2.log("Loading deployment config from %s", configPath);
         ConfigLoader.loadDeploymentConfig(configPath).copyTo(deployment);
 
@@ -243,7 +244,8 @@ contract DeployEstopBlake3Groth16Verifier is RiscZeroManagementScript {
         _verifier = blake3Groth16Verifier;
 
         vm.broadcast(deployerAddress());
-        _verifierEstop = new RiscZeroVerifierEmergencyStop{salt: CREATE2_SALT}(blake3Groth16Verifier, verifierEstopOwner);
+        _verifierEstop =
+            new RiscZeroVerifierEmergencyStop{salt: CREATE2_SALT}(blake3Groth16Verifier, verifierEstopOwner);
 
         // Print in TOML format
         console2.log("");
@@ -295,7 +297,13 @@ contract ScheduleAddVerifier is RiscZeroManagementScript {
     /// @param selector The verifier selector being added
     /// @param data The calldata for the scheduled operation
     /// @param scheduleDelay The minimum delay in seconds for the scheduled action
-    function _printGnosisSafeInfo(address timelockAddress, address dest, bytes4 selector, bytes memory data, uint256 scheduleDelay) internal pure {
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        address dest,
+        bytes4 selector,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE SCHEDULE ADD VERIFIER INFO ===");
@@ -304,7 +312,9 @@ contract ScheduleAddVerifier is RiscZeroManagementScript {
         console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
         console2.log("scheduleDelay: ", scheduleDelay);
 
-        bytes memory callData = abi.encodeWithSignature("schedule(address,uint256,bytes,bytes32,bytes32,uint256)", dest, 0, data, 0, 0, scheduleDelay);
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", dest, 0, data, 0, 0, scheduleDelay
+        );
         console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -346,7 +356,10 @@ contract FinishAddVerifier is RiscZeroManagementScript {
     /// @param dest The destination address for the scheduled operation
     /// @param selector The verifier selector being added
     /// @param data The calldata for the scheduled operation
-    function _printGnosisSafeInfo(address timelockAddress, address dest, bytes4 selector, bytes memory data) internal pure {
+    function _printGnosisSafeInfo(address timelockAddress, address dest, bytes4 selector, bytes memory data)
+        internal
+        pure
+    {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE EXECUTE ADD VERIFIER INFO ===");
@@ -354,7 +367,8 @@ contract FinishAddVerifier is RiscZeroManagementScript {
         console2.log("Verifier Router Address (dest): ", dest);
         console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
 
-        bytes memory callData = abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", dest, 0, data, 0, 0);
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", dest, 0, data, 0, 0);
         console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -403,7 +417,13 @@ contract ScheduleRemoveVerifier is RiscZeroManagementScript {
     /// @param selector The verifier selector being removed
     /// @param data The calldata for the scheduled operation
     /// @param scheduleDelay The minimum delay in seconds for the scheduled action
-    function _printGnosisSafeInfo(address timelockAddress, address dest, bytes4 selector, bytes memory data, uint256 scheduleDelay) internal pure {
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        address dest,
+        bytes4 selector,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE SCHEDULE REMOVE VERIFIER INFO ===");
@@ -412,7 +432,9 @@ contract ScheduleRemoveVerifier is RiscZeroManagementScript {
         console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
         console2.log("scheduleDelay: ", scheduleDelay);
 
-        bytes memory callData = abi.encodeWithSignature("schedule(address,uint256,bytes,bytes32,bytes32,uint256)", dest, 0, data, 0, 0, scheduleDelay);
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", dest, 0, data, 0, 0, scheduleDelay
+        );
         console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -454,7 +476,10 @@ contract FinishRemoveVerifier is RiscZeroManagementScript {
     /// @param dest The destination address for the scheduled operation
     /// @param selector The verifier selector being removed
     /// @param data The calldata for the scheduled operation
-    function _printGnosisSafeInfo(address timelockAddress, address dest, bytes4 selector, bytes memory data) internal pure {
+    function _printGnosisSafeInfo(address timelockAddress, address dest, bytes4 selector, bytes memory data)
+        internal
+        pure
+    {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE EXECUTE REMOVE VERIFIER INFO ===");
@@ -462,7 +487,8 @@ contract FinishRemoveVerifier is RiscZeroManagementScript {
         console2.log("Verifier Router Address (dest): ", dest);
         console2.log("Selector: ", Strings.toHexString(uint256(uint32(selector))));
 
-        bytes memory callData = abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", dest, 0, data, 0, 0);
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", dest, 0, data, 0, 0);
         console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -508,7 +534,10 @@ contract ScheduleUpdateDelay is RiscZeroManagementScript {
     /// @param minDelay The new minimum delay
     /// @param data The calldata for the scheduled operation
     /// @param scheduleDelay The minimum delay in seconds for the scheduled action
-    function _printGnosisSafeInfo(address timelockAddress, uint256 minDelay, bytes memory data, uint256 scheduleDelay) internal pure {
+    function _printGnosisSafeInfo(address timelockAddress, uint256 minDelay, bytes memory data, uint256 scheduleDelay)
+        internal
+        pure
+    {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE SCHEDULE MIN DELAY INFO ===");
@@ -516,7 +545,9 @@ contract ScheduleUpdateDelay is RiscZeroManagementScript {
         console2.log("New min delay: ", minDelay);
         console2.log("scheduleDelay: ", scheduleDelay);
 
-        bytes memory callData = abi.encodeWithSignature("schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay);
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
         console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -562,7 +593,8 @@ contract FinishUpdateDelay is RiscZeroManagementScript {
         console2.log("Target Timelock Controller Address (To): ", timelockAddress);
         console2.log("New min delay: ", minDelay);
 
-        bytes memory callData = abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
         console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -654,7 +686,13 @@ contract ScheduleGrantRole is RiscZeroManagementScript {
     }
 
     /// @notice Print Gnosis Safe transaction information for manual submissions
-    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data, uint256 scheduleDelay) internal pure {
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        bytes32 role,
+        address account,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE SCHEDULE GRANT ROLE INFO ===");
@@ -663,7 +701,9 @@ contract ScheduleGrantRole is RiscZeroManagementScript {
         console2.log("Account: ", account);
         console2.log("scheduleDelay: ", scheduleDelay);
 
-        bytes memory callData = abi.encodeWithSignature("schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay);
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
         console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -707,7 +747,10 @@ contract FinishGrantRole is RiscZeroManagementScript {
     }
 
     /// @notice Print Gnosis Safe transaction information for manual submissions
-    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data) internal pure {
+    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data)
+        internal
+        pure
+    {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE EXECUTE GRANT ROLE INFO ===");
@@ -715,7 +758,8 @@ contract FinishGrantRole is RiscZeroManagementScript {
         console2.log("Role: ", uint256(role));
         console2.log("Account: ", account);
 
-        bytes memory callData = abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
         console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -765,7 +809,13 @@ contract ScheduleRevokeRole is RiscZeroManagementScript {
     }
 
     /// @notice Print Gnosis Safe transaction information for manual submissions
-    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data, uint256 scheduleDelay) internal pure {
+    function _printGnosisSafeInfo(
+        address timelockAddress,
+        bytes32 role,
+        address account,
+        bytes memory data,
+        uint256 scheduleDelay
+    ) internal pure {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE SCHEDULE REVOKE ROLE INFO ===");
@@ -774,7 +824,9 @@ contract ScheduleRevokeRole is RiscZeroManagementScript {
         console2.log("Account: ", account);
         console2.log("scheduleDelay: ", scheduleDelay);
 
-        bytes memory callData = abi.encodeWithSignature("schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay);
+        bytes memory callData = abi.encodeWithSignature(
+            "schedule(address,uint256,bytes,bytes32,bytes32,uint256)", timelockAddress, 0, data, 0, 0, scheduleDelay
+        );
         console2.log("Function: schedule(address,uint256,bytes,bytes32,bytes32,uint256)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -818,7 +870,10 @@ contract FinishRevokeRole is RiscZeroManagementScript {
     }
 
     /// @notice Print Gnosis Safe transaction information for manual submissions
-    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data) internal pure {
+    function _printGnosisSafeInfo(address timelockAddress, bytes32 role, address account, bytes memory data)
+        internal
+        pure
+    {
         console2.log("================================");
         console2.log("================================");
         console2.log("=== GNOSIS SAFE EXECUTE REVOKE ROLE INFO ===");
@@ -826,7 +881,8 @@ contract FinishRevokeRole is RiscZeroManagementScript {
         console2.log("Role: ", uint256(role));
         console2.log("Account: ", account);
 
-        bytes memory callData = abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes,bytes32,bytes32)", timelockAddress, 0, data, 0, 0);
         console2.log("Function: execute(address,uint256,bytes,bytes32,bytes32)");
         console2.log("Calldata:");
         console2.logBytes(callData);
@@ -899,4 +955,3 @@ contract ActivateEstop is RiscZeroManagementScript {
         console2.log("================================");
     }
 }
-
