@@ -91,6 +91,7 @@ pub async fn deploy_boundless_market<P: Provider>(
     let market_instance = BoundlessMarket::deploy(
         &deployer_provider,
         verifier,
+        verifier,
         <[u8; 32]>::from(assessor_guest_id).into(),
         B256::ZERO, // DEPRECATED_ASSESSOR_ID
         0,          // DEPRECATED_ASSESSOR_DURATION
