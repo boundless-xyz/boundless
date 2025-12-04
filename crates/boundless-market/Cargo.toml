@@ -61,9 +61,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 utoipa = { workspace = true }
 
-[build-dependencies]
-serde_json = { workspace = true }
-
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
-tracing-test = { workspace = true }
+tracing-test = { workspace = true, features = ["no-env-filter"] }
+
+[build-dependencies]
+serde_json = { workspace = true }

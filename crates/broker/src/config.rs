@@ -73,6 +73,10 @@ mod defaults {
         2
     }
 
+    pub const fn max_lock_retry_attempts() -> u32 {
+        3
+    }
+
     pub const fn reaper_interval_secs() -> u32 {
         60
     }
@@ -172,7 +176,7 @@ mod defaults {
     }
 
     pub const fn txn_timeout() -> u64 {
-        45
+        30
     }
 
     pub const fn single_txn_fulfill() -> bool {
@@ -323,6 +327,12 @@ pub struct MarketConf {
     /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
     #[serde(default = "defaults::priority_mode")]
     pub gas_priority_mode: PriorityMode,
+    /// Maximum number of retry attempts for lock transactions (including initial attempt)
+    ///
+    /// When a lock transaction times out, it will be retried with the same nonce for better RBF handling.
+    /// Defaults to 3 (1 initial attempt + 2 retries).
+    #[serde(default = "defaults::max_lock_retry_attempts")]
+    pub max_lock_retry_attempts: u32,
 
     /// DEPRECATED: lockRequest priority gas
     ///
@@ -446,6 +456,7 @@ impl Default for MarketConf {
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
+            max_lock_retry_attempts: defaults::max_lock_retry_attempts(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
             max_fetch_retries: Some(2),
