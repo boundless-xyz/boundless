@@ -38,7 +38,6 @@ The market indexer binary is located at `src/bin/market-indexer.rs`.
 
 The crate includes a backfill binary (`market-indexer-backfill`) that can recompute request statuses and market aggregates from existing event data. This is useful for fixing inconsistencies or rebuilding computed tables after schema changes.
 
-
 ## Rewards Indexer
 
 The rewards indexer monitors ZKC token staking, PoVW (Proof of Verifiable Work) rewards, and delegation contracts on Ethereum mainnet.
@@ -125,4 +124,4 @@ Both indexers share the same database schema. Database migrations are located in
 
 - Market tables: `proof_requests`, `request_status`, `fulfillments`, `transactions`, event tables, and market summary tables
 - Rewards tables: `staking_positions`, `staking_rewards`, `povw_rewards_by_epoch`, `povw_rewards_aggregate`, `delegation_powers`, and summary statistics
-- 
+-
