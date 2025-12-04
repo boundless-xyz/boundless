@@ -418,7 +418,7 @@ impl MarketTestEnv {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                info!(target: "market-indexer", "{}", line);
+                println!("market-indexer stdout: {}", line);
             }
         });
 
@@ -428,7 +428,7 @@ impl MarketTestEnv {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                info!(target: "market-indexer", "stderr: {}", line);
+                println!("market-indexer stderr: {}", line);
             }
         });
 
