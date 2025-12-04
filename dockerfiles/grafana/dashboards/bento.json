@@ -22,10 +22,7 @@
   "links": [],
   "panels": [
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "P4F5E533AD20174AE"
-      },
+      "datasource": "postgres-taskdb",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -72,10 +69,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P4F5E533AD20174AE"
-          },
+          "datasource": "postgres-taskdb",
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -104,10 +98,7 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "P4F5E533AD20174AE"
-      },
+      "datasource": "postgres-taskdb",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -154,10 +145,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P4F5E533AD20174AE"
-          },
+          "datasource": "postgres-taskdb",
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -186,10 +174,7 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "P4F5E533AD20174AE"
-      },
+      "datasource": "postgres-taskdb",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -236,10 +221,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P4F5E533AD20174AE"
-          },
+          "datasource": "postgres-taskdb",
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -268,10 +250,7 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "P4F5E533AD20174AE"
-      },
+      "datasource": "postgres-taskdb",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -318,10 +297,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P4F5E533AD20174AE"
-          },
+          "datasource": "postgres-taskdb",
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -350,10 +326,7 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "P4F5E533AD20174AE"
-      },
+      "datasource": "postgres-taskdb",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -400,10 +373,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P4F5E533AD20174AE"
-          },
+          "datasource": "postgres-taskdb",
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -432,10 +402,7 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "P4F5E533AD20174AE"
-      },
+      "datasource": "postgres-taskdb",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -513,10 +480,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P4F5E533AD20174AE"
-          },
+          "datasource": "postgres-taskdb",
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
@@ -551,10 +515,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "P4F5E533AD20174AE"
-      },
+      "datasource": "postgres-taskdb",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -605,10 +566,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "P4F5E533AD20174AE"
-          },
+          "datasource": "postgres-taskdb",
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
