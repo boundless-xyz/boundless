@@ -4,7 +4,7 @@
 // as found in the LICENSE-BSL file.
 
 use crate::{
-    Agent, Args, TaskType,
+    Agent, Args, TaskType, format_bytes,
     redis::{self},
     tasks::{COPROC_CB_PATH, RECEIPT_PATH, SEGMENTS_PATH, read_image_id, serialize_obj},
 };
@@ -15,9 +15,7 @@ use risc0_zkvm::{
     ProveKeccakRequest, Receipt, Segment, compute_image_id, sha::Digestible,
 };
 use sqlx::postgres::PgPool;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{str::FromStr, sync::Arc, time::Instant};
 use taskdb::planner::{
     Planner,
     task::{Command as TaskCmd, Task},
@@ -37,7 +35,10 @@ use workflow_common::{
 };
 
 // use tempfile::NamedTempFile;
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::{
+    task::{JoinHandle, JoinSet},
+    time::{Duration, sleep},
+};
 use uuid::Uuid;
 
 const V2_ELF_MAGIC: &[u8] = b"R0BF"; // const V1_ ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
@@ -471,9 +472,16 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let mut writer_conn = agent.redis_pool.get().await?;
     let segments_prefix_clone = segments_prefix.clone();
     let redis_ttl = agent.args.redis_ttl;
+    let redis_memory_limit = agent
+        .args
+        .redis_max_queue_memory
+        .filter(|limit| limit.as_u64() > 0)
+        .map(|limit| limit.as_u64());
+    let redis_queue_memory_poll_ms = agent.args.redis_queue_memory_poll_ms.max(1);
 
     let mut writer_tasks = JoinSet::new();
     writer_tasks.spawn(async move {
+        let poll_delay = Duration::from_millis(redis_queue_memory_poll_ms);
         while let Some(segment) = segment_rx.recv().await {
             let index = segment.index;
             tracing::debug!("Starting write of index: {index}");
@@ -481,6 +489,40 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
             let segment_vec = serialize_obj(&segment).map_err(|e| {
                 anyhow!("[BENTO-EXEC-048] Failed to serialize the segment").context(e)
             })?;
+            if let Some(limit) = redis_memory_limit {
+                let mut warned = false;
+                loop {
+                    match redis::fetch_memory_info(&mut writer_conn).await {
+                        Ok(info) => {
+                            if info.used_memory < limit {
+                                if warned {
+                                    tracing::debug!(
+                                        "[BENTO-EXEC-041] Redis memory recovered to {}, resuming segment queue",
+                                        format_bytes(info.used_memory)
+                                    );
+                                }
+                                break;
+                            }
+                            if !warned {
+                                tracing::warn!(
+                                    "[BENTO-EXEC-041] Redis memory {} above queue limit {} while queueing segment {}; waiting...",
+                                    format_bytes(info.used_memory),
+                                    format_bytes(limit),
+                                    index
+                                );
+                                warned = true;
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                "[BENTO-EXEC-042] Failed to query redis memory before queueing segment {index}: {err:?}"
+                            );
+                            break;
+                        }
+                    }
+                    sleep(poll_delay).await;
+                }
+            }
             redis::set_key_with_expiry(
                 &mut writer_conn,
                 &segment_key,
