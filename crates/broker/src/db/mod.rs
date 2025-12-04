@@ -123,43 +123,13 @@ pub struct AggregationOrder {
     pub fee: U256,
 }
 
-async fn delete_input_with_context(
-    prover: &ProverObj,
-    input_id: &str,
-    order_id: &str,
-    context: &str,
-) {
-    match prover.delete_input(input_id).await {
-        Ok(_) => tracing::info!("Deleted input {} for {} order {}", input_id, context, order_id),
-        Err(e) => tracing::warn!(
-            "Failed to delete input {} for {} order {}: {}",
-            input_id,
-            context,
-            order_id,
-            e
-        ),
-    }
-}
-
 #[async_trait]
 pub trait BrokerDb {
-    /// Persist a skipped order without performing prover cleanup.
-    ///
-    /// This is intended for internal use by the default [`insert_skipped_request`] helper so that
-    /// database backends do not need to reimplement the deletion flow.
-    async fn insert_skipped_request_row(&self, order_request: &OrderRequest)
-        -> Result<(), DbError>;
     async fn insert_skipped_request(
         &self,
         order_request: &OrderRequest,
         prover: &ProverObj,
-    ) -> Result<(), DbError> {
-        self.insert_skipped_request_row(order_request).await?;
-        if let Some(input_id) = &order_request.input_id {
-            delete_input_with_context(prover, input_id, &order_request.id(), "skipped").await;
-        }
-        Ok(())
-    }
+    ) -> Result<(), DbError>;
     async fn insert_accepted_request(
         &self,
         order_request: &OrderRequest,
@@ -172,43 +142,13 @@ pub trait BrokerDb {
         id: &str,
     ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
     async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
-    /// Update an order record to `Failed` without prover cleanup.
-    async fn set_order_failure_row(
-        &self,
-        id: &str,
-        failure_str: &'static str,
-    ) -> Result<(), DbError>;
     async fn set_order_failure(
         &self,
         id: &str,
         failure_str: &'static str,
         prover: &ProverObj,
-    ) -> Result<(), DbError> {
-        let input_id = self
-            .get_order(id)
-            .await?
-            .ok_or_else(|| DbError::OrderNotFound(id.to_string()))?
-            .input_id;
-        self.set_order_failure_row(id, failure_str).await?;
-        if let Some(input_id) = input_id {
-            delete_input_with_context(prover, &input_id, id, "failed").await;
-        }
-        Ok(())
-    }
-    /// Mark an order as complete without prover cleanup.
-    async fn set_order_complete_row(&self, id: &str) -> Result<(), DbError>;
-    async fn set_order_complete(&self, id: &str, prover: &ProverObj) -> Result<(), DbError> {
-        let input_id = self
-            .get_order(id)
-            .await?
-            .ok_or_else(|| DbError::OrderNotFound(id.to_string()))?
-            .input_id;
-        self.set_order_complete_row(id).await?;
-        if let Some(input_id) = input_id {
-            delete_input_with_context(prover, &input_id, id, "completed").await;
-        }
-        Ok(())
-    }
+    ) -> Result<(), DbError>;
+    async fn set_order_complete(&self, id: &str, prover: &ProverObj) -> Result<(), DbError>;
     /// Get all orders that are committed to be prove and be fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
     /// Get all orders that are committed to be proved but have expired based on their expire_timestamp.
@@ -268,6 +208,24 @@ pub trait BrokerDb {
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
     #[cfg(test)]
     async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
+}
+
+async fn delete_input_with_context(
+    prover: &ProverObj,
+    input_id: &str,
+    order_id: &str,
+    context: &str,
+) {
+    match prover.delete_input(input_id).await {
+        Ok(_) => tracing::info!("Deleted input {} for {} order {}", input_id, context, order_id),
+        Err(e) => tracing::warn!(
+            "Failed to delete input {} for {} order {}: {}",
+            input_id,
+            context,
+            order_id,
+            e
+        ),
+    }
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
@@ -387,11 +345,16 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
-    async fn insert_skipped_request_row(
+    async fn insert_skipped_request(
         &self,
         order_request: &OrderRequest,
+        prover: &ProverObj,
     ) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(&order_request.to_skipped_order()).await
+        self.insert_order_ignore_duplicates(&order_request.to_skipped_order()).await?;
+        if let Some(input_id) = &order_request.input_id {
+            delete_input_with_context(prover, input_id, &order_request.id(), "skipped").await;
+        }
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
@@ -461,11 +424,17 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_failure_row(
+    async fn set_order_failure(
         &self,
         id: &str,
         failure_str: &'static str,
+        prover: &ProverObj,
     ) -> Result<(), DbError> {
+        let input_id = self
+            .get_order(id)
+            .await?
+            .ok_or_else(|| DbError::OrderNotFound(id.to_string()))?
+            .input_id;
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -491,11 +460,20 @@ impl BrokerDb for SqliteDb {
             return Err(DbError::OrderNotFound(id.to_string()));
         }
 
+        if let Some(input_id) = input_id {
+            delete_input_with_context(prover, &input_id, id, "failed").await;
+        }
+
         Ok(())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_complete_row(&self, id: &str) -> Result<(), DbError> {
+    async fn set_order_complete(&self, id: &str, prover: &ProverObj) -> Result<(), DbError> {
+        let input_id = self
+            .get_order(id)
+            .await?
+            .ok_or_else(|| DbError::OrderNotFound(id.to_string()))?
+            .input_id;
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -516,6 +494,10 @@ impl BrokerDb for SqliteDb {
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
+        }
+
+        if let Some(input_id) = input_id {
+            delete_input_with_context(prover, &input_id, id, "completed").await;
         }
 
         Ok(())
