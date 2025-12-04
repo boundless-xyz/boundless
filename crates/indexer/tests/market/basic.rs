@@ -1260,7 +1260,8 @@ async fn test_both_tx_fetch_strategies_produce_same_results() {
 
     // Verify receipts database has data, tx-by-hash database is still empty
     let count_after_receipts = count_table_rows(&test_db_receipts.pool, "transactions").await;
-    let count_after_tx_by_hash_before = count_table_rows(&test_db_tx_by_hash.pool, "transactions").await;
+    let count_after_tx_by_hash_before =
+        count_table_rows(&test_db_tx_by_hash.pool, "transactions").await;
     assert!(count_after_receipts > 0, "Receipts database should have data after indexing");
     assert_eq!(
         count_after_tx_by_hash_before, 0,
