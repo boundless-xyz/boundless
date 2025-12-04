@@ -176,6 +176,7 @@ export RUST_LOG="info"  # Optional
   postgres://postgres:password@localhost:5432/postgres \
   120
 ```
+
 =
 
 ## Deployment
@@ -188,6 +189,7 @@ Build for Lambda deployment using cargo-lambda or similar tools. See `infra/inde
 Tests are ignored by default as they require an Ethereum RPC URL to be set, as they fetch real data from mainnet.
 
 ### Running the Tests
+
 ```
 just test-indexer-api
 ```
