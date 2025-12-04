@@ -65,39 +65,39 @@ export ETHERSCAN_API_KEY=$(yq eval -e ".chains[\"${CHAIN_KEY:?}\"].etherscan-api
 
 Example RPC URLs:
 
-* `https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY`
-* `https://sepolia.infura.io/v3/YOUR_API_KEY`
+- `https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY`
+- `https://sepolia.infura.io/v3/YOUR_API_KEY`
 
 ## Deploy the timelocked router
 
 1. Dry run the contract deployment:
 
-    > [!IMPORTANT]
-    > Adjust the `MIN_DELAY` (or `timelock-delay` in the toml) to a value appropriate for the environment (e.g. 0 second for testnet and 259200 seconds (3 days) for mainnet).
+   > [!IMPORTANT]
+   > Adjust the `MIN_DELAY` (or `timelock-delay` in the toml) to a value appropriate for the environment (e.g. 0 second for testnet and 259200 seconds (3 days) for mainnet).
 
-    ```sh
-    contracts/scripts/manage-verifier DeployTimelockRouter
+   ```sh
+   contracts/scripts/manage-verifier DeployTimelockRouter
 
-    ...
+   ...
 
-    == Logs ==
-      minDelay: 1
-      proposers: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-      executors: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-      admin: 0x0000000000000000000000000000000000000000
-      Deployed TimelockController to 0x5FbDB2315678afecb367f032d93F642f64180aa3
-      Deployed VerifierLayeredRouter to 0x918063A3fa14C59b390B18db8b1A565780E8b933
-    ```
+   == Logs ==
+     minDelay: 1
+     proposers: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+     executors: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+     admin: 0x0000000000000000000000000000000000000000
+     Deployed TimelockController to 0x5FbDB2315678afecb367f032d93F642f64180aa3
+     Deployed VerifierLayeredRouter to 0x918063A3fa14C59b390B18db8b1A565780E8b933
+   ```
 
 2. Run the command again with `--broadcast`.
 
-    This will result in two transactions sent from the deployer address.
+   This will result in two transactions sent from the deployer address.
 
 3. Test the deployment.
 
-    ```console
-    FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
-    ```
+   ```console
+   FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
+   ```
 
 ## Deploy a Blae3Groth16 verifier with emergency stop mechanism
 
@@ -107,34 +107,34 @@ This is a two-step process, guarded by the `TimelockController`.
 
 1. Dry run deployment of BlakeGroth16 verifier and estop:
 
-    ```sh
-    contracts/scripts/manage-verifier DeployEstopBlake3Groth16Verifier
-    ```
+   ```sh
+   contracts/scripts/manage-verifier DeployEstopBlake3Groth16Verifier
+   ```
 
-    > [!IMPORTANT]
-    > Check the logs from this dry run to verify the estop owner is the expected address.
-    > It should be equal to the admin address on the given chain.
-    > Note that it should not be the `TimelockController`.
-    > Also check the chain ID to ensure you are deploying to the chain you expect.
-    > And check the selector to make sure it matches what you expect.
+   > [!IMPORTANT]
+   > Check the logs from this dry run to verify the estop owner is the expected address.
+   > It should be equal to the admin address on the given chain.
+   > Note that it should not be the `TimelockController`.
+   > Also check the chain ID to ensure you are deploying to the chain you expect.
+   > And check the selector to make sure it matches what you expect.
 
 2. Send deployment transactions for verifier and estop by running the command again with `--broadcast`.
 
-    This will result in two transactions sent from the deployer address.
+   This will result in two transactions sent from the deployer address.
 
 3. Add the addresses for the newly deployed contract to the `deployment_verifier.toml` file.
 
 4. Test the deployment.
 
-    ```sh
-    FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
-    ```
+   ```sh
+   FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
+   ```
 
 5. Print the operation to schedule the operation to add the verifier to the router.
 
-    ```sh
-    GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." bash contracts/scripts/manage-verifier ScheduleAddVerifier
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." bash contracts/scripts/manage-verifier ScheduleAddVerifier
+   ```
 
 6. Send the transaction for the scheduled update via Safe.
 
@@ -144,9 +144,9 @@ After the delay on the timelock controller has passed, the operation to add the 
 
 1. Print the transaction calldata to execute the add verifier operation:
 
-    ```sh
-    GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." bash contracts/scripts/manage-verifier FinishAddVerifier
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." bash contracts/scripts/manage-verifier FinishAddVerifier
+   ```
 
 2. Send the transaction for execution via Safe
 
@@ -154,9 +154,9 @@ After the delay on the timelock controller has passed, the operation to add the 
 
 4. Test the deployment.
 
-    ```console
-    FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
-    ```
+   ```console
+   FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
+   ```
 
 ## Remove a verifier
 
@@ -166,9 +166,9 @@ This is a two-step process, guarded by the `TimelockController`.
 
 1. Print the transaction to schedule the remove verifier operation:
 
-    ```sh
-    GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." contracts/scripts/manage-verifier ScheduleRemoveVerifier
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." contracts/scripts/manage-verifier ScheduleRemoveVerifier
+   ```
 
 2. Send the transaction for execution via Safe
 
@@ -176,9 +176,9 @@ This is a two-step process, guarded by the `TimelockController`.
 
 1. Print the transaction to execute the remove verifier operation:
 
-    ```sh
-    GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." contracts/scripts/manage-verifier FinishRemoveVerifier
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true VERIFIER_SELECTOR="0x..." contracts/scripts/manage-verifier FinishRemoveVerifier
+   ```
 
 2. Send the transaction for execution via Safe
 
@@ -186,9 +186,9 @@ This is a two-step process, guarded by the `TimelockController`.
 
 4. Test the deployment.
 
-    ```console
-    FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
-    ```
+   ```console
+   FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
+   ```
 
 ## Update the TimelockController minimum delay
 
@@ -200,9 +200,9 @@ The minimum delay (`MIN_DELAY`) on the timelock controller is denominated in sec
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true MIN_DELAY=10 contracts/scripts/manage-verifier ScheduleUpdateDelay
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true MIN_DELAY=10 contracts/scripts/manage-verifier ScheduleUpdateDelay
+   ```
 
 2. Send the transaction for execution via Safe
 
@@ -212,17 +212,17 @@ Execute the action:
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true MIN_DELAY=10  contracts/scripts/manage-verifier FinishUpdateDelay
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true MIN_DELAY=10  contracts/scripts/manage-verifier FinishUpdateDelay
+   ```
 
 2. Send the transaction for execution via Safe
 
-5. Test the deployment.
+3. Test the deployment.
 
-    ```console
-    FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
-    ```
+   ```console
+   FOUNDRY_PROFILE=deployment-test forge test --match-contract=VerifierDeploymentTest -vv --fork-url=${RPC_URL:?}
+   ```
 
 ## Cancel a scheduled timelock operation
 
@@ -230,22 +230,22 @@ Use the following steps to cancel an operation that is pending on the `TimelockC
 
 1. Identify the operation ID and set the environment variable.
 
-    > TIP: One way to get the operation ID is to open the contract in Etherscan and look at the events.
-    > On the `CallScheduled` event, the ID is labeled as `[topic1]`.
-    >
-    > ```sh
-    > open ${ETHERSCAN_URL:?}/address/${TIMELOCK_CONTROLLER:?}#events
-    > ```
+   > TIP: One way to get the operation ID is to open the contract in Etherscan and look at the events.
+   > On the `CallScheduled` event, the ID is labeled as `[topic1]`.
+   >
+   > ```sh
+   > open ${ETHERSCAN_URL:?}/address/${TIMELOCK_CONTROLLER:?}#events
+   > ```
 
-    ```sh
-    export OPERATION_ID="0x..." \
-    ```
+   ```sh
+   export OPERATION_ID="0x..." \
+   ```
 
 2. Print the transaction calldata to cancel the operation.
 
-    ```sh
-    GNOSIS_EXECUTE=true contracts/scripts/manage-verifier CancelOperation
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true contracts/scripts/manage-verifier CancelOperation
+   ```
 
 3. Send the transaction for execution via Safe
 
@@ -255,20 +255,20 @@ This is a two-step process, guarded by the `TimelockController`.
 
 Three roles are supported:
 
-* `proposer`
-* `executor`
-* `canceller`
+- `proposer`
+- `executor`
+- `canceller`
 
 ### Schedule the update
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true \
-    ROLE="executor" \
-    ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
-    bash contracts/scripts/manage-verifier ScheduleGrantRole
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true \
+   ROLE="executor" \
+   ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
+   bash contracts/scripts/manage-verifier ScheduleGrantRole
+   ```
 
 2. Send the transaction for execution via Safe
 
@@ -276,32 +276,32 @@ Three roles are supported:
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true \
-    ROLE="executor" \
-    ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
-    bash contracts/scripts/manage-verifier FinishGrantRole
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true \
+   ROLE="executor" \
+   ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
+   bash contracts/scripts/manage-verifier FinishGrantRole
+   ```
 
 2. Send the transaction for execution via Safe.
 
 3. Confirm the update:
 
-    ```sh
-    # Query the role code.
-    cast call --rpc-url ${RPC_URL:?} \
-        ${TIMELOCK_CONTROLLER:?} \
-        'EXECUTOR_ROLE()(bytes32)'
-    0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63
+   ```sh
+   # Query the role code.
+   cast call --rpc-url ${RPC_URL:?} \
+       ${TIMELOCK_CONTROLLER:?} \
+       'EXECUTOR_ROLE()(bytes32)'
+   0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63
 
-    # Check that the account now has that role.
-    cast call --rpc-url ${RPC_URL:?} \
-        ${TIMELOCK_CONTROLLER:?} \
-        'hasRole(bytes32, address)(bool)' \
-        0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63 \
-        0x00000000000000aabbccddeeff00000000000000
-    true
-    ```
+   # Check that the account now has that role.
+   cast call --rpc-url ${RPC_URL:?} \
+       ${TIMELOCK_CONTROLLER:?} \
+       'hasRole(bytes32, address)(bool)' \
+       0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63 \
+       0x00000000000000aabbccddeeff00000000000000
+   true
+   ```
 
 ## Revoke access to the TimelockController
 
@@ -309,20 +309,20 @@ This is a two-step process, guarded by the `TimelockController`.
 
 Three roles are supported:
 
-* `proposer`
-* `executor`
-* `canceller`
+- `proposer`
+- `executor`
+- `canceller`
 
 ### Schedule the update
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true \
-    ROLE="executor" \
-    ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
-    bash contracts/scripts/manage-verifier ScheduleRevokeRole
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true \
+   ROLE="executor" \
+   ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
+   bash contracts/scripts/manage-verifier ScheduleRevokeRole
+   ```
 
 2. Send the transaction for execution via Safe
 
@@ -339,65 +339,65 @@ cast call --rpc-url ${RPC_URL:?} \
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true \
-    ROLE="executor" \
-    ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
-    bash contracts/scripts/manage-verifier FinishRevokeRole
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true \
+   ROLE="executor" \
+   ACCOUNT="0x00000000000000aabbccddeeff00000000000000" \
+   bash contracts/scripts/manage-verifier FinishRevokeRole
+   ```
 
 2. Send the transaction for execution via Safe
 
 3. Confirm the update:
 
-    ```sh
-    # Query the role code.
-    cast call --rpc-url ${RPC_URL:?} \
-        ${TIMELOCK_CONTROLLER:?} \
-        'EXECUTOR_ROLE()(bytes32)'
-    0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63
+   ```sh
+   # Query the role code.
+   cast call --rpc-url ${RPC_URL:?} \
+       ${TIMELOCK_CONTROLLER:?} \
+       'EXECUTOR_ROLE()(bytes32)'
+   0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63
 
-    # Check that the account no longer has that role.
-    cast call --rpc-url ${RPC_URL:?} \
-        ${TIMELOCK_CONTROLLER:?} \
-        'hasRole(bytes32, address)(bool)' \
-        0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63 \
-        0x00000000000000aabbccddeeff00000000000000
-    false
-    ```
+   # Check that the account no longer has that role.
+   cast call --rpc-url ${RPC_URL:?} \
+       ${TIMELOCK_CONTROLLER:?} \
+       'hasRole(bytes32, address)(bool)' \
+       0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63 \
+       0x00000000000000aabbccddeeff00000000000000
+   false
+   ```
 
 ## Renounce access to the TimelockController
 
 If your private key is compromised, you can renounce your role(s) without waiting for the time delay. Repeat this action for any of the roles you might have, such as:
 
-* proposer
-* executor
-* canceller
+- proposer
+- executor
+- canceller
 
 > ![WARNING]
 > Renouncing authorization on the timelock controller may make it permanently inoperable.
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true \
-    RENOUNCE_ROLE="executor" \
-    RENOUNCE_ADDRESS="0x00000000000000aabbccddeeff00000000000000" \
-    bash contracts/scripts/manage-verifier RenounceRole
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true \
+   RENOUNCE_ROLE="executor" \
+   RENOUNCE_ADDRESS="0x00000000000000aabbccddeeff00000000000000" \
+   bash contracts/scripts/manage-verifier RenounceRole
+   ```
 
 2. Send the transaction for execution via Safe
 
 3. Confirm:
 
-    ```sh
-    cast call --rpc-url ${RPC_URL:?} \
-        ${TIMELOCK_CONTROLLER:?} \
-        'hasRole(bytes32, address)(bool)' \
-        0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63 \
-        ${RENOUNCE_ADDRESS:?}
-    false
-    ```
+   ```sh
+   cast call --rpc-url ${RPC_URL:?} \
+       ${TIMELOCK_CONTROLLER:?} \
+       'hasRole(bytes32, address)(bool)' \
+       0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63 \
+       ${RENOUNCE_ADDRESS:?}
+   false
+   ```
 
 ## Activate the emergency stop
 
@@ -412,22 +412,22 @@ Activate the emergency stop:
 
 1. Print the transaction calldata:
 
-    ```sh
-    GNOSIS_EXECUTE=true \
-    VERIFIER_SELCTOR="0x..." \
-    bash contracts/scripts/manage-verifier ActivateEstop
-    ```
+   ```sh
+   GNOSIS_EXECUTE=true \
+   VERIFIER_SELCTOR="0x..." \
+   bash contracts/scripts/manage-verifier ActivateEstop
+   ```
 
 2. Send the transaction for execution via Safe
 
 3. Test the activation:
 
-    ```sh
-    cast call --rpc-url ${RPC_URL:?} \
-        ${VERIFIER_ESTOP:?} \
-        'paused()(bool)'
-    true
-    ```
+   ```sh
+   cast call --rpc-url ${RPC_URL:?} \
+       ${VERIFIER_ESTOP:?} \
+       'paused()(bool)'
+   true
+   ```
 
 [yq-install]: https://github.com/mikefarah/yq?tab=readme-ov-file#install
 [alloy-chains]: https://github.com/alloy-rs/chains/blob/main/src/named.rs
