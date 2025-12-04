@@ -22,11 +22,9 @@ use alloy::{
     rpc::types::BlockNumberOrTag,
 };
 use boundless_cli::OrderFulfilled;
-use boundless_indexer::{
-    db::{
-        market::{RequestStatusType, SlashedStatus, SortDirection},
-        IndexerDb, RequestorDb,
-    },
+use boundless_indexer::db::{
+    market::{RequestStatusType, SlashedStatus, SortDirection},
+    IndexerDb, RequestorDb,
 };
 use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
