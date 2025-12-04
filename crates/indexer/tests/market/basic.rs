@@ -27,7 +27,6 @@ use boundless_indexer::{
         market::{RequestStatusType, SlashedStatus, SortDirection},
         IndexerDb, RequestorDb,
     },
-    test_utils::TestDb,
 };
 use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,

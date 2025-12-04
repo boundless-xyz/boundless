@@ -115,16 +115,19 @@ impl IndexerCliBuilder {
         self
     }
 
+    #[allow(dead_code)]
     pub fn end_block(mut self, end_block: &str) -> Self {
         self.end_block = Some(end_block.to_string());
         self
     }
 
+    #[allow(dead_code)]
     pub fn batch_size(mut self, batch_size: &str) -> Self {
         self.batch_size = Some(batch_size.to_string());
         self
     }
 
+    #[allow(dead_code)]
     pub fn tx_fetch_strategy(mut self, strategy: &str) -> Self {
         self.tx_fetch_strategy = Some(strategy.to_string());
         self
