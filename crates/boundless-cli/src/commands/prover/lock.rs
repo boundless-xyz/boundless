@@ -73,7 +73,7 @@ impl ProverLock {
         }
 
         display.status("Status", "Locking request", "yellow");
-        client.boundless_market.lock_request(&request, signature, None).await?;
+        client.boundless_market.lock_request(&request, signature).await?;
 
         display.success(&format!("Successfully locked request {:#x}", self.request_id));
         Ok(())

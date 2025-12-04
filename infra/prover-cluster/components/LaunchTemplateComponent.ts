@@ -149,7 +149,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFileSize || "500000000000",
       config.maxMcycleLimit || "1000000000000",
       config.maxConcurrentProofs || 1,
-      config.maxJournalBytes || 1000000,
+      config.maxJournalBytes || 20000,
       config.balanceWarnThreshold || "50",
       config.balanceErrorThreshold || "100",
       config.collateralBalanceWarnThreshold || "50",
@@ -309,6 +309,8 @@ runcmd:
   - |
     /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
   - |
+    echo "VECTOR_LOG=debug" >> /etc/default/vector
+  - |
     /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
   - |
     cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
@@ -441,7 +443,10 @@ echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
 echo "COMPONENT_TYPE=${componentType}" >> /etc/environment
+
 /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
+echo "VECTOR_LOG=debug" >> /etc/default/vector
+
 /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}-cluster",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
 # Add CloudWatch agent configuration common to all worker clusters

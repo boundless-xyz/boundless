@@ -40,7 +40,7 @@ use crate::{
         Fulfillment, FulfillmentData, ProofRequest, RequestError,
     },
     deployments::Deployment,
-    dynamic_gas_filler::DynamicGasFiller,
+    dynamic_gas_filler::{DynamicGasFiller, PriorityMode},
     nonce_layer::NonceProvider,
     order_stream_client::OrderStreamClient,
     request_builder::{
@@ -168,9 +168,8 @@ where
         let provider = match self.signer.clone() {
             Some(signer) => {
                 let dynamic_gas_filler = DynamicGasFiller::new(
-                    0.2,  // 20% increase of gas limit
-                    0.05, // 5% increase of gas_price per pending transaction
-                    2.0,  // 2x max gas multiplier
+                    20, // 20% increase of gas limit
+                    PriorityMode::Medium,
                     signer.address(),
                 );
 

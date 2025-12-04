@@ -161,7 +161,7 @@ export class ScalerComponent extends BaseComponent {
         );
 
         // Create EventBridge rule to trigger Lambda on schedule
-        const schedule = config.scheduleExpression || "rate(5 minutes)";
+        const schedule = config.scheduleExpression || "rate(60 seconds)";
         this.eventRule = new aws.cloudwatch.EventRule(
             `${config.stackName}-scaler-schedule`,
             {

@@ -191,7 +191,7 @@ async fn test_e2e() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -265,7 +265,7 @@ async fn test_e2e_merged_submit_fulfill() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -405,7 +405,7 @@ async fn test_e2e_no_payment() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -532,7 +532,7 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
