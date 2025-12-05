@@ -35,6 +35,8 @@ use crate::{errors::CodedError, impl_coded_debug};
 mod defaults {
     use super::PriorityMode;
 
+    const ESTIMATED_GROTH16_TIME: u64 = 15;
+
     pub const fn max_journal_bytes() -> usize {
         10_000
     }
@@ -112,7 +114,8 @@ mod defaults {
     }
 
     pub const fn min_deadline() -> u64 {
-        300
+        // Currently 150 seconds
+        block_deadline_buffer_secs() + 30
     }
 
     pub const fn lookback_blocks() -> u64 {
@@ -168,7 +171,8 @@ mod defaults {
     }
 
     pub const fn block_deadline_buffer_secs() -> u64 {
-        180
+        // Currently 120 seconds
+        txn_timeout() * max_submission_attempts() + ESTIMATED_GROTH16_TIME * 2
     }
 
     pub const fn txn_timeout() -> u64 {
