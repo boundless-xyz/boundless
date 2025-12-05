@@ -477,12 +477,38 @@ pub struct RewardsDb {
 }
 
 impl RewardsDb {
-    pub async fn new(database_url: &str) -> Result<Self, DbError> {
-        sqlx::any::install_default_drivers();
-        let pool = AnyPoolOptions::new().max_connections(20).connect(database_url).await?;
+    /// Create a new RewardsDb instance.
+    ///
+    /// # Arguments
+    /// * `database_url` - Database connection string
+    /// * `pool_options` - Optional pool configuration.
+    /// * `skip_migrations` - If `true`, skips running migrations. Useful for read-only connections
+    pub async fn new(
+        database_url: &str,
+        pool_options: Option<AnyPoolOptions>,
+        skip_migrations: bool,
+    ) -> Result<Self, DbError> {
+        use std::time::Duration;
 
-        // Run migrations
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::any::install_default_drivers();
+
+        let pool = if let Some(opts) = pool_options {
+            opts.connect(database_url).await?
+        } else {
+            // Lambda-optimized defaults
+            AnyPoolOptions::new()
+                .max_connections(3) // Lambda: 25 lambdas × 3 = 75 max connections
+                .acquire_timeout(Duration::from_secs(5)) // Lambda: fail fast for users
+                .idle_timeout(Some(Duration::from_secs(300))) // Lambda: match container warm time
+                .max_lifetime(Some(Duration::from_secs(300))) // Lambda: 5 min max
+                .connect(database_url)
+                .await?
+        };
+
+        if !skip_migrations {
+            // Run migrations
+            sqlx::migrate!("./migrations").run(&pool).await?;
+        }
 
         Ok(Self { pool })
     }

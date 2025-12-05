@@ -26,7 +26,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::db::AppState;
 use crate::openapi::ApiDoc;
-use crate::routes::{delegations, povw, staking};
+use crate::routes::{delegations, market, povw, staking};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -34,9 +34,11 @@ use utoipa_swagger_ui::SwaggerUi;
 pub async fn create_handler() -> Result<Router, Error> {
     // Load configuration from environment
     let db_url = env::var("DB_URL").context("DB_URL environment variable is required")?;
+    let chain_id_str = env::var("CHAIN_ID").context("CHAIN_ID environment variable is required")?;
+    let chain_id = chain_id_str.parse::<u64>().context("CHAIN_ID must be a valid u64")?;
 
     // Create application state with database connection
-    let state = AppState::new(&db_url).await?;
+    let state = AppState::new(&db_url, chain_id).await?;
     let shared_state = Arc::new(state);
 
     // Create the axum application with routes
@@ -71,6 +73,7 @@ fn api_v1_routes(state: Arc<AppState>) -> Router {
         .nest("/staking", staking::routes())
         .nest("/povw", povw::routes())
         .nest("/delegations", delegations::routes())
+        .nest("/market", market::routes())
         .with_state(state)
 }
 

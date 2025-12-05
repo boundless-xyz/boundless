@@ -16,6 +16,10 @@ config:
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-staging-launch
   indexer:START_BLOCK: "30757608"
   indexer:ETH_RPC_URL:
-    secure: v1:YE8PUbzgOCGYW56j:RSk0HuKzhzZh81wvUjGZGGOX5RoEqqg5WH5bsGChtZLhfKJmWmPwqw1coo6P2782e4bLQwJMNWFul/DnIUKgDUO5e7OKQ9bWpu73
+    secure: v1:S5t1d+qfUUS63zZv:23xURask3Aq2/6rL1KDiVhN7xnnTMnFsYRt7cHvClBDl3sfEELo8WlegCoxYtiEZcB7dYQXtVvGBTCW9Z/lgHOo4r1xBoL/h4uLcYHhxkGlacrX/HoyyPfYRLollzEVwU77FQ9Z+fKVLVkNk2Q==
   indexer:ORDER_STREAM_URL:
     secure: v1:ML0Kk4FpP/GziDre:4jU25g1PNq2wuFzmhDmVAUPU+PfJN3YQyNx6aeMy/auojDeiQungfqUIw9FUqAurV2tPfCriGJncS5DsbsmemkWQsx1MhUZfvnNT6+ByDpmwCd768Yjvp3u/ul4=
+  indexer:ORDER_STREAM_API_KEY:
+    secure: v1:uUHqkWGSHlc3+m3s:PERf1Dj+ES2WhAK3ofMFLnf1dJiZ+yWBRX50cYtO
+  indexer:LOGS_ETH_RPC_URL:
+    secure: v1:mtDoiRDofMGFzYoM:JV1359OLhOYkTQpaQZMh3OSBhoco7dF1zR1fMDGu6icxE7JV4ZQDMAnefN8ouQTNtOOM7DBYtMn76Z2UslaAbkX9RdPiF16UXp+P
