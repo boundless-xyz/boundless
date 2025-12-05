@@ -47,7 +47,7 @@ pub async fn query_logs_chunked<P: Provider>(
     from_block: u64,
     to_block: u64,
 ) -> anyhow::Result<Vec<Log>> {
-    const BLOCK_CHUNK_SIZE: u64 = 50_000;
+    const BLOCK_CHUNK_SIZE: u64 = 10_000;
     let mut all_logs = Vec::new();
 
     let mut current_from = from_block;
