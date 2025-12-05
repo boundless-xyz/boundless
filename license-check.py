@@ -40,6 +40,8 @@ SKIP_PATHS = [
     str(Path.cwd()) + "/contracts/src/SetBuilderImageID.sol",
     str(Path.cwd()) + "/contracts/src/libraries/AssessorImageID.sol",
     str(Path.cwd()) + "/contracts/src/libraries/UtilImageID.sol",
+    str(Path.cwd()) + "/contracts/src/verifier/RiscZeroVerifierRouter.sol",
+    str(Path.cwd()) + "/contracts/src/blake3-groth16/Groth16Verifier.sol",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/artifacts",
     str(Path.cwd()) + "/crates/boundless-market/src/contracts/bytecode.rs",
     str(Path.cwd()) + "/crates/povw/src/contracts/artifacts",

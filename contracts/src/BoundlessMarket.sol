@@ -16,7 +16,11 @@ import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {
-    IRiscZeroVerifier, Receipt, ReceiptClaim, ReceiptClaimLib, VerificationFailed
+    IRiscZeroVerifier,
+    Receipt,
+    ReceiptClaim,
+    ReceiptClaimLib,
+    VerificationFailed
 } from "risc0/IRiscZeroVerifier.sol";
 import {IRiscZeroSetVerifier} from "risc0/IRiscZeroSetVerifier.sol";
 
