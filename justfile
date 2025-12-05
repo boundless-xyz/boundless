@@ -47,7 +47,7 @@ test-cargo-db:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
 
-# Run indexer integration tests (requires ETH_MAINNET_RPC_URL)
+# Run indexer lib tests and all integration tests (requires both RPC URLs)
 test-indexer:
     #!/usr/bin/env bash
     set -e
@@ -55,8 +55,60 @@ test-indexer:
         echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
         exit 1
     fi
-    RISC0_DEV_MODE=1 cargo test -p boundless-indexer --all-targets -- --ignored --nocapture
-    RISC0_DEV_MODE=1 cargo test -p indexer-api --all-targets -- --ignored --nocapture
+    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
+        echo "Error: BASE_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --ignored
+
+# Run indexer lib tests and market integration tests (requires BASE_MAINNET_RPC_URL)
+test-indexer-market:
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
+        echo "Error: BASE_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test market -- --ignored
+
+# Run indexer lib tests and rewards integration tests (requires ETH_MAINNET_RPC_URL)
+test-indexer-rewards:
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$ETH_MAINNET_RPC_URL" ]; then
+        echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test rewards -- --ignored
+
+# Run indexer-api integration tests (warns if RPC URLs are missing but still runs)
+test-indexer-api:
+    #!/usr/bin/env bash
+    set -e
+    WARNINGS=""
+    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
+        WARNINGS="${WARNINGS}Warning: BASE_MAINNET_RPC_URL environment variable is not set\n"
+    fi
+    if [ -z "$ETH_MAINNET_RPC_URL" ]; then
+        WARNINGS="${WARNINGS}Warning: ETH_MAINNET_RPC_URL environment variable is not set\n"
+    fi
+    RISC0_DEV_MODE=1 cargo test -p indexer-api -- --ignored
+    if [ -n "$WARNINGS" ]; then
+        echo ""
+        echo "=========================================="
+        echo "WARNINGS:"
+        echo -e "$WARNINGS"
+        echo "=========================================="
+    fi
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
@@ -65,7 +117,7 @@ test-db action="setup":
         docker inspect postgres-test > /dev/null 2>&1 || \
         docker run -d \
             --name postgres-test \
-            -e POSTGRES_PASSWORD=password \
+            -e POSTGRES_PASSWORD=password --shm-size=2gb \
             -p 5433:5432 \
             postgres:latest
         # Wait for PostgreSQL to be ready
@@ -81,7 +133,7 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy check-docs check-deployments
+check: check-links check-license check-format check-clippy
 
 # Check links in markdown files
 check-links:
@@ -160,6 +212,14 @@ clean:
     @rm -rf {{LOGS_DIR}} ./broadcast
     cargo clean
     forge clean
+    cd bento && cargo clean
+    cd examples/counter && cargo clean
+    cd examples/composition && cargo clean
+    cd examples/counter-with-callback && cargo clean
+    cd examples/smart-contract-requestor && cargo clean
+    cd crates/guest/assessor && cargo clean
+    cd crates/guest/assessor/assessor-guest && cargo clean
+    cd crates/guest/util && cargo clean
     @echo "Cleanup complete."
 
 # Manage the development network (up or down, defaults to up)

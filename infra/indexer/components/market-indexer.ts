@@ -4,6 +4,7 @@ import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { IndexerShared } from './indexer-infra';
+import { Severity } from '../../util';
 
 export interface MarketIndexerArgs {
   infra: IndexerShared;
@@ -14,11 +15,13 @@ export interface MarketIndexerArgs {
   dockerTag: string;
   boundlessAddress: string;
   ethRpcUrl: pulumi.Output<string>;
+  logsEthRpcUrl?: pulumi.Output<string>;
   startBlock: string;
   serviceMetricsNamespace: string;
   boundlessAlertsTopicArns?: string[];
   dockerRemoteBuilder?: string;
   orderStreamUrl?: pulumi.Output<string>;
+  orderStreamApiKey?: pulumi.Output<string>;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -34,11 +37,13 @@ export class MarketIndexer extends pulumi.ComponentResource {
       dockerTag,
       boundlessAddress,
       ethRpcUrl,
+      logsEthRpcUrl,
       startBlock,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns,
       dockerRemoteBuilder,
       orderStreamUrl,
+      orderStreamApiKey,
     } = args;
 
     const serviceName = name;
@@ -57,8 +62,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
       };
     }
 
-    const marketImage = new docker_build.Image(`${serviceName}-market-img`, {
-      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}`],
+    const marketImage = new docker_build.Image(`${serviceName}-market-img-${infra.databaseVersion}`, {
+      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}-${infra.databaseVersion}`],
       context: {
         location: dockerDir,
       },
@@ -113,8 +118,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
       }, { parent: this });
     }));
 
-    const marketService = new awsx.ecs.FargateService(`${serviceName}-market-service`, {
-      name: `${serviceName}-market-service`,
+    const marketService = new awsx.ecs.FargateService(`${serviceName}-market-indexer-${infra.databaseVersion}`, {
+      name: `${serviceName}-market-indexer-${infra.databaseVersion}`,
       cluster: infra.cluster.arn,
       networkConfiguration: {
         securityGroups: [infra.indexerSecurityGroup.id],
@@ -135,10 +140,10 @@ export class MarketIndexer extends pulumi.ComponentResource {
         executionRole: { roleArn: infra.executionRole.arn },
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
-          name: `${serviceName}-market`,
+          name: `${serviceName}-market-${infra.databaseVersion}`,
           image: marketImage.ref,
-          cpu: 1024,
-          memory: 512,
+          cpu: 2048,
+          memory: 2048,
           essential: true,
           linuxParameters: {
             initProcessEnabled: true,
@@ -146,12 +151,22 @@ export class MarketIndexer extends pulumi.ComponentResource {
           command: [
             '--rpc-url',
             ethRpcUrl,
+            ...(logsEthRpcUrl ? ['--logs-rpc-url', logsEthRpcUrl] : []),
             '--boundless-market-address',
             boundlessAddress,
             '--start-block',
             startBlock,
+            // Note, due to the way the caching works (cache files are stored based on the block range they were queried for),
+            // changing this value invalidates old cache entries, and thus will slow down re-indexing
+            '--batch-size',
+            '9999',
+            '--tx-fetch-strategy',
+            'tx-by-hash',
             '--log-json',
+            '--cache-uri',
+            pulumi.interpolate`s3://${infra.cacheBucket.bucket}`,
             ...(orderStreamUrl ? ['--order-stream-url', orderStreamUrl] : []),
+            ...(orderStreamApiKey ? ['--order-stream-api-key', orderStreamApiKey] : []),
           ],
           secrets: [
             {
@@ -180,6 +195,10 @@ export class MarketIndexer extends pulumi.ComponentResource {
               name: 'SECRET_HASH',
               value: infra.secretHash,
             },
+            {
+              name: 'AWS_REGION',
+              value: 'us-west-2',
+            },
           ],
         },
       },
@@ -206,62 +225,64 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     const alarmActions = boundlessAlertsTopicArns ?? [];
 
+    const errorLogMetricName = `${serviceName}-market-log-err`;
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-err-filter`, {
       name: `${serviceName}-market-log-err-filter`,
       logGroupName: serviceLogGroupName,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
-        name: `${serviceName}-market-log-err`,
+        name: errorLogMetricName,
         value: '1',
         defaultValue: '0',
       },
       pattern: `"ERROR "`,
     }, { parent: this, dependsOn: [marketService] });
 
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-error-alarm`, {
-      name: `${serviceName}-market-log-err`,
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-error-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-market-log-err-${Severity.SEV2}`,
       metricQueries: [
         {
           id: 'm1',
           metric: {
             namespace: serviceMetricsNamespace,
-            metricName: `${serviceName}-market-log-err`,
-            period: 60,
+            metricName: errorLogMetricName,
+            period: 600,
             stat: 'Sum',
           },
           returnData: true,
         },
       ],
-      threshold: 1,
+      threshold: 2,
       comparisonOperator: 'GreaterThanOrEqualToThreshold',
-      evaluationPeriods: 60,
+      evaluationPeriods: 5,
       datapointsToAlarm: 2,
       treatMissingData: 'notBreaching',
-      alarmDescription: 'Market indexer log ERROR level',
+      alarmDescription: `Market indexer ${name}: ERROR 2 times across multiple 10 minute periods ${Severity.SEV2}`,
       actionsEnabled: true,
       alarmActions,
     }, { parent: this });
 
+    const fatalLogMetricName = `${serviceName}-market-log-fatal`;
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-fatal-filter`, {
       name: `${serviceName}-market-log-fatal-filter`,
       logGroupName: serviceLogGroupName,
       metricTransformation: {
         namespace: serviceMetricsNamespace,
-        name: `${serviceName}-market-log-fatal`,
+        name: fatalLogMetricName,
         value: '1',
         defaultValue: '0',
       },
       pattern: 'FATAL',
     }, { parent: this, dependsOn: [marketService] });
 
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-fatal-alarm`, {
-      name: `${serviceName}-market-log-fatal`,
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-fatal-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-market-log-fatal-${Severity.SEV2}`,
       metricQueries: [
         {
           id: 'm1',
           metric: {
             namespace: serviceMetricsNamespace,
-            metricName: `${serviceName}-market-log-fatal`,
+            metricName: fatalLogMetricName,
             period: 60,
             stat: 'Sum',
           },
@@ -273,7 +294,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       evaluationPeriods: 1,
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
-      alarmDescription: `Market indexer ${name} FATAL (task exited)`,
+      alarmDescription: `Market indexer ${name} FATAL (task exited) ${Severity.SEV2}`,
       actionsEnabled: true,
       alarmActions,
     }, { parent: this });

@@ -22,9 +22,11 @@ aws-config = { version = "1.6", features = ["behavior-version-latest"] }
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
+base64 = "0.22"
 
 # Internal dependencies
 boundless-indexer = { path = "../../indexer" }
+chrono = { workspace = true }
 lambda_http = "0.13.0"
 
 # Lambda runtime
@@ -51,6 +53,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "fmt",
     "env-filter",
+    "json",
 ] }
 
 # OpenAPI generation

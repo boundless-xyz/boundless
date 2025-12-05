@@ -30,7 +30,8 @@ use utoipa::OpenApi;
         (name = "Health", description = "Health check endpoints"),
         (name = "Staking", description = "Staking position and history endpoints"),
         (name = "PoVW", description = "Proof of Verifiable Work rewards endpoints"),
-        (name = "Delegations", description = "Vote and reward delegation endpoints")
+        (name = "Delegations", description = "Vote and reward delegation endpoints"),
+        (name = "Market", description = "Market activity aggregates and statistics")
     ),
     paths(
         // Health check
@@ -61,6 +62,16 @@ use utoipa::OpenApi;
         crate::routes::delegations::get_reward_delegations_by_epoch,
         crate::routes::delegations::get_reward_delegation_history_by_address,
         crate::routes::delegations::get_reward_delegation_by_address_and_epoch,
+        // Market endpoints
+        crate::routes::market::get_indexing_status,
+        crate::routes::market::get_market_aggregates,
+        crate::routes::market::get_market_cumulatives,
+        crate::routes::market::list_requests,
+        crate::routes::market::get_requests_by_request_id,
+        crate::routes::market::list_requests_by_requestor,
+        crate::routes::market::get_requestor_aggregates,
+        crate::routes::market::get_requestor_cumulatives,
+        crate::routes::market::list_requests_by_prover,
     ),
     components(schemas(
         // Response models
@@ -94,6 +105,25 @@ use utoipa::OpenApi;
         EpochDelegationSummary,
         VoteDelegationSummaryStats,
         RewardDelegationSummaryStats,
+
+        // Market types
+        crate::routes::market::IndexingStatusResponse,
+        crate::routes::market::MarketAggregatesParams,
+        crate::routes::market::MarketAggregateEntry,
+        crate::routes::market::MarketAggregatesResponse,
+        crate::routes::market::MarketCumulativesParams,
+        crate::routes::market::MarketCumulativeEntry,
+        crate::routes::market::MarketCumulativesResponse,
+        crate::routes::market::RequestorAggregatesParams,
+        crate::routes::market::RequestorAggregateEntry,
+        crate::routes::market::RequestorAggregatesResponse,
+        crate::routes::market::RequestorCumulativesParams,
+        crate::routes::market::RequestorCumulativeEntry,
+        crate::routes::market::RequestorCumulativesResponse,
+        crate::routes::market::RequestListParams,
+        crate::routes::market::RequestStatusResponse,
+        crate::routes::market::RequestListResponse,
+        crate::routes::market::AggregationGranularity,
     ))
 )]
 pub struct ApiDoc;

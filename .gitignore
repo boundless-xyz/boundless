@@ -1,5 +1,11 @@
 # Compiler files
 cache/
+
+# Ignore the market cache directory
+!crates/indexer/src/market/cache/
+**/cache_market_x2/
+*.db
+
 out/
 build-info-reference/
 **/node_modules/

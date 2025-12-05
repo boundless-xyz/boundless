@@ -16,5 +16,9 @@ config:
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "35060420"
   indexer:ETH_RPC_URL:
-    secure: v1:mP1K5kqTOS8KXDCl:TV3yrYo1uW5nETisWmbfy6/ZGp+s1y4CvuE7NMSpCfHoTAB1I/BFrZlta034EtitrAK6y37r/OfKCv5ebjxIuaJ9JMcHS9Og/zrt
+    secure: v1:czlCLunFJFxNK5Kt:6I6pDBuQfNFCQ5Of68Z3Vmdiw9tpMdp1bFLPgOKcV1e8n8vRsXyOodPLfAwERKn0gV4erCJs954Nn2FjwNIFEVIT5JkPAFXabRY6SaZshgYqcepfKQSpOkrpTTbaTDdkH/+ov4QaqkXS3jZVlJvFmA==
   indexer:ORDER_STREAM_URL: https://base-mainnet.boundless.network
+  indexer:ORDER_STREAM_API_KEY:
+    secure: v1:RiQ9dH2J6lynxHnr:CNEbbDvPjX/8bkttAQE8/JyLeVbNvG7wCTyCUoHV
+  indexer:LOGS_ETH_RPC_URL:
+    secure: v1:8fWY91B8U6ML9g8R:tYwI5eLET2ZoRSfpqjAbCNl0GLkNT5Z85VywuEN0kb6UiQSWf6qXPnebasmODFFcI9CKMD8Nr5gfcJh09JiQhxzaFouGPMu7WGfo
