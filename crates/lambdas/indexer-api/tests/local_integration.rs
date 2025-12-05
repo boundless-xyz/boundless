@@ -205,6 +205,8 @@ impl SharedTestEnv {
                 &END_EPOCH.to_string(),
                 "--end-block",
                 &END_BLOCK.to_string(),
+                "--block-chunk-size",
+                "5000",
             ])
             .env("DATABASE_URL", &db_url)
             .env("RUST_LOG", "debug,sqlx=warn")

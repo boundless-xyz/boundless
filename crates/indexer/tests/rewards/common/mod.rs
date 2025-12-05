@@ -73,6 +73,7 @@ async fn initialize_test_db() -> TestDbState {
         interval: Duration::from_secs(600),
         retries: 2,
         batch_size: 50,
+        block_chunk_size: 5000,
         start_block: None,
         end_block: Some(END_BLOCK),
         end_epoch: Some(END_EPOCH),

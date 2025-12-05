@@ -77,6 +77,10 @@ struct RewardsIndexerArgs {
     /// Typically only used for testing, as to get accurate aggregate counts we only support reindexing from 0.
     #[clap(long, conflicts_with_all = ["end_block", "end_epoch"])]
     epochs_to_process: Option<u64>,
+
+    /// Number of blocks to query in each chunk when fetching event logs.
+    #[clap(long, default_value = "50000")]
+    block_chunk_size: u64,
 }
 
 #[tokio::main]
@@ -97,6 +101,7 @@ async fn main() -> Result<()> {
         interval: Duration::from_secs(args.interval),
         retries: args.retries,
         batch_size: args.batch_size,
+        block_chunk_size: args.block_chunk_size,
         start_block: args.start_block,
         end_block: args.end_block,
         end_epoch: args.end_epoch,

@@ -47,6 +47,7 @@ pub struct RewardsIndexerServiceConfig {
     pub interval: Duration,
     pub retries: u32,
     pub batch_size: u64,
+    pub block_chunk_size: u64,
     pub start_block: Option<u64>,
     pub end_block: Option<u64>,
     pub end_epoch: Option<u64>,
@@ -215,6 +216,7 @@ impl RewardsIndexerService {
             &zkc_deployment,
             start_block,
             end_block,
+            self.config.block_chunk_size,
         )
         .await?;
         tracing::info!("Event fetching completed in {:.2}s", fetch_start.elapsed().as_secs_f64());
