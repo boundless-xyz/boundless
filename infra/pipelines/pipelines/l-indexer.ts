@@ -17,7 +17,7 @@ const config: LaunchPipelineConfig = {
         '. "$HOME/.cargo/env"',
         'npm install -g @ziglang/cli'
     ],
-    branchName: "willpote/market-indexer-api",
+    branchName: "main",
 };
 
 export class LIndexerPipeline extends LaunchDefaultPipeline {
