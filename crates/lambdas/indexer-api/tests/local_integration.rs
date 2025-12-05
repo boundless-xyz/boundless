@@ -424,11 +424,14 @@ impl MarketTestEnv {
 
         // Read stderr in background
         tokio::spawn(async move {
+            use std::io::Write;
             use tokio::io::{AsyncBufReadExt, BufReader};
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                println!("market-indexer stderr: {}", line);
+                // Use eprintln! for immediate output and ensure it's flushed
+                eprintln!("market-indexer stderr: {}", line);
+                let _ = std::io::stderr().flush();
             }
         });
 
