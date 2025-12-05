@@ -24,7 +24,7 @@ config:
     secure: v1:bZaP8gZLLn+7PG9z:9u7k5/ch7P3WCrI6oaFzUpsljSw3ZiOBKcrM3mQL9Tg09HdrjDK8kM5FpWJ8nSfTouzr2Ghfiyj+KGcJgXYWFQQXbj2SXGVc8HMl0LbPdkk=
   prover-cluster:ethRpcUrl:
     secure: v1:lFT0b4jaqt9DTTz8:QUmzfFkJTx753kerYTsYteef43jKTjRsk4GUjgW2vfV41yRzarZ1YVGFJ3QyXfmC8fsfTezQ7JwcEFdprqmkkTu+NaN9wrkb2aZsEdwahxxEIuLUD+DMR1vSO7IgVbd3MmunrP2Dm7ufmVlbzhsTXQ==
-  prover-cluster:orderStreamUrl: "https://testnet.boundless.network/"
+  prover-cluster:orderStreamUrl: "https://base-sepolia.boundless.network/"
   prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
   prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
   prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
