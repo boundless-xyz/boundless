@@ -369,7 +369,9 @@ where
 
             if let Err(err) = res.await {
                 tracing::error!("Failed to submit {order_id}: {err}");
-                if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit").await {
+                if let Err(db_err) =
+                    self.db.set_order_failure(order_id, "Failed to submit", &self.prover).await
+                {
                     tracing::error!("Failed to set order failure during proof submission: {order_id} {db_err:?}");
                 }
             }
@@ -470,7 +472,7 @@ where
         for fulfillment in fulfillments.iter() {
             let order_id = fulfillment_to_order_id.get(&fulfillment.id).unwrap();
 
-            if let Err(db_err) = self.db.set_order_complete(order_id).await {
+            if let Err(db_err) = self.db.set_order_complete(order_id, &self.prover).await {
                 tracing::error!(
                     "Failed to set order complete during proof submission: {:x} {db_err:?}",
                     fulfillment.id
@@ -517,8 +519,10 @@ where
     ) -> Result<(), SubmitterErr> {
         tracing::warn!("All orders in batch {batch_id} are expired ({}). Batch will not be submitted, and all orders will be marked as failed.", &orders.iter().map(|order| format!("{order}")).collect::<Vec<_>>().join(", "));
         for order in orders.clone() {
-            if let Err(db_err) =
-                self.db.set_order_failure(order.id().as_str(), "Failed to submit batch").await
+            if let Err(db_err) = self
+                .db
+                .set_order_failure(order.id().as_str(), "Failed to submit batch", &self.prover)
+                .await
             {
                 tracing::error!(
                     "Failed to set order failure during proof submission: {} {db_err:?}",
@@ -540,7 +544,8 @@ where
     ) -> Result<(), SubmitterErr> {
         tracing::warn!("Failed to submit proofs for batch {batch_id}: {err:?} ");
         for (fulfillment, order_id) in fulfillments.iter().zip(order_ids.iter()) {
-            if let Err(db_err) = self.db.set_order_failure(order_id, "Failed to submit batch").await
+            if let Err(db_err) =
+                self.db.set_order_failure(order_id, "Failed to submit batch", &self.prover).await
             {
                 tracing::error!(
                     "Failed to set order failure during proof submission: {:x} {db_err:?}",

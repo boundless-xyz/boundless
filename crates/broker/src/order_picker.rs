@@ -275,9 +275,10 @@ where
                     tracing::info!("Order pricing cancelled during pricing for order {order_id}");
 
                     // Add the cancelled order to the database as skipped
-                    if let Err(e) = self.db.insert_skipped_request(&order).await {
+                    if let Err(e) = self.db.insert_skipped_request(&order, &self.prover).await {
                         tracing::error!("Failed to add cancelled order to database: {e}");
                     }
+
                     return Ok(false);
                 }
             };
@@ -337,17 +338,19 @@ where
 
                     // Add the skipped order to the database
                     self.db
-                        .insert_skipped_request(&order)
+                        .insert_skipped_request(&order, &self.prover)
                         .await
                         .context("Failed to add skipped order to database")?;
+
                     Ok(false)
                 }
                 Err(err) => {
                     tracing::warn!("Failed to price order {order_id}: {err}");
                     self.db
-                        .insert_skipped_request(&order)
+                        .insert_skipped_request(&order, &self.prover)
                         .await
                         .context("Failed to skip failed priced order")?;
+
                     Ok(false)
                 }
             }
@@ -650,6 +653,11 @@ where
                             }
                             Err(err) => match err {
                                 ProverError::ProvingFailed(ref err_msg) => {
+                                    if let Err(e) = prover.delete_input(&input_id).await {
+                                        tracing::error!(
+                                            "Failed to delete input for skipped order {order_id_clone}: {e:?}"
+                                        );
+                                    }
                                     if err_msg.contains("Session limit exceeded") 
                                         || err_msg.contains("Execution stopped intentionally due to session limit") {
                                         tracing::debug!(
@@ -2890,6 +2898,10 @@ pub(crate) mod tests {
 
         async fn upload_input(&self, input: Vec<u8>) -> Result<String, ProverError> {
             self.default_prover.upload_input(input).await
+        }
+
+        async fn delete_input(&self, input_id: &str) -> Result<(), ProverError> {
+            self.default_prover.delete_input(input_id).await
         }
 
         async fn preflight(

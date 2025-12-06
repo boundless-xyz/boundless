@@ -30,7 +30,7 @@ use tokio::runtime::Builder;
 use crate::FulfillmentType;
 use crate::{db::AggregationOrder, AggregationState, Order, OrderStatus};
 
-use super::{BrokerDb, SqliteDb};
+use super::{tests::db_test_prover, BrokerDb, SqliteDb};
 
 use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
@@ -153,6 +153,7 @@ proptest! {
             let db: Arc<dyn BrokerDb + Send + Sync> = Arc::new(
                 SqliteDb::new(&db_path).await.unwrap()
             );
+            let prover = db_test_prover();
 
             // Create state tracking structure
             let state = TestState {
@@ -165,6 +166,7 @@ proptest! {
 
             for ops in operations.chunks(12) {
                 let db = db.clone();
+                let prover = prover.clone();
                 let ops = ops.to_vec();
                 let state = TestState {
                     added_orders: state.added_orders.clone(),
@@ -196,10 +198,10 @@ proptest! {
                                         db.get_order(id).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderComplete => {
-                                        db.set_order_complete(id).await.unwrap();
+                                        db.set_order_complete(id, &prover).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderFailure => {
-                                        db.set_order_failure(id, "test").await.unwrap();
+                                        db.set_order_failure(id, "test", &prover).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderProofId { proof_id } => {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();

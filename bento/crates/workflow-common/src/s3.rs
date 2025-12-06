@@ -174,6 +174,11 @@ impl S3Client {
         }
     }
 
+    pub async fn object_delete(&self, key: &str) -> Result<()> {
+        self.client.delete_object().bucket(&self.bucket).key(key).send().await?;
+        Ok(())
+    }
+
     /// List objects in the bucket with optional prefix
     pub async fn list_objects(&self, prefix: Option<&str>) -> Result<Vec<String>> {
         let mut objects = Vec::new();

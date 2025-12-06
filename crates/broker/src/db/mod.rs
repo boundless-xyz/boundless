@@ -25,6 +25,7 @@ use thiserror::Error;
 
 use crate::{
     errors::{impl_coded_debug, CodedError},
+    provers::ProverObj,
     AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderRequest, OrderStatus,
     ProofRequest,
 };
@@ -124,7 +125,11 @@ pub struct AggregationOrder {
 
 #[async_trait]
 pub trait BrokerDb {
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError>;
+    async fn insert_skipped_request(
+        &self,
+        order_request: &OrderRequest,
+        prover: &ProverObj,
+    ) -> Result<(), DbError>;
     async fn insert_accepted_request(
         &self,
         order_request: &OrderRequest,
@@ -137,8 +142,13 @@ pub trait BrokerDb {
         id: &str,
     ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
     async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
-    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError>;
-    async fn set_order_complete(&self, id: &str) -> Result<(), DbError>;
+    async fn set_order_failure(
+        &self,
+        id: &str,
+        failure_str: &'static str,
+        prover: &ProverObj,
+    ) -> Result<(), DbError>;
+    async fn set_order_complete(&self, id: &str, prover: &ProverObj) -> Result<(), DbError>;
     /// Get all orders that are committed to be prove and be fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
     /// Get all orders that are committed to be proved but have expired based on their expire_timestamp.
@@ -198,6 +208,24 @@ pub trait BrokerDb {
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
     #[cfg(test)]
     async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
+}
+
+async fn delete_input_with_context(
+    prover: &ProverObj,
+    input_id: &str,
+    order_id: &str,
+    context: &str,
+) {
+    match prover.delete_input(input_id).await {
+        Ok(_) => tracing::info!("Deleted input {} for {} order {}", input_id, context, order_id),
+        Err(e) => tracing::warn!(
+            "Failed to delete input {} for {} order {}: {}",
+            input_id,
+            context,
+            order_id,
+            e
+        ),
+    }
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
@@ -317,8 +345,16 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
-    async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(&order_request.to_skipped_order()).await
+    async fn insert_skipped_request(
+        &self,
+        order_request: &OrderRequest,
+        prover: &ProverObj,
+    ) -> Result<(), DbError> {
+        self.insert_order_ignore_duplicates(&order_request.to_skipped_order()).await?;
+        if let Some(input_id) = &order_request.input_id {
+            delete_input_with_context(prover, input_id, &order_request.id(), "skipped").await;
+        }
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
@@ -388,16 +424,28 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError> {
+    async fn set_order_failure(
+        &self,
+        id: &str,
+        failure_str: &'static str,
+        prover: &ProverObj,
+    ) -> Result<(), DbError> {
+        let input_id = self
+            .get_order(id)
+            .await?
+            .ok_or_else(|| DbError::OrderNotFound(id.to_string()))?
+            .input_id;
         let res = sqlx::query(
             r#"
             UPDATE orders
-            SET data = json_set(
+            SET data = json_remove(
+                       json_set(
                        json_set(
                        json_set(data,
                        '$.status', $1),
                        '$.updated_at', $2),
-                       '$.error_msg', $3)
+                       '$.error_msg', $3),
+                       '$.input_id')
             WHERE
                 id = $4"#,
         )
@@ -412,18 +460,29 @@ impl BrokerDb for SqliteDb {
             return Err(DbError::OrderNotFound(id.to_string()));
         }
 
+        if let Some(input_id) = input_id {
+            delete_input_with_context(prover, &input_id, id, "failed").await;
+        }
+
         Ok(())
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_complete(&self, id: &str) -> Result<(), DbError> {
+    async fn set_order_complete(&self, id: &str, prover: &ProverObj) -> Result<(), DbError> {
+        let input_id = self
+            .get_order(id)
+            .await?
+            .ok_or_else(|| DbError::OrderNotFound(id.to_string()))?
+            .input_id;
         let res = sqlx::query(
             r#"
             UPDATE orders
-            SET data = json_set(
+            SET data = json_remove(
+                       json_set(
                        json_set(data,
                        '$.status', $1),
-                       '$.updated_at', $2)
+                       '$.updated_at', $2),
+                       '$.input_id')
             WHERE
                 id = $3"#,
         )
@@ -435,6 +494,10 @@ impl BrokerDb for SqliteDb {
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
+        }
+
+        if let Some(input_id) = input_id {
+            delete_input_with_context(prover, &input_id, id, "completed").await;
         }
 
         Ok(())
@@ -1057,15 +1120,20 @@ impl BrokerDb for SqliteDb {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::ProofRequest;
+    use crate::{
+        provers::{ProofResult, Prover, ProverError},
+        ProofRequest,
+    };
     use alloy::primitives::{Address, Bytes, U256};
+    use async_trait::async_trait;
     use boundless_market::contracts::{
         Offer, Predicate, RequestId, RequestInput, RequestInputType, Requirements,
     };
     use risc0_aggregation::GuestState;
-    use risc0_zkvm::sha::Digest;
+    use risc0_zkvm::{sha::Digest, Receipt};
+    use std::sync::Mutex;
     use tracing_test::traced_test;
 
     fn create_order_request() -> OrderRequest {
@@ -1096,6 +1164,86 @@ mod tests {
 
     fn create_order() -> Order {
         create_order_request().to_proving_order(Default::default())
+    }
+
+    #[derive(Default)]
+    struct TestProver {
+        deleted: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl TestProver {
+        fn new() -> Self {
+            Self { deleted: Arc::new(Mutex::new(Vec::new())) }
+        }
+        fn deleted_ids(&self) -> Arc<Mutex<Vec<String>>> {
+            self.deleted.clone()
+        }
+    }
+
+    #[async_trait]
+    impl Prover for TestProver {
+        async fn has_image(&self, _image_id: &str) -> Result<bool, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn upload_input(&self, _input: Vec<u8>) -> Result<String, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn delete_input(&self, input_id: &str) -> Result<(), ProverError> {
+            self.deleted.lock().unwrap().push(input_id.to_string());
+            Ok(())
+        }
+        async fn upload_image(&self, _image_id: &str, _image: Vec<u8>) -> Result<(), ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn preflight(
+            &self,
+            _image_id: &str,
+            _input_id: &str,
+            _assumptions: Vec<String>,
+            _executor_limit: Option<u64>,
+            _order_id: &str,
+        ) -> Result<ProofResult, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn prove_stark(
+            &self,
+            _image_id: &str,
+            _input_id: &str,
+            _assumptions: Vec<String>,
+        ) -> Result<String, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn wait_for_stark(&self, _proof_id: &str) -> Result<ProofResult, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn cancel_stark(&self, _proof_id: &str) -> Result<(), ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn get_receipt(&self, _proof_id: &str) -> Result<Option<Receipt>, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn get_preflight_journal(
+            &self,
+            _proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn get_journal(&self, _proof_id: &str) -> Result<Option<Vec<u8>>, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn compress(&self, _proof_id: &str) -> Result<String, ProverError> {
+            unimplemented!("not required for tests")
+        }
+        async fn get_compressed_receipt(
+            &self,
+            _proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            unimplemented!("not required for tests")
+        }
+    }
+
+    pub(crate) fn db_test_prover() -> ProverObj {
+        Arc::new(TestProver::new())
     }
 
     #[sqlx::test]
@@ -1165,37 +1313,70 @@ mod tests {
     #[sqlx::test]
     async fn set_order_failure(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let order = create_order();
+        let mut order = create_order();
+        order.input_id = Some("input_failure".into());
         db.add_order(&order).await.unwrap();
+        let prover = TestProver::new();
+        let deleted = prover.deleted_ids();
+        let prover: ProverObj = Arc::new(prover);
 
         let failure_str = "TEST_FAIL";
-        db.set_order_failure(&order.id(), failure_str).await.unwrap();
+        db.set_order_failure(&order.id(), failure_str, &prover).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Failed);
         assert_eq!(db_order.error_msg, Some(failure_str.into()));
+        assert!(db_order.input_id.is_none());
+        assert_eq!(deleted.lock().unwrap().as_slice(), ["input_failure"]);
     }
 
     #[sqlx::test]
     async fn set_order_complete(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let order = create_order();
+        let mut order = create_order();
+        order.input_id = Some("input_complete".into());
         db.add_order(&order).await.unwrap();
+        let prover = TestProver::new();
+        let deleted = prover.deleted_ids();
+        let prover: ProverObj = Arc::new(prover);
 
-        db.set_order_complete(&order.id()).await.unwrap();
+        db.set_order_complete(&order.id(), &prover).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Done);
+        assert!(db_order.input_id.is_none());
+        assert_eq!(deleted.lock().unwrap().as_slice(), ["input_complete"]);
     }
 
     #[sqlx::test]
     async fn skip_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
         let order = create_order_request();
+        let prover = TestProver::new();
+        let deleted = prover.deleted_ids();
+        let prover: ProverObj = Arc::new(prover);
 
-        db.insert_skipped_request(&order).await.unwrap();
+        db.insert_skipped_request(&order, &prover).await.unwrap();
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(deleted.lock().unwrap().is_empty());
+    }
+
+    #[sqlx::test]
+    async fn insert_skipped_request_deletes_input(pool: SqlitePool) {
+        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+        let mut order = create_order_request();
+        order.input_id = Some("input_skip".into());
+        let prover = TestProver::new();
+        let deleted = prover.deleted_ids();
+        let prover: ProverObj = Arc::new(prover);
+
+        db.insert_skipped_request(&order, &prover).await.unwrap();
+
+        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+        assert!(db_order.input_id.is_none());
+        assert_eq!(deleted.lock().unwrap().as_slice(), ["input_skip"]);
     }
 
     #[sqlx::test]
@@ -1642,13 +1823,14 @@ mod tests {
 
         // Skipped request ignores duplicates
         let order_request = create_order_request();
-        db.insert_skipped_request(&order_request).await.unwrap();
+        let prover = db_test_prover();
+        db.insert_skipped_request(&order_request, &prover).await.unwrap();
 
         let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
         assert_eq!(stored_order.status, OrderStatus::Skipped);
 
         // Try to insert the same skipped request again - should be ignored
-        db.insert_skipped_request(&order_request).await.unwrap();
+        db.insert_skipped_request(&order_request, &prover).await.unwrap();
         assert!(logs_contain("already exists"));
 
         // Accepted request can overwrite skipped order
