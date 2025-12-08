@@ -153,7 +153,7 @@ where
 
         // Determine the starting block to process from
         // If ignore_last_processed_block is true, use the provided starting block
-        // Otherwise, use last_processed_block, if set.
+        // Otherwise, use last_processed_block, if present in the db.
         // If no last_prcessed_block (e.g. first run), use starting block
         let mut from_block: u64 = match (
             ignore_last_processed_block,
