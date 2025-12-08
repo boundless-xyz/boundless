@@ -38,9 +38,7 @@ library FulfillmentContextLibrary {
     /// @return The unpacked FulfillmentContext struct
     function unpack(uint256 packed) internal pure returns (FulfillmentContext memory) {
         return FulfillmentContext({
-            valid: (packed & VALID_MASK) != 0,
-            expired: (packed & EXPIRED_MASK) != 0,
-            price: uint96(packed & PRICE_MASK)
+            valid: (packed & VALID_MASK) != 0, expired: (packed & EXPIRED_MASK) != 0, price: uint96(packed & PRICE_MASK)
         });
     }
 
