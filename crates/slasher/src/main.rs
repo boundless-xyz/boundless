@@ -39,9 +39,14 @@ struct MainArgs {
     /// DB connection string.
     #[clap(long, default_value = "sqlite::memory:")]
     db: String,
-    /// Starting block number.
+    /// Starting block number. Note this will only be used the first time the slasher is run.
+    /// After that point, it will use the last processed block from the database.
+    /// UNLESS the ignore_last_processed_block flag is set.
     #[clap(long)]
     start_block: Option<u64>,
+    /// Ignore last processed block and start from the given starting block.
+    #[clap(long, requires = "start_block")]
+    ignore_last_processed_block: Option<bool>,
     /// Interval in seconds between checking for expired requests.
     #[clap(long, default_value = "5")]
     interval: u64,

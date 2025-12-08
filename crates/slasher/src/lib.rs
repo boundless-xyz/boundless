@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::min, sync::Arc};
+use std::{sync::Arc};
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
@@ -144,8 +144,25 @@ where
     pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
         let current_block = self.current_block().await?;
-        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
-        let mut from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
+        let last_processed_block = self.get_last_processed_block().await?;
+        tracing::info!("Last processed block fetched from db: {:?}", last_processed_block);
+        
+        let mut from_block: u64 = if let Some(last_processed_block) = last_processed_block {
+            if last_processed_block > current_block {
+                tracing::warn!("Last processed block {} is greater than current block {}, using current block for starting block", last_processed_block, current_block);
+                current_block
+            } else {
+                last_processed_block
+            }
+        } else if let Some(starting_block) = starting_block {
+            tracing::info!("No last processed block found. Using provided starting block {} for starting block", starting_block);
+            starting_block
+        } else {
+            tracing::info!("No last processed block and no starting block provided. Using current block {} for starting block", current_block);
+            current_block
+        };
+        
+        tracing::info!("Starting from block {}", from_block);
 
         let mut attempt = 0;
         loop {
@@ -188,7 +205,7 @@ where
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
-                                    to_block,
+                                    chunk_to,
                                     e
                                 );
                                 return Err(e);
@@ -203,7 +220,7 @@ where
                                 tracing::warn!(
                                     "Failed to process blocks from {} to {}: {:?}, attempt number {}",
                                     from_block,
-                                    to_block,
+                                    chunk_to,
                                     e,
                                     attempt
                                 );
@@ -249,7 +266,9 @@ where
     }
 
     async fn update_last_processed_block(&self, block_number: u64) -> Result<(), ServiceError> {
-        Ok(self.db.set_last_block(block_number).await?)
+        self.db.set_last_block(block_number).await?;
+        tracing::info!("Updated last processed block to {block_number}");
+        Ok(())
     }
 
     async fn process_locked_events(
