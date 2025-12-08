@@ -23,6 +23,15 @@
           "estimatedMaxInputSizeMB": 1000
         }
       }
+    },
+    {
+      "address": "0x734df7809c4ef94da037449c287166d114503198",
+      "chainId": 8452,
+      "name": "SigleCountMin": 50000,
+      "estimatedMcycleCountMax": 55000,
+      "estimatedMaxInputSizeMB": 1000
     }
-  ]
+  }
+}
+]
 }
