@@ -83,7 +83,7 @@ pub(crate) async fn cancel_proof_and_fail_order(
 
     // TODO in the case of a failure to cancel, the estimated capacity will be incorrect. Still
     // setting the order as failed to avoid infinite loops of cancellations.
-    if let Err(err) = db.set_order_failure(&order_id, failure_reason).await {
+    if let Err(err) = db.set_order_failure(&order_id, failure_reason, prover).await {
         tracing::error!(
             "Failed to set order {order_id} as failed for reason {failure_reason}: {err}",
         );

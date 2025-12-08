@@ -286,7 +286,9 @@ impl OrderRequest {
     }
 
     fn to_skipped_order(&self) -> Order {
-        self.to_order(OrderStatus::Skipped)
+        let mut order = self.to_order(OrderStatus::Skipped);
+        order.input_id = None;
+        order
     }
 
     fn to_proving_order(&self, lock_price: U256) -> Order {
@@ -970,6 +972,7 @@ where
 
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
+            prover.clone(),
             self.provider.clone(),
             chain_monitor.clone(),
             config.clone(),
