@@ -38,6 +38,7 @@ jobs:
       - rust-pkg-check
       - docs-rs
       - scaler-tests
+      - validate-requestor-lists
 
     runs-on: ubuntu-latest
     steps:
@@ -528,6 +529,27 @@ jobs:
           cd infra/scaler
           pytest -v
 
+  validate-requestor-lists:
+    runs-on: ubuntu-latest
+    needs: files-changed
+    if: needs.files-changed.outputs.requestor_lists == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: validate JSON files in requestor-lists
+        run: |
+          for file in requestor-lists/*.json; do
+            if [ -f "$file" ]; then
+              echo "Validating $file..."
+              if ! python3 -m json.tool "$file" > /dev/null; then
+                echo "ERROR: Invalid JSON in $file"
+                exit 1
+              fi
+              echo "✓ $file is valid JSON"
+            fi
+          done
+
   files-changed:
     runs-on: ubuntu-latest
     outputs:
@@ -538,6 +560,7 @@ jobs:
       infra: ${{ steps.changes.outputs.infra }}
       deployments: ${{ steps.changes.outputs.deployments }}
       scaler: ${{ steps.changes.outputs.scaler }}
+      requestor_lists: ${{ steps.changes.outputs.requestor_lists }}
 
     steps:
       - name: checkout code
@@ -584,4 +607,8 @@ jobs:
             # Changes to scaler lambda function
             scaler:
               - 'infra/scaler/**'
+              - '.github/workflows/main.yml'
+            # Changes to requestor lists
+            requestor_lists:
+              - 'requestor-lists/**'
               - '.github/workflows/main.yml'
