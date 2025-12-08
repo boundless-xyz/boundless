@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
@@ -141,27 +141,41 @@ impl<P> SlashService<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    pub async fn run(self, starting_block: Option<u64>, ignore_last_processed_block: Option<bool>) -> Result<(), ServiceError> {
+    pub async fn run(
+        self,
+        starting_block: Option<u64>,
+        ignore_last_processed_block: Option<bool>,
+    ) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
         let current_block = self.current_block().await?;
         let last_processed_block = self.get_last_processed_block().await?;
         tracing::debug!("Last processed block fetched from db: {:?}", last_processed_block);
-        
+
         // Determine the starting block to process from
         // If ignore_last_processed_block is true, use the provided starting block
         // Otherwise, use last_processed_block, if set.
         // If no last_prcessed_block (e.g. first run), use starting block
-        let mut from_block: u64 = match (ignore_last_processed_block, starting_block, last_processed_block) {
+        let mut from_block: u64 = match (
+            ignore_last_processed_block,
+            starting_block,
+            last_processed_block,
+        ) {
             (Some(true), Some(starting_block), _) => {
                 tracing::debug!("Ignoring last processed block and using provided starting block {} for starting block", starting_block);
                 starting_block
             }
             (_, _, Some(last_processed_block)) => {
-                tracing::debug!("Using last processed block {} for starting block", last_processed_block);
+                tracing::debug!(
+                    "Using last processed block {} for starting block",
+                    last_processed_block
+                );
                 last_processed_block
             }
             (_, Some(starting_block), None) => {
-                tracing::debug!("No last processed block. Using provided starting block {} for starting block", starting_block);
+                tracing::debug!(
+                    "No last processed block. Using provided starting block {} for starting block",
+                    starting_block
+                );
                 starting_block
             }
             _ => {
