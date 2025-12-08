@@ -22,3 +22,5 @@ config:
     secure: v1:lczbvcZjJVdtaNn+:ZPyMXWvgEpt0mnHR6M7j6ZJKRsqiXAsUIYr8aBRPN6lsNVFgHpMCRjcPTPrFF51gpkwFED1GCvTk4wp1tqxvsWWztwHJxos2agMK3tExH/hrGp/qby3RMI+FxpgtsAakYT8ShB5MJTvTQlAHXQ==
   order-stream:PREMIUM_API_KEY:
     secure: v1:hLXpTRKA6Hr5a4yJ:6me1m90CTo895X+iaqRzfO7RDk5YyLBxnoM+bHlT
+  order-stream:ORDER_STREAM_API_KEY:
+    secure: v1:DsNrPhmYNQQcY234:l/v/LxjYO0SHieBn7oeDUugqmtGYiEafGdj9cUJ2

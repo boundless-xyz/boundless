@@ -46,13 +46,13 @@ pub async fn query_logs_chunked<P: Provider>(
     filter: Filter,
     from_block: u64,
     to_block: u64,
+    block_chunk_size: u64,
 ) -> anyhow::Result<Vec<Log>> {
-    const BLOCK_CHUNK_SIZE: u64 = 10_000;
     let mut all_logs = Vec::new();
 
     let mut current_from = from_block;
     while current_from <= to_block {
-        let current_to = (current_from + BLOCK_CHUNK_SIZE - 1).min(to_block);
+        let current_to = (current_from + block_chunk_size - 1).min(to_block);
 
         let chunk_filter = filter
             .clone()
@@ -75,6 +75,7 @@ pub async fn fetch_all_event_logs<P: Provider>(
     zkc_deployment: &boundless_zkc::deployments::Deployment,
     from_block_num: u64,
     current_block: u64,
+    block_chunk_size: u64,
 ) -> anyhow::Result<AllEventLogs> {
     tracing::info!("Fetching blockchain event data ({} blocks)...", current_block - from_block_num);
 
@@ -109,9 +110,15 @@ pub async fn fetch_all_event_logs<P: Provider>(
         unstake_initiated_logs,
     ) = tokio::join!(
         async {
-            query_logs_chunked(provider, work_filter.clone(), from_block_num, current_block)
-                .await
-                .context("Failed to get work logs")
+            query_logs_chunked(
+                provider,
+                work_filter.clone(),
+                from_block_num,
+                current_block,
+                block_chunk_size,
+            )
+            .await
+            .context("Failed to get work logs")
         },
         async {
             query_logs_chunked(
@@ -119,6 +126,7 @@ pub async fn fetch_all_event_logs<P: Provider>(
                 epoch_finalized_filter.clone(),
                 from_block_num,
                 current_block,
+                block_chunk_size,
             )
             .await
             .context("Failed to get epoch finalized logs")
@@ -129,14 +137,21 @@ pub async fn fetch_all_event_logs<P: Provider>(
                 stake_created_filter.clone(),
                 from_block_num,
                 current_block,
+                block_chunk_size,
             )
             .await
             .context("Failed to get stake created logs")
         },
         async {
-            query_logs_chunked(provider, stake_added_filter.clone(), from_block_num, current_block)
-                .await
-                .context("Failed to get stake added logs")
+            query_logs_chunked(
+                provider,
+                stake_added_filter.clone(),
+                from_block_num,
+                current_block,
+                block_chunk_size,
+            )
+            .await
+            .context("Failed to get stake added logs")
         },
         async {
             query_logs_chunked(
@@ -144,6 +159,7 @@ pub async fn fetch_all_event_logs<P: Provider>(
                 unstake_initiated_filter.clone(),
                 from_block_num,
                 current_block,
+                block_chunk_size,
             )
             .await
             .context("Failed to get unstake initiated logs")
@@ -198,6 +214,7 @@ pub async fn fetch_all_event_logs<P: Provider>(
                 unstake_completed_filter.clone(),
                 from_block_num,
                 current_block,
+                block_chunk_size,
             )
             .await
             .context("Failed to get unstake completed logs")
@@ -208,6 +225,7 @@ pub async fn fetch_all_event_logs<P: Provider>(
                 vote_delegation_change_filter.clone(),
                 from_block_num,
                 current_block,
+                block_chunk_size,
             )
             .await
             .context("Failed to get vote delegation change logs")
@@ -218,24 +236,43 @@ pub async fn fetch_all_event_logs<P: Provider>(
                 reward_delegation_change_filter.clone(),
                 from_block_num,
                 current_block,
+                block_chunk_size,
             )
             .await
             .context("Failed to get reward delegation change logs")
         },
         async {
-            query_logs_chunked(provider, vote_power_filter.clone(), from_block_num, current_block)
-                .await
-                .context("Failed to get vote power logs")
+            query_logs_chunked(
+                provider,
+                vote_power_filter.clone(),
+                from_block_num,
+                current_block,
+                block_chunk_size,
+            )
+            .await
+            .context("Failed to get vote power logs")
         },
         async {
-            query_logs_chunked(provider, reward_power_filter.clone(), from_block_num, current_block)
-                .await
-                .context("Failed to get reward power logs")
+            query_logs_chunked(
+                provider,
+                reward_power_filter.clone(),
+                from_block_num,
+                current_block,
+                block_chunk_size,
+            )
+            .await
+            .context("Failed to get reward power logs")
         },
         async {
-            query_logs_chunked(provider, povw_claims_filter.clone(), from_block_num, current_block)
-                .await
-                .context("Failed to get povw claims logs")
+            query_logs_chunked(
+                provider,
+                povw_claims_filter.clone(),
+                from_block_num,
+                current_block,
+                block_chunk_size,
+            )
+            .await
+            .context("Failed to get povw claims logs")
         },
         async {
             query_logs_chunked(
@@ -243,6 +280,7 @@ pub async fn fetch_all_event_logs<P: Provider>(
                 staking_claims_filter.clone(),
                 from_block_num,
                 current_block,
+                block_chunk_size,
             )
             .await
             .context("Failed to get staking claims logs")

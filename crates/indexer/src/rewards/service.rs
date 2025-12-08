@@ -46,6 +46,8 @@ use crate::db::rewards::{
 pub struct RewardsIndexerServiceConfig {
     pub interval: Duration,
     pub retries: u32,
+    pub batch_size: u64,
+    pub block_chunk_size: u64,
     pub start_block: Option<u64>,
     pub end_block: Option<u64>,
     pub end_epoch: Option<u64>,
@@ -95,7 +97,7 @@ impl RewardsIndexerService {
                 RpcClient::builder().layer(RetryBackoffLayer::new(3, 1000, 200)).http(rpc_url),
             );
         let chain_id = provider.get_chain_id().await?;
-        let db: RewardsDbObj = Arc::new(RewardsDb::new(db_conn).await?);
+        let db: RewardsDbObj = Arc::new(RewardsDb::new(db_conn, None, false).await?);
 
         Ok(Self {
             provider,
@@ -214,6 +216,7 @@ impl RewardsIndexerService {
             &zkc_deployment,
             start_block,
             end_block,
+            self.config.block_chunk_size,
         )
         .await?;
         tracing::info!("Event fetching completed in {:.2}s", fetch_start.elapsed().as_secs_f64());

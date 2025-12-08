@@ -13,10 +13,10 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
+  const chainId = config.require('CHAIN_ID');
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
-  const chainId = config.require('CHAIN_ID');
 
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const dockerDir = config.require('DOCKER_DIR');
@@ -43,7 +43,6 @@ export = () => {
 
   const boundlessAddress = config.get('BOUNDLESS_ADDRESS');
   const startBlock = boundlessAddress ? config.require('START_BLOCK') : undefined;
-  const orderStreamUrl = config.getSecret('ORDER_STREAM_URL');
 
   const vezkcAddress = config.get('VEZKC_ADDRESS');
   const zkcAddress = config.get('ZKC_ADDRESS');
@@ -66,6 +65,10 @@ export = () => {
 
   let marketIndexer: MarketIndexer | undefined;
   if (shouldDeployMarket && boundlessAddress && startBlock) {
+    const logsEthRpcUrl = isDev ? pulumi.output(getEnvVar("LOGS_ETH_RPC_URL")) : config.requireSecret('LOGS_ETH_RPC_URL');
+    const orderStreamApiKey = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_API_KEY")) : config.requireSecret('ORDER_STREAM_API_KEY');
+    const orderStreamUrl = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) : config.getSecret('ORDER_STREAM_URL');
+
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
@@ -80,7 +83,9 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       dockerRemoteBuilder,
       orderStreamUrl,
-    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
+      orderStreamApiKey,
+      logsEthRpcUrl,
+    }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -102,7 +107,7 @@ export = () => {
     }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
-  const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion];
+  const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
   if (marketIndexer) {
     sharedDependencies.push(marketIndexer);
   }
@@ -125,18 +130,20 @@ export = () => {
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
-
   let api: IndexerApi | undefined;
-  if (shouldDeployRewards && rewardsIndexer) {
+  if (shouldDeployMarket && marketIndexer || shouldDeployRewards && rewardsIndexer) {
     api = new IndexerApi(indexerApiServiceName, {
       vpcId: vpcId,
       privSubNetIds: privSubNetIds,
-      dbUrlSecret: infra.dbUrlSecret,
+      dbReaderUrlSecret: infra.dbReaderUrlSecret,
+      secretHash: infra.secretHash,
       rdsSgId: infra.rdsSecurityGroupId,
       indexerSgId: infra.indexerSecurityGroup.id,
       rustLogLevel: rustLogLevel,
+      chainId: chainId,
       domain: indexerApiDomain,
       boundlessAlertsTopicArns: alertsTopicArns,
+      databaseVersion: infra.databaseVersion,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 

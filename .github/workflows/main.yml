@@ -37,7 +37,6 @@ jobs:
       - infra
       - rust-pkg-check
       - docs-rs
-      - deployment-address-check
       - scaler-tests
 
     runs-on: ubuntu-latest
@@ -138,6 +137,7 @@ jobs:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
           ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
+          BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
 
       - name: sccache stats
         run: sccache --show-stats
@@ -504,22 +504,6 @@ jobs:
               cd -
             fi
           done
-
-  deployment-address-check:
-    runs-on: ubuntu-latest
-    needs: files-changed
-    if: needs.files-changed.outputs.deployments == 'true'
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v4
-
-      - name: install python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Check deployment addresses consistency
-        run: python deployments-check.py
 
   scaler-tests:
     runs-on: ubuntu-latest

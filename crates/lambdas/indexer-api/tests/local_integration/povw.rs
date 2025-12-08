@@ -78,8 +78,7 @@ async fn test_povw_summary() {
 
     // Verify formatted strings are present
     assert_eq!(summary.total_work_all_time_formatted, "24,999,835,418,624 cycles");
-    assert_eq!(summary.total_uncapped_rewards_all_time_formatted, "837,217 ZKC");
-    // Fixed: was 624,997 ZKC
+    assert_eq!(summary.total_uncapped_rewards_all_time_formatted, "837217.107775305749999989 ZKC");
 }
 
 #[tokio::test]
