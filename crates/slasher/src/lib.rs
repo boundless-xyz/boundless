@@ -141,27 +141,35 @@ impl<P> SlashService<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn run(self, starting_block: Option<u64>, ignore_last_processed_block: Option<bool>) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
         let current_block = self.current_block().await?;
         let last_processed_block = self.get_last_processed_block().await?;
-        tracing::info!("Last processed block fetched from db: {:?}", last_processed_block);
+        tracing::debug!("Last processed block fetched from db: {:?}", last_processed_block);
         
-        let mut from_block: u64 = if let Some(last_processed_block) = last_processed_block {
-            if last_processed_block > current_block {
-                tracing::warn!("Last processed block {} is greater than current block {}, using current block for starting block", last_processed_block, current_block);
-                current_block
-            } else {
+        // Determine the starting block to process from
+        // If ignore_last_processed_block is true, use the provided starting block
+        // Otherwise, use last_processed_block, if set.
+        // If no last_prcessed_block (e.g. first run), use starting block
+        let mut from_block: u64 = match (ignore_last_processed_block, starting_block, last_processed_block) {
+            (Some(true), Some(starting_block), _) => {
+                tracing::debug!("Ignoring last processed block and using provided starting block {} for starting block", starting_block);
+                starting_block
+            }
+            (_, _, Some(last_processed_block)) => {
+                tracing::debug!("Using last processed block {} for starting block", last_processed_block);
                 last_processed_block
             }
-        } else if let Some(starting_block) = starting_block {
-            tracing::info!("No last processed block found. Using provided starting block {} for starting block", starting_block);
-            starting_block
-        } else {
-            tracing::info!("No last processed block and no starting block provided. Using current block {} for starting block", current_block);
-            current_block
+            (_, Some(starting_block), None) => {
+                tracing::debug!("No last processed block. Using provided starting block {} for starting block", starting_block);
+                starting_block
+            }
+            _ => {
+                tracing::debug!("No last processed block and no starting block provided. Using current block {} for starting block", current_block);
+                current_block
+            }
         };
-        
+
         tracing::info!("Starting from block {}", from_block);
 
         let mut attempt = 0;
