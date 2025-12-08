@@ -119,6 +119,7 @@ contract BoundlessMarketTest is Test {
         boundlessMarketSource = address(
             new BoundlessMarket(
                 setVerifier,
+                setVerifier,
                 ASSESSOR_IMAGE_ID,
                 DEPRECATED_ASSESSOR_IMAGE_ID,
                 DEPRECATED_ASSESSOR_DURATION,
@@ -677,57 +678,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.withdraw(DEFAULT_BALANCE + 1);
         expectMarketBalanceUnchanged();
-    }
-
-    function testWithdrawFromTreasury() public {
-        // Deposit funds into the market
-        vm.deal(address(boundlessMarket), 1 ether);
-        vm.prank(address(boundlessMarket));
-        boundlessMarket.deposit{value: 1 ether}();
-
-        // Attempt to withdraw funds from the treasury from an unauthorized account.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                testProverAddress,
-                boundlessMarket.ADMIN_ROLE()
-            )
-        );
-        vm.prank(testProverAddress);
-        boundlessMarket.withdrawFromTreasury(1 ether);
-
-        uint256 initialBalance = ownerWallet.addr.balance;
-        // Withdraw funds from the treasury
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.Withdrawal(address(boundlessMarket), 1 ether);
-        vm.prank(ownerWallet.addr);
-        boundlessMarket.withdrawFromTreasury(1 ether);
-        assert(boundlessMarket.balanceOf(address(boundlessMarket)) == 0);
-        assert(ownerWallet.addr.balance == 1 ether + initialBalance);
-    }
-
-    function testWithdrawFromStakeTreasury() public {
-        testSlashLockedRequestFullyExpired();
-
-        // Attempt to withdraw funds from the stake treasury from an unauthorized account.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                testProverAddress,
-                boundlessMarket.ADMIN_ROLE()
-            )
-        );
-        vm.prank(testProverAddress);
-        uint256 expectedWithdrawal = 1 ether - (1 ether * EXPECTED_SLASH_BURN_BPS / 10000);
-        boundlessMarket.withdrawFromCollateralTreasury(expectedWithdrawal);
-
-        // Withdraw funds from the stake treasury
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.CollateralWithdrawal(address(boundlessMarket), expectedWithdrawal);
-        vm.prank(ownerWallet.addr);
-        boundlessMarket.withdrawFromCollateralTreasury(expectedWithdrawal);
-        assert(boundlessMarket.balanceOfCollateral(address(boundlessMarket)) == 0);
-        assert(collateralToken.balanceOf(ownerWallet.addr) == expectedWithdrawal);
     }
 
     function testWithdrawals() public {
@@ -4320,6 +4270,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
             address(
                 new BoundlessMarket(
                     setVerifier,
+                    setVerifier,
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_DURATION,
@@ -4338,6 +4289,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
             proxy,
             address(
                 new BoundlessMarket(
+                    setVerifier,
                     setVerifier,
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,

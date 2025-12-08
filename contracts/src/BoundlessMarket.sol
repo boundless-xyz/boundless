@@ -68,6 +68,7 @@ contract BoundlessMarket is
     // Using immutable here means the image ID and verifier address is linked to the implementation
     // contract, and not to the proxy. Any deployment that wants to update these values must deploy
     // a new implementation contract.
+    /// @dev Risc0 verifier router used for assessor seals.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IRiscZeroVerifier public immutable VERIFIER;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -115,9 +116,16 @@ contract BoundlessMarket is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint64 public immutable DEPRECATED_ASSESSOR_EXPIRES_AT;
 
+    // Using immutable here means the application verifier address is linked to the implementation
+    // contract, and not to the proxy. Any deployment that wants to update this value must deploy
+    // a new implementation contract.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    IRiscZeroVerifier public immutable APPLICATION_VERIFIER;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         IRiscZeroVerifier verifier,
+        IRiscZeroVerifier applicationVerifier,
         bytes32 assessorId,
         bytes32 deprecatedAssessorId,
         uint32 deprecatedAssessorDuration,
@@ -125,6 +133,7 @@ contract BoundlessMarket is
     ) {
         // Validate non-zero critical params
         require(address(verifier) != address(0), "Invalid verifier");
+        require(address(applicationVerifier) != address(0), "Invalid application verifier");
         require(assessorId != bytes32(0), "Invalid assessor image");
         require(collateralTokenContract != address(0), "Invalid collateral token");
         if (deprecatedAssessorDuration > 0) {
@@ -132,6 +141,7 @@ contract BoundlessMarket is
         }
 
         VERIFIER = verifier;
+        APPLICATION_VERIFIER = applicationVerifier;
         ASSESSOR_ID = assessorId;
         COLLATERAL_TOKEN_CONTRACT = collateralTokenContract;
         DEPRECATED_ASSESSOR_ID = deprecatedAssessorId;
@@ -300,9 +310,11 @@ contract BoundlessMarket is
             // If the requestor did not specify a selector, we verify with DEFAULT_MAX_GAS_FOR_VERIFY gas limit.
             // This ensures that by default, client receive proofs that can be verified cheaply as part of their applications.
             if (!hasSelector[i]) {
-                VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(Receipt(fill.seal, fill.claimDigest));
+                APPLICATION_VERIFIER.verifyIntegrity{gas: DEFAULT_MAX_GAS_FOR_VERIFY}(
+                    Receipt(fill.seal, fill.claimDigest)
+                );
             } else {
-                VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
+                APPLICATION_VERIFIER.verifyIntegrity(Receipt(fill.seal, fill.claimDigest));
             }
         }
 
@@ -816,22 +828,6 @@ contract BoundlessMarket is
     }
 
     /// @inheritdoc IBoundlessMarket
-    /// @dev We withdraw from address(this) but send to msg.sender, so _withdraw is not used.
-    function withdrawFromTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
-        if (accounts[address(this)].balance < value.toUint96()) {
-            revert InsufficientBalance(address(this));
-        }
-        unchecked {
-            accounts[address(this)].balance -= value.toUint96();
-        }
-        (bool sent,) = msg.sender.call{value: value}("");
-        if (!sent) {
-            revert TransferFailed();
-        }
-        emit Withdrawal(address(this), value);
-    }
-
-    /// @inheritdoc IBoundlessMarket
     function depositCollateral(uint256 value) external {
         // Transfer tokens from user to market
         _depositCollateral(msg.sender, value);
@@ -868,20 +864,6 @@ contract BoundlessMarket is
     /// @inheritdoc IBoundlessMarket
     function balanceOfCollateral(address addr) public view returns (uint256) {
         return uint256(accounts[addr].collateralBalance);
-    }
-
-    /// @inheritdoc IBoundlessMarket
-    function withdrawFromCollateralTreasury(uint256 value) public onlyRole(ADMIN_ROLE) {
-        if (accounts[address(this)].collateralBalance < value.toUint96()) {
-            revert InsufficientBalance(address(this));
-        }
-        unchecked {
-            accounts[address(this)].collateralBalance -= value.toUint96();
-        }
-        bool success = ERC20(COLLATERAL_TOKEN_CONTRACT).transfer(msg.sender, value);
-        if (!success) revert TransferFailed();
-
-        emit CollateralWithdrawal(address(this), value);
     }
 
     /// @inheritdoc IBoundlessMarket

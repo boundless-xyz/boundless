@@ -77,10 +77,10 @@ def main():
         rs_addrs = extract_rs_addresses(rs_content, boundless_rs_network_keys[net_key])
 
         mapping = {
-            "boundless-market": "boundless_market_address",
-            "verifier": "verifier_router_address",
-            "set-verifier": "set_verifier_address",
-            "collateral-token": "collateral_token_address",
+            'boundless-market': 'boundless_market_address',
+            'application-verifier': 'verifier_router_address',
+            'set-verifier': 'set_verifier_address',
+            'collateral-token': 'collateral_token_address',
         }
 
         for toml_field, addr_field in mapping.items():
