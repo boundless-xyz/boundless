@@ -172,7 +172,7 @@ mod defaults {
 
     pub const fn block_deadline_buffer_secs() -> u64 {
         // Currently 120 seconds
-        txn_timeout() * max_submission_attempts() + ESTIMATED_GROTH16_TIME * 2
+        txn_timeout() * max_submission_attempts() as u64 + ESTIMATED_GROTH16_TIME * 2
     }
 
     pub const fn txn_timeout() -> u64 {
