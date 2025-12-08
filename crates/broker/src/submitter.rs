@@ -549,7 +549,10 @@ where
             }
         }
 
-        if let MarketError::TxnConfirmationError(_) = &err {
+        if matches!(
+            err,
+            MarketError::TxnConfirmationError(_) | MarketError::TxnTimedOut { .. }
+        ) {
             return Err(SubmitterErr::TxnConfirmationError(err));
         }
 

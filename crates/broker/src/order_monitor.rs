@@ -249,65 +249,75 @@ where
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
-        tracing::info!(
-            "Locking request: 0x{:x} for stake: {}",
-            request_id,
-            order.request.offer.lockCollateral
-        );
-        let lock_block =
-            self.market.lock_request(&order.request, order.client_sig.clone()).await.map_err(
-                |e| -> OrderMonitorErr {
-                    match e {
-                        MarketError::TxnError(txn_err) => match txn_err {
-                            TxnErr::BoundlessMarketErr(
-                                IBoundlessMarketErrors::RequestIsLocked(_),
-                            ) => OrderMonitorErr::AlreadyLocked,
-                            _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
-                        },
-                        MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
-                        MarketError::TxnConfirmationError(e) => {
-                            OrderMonitorErr::LockTxNotConfirmed(e.to_string())
+        let max_lock_retry_attempts = {
+            let config =
+                self.config.lock_all().map_err(|e| OrderMonitorErr::UnexpectedError(e.into()))?;
+            config.market.max_lock_retry_attempts
+        };
+
+        // Attempt to lock with automatic retry on timeout
+        let lock_block = self
+            .market
+            .lock_request_with_retry(
+                &order.request,
+                order.client_sig.clone(),
+                max_lock_retry_attempts,
+            )
+            .await
+            .map_err(|e| -> OrderMonitorErr {
+                match e {
+                    MarketError::TxnError(txn_err) => match txn_err {
+                        TxnErr::BoundlessMarketErr(IBoundlessMarketErrors::RequestIsLocked(_)) => {
+                            OrderMonitorErr::AlreadyLocked
                         }
-                        MarketError::LockRevert(e) => {
-                            // Note: lock revert could be for any number of reasons;
-                            // 1/ someone may have locked in the block before us,
-                            // 2/ the lock may have expired,
-                            // 3/ the request may have been fulfilled,
-                            // 4/ the requestor may have withdrawn their funds
-                            // Currently we don't have a way to determine the cause of the revert.
-                            OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
-                        }
-                        MarketError::Error(e) => {
-                            // Insufficient balance error is thrown both when the requestor has insufficient balance,
-                            // Requestor having insufficient balance can happen and is out of our control. The prover
-                            // having insufficient balance is unexpected as we should have checked for that before
-                            // committing to locking the order.
-                            let prover_addr_str =
-                                self.prover_addr.to_string().to_lowercase().replace("0x", "");
-                            if e.to_string().contains("InsufficientBalance") {
-                                if e.to_string().to_lowercase().contains(&prover_addr_str) {
-                                    OrderMonitorErr::InsufficientBalance
-                                } else {
-                                    OrderMonitorErr::LockTxFailed(format!(
-                                        "Requestor has insufficient balance at lock time: {e}"
-                                    ))
-                                }
-                            } else if e.to_string().contains("RequestIsLocked") {
-                                OrderMonitorErr::AlreadyLocked
+                        _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
+                    },
+                    MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                    MarketError::TxnConfirmationError(e) => {
+                        OrderMonitorErr::LockTxNotConfirmed(e.to_string())
+                    }
+                    MarketError::TxnTimedOut { source, .. } => {
+                        OrderMonitorErr::LockTxNotConfirmed(source.to_string())
+                    }
+                    MarketError::LockRevert(e) => {
+                        // Note: lock revert could be for any number of reasons;
+                        // 1/ someone may have locked in the block before us,
+                        // 2/ the lock may have expired,
+                        // 3/ the request may have been fulfilled,
+                        // 4/ the requestor may have withdrawn their funds
+                        // Currently we don't have a way to determine the cause of the revert.
+                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
+                    }
+                    MarketError::Error(e) => {
+                        // Insufficient balance error is thrown both when the requestor has insufficient balance,
+                        // Requestor having insufficient balance can happen and is out of our control. The prover
+                        // having insufficient balance is unexpected as we should have checked for that before
+                        // committing to locking the order.
+                        let prover_addr_str =
+                            self.prover_addr.to_string().to_lowercase().replace("0x", "");
+                        if e.to_string().contains("InsufficientBalance") {
+                            if e.to_string().to_lowercase().contains(&prover_addr_str) {
+                                OrderMonitorErr::InsufficientBalance
                             } else {
-                                OrderMonitorErr::UnexpectedError(e)
+                                OrderMonitorErr::LockTxFailed(format!(
+                                    "Requestor has insufficient balance at lock time: {e}"
+                                ))
                             }
-                        }
-                        _ => {
-                            if e.to_string().contains("RequestIsLocked") {
-                                OrderMonitorErr::AlreadyLocked
-                            } else {
-                                OrderMonitorErr::UnexpectedError(e.into())
-                            }
+                        } else if e.to_string().contains("RequestIsLocked") {
+                            OrderMonitorErr::AlreadyLocked
+                        } else {
+                            OrderMonitorErr::UnexpectedError(e)
                         }
                     }
-                },
-            )?;
+                    _ => {
+                        if e.to_string().contains("RequestIsLocked") {
+                            OrderMonitorErr::AlreadyLocked
+                        } else {
+                            OrderMonitorErr::UnexpectedError(e.into())
+                        }
+                    }
+                }
+            })?;
 
         // Fetch the block to retrieve the lock timestamp. This has been observed to return
         // inconsistent state between the receipt being available but the block not yet.
