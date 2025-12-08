@@ -132,9 +132,7 @@ abstract contract BoundlessScriptBase is Script {
     /// @param adminField2 Second admin field to check (e.g., "admin-2")
     /// @param removedAdmin The admin address being removed
     /// @dev Only clears the TOML field that contains the specific admin address being removed
-    function _removeAdminFromToml(string memory adminField1, string memory adminField2, address removedAdmin)
-        internal
-    {
+    function _removeAdminFromToml(string memory adminField1, string memory adminField2, address removedAdmin) internal {
         // Load current deployment config to check which field contains the removed admin
         DeploymentConfig memory deploymentConfig =
             ConfigLoader.loadDeploymentConfig(string.concat(vm.projectRoot(), "/", CONFIG));
