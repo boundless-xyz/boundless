@@ -399,6 +399,7 @@ impl OrderFulfiller {
         &self,
         orders: &[(ProofRequest, Bytes)],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
+        tracing::debug!("Fulfilling {} orders", orders.len());
         let orders_jobs = orders.iter().cloned().enumerate().map(move |(idx, (req, sig))| {
             let prover = self.prover.clone();
             let supported_selectors = self.supported_selectors.clone();

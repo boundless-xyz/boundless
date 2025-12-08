@@ -180,6 +180,12 @@ const DEFAULT_LIMIT_V2: u64 = 100;
     )
 )]
 /// Returns a list of orders with cursor-based pagination and flexible filtering (v2).
+///
+/// Supports:
+/// - Cursor-based pagination for stable results during concurrent inserts
+/// - Bidirectional sorting (asc/desc by creation time)
+/// - Timestamp range filtering (before/after)
+/// - Default sort is descending (newest first)
 pub(crate) async fn list_orders_v2(
     State(state): State<Arc<AppState>>,
     paging: Query<PaginationV2>,

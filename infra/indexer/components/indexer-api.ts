@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import * as crypto from 'crypto';
 import { createRustLambda } from './rust-lambda';
 import { Severity } from '../../util';
 
@@ -9,18 +10,24 @@ export interface IndexerApiArgs {
   vpcId: pulumi.Input<string>;
   /** Private subnets for Lambda to attach to */
   privSubNetIds: pulumi.Input<pulumi.Input<string>[]>;
-  /** RDS Url secret */
-  dbUrlSecret: aws.secretsmanager.Secret;
+  /** RDS Reader Url secret (for read-only queries) */
+  dbReaderUrlSecret: aws.secretsmanager.Secret;
+  /** Hash of DB secrets to trigger Lambda updates when secrets change */
+  secretHash: pulumi.Output<string>;
   /** RDS sg ID */
   rdsSgId: pulumi.Input<string>;
   /** Indexer Security Group ID (that has access to RDS) */
   indexerSgId: pulumi.Input<string>;
   /** RUST_LOG level */
   rustLogLevel: string;
+  /** Chain ID */
+  chainId: pulumi.Input<string>;
   /** Optional custom domain for CloudFront */
   domain?: pulumi.Input<string>;
   /** Boundless alerts topic ARNs */
   boundlessAlertsTopicArns?: string[];
+  /** Database version */
+  databaseVersion?: string;
 }
 
 export class IndexerApi extends pulumi.ComponentResource {
@@ -76,7 +83,7 @@ export class IndexerApi extends pulumi.ComponentResource {
     );
 
     // Create inline policy for Secrets Manager access
-    const inlinePolicy = pulumi.all([args.dbUrlSecret.arn]).apply(([secretArn]) =>
+    const inlinePolicy = pulumi.all([args.dbReaderUrlSecret.arn]).apply(([secretArn]) =>
       JSON.stringify({
         Version: '2012-10-17',
         Statement: [
@@ -98,26 +105,42 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Use the existing indexer security group that already has access to RDS
-    // This is the same security group used by the ECS tasks
 
-    // Get database URL from secret
-    const dbUrl = aws.secretsmanager.getSecretVersionOutput({
-      secretId: args.dbUrlSecret.id,
-    }).secretString;
+    const dbUrl = pulumi.all([args.dbReaderUrlSecret]).apply(([secret]) => {
+      // Get database URL from secret (reader endpoint for read-only queries)
+      const dbUrl = aws.secretsmanager.getSecretVersionOutput({
+        secretId: secret.id,
+      }).secretString;
+      return dbUrl;
+    });
+
+    // Combine secret hash from infra with local env variables
+    // So that we can trigger a Lambda update when the secrets change
+    const envHash = pulumi.all([dbUrl, args.secretHash]).apply(([dbUrl, infraSecretHash]) => {
+      const hash = crypto.createHash('sha1');
+      hash.update(dbUrl);
+      hash.update(infraSecretHash);
+      hash.update(args.rustLogLevel);
+      return hash.digest('hex');
+    });
+
 
     // Create the Lambda function
     const { lambda, logGroupName } = createRustLambda(`${serviceName}-lambda`, {
       projectPath: path.join(__dirname, '../../../'),
       packageName: 'indexer-api',
       release: true,
+      nameSuffix: args.databaseVersion ?? '',
       role: role.arn,
       environmentVariables: {
         DB_URL: dbUrl,
         RUST_LOG: args.rustLogLevel,
+        SECRET_HASH: envHash,
+        CHAIN_ID: pulumi.output(args.chainId),
       },
       memorySize: 256,
       timeout: 30,
+      reservedConcurrentExecutions: 10,
       vpcConfig: {
         subnetIds: args.privSubNetIds,
         securityGroupIds: [args.indexerSgId],
@@ -164,6 +187,23 @@ export class IndexerApi extends pulumi.ComponentResource {
       alarmDescription: `Indexer API Lambda (${serviceName}) ${Severity.SEV2} log ERROR level (2 errors within 20 mins)`,
       actionsEnabled: true,
       alarmActions,
+    }, { parent: this });
+
+    // Alarm for Lambda Concurrent Executions approaching limit
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-lambda-concurrent-executions`, {
+      name: `${serviceName}-lambda-concurrent-executions`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: 'ConcurrentExecutions',
+      namespace: 'AWS/Lambda',
+      period: 60, // 1 minute
+      statistic: 'Maximum',
+      threshold: 20, // Alert at 20 concurrent executions (80% of 25 limit)
+      alarmDescription: `Lambda concurrent executions approaching reserved limit of 25`,
+      dimensions: {
+        FunctionName: lambda.name,
+      },
+      treatMissingData: 'notBreaching',
     }, { parent: this });
 
     // Create API Gateway v2 (HTTP API)
@@ -291,7 +331,7 @@ export class IndexerApi extends pulumi.ComponentResource {
             priority: 1,
             statement: {
               rateBasedStatement: {
-                limit: 75, // 75 requests per 5 minutes per IP
+                limit: 100, // 75 requests per 5 minutes per IP
                 aggregateKeyType: 'IP',
                 forwardedIpConfig: {
                   headerName: 'CF-Connecting-IP',

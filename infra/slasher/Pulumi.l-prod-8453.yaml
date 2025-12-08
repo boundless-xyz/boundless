@@ -9,9 +9,9 @@ config:
   slasher:ERROR_BALANCE_BELOW: "0.005"
   slasher:GH_TOKEN_SECRET:
     secure: v1:OO8CyAp1lUP0yNLS:dwnsjIrq3YSEO88BK7oc4Q4MY+J32s8Zav1JLKw+iPOoaH0muQ+pjvAdwLG90mpp5IXEb2VuHv6fttayf213zOverPdAIzcJ/6m7jDgL9RxaVko7lOQ3FK+bYN5oC0msW4/yCV7aQYWnN9CjYg==
-  slasher:INTERVAL: "60"
+  slasher:INTERVAL: "15"
   slasher:LOG_LEVEL: boundless_slasher=trace,boundless_market=debug
-  slasher:MAX_BLOCK_RANGE: "500"
+  slasher:MAX_BLOCK_RANGE: "10000"
   slasher:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   slasher:PRIVATE_KEY:
     secure: v1:DzP1HFrzfw+86hhh:vX2duZPa5SwCZq7hhtDI9LljCYuQVIapi1GGe7htC9Psqh63ku5/C0xoBUKc9DkbuCwmDHoZEBsL1oPykGdEL2kCoXJLzRlCYq64qy3ePrg=
