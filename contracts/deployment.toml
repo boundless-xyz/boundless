@@ -205,12 +205,12 @@ admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-application-verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+application-verifier = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26370829
 boundless-market = "0x7abb16522f4599481361d318b765af988bfcca8e"
-boundless-market-impl = "0x250003f24a1a5476a6a738b3ac3e41eee7bba3e0"
-boundless-market-old-impl = "0xa77e62126fcae0df84f58b072cd2b3c3e5b6c6ae"
+boundless-market-impl = "0x8381fd425f6e11eff79873da039fa3e26e83a8e7"
+boundless-market-old-impl = "0x250003f24a1a5476a6a738b3ac3e41eee7bba3e0"
 boundless-market-deployment-commit = "bda3b118"
 collateral-token = "0xCBA5Fd30105984125395c18B6E6b1bf603408629"
 
