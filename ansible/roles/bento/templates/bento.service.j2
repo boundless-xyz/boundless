@@ -1,0 +1,18 @@
+[Unit]
+Description=Boundless Bento {{ bento_task }} Service
+After=network.target
+
+[Service]
+Type=simple
+User={{ bento_user }}
+EnvironmentFile={{ bento_config_dir }}/bento.env
+WorkingDirectory={{ bento_work_dir }}
+ExecStart={{ bento_install_dir }}/bento-agent -t {{ bento_task }}
+Restart=always
+RestartSec=10
+TimeoutStartSec={{ bento_agent_timeout_start_sec }}
+TimeoutStopSec={{ bento_agent_timeout_stop_sec }}
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,21 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart Bento service
+  ansible.builtin.systemd:
+    name: "bento-{{ bento_task }}"
+    state: restarted
+    enabled: "{{ bento_service_enabled | bool }}"
+
+- name: Start Bento service
+  ansible.builtin.systemd:
+    name: "bento-{{ bento_task }}"
+    state: started
+    enabled: "{{ bento_service_enabled | bool }}"
+
+- name: Stop Bento service
+  ansible.builtin.systemd:
+    name: "bento-{{ bento_task }}"
+    state: stopped

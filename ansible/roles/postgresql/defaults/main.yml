@@ -1,0 +1,18 @@
+---
+# PostgreSQL installation
+postgresql_install: true
+
+# PostgreSQL service configuration
+postgresql_service_enabled: true
+postgresql_service_state: started
+
+# Database configuration
+postgresql_user: "bento"
+postgresql_password: "CHANGE_ME"
+postgresql_host: "localhost"
+postgresql_port: 5432
+postgresql_database: "bento"
+
+# Database creation
+postgresql_create_db: true
+postgresql_create_user: true

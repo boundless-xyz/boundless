@@ -1,0 +1,17 @@
+[Unit]
+Description=Boundless Broker Service
+After=network.target
+
+[Service]
+Type=simple
+User={{ broker_user }}
+WorkingDirectory={{ broker_work_dir }}
+ExecStart={{ broker_install_dir }}/broker --config-file {{ broker_config_file }} --bento-api-url {{ broker_bento_api_url }} --db-url '{{ broker_db_url_final }}'
+Restart=always
+RestartSec=10
+TimeoutStartSec={{ broker_timeout_start_sec }}
+TimeoutStopSec={{ broker_timeout_stop_sec }}
+
+[Install]
+WantedBy=multi-user.target
+

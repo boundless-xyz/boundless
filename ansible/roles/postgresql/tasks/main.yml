@@ -1,0 +1,40 @@
+---
+- name: Install PostgreSQL
+  when: postgresql_install | bool
+  block:
+    - name: Install PostgreSQL
+      ansible.builtin.apt:
+        name: postgresql
+        state: present
+        update_cache: true
+
+    - name: Ensure PostgreSQL service is enabled and started
+      ansible.builtin.systemd:
+        name: postgresql
+        enabled: "{{ postgresql_service_enabled }}"
+        state: "{{ postgresql_service_state }}"
+
+    - name: Wait for PostgreSQL to be ready
+      ansible.builtin.wait_for:
+        port: "{{ postgresql_port }}"
+        host: "{{ postgresql_host }}"
+        delay: 5
+        timeout: 30
+
+    - name: Create PostgreSQL user
+      community.postgresql.postgresql_user:
+        name: "{{ postgresql_user }}"
+        password: "{{ postgresql_password }}"
+        state: present
+      become: true
+      become_user: postgres
+      when: postgresql_create_user | bool
+
+    - name: Create PostgreSQL database
+      community.postgresql.postgresql_db:
+        name: "{{ postgresql_database }}"
+        owner: "{{ postgresql_user }}"
+        state: present
+      become: true
+      become_user: postgres
+      when: postgresql_create_db | bool

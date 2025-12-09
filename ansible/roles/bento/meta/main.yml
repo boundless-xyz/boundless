@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: Boundless
+  description: Install and configure Bento agent service
+  license: license (BSD, MIT)
+  min_ansible_version: '2.9'
+  platforms:
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - boundless
+    - bento
+    - systemd
+
+dependencies:
+  - role: postgresql
+  - role: valkey

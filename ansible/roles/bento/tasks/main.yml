@@ -1,0 +1,95 @@
+---
+- name: Check if Bento binaries are already installed
+  ansible.builtin.stat:
+    path: "{{ bento_install_dir }}/bento-agent"
+  register: bento_binary_check
+
+- name: Install Bento
+  when: not bento_binary_check.stat.exists
+  block:
+    - name: Create temporary directory for Bento bundle
+      ansible.builtin.file:
+        path: /tmp/bento-bundle
+        state: directory
+        mode: '0755'
+
+    - name: Download Bento installer
+      ansible.builtin.get_url:
+        url: "https://github.com/boundless-xyz/boundless/releases/download/bento-{{ bento_version }}/bento-bundle-linux-amd64.tar.gz"
+        dest: /tmp/bento-bundle-linux-amd64.tar.gz
+        mode: '0644'
+        timeout: 300
+
+    - name: Extract Bento bundle
+      ansible.builtin.unarchive:
+        src: /tmp/bento-bundle-linux-amd64.tar.gz
+        dest: /tmp/bento-bundle
+        remote_src: true
+        creates: /tmp/bento-bundle/bento-agent
+
+    - name: Install Bento binaries
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: true
+      loop:
+        - { src: /tmp/bento-bundle/bento-agent, dest: "{{ bento_install_dir }}/bento-agent" }
+        - { src: /tmp/bento-bundle/bento-rest-api, dest: "{{ bento_install_dir }}/bento-rest-api" }
+        - { src: /tmp/bento-bundle/bento-client, dest: "{{ bento_install_dir }}/bento-client" }
+      notify: Reload systemd
+
+    - name: Clean up Bento bundle archive
+      ansible.builtin.file:
+        path: /tmp/bento-bundle-linux-amd64.tar.gz
+        state: absent
+
+    - name: Clean up Bento bundle directory
+      ansible.builtin.file:
+        path: /tmp/bento-bundle
+        state: absent
+
+- name: Create Bento configuration directory
+  ansible.builtin.file:
+    path: "{{ bento_config_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Create Bento working directory
+  ansible.builtin.file:
+    path: "{{ bento_work_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ bento_user }}"
+    group: "{{ bento_user }}"
+
+- name: Create Bento environment file
+  ansible.builtin.template:
+    src: bento.env.j2
+    dest: "{{ bento_config_dir }}/bento.env"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart Bento service
+
+- name: Create Bento service file
+  ansible.builtin.template:
+    src: bento.service.j2
+    dest: "/etc/systemd/system/bento-{{ bento_task }}.service"
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart Bento service
+
+- name: Ensure Bento service is enabled and started
+  ansible.builtin.systemd:
+    name: "bento-{{ bento_task }}"
+    enabled: "{{ bento_service_enabled }}"
+    state: "{{ bento_service_state }}"
+  when: bento_service_state != "stopped"

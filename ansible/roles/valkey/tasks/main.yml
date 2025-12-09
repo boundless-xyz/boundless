@@ -1,0 +1,35 @@
+---
+- name: Install Valkey (Redis fork)
+  when: valkey_install | bool
+  block:
+    - name: Install software-properties-common
+      ansible.builtin.apt:
+        name: software-properties-common
+        state: present
+        update_cache: true
+
+    - name: Add Valkey PPA
+      ansible.builtin.apt_repository:
+        repo: ppa:valkey/valkey
+        state: present
+
+    - name: Install Valkey server
+      ansible.builtin.apt:
+        name: valkey-server
+        state: present
+        update_cache: true
+
+    - name: Configure Valkey
+      ansible.builtin.template:
+        src: valkey.conf.j2
+        dest: /etc/valkey/valkey.conf
+        mode: '0644'
+        owner: root
+        group: root
+      notify: Restart Valkey service
+
+    - name: Ensure Valkey service is enabled and started
+      ansible.builtin.systemd:
+        name: valkey-server
+        enabled: "{{ valkey_service_enabled }}"
+        state: "{{ valkey_service_state }}"

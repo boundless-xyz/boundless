@@ -168,6 +168,13 @@ pub struct Args {
     /// Disable cron to clean up stuck tasks in taskdb.
     #[clap(long, env = "BENTO_DISABLE_STUCK_TASK_CLEANUP")]
     disable_stuck_task_cleanup: bool,
+
+    /// Number of agent instances to spawn
+    ///
+    /// Spawns N concurrent agent instances, each polling for work independently.
+    /// Useful for scaling agent throughput on a single machine.
+    #[clap(env, short, long, default_value_t = 1)]
+    pub agents: u32,
 }
 
 /// Core agent context to hold all optional clients / pools and state

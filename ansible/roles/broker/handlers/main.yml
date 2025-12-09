@@ -1,0 +1,21 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart Broker service
+  ansible.builtin.systemd:
+    name: broker
+    state: restarted
+    enabled: "{{ broker_service_enabled | bool }}"
+
+- name: Start Broker service
+  ansible.builtin.systemd:
+    name: broker
+    state: started
+    enabled: "{{ broker_service_enabled | bool }}"
+
+- name: Stop Broker service
+  ansible.builtin.systemd:
+    name: broker
+    state: stopped

@@ -1,0 +1,6 @@
+---
+- name: Restart Valkey service
+  ansible.builtin.systemd:
+    name: valkey-server
+    state: restarted
+    enabled: "{{ valkey_service_enabled | bool }}"

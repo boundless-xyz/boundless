@@ -1,0 +1,52 @@
+---
+# Bento version to install
+bento_version: "v1.1.0"
+
+# Bento task type (prove, execute, aux, etc.)
+bento_task: "prove"
+
+# Service user
+bento_user: "ubuntu"
+
+# Service timeouts
+bento_agent_timeout_start_sec: 1800
+bento_agent_timeout_stop_sec: 300
+
+# Environment variables
+bento_segment_po2: 20
+bento_keccak_po2: 17
+bento_rust_log: "info"
+
+# Database configuration
+# These directly use postgresql role variables to ensure credentials match
+# Set postgresql_user, postgresql_password, etc. and they will be used by both roles
+bento_postgresql_user: "{{ postgresql_user }}"
+bento_postgresql_password: "{{ postgresql_password }}"
+bento_postgresql_host: "{{ postgresql_host }}"
+bento_postgresql_port: "{{ postgresql_port }}"
+bento_postgresql_database: "{{ postgresql_database }}"
+
+# Valkey (Redis) configuration
+# These directly use valkey role variables to ensure credentials match
+# Set valkey_host, valkey_port, etc. and they will be used by both roles
+bento_valkey_host: "{{ valkey_host }}"
+bento_valkey_port: "{{ valkey_port }}"
+
+# S3 configuration
+bento_s3_bucket: ""
+bento_s3_access_key: ""
+bento_s3_secret_key: ""
+bento_s3_url: ""
+
+# Other configuration
+bento_rewards_address: ""
+bento_povw_log_id: ""
+
+# Installation paths
+bento_install_dir: "/usr/local/bin"
+bento_config_dir: "/etc/boundless"
+bento_work_dir: "/opt/boundless"
+
+# Service management
+bento_service_enabled: true
+bento_service_state: started

@@ -1,0 +1,86 @@
+---
+- name: Check if Broker binary is already installed
+  ansible.builtin.stat:
+    path: "{{ broker_install_dir }}/broker"
+  register: broker_binary_check
+
+- name: Install Broker
+  when: not broker_binary_check.stat.exists
+  block:
+    - name: Download Broker binary
+      ansible.builtin.get_url:
+        url: "https://github.com/boundless-xyz/boundless/releases/download/broker-{{ broker_version }}/broker"
+        dest: /tmp/broker
+        mode: '0755'
+        timeout: 300
+
+    - name: Install Broker binary
+      ansible.builtin.copy:
+        src: /tmp/broker
+        dest: "{{ broker_install_dir }}/broker"
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: true
+      notify: Reload systemd
+
+    - name: Clean up Broker binary
+      ansible.builtin.file:
+        path: /tmp/broker
+        state: absent
+
+- name: Create Broker configuration directory
+  ansible.builtin.file:
+    path: "{{ broker_config_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ broker_user }}"
+    group: "{{ broker_user }}"
+
+- name: Create Broker working directory
+  ansible.builtin.file:
+    path: "{{ broker_work_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ broker_user }}"
+    group: "{{ broker_user }}"
+
+- name: Set database URL based on type
+  ansible.builtin.set_fact:
+    broker_db_url_final: "{{ broker_db_url }}"
+  when: broker_db_type == "sqlite"
+
+- name: Set PostgreSQL database URL
+  ansible.builtin.set_fact:
+    broker_db_url_final: >-
+      postgresql://{{ broker_postgresql_user }}:{{ broker_postgresql_password
+      }}@{{ broker_postgresql_host }}:{{ broker_postgresql_port }}/{{
+      broker_postgresql_database }}
+  when: broker_db_type == "postgresql"
+
+- name: Create Broker configuration file
+  ansible.builtin.template:
+    src: broker.toml.j2
+    dest: "{{ broker_config_file }}"
+    mode: '0644'
+    owner: "{{ broker_user }}"
+    group: "{{ broker_user }}"
+  notify: Restart Broker service
+
+- name: Create Broker service file
+  ansible.builtin.template:
+    src: broker.service.j2
+    dest: "/etc/systemd/system/broker.service"
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart Broker service
+
+- name: Ensure Broker service is enabled and started
+  ansible.builtin.systemd:
+    name: broker
+    enabled: "{{ broker_service_enabled }}"
+    state: "{{ broker_service_state }}"
+  when: broker_service_state != "stopped"

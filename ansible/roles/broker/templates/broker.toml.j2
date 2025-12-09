@@ -1,0 +1,85 @@
+### [Disclaimer] ###
+# IMPORTANT: Running the broker with these settings will likely result in your
+# broker not being able to lock or fulfill orders, and may even result in your
+# broker being slashed.
+#
+# We strongly recommend using the Boundless CLI's `boundless prover
+# generate-config` command to generate a broker.toml file that is tailored to
+# your specific setup.
+#
+# Additionally, refer to documentation:
+# https://docs.boundless.network/provers/broker#settings-in-brokertoml
+### [End] ###
+
+[market]
+# The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
+# to attempt to lock an order, denominated in the native token (e.g. ETH).
+#
+# Orders are preflighted (https://docs.boundless.network/provers/terminology#preflight)
+# to determine the number of cycles required to prove the order. Based on this
+# cycle count, and the current price of the order, the broker computes the
+# current price per mega-cycle being offered for the order. This value is compared to the
+# `min_mcycle_price` to determine if the order should be locked.
+min_mcycle_price = "{{ broker_min_mcycle_price }}"
+
+# The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
+# to attempt to fulfill an order in the case that the order was locked by another prover
+# but not fulfilled within the lock timeout.
+#
+# If an order is locked by a prover, but not fulfilled within the lock timeout,
+# that prover is slashed by the amount of collateral specified in the order. A
+# portion of this collateral is then used to incentivize other provers to
+# fulfill the order. `min_mcycle_price_collateral_token` determines the minimum
+# price per mega-cycle in collateral token (ZKC) that must be offered by the prover
+# for the broker to attempt to fulfill these orders.
+#
+# Note: attempting to fulfill these orders is a 'proof race' where the first prover
+# to fulfill the order is rewarded with the collateral.
+min_mcycle_price_collateral_token = "{{ broker_min_mcycle_price_collateral_token }}"
+
+# Estimated peak performance of the proving cluster, in kHz.
+#
+# Used to estimate proving capacity and accept only as much work as your prover
+# cluster can handle. Estimates can be derived from benchmarking using the
+# Boundless CLI. For more information, see:
+# https://docs.beboundless.xyz/provers/broker#benchmarking-bento
+peak_prove_khz = {{ broker_peak_prove_khz }}
+
+# Requestor priority lists specify requestors that the broker should
+# prioritize for proving. Requestors on these lists are considered more likely
+# to request useful work with profitable pricing, and thus are prioritized over
+# requestors not on these lists.
+#
+# Priority requestors are prioritized when there is a surplus of demand, and skip
+# various limits that are typically applied to all requestors:
+# 1. Their requests will be preflighted first.
+# 2. Their requests will be locked first (in situations where multiple orders
+#    exceed minimum lock pricing).
+# 3. Configuration for `max_mcycle_limit` and `max_file_size` will be skipped.
+priority_requestor_lists = [
+{% for list in broker_priority_requestor_lists %}
+	"{{ list }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+]
+
+# Maximum collateral amount, denominated in the Boundless collateral token,
+# that the broker will use to lock orders.
+#
+# Requests that require a higher collateral amount than this will be skipped.
+max_collateral = "{{ broker_max_collateral }}" # ZKC
+
+# Maximum number of orders to concurrently preflight.
+#
+# Used to limit preflight tasks spawned to prevent overwhelming the system.
+# We recommend using the Boundless CLI's `boundless prover generate-config`
+# to help configure this value.
+#
+# Refer to the broker configuration documentation for more information:
+# https://docs.boundless.network/provers/broker#settings-in-brokertoml
+max_concurrent_preflights = {{ broker_max_concurrent_preflights }}
+
+# Maximum number of concurrent proofs that can be processed at once.
+#
+# Used to limit proof tasks spawned to prevent overwhelming the system.
+max_concurrent_proofs = {{ broker_max_concurrent_proofs }}
+
