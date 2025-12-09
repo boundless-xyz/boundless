@@ -68,7 +68,6 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Convert HashSet to Vec for easier handling
     let all_rpc_urls: Vec<Url> = all_rpc_urls.into_iter().collect();
 
     if args.log_json {
