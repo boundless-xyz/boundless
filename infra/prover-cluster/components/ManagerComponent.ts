@@ -45,6 +45,7 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     maxFetchRetries: number;
     allowClientAddresses: string;
     lockinPriorityGas: string;
+    rustLogLevel: string;
 }
 
 export class ManagerComponent extends BaseComponent {

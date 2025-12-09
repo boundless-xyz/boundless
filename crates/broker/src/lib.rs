@@ -50,6 +50,29 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+/// Parse URL from string, treating empty strings as None
+fn parse_url_or_empty(s: &str) -> Result<Option<Url>, String> {
+    if s.is_empty() {
+        return Ok(None);
+    }
+    Url::parse(s).map(Some).map_err(|e| format!("Invalid URL: {}", e))
+}
+
+/// Parse comma-separated URLs from string, treating empty strings as empty Vec
+fn parse_urls_or_empty(s: &str) -> Result<Vec<Url>, String> {
+    if s.is_empty() {
+        return Ok(Vec::new());
+    }
+    s.split(',')
+        .map(|url_str| url_str.trim())
+        .filter(|url_str| !url_str.is_empty())
+        .map(|url_str| {
+            parse_url_or_empty(url_str)
+                .and_then(|opt| opt.ok_or_else(|| "Empty URL in list".to_string()))
+        })
+        .collect()
+}
+
 const NEW_ORDER_CHANNEL_CAPACITY: usize = 1000;
 const PRICING_CHANNEL_CAPACITY: usize = 1000;
 const ORDER_STATE_CHANNEL_CAPACITY: usize = 1000;
@@ -83,14 +106,14 @@ pub struct Args {
     pub db_url: String,
 
     /// RPC URL (prefers PROVER_RPC_URL; falls back to RPC_URL if unset)
-    #[clap(long, env = "PROVER_RPC_URL", default_value = "http://localhost:8545")]
-    pub rpc_url: Url,
+    #[clap(long, env = "PROVER_RPC_URL", value_parser = parse_url_or_empty)]
+    pub rpc_url: Option<Url>,
 
     /// Additional RPC URLs for automatic failover.
     /// Can be specified multiple times or as a comma-separated list.
     /// If provided along with rpc_url, they will be merged into a single list.
     /// If 2+ URLs are provided total, a fallback provider will be used.
-    #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
+    #[clap(long, env = "PROVER_RPC_URLS", value_parser = parse_urls_or_empty)]
     pub rpc_urls: Vec<Url>,
 
     /// wallet key
@@ -1259,7 +1282,7 @@ pub mod test_utils {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
-                rpc_url,
+                rpc_url: Some(rpc_url),
                 rpc_urls: Vec::new(),
                 private_key: Some(ctx.prover_signer.clone()),
                 bento_api_url: None,

@@ -142,7 +142,7 @@ fn broker_args(
         db_url: "sqlite::memory:".into(),
         config_file,
         deployment: Some(deployment),
-        rpc_url,
+        rpc_url: Some(rpc_url),
         rpc_urls: Vec::new(),
         private_key: Some(private_key),
         bento_api_url: None,
