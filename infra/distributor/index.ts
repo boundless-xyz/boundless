@@ -217,7 +217,7 @@ export = () => {
     distributorArgs.push(
       `--boundless-market-address ${boundlessMarketAddr}`,
       `--set-verifier-address ${setVerifierAddr}`,
-      `--chain-id ${chainId}`,
+      `--market-chain-id ${chainId}`,
       `--collateral-token-address ${collateralTokenAddr}`,
     );
   } else if (boundlessMarketAddr || setVerifierAddr || collateralTokenAddr) {
