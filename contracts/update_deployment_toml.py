@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser(description="Update deployment.<CHAIN_KEY> fiel
 parser.add_argument("--admin", help="Admin address")
 parser.add_argument("--admin-2", help="Secondary admin address")
 parser.add_argument("--verifier", help="Verifier contract address")
+parser.add_argument("--application-verifier", help="Application Verifier contract address")
 parser.add_argument("--set-verifier", help="SetVerifier contract address")
 parser.add_argument("--boundless-market", help="BoundlessMarket contract address")
 parser.add_argument("--boundless-market-impl", help="BoundlessMarket impl contract address")
@@ -52,6 +53,7 @@ field_mapping = {
     "admin": args.admin,
     "admin-2": getattr(args, 'admin_2'),
     "verifier": args.verifier,
+    "application-verifier": args.application_verifier,
     "set-verifier": args.set_verifier,
     "boundless-market": args.boundless_market,
     "boundless-market-impl": args.boundless_market_impl,
