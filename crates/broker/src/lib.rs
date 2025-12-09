@@ -84,7 +84,7 @@ pub struct Args {
 
     /// RPC URL (prefer PROVER_RPC_URL as environment variable; falls back to RPC_URL if unset)
     ///
-    /// Note we use a String here as the type instead of Url, as the env variable may be 
+    /// Note we use a String here as the type instead of Url, as the env variable may be
     /// set to an empty string, especially if using our Docker compose setup, which causes parsing errors with Url.
     #[clap(long, env = "PROVER_RPC_URL")]
     pub rpc_url: Option<String>,
