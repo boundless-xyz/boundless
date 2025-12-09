@@ -996,6 +996,11 @@ pub mod boundless_market;
 /// The Hit Points module.
 pub mod hit_points;
 
+/// Pricing utilities for calculating offer prices at specific timestamps.
+/// This module is separated from the Offer struct to allow reuse in contexts where
+/// individual pricing parameters are available (e.g., database queries in the indexer).
+pub mod pricing;
+
 #[cfg(not(target_os = "zkvm"))]
 #[derive(Error, Debug)]
 /// Errors that can occur when interacting with the contracts.

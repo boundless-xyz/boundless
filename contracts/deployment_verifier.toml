@@ -1,0 +1,70 @@
+[chains.ethereum-mainnet]
+name = "Ethereum Mainnet"
+id = 1
+etherscan-url = "https://etherscan.io/"
+
+# Accounts
+admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
+
+# Contracts
+timelock-controller = "0x0000000000000000000000000000000000000000"
+timelock-delay = 259200
+router = "0x0000000000000000000000000000000000000000"
+parent-router = "0x8EaB2D97Dfce405A1692a21b3ff3A172d593D319"
+
+###
+
+[chains.ethereum-sepolia]
+name = "Ethereum Sepolia"
+id = 11155111
+etherscan-url = "https://sepolia.etherscan.io/"
+
+# Accounts
+admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
+
+# Contracts
+timelock-controller = "0x0000000000000000000000000000000000000000"
+timelock-delay = 1
+router = "0x0000000000000000000000000000000000000000"
+parent-router = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+
+###
+
+[chains.base-mainnet]
+name = "Base Mainnet"
+id = 8453
+etherscan-url = "https://basescan.org/"
+
+# Accounts
+admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
+
+# Contracts
+timelock-controller = "0x0000000000000000000000000000000000000000"
+timelock-delay = 259200
+router = "0x0000000000000000000000000000000000000000"
+parent-router = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+
+###
+
+[chains.base-sepolia]
+name = "Base Sepolia"
+id = 84532
+etherscan-url = "https://sepolia.basescan.org/"
+
+# Accounts
+admin = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
+
+# Contracts
+timelock-controller = "0x20c64F0C59ac248F10B5a5ddDd3a418Bed75c91C"
+timelock-delay = 0
+router = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
+parent-router = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+
+[[chains.base-sepolia.verifiers]]
+name = "Blake3Groth16Verifier"
+version = "0.0.1"
+selector = "0x62f049f6"
+verifier = "0x7bdf79856cf17D9f8D778249E1A5120cdA7cEA93"
+estop = "0x9A59695891d60A120741A0Bb35A1a7d002b4242E"
+
+###

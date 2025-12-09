@@ -36,7 +36,10 @@ use alloy::{
 use anyhow::{bail, Context, Result};
 use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
-use broker::provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover};
+use broker::{
+    provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover},
+    utils::prune_receipt_claim_journal,
+};
 use risc0_aggregation::{
     merkle_path, GuestState, SetInclusionReceipt, SetInclusionReceiptVerifierParameters,
 };
@@ -397,6 +400,7 @@ impl OrderFulfiller {
         &self,
         orders: &[(ProofRequest, Bytes)],
     ) -> Result<(Vec<BoundlessFulfillment>, Receipt, AssessorReceipt)> {
+        tracing::debug!("Fulfilling {} orders", orders.len());
         let orders_jobs = orders.iter().cloned().enumerate().map(move |(idx, (req, sig))| {
             let prover = self.prover.clone();
             let supported_selectors = self.supported_selectors.clone();
@@ -448,7 +452,10 @@ impl OrderFulfiller {
                     .ok_or_else(|| anyhow::anyhow!("Order receipt not found"))?;
 
                 let order_journal = order_receipt.journal.bytes.clone();
-                let order_claim = ReceiptClaim::ok(order_image_id, order_journal.clone());
+                let order_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
+                    order_image_id,
+                    order_journal.clone(),
+                ));
                 let order_claim_digest = order_claim.digest();
 
                 let fulfillment_data = match req.requirements.predicate.predicateType {
@@ -496,7 +503,10 @@ impl OrderFulfiller {
             .await?
             .ok_or_else(|| anyhow::anyhow!("Assessor receipt not found"))?;
         let assessor_journal = assessor_receipt.journal.bytes.clone();
-        let assessor_claim = ReceiptClaim::ok(self.assessor_image_id, assessor_journal.clone());
+        let assessor_claim = prune_receipt_claim_journal(ReceiptClaim::ok(
+            self.assessor_image_id,
+            assessor_journal.clone(),
+        ));
         let assessor_receipt_journal: AssessorJournal =
             AssessorJournal::abi_decode(&assessor_journal)?;
 

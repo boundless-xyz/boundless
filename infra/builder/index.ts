@@ -3,7 +3,7 @@ import * as aws from "@pulumi/aws";
 import { createPulumiState } from "./pulumiResources";
 
 const config = new pulumi.Config();
-const publicKey = config.requireSecret('PUBLIC_KEY');
+const publicKey = process.env.BUILDER_PUBLIC_KEY || config.requireSecret('PUBLIC_KEY');
 
 const { bucket, keyAlias } = createPulumiState();
 

@@ -162,7 +162,7 @@ contract Groth16Verifier {
             let isValid := checkPairing(_pA, _pB, _pC, _pubSignals, pMem)
 
             mstore(0, isValid)
-             return(0, 0x20)
-         }
-     }
- }
+            return(0, 0x20)
+        }
+    }
+}

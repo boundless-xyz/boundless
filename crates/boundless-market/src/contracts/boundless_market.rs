@@ -473,7 +473,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         &self,
         request: &ProofRequest,
         client_sig: impl Into<Bytes>,
-        priority_gas: Option<u64>,
     ) -> Result<u64, MarketError> {
         tracing::trace!("Calling requestIsLocked({:x})", request.id);
         let is_locked_in: bool =
@@ -485,21 +484,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         let client_sig_bytes = client_sig.into();
         tracing::trace!("Calling lockRequest({:x?}, {:x?})", request, client_sig_bytes);
 
-        let mut call =
-            self.instance.lockRequest(request.clone(), client_sig_bytes).from(self.caller);
-
-        if let Some(gas) = priority_gas {
-            let priority_fee = self
-                .instance
-                .provider()
-                .estimate_eip1559_fees()
-                .await
-                .context("Failed to get priority gas fee")?;
-
-            call = call
-                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
-                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
-        }
+        let call = self.instance.lockRequest(request.clone(), client_sig_bytes).from(self.caller);
 
         tracing::trace!("Sending tx {}", format!("{:?}", call));
         let pending_tx = call.send().await?;
@@ -667,15 +652,13 @@ impl<P: Provider> BoundlessMarketService<P> {
                 (false, false) => self._fulfill(fulfillments, assessor_receipt).await,
                 (false, true) => self.fulfill_and_withdraw(fulfillments, assessor_receipt).await,
                 (true, false) => {
-                    self.price_and_fulfill(unlocked_requests, fulfillments, assessor_receipt, None)
-                        .await
+                    self.price_and_fulfill(unlocked_requests, fulfillments, assessor_receipt).await
                 }
                 (true, true) => {
                     self.price_and_fulfill_and_withdraw(
                         unlocked_requests,
                         fulfillments,
                         assessor_receipt,
-                        None,
                     )
                     .await
                 }
@@ -824,30 +807,16 @@ impl<P: Provider> BoundlessMarketService<P> {
         unlocked_requests: Vec<UnlockedRequest>,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
-        priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
         tracing::trace!("Calling priceAndFulfill({fulfillments:?}, {assessor_fill:?})");
 
         let (requests, client_sigs): (Vec<_>, Vec<_>) =
             unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
-        let mut call = self
+        let call = self
             .instance
             .priceAndFulfill(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
-
-        if let Some(gas) = priority_gas {
-            let priority_fee = self
-                .instance
-                .provider()
-                .estimate_eip1559_fees()
-                .await
-                .context("Failed to get priority gas fee")?;
-
-            call = call
-                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
-                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
-        }
 
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -867,30 +836,16 @@ impl<P: Provider> BoundlessMarketService<P> {
         unlocked_requests: Vec<UnlockedRequest>,
         fulfillments: Vec<Fulfillment>,
         assessor_fill: AssessorReceipt,
-        priority_gas: Option<u64>,
     ) -> Result<(), MarketError> {
         tracing::trace!("Calling priceAndFulfillAndWithdraw({fulfillments:?}, {assessor_fill:?})");
 
         let (requests, client_sigs): (Vec<_>, Vec<_>) =
             unlocked_requests.into_iter().map(|ur| (ur.request, ur.client_sig)).unzip();
-        let mut call = self
+        let call = self
             .instance
             .priceAndFulfillAndWithdraw(requests, client_sigs, fulfillments, assessor_fill)
             .from(self.caller);
         tracing::trace!("Calldata: {}", call.calldata());
-
-        if let Some(gas) = priority_gas {
-            let priority_fee = self
-                .instance
-                .provider()
-                .estimate_eip1559_fees()
-                .await
-                .context("Failed to get priority gas fee")?;
-
-            call = call
-                .max_fee_per_gas(priority_fee.max_fee_per_gas + gas as u128)
-                .max_priority_fee_per_gas(priority_fee.max_priority_fee_per_gas + gas as u128);
-        }
 
         let pending_tx = call.send().await?;
         tracing::debug!("Broadcasting tx {}", pending_tx.tx_hash());
@@ -1871,26 +1826,14 @@ impl Offer {
 
     /// Calculates the price at the given time, in seconds since the UNIX epoch.
     pub fn price_at(&self, timestamp: u64) -> Result<U256, MarketError> {
-        let max_price = U256::from(self.maxPrice);
-        let min_price = U256::from(self.minPrice);
-
-        if timestamp < self.rampUpStart {
-            return Ok(self.minPrice);
-        }
-
-        if timestamp > self.lock_deadline() {
-            return Ok(U256::ZERO);
-        }
-
-        if timestamp < self.rampUpStart + self.rampUpPeriod as u64 {
-            let rise = max_price - min_price;
-            let run = U256::from(self.rampUpPeriod);
-            let delta = U256::from(timestamp) - U256::from(self.rampUpStart);
-
-            Ok(min_price + (delta * rise) / run)
-        } else {
-            Ok(max_price)
-        }
+        Ok(crate::contracts::pricing::price_at_time(
+            U256::from(self.minPrice),
+            U256::from(self.maxPrice),
+            self.rampUpStart,
+            self.rampUpPeriod,
+            self.lockTimeout,
+            timestamp,
+        ))
     }
 
     /// UNIX timestamp after which the request is considered completely expired.

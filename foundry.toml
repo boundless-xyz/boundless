@@ -7,6 +7,7 @@ fs_permissions = [
     { access = "read", path = "./out" },
     { access = "read", path = "./contracts/out" },
     { access = "read-write", path = "./contracts/deployment.toml" },
+    { access = "read", path = "./contracts/deployment_verifier.toml" },
 ]
 libs = ["./lib"]
 script = "./contracts/scripts"
@@ -45,7 +46,10 @@ exclude_lints = ["asm-keccak256", "incorrect-shift"]
 [profile.deployment-test]
 test = "contracts/deployment-test"
 #match_path = "contracts/deployment-test/*"
-fs_permissions = [{ access = "read", path = "contracts/deployment.toml" }]
+fs_permissions = [
+    { access = "read", path = "contracts/deployment.toml" },
+    { access = "read", path = "contracts/deployment_verifier.toml" },
+]
 isolate = true
 
 # Profile used for deploying PoVW contracts with higher optimization

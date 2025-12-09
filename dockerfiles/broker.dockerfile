@@ -36,7 +36,6 @@ COPY Cargo.lock .
 COPY crates/ ./crates/
 COPY rust-toolchain.toml .
 COPY contracts/ ./contracts/
-COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
@@ -57,7 +56,6 @@ COPY Cargo.lock .
 COPY crates/ ./crates/
 COPY rust-toolchain.toml .
 COPY contracts/ ./contracts/
-COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .

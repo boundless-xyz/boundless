@@ -18,17 +18,38 @@ use boundless_market::{
     contracts::ProofRequest,
     selector::{ProofType, SupportedSelectors},
 };
+use risc0_zkvm::{
+    sha::{Impl as ShaImpl, Sha256},
+    MaybePruned, ReceiptClaim,
+};
 
 use crate::{config::ConfigLock, Order, OrderRequest, OrderStatus};
 
 /// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
 pub const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
+/// Replace the journal bytes in a [`ReceiptClaim`] with their digest to keep claims compact while
+/// preserving the existing `ReceiptClaim::digest` output.
+pub fn prune_receipt_claim_journal(mut claim: ReceiptClaim) -> ReceiptClaim {
+    if let MaybePruned::Value(Some(output)) = &mut claim.output {
+        let digest = match &output.journal {
+            MaybePruned::Value(bytes) => Some(*ShaImpl::hash_bytes(bytes)),
+            MaybePruned::Pruned(_) => None,
+        };
+
+        if let Some(digest) = digest {
+            output.journal = MaybePruned::Pruned(digest);
+        }
+    }
+
+    claim
+}
+
 /// Cancel a proof and mark the order as failed
 ///
 /// This utility function combines the common pattern of canceling a stark proof
 /// and marking the associated order as failed.
-pub async fn cancel_proof_and_fail_order(
+pub(crate) async fn cancel_proof_and_fail_order(
     prover: &crate::provers::ProverObj,
     db: &crate::db::DbObj,
     config: &crate::config::ConfigLock,
@@ -71,7 +92,7 @@ pub async fn cancel_proof_and_fail_order(
 
 /// Estimate of gas for locking a single order
 /// Currently just uses the config estimate but this may change in the future
-pub async fn estimate_gas_to_lock(config: &ConfigLock, order: &OrderRequest) -> Result<u64> {
+pub(crate) async fn estimate_gas_to_lock(config: &ConfigLock, order: &OrderRequest) -> Result<u64> {
     let mut estimate =
         config.lock_all().context("Failed to read config")?.market.lockin_gas_estimate;
 
@@ -84,7 +105,7 @@ pub async fn estimate_gas_to_lock(config: &ConfigLock, order: &OrderRequest) -> 
 
 /// Estimate of gas for to fulfill a single order
 /// Currently just uses the config estimate but this may change in the future
-pub async fn estimate_gas_to_fulfill(
+pub(crate) async fn estimate_gas_to_fulfill(
     config: &ConfigLock,
     supported_selectors: &SupportedSelectors,
     request: &ProofRequest,

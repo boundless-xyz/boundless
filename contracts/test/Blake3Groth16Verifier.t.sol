@@ -21,7 +21,7 @@ import {
 } from "risc0/IRiscZeroVerifier.sol";
 import {ControlID} from "../src/blake3-groth16/ControlID.sol";
 import {Blake3Groth16Verifier} from "../src/blake3-groth16/Blake3Groth16Verifier.sol";
-import {TestReceipt} from "./Blake3Groth16TestReceipt.sol";
+import {TestReceipt} from "./receipts/Blake3Groth16TestReceipt.sol";
 
 contract Blake3Groth16VerifierTest is Test {
     using OutputLib for Output;
