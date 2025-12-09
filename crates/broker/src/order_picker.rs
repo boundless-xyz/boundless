@@ -735,13 +735,18 @@ where
             // provide the config value that needs to be updated in order to have accepted.
             let config_info = match &prove_limit_reason {
                 ProveLimitReason::EthPricing { max_price, gas_cost, mcycle_price_eth } => {
-                    let available_eth = max_price.saturating_sub(*gas_cost);
-                    let required_price_per_mcycle =
-                        available_eth.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
+                    let max_price_gas_adjusted = max_price.saturating_sub(*gas_cost);
+                    let required_price_per_mcycle = max_price_gas_adjusted
+                        .saturating_mul(ONE_MILLION)
+                        / U256::from(proof_cycles);
+                    let required_price_per_mcycle_ignore_gas =
+                        max_price.saturating_mul(ONE_MILLION) / U256::from(proof_cycles);
                     format!(
-                        "min_mcycle_price set to {} ETH/Mcycle in config, order requires min_mcycle_price <= {} ETH/Mcycle to be considered",
+                        "min_mcycle_price set to {} ETH/Mcycle in config, order requires min_mcycle_price <= {} ETH/Mcycle to be considered (gas cost: {} ETH, ignoring gas requires min {} ETH/Mcycle)",
                         format_ether(*mcycle_price_eth),
-                        format_ether(required_price_per_mcycle)
+                        format_ether(required_price_per_mcycle),
+                        format_ether(*gas_cost),
+                        format_ether(required_price_per_mcycle_ignore_gas)
                     )
                 }
                 ProveLimitReason::CollateralPricing { mcycle_price_collateral, .. } => {

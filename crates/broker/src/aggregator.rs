@@ -346,7 +346,13 @@ impl AggregatorService {
                 .with_context(|| format!("Failed to get journal for {proof_id}"))?
                 .with_context(|| format!("Journal for {proof_id} missing"))?;
 
-            journal_size += journal.len();
+            // For claim digest match predicate orders, the journal is not included in the calldata.
+            if !matches!(
+                order.request.requirements.predicate.predicateType,
+                PredicateType::ClaimDigestMatch
+            ) {
+                journal_size += journal.len();
+            }
         }
 
         Ok(journal_size)

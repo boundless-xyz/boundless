@@ -65,6 +65,8 @@ const maxFetchRetries: number = config.getNumber("maxFetchRetries") || 3;
 const allowClientAddresses: string = config.get("allowClientAddresses") || "";
 const lockinPriorityGas: string = config.get("lockinPriorityGas") || "0";
 
+const rustLogLevel: string = config.get("rustLogLevel") || "debug";
+
 // Look up the latest packer-built AMI
 const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
 const boundlessAmiName: string = `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
@@ -150,6 +152,7 @@ const manager = new ManagerComponent({
     maxFetchRetries,
     allowClientAddresses,
     lockinPriorityGas,
+    rustLogLevel,
 });
 
 // Create worker clusters

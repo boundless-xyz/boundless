@@ -329,6 +329,7 @@ localnet action="up": check-deps
             echo "Running in CI mode, skipping prover setup."
             python3 contracts/update_deployment_toml.py \
                 --verifier "$VERIFIER_ADDRESS" \
+                --application-verifier "$VERIFIER_ADDRESS" \
                 --set-verifier "$SET_VERIFIER_ADDRESS" \
                 --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
                 --collateral-token "$HIT_POINTS_ADDRESS" \
