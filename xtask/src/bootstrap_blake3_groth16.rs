@@ -42,7 +42,7 @@ const SOL_HEADER: &str = r#"// Copyright 2025 Boundless Foundation, Inc.
 
 const SOLIDITY_VERIFIER_TARGET: &str = "contracts/src/blake3-groth16/Groth16Verifier.sol";
 const SOLIDITY_CONTROL_ID_PATH: &str = "contracts/src/blake3-groth16/ControlID.sol";
-const SOLIDITY_TEST_RECEIPT_PATH: &str = "contracts/test/Blake3Groth16TestReceipt.sol";
+const SOLIDITY_TEST_RECEIPT_PATH: &str = "contracts/test/receipts/Blake3Groth16TestReceipt.sol";
 const RUST_VERIFIER_PATH: &str = "blake3_groth16/src/verify.rs";
 
 impl BootstrapBlake3Groth16 {
