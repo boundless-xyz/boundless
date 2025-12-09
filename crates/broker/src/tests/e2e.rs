@@ -515,8 +515,14 @@ async fn e2e_with_blake3_groth16_selector() {
         anvil.endpoint_url(),
         ctx.prover_signer,
     );
-    let broker = Broker::new(args, ctx.prover_provider).await.unwrap();
-
+    let broker = Broker::new(
+        args,
+        ctx.prover_provider,
+        ConfigWatcher::new(config.path()).await.unwrap(),
+        Default::default(),
+    )
+    .await
+    .unwrap();
     // Provide URL for ECHO program
     let storage = MockStorageProvider::start();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
