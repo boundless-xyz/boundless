@@ -41,6 +41,8 @@ jobs:
               - 'contracts/test/**'
             scripts:
               - 'contracts/scripts/**'
+            ci:
+              - '.github/workflows/contracts.yml'
 
   gas-snapshots-check:
     runs-on: ubuntu-latest
@@ -124,7 +126,7 @@ jobs:
   deployment-scripts:
     runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
     needs: contracts-changed
-    if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' || needs.contracts-changed.outputs.scripts == 'true'}}
+    if: ${{ needs.contracts-changed.outputs.src == 'true' || needs.contracts-changed.outputs.foundry == 'true' || needs.contracts-changed.outputs.scripts == 'true' || needs.contracts-changed.outputs.ci == 'true' }}
     strategy:
       # Run only on Linux with CPU.
       matrix:
