@@ -38,14 +38,39 @@ use url::Url;
 async fn main() -> Result<()> {
     let mut args = Args::parse();
 
-    // Backward compatibility: allow RPC_URL when PROVER_RPC_URL is not set
-    if std::env::var("PROVER_RPC_URL").is_err() {
+    // Collect all RPC URLs from args, deduplicated
+    let mut all_rpc_urls = std::collections::HashSet::new();
+
+    // Add PROVER_RPC_URL from args
+    if let Some(ref url) = args.rpc_url {
+        all_rpc_urls.insert(url.clone());
+    }
+
+    // Add PROVER_RPC_URLS from args
+    all_rpc_urls.extend(args.rpc_urls.iter().cloned());
+
+    // Backward compatibility: check RPC_URL if no URLs collected yet
+    if all_rpc_urls.is_empty() {
         if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
-            args.rpc_url =
-                Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
-            tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+            if !legacy_rpc_url.is_empty() {
+                let url =
+                    Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
+                all_rpc_urls.insert(url);
+                tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+            }
         }
     }
+
+    // Error early if no RPC URLs provided
+    if all_rpc_urls.is_empty() {
+        anyhow::bail!(
+            "No RPC URLs provided. Please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables"
+        );
+    }
+
+    // Convert HashSet to Vec for easier handling
+    let all_rpc_urls: Vec<Url> = all_rpc_urls.into_iter().collect();
+
     if args.log_json {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -76,16 +101,6 @@ async fn main() -> Result<()> {
 
     let wallet = EthereumWallet::from(private_key.clone());
 
-    // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
-    let mut seen = std::collections::HashSet::new();
-    seen.insert(args.rpc_url.clone());
-    seen.extend(args.rpc_urls.iter().cloned());
-    let all_rpc_urls: Vec<Url> = seen.into_iter().collect();
-
-    if all_rpc_urls.is_empty() {
-        anyhow::bail!("no RPC URLs provided, please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables");
-    }
-
     let retry_layer = RetryBackoffLayer::new_with_policy(
         args.rpc_retry_max,
         args.rpc_retry_backoff,
@@ -115,8 +130,9 @@ async fn main() -> Result<()> {
         RpcClient::builder().transport(transport, false)
     } else {
         // Single URL - use regular provider
-        tracing::info!("Configuring broker with single RPC URL: {}", args.rpc_url);
-        RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone())
+        let single_url = &all_rpc_urls[0];
+        tracing::info!("Configuring broker with single RPC URL: {}", single_url);
+        RpcClient::builder().layer(retry_layer).http(single_url.clone())
     };
 
     // Read config for balance alerts (scope the guard so we can move config_watcher later)
