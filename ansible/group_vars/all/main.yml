@@ -1,0 +1,28 @@
+---
+postgresql_user: "{{ lookup('env', 'POSTGRESQL_USER') | default('bento', true) | string }}"
+postgresql_password: "{{ lookup('env', 'POSTGRESQL_PASSWORD') | default('CHANGE_ME', true) | string }}"
+postgresql_host: "{{ lookup('env', 'POSTGRESQL_HOST') | default('127.0.0.1', true) | string }}"
+postgresql_port: "{{ lookup('env', 'POSTGRESQL_PORT') | default('5432', true) | int }}"
+postgresql_database: "{{ lookup('env', 'POSTGRESQL_DATABASE') | default('bento', true) | string }}"
+
+valkey_host: "{{ lookup('env', 'VALKEY_HOST') | default('localhost', true) | string }}"
+valkey_port: "{{ lookup('env', 'VALKEY_PORT') | default('6379', true) | int }}"
+
+minio_host: "{{ lookup('env', 'MINIO_HOST') | default('localhost', true) | string }}"
+minio_port: "{{ lookup('env', 'MINIO_PORT') | default('9000', true) | int }}"
+minio_root_user: "{{ lookup('env', 'MINIO_ROOT_USER') | default('minioadmin', true) | string }}"
+minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default('minioadmin', true) | string }}"
+
+bento_s3_bucket: "{{ lookup('env', 'BENTO_S3_BUCKET') | default('bento', true) | string }}"
+bento_s3_access_key: "{{ lookup('env', 'BENTO_S3_ACCESS_KEY') | default(minio_root_user | default('', true), true) | string }}"
+bento_s3_secret_key: "{{ lookup('env', 'BENTO_S3_SECRET_KEY') | default(minio_root_password | default('', true), true) | string }}"
+bento_s3_url: "{{ lookup('env', 'BENTO_S3_URL') | default('http://' ~ minio_host ~ ':' ~ (minio_port | string), true) | string }}"
+bento_postgresql_user: "{{ postgresql_user | default(lookup('env', 'POSTGRESQL_USER') | default('bento', true), true) | string }}"
+bento_postgresql_password: "{{ postgresql_password | default(lookup('env', 'POSTGRESQL_PASSWORD') | default('CHANGE_ME', true), true) | string }}"
+bento_povw_log_id: "{{ lookup('env', 'POVW_LOG_ID') | default('', true) | string }}"
+# Network bind addresses (for services that need to be accessible from other hosts)
+# Set to '*' or '0.0.0.0' to listen on all interfaces, or specific IP address
+# Can be overridden via environment variables: POSTGRESQL_LISTEN_ADDRESSES, VALKEY_BIND, MINIO_BIND
+postgresql_listen_addresses: "{{ lookup('env', 'POSTGRESQL_LISTEN_ADDRESSES') | default('localhost', true) | string }}"
+valkey_bind: "{{ lookup('env', 'VALKEY_BIND') | default('127.0.0.1', true) | string }}"
+minio_bind: "{{ lookup('env', 'MINIO_BIND') | default('127.0.0.1', true) | string }}"

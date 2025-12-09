@@ -1,12 +1,15 @@
 ---
 # Bento version to install
-bento_version: "v1.1.0"
+bento_version: "v1.1.2"
 
 # Bento task type (prove, execute, aux, etc.)
 bento_task: "prove"
 
 # Service user
-bento_user: "ubuntu"
+bento_user: "bento"
+bento_group: "bento"
+bento_home: "/var/lib/bento"
+bento_shell: "/usr/sbin/nologin"
 
 # Service timeouts
 bento_agent_timeout_start_sec: 1800
@@ -18,8 +21,8 @@ bento_keccak_po2: 17
 bento_rust_log: "info"
 
 # Database configuration
-# These directly use postgresql role variables to ensure credentials match
-# Set postgresql_user, postgresql_password, etc. and they will be used by both roles
+# These reference group_vars/all/main.yml variables to ensure consistency across the codebase
+# The group vars handle fallback to environment variables or defaults
 bento_postgresql_user: "{{ postgresql_user }}"
 bento_postgresql_password: "{{ postgresql_password }}"
 bento_postgresql_host: "{{ postgresql_host }}"
@@ -27,26 +30,42 @@ bento_postgresql_port: "{{ postgresql_port }}"
 bento_postgresql_database: "{{ postgresql_database }}"
 
 # Valkey (Redis) configuration
-# These directly use valkey role variables to ensure credentials match
-# Set valkey_host, valkey_port, etc. and they will be used by both roles
+# These reference group_vars/all/main.yml variables to ensure consistency across the codebase
+# The group vars handle fallback to environment variables or defaults
 bento_valkey_host: "{{ valkey_host }}"
 bento_valkey_port: "{{ valkey_port }}"
 
 # S3 configuration
-bento_s3_bucket: ""
-bento_s3_access_key: ""
-bento_s3_secret_key: ""
-bento_s3_url: ""
+# These reference group_vars/all/main.yml variables to ensure consistency across the codebase
+# The group vars handle fallback to environment variables or defaults
+# bento_s3_bucket, bento_s3_access_key, bento_s3_secret_key, bento_s3_url are defined in group_vars/all/main.yml
+bento_s3_region: "{{ lookup('env', 'BENTO_S3_REGION') | default('auto', true) | string }}"
 
 # Other configuration
-bento_rewards_address: ""
-bento_povw_log_id: ""
+# Environment variables: BENTO_REWARDS_ADDRESS, BENTO_POVW_LOG_ID
+bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default('', true) | string }}"
+bento_povw_log_id: "{{ lookup('env', 'BENTO_POVW_LOG_ID') | default('', true) | string }}"
 
 # Installation paths
 bento_install_dir: "/usr/local/bin"
 bento_config_dir: "/etc/boundless"
-bento_work_dir: "/opt/boundless"
+bento_work_dir: "/var/lib/bento"
+
+# GPU configuration
+# If bento_cuda_visible_devices is not set, GPUs will be auto-detected using nvidia-smi
+# Set this manually to override auto-detection (e.g., ["0", "1"] for specific GPUs)
+bento_cuda_visible_devices: null  # null = auto-detect, otherwise list of GPU indices as strings
 
 # Service management
 bento_service_enabled: true
 bento_service_state: started
+
+# Number of service instances to deploy
+# When count > 1, systemd template units will be used (e.g., bento-prove@0, bento-prove@1)
+# When count is 1 or not set, a single service will be created (e.g., bento-prove)
+bento_count: 1
+
+# Dependency installation control
+# Set to false to skip installing PostgreSQL, Valkey, and MinIO on this host
+# Useful when deploying to worker nodes that connect to remote services
+bento_install_dependencies: true

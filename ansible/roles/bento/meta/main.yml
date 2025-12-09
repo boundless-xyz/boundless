@@ -13,6 +13,11 @@ galaxy_info:
     - bento
     - systemd
 
-dependencies:
-  - role: postgresql
-  - role: valkey
+# Dependencies are included conditionally in playbooks, not here
+# This allows deploying Bento without dependencies to worker nodes
+# dependencies:
+#   - role: postgresql
+#   - role: valkey
+#   - role: minio
+#   - role: rust
+#   - role: rzup

@@ -33,19 +33,9 @@ None - all variables have defaults, but you should override them based on your e
 * `broker_timeout_start_sec` (default: `1800`): Service start timeout in seconds
 * `broker_timeout_stop_sec` (default: `300`): Service stop timeout in seconds
 
-#### Database Configuration
-
-* `broker_db_type` (default: `"sqlite"`): Database type - `sqlite` or `postgresql`
-* `broker_db_url` (default: `"sqlite:///opt/boundless/broker.db"`): SQLite database URL
-* `broker_postgresql_user`: PostgreSQL username (empty by default)
-* `broker_postgresql_password`: PostgreSQL password (empty by default)
-* `broker_postgresql_host` (default: `"localhost"`): PostgreSQL host
-* `broker_postgresql_port` (default: `5432`): PostgreSQL port
-* `broker_postgresql_database` (default: `"broker"`): PostgreSQL database name
-
 #### Bento API Configuration
 
-* `broker_bento_api_url` (default: `"http://localhost:8081"`): URL of the Bento REST API
+* `broker_bento_api_url` (default: `"http://localhost:8080"`): URL of the Bento REST API
 
 #### Broker Market Configuration
 
@@ -73,7 +63,7 @@ None
     - role: broker
       vars:
         broker_version: "v1.2.0"
-        broker_bento_api_url: "http://localhost:8081"
+        broker_bento_api_url: "http://localhost:8080"
         broker_db_type: "sqlite"
         broker_db_url: "sqlite:///opt/boundless/broker.db"
 ```
@@ -88,12 +78,7 @@ None
     - role: broker
       vars:
         broker_version: "v1.2.0"
-        broker_bento_api_url: "http://bento-api.example.com:8081"
-        broker_db_type: "postgresql"
-        broker_postgresql_user: "broker_user"
-        broker_postgresql_password: "secure_password"
-        broker_postgresql_host: "db.example.com"
-        broker_postgresql_database: "broker"
+        broker_bento_api_url: "http://bento-api.example.com:8080"
         broker_peak_prove_khz: 200
         broker_max_concurrent_proofs: 4
 ```

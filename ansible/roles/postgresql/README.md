@@ -8,7 +8,7 @@ This role installs and configures PostgreSQL database server.
 * Ubuntu 22.04 or 24.04
 * System with systemd
 * Sudo/root privileges
-* Ansible community.postgresql collection
+* Ansible `community.postgresql` collection (must be installed separately)
 
 ## Role Variables
 
@@ -27,7 +27,11 @@ This role installs and configures PostgreSQL database server.
 
 ## Dependencies
 
-* `community.postgresql` collection
+**Important**: You must install the `community.postgresql` collection before using this role:
+
+```bash
+ansible-galaxy collection install community.postgresql
+```
 
 ## Example Playbook
 

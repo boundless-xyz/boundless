@@ -1,0 +1,91 @@
+---
+- name: Deploy Boundless Prover
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    # Install dependencies by default (can be overridden via -e or inventory)
+    bento_install_dependencies: true
+
+  tasks:
+    # Debug: Show bind address variables
+    - name: Display bind address configuration
+      ansible.builtin.debug:
+        msg:
+          - "postgresql_listen_addresses: {{ postgresql_listen_addresses }}"
+          - "valkey_bind: {{ valkey_bind }}"
+          - "minio_bind: {{ minio_bind }}"
+      tags: always
+
+    # Dependencies - only run if bento_install_dependencies is true
+    - name: Deploy PostgreSQL
+      ansible.builtin.include_role:
+        name: postgresql
+      tags:
+        - bento-deps
+        - postgresql
+
+    - name: Deploy Valkey
+      ansible.builtin.include_role:
+        name: valkey
+      tags:
+        - bento-deps
+        - valkey
+
+    - name: Deploy MinIO
+      ansible.builtin.include_role:
+        name: minio
+      tags:
+        - bento-deps
+        - minio
+
+    # Bento services
+    - name: Deploy Bento
+      ansible.builtin.include_role:
+        name: bento
+      vars:
+        bento_task: "prove"
+        bento_install_dependencies: false
+        bento_count: 1
+      tags:
+        - bento
+        - bento-prove
+
+    - name: Deploy Bento API
+      ansible.builtin.include_role:
+        name: bento
+      vars:
+        bento_task: "api"
+        bento_install_dependencies: false
+      tags:
+        - bento
+        - bento-api
+
+    - name: Deploy Bento Execute
+      ansible.builtin.include_role:
+        name: bento
+      vars:
+        bento_task: "exec"
+        bento_install_dependencies: false
+        bento_count: 4
+      tags:
+        - bento
+        - bento-exec
+
+    - name: Deploy Bento Aux
+      ansible.builtin.include_role:
+        name: bento
+      vars:
+        bento_task: "aux"
+        bento_install_dependencies: false
+        bento_count: 2
+      tags:
+        - bento
+        - bento-aux
+
+    - name: Deploy Broker
+      ansible.builtin.include_role:
+        name: broker
+      tags:
+        - broker

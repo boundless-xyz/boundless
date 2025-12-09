@@ -3,19 +3,54 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
-- name: Restart Bento service
+- name: Restart Bento service instances
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: >-
+      {%- if bento_count | default(1) | int > 1 -%}
+      bento-{{ bento_task }}@{{ item }}{%- else -%}
+      bento-{{ bento_task }}{%- endif -%}
     state: restarted
     enabled: "{{ bento_service_enabled | bool }}"
+  loop: "{{ range(0, bento_count | default(1) | int) | list }}"
+  register: bento_restart_result
+  failed_when: false
 
-- name: Start Bento service
+- name: Warn about failed service restarts
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: Failed to restart bento-{{ bento_task }}{% if bento_count | default(1) | int > 1 %}@{{ item.item }}{% endif %}.
+      Service may need manual intervention.
+  loop: "{{ bento_restart_result.results | default([]) }}"
+  when: item.failed | default(false)
+  failed_when: false
+
+- name: Start Bento service instances
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: >-
+      {%- if bento_count | default(1) | int > 1 -%}
+      bento-{{ bento_task }}@{{ item }}{%- else -%}
+      bento-{{ bento_task }}{%- endif -%}
     state: started
     enabled: "{{ bento_service_enabled | bool }}"
+  loop: "{{ range(0, bento_count | default(1) | int) | list }}"
+  register: bento_start_result
+  failed_when: false
 
-- name: Stop Bento service
+- name: Warn about failed service starts
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: Failed to start bento-{{ bento_task }}{% if bento_count | default(1) | int > 1 %}@{{ item.item }}{% endif %}.
+      Service may need manual intervention.
+  loop: "{{ bento_start_result.results | default([]) }}"
+  when: item.failed | default(false)
+  failed_when: false
+
+- name: Stop Bento service instances
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: >-
+      {%- if bento_count | default(1) | int > 1 -%}
+      bento-{{ bento_task }}@{{ item }}{%- else -%}
+      bento-{{ bento_task }}{%- endif -%}
     state: stopped
+  loop: "{{ range(0, bento_count | default(1) | int) | list }}"
+  failed_when: false

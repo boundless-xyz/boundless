@@ -62,6 +62,16 @@ priority_requestor_lists = [
 {% endfor %}
 ]
 
+{% if broker_allow_client_addresses | length > 0 %}
+# Optional allow list for client addresses.
+#
+# If enabled, all requests from clients not in the allow list are skipped.
+allowed_client_addresses = [
+{% for address in broker_allow_client_addresses %}
+	"{{ address }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+]
+{% endif %}
 # Maximum collateral amount, denominated in the Boundless collateral token,
 # that the broker will use to lock orders.
 #

@@ -1,0 +1,231 @@
+---
+- name: Get user home directory
+  ansible.builtin.shell: |
+    set -o pipefail
+    getent passwd {{ rzup_user }} | cut -d: -f6
+  args:
+    executable: /bin/bash
+  register: rzup_user_home_result
+  changed_when: false
+  when: rzup_home is none
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Set rzup home directory
+  ansible.builtin.set_fact:
+    rzup_home_dir: "{{ rzup_home | default(rzup_user_home_result.stdout, true) }}"
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Set rzup RISC0 home directory
+  ansible.builtin.set_fact:
+    rzup_risc0_home_dir: "{{ rzup_risc0_home | default(rzup_home_dir ~ '/.risc0', true) }}"
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Set rzup binary path
+  ansible.builtin.set_fact:
+    rzup_bin_path: "{{ rzup_risc0_home_dir }}/bin/rzup"
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Check if rzup exists in target location
+  ansible.builtin.stat:
+    path: "{{ rzup_bin_path }}"
+  register: rzup_target_check
+  failed_when: false
+  changed_when: false
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Ensure remote_tmp directory exists
+  ansible.builtin.file:
+    path: "{{ rzup_home_dir }}/.ansible/tmp"
+    state: directory
+    mode: '0755'
+    owner: "{{ rzup_user }}"
+    group: "{{ rzup_group }}"
+  when:
+    - rzup_install | bool
+    - not (rzup_target_check.stat.exists | default(false))
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Install rzup (RISC Zero)
+  when:
+    - rzup_install | bool
+    - not (rzup_target_check.stat.exists | default(false))
+  tags:
+    - rzup
+    - rzup-install
+  block:
+    - name: Ensure RISC0 home directory exists with correct permissions
+      ansible.builtin.file:
+        path: "{{ rzup_risc0_home_dir }}"
+        state: directory
+        owner: "{{ rzup_user }}"
+        group: "{{ rzup_group }}"
+        mode: '0755'
+      tags:
+        - rzup
+        - rzup-install
+
+    - name: Download RISC Zero install script
+      ansible.builtin.get_url:
+        url: https://risczero.com/install
+        dest: /tmp/risczero-install.sh
+        mode: '0755'
+
+    - name: Install rzup
+      ansible.builtin.shell: |
+        set -o pipefail
+        bash /tmp/risczero-install.sh
+      args:
+        creates: "{{ rzup_bin_path }}"
+        executable: /bin/bash
+      environment:
+        HOME: "{{ rzup_home_dir }}"
+        PATH: >-
+          {{
+            ansible_facts['env']['PATH'] |
+            default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', true)
+          }}:{{ rzup_home_dir }}/.cargo/bin
+      become: true
+      become_user: "{{ rzup_user }}"
+      register: rzup_install_result
+
+    - name: Verify rzup installation
+      ansible.builtin.stat:
+        path: "{{ rzup_bin_path }}"
+      register: rzup_install_verify
+      failed_when: not rzup_install_verify.stat.exists
+      tags:
+        - rzup
+        - rzup-install
+
+    - name: Clean up install script
+      ansible.builtin.file:
+        path: /tmp/risczero-install.sh
+        state: absent
+      changed_when: false
+
+- name: Ensure RISC0 directory has correct ownership and permissions
+  ansible.builtin.file:
+    path: "{{ rzup_risc0_home_dir }}"
+    state: directory
+    owner: "{{ rzup_user }}"
+    group: "{{ rzup_group }}"
+    mode: '0755'
+    recurse: true
+  when: rzup_install_verify.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Create symlink for rzup in /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ rzup_bin_path }}"
+    dest: /usr/local/bin/rzup
+    state: link
+    force: true
+    mode: '0755'
+  when: rzup_install_verify.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Set RISC0_HOME for groth16 operations
+  ansible.builtin.set_fact:
+    rzup_risc0_home_check: "{{ rzup_risc0_home_dir }}"
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Re-check if rzup exists after installation
+  ansible.builtin.stat:
+    path: "{{ rzup_bin_path }}"
+  register: rzup_final_check
+  failed_when: false
+  changed_when: false
+  tags:
+    - rzup
+    - rzup-install
+
+- name: Check if risc0-groth16 is installed
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+    export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+    {{ rzup_bin_path }} list 2>/dev/null | grep -q risc0-groth16 || echo "not_installed"
+  args:
+    executable: /bin/bash
+  register: rzup_risc0_groth16_check
+  changed_when: false
+  failed_when: false
+  when:
+    - rzup_install_groth16 | bool
+    - rzup_final_check.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-groth16
+
+- name: Install risc0-groth16 component
+  when:
+    - rzup_install_groth16 | bool
+    - rzup_final_check.stat.exists | default(false)
+    - "'not_installed' in rzup_risc0_groth16_check.stdout"
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-groth16
+  block:
+    - name: Install risc0-groth16 via rzup
+      ansible.builtin.shell: |
+        set -o pipefail
+        export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+        export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+        {{ rzup_bin_path }} install risc0-groth16
+      args:
+        creates: "{{ rzup_risc0_home_dir }}/bin/risc0-groth16"
+        executable: /bin/bash
+      environment:
+        PATH: >-
+          {{
+            ansible_facts['env']['PATH'] |
+            default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', true)
+          }}:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin
+        RISC0_HOME: "{{ rzup_risc0_home_dir }}"
+      become: true
+      become_user: "{{ rzup_user }}"
+      register: rzup_risc0_groth16_install
+
+    - name: Verify risc0-groth16 installation
+      ansible.builtin.shell: |
+        set -o pipefail
+        export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+        export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+        {{ rzup_bin_path }} list | grep -q risc0-groth16
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: >-
+          {{
+            ansible_facts['env']['PATH'] |
+            default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', true)
+          }}:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin
+        RISC0_HOME: "{{ rzup_risc0_home_dir }}"
+      become: true
+      become_user: "{{ rzup_user }}"
+      failed_when: false
+      changed_when: false
+      tags:
+        - rzup
+        - rzup-install
+        - rzup-groth16

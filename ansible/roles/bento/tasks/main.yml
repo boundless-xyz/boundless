@@ -1,17 +1,126 @@
 ---
-- name: Check if Bento binaries are already installed
+- name: Validate required Bento configuration
+  ansible.builtin.assert:
+    that:
+      - bento_postgresql_password is defined
+      - bento_postgresql_password | length > 0
+      - bento_postgresql_password != "CHANGE_ME"
+      - bento_postgresql_host is defined
+      - bento_postgresql_host | length > 0
+      - bento_valkey_host is defined
+      - bento_valkey_host | length > 0
+      - bento_s3_access_key is defined
+      - bento_s3_access_key | length > 0
+      - bento_s3_secret_key is defined
+      - bento_s3_secret_key | length > 0
+    fail_msg: |
+      Required Bento configuration is missing or invalid.
+      Ensure POSTGRESQL_PASSWORD, POSTGRESQL_HOST, VALKEY_HOST,
+      BENTO_S3_ACCESS_KEY, and BENTO_S3_SECRET_KEY are set.
+    quiet: true
+  tags:
+    - bento
+    - always
+
+- name: Check if Bento user exists
+  tags:
+    - bento
+    - bento-user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ bento_user }}"
+  register: bento_user_check
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+
+- name: Create Bento group
+  ansible.builtin.group:
+    name: "{{ bento_group }}"
+    state: present
+    system: true
+  tags:
+    - bento
+    - bento-user
+
+- name: Create Bento user
+  ansible.builtin.user:
+    name: "{{ bento_user }}"
+    group: "{{ bento_group }}"
+    home: "{{ bento_home }}"
+    shell: "{{ bento_shell }}"
+    create_home: true
+    comment: "Boundless Bento service user"
+  when: >
+    bento_user_check.ansible_facts.getent_passwd is not defined or
+    bento_user not in (bento_user_check.ansible_facts.getent_passwd | default({}))
+  tags:
+    - bento
+    - bento-user
+
+- name: Install Rust for bento user
+  ansible.builtin.include_role:
+    name: rust
+  vars:
+    rust_user: "{{ bento_user }}"
+    rust_group: "{{ bento_group }}"
+    rust_home: "{{ bento_home }}"
+  tags:
+    - bento
+    - bento-install
+    - rust
+
+- name: Install rzup and risc0-groth16 for bento user
+  ansible.builtin.include_role:
+    name: rzup
+  vars:
+    rzup_user: "{{ bento_user }}"
+    rzup_group: "{{ bento_group }}"
+    rzup_home: "{{ bento_home }}"
+    rzup_install_groth16: true
+  tags:
+    - bento
+    - bento-install
+    - rzup
+
+- name: Set RISC0_HOME for bento service
+  ansible.builtin.set_fact:
+    bento_risc0_home_service: "{{ bento_home }}/.risc0"
+  tags:
+    - bento
+    - bento-install
+
+- name: Check if Bento agent binary exists
   ansible.builtin.stat:
     path: "{{ bento_install_dir }}/bento-agent"
-  register: bento_binary_check
+  register: bento_agent_check
+  tags:
+    - bento
+    - bento-install
+
+- name: Check if Bento REST API binary exists
+  ansible.builtin.stat:
+    path: "{{ bento_install_dir }}/bento-rest-api"
+  register: bento_rest_api_check
+  tags:
+    - bento
+    - bento-install
 
 - name: Install Bento
-  when: not bento_binary_check.stat.exists
+  when: not bento_agent_check.stat.exists or not bento_rest_api_check.stat.exists
+  tags:
+    - bento
+    - bento-install
   block:
-    - name: Create temporary directory for Bento bundle
-      ansible.builtin.file:
-        path: /tmp/bento-bundle
-        state: directory
-        mode: '0755'
+    - name: Download Bento bundle checksum
+      ansible.builtin.get_url:
+        url: "https://github.com/boundless-xyz/boundless/releases/download/bento-{{ bento_version }}/bento-bundle-linux-amd64.tar.gz.sha256"
+        dest: /tmp/bento-bundle-linux-amd64.tar.gz.sha256
+        mode: '0644'
+        timeout: 300
+      register: bento_checksum_download
+      ignore_errors: true
+      failed_when: false
 
     - name: Download Bento installer
       ansible.builtin.get_url:
@@ -20,30 +129,57 @@
         mode: '0644'
         timeout: 300
 
+    - name: Verify Bento bundle checksum
+      ansible.builtin.command:
+        cmd: sha256sum -c /tmp/bento-bundle-linux-amd64.tar.gz.sha256
+        chdir: /tmp
+      register: bento_checksum_result
+      failed_when: bento_checksum_result.rc != 0
+      changed_when: false
+      when: bento_checksum_download is succeeded
+
+    - name: Warn about missing checksum verification
+      ansible.builtin.debug:
+        msg: "WARNING: Checksum file not available for bento-{{ bento_version }}. Binary integrity not verified. Consider verifying manually."
+      when: bento_checksum_download is failed
+
     - name: Extract Bento bundle
       ansible.builtin.unarchive:
         src: /tmp/bento-bundle-linux-amd64.tar.gz
-        dest: /tmp/bento-bundle
+        dest: /tmp
         remote_src: true
         creates: /tmp/bento-bundle/bento-agent
 
-    - name: Install Bento binaries
+    - name: Install Bento agent binary
       ansible.builtin.copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
+        src: /tmp/bento-bundle/bento-agent
+        dest: "{{ bento_install_dir }}/bento-agent"
         mode: '0755'
         owner: root
         group: root
         remote_src: true
-      loop:
-        - { src: /tmp/bento-bundle/bento-agent, dest: "{{ bento_install_dir }}/bento-agent" }
-        - { src: /tmp/bento-bundle/bento-rest-api, dest: "{{ bento_install_dir }}/bento-rest-api" }
-        - { src: /tmp/bento-bundle/bento-client, dest: "{{ bento_install_dir }}/bento-client" }
+      when: not bento_agent_check.stat.exists
+      notify: Reload systemd
+
+    - name: Install Bento REST API binary
+      ansible.builtin.copy:
+        src: /tmp/bento-bundle/bento-rest-api
+        dest: "{{ bento_install_dir }}/bento-rest-api"
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: true
+      when: not bento_rest_api_check.stat.exists
       notify: Reload systemd
 
     - name: Clean up Bento bundle archive
       ansible.builtin.file:
         path: /tmp/bento-bundle-linux-amd64.tar.gz
+        state: absent
+
+    - name: Clean up Bento bundle checksum
+      ansible.builtin.file:
+        path: /tmp/bento-bundle-linux-amd64.tar.gz.sha256
         state: absent
 
     - name: Clean up Bento bundle directory
@@ -57,39 +193,81 @@
     state: directory
     mode: '0755'
     owner: root
-    group: root
+    group: "{{ bento_group }}"
+  tags:
+    - bento
+    - bento-config
+
+- name: Create Bento home directory
+  ansible.builtin.file:
+    path: "{{ bento_home }}"
+    state: directory
+    mode: '0750'
+    owner: "{{ bento_user }}"
+    group: "{{ bento_group }}"
+  tags:
+    - bento
+    - bento-config
 
 - name: Create Bento working directory
   ansible.builtin.file:
     path: "{{ bento_work_dir }}"
     state: directory
-    mode: '0755'
+    mode: '0750'
     owner: "{{ bento_user }}"
-    group: "{{ bento_user }}"
+    group: "{{ bento_group }}"
+  tags:
+    - bento
+    - bento-config
 
 - name: Create Bento environment file
   ansible.builtin.template:
     src: bento.env.j2
     dest: "{{ bento_config_dir }}/bento.env"
-    mode: '0644'
+    mode: '0640'
     owner: root
-    group: root
-  notify: Restart Bento service
+    group: "{{ bento_group }}"
+  notify: Restart Bento service instances
+  tags:
+    - bento
+    - bento-config
+
+- name: Set service file path based on count
+  ansible.builtin.set_fact:
+    bento_service_file: >-
+      {%- if bento_count | default(1) | int > 1 -%}
+      /etc/systemd/system/bento-{{ bento_task }}@.service{%- else -%}
+      /etc/systemd/system/bento-{{ bento_task }}.service{%- endif -%}
+    bento_service_count: "{{ bento_count | default(1) | int }}"
+  tags:
+    - bento
+    - bento-service
 
 - name: Create Bento service file
   ansible.builtin.template:
     src: bento.service.j2
-    dest: "/etc/systemd/system/bento-{{ bento_task }}.service"
+    dest: "{{ bento_service_file }}"
     mode: '0644'
     owner: root
     group: root
   notify:
     - Reload systemd
-    - Restart Bento service
+    - Restart Bento service instances
+  tags:
+    - bento
+    - bento-service
 
-- name: Ensure Bento service is enabled and started
+- name: Ensure Bento service instances are enabled and started
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: >-
+      {%- if bento_service_count | int > 1 -%}
+      bento-{{ bento_task }}@{{ item }}{%- else -%}
+      bento-{{ bento_task }}{%- endif -%}
     enabled: "{{ bento_service_enabled }}"
     state: "{{ bento_service_state }}"
+    daemon_reload: true
+  loop: "{{ range(0, bento_service_count | int) | list }}"
   when: bento_service_state != "stopped"
+  tags:
+    - bento
+    - bento-service

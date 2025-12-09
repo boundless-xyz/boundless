@@ -1,0 +1,27 @@
+[Unit]
+Description=MinIO S3-Compatible Object Storage Server
+After=network.target
+
+[Service]
+Type=simple
+User={{ minio_user }}
+Group={{ minio_group }}
+EnvironmentFile={{ minio_config_dir }}/minio.env
+ExecStart={{ minio_install_dir }}/{{ minio_binary_name }} server {{ minio_data_dir }} --address {{ minio_bind }}:{{ minio_port }} --console-address {{ minio_bind }}:{{ minio_console_port }}
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=minio
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ minio_data_dir }} {{ minio_log_dir }} {{ minio_home }}
+ReadOnlyPaths={{ minio_config_dir }}
+
+[Install]
+WantedBy=multi-user.target
+

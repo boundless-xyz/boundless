@@ -13,6 +13,4 @@ galaxy_info:
     - postgresql
     - systemd
 
-dependencies:
-  - name: community.postgresql
-    type: collection
+dependencies: []

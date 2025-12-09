@@ -3,8 +3,11 @@
 broker_version: "v1.1.1"
 
 # Service user
-broker_user: "ubuntu"
-
+broker_user: "broker"
+broker_group: "broker"
+broker_home: "/var/lib/broker"
+broker_shell: "/usr/sbin/nologin"
+broker_rust_log: "info"
 # Service timeouts
 broker_timeout_start_sec: 1800
 broker_timeout_stop_sec: 300
@@ -21,15 +24,18 @@ broker_config_file: "{{ broker_config_dir }}/broker.toml"
 broker_db_url: "sqlite://{{ broker_config_dir }}/broker.db"
 broker_db_type: "sqlite"  # sqlite or postgresql
 
-# PostgreSQL configuration (if using PostgreSQL)
-broker_postgresql_user: ""
-broker_postgresql_password: ""
-broker_postgresql_host: "localhost"
-broker_postgresql_port: 5432
-broker_postgresql_database: "broker"
-
 # Bento API configuration
-broker_bento_api_url: "http://localhost:8081"
+# Environment variable: BROKER_BENTO_API_URL
+# Note: default(..., true) handles empty strings from env vars
+broker_bento_api_url: "{{ lookup('env', 'BROKER_BENTO_API_URL') | default('http://127.0.0.1:8080', true) | string }}"
+
+# Ethereum RPC configuration
+# Environment variable: BROKER_RPC_URL or RPC_URL
+broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(lookup('env', 'RPC_URL') | default('', true), true) | string }}"
+
+# Private key configuration
+# Environment variable: BROKER_PRIVATE_KEY or PRIVATE_KEY
+broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(lookup('env', 'PRIVATE_KEY') | default('', true), true) | string }}"
 
 # Broker TOML configuration
 broker_min_mcycle_price: "0.00000001"
@@ -40,6 +46,11 @@ broker_max_concurrent_preflights: 2
 broker_max_concurrent_proofs: 1
 broker_priority_requestor_lists:
   - "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json"
+
+# Optional allow list for client addresses.
+#
+# If enabled, all requests from clients not in the allow list are skipped.
+broker_allow_client_addresses: []
 
 # Service management
 broker_service_enabled: true

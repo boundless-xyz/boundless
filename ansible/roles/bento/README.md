@@ -19,12 +19,17 @@ None - all variables have defaults, but you should override them based on your e
 
 #### Installation Configuration
 
-* `bento_version` (default: `"v1.1.0"`): Version of Bento to install
+* `bento_version` (default: `"v1.1.2"`): Version of Bento to install
 * `bento_task` (default: `"prove"`): Task type for the agent (prove, execute, aux, etc.)
-* `bento_user` (default: `"ubuntu"`): User to run the service as
+* `bento_user` (default: `"bento"`): User to run the service as (dedicated service user)
+* `bento_group` (default: `"bento"`): Group for the bento user
+* `bento_home` (default: `"/var/lib/bento"`): Home directory for the bento user
+* `bento_shell` (default: `"/usr/sbin/nologin"`): Shell for the bento user (nologin for security)
 * `bento_install_dir` (default: `"/usr/local/bin"`): Directory to install binaries
-* `bento_config_dir` (default: `"/etc/boundless"`): Directory for configuration files
-* `bento_work_dir` (default: `"/opt/boundless"`): Working directory for the service
+* `bento_config_dir` (default: `"/etc/boundless"`): Directory for configuration files (root-owned, readable by bento group)
+* `bento_work_dir` (default: `"/var/lib/bento"`): Working directory for the service
+* `bento_count` (default: `1`): Number of service instances to deploy (when > 1, uses systemd template units)
+* `bento_install_dependencies` (default: `true`): Whether to install PostgreSQL, Valkey, and MinIO on this host
 
 #### Service Configuration
 
@@ -66,22 +71,34 @@ See the `valkey` role documentation for the actual variables to set.
 
 #### S3 Configuration
 
-* `bento_s3_bucket`: S3 bucket name (empty by default)
-* `bento_s3_access_key`: S3 access key (empty by default)
-* `bento_s3_secret_key`: S3 secret key (empty by default)
-* `bento_s3_url`: S3 URL (empty by default)
+**Important**: S3 configuration variables are defined in `group_vars/all/main.yml` to ensure consistency. They can be overridden via environment variables.
+
+* `bento_s3_bucket`: S3 bucket name (defaults to `"bento"` or `BENTO_S3_BUCKET` env var)
+* `bento_s3_access_key`: S3 access key (defaults to MinIO root user or `BENTO_S3_ACCESS_KEY` env var)
+* `bento_s3_secret_key`: S3 secret key (defaults to MinIO root password or `BENTO_S3_SECRET_KEY` env var)
+* `bento_s3_url`: S3 URL (defaults to `http://{minio_host}:{minio_port}` or `BENTO_S3_URL` env var)
+* `bento_s3_region`: S3 region (defaults to `"auto"` or `BENTO_S3_REGION` env var)
 
 #### Other Configuration
 
-* `bento_rewards_address`: Rewards address (empty by default)
-* `bento_povw_log_id`: POVW log ID (empty by default)
+* `bento_rewards_address`: Rewards address (empty by default, can be set via `BENTO_REWARDS_ADDRESS` env var)
+* `bento_povw_log_id`: POVW log ID (empty by default, can be set via `POVW_LOG_ID` env var)
+* `bento_risc0_home_service`: RISC0\_HOME directory for the service (defaults to `{{ bento_home }}/.risc0`, automatically set by rzup role)
 
 ## Dependencies
 
+The bento role includes the following roles when `bento_install_dependencies` is `true`:
+
 * `postgresql` role (for PostgreSQL installation and configuration)
 * `valkey` role (for Valkey/Redis installation and configuration)
+* `minio` role (for MinIO S3-compatible storage installation and configuration)
 
-The bento role depends on these roles and will automatically install them. Make sure the `postgresql` and `valkey` roles are available in your roles directory.
+Additionally, the bento role always includes:
+
+* `rust` role (for Rust programming language installation for the bento user)
+* `rzup` role (for RISC Zero rzup toolchain and risc0-groth16 component installation)
+
+These roles are automatically included when deploying Bento. Make sure all required roles are available in your roles directory.
 
 ## Example Playbook
 
@@ -102,10 +119,9 @@ The bento role depends on these roles and will automatically install them. Make 
         postgresql_database: "bento"
         # Valkey configuration
         valkey_maxmemory: "12gb"
-        # S3 configuration
-        bento_s3_bucket: "my-bento-bucket"
-        bento_s3_access_key: "AKIAIOSFODNN7EXAMPLE"
-        bento_s3_secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        # S3 configuration (or set via environment variables)
+        # bento_s3_bucket, bento_s3_access_key, bento_s3_secret_key, bento_s3_url
+        # are defined in group_vars/all/main.yml and can be overridden via env vars
 ```
 
 **Note**: The `postgresql_user` and `postgresql_password` you set here will be:
@@ -137,13 +153,19 @@ The bento role depends on these roles and will automatically install them. Make 
 ## Features
 
 * **Idempotent**: Safe to run multiple times
-* **Service Management**: Properly manages systemd service with handlers
+* **Service Management**: Properly manages systemd service with handlers, supports multiple instances via template units
 * **Configuration Management**: Creates environment file and service file from templates
 * **Directory Management**: Creates necessary directories with proper permissions
 * **Clean Installation**: Downloads, extracts, installs binaries, and cleans up temporary files
-* **Database Support**: Depends on `postgresql` role for PostgreSQL installation and configuration
-* **Valkey Support**: Depends on `valkey` role for Valkey (Redis fork) installation and configuration
+* **Database Support**: Integrates with `postgresql` role for PostgreSQL installation and configuration
+* **Valkey Support**: Integrates with `valkey` role for Valkey (Redis fork) installation and configuration
+* **S3 Support**: Integrates with `minio` role for MinIO S3-compatible storage
+* **Rust Support**: Automatically installs Rust for the bento user via `rust` role
+* **RISC Zero Support**: Automatically installs rzup and risc0-groth16 for Groth16 proof generation via `rzup` role
 * **Credential Matching**: Automatically uses credentials from dependent roles, ensuring consistency
+* **Dedicated User**: Creates a dedicated `bento` system user with proper directory structure and permissions
+* **Security**: Service runs as non-root user with appropriate file permissions and systemd security settings
+* **Worker Node Support**: Can deploy to worker nodes without local dependencies by setting `bento_install_dependencies: false`
 
 ## Handlers
 

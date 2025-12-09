@@ -7,12 +7,41 @@ postgresql_service_enabled: true
 postgresql_service_state: started
 
 # Database configuration
-postgresql_user: "bento"
-postgresql_password: "CHANGE_ME"
-postgresql_host: "localhost"
-postgresql_port: 5432
-postgresql_database: "bento"
+# Secrets can be set via environment variables (preferred) or overridden in playbooks
+# Environment variables: POSTGRESQL_USER, POSTGRESQL_PASSWORD, POSTGRESQL_HOST, POSTGRESQL_PORT, POSTGRESQL_DATABASE
+# Note: default(..., true) handles empty strings from env vars
+postgresql_user: "{{ lookup('env', 'POSTGRESQL_USER') | default('bento', true) | string }}"
+postgresql_password: "{{ lookup('env', 'POSTGRESQL_PASSWORD') | default('CHANGE_ME', true) | string }}"
+postgresql_host: "{{ lookup('env', 'POSTGRESQL_HOST') | default('127.0.0.1', true) | string }}"
+postgresql_port: "{{ lookup('env', 'POSTGRESQL_PORT') | default('5432', true) | int }}"
+postgresql_database: "{{ lookup('env', 'POSTGRESQL_DATABASE') | default('bento', true) | string }}"
 
 # Database creation
 postgresql_create_db: true
 postgresql_create_user: true
+
+# Network configuration
+# Set to '*' or '0.0.0.0' to listen on all interfaces, or specific IP address
+# Can be set via POSTGRESQL_LISTEN_ADDRESSES environment variable
+postgresql_listen_addresses: "{{ lookup('env', 'POSTGRESQL_LISTEN_ADDRESSES') | default('localhost', true) | string }}"
+
+# PostgreSQL host-based authentication (pg_hba.conf) entries
+# List of dictionaries with keys: type, database, user, address, method
+# Example: [{"type": "host", "database": "all", "user": "all", "address": "192.168.0.0/16", "method": "md5"}]
+# Can be set via POSTGRESQL_HBA_ENTRIES environment variable (as JSON string)
+# Default allows localhost and RFC 1918 private IP address spaces with md5 authentication:
+# - localhost (127.0.0.1/32 and ::1/128)
+# - 10.0.0.0/8 (Class A)
+# - 172.16.0.0/12 (Class B)
+# - 192.168.0.0/16 (Class C)
+postgresql_hba_entries: >-
+  {{
+    lookup('env', 'POSTGRESQL_HBA_ENTRIES') |
+    default([
+      {'type': 'host', 'database': 'all', 'user': 'all', 'address': '127.0.0.1/32', 'method': 'md5'},
+      {'type': 'host', 'database': 'all', 'user': 'all', 'address': '::1/128', 'method': 'md5'},
+      {'type': 'host', 'database': 'all', 'user': 'all', 'address': '10.0.0.0/8', 'method': 'md5'},
+      {'type': 'host', 'database': 'all', 'user': 'all', 'address': '172.16.0.0/12', 'method': 'md5'},
+      {'type': 'host', 'database': 'all', 'user': 'all', 'address': '192.168.0.0/16', 'method': 'md5'}
+    ], true)
+  }}

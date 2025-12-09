@@ -1,4 +1,32 @@
 ---
+- name: Check if Broker user exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ broker_user }}"
+  register: broker_user_check
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+
+- name: Create Broker group
+  ansible.builtin.group:
+    name: "{{ broker_group }}"
+    state: present
+    system: true
+
+- name: Create Broker user
+  ansible.builtin.user:
+    name: "{{ broker_user }}"
+    group: "{{ broker_group }}"
+    home: "{{ broker_home }}"
+    shell: "{{ broker_shell }}"
+    system: true
+    create_home: true
+    comment: "Boundless Broker service user"
+  when: >
+    broker_user_check.ansible_facts.getent_passwd is not defined or
+    broker_user not in (broker_user_check.ansible_facts.getent_passwd | default({}))
+
 - name: Check if Broker binary is already installed
   ansible.builtin.stat:
     path: "{{ broker_install_dir }}/broker"
@@ -29,42 +57,47 @@
         path: /tmp/broker
         state: absent
 
+    - name: Clean up Broker checksum
+      ansible.builtin.file:
+        path: /tmp/broker.sha256
+        state: absent
+
+- name: Create Broker home directory
+  ansible.builtin.file:
+    path: "{{ broker_home }}"
+    state: directory
+    mode: '0750'
+    owner: "{{ broker_user }}"
+    group: "{{ broker_group }}"
+
 - name: Create Broker configuration directory
   ansible.builtin.file:
     path: "{{ broker_config_dir }}"
     state: directory
-    mode: '0755'
+    mode: '0750'
     owner: "{{ broker_user }}"
-    group: "{{ broker_user }}"
+    group: "{{ broker_group }}"
 
 - name: Create Broker working directory
   ansible.builtin.file:
     path: "{{ broker_work_dir }}"
     state: directory
-    mode: '0755'
+    mode: '0750'
     owner: "{{ broker_user }}"
-    group: "{{ broker_user }}"
+    group: "{{ broker_group }}"
 
 - name: Set database URL based on type
   ansible.builtin.set_fact:
     broker_db_url_final: "{{ broker_db_url }}"
   when: broker_db_type == "sqlite"
 
-- name: Set PostgreSQL database URL
-  ansible.builtin.set_fact:
-    broker_db_url_final: >-
-      postgresql://{{ broker_postgresql_user }}:{{ broker_postgresql_password
-      }}@{{ broker_postgresql_host }}:{{ broker_postgresql_port }}/{{
-      broker_postgresql_database }}
-  when: broker_db_type == "postgresql"
-
 - name: Create Broker configuration file
   ansible.builtin.template:
     src: broker.toml.j2
     dest: "{{ broker_config_file }}"
-    mode: '0644'
+    mode: '0640'
     owner: "{{ broker_user }}"
-    group: "{{ broker_user }}"
+    group: "{{ broker_group }}"
   notify: Restart Broker service
 
 - name: Create Broker service file
@@ -83,4 +116,5 @@
     name: broker
     enabled: "{{ broker_service_enabled }}"
     state: "{{ broker_service_state }}"
+    daemon_reload: true
   when: broker_service_state != "stopped"
