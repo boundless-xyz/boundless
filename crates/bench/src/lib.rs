@@ -25,7 +25,9 @@ use alloy::{
     sol_types::SolStruct,
 };
 use anyhow::{anyhow, bail, Result};
-use boundless_indexer::{IndexerService, IndexerServiceConfig};
+use boundless_indexer::{
+    market::service::TransactionFetchStrategy, IndexerService, IndexerServiceConfig,
+};
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
     client::ClientBuilder,
@@ -166,15 +168,22 @@ pub async fn run(args: &MainArgs) -> Result<()> {
             None => {
                 let mut indexer = IndexerService::new(
                     args.rpc_url.clone(),
+                    args.rpc_url.clone(),
                     &PrivateKeySigner::random(),
                     boundless_client.deployment.boundless_market_address,
                     &db_url,
-                    IndexerServiceConfig { interval: Duration::from_secs(2), retries: 5 },
+                    IndexerServiceConfig {
+                        interval: Duration::from_secs(2),
+                        retries: 5,
+                        batch_size: 1000,
+                        cache_uri: None,
+                        tx_fetch_strategy: TransactionFetchStrategy::BlockReceipts,
+                    },
                 )
                 .await?;
 
                 let handle: JoinHandle<Result<()>> = tokio::spawn(async move {
-                    if let Err(err) = indexer.run(Some(current_block)).await {
+                    if let Err(err) = indexer.run(Some(current_block), None).await {
                         bail!("Error running the indexer: {}", err);
                     }
                     Ok(())
@@ -507,7 +516,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ),
-            rpc_url,
+            rpc_url: Some(rpc_url.to_string()),
             rpc_urls: Vec::new(),
             private_key: Some(private_key),
             bento_api_url: None,

@@ -24,6 +24,7 @@ CREATE INDEX IF NOT EXISTS request_locked_events_request_id_idx
 CREATE TABLE IF NOT EXISTS request_fulfilled_events (
   request_digest    TEXT        PRIMARY KEY,
   request_id        TEXT        NOT NULL,
+  prover_address    TEXT        NOT NULL,
   tx_hash           TEXT        NOT NULL REFERENCES transactions(tx_hash),
   block_number      BIGINT      NOT NULL,
   block_timestamp   BIGINT      NOT NULL
@@ -35,6 +36,7 @@ CREATE INDEX IF NOT EXISTS request_fulfilled_events_request_id_idx
 CREATE TABLE IF NOT EXISTS proof_delivered_events (
   request_digest    TEXT        NOT NULL,
   request_id        TEXT        NOT NULL,
+  prover_address    TEXT        NOT NULL,
   tx_hash           TEXT        NOT NULL REFERENCES transactions(tx_hash),
   block_number      BIGINT      NOT NULL,
   block_timestamp   BIGINT      NOT NULL,

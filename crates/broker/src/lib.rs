@@ -82,18 +82,21 @@ pub struct Args {
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
 
-    /// RPC URL (prefers PROVER_RPC_URL; falls back to RPC_URL if unset)
-    #[clap(long, env = "PROVER_RPC_URL", default_value = "http://localhost:8545")]
-    pub rpc_url: Url,
+    /// RPC URL (prefer PROVER_RPC_URL as environment variable; falls back to RPC_URL if unset)
+    ///
+    /// Note we use a String here as the type instead of Url, as the env variable may be
+    /// set to an empty string, especially if using our Docker compose setup, which causes parsing errors with Url.
+    #[clap(long, env = "PROVER_RPC_URL")]
+    pub rpc_url: Option<String>,
 
     /// Additional RPC URLs for automatic failover.
     /// Can be specified multiple times or as a comma-separated list.
     /// If provided along with rpc_url, they will be merged into a single list.
     /// If 2+ URLs are provided total, a fallback provider will be used.
     #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
-    pub rpc_urls: Vec<Url>,
+    pub rpc_urls: Vec<String>,
 
-    /// wallet key
+    /// Wallet key
     ///
     /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
     #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
@@ -208,7 +211,7 @@ fn format_order_id(
 /// Order request from the network.
 ///
 /// This will turn into an [`Order`] once it is locked or skipped.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct OrderRequest {
     request: ProofRequest,
     client_sig: Bytes,
@@ -1259,7 +1262,7 @@ pub mod test_utils {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
-                rpc_url,
+                rpc_url: Some(rpc_url.to_string()),
                 rpc_urls: Vec::new(),
                 private_key: Some(ctx.prover_signer.clone()),
                 bento_api_url: None,

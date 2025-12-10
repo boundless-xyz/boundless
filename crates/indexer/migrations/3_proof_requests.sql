@@ -21,13 +21,19 @@ CREATE TABLE IF NOT EXISTS proof_requests (
     bidding_start       BIGINT    NOT NULL, -- Unix timestamp when bidding starts
     expires_at          BIGINT    NOT NULL, -- Unix timestamp when request expires
     lock_end            BIGINT    NOT NULL, -- Unix timestamp when lock ends
-    ramp_up_period      BIGINT    NOT NULL,  -- Ramp up period in seconds  
+    ramp_up_period      BIGINT    NOT NULL,  -- Ramp up period in seconds
 
-    -- Tx metadata which led to us adding this proof request to the table. 
+    -- Image fields
+    image_id            TEXT      NOT NULL DEFAULT '',
+    image_url           TEXT      NOT NULL DEFAULT '',
+
+    -- Tx metadata which led to us adding this proof request to the table.
     -- Could be a request submitted or request locked (if submitted offchain)
     tx_hash             TEXT      NOT NULL,
     block_number        BIGINT    NOT NULL, -- Block number
-    block_timestamp     BIGINT    NOT NULL  -- Block timestamp
+    block_timestamp     BIGINT    NOT NULL, -- Block timestamp
+    
+    submission_timestamp BIGINT   NOT NULL  -- Timestamp when request was submitted (block_timestamp for onchain, created_at for offchain)
 );
 
 -- Add an index on client_address for faster lookups
@@ -35,3 +41,12 @@ CREATE INDEX IF NOT EXISTS idx_proof_requests_client_address ON proof_requests(c
 
 -- Add an index on bidding_end for time-based queries
 CREATE INDEX IF NOT EXISTS idx_proof_requests_expires_at ON proof_requests(expires_at);
+
+-- Add an index on submission_timestamp for aggregation queries
+CREATE INDEX IF NOT EXISTS idx_proof_requests_submission_timestamp ON proof_requests(submission_timestamp);
+
+-- Composite index for active requestor lookup in aggregation queries
+-- Optimizes: get_active_requestor_addresses_in_period
+-- Query pattern: WHERE submission_timestamp >= $1 AND submission_timestamp < $2
+CREATE INDEX IF NOT EXISTS idx_proof_requests_submission_timestamp_client
+    ON proof_requests (submission_timestamp, client_address);

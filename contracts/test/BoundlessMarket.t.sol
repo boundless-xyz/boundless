@@ -119,6 +119,7 @@ contract BoundlessMarketTest is Test {
         boundlessMarketSource = address(
             new BoundlessMarket(
                 setVerifier,
+                setVerifier,
                 ASSESSOR_IMAGE_ID,
                 DEPRECATED_ASSESSOR_IMAGE_ID,
                 DEPRECATED_ASSESSOR_DURATION,
@@ -346,7 +347,8 @@ contract BoundlessMarketTest is Test {
             root,
             verifier.mockProve(
                 SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
-            ).seal
+            )
+            .seal
         );
     }
 
@@ -507,8 +509,9 @@ contract BoundlessMarketTest is Test {
         view
         returns (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root)
     {
-        (fills, assessorReceipt, root) =
-            createFills(requests, journals, prover, FulfillmentDataType.ImageIdAndJournal, DEPRECATED_ASSESSOR_IMAGE_ID);
+        (fills, assessorReceipt, root) = createFills(
+            requests, journals, prover, FulfillmentDataType.ImageIdAndJournal, DEPRECATED_ASSESSOR_IMAGE_ID
+        );
     }
 
     function newBatch(uint256 batchSize) internal returns (ProofRequest[] memory requests, bytes[] memory journals) {
@@ -675,57 +678,6 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.prank(testProverAddress);
         boundlessMarket.withdraw(DEFAULT_BALANCE + 1);
         expectMarketBalanceUnchanged();
-    }
-
-    function testWithdrawFromTreasury() public {
-        // Deposit funds into the market
-        vm.deal(address(boundlessMarket), 1 ether);
-        vm.prank(address(boundlessMarket));
-        boundlessMarket.deposit{value: 1 ether}();
-
-        // Attempt to withdraw funds from the treasury from an unauthorized account.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                testProverAddress,
-                boundlessMarket.ADMIN_ROLE()
-            )
-        );
-        vm.prank(testProverAddress);
-        boundlessMarket.withdrawFromTreasury(1 ether);
-
-        uint256 initialBalance = ownerWallet.addr.balance;
-        // Withdraw funds from the treasury
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.Withdrawal(address(boundlessMarket), 1 ether);
-        vm.prank(ownerWallet.addr);
-        boundlessMarket.withdrawFromTreasury(1 ether);
-        assert(boundlessMarket.balanceOf(address(boundlessMarket)) == 0);
-        assert(ownerWallet.addr.balance == 1 ether + initialBalance);
-    }
-
-    function testWithdrawFromStakeTreasury() public {
-        testSlashLockedRequestFullyExpired();
-
-        // Attempt to withdraw funds from the stake treasury from an unauthorized account.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                testProverAddress,
-                boundlessMarket.ADMIN_ROLE()
-            )
-        );
-        vm.prank(testProverAddress);
-        uint256 expectedWithdrawal = 1 ether - (1 ether * EXPECTED_SLASH_BURN_BPS / 10000);
-        boundlessMarket.withdrawFromCollateralTreasury(expectedWithdrawal);
-
-        // Withdraw funds from the stake treasury
-        vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.CollateralWithdrawal(address(boundlessMarket), expectedWithdrawal);
-        vm.prank(ownerWallet.addr);
-        boundlessMarket.withdrawFromCollateralTreasury(expectedWithdrawal);
-        assert(boundlessMarket.balanceOfCollateral(address(boundlessMarket)) == 0);
-        assert(collateralToken.balanceOf(ownerWallet.addr) == expectedWithdrawal);
     }
 
     function testWithdrawals() public {
@@ -1408,9 +1360,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) =
             createFills(requests, journals, testProverAddress);
 
-        bytes memory seal = verifier.mockProve(
+        bytes memory seal =
+            verifier.mockProve(
             SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
-        ).seal;
+        )
+        .seal;
 
         if (lockinMethod == LockRequestMethod.None) {
             // Annoying boilerplate for creating singleton lists.
@@ -1480,9 +1434,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) =
             createFills(requests, journals, testProverAddress);
 
-        bytes memory seal = verifier.mockProve(
+        bytes memory seal =
+            verifier.mockProve(
             SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
-        ).seal;
+        )
+        .seal;
 
         uint256 initialBalance = boundlessMarket.balanceOf(testProverAddress) + testProverAddress.balance;
 
@@ -1634,9 +1590,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         fills[0] = fill;
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsLocked.selector, request.id
+            ));
         boundlessMarket.fulfill(fills, assessorReceipt);
         vm.snapshotGasLastCall("fulfill: another prover fulfills without payment");
 
@@ -2294,9 +2250,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
 
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsFulfilled.selector, request.id
+            ));
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         vm.snapshotGasLastCall("priceAndFulfill: fulfill already fulfilled was locked request");
 
@@ -2343,9 +2299,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // But its already been fulfilled by the other prover.
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsFulfilled.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsFulfilled.selector, request.id
+            ));
 
         // The proof should still be delivered.
         vm.expectEmit(true, true, true, false);
@@ -2396,9 +2352,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // In this case the request has fully expired, so the proof should NOT be delivered,
         // however we should not revert (as this allows partial fulfillment of other requests in the batch)
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsExpired.selector, request.id
+            ));
 
         // The fulfillment should not revert, as we support multiple proofs being delivered for a single request.
         bytes[] memory paymentErrors =
@@ -2586,9 +2542,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
 
         // expect emit of payment requirement failed
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.InsufficientBalance.selector, clientAddress)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.InsufficientBalance.selector, clientAddress
+            ));
         vm.prank(clientAddress);
         boundlessMarket.priceAndFulfill(requests, clientSignatures, fills, assessorReceipt);
         expectRequestFulfilled(fill.id);
@@ -2967,9 +2923,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) =
             createFills(requests, journals, testProverAddress);
 
-        bytes memory seal = verifier.mockProve(
+        bytes memory seal =
+            verifier.mockProve(
             SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
-        ).seal;
+        )
+        .seal;
 
         bytes[] memory clientSignatures = new bytes[](1);
         clientSignatures[0] = client.sign(requests[0]);
@@ -3222,9 +3180,11 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         (Fulfillment[] memory fills, AssessorReceipt memory assessorReceipt, bytes32 root) =
             createFills(requests, journals, testProverAddress);
 
-        bytes memory seal = verifier.mockProve(
+        bytes memory seal =
+            verifier.mockProve(
             SET_BUILDER_IMAGE_ID, sha256(abi.encodePacked(SET_BUILDER_IMAGE_ID, uint256(1 << 255), root))
-        ).seal;
+        )
+        .seal;
         boundlessMarket.submitRootAndFulfill(address(setVerifier), root, seal, fills, assessorReceipt);
         vm.snapshotGasLastCall("submitRootAndFulfill: a batch of 2 requests");
 
@@ -3528,9 +3488,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         // In this case the request has fully expired, so the proof should NOT be delivered,
         // however we should not revert (as this allows partial fulfillment of other requests in the batch)
         vm.expectEmit(true, true, true, false);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsExpired.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsExpired.selector, request.id
+            ));
 
         // The fulfillment should not revert, as we support multiple proofs being delivered for a single request.
         bytes[] memory paymentErrors =
@@ -3799,9 +3759,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, fill.requestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsLocked.selector, request.id
+            ));
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, fill);
         vm.expectEmit(true, true, true, true);
@@ -3846,9 +3806,9 @@ contract BoundlessMarketBasicTest is BoundlessMarketTest {
         vm.expectEmit(true, true, true, true);
         emit IBoundlessMarket.RequestFulfilled(request.id, otherProverAddress, fill.requestDigest);
         vm.expectEmit(true, true, true, true);
-        emit IBoundlessMarket.PaymentRequirementsFailed(
-            abi.encodeWithSelector(IBoundlessMarket.RequestIsLocked.selector, request.id)
-        );
+        emit IBoundlessMarket.PaymentRequirementsFailed(abi.encodeWithSelector(
+                IBoundlessMarket.RequestIsLocked.selector, request.id
+            ));
         vm.expectEmit(true, true, true, false);
         emit IBoundlessMarket.ProofDelivered(request.id, otherProverAddress, fill);
         vm.expectEmit(true, true, true, true);
@@ -4310,6 +4270,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
             address(
                 new BoundlessMarket(
                     setVerifier,
+                    setVerifier,
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_DURATION,
@@ -4328,6 +4289,7 @@ contract BoundlessMarketUpgradeTest is BoundlessMarketTest {
             proxy,
             address(
                 new BoundlessMarket(
+                    setVerifier,
                     setVerifier,
                     ASSESSOR_IMAGE_ID,
                     DEPRECATED_ASSESSOR_IMAGE_ID,

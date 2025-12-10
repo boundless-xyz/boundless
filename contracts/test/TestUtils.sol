@@ -30,8 +30,8 @@ library TestUtils {
 
         for (uint256 i = 0; i < fills.length; i++) {
             leaves[i] = AssessorCommitment(
-                i, fills[i].id, fills[i].requestDigest, fills[i].claimDigest, fills[i].fulfillmentDataDigest()
-            ).eip712Digest();
+                    i, fills[i].id, fills[i].requestDigest, fills[i].claimDigest, fills[i].fulfillmentDataDigest()
+                ).eip712Digest();
         }
 
         bytes32 root = MerkleProofish.processTree(leaves);

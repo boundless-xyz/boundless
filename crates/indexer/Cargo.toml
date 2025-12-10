@@ -19,18 +19,25 @@ name = "rewards-indexer"
 path = "src/bin/rewards-indexer.rs"
 
 [dependencies]
-alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "serde"] }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
+bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
+futures-util = { workspace = true }
 hex = { workspace = true }
+rand = { workspace = true }
+risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
@@ -49,6 +56,7 @@ futures-util = { workspace = true }
 indexer-monitor = { path = "../lambdas/indexer-monitor" }
 order-stream = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
-sqlx = { workspace = true, features = ["postgres"] }
+sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+test-log = { workspace = true }
 tracing-test = { workspace = true }
 
