@@ -871,6 +871,10 @@ where
         let request_id = if self.use_available_funds {
             self.boundless_market.submit_request(&request, signer).await?
         } else {
+            let balance = self.boundless_market.balance_of(client_address).await?;
+            if balance > (value * (U256::from(3))) {
+                tracing::warn!("Client balance is more than 3x the value being sent with the request. Consider enabling `use_available_funds` to avoid overfunding the client account.");
+            }
             self.boundless_market.submit_request_with_value(&request, signer, value).await?
         };
         Ok((request_id, request.expires_at()))
