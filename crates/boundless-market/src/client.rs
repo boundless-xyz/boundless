@@ -833,7 +833,9 @@ where
 
         request.validate()?;
 
-        let request_id = self.boundless_market.submit_request(&request, signer).await?;
+        let value = U256::from(request.offer.maxPrice);
+        let request_id =
+            self.boundless_market.submit_request_with_value(&request, signer, value).await?;
         Ok((request_id, request.expires_at()))
     }
 
