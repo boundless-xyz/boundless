@@ -12,3 +12,6 @@ ffi = true
 line_length = 120
 tab_width = 4
 quote_style = "double"
+
+[lint]
+lint_on_build = false
