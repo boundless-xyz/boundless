@@ -25,7 +25,7 @@ use alloy::{
     },
     transports::{http::Http, layers::FallbackLayer},
 };
-use alloy_primitives::{Signature, B256};
+use alloy_primitives::{utils::format_ether, Signature, B256};
 use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -873,7 +873,7 @@ where
         } else {
             let balance = self.boundless_market.balance_of(client_address).await?;
             if balance > (value * (U256::from(3))) {
-                tracing::warn!("Client balance is more than 3x the value being sent with the request. Consider enabling `use_available_funds` to avoid overfunding the client account.");
+                tracing::warn!("Client balance is {} ETH, that is more than 3x the value being sent with the request. Consider enabling `use_available_funds` to avoid overfunding the client account.", format_ether(balance));
             }
             self.boundless_market.submit_request_with_value(&request, signer, value).await?
         };
