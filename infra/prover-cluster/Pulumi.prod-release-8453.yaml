@@ -20,7 +20,7 @@ config:
     secure: v1:GiHZc4IxgbGYvTj2:Uole5jnRgqXcVcJqogooi2MqnSXJRzBAs4ebolTqXeXdXt2c
   prover-cluster:executionCount: "5"
   prover-cluster:auxWorkerCount: "4"
-  prover-cluster:proverWorkerCount: "1"
+  prover-cluster:proverWorkerCount: "15"
   prover-cluster:privateKey:
     secure: v1:3AaQEp2wXzLpFOcW:ARCk8v1ZWXaleGuDqnNwcQIOMoMMNi7fRNupFR7xhcz2vG9RYZj/N5KePrRxOlbhTUq9n95mnj38y0sX92PandFVzpqJkSvVdWXwtH0siU8=
   prover-cluster:ethRpcUrl:
@@ -34,7 +34,7 @@ config:
     secure: v1:9FrKfdSIsieo1bxD:S8s/9tyJN0U4V2r4PT81CQYWHgR9tbA=
   prover-cluster:apiKey:
     secure: v1:s3dh8LCcaq1tXtT2:Rbsvh1ktdKrD9WkEVc403al+3xRDFbbWp1FSKAlqsFy9t5mHBhTzXSF6hcTn8dzFsO/1+mNUDCwQktQ=
-  prover-cluster:allowClientAddresses: '["0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b", "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b", "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c", "0x1578934C9B006B9568D884C421704d996D402B78", "0x7276fa3c23c1783bdcb97258717f8f32b75919c9"]'
+  prover-cluster:allowClientAddresses: '["0x418be9167e835ad820df53fd16b8fe02f796ce1c", "0xda824d974d8bac25a0611b7ab5f091d22f63a234", "0x3d089c2f2cb86d4efde153c81cabd4579784430b", "0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b", "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b", "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c", "0x1578934C9B006B9568D884C421704d996D402B78", "0x7276fa3c23c1783bdcb97258717f8f32b75919c9"]'
   prover-cluster:mcyclePrice: "0"
   prover-cluster:peakProveKhz: 10000
   prover-cluster:minDeadline: 300
