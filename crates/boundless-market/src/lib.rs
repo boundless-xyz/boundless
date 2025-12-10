@@ -67,6 +67,9 @@ pub mod nonce_layer;
 #[cfg(not(target_os = "zkvm"))]
 pub use order_stream_client::OrderStreamClient;
 
+#[cfg(not(target_os = "zkvm"))]
+pub mod price_oracle;
+
 /// Module providing functionality to build requests.
 #[cfg(not(target_os = "zkvm"))]
 pub mod request_builder;
