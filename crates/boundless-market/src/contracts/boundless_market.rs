@@ -386,6 +386,12 @@ impl<P: Provider> BoundlessMarketService<P> {
         value: impl Into<U256>,
     ) -> Result<U256, MarketError> {
         tracing::trace!("Calling submitRequest({:x?})", request);
+        let balance =
+            self.balance_of(signer.address()).await.context("failed to query client balance")?;
+        let value: U256 = value.into();
+        if balance > (value * (U256::from(3))) {
+            tracing::warn!("Client balance is more than 3x the value being sent with the request. Consider enabling `use_available_funds` to avoid overfunding the client account.");
+        }
         tracing::debug!("Sending request ID {:x}", request.id);
         let client_address = request.client_address();
         if client_address != signer.address() {
@@ -400,7 +406,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             .instance
             .submitRequest(request.clone(), client_sig.as_bytes().into())
             .from(self.caller)
-            .value(value.into());
+            .value(value);
         let pending_tx = call.send().await?;
         tracing::debug!(
             "Broadcasting tx {:x} with request ID {:x}",

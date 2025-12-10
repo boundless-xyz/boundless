@@ -73,6 +73,15 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     pub request_id_layer_config: RequestIdLayerConfigBuilder,
     /// Configuration builder for [Finalizer][crate::request_builder::Finalizer], part of [StandardRequestBuilder].
     pub request_finalizer_config: FinalizerConfigBuilder,
+    /// Use available funds already deposited when creating new offers, if available.
+    ///
+    /// Default: false
+    /// Setting this to true will cause the client to attempt to use any available funds
+    /// in the user's Boundless Market account when creating new offers. This can help
+    /// reduce the amount of ETH that needs to be sent with each new request submission.
+    /// However, it may also lead to expiry when new requests are sent before the previous ones are locked,
+    /// as the available funds might be insufficient to cover for all of them.
+    pub use_available_funds: bool,
 }
 
 impl<St, Si> Default for ClientBuilder<St, Si> {
@@ -89,6 +98,7 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             storage_layer_config: Default::default(),
             request_id_layer_config: Default::default(),
             request_finalizer_config: Default::default(),
+            use_available_funds: false,
         }
     }
 }
@@ -323,6 +333,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             signer: self.signer,
             request_builder: Some(request_builder),
             deployment,
+            use_available_funds: self.use_available_funds,
         };
 
         if let Some(timeout) = self.tx_timeout {
@@ -342,6 +353,11 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the RPC URL
     pub fn with_rpc_url(self, rpc_url: Url) -> Self {
         Self { rpc_url: Some(rpc_url), ..self }
+    }
+
+    /// Set whether to use available funds already deposited when creating new offers, if available.
+    pub fn with_use_available_funds(self, use_available_funds: bool) -> Self {
+        Self { use_available_funds, ..self }
     }
 
     /// Set additional RPC URLs for automatic failover.
@@ -417,6 +433,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_layer_config: self.storage_layer_config,
             request_id_layer_config: self.request_id_layer_config,
             request_finalizer_config: self.request_finalizer_config,
+            use_available_funds: self.use_available_funds,
         }
     }
 
@@ -450,6 +467,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             request_id_layer_config: self.request_id_layer_config,
             storage_layer_config: self.storage_layer_config,
             offer_layer_config: self.offer_layer_config,
+            use_available_funds: self.use_available_funds,
         }
     }
 
@@ -562,6 +580,15 @@ pub struct Client<
     pub request_builder: Option<R>,
     /// Deployment of Boundless that this client is connected to.
     pub deployment: Deployment,
+    /// Use available funds already deposited when creating new offers, if available.
+    ///
+    /// Default: false
+    /// Setting this to true will cause the client to attempt to use any available funds
+    /// in the user's Boundless Market account when creating new offers. This can help
+    /// reduce the amount of ETH that needs to be sent with each new request submission.
+    /// However, it may also lead to expiry when new requests are sent before the previous ones are locked,
+    /// as the available funds might be insufficient to cover for all of them.
+    pub use_available_funds: bool,
 }
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
@@ -627,6 +654,7 @@ where
             offchain_client: None,
             signer: None,
             request_builder: None,
+            use_available_funds: false,
         }
     }
 }
@@ -698,6 +726,11 @@ where
         }
     }
 
+    /// Use available funds already deposited when creating new offers, if available.
+    pub fn with_use_available_funds(self, use_available_funds: bool) -> Self {
+        Self { use_available_funds, ..self }
+    }
+
     /// Set the signer that will be used for signing [ProofRequest].
     /// ```rust
     /// # use boundless_market::Client;
@@ -720,6 +753,7 @@ where
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
             deployment: self.deployment,
+            use_available_funds: self.use_available_funds,
         }
     }
 
@@ -834,8 +868,11 @@ where
         request.validate()?;
 
         let value = U256::from(request.offer.maxPrice);
-        let request_id =
-            self.boundless_market.submit_request_with_value(&request, signer, value).await?;
+        let request_id = if self.use_available_funds {
+            self.boundless_market.submit_request(&request, signer).await?
+        } else {
+            self.boundless_market.submit_request_with_value(&request, signer, value).await?
+        };
         Ok((request_id, request.expires_at()))
     }
 
