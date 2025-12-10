@@ -37,6 +37,7 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 use tracing_test::traced_test;
+use url::Url;
 
 fn now_timestamp() -> u64 {
     std::time::SystemTime::now()
@@ -156,6 +157,48 @@ async fn test_submit_request() {
 
     let (log, _) = logs.first().unwrap();
     assert!(log.requestId == request_id);
+}
+
+#[tokio::test]
+async fn test_use_available_funds() {
+    use boundless_market::client::ClientBuilder;
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+    let client = ClientBuilder::new()
+        .with_signer(ctx.customer_signer.clone())
+        .with_deployment(ctx.deployment.clone())
+        .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .with_use_available_funds(false)
+        .build()
+        .await
+        .unwrap();
+
+    let balance_before =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    let request = new_request(1, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_before == balance_after - request.offer.maxPrice);
+
+    let client = ClientBuilder::new()
+        .with_signer(ctx.customer_signer.clone())
+        .with_deployment(ctx.deployment.clone())
+        .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .with_use_available_funds(true)
+        .build()
+        .await
+        .unwrap();
+
+    let balance_before =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    let request = new_request(2, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_before == balance_after);
 }
 
 #[tokio::test]
