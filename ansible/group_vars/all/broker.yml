@@ -1,0 +1,41 @@
+---
+# Broker Configuration
+broker_version: "v1.1.1"
+broker_user: "broker"
+broker_group: "broker"
+broker_home: "/var/lib/broker"
+broker_shell: "/usr/sbin/nologin"
+broker_rust_log: "info"
+broker_timeout_start_sec: 1800
+broker_timeout_stop_sec: 300
+broker_install_dir: "/usr/local/bin"
+broker_config_dir: "/etc/boundless"
+broker_work_dir: "/etc/boundless"
+broker_config_file: "{{ broker_config_dir }}/broker.toml"
+broker_db_url: "sqlite://{{ broker_config_dir }}/broker.db"
+# Note: SQLite is the only database type supported by broker
+broker_db_type: "sqlite"
+broker_bento_api_url: "http://127.0.0.1:8080"
+broker_rpc_url: "https://rpc.boundless.network"
+broker_private_key: "0x0000000000000000000000000000000000000000000000000000000000000000"
+broker_min_mcycle_price: "0.00000001"
+broker_min_mcycle_price_collateral_token: "0.00005"
+broker_peak_prove_khz: 100
+broker_max_collateral: "200"
+broker_max_concurrent_preflights: 2
+broker_max_concurrent_proofs: 1
+broker_priority_requestor_lists:
+  - "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json"
+broker_allow_client_addresses:
+  - "0x067D62CBCC72bBb02358cEB85aBE817249AB616b"
+  - "0xa6e98d0ba0ca584509ebcbe00bb36f0c5cfcdd1b"
+  - "0x418be9167e835ad820df53fd16b8fe02f796ce1c"
+  - "0xda824d974d8bac25a0611b7ab5f091d22f63a234"
+  - "0x3d089c2f2cb86d4efde153c81cabd4579784430b"
+  - "0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b"
+  - "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b"
+  - "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c"
+  - "0x1578934C9B006B9568D884C421704d996D402B78"
+  - "0x7276fa3c23c1783bdcb97258717f8f32b75919c9"
+broker_service_enabled: true
+broker_service_state: started

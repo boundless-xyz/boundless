@@ -86,11 +86,6 @@
     owner: "{{ broker_user }}"
     group: "{{ broker_group }}"
 
-- name: Set database URL based on type
-  ansible.builtin.set_fact:
-    broker_db_url_final: "{{ broker_db_url }}"
-  when: broker_db_type == "sqlite"
-
 - name: Create Broker configuration file
   ansible.builtin.template:
     src: broker.toml.j2

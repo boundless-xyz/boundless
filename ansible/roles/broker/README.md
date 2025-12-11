@@ -53,7 +53,7 @@ None
 
 ## Example Playbook
 
-### Basic SQLite Configuration
+### Basic Configuration
 
 ```yaml
 ---
@@ -64,23 +64,7 @@ None
       vars:
         broker_version: "v1.2.0"
         broker_bento_api_url: "http://localhost:8080"
-        broker_db_type: "sqlite"
         broker_db_url: "sqlite:///opt/boundless/broker.db"
-```
-
-### PostgreSQL Configuration
-
-```yaml
----
-- hosts: brokers
-  become: true
-  roles:
-    - role: broker
-      vars:
-        broker_version: "v1.2.0"
-        broker_bento_api_url: "http://bento-api.example.com:8080"
-        broker_peak_prove_khz: 200
-        broker_max_concurrent_proofs: 4
 ```
 
 ### Custom Market Configuration
@@ -108,7 +92,7 @@ None
 * **Idempotent**: Safe to run multiple times
 * **Service Management**: Properly manages systemd service with handlers
 * **Configuration Management**: Creates broker.toml configuration file from template
-* **Database Support**: Supports both SQLite and PostgreSQL databases
+* **Database Support**: Uses SQLite database (the only supported database type)
 * **Directory Management**: Creates necessary directories with proper permissions
 * **Clean Installation**: Downloads, installs binary, and cleans up temporary files
 
@@ -125,9 +109,7 @@ None
 
 2. **Bento API Dependency**: The broker requires the Bento REST API to be running and accessible at the configured URL.
 
-3. **Database Choice**:
-   * SQLite is simpler for single-instance deployments
-   * PostgreSQL is recommended for production or multi-instance deployments
+3. **Database**: Broker only supports SQLite. The database file is stored at the location specified in `broker_db_url`.
 
 4. **Performance Tuning**: Adjust `broker_peak_prove_khz`, `broker_max_concurrent_preflights`, and `broker_max_concurrent_proofs` based on your hardware capabilities and benchmarking results.
 

@@ -4,7 +4,53 @@
   become: true
   gather_facts: true
 
+  # Interactive prompts for required variables
+  # Note: Environment variables (set below in vars) take precedence over prompted values
+  # If running non-interactively, set environment variables or use -e var=value
+  vars_prompt:
+    - name: postgresql_user
+      prompt: "Enter PostgreSQL username (or press Enter to use 'bento' or set POSTGRESQL_USER env var)"
+      default: "bento"
+      private: false
+    - name: postgresql_password
+      prompt: "Enter PostgreSQL password (or set POSTGRESQL_PASSWORD env var)"
+      default: ""
+      private: true
+    - name: minio_root_user
+      prompt: "Enter MinIO root user (or press Enter to use 'minioadmin' or set MINIO_ROOT_USER env var)"
+      default: "minioadmin"
+      private: false
+    - name: minio_root_password
+      prompt: "Enter MinIO root password (or set MINIO_ROOT_PASSWORD env var)"
+      default: ""
+      private: true
+    - name: bento_rewards_address
+      prompt: "Enter Bento rewards address - Ethereum address (or set BENTO_REWARDS_ADDRESS env var)"
+      default: ""
+      private: false
+    - name: bento_povw_log_id
+      prompt: "Enter Bento POVW log ID - Ethereum address (or set POVW_LOG_ID env var)"
+      default: ""
+      private: false
+    - name: broker_private_key
+      prompt: "Enter Broker private key - 0x-prefixed hex string (or set BROKER_PRIVATE_KEY env var)"
+      default: ""
+      private: true
+    - name: broker_rpc_url
+      prompt: "Enter Broker RPC URL (or press Enter for default or set BROKER_RPC_URL env var)"
+      default: "https://rpc.boundless.network"
+      private: false
+
   vars:
+    # Check environment variables first, then use prompted values or defaults
+    postgresql_user: "{{ lookup('env', 'POSTGRESQL_USER') | default(postgresql_user | default('bento', true), true) }}"
+    postgresql_password: "{{ lookup('env', 'POSTGRESQL_PASSWORD') | default(postgresql_password | default('', true), true) }}"
+    minio_root_user: "{{ lookup('env', 'MINIO_ROOT_USER') | default(minio_root_user | default('minioadmin', true), true) }}"
+    minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default(minio_root_password | default('', true), true) }}"
+    bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default(bento_rewards_address | default('', true), true) }}"
+    bento_povw_log_id: "{{ lookup('env', 'POVW_LOG_ID') | default(bento_povw_log_id | default('', true), true) }}"
+    broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(broker_private_key | default('', true), true) }}"
+    broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(broker_rpc_url | default('https://rpc.boundless.network', true), true) }}"
     # Install dependencies by default (can be overridden via -e or inventory)
     bento_install_dependencies: true
     # Agent counts (can be overridden via extra-vars from deploy wizard)
@@ -16,11 +62,56 @@
     broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights | default(2) | int }}"
     broker_peak_prove_khz: "{{ broker_peak_prove_khz | default(100) | int }}"
     broker_min_mcycle_price: "{{ broker_min_mcycle_price | default('0.00000001') | string }}"
-    broker_min_mcycle_price_collateral_token: "{{ broker_min_mcycle_price_collateral_token | default('0.00005') | string }}"
-    broker_priority_requestor_lists: "{{ broker_priority_requestor_lists | default(['https://requestors.boundless.network/boundless-recommended-priority-list.standard.json']) }}"
+    broker_min_mcycle_price_collateral_token: >-
+      {{ broker_min_mcycle_price_collateral_token | default('0.00005') | string }}
+    broker_priority_requestor_lists: >-
+      {{
+        broker_priority_requestor_lists |
+        default([
+          'https://requestors.boundless.network/boundless-recommended-priority-list.standard.json'
+        ])
+      }}
     broker_allow_client_addresses: "{{ broker_allow_client_addresses | default([]) }}"
 
   tasks:
+    # Validate required variables
+    - name: Validate required variables are set
+      ansible.builtin.assert:
+        that:
+          - postgresql_user is defined
+          - postgresql_user | length > 0
+          - postgresql_password is defined
+          - postgresql_password | length > 0
+          - postgresql_password != "CHANGE_ME"
+          - minio_root_user is defined
+          - minio_root_user | length > 0
+          - minio_root_password is defined
+          - minio_root_password | length > 0
+          - bento_rewards_address is defined
+          - bento_rewards_address | length > 0
+          - bento_povw_log_id is defined
+          - bento_povw_log_id | length > 0
+          - broker_private_key is defined
+          - broker_private_key | length > 0
+          - broker_private_key != "0x0000000000000000000000000000000000000000000000000000000000000000"
+          - broker_rpc_url is defined
+          - broker_rpc_url | length > 0
+          - broker_rpc_url != "https://rpc.boundless.network"
+        fail_msg: |
+          Required variables are missing or have default values. Please provide:
+          - postgresql_user and postgresql_password
+          - minio_root_user and minio_root_password
+          - bento_rewards_address and bento_povw_log_id
+          - broker_private_key and broker_rpc_url
+
+          You can set these via:
+          - Environment variables (POSTGRESQL_PASSWORD, etc.)
+          - Ansible vault files
+          - Command line (-e var=value)
+          - Interactive prompts (when running playbook)
+        quiet: true
+      tags: always
+
     # Debug: Show bind address variables
     - name: Display bind address configuration
       ansible.builtin.debug:
@@ -109,3 +200,18 @@
         broker_allow_client_addresses: "{{ broker_allow_client_addresses }}"
       tags:
         - broker
+
+    # Infrastructure services
+    - name: Deploy Tailscale
+      ansible.builtin.include_role:
+        name: tailscale
+      when: tailscale_install | bool
+      tags:
+        - tailscale
+
+    - name: Deploy Vector Agent
+      ansible.builtin.include_role:
+        name: vector
+      when: vector_install | bool
+      tags:
+        - vector

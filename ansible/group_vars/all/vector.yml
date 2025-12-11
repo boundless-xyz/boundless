@@ -1,0 +1,17 @@
+---
+# Vector Agent Configuration
+vector_install: true
+vector_version: "0.36.0"
+vector_user: "vector"
+vector_group: "vector"
+vector_home: "/var/lib/vector"
+vector_shell: "/usr/sbin/nologin"
+vector_config_dir: "/etc/vector"
+vector_data_dir: "/var/lib/vector"
+vector_config_file: "{{ vector_config_dir }}/vector.yaml"
+vector_service_enabled: true
+vector_service_state: started
+vector_api_enabled: true
+vector_api_address: "127.0.0.1:8686"
+vector_log_level: "info"
+vector_install_dir: "/usr/local/bin"
