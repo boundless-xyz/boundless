@@ -9,6 +9,7 @@ edition = "2021"
 [workspace.dependencies]
 # Intra-workspace dependencies
 guest-util = { path = "../../crates/guest/util" }
+blake3_groth16 = { path = "../../blake3_groth16" }
 boundless-market = { path = "../../crates/boundless-market" }
 boundless-test-utils = { path = "../../crates/test-utils" }
 broker = { path = "../../crates/broker" }

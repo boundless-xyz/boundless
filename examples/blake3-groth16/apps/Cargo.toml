@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 alloy = { workspace = true }
 anyhow = { workspace = true }
+blake3_groth16 = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
 guest-util = { workspace = true }
@@ -18,5 +19,8 @@ url = { workspace = true }
 [dev-dependencies]
 boundless-market = { workspace = true, features = ["test-utils"] }
 boundless-test-utils = { workspace = true }
-broker = { workspace = true, features = ["cuda","test-utils"] }
+broker = { workspace = true, features = ["test-utils"] }
 test-log = "0.2"
+
+[features]
+cuda = ["broker/cuda"]

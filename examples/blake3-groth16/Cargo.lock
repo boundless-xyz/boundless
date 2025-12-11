@@ -3492,6 +3492,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "blake3_groth16",
  "boundless-market",
  "boundless-test-utils",
  "broker",

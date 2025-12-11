@@ -16,16 +16,14 @@ use std::{str::FromStr, time::Duration};
 
 use alloy::{primitives::utils::parse_ether, signers::local::PrivateKeySigner};
 use anyhow::{Context, Result};
+use blake3_groth16::Blake3Groth16ReceiptClaim;
 use boundless_market::{
     request_builder::OfferParamsBuilder, Client, Deployment, StorageProviderConfig,
 };
 use clap::Parser;
-use guest_util::ECHO_ELF;
+use guest_util::{ECHO_ELF, ECHO_ID};
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
-
-/// Timeout for the transaction to be confirmed.
-pub const TX_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Arguments for the blake3-groth16 example app CLI.
 #[derive(Parser, Debug)]
@@ -37,9 +35,6 @@ struct Args {
     /// Private key used to interact with the Boundless Market.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
-    /// URL where provers can download the program to be proven.
-    #[clap(long, env)]
-    program_url: Option<Url>,
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
     storage_config: StorageProviderConfig,
@@ -84,20 +79,14 @@ async fn run(args: Args) -> Result<()> {
 
     let request = client
         .new_request()
+        .with_program(ECHO_ELF)
         .with_blake3_groth16_proof() // Specify Blake3Groth16 proof
-        .with_stdin(echo_message)
+        .with_stdin(echo_message.clone())
         .with_offer(
             OfferParamsBuilder::default()
                 .min_price(parse_ether("0.001")?)
                 .max_price(parse_ether("0.002")?),
         );
-    // Build the request based on whether program URL is provided
-    let request = if let Some(program_url) = args.program_url {
-        // Use the provided URL
-        request.with_program_url(program_url)?
-    } else {
-        request.with_program(ECHO_ELF)
-    };
 
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
@@ -115,7 +104,24 @@ async fn run(args: Args) -> Result<()> {
     tracing::info!("Fulfillment seal: {:x}", fulfillment.seal);
     tracing::info!("Request {:x} fulfilled", request_id);
 
+    if is_dev_mode() {
+        tracing::warn!("Running in dev mode: skipping seal verification");
+        return Ok(());
+    }
+    // Verify the Blake3Groth16 seal.
+    let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(ECHO_ID, echo_message).claim_digest();
+    blake3_groth16::verify::verify_seal(&fulfillment.seal, blake3_claim_digest)
+        .context("failed to verify Blake3Groth16 seal")?;
+
     Ok(())
+}
+
+fn is_dev_mode() -> bool {
+    std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
 }
 
 #[cfg(test)]
@@ -152,7 +158,6 @@ mod tests {
         let run_task = run(Args {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
-            program_url: None,
             storage_config: StorageProviderConfig::builder()
                 .storage_provider(StorageProviderType::Mock)
                 .build()
