@@ -101,7 +101,7 @@ async fn run(args: Args) -> Result<()> {
 
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 
-    // Wait for the request to be fulfilled. The market will return the journal and seal.
+    // Wait for the request to be fulfilled.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
     let fulfillment = client
         .wait_for_request_fulfillment(
@@ -110,8 +110,9 @@ async fn run(args: Args) -> Result<()> {
             expires_at,
         )
         .await?;
-    let _fulfillment_data = fulfillment.data()?;
+
     tracing::info!("Fulfillment data: {:?}", fulfillment.data()?);
+    tracing::info!("Fulfillment seal: {:x}", fulfillment.seal);
     tracing::info!("Request {:x} fulfilled", request_id);
 
     Ok(())
