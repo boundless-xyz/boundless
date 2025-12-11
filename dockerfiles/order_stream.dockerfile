@@ -72,7 +72,7 @@ SHELL ["/bin/bash", "-c"]
 RUN cargo build --release -p order-stream --bin order_stream && \
     cp /src/target/release/order_stream /src/order_stream
 
-FROM rust:1.98.0-bookworm AS runtime
+FROM rust:1.89.0-bookworm AS runtime
 
 RUN mkdir /app/
 
