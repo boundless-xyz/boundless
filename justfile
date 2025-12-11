@@ -235,6 +235,7 @@ localnet action="up": check-deps
     PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     DEPOSIT_AMOUNT="100000000000000000000"
+    CHAIN_ID="31337"
     CI=${CI:-0}
     
     if [ "{{action}}" = "up" ]; then
@@ -328,6 +329,7 @@ localnet action="up": check-deps
             echo "Running in CI mode, skipping prover setup."
             python3 contracts/update_deployment_toml.py \
                 --verifier "$VERIFIER_ADDRESS" \
+                --application-verifier "$VERIFIER_ADDRESS" \
                 --set-verifier "$SET_VERIFIER_ADDRESS" \
                 --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
                 --collateral-token "$HIT_POINTS_ADDRESS" \
@@ -349,6 +351,7 @@ localnet action="up": check-deps
             BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
             SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
             VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
+            CHAIN_ID=$CHAIN_ID \
             ./target/debug/boundless account deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
             
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"

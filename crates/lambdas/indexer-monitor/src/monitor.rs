@@ -257,11 +257,13 @@ impl Monitor {
     ) -> Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT request_id
-            FROM request_fulfilled_events
-            WHERE block_timestamp >= $1
-            AND block_timestamp < $2
-            AND client_address = $3
+            SELECT rfe.request_id
+            FROM request_fulfilled_events rfe
+            JOIN proof_requests pr
+              ON rfe.request_digest = pr.request_digest
+            WHERE rfe.block_timestamp >= $1
+            AND rfe.block_timestamp < $2
+            AND pr.client_address = $3
             "#,
         )
         .bind(from)
@@ -303,11 +305,18 @@ impl Monitor {
 
     /// Total number of fulfilled requests from a specific client address.
     pub async fn total_fulfilled_requests_from_client(&self, address: Address) -> Result<i64> {
-        let row =
-            sqlx::query("SELECT COUNT(*) FROM request_fulfilled_events WHERE client_address = $1")
-                .bind(format!("{address:x}"))
-                .fetch_one(&self.db)
-                .await?;
+        let row = sqlx::query(
+            r#"
+            SELECT COUNT(*)
+            FROM request_fulfilled_events rfe
+            JOIN proof_requests pr
+              ON rfe.request_digest = pr.request_digest
+            WHERE pr.client_address = $1
+            "#,
+        )
+        .bind(format!("{address:x}"))
+        .fetch_one(&self.db)
+        .await?;
         Ok(row.get::<i64, _>(0))
     }
 

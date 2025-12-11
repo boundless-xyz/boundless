@@ -516,7 +516,7 @@ mod tests {
                     .build()
                     .unwrap(),
             ),
-            rpc_url,
+            rpc_url: Some(rpc_url.to_string()),
             rpc_urls: Vec::new(),
             private_key: Some(private_key),
             bento_api_url: None,

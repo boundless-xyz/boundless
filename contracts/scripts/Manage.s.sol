@@ -66,7 +66,7 @@ contract DeployBoundlessMarket is BoundlessScriptBase {
 
         address admin = deploymentConfig.admin.required("admin");
         address verifier = deploymentConfig.verifier.required("verifier");
-        address applicationVerifier = deploymentConfig.verifier.required("application-verifier");
+        address applicationVerifier = deploymentConfig.applicationVerifier.required("application-verifier");
         bytes32 assessorImageId = deploymentConfig.assessorImageId.required("assessor-image-id");
         string memory assessorGuestUrl = deploymentConfig.assessorGuestUrl.required("assessor-guest-url");
         address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
@@ -165,7 +165,7 @@ contract UpgradeBoundlessMarket is BoundlessScriptBase {
         address marketAddress = deploymentConfig.boundlessMarket.required("boundless-market");
         address collateralToken = deploymentConfig.collateralToken.required("collateral-token");
         address verifier = deploymentConfig.verifier.required("verifier");
-        address applicationVerifier = deploymentConfig.verifier.required("application-verifier");
+        address applicationVerifier = deploymentConfig.applicationVerifier.required("application-verifier");
         address currentImplementation = address(uint160(uint256(vm.load(marketAddress, IMPLEMENTATION_SLOT))));
         uint32 deprecatedAssessorDuration = deploymentConfig.deprecatedAssessorDuration;
 

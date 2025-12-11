@@ -16,11 +16,12 @@ path = "src/bin/agent.rs"
 
 [features]
 default = []
-cuda = ["risc0-zkvm/cuda"]
+cuda = ["risc0-zkvm/cuda", "blake3_groth16/cuda"]
 
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
+blake3_groth16 = { workspace = true, features = ["prove"] }
 bytemuck = { workspace = true }
 clap = { workspace = true, features = ["env", "derive"] }
 deadpool-redis = { workspace = true }
@@ -31,9 +32,7 @@ prometheus_exporter = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true, features = ["tokio-rustls-comp", "tokio-comp"] }
 risc0-binfmt = { workspace = true }
-risc0-zkvm = { workspace = true, default-features = false, features = [
-    "prove",
-] }
+risc0-zkvm = { workspace = true, default-features = false, features = ["prove"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 signal-hook = "0.3"

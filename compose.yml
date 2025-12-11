@@ -18,6 +18,9 @@ x-agent-common: &agent-common
     dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
     args:
       BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.1.1/bento-bundle-linux-amd64.tar.gz}
+      BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
+      # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
+      USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
   restart: always
   depends_on:
     postgres:
@@ -43,6 +46,7 @@ x-broker-environment: &broker-environment
   # RUST_BACKTRACE: 1
   PROVER_PRIVATE_KEY: ${PROVER_PRIVATE_KEY:-${PRIVATE_KEY}}
   PROVER_RPC_URL: ${PROVER_RPC_URL:-${RPC_URL}}
+  PROVER_RPC_URLS: ${PROVER_RPC_URLS}
   BOUNDLESS_MARKET_ADDRESS:
   SET_VERIFIER_ADDRESS:
   ORDER_STREAM_URL:
@@ -83,13 +87,13 @@ x-broker-common: &broker-common
 services:
   redis:
     hostname: ${REDIS_HOST:-redis}
-    image: ${REDIS_IMG:-redis:7.2.5-alpine3.19}
+    image: ${REDIS_IMG:-valkey/valkey:9.0}
     restart: always
     ports:
       - 6379:6379
     volumes:
       - redis-data:/data
-    command: redis-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+    command: valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -192,7 +196,12 @@ services:
     mem_limit: 4G
     cpus: 4
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
-
+    # # Uncomment to mount local BLAKE3 Groth16 setup files instead of downloading and set USE_LOCAL_BLAKE3_GROTH16_SETUP to 1, yes, or true.
+    # volumes:
+      # - type: bind
+      #   source: ${BLAKE3_GROTH16_SETUP_DIR}
+      #   target: /.blake3_groth16_artifacts/
+      #   read_only: true
     # comment-out if running in CPU proving mode
     deploy:
       resources:
@@ -249,8 +258,6 @@ services:
     #   target: /target/riscv-guest/guest-assessor/assessor-guest/riscv32im-risc0-zkvm-elf/release/assessor-guest.bin
     environment:
       <<: *broker-environment
-      PROVER_PRIVATE_KEY: ${PROVER_PRIVATE_KEY:-${PRIVATE_KEY}}
-      PROVER_RPC_URL: ${PROVER_RPC_URL:-${RPC_URL}}
     entrypoint: /app/broker --db-url 'sqlite:///db/broker.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
   # # Example second broker with different configuration

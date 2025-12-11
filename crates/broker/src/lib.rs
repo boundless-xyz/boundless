@@ -31,7 +31,7 @@ use boundless_market::{
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
     override_gateway,
-    selector::is_groth16_selector,
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -82,18 +82,21 @@ pub struct Args {
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
 
-    /// RPC URL (prefers PROVER_RPC_URL; falls back to RPC_URL if unset)
-    #[clap(long, env = "PROVER_RPC_URL", default_value = "http://localhost:8545")]
-    pub rpc_url: Url,
+    /// RPC URL (prefer PROVER_RPC_URL as environment variable; falls back to RPC_URL if unset)
+    ///
+    /// Note we use a String here as the type instead of Url, as the env variable may be
+    /// set to an empty string, especially if using our Docker compose setup, which causes parsing errors with Url.
+    #[clap(long, env = "PROVER_RPC_URL")]
+    pub rpc_url: Option<String>,
 
     /// Additional RPC URLs for automatic failover.
     /// Can be specified multiple times or as a comma-separated list.
     /// If provided along with rpc_url, they will be merged into a single list.
     /// If 2+ URLs are provided total, a fallback provider will be used.
     #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
-    pub rpc_urls: Vec<Url>,
+    pub rpc_urls: Vec<String>,
 
-    /// wallet key
+    /// Wallet key
     ///
     /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
     #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
@@ -403,6 +406,18 @@ impl Order {
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
     }
+    fn is_blake3_groth16(&self) -> bool {
+        is_blake3_groth16_selector(self.request.requirements.selector)
+    }
+    pub fn compression_type(&self) -> CompressionType {
+        if self.is_groth16() {
+            CompressionType::Groth16
+        } else if self.is_blake3_groth16() {
+            CompressionType::Blake3Groth16
+        } else {
+            CompressionType::None
+        }
+    }
 }
 
 impl std::fmt::Display for Order {
@@ -414,6 +429,13 @@ impl std::fmt::Display for Order {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CompressionType {
+    None,
+    Groth16,
+    Blake3Groth16,
 }
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -1218,6 +1240,15 @@ pub(crate) fn is_dev_mode() -> bool {
         .is_some()
 }
 
+/// Returns `true` if the `ALLOW_LOCAL_FILE_STORAGE` environment variable is enabled.
+pub(crate) fn allow_local_file_storage() -> bool {
+    std::env::var("ALLOW_LOCAL_FILE_STORAGE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
+
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
     use std::sync::Arc;
@@ -1259,7 +1290,7 @@ pub mod test_utils {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
-                rpc_url,
+                rpc_url: Some(rpc_url.to_string()),
                 rpc_urls: Vec::new(),
                 private_key: Some(ctx.prover_signer.clone()),
                 bento_api_url: None,

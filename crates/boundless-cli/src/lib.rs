@@ -34,6 +34,7 @@ use alloy::{
     sol_types::{SolStruct, SolValue},
 };
 use anyhow::{bail, Context, Result};
+use blake3_groth16::Blake3Groth16Receipt;
 use boundless_assessor::{AssessorInput, Fulfillment};
 use broker::{
     provers::{Bonsai, DefaultProver as BrokerDefaultProver, Prover},
@@ -56,7 +57,7 @@ use boundless_market::{
         Fulfillment as BoundlessFulfillment, FulfillmentData, PredicateType, RequestInputType,
     },
     input::GuestEnv,
-    selector::{is_groth16_selector, SupportedSelectors},
+    selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
     storage::fetch_url,
     ProofRequest,
 };
@@ -540,7 +541,6 @@ impl OrderFulfiller {
             );
             let (req, _sig) = &orders[order_idx];
             let order_seal = if is_groth16_selector(req.requirements.selector) {
-                // Compress the STARK proof to Groth16
                 let compressed_proof_id = self
                     .prover
                     .compress(&proof_ids[i])
@@ -559,6 +559,25 @@ impl OrderFulfiller {
                         .context("Failed to deserialize compressed order receipt")?;
 
                 encode_seal(&compressed_receipt)?
+            } else if is_blake3_groth16_selector(req.requirements.selector) {
+                let compressed_proof_id = self
+                    .prover
+                    .compress_blake3_groth16(&proof_ids[i])
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to compress order proof: {}", e))?;
+
+                let compressed_receipt_bytes = self
+                    .prover
+                    .get_blake3_groth16_receipt(&compressed_proof_id)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to get compressed order receipt: {}", e))?
+                    .ok_or_else(|| anyhow::anyhow!("Compressed order receipt not found"))?;
+
+                let blake3_receipt: Blake3Groth16Receipt =
+                    bincode::deserialize(&compressed_receipt_bytes)
+                        .context("Failed to deserialize Blake3 Groth16 receipt")?;
+
+                encode_seal(&blake3_receipt.into())?
             } else {
                 order_inclusion_receipt.abi_encode_seal()?
             };
@@ -609,18 +628,21 @@ mod tests {
         primitives::{FixedBytes, Signature, U256},
         signers::local::PrivateKeySigner,
     };
-    use boundless_market::contracts::{
-        eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-        UNSPECIFIED_SELECTOR,
+    use blake3_groth16::Blake3Groth16ReceiptClaim;
+    use boundless_market::{
+        contracts::{
+            eip712_domain, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+            UNSPECIFIED_SELECTOR,
+        },
+        selector::SelectorExt,
     };
     use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
     use boundless_test_utils::market::create_test_ctx;
-    use risc0_ethereum_contracts::selector::Selector;
     use std::sync::Arc;
 
     async fn setup_proving_request_and_signature(
         signer: &PrivateKeySigner,
-        selector: Option<Selector>,
+        selector: Option<SelectorExt>,
     ) -> (ProofRequest, Signature) {
         let request = ProofRequest::new(
             RequestId::new(signer.address(), 0),
@@ -651,7 +673,7 @@ mod tests {
             boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
         let signer = PrivateKeySigner::random();
         let (request, signature) =
-            setup_proving_request_and_signature(&signer, Some(Selector::groth16_latest())).await;
+            setup_proving_request_and_signature(&signer, Some(SelectorExt::groth16_latest())).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
         let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);
@@ -668,6 +690,40 @@ mod tests {
             boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
+        let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
+        let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
+        fulfiller.domain = eip712_domain(Address::ZERO, 1);
+
+        fulfiller.fulfill(&[(request, signature.as_bytes().into())]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    async fn test_fulfill_blake3_groth16_selector() {
+        let anvil = Anvil::new().spawn();
+        let ctx = create_test_ctx(&anvil).await.unwrap();
+        let client =
+            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+
+        let input = [255u8; 32].to_vec(); // Example output data
+        let blake3_claim_digest =
+            Blake3Groth16ReceiptClaim::ok(Digest::from(ECHO_ID), input.clone()).digest();
+        let signer = PrivateKeySigner::random();
+        let request = ProofRequest::new(
+            RequestId::new(signer.address(), 0),
+            Requirements::new(Predicate::claim_digest_match(blake3_claim_digest))
+                .with_selector(FixedBytes::from(SelectorExt::blake3_groth16_latest() as u32)),
+            format!("file://{ECHO_PATH}"),
+            RequestInput::builder().write_slice(&input).build_inline().unwrap(),
+            Offer::default()
+                .with_timeout(60)
+                .with_lock_timeout(30)
+                .with_max_price(U256::from(1000))
+                .with_ramp_up_start(10),
+        );
+
+        let signature = request.sign_request(&signer, Address::ZERO, 1).await.unwrap();
+
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
         let mut fulfiller = OrderFulfiller::initialize(prover, &client).await.unwrap();
         fulfiller.domain = eip712_domain(Address::ZERO, 1);

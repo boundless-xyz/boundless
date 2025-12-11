@@ -17,15 +17,16 @@ name = "boundless-ffi"
 
 [features]
 # Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.
-prove = ["risc0-zkvm/prove"]
+prove = ["risc0-zkvm/prove", "blake3_groth16/prove"]
 # Enables the cuda feature on risc0-zkvm to build the prover directly into this CLI, with CUDA support.
-cuda = ["prove", "risc0-zkvm/cuda"]
+cuda = ["prove", "risc0-zkvm/cuda", "blake3_groth16/cuda"]
 
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
 atomicwrites = "0.4.4"
 bincode = { workspace = true }
+blake3_groth16 = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
