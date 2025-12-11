@@ -390,7 +390,6 @@ jobs:
         working-directory: ${{ matrix.workspace }}
 
       - name: forge build
-        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge build
         working-directory: contracts
 
