@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.88.0-bookworm AS init
+FROM rust:1.89.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -19,6 +19,12 @@ RUN --mount=type=secret,id=githubTokenSecret,target=/run/secrets/githubTokenSecr
 
 RUN cargo install cargo-chef
 
+# Install protoc
+RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
+    && unzip protoc.zip -d /usr/local \
+    && rm protoc.zip
+
+
 FROM init AS planner
 
 WORKDIR /src
@@ -31,6 +37,8 @@ COPY contracts/ ./contracts/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
+COPY blake3_groth16/ ./blake3_groth16/
+COPY xtask/ ./xtask/
 
 RUN cargo chef prepare  --recipe-path recipe.json
 
@@ -50,6 +58,8 @@ COPY contracts/ ./contracts/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
+COPY blake3_groth16/ ./blake3_groth16/
+COPY xtask/ ./xtask/
 
 SHELL ["/bin/bash", "-c"]
 
