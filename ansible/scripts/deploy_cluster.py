@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 
-CONFIG_FILE = Path(__file__).parent.parent / ".deploy_cluster_config.json"
+CONFIG_FILE = Path.home() / ".deploy_cluster_config.json"
 
 
 def load_config() -> Dict[str, str]:
@@ -53,10 +53,11 @@ def prompt_with_default(prompt: str, default: Optional[str] = None,
 
     if secret:
         import getpass
-        value = getpass.getpass(prompt_text)
+        value = getpass.getpass(prompt_text).strip()
     else:
         value = input(prompt_text).strip()
 
+    # If user entered nothing, use the default (which is the actual value, not masked)
     if not value:
         if default:
             return default
