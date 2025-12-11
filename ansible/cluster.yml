@@ -223,18 +223,3 @@
         name: broker
       tags:
         - broker
-
-    # Infrastructure services
-    - name: Deploy Tailscale
-      ansible.builtin.include_role:
-        name: tailscale
-      when: tailscale_install | bool
-      tags:
-        - tailscale
-
-    - name: Deploy Vector Agent
-      ansible.builtin.include_role:
-        name: vector
-      when: vector_install | bool
-      tags:
-        - vector
