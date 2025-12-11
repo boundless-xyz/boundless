@@ -87,13 +87,13 @@ x-broker-common: &broker-common
 services:
   redis:
     hostname: ${REDIS_HOST:-redis}
-    image: ${REDIS_IMG:-redis:7.2.5-alpine3.19}
+    image: ${REDIS_IMG:-valkey/valkey:9.0}
     restart: always
     ports:
       - 6379:6379
     volumes:
       - redis-data:/data
-    command: redis-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
+    command: valkey-server --maxmemory-policy allkeys-lru --save 900 1 --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

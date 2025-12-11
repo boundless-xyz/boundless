@@ -36,39 +36,9 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut args = Args::parse();
+    let args = Args::parse();
 
-    // Collect all RPC URLs from args, deduplicated
-    let mut all_rpc_urls = std::collections::HashSet::new();
-
-    // Add PROVER_RPC_URL from args
-    if let Some(ref url) = args.rpc_url {
-        all_rpc_urls.insert(url.clone());
-    }
-
-    // Add PROVER_RPC_URLS from args
-    all_rpc_urls.extend(args.rpc_urls.iter().cloned());
-
-    // Backward compatibility: check RPC_URL if no URLs collected yet
-    if all_rpc_urls.is_empty() {
-        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
-            if !legacy_rpc_url.is_empty() {
-                let url =
-                    Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
-                all_rpc_urls.insert(url);
-                tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
-            }
-        }
-    }
-
-    // Error early if no RPC URLs provided
-    if all_rpc_urls.is_empty() {
-        anyhow::bail!(
-            "No RPC URLs provided. Please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables"
-        );
-    }
-
-    let all_rpc_urls: Vec<Url> = all_rpc_urls.into_iter().collect();
+    let all_rpc_urls = collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone())?;
 
     if args.log_json {
         tracing_subscriber::fmt()
@@ -96,7 +66,6 @@ async fn main() -> Result<()> {
         .context(
             "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
         )?;
-    args.private_key = Some(private_key.clone());
 
     let wallet = EthereumWallet::from(private_key.clone());
 
@@ -198,4 +167,50 @@ async fn main() -> Result<()> {
     broker.start_service().await.context("Broker service failed")?;
 
     Ok(())
+}
+
+/// Collect and parse all RPC URLs from args and environment variables
+/// Returns a deduplicated list of valid RPC URLs
+fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Vec<Url>> {
+    let mut all_rpc_urls = std::collections::HashSet::new();
+
+    // Parse PROVER_RPC_URL (ignore if empty)
+    if let Some(url_str) = rpc_url {
+        if !url_str.is_empty() {
+            let url =
+                Url::parse(&url_str).context("Invalid PROVER_RPC_URL environment variable")?;
+            all_rpc_urls.insert(url);
+        }
+    }
+
+    // Parse PROVER_RPC_URLS (ignore empty strings, split by comma)
+    for url_str in rpc_urls {
+        let url_str = url_str.trim();
+        if !url_str.is_empty() {
+            let url =
+                Url::parse(url_str).context("Invalid PROVER_RPC_URLS environment variable")?;
+            all_rpc_urls.insert(url);
+        }
+    }
+
+    // Backward compatibility: check RPC_URL if no URLs collected yet
+    if all_rpc_urls.is_empty() {
+        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
+            if !legacy_rpc_url.is_empty() {
+                let url =
+                    Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
+                all_rpc_urls.insert(url);
+                tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+            }
+        }
+    }
+
+    // Error early if no RPC URLs provided
+    if all_rpc_urls.is_empty() {
+        anyhow::bail!(
+            "No RPC URLs provided. Please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables"
+        );
+    }
+
+    Ok(all_rpc_urls.into_iter().collect())
 }

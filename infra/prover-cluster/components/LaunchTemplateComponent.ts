@@ -14,7 +14,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   taskDBPassword: string;
   ethRpcUrl?: pulumi.Output<string>;
   privateKey?: pulumi.Output<string>;
-  orderStreamUrl?: string;
+  orderStreamUrl?: pulumi.Output<string>;
   verifierAddress?: string;
   boundlessMarketAddress?: string;
   setVerifierAddress?: string;
