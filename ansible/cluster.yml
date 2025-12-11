@@ -73,21 +73,6 @@
     broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(broker_rpc_url | default('https://rpc.boundless.network', true), true) }}"
     # Install dependencies by default (can be overridden via -e or inventory)
     bento_install_dependencies: true
-    # Broker configuration (can be overridden via extra-vars from deploy wizard)
-    broker_max_concurrent_proofs: "{{ broker_max_concurrent_proofs | default(1) | int }}"
-    broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights | default(2) | int }}"
-    broker_peak_prove_khz: "{{ broker_peak_prove_khz | default(100) | int }}"
-    broker_min_mcycle_price: "{{ broker_min_mcycle_price | default('0.00000001') | string }}"
-    broker_min_mcycle_price_collateral_token: >-
-      {{ broker_min_mcycle_price_collateral_token | default('0.00005') | string }}
-    broker_priority_requestor_lists: >-
-      {{
-        broker_priority_requestor_lists |
-        default([
-          'https://requestors.boundless.network/boundless-recommended-priority-list.standard.json'
-        ])
-      }}
-    broker_allow_client_addresses: "{{ broker_allow_client_addresses | default([]) }}"
 
   pre_tasks:
     # Set agent counts and PO2 config from env vars, vars_prompt, or defaults
@@ -100,6 +85,23 @@
         bento_aux_count: "{{ lookup('env', 'BENTO_AUX_COUNT') | default(lookup('vars', 'bento_aux_count') | default('2', true), true) | int }}"
         bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(lookup('vars', '_bento_segment_po2_prompt') | default('20', true), true) | int }}"
         bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(lookup('vars', '_bento_keccak_po2_prompt') | default('17', true), true) | int }}"
+      tags: always
+    # Set broker configuration from extra-vars or defaults (avoiding self-reference recursion)
+    - name: Set broker configuration
+      ansible.builtin.set_fact:
+        broker_max_concurrent_proofs: "{{ lookup('vars', 'broker_max_concurrent_proofs') | default(1, true) | int }}"
+        broker_max_concurrent_preflights: "{{ lookup('vars', 'broker_max_concurrent_preflights') | default(2, true) | int }}"
+        broker_peak_prove_khz: "{{ lookup('vars', 'broker_peak_prove_khz') | default(100, true) | int }}"
+        broker_min_mcycle_price: "{{ lookup('vars', 'broker_min_mcycle_price') | default('0.00000001', true) | string }}"
+        broker_min_mcycle_price_collateral_token: "{{ lookup('vars', 'broker_min_mcycle_price_collateral_token') | default('0.00005', true) | string }}"
+        broker_priority_requestor_lists: >-
+          {{
+            lookup('vars', 'broker_priority_requestor_lists') |
+            default([
+              'https://requestors.boundless.network/boundless-recommended-priority-list.standard.json'
+            ], true)
+          }}
+        broker_allow_client_addresses: "{{ lookup('vars', 'broker_allow_client_addresses') | default([], true) }}"
       tags: always
 
   tasks:
@@ -219,14 +221,6 @@
     - name: Deploy Broker
       ansible.builtin.include_role:
         name: broker
-      vars:
-        broker_max_concurrent_proofs: "{{ broker_max_concurrent_proofs }}"
-        broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights }}"
-        broker_peak_prove_khz: "{{ broker_peak_prove_khz }}"
-        broker_min_mcycle_price: "{{ broker_min_mcycle_price }}"
-        broker_min_mcycle_price_collateral_token: "{{ broker_min_mcycle_price_collateral_token }}"
-        broker_priority_requestor_lists: "{{ broker_priority_requestor_lists }}"
-        broker_allow_client_addresses: "{{ broker_allow_client_addresses }}"
       tags:
         - broker
 
