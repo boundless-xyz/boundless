@@ -10,6 +10,9 @@ host_vars/*/vault.yml
 .env.local
 .env.*.local
 
+# Deployment configuration files - DO NOT COMMIT
+.deploy_cluster_config.json
+
 # Ansible retry files
 *.retry
 

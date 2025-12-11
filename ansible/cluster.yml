@@ -7,6 +7,10 @@
   vars:
     # Install dependencies by default (can be overridden via -e or inventory)
     bento_install_dependencies: true
+    # Agent counts (can be overridden via extra-vars from deploy wizard)
+    bento_gpu_count: "{{ bento_gpu_count | default(1) | int }}"
+    bento_exec_count: "{{ bento_exec_count | default(4) | int }}"
+    bento_aux_count: "{{ bento_aux_count | default(2) | int }}"
 
   tasks:
     # Debug: Show bind address variables
@@ -47,7 +51,7 @@
       vars:
         bento_task: "prove"
         bento_install_dependencies: false
-        bento_count: 1
+        bento_count: "{{ bento_gpu_count }}"
       tags:
         - bento
         - bento-prove
@@ -68,7 +72,7 @@
       vars:
         bento_task: "exec"
         bento_install_dependencies: false
-        bento_count: 4
+        bento_count: "{{ bento_exec_count }}"
       tags:
         - bento
         - bento-exec
@@ -79,7 +83,7 @@
       vars:
         bento_task: "aux"
         bento_install_dependencies: false
-        bento_count: 2
+        bento_count: "{{ bento_aux_count }}"
       tags:
         - bento
         - bento-aux

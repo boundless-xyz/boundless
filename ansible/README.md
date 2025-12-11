@@ -53,6 +53,32 @@ Before running playbooks, install required Ansible collections:
 ansible-galaxy collection install community.postgresql
 ```
 
+## Quick Deployment
+
+For interactive deployment with configuration management, use the deployment wizard:
+
+```bash
+# Interactive wizard (saves configuration for future use)
+./scripts/deploy_cluster.py
+
+# Load saved configuration and deploy
+./scripts/deploy_cluster.py --load
+
+# Dry-run (check mode) with wizard
+./scripts/deploy_cluster.py --check
+
+# Dry-run with saved configuration
+./scripts/deploy_cluster.py --load --check
+```
+
+The wizard will:
+
+* Prompt for all required configuration values
+* Save configuration to `.deploy_cluster_config.json` (excluded from git)
+* Allow loading and reusing saved configurations
+* Validate inputs (Ethereum addresses, URLs, etc.)
+* Mask sensitive values (passwords, private keys) in prompts
+
 ## Secrets Management
 
 Secrets can be provided via **environment variables** (recommended), Ansible Vault, or playbook variables.
