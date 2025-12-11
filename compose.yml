@@ -281,6 +281,9 @@ services:
       dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
       args:
         BINARY_URL: ${BENTO_BINARY_URL:-https://github.com/boundless-xyz/boundless/releases/download/bento-v1.1.1/bento-bundle-linux-amd64.tar.gz}
+        BLAKE3_GROTH16_ARTIFACTS_URL: ${BLAKE3_GROTH16_ARTIFACTS_URL:-https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz}
+        # If set to 1, yes, or true, the agent will expect local mounting of BLAKE3 Groth16 setup files instead of downloading
+        USE_LOCAL_BLAKE3_GROTH16_SETUP: ${USE_LOCAL_BLAKE3_GROTH16_SETUP:-0}
     restart: always
     depends_on:
       rest_api:
