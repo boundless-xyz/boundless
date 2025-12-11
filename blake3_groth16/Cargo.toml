@@ -43,8 +43,8 @@ serde_json = { workspace = true }
 
 # Host dependencies
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
-bonsai-sdk = { workspace = true, features = ["non_blocking", "shrink_bitvm2"] }
 bincode = { workspace = true }
+bonsai-sdk = { workspace = true, features = ["non_blocking", "shrink_bitvm2"] }
 circom-witnesscalc = { version = "0.2.1", optional = true }
 hex = { workspace = true }
 num-bigint = { version = "0.4", features = ["std"], optional = true }
@@ -54,8 +54,8 @@ risc0-zkp = { workspace = true }
 risc0-zkvm = { workspace = true, default-features = false, features = ["bonsai"] }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-wtns-file = { version = "0.1.5", optional = true }
 tracing = { workspace = true }
+wtns-file = { version = "0.1.5", optional = true }
 
 [target.'cfg(not(target_os = "zkvm"))'.dev-dependencies]
 guest-util = { workspace = true }
