@@ -26,11 +26,11 @@ use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
+use boundless_slasher::db::{DbError, PgDb};
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::create_test_ctx;
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use futures_util::StreamExt;
-use boundless_slasher::db::{DbError, PgDb};
 use sqlx::postgres::PgPoolOptions;
 
 /// Test database helper that manages both the connection string and pool.
@@ -53,10 +53,7 @@ impl TestDb {
             .or_else(|_| std::env::var("DATABASE_URL"))
             .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
 
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&db_url)
-            .await?;
+        let pool = PgPoolOptions::new().max_connections(5).connect(&db_url).await?;
 
         // Run migrations
         PgDb::from_pool(pool.clone()).await?;
