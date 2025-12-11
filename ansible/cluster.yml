@@ -10,12 +10,21 @@
 
   tasks:
     # Pre-flight checks
+    - name: Find Ansible collections directory
+      ansible.builtin.set_fact:
+        collections_paths:
+          - "{{ ansible_user_dir }}/.ansible/collections"
+          - "/usr/share/ansible/collections"
+          - "/etc/ansible/collections"
+      tags: always
+
     - name: Check for required Ansible collections
-      ansible.builtin.command:
-        cmd: ansible-galaxy collection list community.postgresql
+      ansible.builtin.stat:
+        path: "{{ item }}/ansible_collections/community/postgresql"
       register: postgresql_collection_check
+      failed_when: false
       changed_when: false
-      failed_when: postgresql_collection_check.rc != 0
+      loop: "{{ collections_paths }}"
       tags: always
 
     - name: Fail if community.postgresql collection is missing
@@ -23,7 +32,7 @@
         msg: |
           The 'community.postgresql' collection is required but not installed.
           Install it with: ansible-galaxy collection install community.postgresql
-      when: postgresql_collection_check.rc != 0
+      when: postgresql_collection_check.results | selectattr('stat.exists', 'equalto', true) | list | length == 0
       tags: always
 
     # Debug: Show bind address variables
