@@ -413,14 +413,20 @@ jobs:
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
 
+      - name: install blake3 groth16 artifacts
+        if: matrix.workspace == 'examples/blake3-groth16'
+        run: |
+          mkdir -p $HOME/.risc0/blake3_groth16
+          curl -L https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz | tar -xJ -C $HOME/.risc0/blake3_groth16 --strip-components=1
+
       - name: RUST_LOG="debug" cargo test
         run: cargo test --all-features --locked -- --nocapture
         working-directory: ${{ matrix.workspace }}
         env:
           RUST_LOG: "info"
           RISC0_INFO: 1
-          BLAKE3_GROTH16_ARTIFACTS_URL: https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz
-          USE_LOCAL_BLAKE3_GROTH16_SETUP: 0
+          BLAKE3_GROTH16_SETUP_DIR: $HOME/.risc0/blake3_groth16
+          USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
 
       - name: sccache stats
         run: sccache --show-stats
