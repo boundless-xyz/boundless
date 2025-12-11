@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{process::Command, time::Duration};
+use std::{process::Command, sync::Arc, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
@@ -30,7 +30,60 @@ use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::create_test_ctx;
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use futures_util::StreamExt;
-use std::sync::Arc;
+use boundless_slasher::db::{DbError, PgDb};
+use sqlx::postgres::PgPoolOptions;
+
+/// Test database helper that manages both the connection string and pool.
+/// Similar to `indexer::test_utils::TestDb`, this allows tests to:
+/// 1. Pass `db_url` to spawned binaries
+/// 2. Use `pool` for direct database queries
+pub struct TestDb {
+    pub db_url: String,
+    pub pool: sqlx::PgPool,
+}
+
+impl TestDb {
+    /// Create a new test database connection.
+    /// Uses SLASHER_DATABASE_URL or DATABASE_URL environment variable if set (for CI),
+    /// otherwise defaults to a local test database.
+    pub async fn new() -> Result<Self, DbError> {
+        // Check for SLASHER_DATABASE_URL first (matches pattern from indexer which uses INDEXER_DATABASE_URL)
+        // Fall back to DATABASE_URL for CI compatibility
+        let db_url = std::env::var("SLASHER_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/postgres".to_string());
+
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&db_url)
+            .await?;
+
+        // Run migrations
+        PgDb::from_pool(pool.clone()).await?;
+
+        // Clean up any leftover data from previous test runs
+        let test_db = Self { db_url, pool };
+        test_db.cleanup().await?;
+
+        Ok(test_db)
+    }
+
+    /// Clean up test data from the database.
+    /// This is only needed for PostgreSQL (not SQLite temp files).
+    pub async fn cleanup(&self) -> Result<(), DbError> {
+        if self.db_url.starts_with("postgres") {
+            let tables = vec!["orders", "last_block"];
+
+            for table in tables {
+                // Ignore errors if table doesn't exist (may not have run migrations yet)
+                let _ = sqlx::query(&format!("TRUNCATE TABLE {} CASCADE", table))
+                    .execute(&self.pool)
+                    .await;
+            }
+        }
+        Ok(())
+    }
+}
 
 async fn create_order(
     signer: &impl Signer,
@@ -63,6 +116,7 @@ async fn create_order(
 
 #[tokio::test]
 async fn test_basic_usage() {
+    let test_db = TestDb::new().await.unwrap();
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -76,7 +130,7 @@ async fn test_basic_usage() {
         "--boundless-market-address",
         &ctx.deployment.boundless_market_address.to_string(),
         "--db",
-        "sqlite::memory:",
+        &test_db.db_url,
         "--interval",
         "1",
         "--retries",
@@ -135,6 +189,7 @@ async fn test_basic_usage() {
 #[tokio::test]
 #[ignore = "Generate proofs. Slow without dev mode"]
 async fn test_slash_fulfilled() {
+    let test_db = TestDb::new().await.unwrap();
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -148,7 +203,7 @@ async fn test_slash_fulfilled() {
         "--boundless-market-address",
         &ctx.deployment.boundless_market_address.to_string(),
         "--db",
-        "sqlite::memory:",
+        &test_db.db_url,
         "--interval",
         "1",
         "--retries",

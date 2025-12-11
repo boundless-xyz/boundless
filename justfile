@@ -50,7 +50,7 @@ test-cargo-db:
 # Run slasher tests (requires database)
 test-slasher:
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher --lib
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher -- --include-ignored
     just test-db clean
 
 # Run indexer lib tests and all integration tests (requires both RPC URLs)
@@ -213,7 +213,7 @@ format:
 
 # Clean up all build artifacts
 clean: 
-    @just localnet down
+    @just localnet down || true
     @echo "Cleaning up..."
     @rm -rf {{LOGS_DIR}} ./broadcast
     cargo clean

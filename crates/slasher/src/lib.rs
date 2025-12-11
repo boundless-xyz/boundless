@@ -35,7 +35,7 @@ use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
 
-mod db;
+pub mod db;
 
 type ProviderWallet = NonceProvider<
     JoinFill<JoinFill<Identity, ChainIdFiller>, DynamicGasFiller>,
