@@ -235,6 +235,41 @@ def wizard() -> Dict[str, str]:
         config['BROKER_MAX_CONCURRENT_PREFLIGHTS'] = existing_config.get('BROKER_MAX_CONCURRENT_PREFLIGHTS', '2')
         print(f"  → Using default max concurrent preflights: {config['BROKER_MAX_CONCURRENT_PREFLIGHTS']}")
 
+    config['BROKER_PEAK_PROVE_KHZ'] = prompt_with_default(
+        "Broker peak prove performance (kHz)",
+        existing_config.get('BROKER_PEAK_PROVE_KHZ', '100')
+    )
+
+    config['BROKER_MIN_MCYCLE_PRICE'] = prompt_with_default(
+        "Broker min mcycle price (ETH)",
+        existing_config.get('BROKER_MIN_MCYCLE_PRICE', '0.00000001')
+    )
+
+    config['BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN'] = prompt_with_default(
+        "Broker min mcycle price collateral token (ZKC)",
+        existing_config.get('BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN', '0.00005')
+    )
+
+    # Priority requestor lists (comma-separated URLs)
+    priority_lists_input = prompt_with_default(
+        "Broker priority requestor lists (comma-separated URLs)",
+        existing_config.get('BROKER_PRIORITY_REQUESTOR_LISTS', 'https://requestors.boundless.network/boundless-recommended-priority-list.standard.json'),
+        required=False
+    )
+    if priority_lists_input:
+        # Split by comma and strip whitespace
+        config['BROKER_PRIORITY_REQUESTOR_LISTS'] = priority_lists_input
+    else:
+        config['BROKER_PRIORITY_REQUESTOR_LISTS'] = ''
+
+    # Allow client addresses (comma-separated addresses)
+    allow_addresses_input = prompt_with_default(
+        "Broker allow client addresses (comma-separated, optional)",
+        existing_config.get('BROKER_ALLOW_CLIENT_ADDRESSES', ''),
+        required=False
+    )
+    config['BROKER_ALLOW_CLIENT_ADDRESSES'] = allow_addresses_input if allow_addresses_input else ''
+
     return config
 
 
@@ -277,6 +312,27 @@ def deploy(config: Dict[str, str], dry_run: bool = False) -> int:
                     extra_vars['broker_max_concurrent_preflights'] = int(value)
                 except ValueError:
                     print(f"Warning: Invalid number for {key}: {value}, using default")
+            elif key == 'BROKER_PEAK_PROVE_KHZ':
+                try:
+                    extra_vars['broker_peak_prove_khz'] = int(value)
+                except ValueError:
+                    print(f"Warning: Invalid number for {key}: {value}, using default")
+            elif key == 'BROKER_MIN_MCYCLE_PRICE':
+                extra_vars['broker_min_mcycle_price'] = value
+            elif key == 'BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN':
+                extra_vars['broker_min_mcycle_price_collateral_token'] = value
+            elif key == 'BROKER_PRIORITY_REQUESTOR_LISTS':
+                # Convert comma-separated string to list
+                if value:
+                    extra_vars['broker_priority_requestor_lists'] = [url.strip() for url in value.split(',') if url.strip()]
+                else:
+                    extra_vars['broker_priority_requestor_lists'] = []
+            elif key == 'BROKER_ALLOW_CLIENT_ADDRESSES':
+                # Convert comma-separated string to list
+                if value:
+                    extra_vars['broker_allow_client_addresses'] = [addr.strip() for addr in value.split(',') if addr.strip()]
+                else:
+                    extra_vars['broker_allow_client_addresses'] = []
             else:
                 env[key] = value
 

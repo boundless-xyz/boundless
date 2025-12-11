@@ -14,6 +14,11 @@
     # Broker configuration (can be overridden via extra-vars from deploy wizard)
     broker_max_concurrent_proofs: "{{ broker_max_concurrent_proofs | default(1) | int }}"
     broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights | default(2) | int }}"
+    broker_peak_prove_khz: "{{ broker_peak_prove_khz | default(100) | int }}"
+    broker_min_mcycle_price: "{{ broker_min_mcycle_price | default('0.00000001') | string }}"
+    broker_min_mcycle_price_collateral_token: "{{ broker_min_mcycle_price_collateral_token | default('0.00005') | string }}"
+    broker_priority_requestor_lists: "{{ broker_priority_requestor_lists | default(['https://requestors.boundless.network/boundless-recommended-priority-list.standard.json']) }}"
+    broker_allow_client_addresses: "{{ broker_allow_client_addresses | default([]) }}"
 
   tasks:
     # Debug: Show bind address variables
@@ -97,5 +102,10 @@
       vars:
         broker_max_concurrent_proofs: "{{ broker_max_concurrent_proofs }}"
         broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights }}"
+        broker_peak_prove_khz: "{{ broker_peak_prove_khz }}"
+        broker_min_mcycle_price: "{{ broker_min_mcycle_price }}"
+        broker_min_mcycle_price_collateral_token: "{{ broker_min_mcycle_price_collateral_token }}"
+        broker_priority_requestor_lists: "{{ broker_priority_requestor_lists }}"
+        broker_allow_client_addresses: "{{ broker_allow_client_addresses }}"
       tags:
         - broker
