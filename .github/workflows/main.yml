@@ -416,8 +416,18 @@ jobs:
       - name: install blake3 groth16 artifacts
         if: matrix.workspace == 'examples/blake3-groth16'
         run: |
-          mkdir -p $HOME/.risc0/blake3_groth16
-          curl -L https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz | tar -xJ -C $HOME/.risc0/blake3_groth16 --strip-components=1
+          set -euxo pipefail
+          export BLAKE3_GROTH16_SETUP_DIR="$HOME/.risc0/blake3_groth16"
+
+          mkdir -p "$BLAKE3_GROTH16_SETUP_DIR"
+          curl -L -o /tmp/blake3_groth16_artifacts.tar.xz \
+            "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
+          tar -xJf /tmp/blake3_groth16_artifacts.tar.xz \
+            -C "$BLAKE3_GROTH16_SETUP_DIR" --strip-components=1
+          rm -f /tmp/blake3_groth16_artifacts.tar.xz
+
+          echo "Contents of setup dir:"
+          ls -R "$BLAKE3_GROTH16_SETUP_DIR"
 
       - name: RUST_LOG="debug" cargo test
         run: cargo test --all-features --locked -- --nocapture
