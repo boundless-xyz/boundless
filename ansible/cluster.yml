@@ -40,6 +40,26 @@
       prompt: "Enter Broker RPC URL (or press Enter for default or set BROKER_RPC_URL env var)"
       default: "https://rpc.boundless.network"
       private: false
+    - name: bento_gpu_count
+      prompt: "Enter number of GPU/prove agents (or set BENTO_GPU_COUNT env var)"
+      default: "1"
+      private: false
+    - name: bento_exec_count
+      prompt: "Enter number of execute agents (or set BENTO_EXEC_COUNT env var)"
+      default: "4"
+      private: false
+    - name: bento_aux_count
+      prompt: "Enter number of aux agents (or set BENTO_AUX_COUNT env var)"
+      default: "2"
+      private: false
+    - name: bento_segment_po2
+      prompt: "Enter segment PO2 value (or set SEGMENT_PO2 env var)"
+      default: "20"
+      private: false
+    - name: bento_keccak_po2
+      prompt: "Enter keccak PO2 value (or set KECCAK_PO2 env var)"
+      default: "17"
+      private: false
 
   vars:
     # Check environment variables first, then use prompted values or defaults
@@ -53,10 +73,6 @@
     broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(broker_rpc_url | default('https://rpc.boundless.network', true), true) }}"
     # Install dependencies by default (can be overridden via -e or inventory)
     bento_install_dependencies: true
-    # Agent counts (can be overridden via extra-vars from deploy wizard)
-    bento_gpu_count: "{{ bento_gpu_count | default(1) | int }}"
-    bento_exec_count: "{{ bento_exec_count | default(4) | int }}"
-    bento_aux_count: "{{ bento_aux_count | default(2) | int }}"
     # Broker configuration (can be overridden via extra-vars from deploy wizard)
     broker_max_concurrent_proofs: "{{ broker_max_concurrent_proofs | default(1) | int }}"
     broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights | default(2) | int }}"
@@ -72,6 +88,18 @@
         ])
       }}
     broker_allow_client_addresses: "{{ broker_allow_client_addresses | default([]) }}"
+
+  pre_tasks:
+    # Set agent counts and configuration from env vars, vars_prompt, or defaults
+    # This runs after vars_prompt but before main tasks, avoiding recursion
+    - name: Set bento service counts and configuration
+      ansible.builtin.set_fact:
+        bento_gpu_count: "{{ lookup('env', 'BENTO_GPU_COUNT') | default(bento_gpu_count | default('1', true), true) | int }}"
+        bento_exec_count: "{{ lookup('env', 'BENTO_EXEC_COUNT') | default(bento_exec_count | default('4', true), true) | int }}"
+        bento_aux_count: "{{ lookup('env', 'BENTO_AUX_COUNT') | default(bento_aux_count | default('2', true), true) | int }}"
+        bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(bento_segment_po2 | default('20', true), true) | int }}"
+        bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(bento_keccak_po2 | default('17', true), true) | int }}"
+      tags: always
 
   tasks:
     # Validate required variables
@@ -151,6 +179,8 @@
         bento_task: "prove"
         bento_install_dependencies: false
         bento_count: "{{ bento_gpu_count }}"
+        bento_segment_po2: "{{ bento_segment_po2 }}"
+        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-prove
@@ -161,6 +191,8 @@
       vars:
         bento_task: "api"
         bento_install_dependencies: false
+        bento_segment_po2: "{{ bento_segment_po2 }}"
+        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-api
@@ -172,6 +204,8 @@
         bento_task: "exec"
         bento_install_dependencies: false
         bento_count: "{{ bento_exec_count }}"
+        bento_segment_po2: "{{ bento_segment_po2 }}"
+        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-exec
@@ -183,6 +217,8 @@
         bento_task: "aux"
         bento_install_dependencies: false
         bento_count: "{{ bento_aux_count }}"
+        bento_segment_po2: "{{ bento_segment_po2 }}"
+        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-aux
