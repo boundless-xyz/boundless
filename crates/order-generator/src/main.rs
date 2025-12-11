@@ -178,6 +178,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .min_price_per_cycle(args.min_price_per_mcycle >> 20)
                 .max_price_per_cycle(args.max_price_per_mcycle >> 20)
         })
+        .with_use_available_funds(true)
         .build()
         .await?;
 
