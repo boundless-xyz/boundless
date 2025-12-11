@@ -425,7 +425,7 @@ jobs:
         env:
           RUST_LOG: "info"
           RISC0_INFO: 1
-          BLAKE3_GROTH16_SETUP_DIR: $HOME/.risc0/blake3_groth16
+          BLAKE3_GROTH16_SETUP_DIR: ${{ env.HOME }}/.risc0/blake3_groth16
           USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
 
       - name: sccache stats
