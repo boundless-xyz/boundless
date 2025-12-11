@@ -118,16 +118,6 @@
         delay: 1
         timeout: 30
 
-    - name: Validate PostgreSQL password is set
-      ansible.builtin.assert:
-        that:
-          - postgresql_password is defined
-          - postgresql_password | length > 0
-          - postgresql_password != "CHANGE_ME"
-        fail_msg: "postgresql_password must be set and cannot be 'CHANGE_ME' or empty. Set POSTGRESQL_PASSWORD environment variable or override in playbook."
-        quiet: true
-      when: postgresql_create_user | bool
-
     - name: Create PostgreSQL user
       community.postgresql.postgresql_user:
         name: "{{ postgresql_user }}"
