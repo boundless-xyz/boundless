@@ -1,0 +1,23 @@
+apiVersion: 1
+
+datasources:
+  - name: postgres-taskdb
+    type: postgres
+    url: {{ grafana_postgresql_host }}:{{ grafana_postgresql_port }}
+    user: {{ grafana_postgresql_user }}
+    access: proxy
+    basicAuth: false
+    isDefault: true
+    secureJsonData:
+      password: '{{ grafana_postgresql_password }}'
+    jsonData:
+      sslmode: disable
+      database: {{ grafana_postgresql_database }}
+      maxIdleConnsAuto: true
+      maxIdleConns: 5
+      maxOpenConns: 5
+      connMaxLifetime: 14400
+      postgresVersion: 1500
+      timescaledb: false
+    version: 1
+    editable: true

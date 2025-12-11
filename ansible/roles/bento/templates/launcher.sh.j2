@@ -1,0 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
+# Launcher script for Bento {{ bento_task }} service
+# Starts {{ bento_count | default(1) | int }} instance(s) in parallel
+
+{% if bento_task == 'api' %}
+# API service (single instance)
+{{ bento_install_dir }}/bento-rest-api --bind-addr {{ bento_api_url }}
+{% elif bento_task == 'prove' %}
+# Prove services (GPU workers)
+{% if bento_count | default(1) | int > 1 %}
+for id in $(seq 0 $(({{ bento_count | default(1) | int }} - 1))); do
+  CUDA_VISIBLE_DEVICES=$id {{ bento_install_dir }}/bento-agent -t prove --redis-ttl {{ bento_redis_ttl }} &
+done
+{% else %}
+{{ bento_install_dir }}/bento-agent -t prove --redis-ttl {{ bento_redis_ttl }} &
+{% endif %}
+{% elif bento_task == 'aux' %}
+# Aux service
+{% if bento_count | default(1) | int > 1 %}
+for id in $(seq 0 $(({{ bento_count | default(1) | int }} - 1))); do
+  {{ bento_install_dir }}/bento-agent -t aux --monitor-requeue --redis-ttl {{ bento_redis_ttl }} &
+done
+{% else %}
+{{ bento_install_dir }}/bento-agent -t aux --monitor-requeue --redis-ttl {{ bento_redis_ttl }} &
+{% endif %}
+{% else %}
+# Exec or other services
+{% if bento_count | default(1) | int > 1 %}
+for id in $(seq 0 $(({{ bento_count | default(1) | int }} - 1))); do
+  {{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }} &
+done
+{% else %}
+{{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }} &
+{% endif %}
+{% endif %}
+
+# Wait for all processes to exit
+wait
+

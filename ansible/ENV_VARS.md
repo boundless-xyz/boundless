@@ -1,148 +1,175 @@
-# Environment Variables for Secrets
+# Configuration Variables
 
-This Ansible setup supports sourcing secrets from environment variables, making it easy to use temporary contexts, CI/CD pipelines, and secret management systems.
+This Ansible setup uses Ansible's built-in variable system for configuration management. Variables can be set at multiple levels with clear precedence.
+
+## Variable Precedence
+
+Ansible variable precedence (highest to lowest):
+
+1. **Command-line variables** (`-e var=value`)
+2. **Host variables** (`host_vars/HOSTNAME/main.yml` or `host_vars/HOSTNAME/vault.yml`)
+3. **Group variables** (`group_vars/all/*.yml`)
+4. **Role defaults** (`roles/*/defaults/main.yml`)
 
 ## Quick Start
 
-Set environment variables before running playbooks:
+### Using Host Variables (Recommended)
+
+Create host-specific configuration files:
 
 ```bash
-export POSTGRESQL_PASSWORD="secure_password"
-export MINIO_ROOT_PASSWORD="secure_password"
-export BROKER_PRIVATE_KEY="0x..."
-export BROKER_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
-
-ansible-playbook -i inventory.yml broker.yml
+# Non-sensitive configuration
+nano ansible/host_vars/prover-01/main.yml
 ```
 
-## Supported Environment Variables
+```yaml
+# host_vars/prover-01/main.yml
+postgresql_host: "10.0.1.10"
+valkey_host: "10.0.1.10"
+minio_host: "10.0.1.10"
+bento_install_dependencies: false
+```
+
+For sensitive values, use Ansible Vault:
+
+```bash
+# Create encrypted vault file
+ansible-vault create ansible/host_vars/prover-01/vault.yml
+```
+
+```yaml
+# host_vars/prover-01/vault.yml (encrypted)
+postgresql_password: "secure_password"
+minio_root_user: "s3_access_key"
+minio_root_password: "s3_secret_key"
+broker_private_key: "0x..."
+```
+
+### Using Command-Line Variables
+
+```bash
+ansible-playbook -i inventory.yml broker.yml \
+  -e postgresql_password="secure_password" \
+  -e broker_private_key="0x..."
+```
+
+## Configuration Variables
 
 ### PostgreSQL
 
-* `POSTGRESQL_USER` (default: `bento`)
-* `POSTGRESQL_PASSWORD` (default: `CHANGE_ME` - **must be set**)
-* `POSTGRESQL_HOST` (default: `localhost`)
-* `POSTGRESQL_PORT` (default: `5432`)
-* `POSTGRESQL_DATABASE` (default: `bento`)
+Set in `host_vars` or via `-e`:
 
-### MinIO
+* `postgresql_user` (default: `"bento"`)
+* `postgresql_password` (default: `"CHANGE_ME"` - **must be set**)
+* `postgresql_host` (default: `"localhost"`)
+* `postgresql_port` (default: `5432`)
+* `postgresql_database` (default: `"bento"`)
 
-* `MINIO_ROOT_USER` (default: `minioadmin`)
-* `MINIO_ROOT_PASSWORD` (default: `minioadmin` - **should be changed**)
+### MinIO/S3
+
+Set in `host_vars` or via `-e`:
+
+* `minio_host` (default: `"localhost"`)
+* `minio_port` (default: `9000`)
+* `minio_root_user` (default: `"minioadmin"`)
+* `minio_root_password` (default: `"minioadmin"` - **should be changed**)
+
+Bento S3 configuration automatically uses MinIO credentials:
+
+* `bento_s3_bucket` (default: `"bento"`)
+* `bento_s3_url` (default: `http://{{ minio_host }}:{{ minio_port }}`)
+* `bento_s3_access_key` (default: `{{ minio_root_user }}`)
+* `bento_s3_secret_key` (default: `{{ minio_root_password }}`)
+* `bento_s3_region` (default: `"auto"`)
+
+### Valkey (Redis)
+
+Set in `host_vars` or via `-e`:
+
+* `valkey_host` (default: `"localhost"`)
+* `valkey_port` (default: `6379`)
+* `valkey_bind` (default: `"127.0.0.1"`)
+* `valkey_maxmemory` (default: `"12gb"`)
 
 ### Broker
 
-* `BROKER_POSTGRESQL_USER` (default: empty)
-* `BROKER_POSTGRESQL_PASSWORD` (default: empty)
-* `BROKER_POSTGRESQL_HOST` (default: `localhost`)
-* `BROKER_POSTGRESQL_PORT` (default: `5432`)
-* `BROKER_POSTGRESQL_DATABASE` (default: `broker`)
-* `BROKER_BENTO_API_URL` (default: `http://localhost:8080`)
-* `BROKER_RPC_URL` or `RPC_URL` (default: empty - **required for broker**)
-* `BROKER_PRIVATE_KEY` or `PRIVATE_KEY` (default: empty - **required for broker**)
+Set in `host_vars` or via `-e`:
+
+* `broker_bento_api_url` (default: `"http://localhost:8081"`)
+* `broker_rpc_url` (default: `"https://rpc.boundless.network"` - **should be overridden**)
+* `broker_private_key` (default: zero key - **must be set**)
+* `broker_min_mcycle_price` (default: `"0.0000003"`)
+* `broker_peak_prove_khz` (default: `100`)
+* `broker_max_collateral` (default: `"200"`)
+* `broker_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`)
 
 ### Bento
 
-* `BENTO_S3_BUCKET` (default: `bento`)
-* `BENTO_S3_ACCESS_KEY` (default: uses `MINIO_ROOT_USER`)
-* `BENTO_S3_SECRET_KEY` (default: uses `MINIO_ROOT_PASSWORD`)
-* `BENTO_S3_URL` (default: uses MinIO host/port)
-* `BENTO_S3_REGION` (default: `auto`)
-* `BENTO_REWARDS_ADDRESS` (default: empty)
-* `BENTO_POVW_LOG_ID` (default: empty)
+Set in `host_vars` or via `-e`:
 
-## Usage Examples
+* `bento_task` (default: `"prove"`): Service type (prove, exec, aux, api)
+* `bento_count` (default: `1`): Number of instances
+* `bento_segment_po2` (default: `20`)
+* `bento_keccak_po2` (default: `17`)
+* `bento_rewards_address` (default: `""`)
+* `bento_povw_log_id` (default: `""`)
+* `bento_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`)
 
-### Using a .env file
+## Remote Worker Node Configuration
 
-Create `.env` file:
+For worker nodes connecting to remote services, create `host_vars/HOSTNAME/main.yml`:
 
-```bash
-# .env
-export POSTGRESQL_PASSWORD="secure_password_123"
-export MINIO_ROOT_PASSWORD="secure_minio_password"
-export BROKER_PRIVATE_KEY="0x1234567890abcdef..."
-export BROKER_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
+```yaml
+# Disable local service installation
+postgresql_install: false
+valkey_install: false
+minio_install: false
+bento_install_dependencies: false
+
+# Point to remote services
+postgresql_host: "10.0.1.10"  # Manager node IP
+postgresql_port: 5432
+postgresql_user: "bento"
+# postgresql_password: Set in vault.yml
+
+valkey_host: "10.0.1.10"
+valkey_port: 6379
+
+minio_host: "10.0.1.10"
+minio_port: 9000
+# minio_root_user: Set in vault.yml
+# minio_root_password: Set in vault.yml
+
+# Bento service configuration
+bento_task: "prove"
+bento_count: 1
 ```
 
-Source it before running:
+See `host_vars/prover-01/main.yml` for a complete example.
+
+## Ansible Vault
+
+For sensitive values, use Ansible Vault:
 
 ```bash
-source .env
-ansible-playbook -i inventory.yml broker.yml
+# Create encrypted vault file
+ansible-vault create host_vars/prover-01/vault.yml
+
+# Edit existing vault file
+ansible-vault edit host_vars/prover-01/vault.yml
+
+# View vault file
+ansible-vault view host_vars/prover-01/vault.yml
 ```
 
-### Using direnv
-
-Create `.envrc`:
+When running playbooks with vault files:
 
 ```bash
-# .envrc
-export POSTGRESQL_PASSWORD="secure_password_123"
-export MINIO_ROOT_PASSWORD="secure_minio_password"
-export BROKER_PRIVATE_KEY="0x1234567890abcdef..."
-export BROKER_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
-```
+# Prompt for vault password
+ansible-playbook -i inventory.yml cluster.yml --ask-vault-pass
 
-Then:
-
-```bash
-direnv allow
-ansible-playbook -i inventory.yml broker.yml
-```
-
-### Using AWS Secrets Manager
-
-```bash
-# Fetch secrets from AWS Secrets Manager
-export POSTGRESQL_PASSWORD=$(aws secretsmanager get-secret-value \
-  --secret-id boundless/postgresql/password \
-  --query SecretString --output text)
-
-export BROKER_PRIVATE_KEY=$(aws secretsmanager get-secret-value \
-  --secret-id boundless/broker/private-key \
-  --query SecretString --output text)
-
-ansible-playbook -i inventory.yml broker.yml
-```
-
-### Using Bitwarden CLI
-
-```bash
-# Unlock Bitwarden
-export BW_SESSION=$(bw unlock --raw)
-
-# Fetch secrets
-export POSTGRESQL_PASSWORD=$(bw get password "PostgreSQL - Boundless")
-export BROKER_PRIVATE_KEY=$(bw get password "Broker Private Key")
-
-ansible-playbook -i inventory.yml broker.yml
-```
-
-### Using HashiCorp Vault
-
-```bash
-# Authenticate with Vault
-export VAULT_TOKEN=$(vault login -method=userpass username=myuser -format=json | jq -r .auth.client_token)
-
-# Fetch secrets
-export POSTGRESQL_PASSWORD=$(vault kv get -field=password secret/boundless/postgresql)
-export BROKER_PRIVATE_KEY=$(vault kv get -field=private_key secret/boundless/broker)
-
-ansible-playbook -i inventory.yml broker.yml
-```
-
-### Using 1Password CLI
-
-```bash
-# Authenticate
-eval $(op signin)
-
-# Fetch secrets
-export POSTGRESQL_PASSWORD=$(op read "op://Boundless/PostgreSQL/password")
-export BROKER_PRIVATE_KEY=$(op read "op://Boundless/Broker/private-key")
-
-ansible-playbook -i inventory.yml broker.yml
+# Or use vault password file
+ansible-playbook -i inventory.yml cluster.yml --vault-password-file ~/.vault_pass
 ```
 
 ## CI/CD Integration
@@ -152,11 +179,13 @@ ansible-playbook -i inventory.yml broker.yml
 ```yaml
 - name: Run Ansible playbook
   env:
-    POSTGRESQL_PASSWORD: ${{ secrets.POSTGRESQL_PASSWORD }}
-    BROKER_PRIVATE_KEY: ${{ secrets.BROKER_PRIVATE_KEY }}
-    BROKER_RPC_URL: ${{ secrets.BROKER_RPC_URL }}
+    ANSIBLE_VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
   run: |
-    ansible-playbook -i inventory.yml broker.yml
+    echo "$ANSIBLE_VAULT_PASSWORD" > .vault_pass
+    ansible-playbook -i inventory.yml cluster.yml \
+      --vault-password-file .vault_pass \
+      -e postgresql_password="${{ secrets.POSTGRESQL_PASSWORD }}" \
+      -e broker_private_key="${{ secrets.BROKER_PRIVATE_KEY }}"
 ```
 
 ### GitLab CI
@@ -164,130 +193,52 @@ ansible-playbook -i inventory.yml broker.yml
 ```yaml
 deploy:
   script:
-    - export POSTGRESQL_PASSWORD="$POSTGRESQL_PASSWORD"
-    - export BROKER_PRIVATE_KEY="$BROKER_PRIVATE_KEY"
-    - ansible-playbook -i inventory.yml broker.yml
+    - echo "$VAULT_PASSWORD" > .vault_pass
+    - ansible-playbook -i inventory.yml cluster.yml \
+        --vault-password-file .vault_pass \
+        -e postgresql_password="$POSTGRESQL_PASSWORD" \
+        -e broker_private_key="$BROKER_PRIVATE_KEY"
   variables:
     POSTGRESQL_PASSWORD: $POSTGRESQL_PASSWORD
     BROKER_PRIVATE_KEY: $BROKER_PRIVATE_KEY
 ```
 
-### Jenkins
-
-```groovy
-pipeline {
-    agent any
-    environment {
-        POSTGRESQL_PASSWORD = credentials('postgresql-password')
-        BROKER_PRIVATE_KEY = credentials('broker-private-key')
-    }
-    stages {
-        stage('Deploy') {
-            steps {
-                sh 'ansible-playbook -i inventory.yml broker.yml'
-            }
-        }
-    }
-}
-```
-
-## Variable Precedence
-
-Ansible variable precedence (highest to lowest):
-
-1. **Command line variables** (`-e var=value`)
-2. **Environment variables** (via `lookup('env', 'VAR')`)
-3. **Playbook variables** (`vars:` in playbook)
-4. **Inventory variables** (`host_vars/`, `group_vars/`)
-5. **Role defaults** (what we've set up)
-
-This means environment variables will override defaults but can be overridden by command-line or playbook variables.
-
 ## Security Best Practices
 
-1. **Never commit `.env` files to git**
-   * Add `.env` to `.gitignore`
-   * Use `.env.example` as a template
+1. **Never commit unencrypted vault files** to git
+   * Add `*.vault.yml` to `.gitignore` if not using ansible-vault
+   * Use `ansible-vault encrypt` for sensitive files
 
 2. **Use secure secret management**
-   * AWS Secrets Manager
-   * HashiCorp Vault
-   * Bitwarden
-   * 1Password
+   * Ansible Vault (built-in)
+   * AWS Secrets Manager (fetch and pass via `-e`)
+   * HashiCorp Vault (fetch and pass via `-e`)
    * CI/CD secret stores
 
-3. **Clear environment after use**
-   ```bash
-   unset POSTGRESQL_PASSWORD
-   unset BROKER_PRIVATE_KEY
-   ```
+3. **Separate environments**
+   * Different `host_vars` for different environments
+   * Use inventory groups for environment separation
 
-4. **Use separate contexts**
-   * Different `.env` files for different environments
-   * Use `direnv` for automatic context switching
-
-5. **Rotate secrets regularly**
-   * Update environment variables when rotating secrets
-   * No need to re-encrypt vault files
-
-## Example: Complete Setup Script
-
-Create `scripts/load-secrets.sh`:
-
-```bash
-#!/bin/bash
-# Load secrets from your preferred secret manager
-
-set -e
-
-# Option 1: Load from .env file
-if [ -f .env ]; then
-    source .env
-fi
-
-# Option 2: Load from AWS Secrets Manager
-if command -v aws &> /dev/null; then
-    export POSTGRESQL_PASSWORD=$(aws secretsmanager get-secret-value \
-        --secret-id boundless/postgresql/password \
-        --query SecretString --output text 2>/dev/null || echo "")
-fi
-
-# Option 3: Load from Bitwarden
-if command -v bw &> /dev/null && [ -n "$BW_SESSION" ]; then
-    export BROKER_PRIVATE_KEY=$(bw get password "Broker Private Key" 2>/dev/null || echo "")
-fi
-
-# Validate required secrets
-if [ -z "$POSTGRESQL_PASSWORD" ] || [ "$POSTGRESQL_PASSWORD" = "CHANGE_ME" ]; then
-    echo "ERROR: POSTGRESQL_PASSWORD must be set"
-    exit 1
-fi
-
-echo "Secrets loaded successfully"
-```
-
-Then use it:
-
-```bash
-source scripts/load-secrets.sh
-ansible-playbook -i inventory.yml broker.yml
-```
+4. **Rotate secrets regularly**
+   * Update vault files when rotating secrets
+   * Re-encrypt vault files after updates
 
 ## Troubleshooting
 
-### "Variable is empty"
+### "Variable is undefined"
 
-* Check that the environment variable is set: `echo $POSTGRESQL_PASSWORD`
-* Verify variable name matches exactly (case-sensitive)
-* Check if variable is exported: `export POSTGRESQL_PASSWORD="value"`
+* Check variable name spelling (case-sensitive)
+* Verify variable is set in the correct precedence level
+* Check if variable is defined in role defaults
 
-### "Default value used instead of env var"
+### "Default value used instead of custom value"
 
-* Ensure variable is exported, not just set: `export VAR=value`
-* Check variable precedence (command-line vars override env vars)
+* Check variable precedence (command-line vars override host\_vars)
+* Verify variable name matches exactly
+* Check for typos in variable names
 
-### "Secrets not loading in CI/CD"
+### "Vault password required"
 
-* Verify secrets are set in CI/CD secret store
-* Check that secrets are exported in the CI/CD environment
-* Use `ansible-playbook ... -e "var=value"` to pass secrets directly
+* Use `--ask-vault-pass` to prompt for password
+* Or use `--vault-password-file` with a password file
+* Ensure vault password file has correct permissions (`chmod 600`)

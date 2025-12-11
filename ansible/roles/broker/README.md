@@ -21,10 +21,11 @@ None - all variables have defaults, but you should override them based on your e
 #### Installation Configuration
 
 * `broker_version` (default: `"v1.1.1"`): Version of Broker to install
-* `broker_user` (default: `"ubuntu"`): User to run the service as
+* `broker_user` (default: `"broker"`): User to run the service as
+* `broker_group` (default: `"broker"`): Group for the broker user
 * `broker_install_dir` (default: `"/usr/local/bin"`): Directory to install binary
-* `broker_config_dir` (default: `"/opt/boundless"`): Directory for configuration files
-* `broker_work_dir` (default: `"/opt/boundless"`): Working directory for the service
+* `broker_config_dir` (default: `"/etc/boundless"`): Directory for configuration files (shared with Bento)
+* `broker_work_dir` (default: `"/etc/boundless"`): Working directory for the service
 
 #### Service Configuration
 
@@ -35,17 +36,23 @@ None - all variables have defaults, but you should override them based on your e
 
 #### Bento API Configuration
 
-* `broker_bento_api_url` (default: `"http://localhost:8080"`): URL of the Bento REST API
+* `broker_bento_api_url` (default: `"http://localhost:8081"`): URL of the Bento REST API
 
 #### Broker Market Configuration
 
-* `broker_min_mcycle_price` (default: `"0.00000001"`): Minimum price per mega-cycle to lock orders
-* `broker_min_mcycle_price_collateral_token` (default: `"0.00005"`): Minimum price per mega-cycle in collateral token
+* `broker_min_mcycle_price` (default: `"0.0000003"`): Minimum price per mega-cycle
+* `broker_min_mcycle_price_collateral_token` (default: `"0"`): Minimum price per mega-cycle in collateral token
 * `broker_peak_prove_khz` (default: `100`): Estimated peak performance in kHz
 * `broker_max_collateral` (default: `"200"`): Maximum collateral amount in ZKC
-* `broker_max_concurrent_preflights` (default: `2`): Maximum concurrent preflight tasks
+* `broker_max_concurrent_preflights` (default: `4`): Maximum concurrent preflight tasks (auto-calculated from CPU count if not set)
 * `broker_max_concurrent_proofs` (default: `1`): Maximum concurrent proof tasks
 * `broker_priority_requestor_lists` (default: list with Boundless recommended list): List of priority requestor list URLs
+* `broker_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`): Prometheus metrics endpoint
+
+#### Ethereum Configuration
+
+* `broker_rpc_url` (default: `"https://rpc.boundless.network"`): Ethereum RPC URL (**should be overridden**)
+* `broker_private_key` (default: zero key): Private key for signing transactions (**must be set**)
 
 ## Dependencies
 
@@ -53,7 +60,7 @@ None
 
 ## Example Playbook
 
-### Basic SQLite Configuration
+### Basic Configuration
 
 ```yaml
 ---
@@ -64,23 +71,7 @@ None
       vars:
         broker_version: "v1.2.0"
         broker_bento_api_url: "http://localhost:8080"
-        broker_db_type: "sqlite"
         broker_db_url: "sqlite:///opt/boundless/broker.db"
-```
-
-### PostgreSQL Configuration
-
-```yaml
----
-- hosts: brokers
-  become: true
-  roles:
-    - role: broker
-      vars:
-        broker_version: "v1.2.0"
-        broker_bento_api_url: "http://bento-api.example.com:8080"
-        broker_peak_prove_khz: 200
-        broker_max_concurrent_proofs: 4
 ```
 
 ### Custom Market Configuration
@@ -108,9 +99,12 @@ None
 * **Idempotent**: Safe to run multiple times
 * **Service Management**: Properly manages systemd service with handlers
 * **Configuration Management**: Creates broker.toml configuration file from template
-* **Database Support**: Supports both SQLite and PostgreSQL databases
-* **Directory Management**: Creates necessary directories with proper permissions
+* **Database Support**: Uses SQLite database (the only supported database type)
+* **Directory Management**: Creates necessary directories with proper permissions (shared `/etc/boundless/` directory)
+* **Ansible Variable System**: All configuration variables follow Ansible's standard variable precedence (host\_vars → group\_vars → defaults)
+* **Prometheus Metrics**: Configurable Prometheus metrics endpoint (defaults to `127.0.0.1:9090`)
 * **Clean Installation**: Downloads, installs binary, and cleans up temporary files
+* **Dedicated User**: Creates a dedicated `broker` system user with proper directory structure and permissions
 
 ## Handlers
 
@@ -125,11 +119,54 @@ None
 
 2. **Bento API Dependency**: The broker requires the Bento REST API to be running and accessible at the configured URL.
 
-3. **Database Choice**:
-   * SQLite is simpler for single-instance deployments
-   * PostgreSQL is recommended for production or multi-instance deployments
+3. **Database**: Broker only supports SQLite. The database file is stored at the location specified in `broker_db_url`.
 
-4. **Performance Tuning**: Adjust `broker_peak_prove_khz`, `broker_max_concurrent_preflights`, and `broker_max_concurrent_proofs` based on your hardware capabilities and benchmarking results.
+4. **Performance Tuning**: Adjust `broker_peak_prove_khz`, `broker_max_concurrent_preflights`, and `broker_max_concurrent_proofs` based on your hardware capabilities and benchmarking results. `broker_max_concurrent_preflights` is automatically calculated from CPU count if not set.
+
+5. **Shared Directory**: Broker shares `/etc/boundless/` with Bento services. This directory must have `0755` permissions and be owned by `root:root` to allow both services to access it.
+
+6. **Private Key**: The `broker_private_key` must be set (not the default zero key). Set it in `host_vars/HOSTNAME/vault.yml` or via command-line (`-e broker_private_key="0x..."`).
+
+## Troubleshooting
+
+### Service Not Starting
+
+Check service status and logs:
+
+```bash
+systemctl status broker
+journalctl -u broker -f
+journalctl -u broker -n 100
+```
+
+### Permission Issues
+
+If broker can't access `/etc/boundless/`:
+
+```bash
+# Check directory permissions
+ls -ld /etc/boundless/
+# Should be: drwxr-xr-x root root
+# Fix: sudo chmod 0755 /etc/boundless && sudo chown root:root /etc/boundless
+```
+
+### Configuration Issues
+
+Verify broker configuration:
+
+```bash
+cat /etc/boundless/broker.toml
+# Check that all required values are set (not defaults)
+```
+
+### Database Issues
+
+Check SQLite database:
+
+```bash
+ls -l /etc/boundless/broker.db
+# Should be readable/writable by broker user
+```
 
 ## License
 

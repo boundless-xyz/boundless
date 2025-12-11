@@ -10,11 +10,11 @@ postgresql_service_state: started
 # Secrets can be set via environment variables (preferred) or overridden in playbooks
 # Environment variables: POSTGRESQL_USER, POSTGRESQL_PASSWORD, POSTGRESQL_HOST, POSTGRESQL_PORT, POSTGRESQL_DATABASE
 # Note: default(..., true) handles empty strings from env vars
-postgresql_user: "{{ lookup('env', 'POSTGRESQL_USER') | default('bento', true) | string }}"
-postgresql_password: "{{ lookup('env', 'POSTGRESQL_PASSWORD') | default('CHANGE_ME', true) | string }}"
-postgresql_host: "{{ lookup('env', 'POSTGRESQL_HOST') | default('127.0.0.1', true) | string }}"
-postgresql_port: "{{ lookup('env', 'POSTGRESQL_PORT') | default('5432', true) | int }}"
-postgresql_database: "{{ lookup('env', 'POSTGRESQL_DATABASE') | default('bento', true) | string }}"
+postgresql_user: "bento"
+postgresql_password: "CHANGE_ME"
+postgresql_host: "127.0.0.1"
+postgresql_port: 5432
+postgresql_database: "bento"
 
 # Database creation
 postgresql_create_db: true
@@ -23,7 +23,7 @@ postgresql_create_user: true
 # Network configuration
 # Set to '*' or '0.0.0.0' to listen on all interfaces, or specific IP address
 # Can be set via POSTGRESQL_LISTEN_ADDRESSES environment variable
-postgresql_listen_addresses: "{{ lookup('env', 'POSTGRESQL_LISTEN_ADDRESSES') | default('localhost', true) | string }}"
+postgresql_listen_addresses: "localhost"
 
 # PostgreSQL host-based authentication (pg_hba.conf) entries
 # List of dictionaries with keys: type, database, user, address, method

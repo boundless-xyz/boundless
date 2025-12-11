@@ -8,13 +8,11 @@ User={{ broker_user }}
 Group={{ broker_group }}
 WorkingDirectory={{ broker_work_dir }}
 Environment=RUST_LOG={{ broker_rust_log }}
-{% if broker_rpc_url | default('') != '' %}
 Environment=RPC_URL={{ broker_rpc_url }}
-{% endif %}
-{% if broker_private_key | default('') != '' %}
 Environment=PRIVATE_KEY={{ broker_private_key }}
-{% endif %}
-ExecStart={{ broker_install_dir }}/broker --config-file {{ broker_config_file }} --bento-api-url {{ broker_bento_api_url }} --db-url '{{ broker_db_url_final }}'
+Environment=PROMETHEUS_METRICS_ADDR={{ broker_prometheus_metrics_addr }}
+
+ExecStart={{ broker_install_dir }}/broker --config-file {{ broker_config_file }} --bento-api-url {{ broker_bento_api_url }} --db-url '{{ broker_db_url }}'
 Restart=always
 RestartSec=10
 TimeoutStartSec={{ broker_timeout_start_sec }}

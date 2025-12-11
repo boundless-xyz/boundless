@@ -4,15 +4,12 @@
   block:
     - name: Install PostgreSQL
       ansible.builtin.apt:
-        name: postgresql
+        name:
+          - acl
+          - postgresql
+          - postgresql-client
+          - python3-psycopg2
         state: present
-        update_cache: true
-
-    - name: Install Python PostgreSQL library (psycopg2)
-      ansible.builtin.apt:
-        name: python3-psycopg2
-        state: present
-        update_cache: true
 
     - name: Ensure PostgreSQL service is enabled and started
       ansible.builtin.systemd:
@@ -67,41 +64,19 @@
         - postgresql
         - postgresql-config
 
-    - name: Ensure pg_hba.conf entries exist
-      ansible.builtin.lineinfile:
-        path: "{{ postgresql_hba_path }}"
-        regexp: >-
-          ^{{ item.type }}\s+{{ item.database }}\s+{{ item.user }}\s+
-          {{ item.address | replace('.', '\\.') | replace('/', '\\/') }}\s+
-          {{ item.method }}$
-        line: "{{ item.type }}\t{{ item.database }}\t{{ item.user }}\t{{ item.address }}\t{{ item.method }}"
+    - name: Configure pg_hba.conf from template
+      ansible.builtin.template:
+        src: pg_hba.conf.j2
+        dest: "{{ postgresql_hba_path }}"
+        mode: '0640'
+        owner: postgres
+        group: postgres
         backup: true
-        state: present
-      loop: "{{ postgresql_hba_entries }}"
-      when:
-        - postgresql_version_dirs.files | length > 0
-        - postgresql_hba_entries | default([]) | length > 0
+      when: postgresql_version_dirs.files | length > 0
       notify: Reload PostgreSQL service
       tags:
         - postgresql
         - postgresql-config
-
-    - name: Wait for PostgreSQL to be ready
-      ansible.builtin.wait_for:
-        port: "{{ postgresql_port }}"
-        host: "{{ postgresql_host }}"
-        delay: 1
-        timeout: 30
-
-    - name: Validate PostgreSQL password is set
-      ansible.builtin.assert:
-        that:
-          - postgresql_password is defined
-          - postgresql_password | length > 0
-          - postgresql_password != "CHANGE_ME"
-        fail_msg: "postgresql_password must be set and cannot be 'CHANGE_ME' or empty. Set POSTGRESQL_PASSWORD environment variable or override in playbook."
-        quiet: true
-      when: postgresql_create_user | bool
 
     - name: Create PostgreSQL user
       community.postgresql.postgresql_user:
@@ -111,6 +86,7 @@
         login_user: postgres
         login_unix_socket: /var/run/postgresql
       become: true
+      become_user: postgres
       when: postgresql_create_user | bool
 
     - name: Create PostgreSQL database
@@ -121,4 +97,5 @@
         login_user: postgres
         login_unix_socket: /var/run/postgresql
       become: true
+      become_user: postgres
       when: postgresql_create_db | bool

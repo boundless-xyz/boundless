@@ -229,3 +229,47 @@
         - rzup
         - rzup-install
         - rzup-groth16
+
+- name: Verify groth16 component installation
+  when:
+    - rzup_install_groth16 | bool
+    - rzup_final_check.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-groth16
+  block:
+    - name: Check installed groth16 component
+      ansible.builtin.shell: |
+        set -o pipefail
+        export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+        export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+        {{ rzup_bin_path }} list 2>/dev/null | grep -E "risc0-groth16" || true
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: >-
+          {{
+            ansible_facts['env']['PATH'] |
+            default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', true)
+          }}:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin
+        RISC0_HOME: "{{ rzup_risc0_home_dir }}"
+      become: true
+      become_user: "{{ rzup_user }}"
+      register: rzup_installed_components
+      changed_when: false
+      failed_when: false
+
+    - name: Verify risc0-groth16 binary exists
+      ansible.builtin.stat:
+        path: "{{ rzup_risc0_home_dir }}/bin/risc0-groth16"
+      register: rzup_risc0_groth16_binary
+      failed_when: false
+      changed_when: false
+
+    - name: Warn if risc0-groth16 binary is missing
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: risc0-groth16 binary not found at {{ rzup_risc0_home_dir }}/bin/risc0-groth16.
+          Installation may have failed or binary may be in a different location.
+      when: not rzup_risc0_groth16_binary.stat.exists | default(false)

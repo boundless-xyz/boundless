@@ -1,27 +1,4 @@
 ---
-- name: Validate required Bento configuration
-  ansible.builtin.assert:
-    that:
-      - bento_postgresql_password is defined
-      - bento_postgresql_password | length > 0
-      - bento_postgresql_password != "CHANGE_ME"
-      - bento_postgresql_host is defined
-      - bento_postgresql_host | length > 0
-      - bento_valkey_host is defined
-      - bento_valkey_host | length > 0
-      - bento_s3_access_key is defined
-      - bento_s3_access_key | length > 0
-      - bento_s3_secret_key is defined
-      - bento_s3_secret_key | length > 0
-    fail_msg: |
-      Required Bento configuration is missing or invalid.
-      Ensure POSTGRESQL_PASSWORD, POSTGRESQL_HOST, VALKEY_HOST,
-      BENTO_S3_ACCESS_KEY, and BENTO_S3_SECRET_KEY are set.
-    quiet: true
-  tags:
-    - bento
-    - always
-
 - name: Check if Bento user exists
   tags:
     - bento
@@ -58,6 +35,17 @@
     - bento
     - bento-user
 
+- name: Create Bento working directory
+  ansible.builtin.file:
+    path: "{{ bento_work_dir }}"
+    state: directory
+    mode: '0750'
+    owner: "{{ bento_user }}"
+    group: "{{ bento_group }}"
+  tags:
+    - bento
+    - bento-config
+
 - name: Install Rust for bento user
   ansible.builtin.include_role:
     name: rust
@@ -70,7 +58,7 @@
     - bento-install
     - rust
 
-- name: Install rzup and risc0-groth16 for bento user
+- name: Install rzup, risc0-groth16, and blake3-groth16 for bento user
   ansible.builtin.include_role:
     name: rzup
   vars:
@@ -78,6 +66,7 @@
     rzup_group: "{{ bento_group }}"
     rzup_home: "{{ bento_home }}"
     rzup_install_groth16: true
+    rzup_install_blake3_groth16: true
   tags:
     - bento
     - bento-install
@@ -227,18 +216,19 @@
     mode: '0640'
     owner: root
     group: "{{ bento_group }}"
-  notify: Restart Bento service instances
+  notify: Restart all Bento services
   tags:
     - bento
     - bento-config
 
-- name: Set service file path based on count
-  ansible.builtin.set_fact:
-    bento_service_file: >-
-      {%- if bento_count | default(1) | int > 1 -%}
-      /etc/systemd/system/bento-{{ bento_task }}@.service{%- else -%}
-      /etc/systemd/system/bento-{{ bento_task }}.service{%- endif -%}
-    bento_service_count: "{{ bento_count | default(1) | int }}"
+- name: Create Bento launcher script
+  ansible.builtin.template:
+    src: launcher.sh.j2
+    dest: "{{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh"
+    mode: '0755'
+    owner: "{{ bento_user }}"
+    group: "{{ bento_group }}"
+  notify: Restart Bento service
   tags:
     - bento
     - bento-service
@@ -246,27 +236,23 @@
 - name: Create Bento service file
   ansible.builtin.template:
     src: bento.service.j2
-    dest: "{{ bento_service_file }}"
+    dest: "/etc/systemd/system/bento-{{ bento_task }}.service"
     mode: '0644'
     owner: root
     group: root
   notify:
     - Reload systemd
-    - Restart Bento service instances
+    - Restart Bento service
   tags:
     - bento
     - bento-service
 
-- name: Ensure Bento service instances are enabled and started
+- name: Ensure Bento service is enabled and started
   ansible.builtin.systemd:
-    name: >-
-      {%- if bento_service_count | int > 1 -%}
-      bento-{{ bento_task }}@{{ item }}{%- else -%}
-      bento-{{ bento_task }}{%- endif -%}
+    name: "bento-{{ bento_task }}"
     enabled: "{{ bento_service_enabled }}"
     state: "{{ bento_service_state }}"
     daemon_reload: true
-  loop: "{{ range(0, bento_service_count | int) | list }}"
   when: bento_service_state != "stopped"
   tags:
     - bento

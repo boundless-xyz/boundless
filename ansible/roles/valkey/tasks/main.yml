@@ -6,7 +6,6 @@
       ansible.builtin.apt:
         name: valkey-server
         state: present
-        update_cache: true
 
     - name: Configure Valkey
       ansible.builtin.template:

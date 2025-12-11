@@ -1,32 +1,4 @@
 ---
-- name: Check if Broker user exists
-  ansible.builtin.getent:
-    database: passwd
-    key: "{{ broker_user }}"
-  register: broker_user_check
-  changed_when: false
-  failed_when: false
-  ignore_errors: true
-
-- name: Create Broker group
-  ansible.builtin.group:
-    name: "{{ broker_group }}"
-    state: present
-    system: true
-
-- name: Create Broker user
-  ansible.builtin.user:
-    name: "{{ broker_user }}"
-    group: "{{ broker_group }}"
-    home: "{{ broker_home }}"
-    shell: "{{ broker_shell }}"
-    system: true
-    create_home: true
-    comment: "Boundless Broker service user"
-  when: >
-    broker_user_check.ansible_facts.getent_passwd is not defined or
-    broker_user not in (broker_user_check.ansible_facts.getent_passwd | default({}))
-
 - name: Check if Broker binary is already installed
   ansible.builtin.stat:
     path: "{{ broker_install_dir }}/broker"
@@ -62,13 +34,13 @@
         path: /tmp/broker.sha256
         state: absent
 
-- name: Create Broker home directory
+- name: Ensure /etc/boundless exists (shared parent directory)
   ansible.builtin.file:
-    path: "{{ broker_home }}"
+    path: "/etc/boundless"
     state: directory
-    mode: '0750'
-    owner: "{{ broker_user }}"
-    group: "{{ broker_group }}"
+    mode: '0755'
+    owner: root
+    group: root
 
 - name: Create Broker configuration directory
   ansible.builtin.file:
@@ -77,19 +49,6 @@
     mode: '0750'
     owner: "{{ broker_user }}"
     group: "{{ broker_group }}"
-
-- name: Create Broker working directory
-  ansible.builtin.file:
-    path: "{{ broker_work_dir }}"
-    state: directory
-    mode: '0750'
-    owner: "{{ broker_user }}"
-    group: "{{ broker_group }}"
-
-- name: Set database URL based on type
-  ansible.builtin.set_fact:
-    broker_db_url_final: "{{ broker_db_url }}"
-  when: broker_db_type == "sqlite"
 
 - name: Create Broker configuration file
   ansible.builtin.template:

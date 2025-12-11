@@ -4,47 +4,47 @@ This Ansible role installs and configures MinIO, an S3-compatible object storage
 
 ## Requirements
 
-* Ansible 2.9 or higher
-* Ubuntu 22.04 or 24.04
-* Root or sudo access
+- Ansible 2.9 or higher
+- Ubuntu 22.04 or 24.04
+- Root or sudo access
 
 ## Role Variables
 
 ### Installation
 
-* `minio_install` (default: `true`): Whether to install MinIO
-* `minio_version` (default: `"latest"`): Version of MinIO to install (currently always uses latest)
+- `minio_install` (default: `true`): Whether to install MinIO
+- `minio_version` (default: `"latest"`): Version of MinIO to install (currently always uses latest)
 
 ### Service Configuration
 
-* `minio_service_enabled` (default: `true`): Enable MinIO service at boot
-* `minio_service_state` (default: `started`): Service state (started, stopped, restarted)
+- `minio_service_enabled` (default: `true`): Enable MinIO service at boot
+- `minio_service_state` (default: `started`): Service state (started, stopped, restarted)
 
 ### User Configuration
 
-* `minio_user` (default: `"minio"`): System user for MinIO service
-* `minio_group` (default: `"minio"`): System group for MinIO service
-* `minio_home` (default: `"/var/lib/minio"`): Home directory for MinIO user
-* `minio_shell` (default: `"/usr/sbin/nologin"`): Shell for MinIO user
+- `minio_user` (default: `"minio"`): System user for MinIO service
+- `minio_group` (default: `"minio"`): System group for MinIO service
+- `minio_home` (default: `"/var/lib/minio"`): Home directory for MinIO user
+- `minio_shell` (default: `"/usr/sbin/nologin"`): Shell for MinIO user
 
 ### Network Configuration
 
-* `minio_host` (default: `"localhost"`): Hostname for MinIO
-* `minio_port` (default: `9000`): Port for MinIO API
-* `minio_console_port` (default: `9001`): Port for MinIO web console
-* `minio_bind` (default: `"0.0.0.0"`): Bind address for MinIO
+- `minio_host` (default: `"localhost"`): Hostname for MinIO
+- `minio_port` (default: `9000`): Port for MinIO API
+- `minio_console_port` (default: `9001`): Port for MinIO web console
+- `minio_bind` (default: `"0.0.0.0"`): Bind address for MinIO
 
 ### Credentials
 
-* `minio_root_user` (default: `"minioadmin"`): Root user access key (should be changed)
-* `minio_root_password` (default: `"minioadmin"`): Root user secret key (should be changed)
+- `minio_root_user` (default: `"minioadmin"`): Root user access key (should be changed)
+- `minio_root_password` (default: `"minioadmin"`): Root user secret key (should be changed)
 
 ### Directory Configuration
 
-* `minio_data_dir` (default: `"/var/lib/minio/data"`): Data directory for MinIO
-* `minio_config_dir` (default: `"/etc/minio"`): Configuration directory
-* `minio_log_dir` (default: `"/var/log/minio"`): Log directory
-* `minio_install_dir` (default: `"/usr/local/bin"`): Installation directory for binary
+- `minio_data_dir` (default: `"/var/lib/minio/data"`): Data directory for MinIO
+- `minio_config_dir` (default: `"/etc/minio"`): Configuration directory
+- `minio_log_dir` (default: `"/var/log/minio"`): Log directory
+- `minio_install_dir` (default: `"/usr/local/bin"`): Installation directory for binary
 
 ## Dependencies
 
@@ -87,10 +87,10 @@ To use MinIO with the Bento role, set the following variables:
 
 ## Notes
 
-* The default credentials (`minioadmin`/`minioadmin`) should be changed in production
-* MinIO will be accessible at `http://{{ minio_bind }}:{{ minio_port }}` for API and `http://{{ minio_bind }}:{{ minio_console_port }}` for web console
-* The service runs as a dedicated `minio` user for security
-* MinIO uses `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` environment variables for authentication
+- The default credentials (`minioadmin`/`minioadmin`) should be changed in production
+- MinIO will be accessible at `http://{{ minio_bind }}:{{ minio_port }}` for API and `http://{{ minio_bind }}:{{ minio_console_port }}` for web console
+- The service runs as a dedicated `minio` user for security
+- MinIO uses `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` environment variables for authentication
 
 ## License
 

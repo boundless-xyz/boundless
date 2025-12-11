@@ -3,54 +3,51 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
-- name: Restart Bento service instances
+- name: Restart Bento service
   ansible.builtin.systemd:
-    name: >-
-      {%- if bento_count | default(1) | int > 1 -%}
-      bento-{{ bento_task }}@{{ item }}{%- else -%}
-      bento-{{ bento_task }}{%- endif -%}
+    name: "bento-{{ bento_task }}"
     state: restarted
     enabled: "{{ bento_service_enabled | bool }}"
-  loop: "{{ range(0, bento_count | default(1) | int) | list }}"
-  register: bento_restart_result
   failed_when: false
 
-- name: Warn about failed service restarts
+- name: Get all Bento service names
+  ansible.builtin.shell: |
+    set -o pipefail
+    # List all bento services (both regular and template instances)
+    systemctl list-units --type=service --all --no-pager --no-legend | \
+      grep -E 'bento-(prove|api|exec|aux)(@[0-9]+)?\.service' | \
+      awk '{print $1}' || true
+  args:
+    executable: /bin/bash
+  register: bento_all_services_list
+  changed_when: false
+  failed_when: false
+
+- name: Restart all Bento services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+  loop: "{{ bento_all_services_list.stdout_lines | default([]) }}"
+  register: bento_all_restart_result
+  failed_when: false
+  ignore_errors: true
+
+- name: Warn about failed all-bento service restarts
   ansible.builtin.debug:
-    msg: >-
-      WARNING: Failed to restart bento-{{ bento_task }}{% if bento_count | default(1) | int > 1 %}@{{ item.item }}{% endif %}.
-      Service may need manual intervention.
-  loop: "{{ bento_restart_result.results | default([]) }}"
+    msg: "WARNING: Failed to restart {{ item.item }}. Service may need manual intervention."
+  loop: "{{ bento_all_restart_result.results | default([]) }}"
   when: item.failed | default(false)
   failed_when: false
 
-- name: Start Bento service instances
+- name: Start Bento service
   ansible.builtin.systemd:
-    name: >-
-      {%- if bento_count | default(1) | int > 1 -%}
-      bento-{{ bento_task }}@{{ item }}{%- else -%}
-      bento-{{ bento_task }}{%- endif -%}
+    name: "bento-{{ bento_task }}"
     state: started
     enabled: "{{ bento_service_enabled | bool }}"
-  loop: "{{ range(0, bento_count | default(1) | int) | list }}"
-  register: bento_start_result
   failed_when: false
 
-- name: Warn about failed service starts
-  ansible.builtin.debug:
-    msg: >-
-      WARNING: Failed to start bento-{{ bento_task }}{% if bento_count | default(1) | int > 1 %}@{{ item.item }}{% endif %}.
-      Service may need manual intervention.
-  loop: "{{ bento_start_result.results | default([]) }}"
-  when: item.failed | default(false)
-  failed_when: false
-
-- name: Stop Bento service instances
+- name: Stop Bento service
   ansible.builtin.systemd:
-    name: >-
-      {%- if bento_count | default(1) | int > 1 -%}
-      bento-{{ bento_task }}@{{ item }}{%- else -%}
-      bento-{{ bento_task }}{%- endif -%}
+    name: "bento-{{ bento_task }}"
     state: stopped
-  loop: "{{ range(0, bento_count | default(1) | int) | list }}"
   failed_when: false

@@ -2,11 +2,11 @@
 # Broker version to install
 broker_version: "v1.1.1"
 
-# Service user
-broker_user: "broker"
-broker_group: "broker"
-broker_home: "/var/lib/broker"
-broker_shell: "/usr/sbin/nologin"
+# Service user (uses bento_user from bento role)
+# These default to "bento" if bento_user is not defined
+broker_user: "{{ bento_user | default('bento') }}"
+broker_group: "{{ bento_group | default('bento') }}"
+broker_home: "{{ bento_home | default('/var/lib/bento') }}"
 broker_rust_log: "info"
 # Service timeouts
 broker_timeout_start_sec: 1800
@@ -14,8 +14,8 @@ broker_timeout_stop_sec: 300
 
 # Installation paths
 broker_install_dir: "/usr/local/bin"
-broker_config_dir: "/opt/boundless"
-broker_work_dir: "/opt/boundless"
+broker_config_dir: "/etc/boundless/broker"
+broker_work_dir: "/etc/boundless/broker"
 
 # Broker configuration file
 broker_config_file: "{{ broker_config_dir }}/broker.toml"
@@ -27,7 +27,7 @@ broker_db_type: "sqlite"  # sqlite or postgresql
 # Bento API configuration
 # Environment variable: BROKER_BENTO_API_URL
 # Note: default(..., true) handles empty strings from env vars
-broker_bento_api_url: "{{ lookup('env', 'BROKER_BENTO_API_URL') | default('http://127.0.0.1:8080', true) | string }}"
+broker_bento_api_url: "http://localhost:8081"
 
 # Ethereum RPC configuration
 # Environment variable: BROKER_RPC_URL or RPC_URL
@@ -36,6 +36,19 @@ broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(lookup('env', 'RPC
 # Private key configuration
 # Environment variable: BROKER_PRIVATE_KEY or PRIVATE_KEY
 broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(lookup('env', 'PRIVATE_KEY') | default('', true), true) | string }}"
+
+# Prometheus metrics configuration
+# Environment variable: PROMETHEUS_METRICS_ADDR or BROKER_PROMETHEUS_METRICS_ADDR
+broker_prometheus_metrics_addr: >-
+  {{
+    lookup('env', 'PROMETHEUS_METRICS_ADDR') |
+    default(
+      lookup('env', 'BROKER_PROMETHEUS_METRICS_ADDR') |
+      default('127.0.0.1:9090', true),
+      true
+    ) |
+    string
+  }}
 
 # Broker TOML configuration
 broker_min_mcycle_price: "0.00000001"

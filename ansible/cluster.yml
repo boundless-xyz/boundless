@@ -1,23 +1,25 @@
 ---
+# Boundless Prover Deployment Playbook
+#
+# This playbook deploys a complete Boundless prover stack including:
+# - PostgreSQL database
+# - Valkey (Redis-compatible) cache
+# - MinIO object storage
+# - Bento proving agents (prove, execute, aux, api)
+# - Broker service
+#
+# Usage:
+#   ansible-playbook -i inventory.yml cluster.yml
+#
+# Required Variables:
+#   See validation task below for required variables and setup instructions.
+#
 - name: Deploy Boundless Prover
   hosts: all
   become: true
   gather_facts: true
 
-  vars:
-    # Install dependencies by default (can be overridden via -e or inventory)
-    bento_install_dependencies: true
-
   tasks:
-    # Debug: Show bind address variables
-    - name: Display bind address configuration
-      ansible.builtin.debug:
-        msg:
-          - "postgresql_listen_addresses: {{ postgresql_listen_addresses }}"
-          - "valkey_bind: {{ valkey_bind }}"
-          - "minio_bind: {{ minio_bind }}"
-      tags: always
-
     # Dependencies - only run if bento_install_dependencies is true
     - name: Deploy PostgreSQL
       ansible.builtin.include_role:
@@ -47,7 +49,7 @@
       vars:
         bento_task: "prove"
         bento_install_dependencies: false
-        bento_count: 1
+        bento_count: "{{ bento_gpu_count }}"
       tags:
         - bento
         - bento-prove
@@ -68,7 +70,7 @@
       vars:
         bento_task: "exec"
         bento_install_dependencies: false
-        bento_count: 4
+        bento_count: "{{ bento_exec_count }}"
       tags:
         - bento
         - bento-exec
@@ -79,7 +81,7 @@
       vars:
         bento_task: "aux"
         bento_install_dependencies: false
-        bento_count: 2
+        bento_count: "{{ bento_aux_count }}"
       tags:
         - bento
         - bento-aux

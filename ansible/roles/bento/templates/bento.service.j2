@@ -1,5 +1,5 @@
 [Unit]
-Description=Boundless Bento {{ bento_task }} Service{% if bento_count | default(1) | int > 1 %} Instance %i{% endif %}
+Description=Boundless Bento {{ bento_task }} Service ({{ bento_count | default(1) | int }} instance(s))
 
 {% if bento_install_dependencies | default(true) | bool %}
 After=network.target postgresql.service valkey-server.service
@@ -16,17 +16,8 @@ EnvironmentFile={{ bento_config_dir }}/bento.env
 Environment="RISC0_HOME={{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}"
 Environment="PATH=/usr/local/bin:{{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 WorkingDirectory={{ bento_work_dir }}
-{% if bento_task == 'api' %}
-ExecStart={{ bento_install_dir }}/bento-rest-api
-{% elif bento_task == 'prove' %}
-{% if bento_count | default(1) | int > 1 %}
-Environment=CUDA_VISIBLE_DEVICES=%i
-{% endif %}
-ExecStart={{ bento_install_dir }}/bento-agent -t {{ bento_task }}
-{% else %}
-ExecStart={{ bento_install_dir }}/bento-agent -t {{ bento_task }}
-{% endif %}
-SyslogIdentifier=bento-{{ bento_task }}{% if bento_count | default(1) | int > 1 %}-%i{% endif %}
+ExecStart={{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh
+SyslogIdentifier=bento-{{ bento_task }}
 
 Restart=always
 RestartSec=10

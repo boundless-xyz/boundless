@@ -28,7 +28,7 @@ None - all variables have defaults, but you should override them based on your e
 * `bento_install_dir` (default: `"/usr/local/bin"`): Directory to install binaries
 * `bento_config_dir` (default: `"/etc/boundless"`): Directory for configuration files (root-owned, readable by bento group)
 * `bento_work_dir` (default: `"/var/lib/bento"`): Working directory for the service
-* `bento_count` (default: `1`): Number of service instances to deploy (when > 1, uses systemd template units)
+* `bento_count` (default: `1`): Number of service instances to deploy (when > 1, launcher script starts multiple instances in parallel)
 * `bento_install_dependencies` (default: `true`): Whether to install PostgreSQL, Valkey, and MinIO on this host
 
 #### Service Configuration
@@ -38,11 +38,12 @@ None - all variables have defaults, but you should override them based on your e
 * `bento_agent_timeout_start_sec` (default: `1800`): Service start timeout in seconds
 * `bento_agent_timeout_stop_sec` (default: `300`): Service stop timeout in seconds
 
-#### Environment Variables
+#### Bento Configuration
 
-* `bento_segment_po2` (default: `20`): Segment size (number of r0vm cycles per segment)
-* `bento_keccak_po2` (default: `17`): Keccak size (number of r0vm cycles per keccak)
+* `bento_segment_po2` (default: `20`): Segment size parameter
+* `bento_keccak_po2` (default: `17`): Keccak size parameter
 * `bento_rust_log` (default: `"info"`): Rust logging level
+* `bento_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`): Prometheus metrics endpoint
 
 #### Database Configuration
 
@@ -71,19 +72,22 @@ See the `valkey` role documentation for the actual variables to set.
 
 #### S3 Configuration
 
-**Important**: S3 configuration variables are defined in `group_vars/all/main.yml` to ensure consistency. They can be overridden via environment variables.
+**Important**: S3 configuration variables reference MinIO settings by default. Override in `host_vars` for remote connections.
 
-* `bento_s3_bucket`: S3 bucket name (defaults to `"bento"` or `BENTO_S3_BUCKET` env var)
-* `bento_s3_access_key`: S3 access key (defaults to MinIO root user or `BENTO_S3_ACCESS_KEY` env var)
-* `bento_s3_secret_key`: S3 secret key (defaults to MinIO root password or `BENTO_S3_SECRET_KEY` env var)
-* `bento_s3_url`: S3 URL (defaults to `http://{minio_host}:{minio_port}` or `BENTO_S3_URL` env var)
-* `bento_s3_region`: S3 region (defaults to `"auto"` or `BENTO_S3_REGION` env var)
+* `bento_s3_bucket` (default: `"bento"`): S3 bucket name
+* `bento_s3_access_key` (default: `{{ minio_root_user }}`): S3 access key (matches MinIO root user)
+* `bento_s3_secret_key` (default: `{{ minio_root_password }}`): S3 secret key (matches MinIO root password)
+* `bento_s3_url` (default: `http://{{ minio_host }}:{{ minio_port }}`): S3 URL
+* `bento_s3_region` (default: `"auto"`): S3 region
 
 #### Other Configuration
 
-* `bento_rewards_address`: Rewards address (empty by default, can be set via `BENTO_REWARDS_ADDRESS` env var)
-* `bento_povw_log_id`: POVW log ID (empty by default, can be set via `POVW_LOG_ID` env var)
+* `bento_rewards_address` (default: `""`): Rewards address
+* `bento_povw_log_id` (default: `""`): POVW log ID
 * `bento_risc0_home_service`: RISC0\_HOME directory for the service (defaults to `{{ bento_home }}/.risc0`, automatically set by rzup role)
+* `bento_gpu_count` (default: `1`): Number of GPU prove workers
+* `bento_exec_count` (default: `4`): Number of exec workers
+* `bento_aux_count` (default: `2`): Number of aux workers
 
 ## Dependencies
 
@@ -119,9 +123,9 @@ These roles are automatically included when deploying Bento. Make sure all requi
         postgresql_database: "bento"
         # Valkey configuration
         valkey_maxmemory: "12gb"
-        # S3 configuration (or set via environment variables)
-        # bento_s3_bucket, bento_s3_access_key, bento_s3_secret_key, bento_s3_url
-        # are defined in group_vars/all/main.yml and can be overridden via env vars
+        # S3 configuration (uses MinIO credentials by default)
+        minio_root_user: "minioadmin"
+        minio_root_password: "secure_password"
 ```
 
 **Note**: The `postgresql_user` and `postgresql_password` you set here will be:
@@ -140,29 +144,49 @@ These roles are automatically included when deploying Bento. Make sure all requi
       vars:
         bento_version: "v1.2.0"
         bento_task: "prove"
-        # Disable local installation, use external services
-        postgresql_install: false
-        valkey_install: false
+        bento_install_dependencies: false  # Skip local service installation
         # Configure external service endpoints
-        bento_postgresql_user: "bento_user"
-        bento_postgresql_password: "secure_password"
-        bento_postgresql_host: "db.example.com"
-        bento_valkey_host: "valkey.example.com"
+        postgresql_install: false
+        postgresql_host: "db.example.com"
+        postgresql_user: "bento_user"
+        postgresql_password: "secure_password"
+        valkey_install: false
+        valkey_host: "valkey.example.com"
+        minio_install: false
+        minio_host: "s3.example.com"
+        minio_root_user: "s3_access_key"
+        minio_root_password: "s3_secret_key"
+```
+
+**Better approach**: Set these in `host_vars/HOSTNAME/main.yml` for persistent configuration:
+
+```yaml
+# host_vars/prover-01/main.yml
+postgresql_install: false
+postgresql_host: "db.example.com"
+valkey_install: false
+valkey_host: "valkey.example.com"
+minio_install: false
+minio_host: "s3.example.com"
+bento_install_dependencies: false
 ```
 
 ## Features
 
 * **Idempotent**: Safe to run multiple times
-* **Service Management**: Properly manages systemd service with handlers, supports multiple instances via template units
-* **Configuration Management**: Creates environment file and service file from templates
-* **Directory Management**: Creates necessary directories with proper permissions
+* **Launcher Script Architecture**: Uses launcher scripts to start multiple instances per service type, simplifying systemd configuration
+* **Service Management**: Properly manages systemd service with handlers, supports multiple instances via launcher scripts
+* **Configuration Management**: Creates environment file, launcher scripts, and service file from templates
+* **Directory Management**: Creates necessary directories with proper permissions (shared `/etc/boundless/` directory)
 * **Clean Installation**: Downloads, extracts, installs binaries, and cleans up temporary files
 * **Database Support**: Integrates with `postgresql` role for PostgreSQL installation and configuration
 * **Valkey Support**: Integrates with `valkey` role for Valkey (Redis fork) installation and configuration
-* **S3 Support**: Integrates with `minio` role for MinIO S3-compatible storage
+* **S3 Support**: Integrates with `minio` role for MinIO S3-compatible storage (credentials automatically synchronized)
 * **Rust Support**: Automatically installs Rust for the bento user via `rust` role
-* **RISC Zero Support**: Automatically installs rzup and risc0-groth16 for Groth16 proof generation via `rzup` role
+* **RISC Zero Support**: Automatically installs rzup, risc0-groth16, and blake3-groth16 for Groth16 proof generation via `rzup` role
 * **Credential Matching**: Automatically uses credentials from dependent roles, ensuring consistency
+* **Ansible Variable System**: All configuration variables follow Ansible's standard variable precedence (host\_vars → group\_vars → defaults)
+* **Prometheus Metrics**: Configurable Prometheus metrics endpoint (defaults to `127.0.0.1:9090`)
 * **Dedicated User**: Creates a dedicated `bento` system user with proper directory structure and permissions
 * **Security**: Service runs as non-root user with appropriate file permissions and systemd security settings
 * **Worker Node Support**: Can deploy to worker nodes without local dependencies by setting `bento_install_dependencies: false`
@@ -173,6 +197,98 @@ These roles are automatically included when deploying Bento. Make sure all requi
 * `Restart Bento service`: Restarts the Bento service
 * `Start Bento service`: Starts the Bento service
 * `Stop Bento service`: Stops the Bento service
+* `Restart all Bento services`: Restarts all Bento services (used when environment file changes)
+
+## Service Architecture
+
+### Launcher Script Approach
+
+Each Bento service type uses a launcher script that:
+
+1. Starts multiple instances in parallel (when `bento_count > 1`)
+2. Handles GPU assignment for prove workers (`CUDA_VISIBLE_DEVICES`)
+3. Waits for all processes to complete
+
+**Launcher Scripts**:
+
+* `/etc/boundless/bento-prove-launcher.sh` - Starts GPU prove workers
+* `/etc/boundless/bento-api-launcher.sh` - Starts REST API
+* `/etc/boundless/bento-exec-launcher.sh` - Starts exec workers
+* `/etc/boundless/bento-aux-launcher.sh` - Starts aux workers
+
+**Systemd Units**:
+
+* `/etc/systemd/system/bento-prove.service`
+* `/etc/systemd/system/bento-api.service`
+* `/etc/systemd/system/bento-exec.service`
+* `/etc/systemd/system/bento-aux.service`
+
+### Directory Permissions
+
+**Critical**: The `/etc/boundless/` directory must have `0755` permissions and be owned by `root:root` to allow both `bento` and `broker` users to access it.
+
+**File Permissions**:
+
+* Launcher scripts: `0755`, owned by `bento:bento`
+* Environment file: `0640`, owned by `root:bento`
+* Config directory: `0755`, owned by `root:root`
+
+## Troubleshooting
+
+### Permission Denied Errors
+
+If services fail with "Permission denied" (exit code 126/203):
+
+1. **Check directory permissions**:
+   ```bash
+   ls -ld /etc/boundless/
+   # Should show: drwxr-xr-x root root
+   # Fix: sudo chmod 0755 /etc/boundless && sudo chown root:root /etc/boundless
+   ```
+
+2. **Check script permissions**:
+   ```bash
+   ls -l /etc/boundless/bento-*-launcher.sh
+   # Should show: -rwxr-xr-x bento bento
+   # Fix: sudo chmod +x /etc/boundless/bento-*-launcher.sh
+   ```
+
+3. **Test script manually**:
+   ```bash
+   sudo -u bento /etc/boundless/bento-aux-launcher.sh
+   ```
+
+4. **Reset systemd state**:
+   ```bash
+   sudo systemctl reset-failed bento-{task}
+   sudo systemctl daemon-reload
+   ```
+
+### Service Restart Loops
+
+Check logs for errors:
+
+```bash
+journalctl -u bento-{task} -n 50
+```
+
+Common causes:
+
+* Script exits immediately (check launcher script)
+* Binary not found (check `bento_install_dir`)
+* Environment variables missing (check `bento.env`)
+* Port conflicts (for API service)
+
+### Multiple Instances Not Starting
+
+Verify launcher script uses `for` loop with `&` to background processes and `wait` at end.
+
+### Check Service Status
+
+```bash
+systemctl status bento-prove bento-api bento-exec bento-aux
+journalctl -u bento-prove -f
+```
 
 ## License
 

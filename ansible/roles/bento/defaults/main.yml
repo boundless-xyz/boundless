@@ -15,14 +15,14 @@ bento_shell: "/usr/sbin/nologin"
 bento_agent_timeout_start_sec: 1800
 bento_agent_timeout_stop_sec: 300
 
-# Environment variables
+# Bento configuration
 bento_segment_po2: 20
 bento_keccak_po2: 17
 bento_rust_log: "info"
 
 # Database configuration
-# These reference group_vars/all/main.yml variables to ensure consistency across the codebase
-# The group vars handle fallback to environment variables or defaults
+# These reference group_vars/all/postgresql.yml variables
+# Can be overridden in host_vars for remote connections
 bento_postgresql_user: "{{ postgresql_user }}"
 bento_postgresql_password: "{{ postgresql_password }}"
 bento_postgresql_host: "{{ postgresql_host }}"
@@ -30,21 +30,26 @@ bento_postgresql_port: "{{ postgresql_port }}"
 bento_postgresql_database: "{{ postgresql_database }}"
 
 # Valkey (Redis) configuration
-# These reference group_vars/all/main.yml variables to ensure consistency across the codebase
-# The group vars handle fallback to environment variables or defaults
+# These reference group_vars/all/valkey.yml variables
+# Can be overridden in host_vars for remote connections
 bento_valkey_host: "{{ valkey_host }}"
 bento_valkey_port: "{{ valkey_port }}"
 
 # S3 configuration
-# These reference group_vars/all/main.yml variables to ensure consistency across the codebase
-# The group vars handle fallback to environment variables or defaults
-# bento_s3_bucket, bento_s3_access_key, bento_s3_secret_key, bento_s3_url are defined in group_vars/all/main.yml
-bento_s3_region: "{{ lookup('env', 'BENTO_S3_REGION') | default('auto', true) | string }}"
+# These reference group_vars/all/bento.yml or can be overridden in host_vars
+# S3 credentials match MinIO root credentials by default
+bento_s3_bucket: "bento"
+bento_s3_url: "http://{{ minio_host | default('localhost') }}:{{ minio_port | default(9000) }}"
+bento_s3_access_key: "{{ minio_root_user | default('minioadmin') }}"
+bento_s3_secret_key: "{{ minio_root_password | default('minioadmin') }}"
+bento_s3_region: "auto"
 
 # Other configuration
-# Environment variables: BENTO_REWARDS_ADDRESS, BENTO_POVW_LOG_ID
-bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default('', true) | string }}"
-bento_povw_log_id: "{{ lookup('env', 'BENTO_POVW_LOG_ID') | default('', true) | string }}"
+bento_rewards_address: ""
+bento_povw_log_id: ""
+
+# Prometheus metrics configuration
+bento_prometheus_metrics_addr: "127.0.0.1:9090"
 
 # Installation paths
 bento_install_dir: "/usr/local/bin"
