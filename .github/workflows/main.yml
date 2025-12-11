@@ -390,6 +390,7 @@ jobs:
         working-directory: ${{ matrix.workspace }}
 
       - name: forge build
+        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge build
         working-directory: contracts
 
@@ -404,10 +405,12 @@ jobs:
           RISC0_SKIP_BUILD: 1
 
       - name: forge fmt
+        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge fmt --check
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: forge test
+        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
 
