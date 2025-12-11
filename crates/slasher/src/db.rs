@@ -73,10 +73,7 @@ impl PgDb {
 
     /// Construct a new [PgDb] from a connection string
     pub async fn new(conn_str: &str) -> Result<Self, DbError> {
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(conn_str)
-            .await?;
+        let pool = PgPoolOptions::new().max_connections(5).connect(conn_str).await?;
 
         Self::from_pool(pool).await
     }
@@ -307,7 +304,7 @@ mod tests {
     #[sqlx::test]
     async fn get_last_block_none(pool: PgPool) {
         let db = setup_test_db(pool).await;
-        
+
         // Initially no block should be set
         let result = db.get_last_block().await.unwrap();
         assert!(result.is_none());
@@ -316,15 +313,15 @@ mod tests {
     #[sqlx::test]
     async fn set_last_block_conflict_update(pool: PgPool) {
         let db = setup_test_db(pool).await;
-        
+
         // Set initial block
         db.set_last_block(100).await.unwrap();
         assert_eq!(db.get_last_block().await.unwrap().unwrap(), 100);
-        
+
         // Update with ON CONFLICT - should update existing row
         db.set_last_block(200).await.unwrap();
         assert_eq!(db.get_last_block().await.unwrap().unwrap(), 200);
-        
+
         // Update again
         db.set_last_block(300).await.unwrap();
         assert_eq!(db.get_last_block().await.unwrap().unwrap(), 300);
@@ -333,31 +330,31 @@ mod tests {
     #[sqlx::test]
     async fn get_expired_orders_multiple(pool: PgPool) {
         let db = setup_test_db(pool).await;
-        
+
         let id1 = U256::from(1);
         let id2 = U256::from(2);
         let id3 = U256::from(3);
-        
+
         // Add orders with different expiration times
         db.add_order(id1, 10, 5).await.unwrap(); // expires at 10
         db.add_order(id2, 20, 15).await.unwrap(); // expires at 20
         db.add_order(id3, 30, 25).await.unwrap(); // expires at 30
-        
+
         // No expired orders at timestamp 5
         let expired = db.get_expired_orders(5).await.unwrap();
         assert!(expired.is_empty());
-        
+
         // Only id1 expired at timestamp 15
         let expired = db.get_expired_orders(15).await.unwrap();
         assert_eq!(expired.len(), 1);
         assert!(expired.contains(&id1));
-        
+
         // id1 and id2 expired at timestamp 25
         let expired = db.get_expired_orders(25).await.unwrap();
         assert_eq!(expired.len(), 2);
         assert!(expired.contains(&id1));
         assert!(expired.contains(&id2));
-        
+
         // All expired at timestamp 35
         let expired = db.get_expired_orders(35).await.unwrap();
         assert_eq!(expired.len(), 3);
@@ -370,21 +367,21 @@ mod tests {
     async fn add_order_duplicate_prevention(pool: PgPool) {
         let db = setup_test_db(pool).await;
         let id = U256::from(42);
-        
+
         // Add order first time
         db.add_order(id, 100, 50).await.unwrap();
         assert!(db.order_exists(id).await.unwrap());
-        
+
         // Try to add same order again - should not create duplicate
         db.add_order(id, 100, 50).await.unwrap();
-        
+
         // Verify only one order exists
         let result = db.get_order(id).await.unwrap();
         assert!(result.is_some());
         let (expires_at, lock_expires_at) = result.unwrap();
         assert_eq!(expires_at, 100);
         assert_eq!(lock_expires_at, 50);
-        
+
         // Verify order_exists still returns true (not duplicated)
         assert!(db.order_exists(id).await.unwrap());
     }
@@ -393,15 +390,15 @@ mod tests {
     async fn add_order_with_zero_expires(pool: PgPool) {
         let db = setup_test_db(pool).await;
         let id = U256::from(99);
-        
+
         // Try to add order with expires_at = 0 - should not be stored
         db.add_order(id, 0, 50).await.unwrap();
         assert!(!db.order_exists(id).await.unwrap());
-        
+
         // Try to add order with lock_expires_at = 0 - should not be stored
         db.add_order(id, 100, 0).await.unwrap();
         assert!(!db.order_exists(id).await.unwrap());
-        
+
         // Try to add order with both = 0 - should not be stored
         db.add_order(id, 0, 0).await.unwrap();
         assert!(!db.order_exists(id).await.unwrap());

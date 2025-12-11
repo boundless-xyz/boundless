@@ -131,7 +131,7 @@ impl SlashService<ProviderWallet> {
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller)
                 .with_timeout(config.tx_timeout);
 
-        let db: DbObj = Arc::new(PgDb::new(db_conn).await.unwrap());
+        let db: DbObj = Arc::new(PgDb::new(db_conn).await.map_err(ServiceError::DatabaseError)?);
 
         Ok(Self { boundless_market, db, config })
     }

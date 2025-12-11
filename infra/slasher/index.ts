@@ -9,31 +9,31 @@ require('dotenv').config();
 export = () => {
   const config = new pulumi.Config();
   const stackName = pulumi.getStack();
-  const isDev = stackName === "dev";
-  const chainId = config.require('CHAIN_ID');
+  const isDev = stackName.includes("dev");
+  const chainId = isDev ? getEnvVar("CHAIN_ID") : config.require('CHAIN_ID');
   const serviceName = getServiceNameV1(stackName, "order-slasher", chainId);
 
   const privateKey = isDev ? getEnvVar("PRIVATE_KEY") : config.requireSecret('PRIVATE_KEY');
   const ethRpcUrl = isDev ? getEnvVar("ETH_RPC_URL") : config.requireSecret('ETH_RPC_URL');
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
+  const boundlessMarketAddr = isDev ? getEnvVar("BOUNDLESS_MARKET_ADDR") : config.require('BOUNDLESS_MARKET_ADDR');
 
-  const logLevel = config.require('LOG_LEVEL');
-  const dockerDir = config.require('DOCKER_DIR');
-  const dockerTag = config.require('DOCKER_TAG');
-  const boundlessMarketAddr = config.require('BOUNDLESS_MARKET_ADDR');
+  const logLevel = config.get('LOG_LEVEL') || 'info';
+  const dockerDir = config.get('DOCKER_DIR') || '../../';
+  const dockerTag = config.get('DOCKER_TAG') || 'latest';
 
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
-  const interval = config.require('INTERVAL');
-  const retries = config.require('RETRIES');
+  const interval = config.get('INTERVAL') || "60";
+  const retries = config.get('RETRIES') || "3";
   const skipAddresses = config.get('SKIP_ADDRESSES');
   const maxBlockRange = config.get('MAX_BLOCK_RANGE');
   const startBlock = config.get('START_BLOCK');
 
-  const baseStackName = config.require('BASE_STACK');
+  const baseStackName = isDev ? getEnvVar("BASE_STACK") : config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID');
   const privateSubnetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS');
-  const txTimeout = config.require('TX_TIMEOUT');
+  const txTimeout = config.get('TX_TIMEOUT') || "60";
   const warnBalanceBelow = config.get('WARN_BALANCE_BELOW');
   const errorBalanceBelow = config.get('ERROR_BALANCE_BELOW');
 
@@ -199,7 +199,7 @@ export = () => {
     backupRetentionPeriod: 7,
   });
 
-  const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${rdsInstance.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
+  const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${rdsInstance.address}:${rdsPort}/${rdsDbName}?sslmode=require`;
   const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
   const dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-v1`, {
     secretId: dbUrlSecret.id,
