@@ -418,6 +418,7 @@ jobs:
         run: |
           set -euxo pipefail
           export BLAKE3_GROTH16_SETUP_DIR="$HOME/.risc0/blake3_groth16"
+          echo "BLAKE3_GROTH16_SETUP_DIR=$HOME/.risc0/blake3_groth16" >> "$GITHUB_ENV"
 
           mkdir -p "$BLAKE3_GROTH16_SETUP_DIR"
           curl -L -o /tmp/blake3_groth16_artifacts.tar.xz \
@@ -435,7 +436,7 @@ jobs:
         env:
           RUST_LOG: "info"
           RISC0_INFO: 1
-          BLAKE3_GROTH16_SETUP_DIR: ${{ env.HOME }}/.risc0/blake3_groth16
+          BLAKE3_GROTH16_SETUP_DIR: ${{ env.BLAKE3_GROTH16_SETUP_DIR }}
           USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
 
       - name: sccache stats
