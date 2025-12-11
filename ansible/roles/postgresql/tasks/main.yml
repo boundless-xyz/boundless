@@ -2,6 +2,12 @@
 - name: Install PostgreSQL
   when: postgresql_install | bool
   block:
+    - name: Install ACL package (required for become_user to work)
+      ansible.builtin.apt:
+        name: acl
+        state: present
+        update_cache: true
+
     - name: Install PostgreSQL
       ansible.builtin.apt:
         name: postgresql

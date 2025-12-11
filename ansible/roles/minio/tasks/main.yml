@@ -60,23 +60,53 @@
         mode: '0755'
       when: not minio_binary_stat.stat.exists
 
+    - name: Extract expected checksum from checksum file
+      ansible.builtin.shell: |
+        set -o pipefail
+        if [ -f /tmp/minio-install/minio.sha256sum ]; then
+          cut -d' ' -f1 /tmp/minio-install/minio.sha256sum
+        else
+          echo ""
+        fi
+      args:
+        executable: /bin/bash
+      register: minio_expected_checksum
+      changed_when: false
+      failed_when: false
+      when:
+        - not minio_binary_stat.stat.exists
+        - minio_checksum_download is succeeded
+
     - name: Verify MinIO binary checksum
-      ansible.builtin.command:
-        cmd: sha256sum -c minio.sha256sum
-        chdir: /tmp/minio-install
+      ansible.builtin.shell: |
+        set -o pipefail
+        expected_checksum="{{ minio_expected_checksum.stdout }}"
+        actual_checksum=$(sha256sum /tmp/minio-install/minio | cut -d' ' -f1)
+        if [ "$expected_checksum" = "$actual_checksum" ]; then
+          echo "Checksum verified: $actual_checksum"
+          exit 0
+        else
+          echo "Checksum mismatch!"
+          echo "Expected: $expected_checksum"
+          echo "Actual: $actual_checksum"
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
       register: minio_checksum_result
       failed_when: minio_checksum_result.rc != 0
       changed_when: false
       when:
         - not minio_binary_stat.stat.exists
         - minio_checksum_download is succeeded
+        - minio_expected_checksum.stdout | length > 0
 
     - name: Warn about missing checksum verification
       ansible.builtin.debug:
         msg: "WARNING: Checksum file not available for MinIO. Binary integrity not verified. Consider verifying manually."
       when:
         - not minio_binary_stat.stat.exists
-        - minio_checksum_download is failed
+        - minio_checksum_download is failed or minio_expected_checksum.stdout | length == 0
 
     - name: Install MinIO server binary
       ansible.builtin.copy:
