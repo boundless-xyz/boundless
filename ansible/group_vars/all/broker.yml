@@ -17,12 +17,13 @@ broker_db_url: "sqlite://{{ broker_config_dir }}/broker.db"
 broker_db_type: "sqlite"
 broker_bento_api_url: "http://127.0.0.1:8080"
 broker_rpc_url: "https://rpc.boundless.network"
+# this is set via env var in the cluster.yml playbook
 broker_private_key: "0x0000000000000000000000000000000000000000000000000000000000000000"
-broker_min_mcycle_price: "0.00000001"
-broker_min_mcycle_price_collateral_token: "0.00005"
+broker_min_mcycle_price: "0.0000003"
+broker_min_mcycle_price_collateral_token: "0"
 broker_peak_prove_khz: 100
 broker_max_collateral: "200"
-broker_max_concurrent_preflights: 2
+broker_max_concurrent_preflights: 4
 broker_max_concurrent_proofs: 1
 broker_priority_requestor_lists:
   - "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json"

@@ -17,14 +17,14 @@ Environment="RISC0_HOME={{ bento_risc0_home_service | default(bento_home ~ '/.ri
 Environment="PATH=/usr/local/bin:{{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 WorkingDirectory={{ bento_work_dir }}
 {% if bento_task == 'api' %}
-ExecStart={{ bento_install_dir }}/bento-rest-api
+ExecStart={{ bento_install_dir }}/bento-rest-api --bind-addr {{ bento_api_url }}
 {% elif bento_task == 'prove' %}
 {% if bento_count | default(1) | int > 1 %}
 Environment=CUDA_VISIBLE_DEVICES=%i
 {% endif %}
-ExecStart={{ bento_install_dir }}/bento-agent -t {{ bento_task }}
+ExecStart={{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }}
 {% else %}
-ExecStart={{ bento_install_dir }}/bento-agent -t {{ bento_task }}
+ExecStart={{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }}
 {% endif %}
 SyslogIdentifier=bento-{{ bento_task }}{% if bento_count | default(1) | int > 1 %}-%i{% endif %}
 

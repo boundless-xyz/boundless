@@ -1,177 +1,25 @@
 ---
+# Boundless Prover Deployment Playbook
+#
+# This playbook deploys a complete Boundless prover stack including:
+# - PostgreSQL database
+# - Valkey (Redis-compatible) cache
+# - MinIO object storage
+# - Bento proving agents (prove, execute, aux, api)
+# - Broker service
+#
+# Usage:
+#   ansible-playbook -i inventory.yml cluster.yml
+#
+# Required Variables:
+#   See validation task below for required variables and setup instructions.
+#
 - name: Deploy Boundless Prover
   hosts: all
   become: true
   gather_facts: true
 
-  # Interactive prompts for required variables
-  # Note: Environment variables (set below in vars) take precedence over prompted values
-  # If running non-interactively, set environment variables or use -e var=value
-  vars_prompt:
-    - name: postgresql_user
-      prompt: "Enter PostgreSQL username (or press Enter to use 'bento' or set POSTGRESQL_USER env var)"
-      default: "bento"
-      private: false
-    - name: postgresql_password
-      prompt: "Enter PostgreSQL password (or set POSTGRESQL_PASSWORD env var)"
-      default: ""
-      private: true
-    - name: minio_root_user
-      prompt: "Enter MinIO root user (or press Enter to use 'minioadmin' or set MINIO_ROOT_USER env var)"
-      default: "minioadmin"
-      private: false
-    - name: minio_root_password
-      prompt: "Enter MinIO root password (or set MINIO_ROOT_PASSWORD env var)"
-      default: ""
-      private: true
-    - name: bento_rewards_address
-      prompt: "Enter Bento rewards address - Ethereum address (or set BENTO_REWARDS_ADDRESS env var)"
-      default: ""
-      private: false
-    - name: bento_povw_log_id
-      prompt: "Enter Bento POVW log ID - Ethereum address (or set POVW_LOG_ID env var)"
-      default: ""
-      private: false
-    - name: broker_private_key
-      prompt: "Enter Broker private key - 0x-prefixed hex string (or set BROKER_PRIVATE_KEY env var)"
-      default: ""
-      private: true
-    - name: broker_rpc_url
-      prompt: "Enter Broker RPC URL (or press Enter for default or set BROKER_RPC_URL env var)"
-      default: "https://rpc.boundless.network"
-      private: false
-    - name: _broker_max_concurrent_proofs_prompt
-      prompt: "Enter max concurrent proofs (or set BROKER_MAX_CONCURRENT_PROOFS env var)"
-      default: "1"
-      private: false
-    - name: _broker_max_concurrent_preflights_prompt
-      prompt: "Enter max concurrent preflights (or set BROKER_MAX_CONCURRENT_PREFLIGHTS env var)"
-      default: "2"
-      private: false
-    - name: _broker_peak_prove_khz_prompt
-      prompt: "Enter peak prove kHz (or set BROKER_PEAK_PROVE_KHZ env var)"
-      default: "100"
-      private: false
-    - name: _broker_min_mcycle_price_prompt
-      prompt: "Enter min mcycle price (or set BROKER_MIN_MCYCLE_PRICE env var)"
-      default: "0.00000001"
-      private: false
-    - name: _broker_min_mcycle_price_collateral_token_prompt
-      prompt: "Enter min mcycle price collateral token (or set BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN env var)"
-      default: "0.00005"
-      private: false
-    - name: bento_gpu_count
-      prompt: "Enter number of GPU/prove agents (or set BENTO_GPU_COUNT env var)"
-      default: "1"
-      private: false
-    - name: bento_exec_count
-      prompt: "Enter number of execute agents (or set BENTO_EXEC_COUNT env var)"
-      default: "4"
-      private: false
-    - name: bento_aux_count
-      prompt: "Enter number of aux agents (or set BENTO_AUX_COUNT env var)"
-      default: "2"
-      private: false
-    - name: _bento_segment_po2_prompt
-      prompt: "Enter segment PO2 value (or set SEGMENT_PO2 env var)"
-      default: "20"
-      private: false
-    - name: _bento_keccak_po2_prompt
-      prompt: "Enter keccak PO2 value (or set KECCAK_PO2 env var)"
-      default: "17"
-      private: false
-
-  vars:
-    # Check environment variables first, then use prompted values or defaults
-    postgresql_user: "{{ lookup('env', 'POSTGRESQL_USER') | default(postgresql_user | default('bento', true), true) }}"
-    postgresql_password: "{{ lookup('env', 'POSTGRESQL_PASSWORD') | default(postgresql_password | default('', true), true) }}"
-    minio_root_user: "{{ lookup('env', 'MINIO_ROOT_USER') | default(minio_root_user | default('minioadmin', true), true) }}"
-    minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default(minio_root_password | default('', true), true) }}"
-    bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default(bento_rewards_address | default('', true), true) }}"
-    bento_povw_log_id: "{{ lookup('env', 'POVW_LOG_ID') | default(bento_povw_log_id | default('', true), true) }}"
-    broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(broker_private_key | default('', true), true) }}"
-    broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(broker_rpc_url | default('https://rpc.boundless.network', true), true) }}"
-    # Install dependencies by default (can be overridden via -e or inventory)
-    bento_install_dependencies: true
-
-  pre_tasks:
-    # Set agent counts and PO2 config from env vars, vars_prompt, or defaults
-    # This runs after vars_prompt but before main tasks, avoiding recursion
-    # Use different var names in vars_prompt to avoid conflicts with group_vars
-    - name: Set bento service counts and configuration
-      ansible.builtin.set_fact:
-        bento_gpu_count: "{{ lookup('env', 'BENTO_GPU_COUNT') | default(lookup('vars', 'bento_gpu_count') | default('1', true), true) | int }}"
-        bento_exec_count: "{{ lookup('env', 'BENTO_EXEC_COUNT') | default(lookup('vars', 'bento_exec_count') | default('4', true), true) | int }}"
-        bento_aux_count: "{{ lookup('env', 'BENTO_AUX_COUNT') | default(lookup('vars', 'bento_aux_count') | default('2', true), true) | int }}"
-        bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(lookup('vars', '_bento_segment_po2_prompt') | default('20', true), true) | int }}"
-        bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(lookup('vars', '_bento_keccak_po2_prompt') | default('17', true), true) | int }}"
-      tags: always
-    # Set broker configuration from env vars, vars_prompt, extra-vars, or defaults (avoiding self-reference recursion)
-    - name: Set broker configuration
-      ansible.builtin.set_fact:
-        broker_max_concurrent_proofs: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PROOFS') | default(lookup('vars', '_broker_max_concurrent_proofs_prompt') | default(lookup('vars', 'broker_max_concurrent_proofs') | default('1', true), true), true) | int }}"
-        broker_max_concurrent_preflights: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PREFLIGHTS') | default(lookup('vars', '_broker_max_concurrent_preflights_prompt') | default(lookup('vars', 'broker_max_concurrent_preflights') | default('2', true), true), true) | int }}"
-        broker_peak_prove_khz: "{{ lookup('env', 'BROKER_PEAK_PROVE_KHZ') | default(lookup('vars', '_broker_peak_prove_khz_prompt') | default(lookup('vars', 'broker_peak_prove_khz') | default('100', true), true), true) | int }}"
-        broker_min_mcycle_price: "{{ lookup('env', 'BROKER_MIN_MCYCLE_PRICE') | default(lookup('vars', '_broker_min_mcycle_price_prompt') | default(lookup('vars', 'broker_min_mcycle_price') | default('0.00000001', true), true), true) | string }}"
-        broker_min_mcycle_price_collateral_token: "{{ lookup('env', 'BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN') | default(lookup('vars', '_broker_min_mcycle_price_collateral_token_prompt') | default(lookup('vars', 'broker_min_mcycle_price_collateral_token') | default('0.00005', true), true), true) | string }}"
-        broker_priority_requestor_lists: >-
-          {{
-            lookup('vars', 'broker_priority_requestor_lists') |
-            default([
-              'https://requestors.boundless.network/boundless-recommended-priority-list.standard.json'
-            ], true)
-          }}
-        broker_allow_client_addresses: "{{ lookup('vars', 'broker_allow_client_addresses') | default([], true) }}"
-      tags: always
-
   tasks:
-    # Validate required variables
-    - name: Validate required variables are set
-      ansible.builtin.assert:
-        that:
-          - postgresql_user is defined
-          - postgresql_user | length > 0
-          - postgresql_password is defined
-          - postgresql_password | length > 0
-          - postgresql_password != "CHANGE_ME"
-          - minio_root_user is defined
-          - minio_root_user | length > 0
-          - minio_root_password is defined
-          - minio_root_password | length > 0
-          - bento_rewards_address is defined
-          - bento_rewards_address | length > 0
-          - bento_povw_log_id is defined
-          - bento_povw_log_id | length > 0
-          - broker_private_key is defined
-          - broker_private_key | length > 0
-          - broker_private_key != "0x0000000000000000000000000000000000000000000000000000000000000000"
-          - broker_rpc_url is defined
-          - broker_rpc_url | length > 0
-          - broker_rpc_url != "https://rpc.boundless.network"
-        fail_msg: |
-          Required variables are missing or have default values. Please provide:
-          - postgresql_user and postgresql_password
-          - minio_root_user and minio_root_password
-          - bento_rewards_address and bento_povw_log_id
-          - broker_private_key and broker_rpc_url
-
-          You can set these via:
-          - Environment variables (POSTGRESQL_PASSWORD, etc.)
-          - Ansible vault files
-          - Command line (-e var=value)
-          - Interactive prompts (when running playbook)
-        quiet: true
-      tags: always
-
-    # Debug: Show bind address variables
-    - name: Display bind address configuration
-      ansible.builtin.debug:
-        msg:
-          - "postgresql_listen_addresses: {{ postgresql_listen_addresses }}"
-          - "valkey_bind: {{ valkey_bind }}"
-          - "minio_bind: {{ minio_bind }}"
-      tags: always
-
     # Dependencies - only run if bento_install_dependencies is true
     - name: Deploy PostgreSQL
       ansible.builtin.include_role:
