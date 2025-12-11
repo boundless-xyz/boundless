@@ -42,7 +42,12 @@ def prompt_with_default(prompt: str, default: Optional[str] = None,
                         required: bool = True, secret: bool = False) -> str:
     """Prompt user for input with optional default value."""
     if default:
-        prompt_text = f"{prompt} [{default}]: "
+        if secret:
+            # For secrets, show masked default instead of actual value
+            masked_default = "*" * min(len(default), 20) if default else ""
+            prompt_text = f"{prompt} [{masked_default}]: "
+        else:
+            prompt_text = f"{prompt} [{default}]: "
     else:
         prompt_text = f"{prompt}: "
 
@@ -92,8 +97,9 @@ def wizard() -> Dict[str, str]:
             use_existing = True
             print("\nLoaded existing configuration:")
             for key, value in existing_config.items():
-                if 'PASSWORD' in key or 'SECRET' in key or 'PRIVATE_KEY' in key:
-                    print(f"  {key}: {'*' * min(len(value), 20)}")
+                # Mask sensitive fields
+                if any(sensitive in key.upper() for sensitive in ['PASSWORD', 'SECRET', 'PRIVATE_KEY', 'KEY']):
+                    print(f"  {key}: {'*' * min(len(str(value)), 20) if value else '(empty)'}")
                 else:
                     print(f"  {key}: {value}")
             print()
