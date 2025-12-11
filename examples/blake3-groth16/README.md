@@ -9,6 +9,7 @@ This is an example of using the Boundless SDK to request a proof with this new p
 To build the example run:
 
 ```bash
+forge build
 cargo build
 ```
 
