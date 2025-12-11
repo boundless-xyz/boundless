@@ -16,8 +16,9 @@ bento_agent_timeout_start_sec: 1800
 bento_agent_timeout_stop_sec: 300
 
 # Environment variables
-bento_segment_po2: 20
-bento_keccak_po2: 17
+# These can be set via environment variables (SEGMENT_PO2, KECCAK_PO2) or defaults
+bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(20, true) | int }}"
+bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(17, true) | int }}"
 bento_rust_log: "info"
 
 # Database configuration

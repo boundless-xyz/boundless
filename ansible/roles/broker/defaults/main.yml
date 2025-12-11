@@ -14,8 +14,8 @@ broker_timeout_stop_sec: 300
 
 # Installation paths
 broker_install_dir: "/usr/local/bin"
-broker_config_dir: "/opt/boundless"
-broker_work_dir: "/opt/boundless"
+broker_config_dir: "/etc/boundless"
+broker_work_dir: "/etc/boundless"
 
 # Broker configuration file
 broker_config_file: "{{ broker_config_dir }}/broker.toml"

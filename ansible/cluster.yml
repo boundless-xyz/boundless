@@ -11,6 +11,9 @@
     bento_gpu_count: "{{ bento_gpu_count | default(1) | int }}"
     bento_exec_count: "{{ bento_exec_count | default(4) | int }}"
     bento_aux_count: "{{ bento_aux_count | default(2) | int }}"
+    # Broker configuration (can be overridden via extra-vars from deploy wizard)
+    broker_max_concurrent_proofs: "{{ broker_max_concurrent_proofs | default(1) | int }}"
+    broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights | default(2) | int }}"
 
   tasks:
     # Debug: Show bind address variables
@@ -91,5 +94,8 @@
     - name: Deploy Broker
       ansible.builtin.include_role:
         name: broker
+      vars:
+        broker_max_concurrent_proofs: "{{ broker_max_concurrent_proofs }}"
+        broker_max_concurrent_preflights: "{{ broker_max_concurrent_preflights }}"
       tags:
         - broker

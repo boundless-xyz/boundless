@@ -208,6 +208,26 @@ def wizard() -> Dict[str, str]:
         existing_config.get('BENTO_AUX_COUNT', '2')
     )
 
+    # Broker configuration
+    print("\n--- Broker Configuration (Advanced) ---")
+    broker_concurrent_proofs = prompt_with_default(
+        "Broker max concurrent proofs",
+        existing_config.get('BROKER_MAX_CONCURRENT_PROOFS', '1')
+    )
+    config['BROKER_MAX_CONCURRENT_PROOFS'] = broker_concurrent_proofs
+
+    # Calculate preflights: exec_count - concurrent_proofs
+    try:
+        exec_count = int(config['BENTO_EXEC_COUNT'])
+        concurrent_proofs = int(broker_concurrent_proofs)
+        calculated_preflights = max(1, exec_count - concurrent_proofs)  # Ensure at least 1
+        config['BROKER_MAX_CONCURRENT_PREFLIGHTS'] = str(calculated_preflights)
+        print(f"  → Calculated max concurrent preflights: {calculated_preflights} (exec_count - concurrent_proofs)")
+    except (ValueError, KeyError):
+        # Fallback to default if calculation fails
+        config['BROKER_MAX_CONCURRENT_PREFLIGHTS'] = existing_config.get('BROKER_MAX_CONCURRENT_PREFLIGHTS', '2')
+        print(f"  → Using default max concurrent preflights: {config['BROKER_MAX_CONCURRENT_PREFLIGHTS']}")
+
     return config
 
 
@@ -224,7 +244,7 @@ def deploy(config: Dict[str, str], dry_run: bool = False) -> int:
 
     for key, value in config.items():
         if value:  # Only set non-empty values
-            # Agent counts are passed as extra-vars, not env vars
+            # Agent counts and broker config are passed as extra-vars, not env vars
             if key == 'BENTO_GPU_COUNT':
                 try:
                     extra_vars['bento_gpu_count'] = int(value)
@@ -238,6 +258,16 @@ def deploy(config: Dict[str, str], dry_run: bool = False) -> int:
             elif key == 'BENTO_AUX_COUNT':
                 try:
                     extra_vars['bento_aux_count'] = int(value)
+                except ValueError:
+                    print(f"Warning: Invalid number for {key}: {value}, using default")
+            elif key == 'BROKER_MAX_CONCURRENT_PROOFS':
+                try:
+                    extra_vars['broker_max_concurrent_proofs'] = int(value)
+                except ValueError:
+                    print(f"Warning: Invalid number for {key}: {value}, using default")
+            elif key == 'BROKER_MAX_CONCURRENT_PREFLIGHTS':
+                try:
+                    extra_vars['broker_max_concurrent_preflights'] = int(value)
                 except ValueError:
                     print(f"Warning: Invalid number for {key}: {value}, using default")
             else:
