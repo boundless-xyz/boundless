@@ -133,7 +133,7 @@ pub(crate) async fn estimate_gas_to_fulfill(
         .context("unsupported selector")?
     {
         ProofType::Any | ProofType::Inclusion => 0,
-        ProofType::Groth16 => groth16,
+        ProofType::Groth16 | ProofType::Blake3Groth16 => groth16,
         proof_type => {
             tracing::warn!("Unknown proof type in gas cost estimation: {proof_type:?}");
             0

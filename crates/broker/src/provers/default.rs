@@ -16,7 +16,7 @@ use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
 use crate::config::ProverConf;
 use crate::provers::{ExecutorResp, ProofResult, Prover, ProverError};
-use anyhow::{Context, Result as AnyhowResult};
+use anyhow::{anyhow, Context, Result as AnyhowResult};
 use async_trait::async_trait;
 use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
@@ -370,7 +370,8 @@ impl Prover for DefaultProver {
             .map(|receipt| bincode::serialize(receipt).unwrap())
             .unwrap_or_default();
 
-        let mut proofs = self.state.proofs.write().await;
+        let mut proofs: tokio::sync::RwLockWriteGuard<'_, HashMap<String, ProofData>> =
+            self.state.proofs.write().await;
         let proof = proofs.get_mut(&proof_id).unwrap();
         match compress_result {
             Ok(_) => {
@@ -395,14 +396,66 @@ impl Prover for DefaultProver {
             .ok_or_else(|| ProverError::NotFound(format!("proof {proof_id}")))?;
         Ok(proof_data.compressed_receipt.as_ref().cloned())
     }
+
+    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+        tracing::info!("Compressing proof to blake3 groth16 {proof_id}");
+        let receipt = self
+            .get_receipt(proof_id)
+            .await?
+            .ok_or_else(|| ProverError::NotFound(format!("no receipt for proof {proof_id}")))?;
+        if receipt.journal.bytes.len() != 32 {
+            return Err(ProverError::UnexpectedError(anyhow!(
+                "Compressing proof to blake3 groth16 requires a journal of 32 bytes, got {}",
+                receipt.journal.bytes.len()
+            )));
+        }
+        let proof_id = format!("snark_{}", Uuid::new_v4());
+        self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
+
+        let compress_result =
+            blake3_groth16::compress_blake3_groth16(&receipt).await.map_err(ProverError::from);
+
+        let compressed_bytes = compress_result
+            .as_ref()
+            .map(|receipt| bincode::serialize(receipt).unwrap())
+            .unwrap_or_default();
+
+        let mut proofs = self.state.proofs.write().await;
+        let proof = proofs.get_mut(&proof_id).unwrap();
+        match compress_result {
+            Ok(_) => {
+                proof.status = Status::Succeeded;
+                proof.compressed_receipt = Some(compressed_bytes);
+
+                Ok(proof_id)
+            }
+            Err(err) => {
+                proof.status = Status::Failed;
+                proof.error_msg = err.to_string();
+
+                Err(err)
+            }
+        }
+    }
+    async fn get_blake3_groth16_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
+        let proofs = self.state.proofs.read().await;
+        let proof_data = proofs
+            .get(proof_id)
+            .ok_or_else(|| ProverError::NotFound(format!("blake3 groth16 proof {proof_id}")))?;
+        Ok(proof_data.compressed_receipt.as_ref().cloned())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
-    use risc0_zkvm::sha::Digest;
     use tokio::test;
+
+    use risc0_zkvm::sha::Digest;
 
     #[test]
     async fn test_upload_input_and_image() {
@@ -515,5 +568,33 @@ mod tests {
 
         let journal_err = prover.get_journal(nonexistent_id).await;
         assert!(matches!(journal_err, Err(ProverError::NotFound(_))));
+    }
+
+    #[test]
+    async fn test_compress_blake3_groth16() {
+        let prover = DefaultProver::new();
+        // Upload test data
+        let input_data = [255u8; 32].to_vec(); // Example input data
+        let input_id = prover.upload_input(input_data.clone()).await.unwrap();
+        let image_id = Digest::from(ECHO_ID);
+        prover.upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await.unwrap();
+
+        // Run SNARK proving
+        let ProofResult { id: stark_id, .. } =
+            prover.prove_and_monitor_stark(&image_id.to_string(), &input_id, vec![]).await.unwrap();
+
+        let snark_id = prover.compress_blake3_groth16(&stark_id).await.unwrap();
+
+        // Fetch the compressed receipt
+        let compressed_receipt = prover.get_compressed_receipt(&snark_id).await.unwrap().unwrap();
+        let blake3_receipt: blake3_groth16::Blake3Groth16Receipt =
+            bincode::deserialize(&compressed_receipt).unwrap();
+
+        let claim_digest =
+            blake3_groth16::Blake3Groth16ReceiptClaim::ok(ECHO_ID, input_data.clone())
+                .claim_digest();
+
+        assert_eq!(blake3_receipt.claim_digest().unwrap(), claim_digest);
+        blake3_receipt.verify(ECHO_ID).expect("blake3 groth16 verification failed");
     }
 }

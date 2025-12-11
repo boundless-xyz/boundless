@@ -14,7 +14,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-test-utils = ["dep:risc0-circuit-recursion"]
+test-utils = []
 
 [dependencies]
 alloy-chains = { workspace = true }
@@ -29,11 +29,24 @@ url = { workspace = true }
 
 # Host dependencies
 [target.'cfg(not(target_os = "zkvm"))'.dependencies]
-alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "rpc-client"] }
+alloy = { workspace = true, features = [
+    "network",
+    "node-bindings",
+    "rpc-types",
+    "providers",
+    "transports",
+    "sol-types",
+    "contract",
+    "signers",
+    "signer-local",
+    "rpc-client",
+] }
 
 async-stream = { workspace = true }
 async-trait = "0.1"
 aws-sdk-s3 = "1.34"
+blake3 = { version = "1.5.0" }
+borsh = { workspace = true, features = ["derive"] }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -46,7 +59,8 @@ httpmock = "0.7"
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }
-risc0-circuit-recursion = { workspace = true, optional = true }
+risc0-binfmt = { workspace = true }
+risc0-circuit-recursion = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }

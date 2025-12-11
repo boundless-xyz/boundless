@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{config::ConfigLock, errors::CodedError, is_dev_mode};
+use crate::{allow_local_file_storage, config::ConfigLock, errors::CodedError, is_dev_mode};
 use alloy::primitives::bytes::Buf;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -82,7 +82,7 @@ pub(crate) async fn create_uri_handler(
 
     match uri.scheme() {
         "file" => {
-            if !is_dev_mode() {
+            if !is_dev_mode() && !allow_local_file_storage() {
                 return Err(StorageErr::UnsupportedScheme("file".to_string()));
             }
             let max_size = if skip_max_size_check {
