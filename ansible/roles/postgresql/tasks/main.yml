@@ -108,8 +108,9 @@
         name: "{{ postgresql_user }}"
         password: "{{ postgresql_password }}"
         state: present
+        login_user: postgres
+        login_unix_socket: /var/run/postgresql
       become: true
-      become_user: postgres
       when: postgresql_create_user | bool
 
     - name: Create PostgreSQL database
@@ -117,6 +118,7 @@
         name: "{{ postgresql_database }}"
         owner: "{{ postgresql_user }}"
         state: present
+        login_user: postgres
+        login_unix_socket: /var/run/postgresql
       become: true
-      become_user: postgres
       when: postgresql_create_db | bool

@@ -9,6 +9,23 @@
     bento_install_dependencies: true
 
   tasks:
+    # Pre-flight checks
+    - name: Check for required Ansible collections
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection list community.postgresql
+      register: postgresql_collection_check
+      changed_when: false
+      failed_when: postgresql_collection_check.rc != 0
+      tags: always
+
+    - name: Fail if community.postgresql collection is missing
+      ansible.builtin.fail:
+        msg: |
+          The 'community.postgresql' collection is required but not installed.
+          Install it with: ansible-galaxy collection install community.postgresql
+      when: postgresql_collection_check.rc != 0
+      tags: always
+
     # Debug: Show bind address variables
     - name: Display bind address configuration
       ansible.builtin.debug:
