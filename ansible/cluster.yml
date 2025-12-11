@@ -52,11 +52,11 @@
       prompt: "Enter number of aux agents (or set BENTO_AUX_COUNT env var)"
       default: "2"
       private: false
-    - name: bento_segment_po2
+    - name: _bento_segment_po2_prompt
       prompt: "Enter segment PO2 value (or set SEGMENT_PO2 env var)"
       default: "20"
       private: false
-    - name: bento_keccak_po2
+    - name: _bento_keccak_po2_prompt
       prompt: "Enter keccak PO2 value (or set KECCAK_PO2 env var)"
       default: "17"
       private: false
@@ -90,15 +90,16 @@
     broker_allow_client_addresses: "{{ broker_allow_client_addresses | default([]) }}"
 
   pre_tasks:
-    # Set agent counts and configuration from env vars, vars_prompt, or defaults
+    # Set agent counts and PO2 config from env vars, vars_prompt, or defaults
     # This runs after vars_prompt but before main tasks, avoiding recursion
+    # Use different var names in vars_prompt to avoid conflicts with group_vars
     - name: Set bento service counts and configuration
       ansible.builtin.set_fact:
-        bento_gpu_count: "{{ lookup('env', 'BENTO_GPU_COUNT') | default(bento_gpu_count | default('1', true), true) | int }}"
-        bento_exec_count: "{{ lookup('env', 'BENTO_EXEC_COUNT') | default(bento_exec_count | default('4', true), true) | int }}"
-        bento_aux_count: "{{ lookup('env', 'BENTO_AUX_COUNT') | default(bento_aux_count | default('2', true), true) | int }}"
-        bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(bento_segment_po2 | default('20', true), true) | int }}"
-        bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(bento_keccak_po2 | default('17', true), true) | int }}"
+        bento_gpu_count: "{{ lookup('env', 'BENTO_GPU_COUNT') | default(lookup('vars', 'bento_gpu_count') | default('1', true), true) | int }}"
+        bento_exec_count: "{{ lookup('env', 'BENTO_EXEC_COUNT') | default(lookup('vars', 'bento_exec_count') | default('4', true), true) | int }}"
+        bento_aux_count: "{{ lookup('env', 'BENTO_AUX_COUNT') | default(lookup('vars', 'bento_aux_count') | default('2', true), true) | int }}"
+        bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(lookup('vars', '_bento_segment_po2_prompt') | default('20', true), true) | int }}"
+        bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(lookup('vars', '_bento_keccak_po2_prompt') | default('17', true), true) | int }}"
       tags: always
 
   tasks:
@@ -179,8 +180,6 @@
         bento_task: "prove"
         bento_install_dependencies: false
         bento_count: "{{ bento_gpu_count }}"
-        bento_segment_po2: "{{ bento_segment_po2 }}"
-        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-prove
@@ -191,8 +190,6 @@
       vars:
         bento_task: "api"
         bento_install_dependencies: false
-        bento_segment_po2: "{{ bento_segment_po2 }}"
-        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-api
@@ -204,8 +201,6 @@
         bento_task: "exec"
         bento_install_dependencies: false
         bento_count: "{{ bento_exec_count }}"
-        bento_segment_po2: "{{ bento_segment_po2 }}"
-        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-exec
@@ -217,8 +212,6 @@
         bento_task: "aux"
         bento_install_dependencies: false
         bento_count: "{{ bento_aux_count }}"
-        bento_segment_po2: "{{ bento_segment_po2 }}"
-        bento_keccak_po2: "{{ bento_keccak_po2 }}"
       tags:
         - bento
         - bento-aux
