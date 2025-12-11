@@ -111,6 +111,8 @@
         login_user: postgres
         login_unix_socket: /var/run/postgresql
       become: true
+      become_user: postgres
+      become_flags: "-H"
       when: postgresql_create_user | bool
 
     - name: Create PostgreSQL database
@@ -121,4 +123,6 @@
         login_user: postgres
         login_unix_socket: /var/run/postgresql
       become: true
+      become_user: postgres
+      become_flags: "-H"
       when: postgresql_create_db | bool
