@@ -37,7 +37,7 @@ struct MainArgs {
     #[clap(short, long, env)]
     boundless_market_address: Address,
     /// DB connection string.
-    #[clap(long, default_value = "sqlite::memory:")]
+    #[clap(long, env = "DB_URL", default_value = "postgres://postgres:password@localhost:5433/postgres")]
     db: String,
     /// Starting block number. Note this will only be used the first time the slasher is run.
     /// After that point, it will use the last processed block from the database.

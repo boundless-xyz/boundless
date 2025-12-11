@@ -37,6 +37,8 @@ export = () => {
   const warnBalanceBelow = config.get('WARN_BALANCE_BELOW');
   const errorBalanceBelow = config.get('ERROR_BALANCE_BELOW');
 
+  const rdsPassword = isDev ? getEnvVar("RDS_PASSWORD") : config.requireSecret('RDS_PASSWORD');
+
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
@@ -147,13 +149,61 @@ export = () => {
     ],
   });
 
-  new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
-    type: 'ingress',
-    fromPort: 2049,
-    toPort: 2049,
-    protocol: 'tcp',
-    securityGroupId: securityGroup.id,
-    sourceSecurityGroupId: securityGroup.id,
+  // RDS PostgreSQL setup
+  const dbSubnets = new aws.rds.SubnetGroup(`${serviceName}-dbsubnets`, {
+    subnetIds: privateSubnetIds,
+  });
+
+  const rdsPort = 5432;
+  const rdsSecurityGroup = new aws.ec2.SecurityGroup(`${serviceName}-rds`, {
+    name: `${serviceName}-rds`,
+    vpcId,
+    ingress: [
+      {
+        fromPort: rdsPort,
+        toPort: rdsPort,
+        protocol: 'tcp',
+        securityGroups: [securityGroup.id],
+      },
+    ],
+    egress: [
+      {
+        fromPort: 0,
+        toPort: 0,
+        protocol: '-1',
+        cidrBlocks: ['0.0.0.0/0'],
+      },
+    ],
+  });
+
+  const rdsUser = 'slasher';
+  const rdsDbName = 'slasher';
+
+  const rdsInstance = new aws.rds.Instance(`${serviceName}-postgres`, {
+    identifier: `${serviceName}-postgres`,
+    engine: 'postgres',
+    engineVersion: '17.4',
+    instanceClass: 'db.t4g.micro',
+    allocatedStorage: 20,
+    maxAllocatedStorage: 100,
+    storageType: 'gp3',
+    storageEncrypted: true,
+    dbName: rdsDbName,
+    username: rdsUser,
+    password: rdsPassword,
+    port: rdsPort,
+    publiclyAccessible: false,
+    dbSubnetGroupName: dbSubnets.name,
+    vpcSecurityGroupIds: [rdsSecurityGroup.id],
+    skipFinalSnapshot: true,
+    backupRetentionPeriod: 7,
+  });
+
+  const dbUrlSecretValue = pulumi.interpolate`postgres://${rdsUser}:${rdsPassword}@${rdsInstance.endpoint}:${rdsPort}/${rdsDbName}?sslmode=require`;
+  const dbUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-db-url`);
+  const dbUrlSecretVersion = new aws.secretsmanager.SecretVersion(`${serviceName}-db-url-v1`, {
+    secretId: dbUrlSecret.id,
+    secretString: dbUrlSecretValue,
   });
 
   // Create an execution role that has permissions to access the necessary secrets
@@ -172,34 +222,15 @@ export = () => {
         {
           Effect: 'Allow',
           Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-          Resource: [privateKeySecret.arn, rpcUrlSecret.arn],
+          Resource: [privateKeySecret.arn, rpcUrlSecret.arn, dbUrlSecret.arn],
         },
       ],
     },
   });
 
-  // EFS
-  const fileSystem = new aws.efs.FileSystem(`${serviceName}-efs-rev7`, {
-    encrypted: true,
-    tags: {
-      Name: serviceName,
-    },
-  });
-
-  const mountTargets = privateSubnetIds.apply((subnets) =>
-    subnets.map((subnetId: string, index: number) => {
-      return new aws.efs.MountTarget(`${serviceName}-mount-${index}`, {
-        fileSystemId: fileSystem.id,
-        subnetId: subnetId,
-        securityGroups: [securityGroup.id],
-      }, { dependsOn: [fileSystem] });
-    })
-  );
-
   const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
 
   let slasherArgs = [
-    `--db sqlite:///app/data/slasher.db`,
     `--tx-timeout ${txTimeout}`,
     `--interval ${interval}`,
     `--retries ${retries}`,
@@ -236,28 +267,12 @@ export = () => {
         executionRole: {
           roleArn: execRole.arn,
         },
-        volumes: [
-          {
-            name: 'slasher-storage',
-            efsVolumeConfiguration: {
-              fileSystemId: fileSystem.id,
-              rootDirectory: '/',
-            },
-          },
-        ],
         container: {
           name: serviceName,
           image: image.ref,
           cpu: 128,
           memory: 512,
           essential: true,
-          mountPoints: [
-            {
-              sourceVolume: 'slasher-storage',
-              containerPath: '/app/data',
-              readOnly: false,
-            },
-          ],
           entryPoint: ['/bin/sh', '-c'],
           command: [
             `/app/boundless-slasher ${slasherArgs.join(' ')}`,
@@ -285,11 +300,15 @@ export = () => {
               name: 'PRIVATE_KEY',
               valueFrom: privateKeySecret.arn,
             },
+            {
+              name: 'DB_URL',
+              valueFrom: dbUrlSecret.arn,
+            },
           ],
         },
       },
     },
-    { dependsOn: [execRole, execRolePolicy, mountTargets, fileSystem] }
+    { dependsOn: [execRole, execRolePolicy, rdsInstance, dbUrlSecretVersion] }
   );
 
   new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
