@@ -831,13 +831,9 @@ where
             tracing::info!(
                 "Order {order_id} journal is not 32 bytes for blake3 groth16 selector, skipping",
             );
-<<<<<<< HEAD
-            return Ok(Skip);
-=======
             return Ok(Skip {
                 reason: "blake3 groth16 selector requires 32 byte journal".to_string(),
             });
->>>>>>> 0dbc4608 (bitvm2 -> blake3_groth16 everywhere except the actual crate and bento)
         }
 
         // Validate the predicates:

@@ -10,16 +10,7 @@ use std::time::Instant;
 use workflow_common::{
     CompressType, SnarkReq, SnarkResp,
     metrics::helpers,
-<<<<<<< HEAD
-    s3::{GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
-<<<<<<< HEAD
->>>>>>> refs/rewritten/main-8
-=======
->>>>>>> refs/rewritten/main-7
-=======
     s3::{BLAKE3_GROTH16_BUCKET_DIR, GROTH16_BUCKET_DIR, RECEIPT_BUCKET_DIR, STARK_BUCKET_DIR},
->>>>>>> c71ca9b1 (fix bento)
->>>>>>> aeba97ac (fix bento)
 };
 
 /// Converts a stark, stored in s3 to a snark
@@ -86,44 +77,17 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
                 .verify_integrity()
                 .context("[BENTO-SNARK-008] Failed to verify blake3 snark receipt")?;
             (bincode::serialize(&blake3_receipt)?, BLAKE3_GROTH16_BUCKET_DIR)
-<<<<<<< HEAD
-=======
-    let opts = ProverOpts::groth16();
-    let snark_receipt = match agent
-        .prover
-        .as_ref()
-        .context("[BENTO-SNARK-002] Missing prover from resolve task")?
-        .compress(&opts, &receipt)
-    {
-        Ok(receipt) => {
-            helpers::record_task_operation("snark", "compress", "success", 0.0);
-            receipt
-        }
-        Err(e) => {
-            helpers::record_task_operation("snark", "compress", "error", 0.0);
-            return Err(e.context("groth16 compress failed"));
-<<<<<<< HEAD
->>>>>>> refs/rewritten/main-8
-=======
->>>>>>> refs/rewritten/main-7
-=======
->>>>>>> c71ca9b1 (fix bento)
->>>>>>> aeba97ac (fix bento)
         }
     };
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{bucket_dir}/{job_id}.bincode");
 
-<<<<<<< HEAD
-    tracing::debug!("Uploading snark receipt to S3: {key}");
-=======
     receipt
         .verify_integrity_with_context(&agent.verifier_ctx)
         .context("[BENTO-SNARK-005] Failed to verify compressed snark receipt")?;
 
     let key = &format!("{RECEIPT_BUCKET_DIR}/{GROTH16_BUCKET_DIR}/{job_id}.bincode");
     tracing::info!("Uploading snark receipt to S3: {key}");
->>>>>>> refs/rewritten/main-11
 
     let s3_write_start = Instant::now();
     match agent.s3_client.write_buf_to_s3(key, snark_receipt_bytes).await {
@@ -147,14 +111,6 @@ pub async fn stark2snark(agent: &Agent, job_id: &str, req: &SnarkReq) -> Result<
         "success",
         start_time.elapsed().as_secs_f64(),
     );
-<<<<<<< HEAD
->>>>>>> refs/rewritten/main-8
-=======
-<<<<<<< HEAD
->>>>>>> refs/rewritten/main-7
-=======
->>>>>>> c71ca9b1 (fix bento)
->>>>>>> aeba97ac (fix bento)
 
     Ok(SnarkResp { snark: job_id.to_string() })
 }
