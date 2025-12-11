@@ -110,7 +110,8 @@ async fn run(args: Args) -> Result<()> {
     }
     // Verify the Blake3Groth16 seal.
     let blake3_claim_digest = Blake3Groth16ReceiptClaim::ok(ECHO_ID, echo_message).claim_digest();
-    blake3_groth16::verify::verify_seal(&fulfillment.seal, blake3_claim_digest)
+    // The first 4 bytes of the seal are the selector, so we skip them.
+    blake3_groth16::verify::verify_seal(&fulfillment.seal[4..], blake3_claim_digest)
         .context("failed to verify Blake3Groth16 seal")?;
 
     Ok(())
