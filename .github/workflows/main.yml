@@ -419,6 +419,8 @@ jobs:
         env:
           RUST_LOG: "info"
           RISC0_INFO: 1
+          BLAKE3_GROTH16_ARTIFACTS_URL: https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz
+          USE_LOCAL_BLAKE3_GROTH16_SETUP: 0
 
       - name: sccache stats
         run: sccache --show-stats

@@ -18,5 +18,5 @@ url = { workspace = true }
 [dev-dependencies]
 boundless-market = { workspace = true, features = ["test-utils"] }
 boundless-test-utils = { workspace = true }
-broker = { workspace = true, features = ["prove","test-utils"] }
+broker = { workspace = true, features = ["cuda","test-utils"] }
 test-log = "0.2"
