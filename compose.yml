@@ -29,15 +29,6 @@ x-agent-common: &agent-common
   environment:
     <<: *base-environment
 
-x-exec-agent-common: &exec-agent-common
-  <<: *agent-common
-  mem_limit: 4G
-  cpus: 3
-  environment:
-    <<: *base-environment
-    RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} --redis-ttl ${REDIS_TTL:-57600}
-
 x-broker-environment: &broker-environment
   RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
   # RUST_BACKTRACE: 1
@@ -169,9 +160,17 @@ services:
       - minio
 
   exec_agent:
-    <<: *exec-agent-common
+    <<: *agent-common
+    mem_limit: 4G
+    cpus: 3
+    environment:
+      <<: *base-environment
+      REDIS_MEMORY_WARNING_INTERVAL:
+      REDIS_QUEUE_MEMORY_POLL_MS:
+      REDIS_MAX_QUEUE_MEMORY:
     deploy:
       replicas: 2
+    entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} --redis-ttl ${REDIS_TTL:-57600}
 
   aux_agent:
     <<: *agent-common
@@ -185,6 +184,8 @@ services:
       STUCK_TASKS_POLL_INTERVAL:
       BENTO_DISABLE_COMPLETED_CLEANUP:
       BENTO_DISABLE_STUCK_TASK_CLEANUP:
+      REDIS_MAX_QUEUE_MEMORY:
+      REDIS_MEMORY_WARNING_INTERVAL:
 
     entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
 
