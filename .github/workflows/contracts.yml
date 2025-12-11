@@ -171,7 +171,6 @@ jobs:
           version: v1.0.0
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
-      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
       
       - uses: risc0/risc0/.github/actions/sccache@v3.0.3
         with:
@@ -182,6 +181,9 @@ jobs:
         with:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install protoc
+        run: sudo apt install protobuf-compiler -y
 
       - name: checkout main code
         uses: actions/checkout@v4

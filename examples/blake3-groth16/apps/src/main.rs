@@ -102,7 +102,7 @@ async fn run(args: Args) -> Result<()> {
 
     tracing::info!("Fulfillment data: {:?}", fulfillment.data()?);
     tracing::info!("Fulfillment seal: {:x}", fulfillment.seal);
-    tracing::info!("Request {:x} fulfilled", request_id);
+    tracing::info!("Request 0x{:x} fulfilled", request_id);
 
     if is_dev_mode() {
         tracing::warn!("Running in dev mode: skipping seal verification");
