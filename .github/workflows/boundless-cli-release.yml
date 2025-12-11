@@ -76,7 +76,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build Boundless CLI Components Bundle
+      - name: Build Boundless CLI Components
         working-directory: boundless
         env:
           PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
@@ -174,11 +174,11 @@ jobs:
             ```
 
             ### Verification
-            Verify the integrity of downloaded bundles using the provided SHA256 checksums.
+            Verify the integrity of downloaded packages using the provided SHA256 checksums.
           draft: false
           prerelease: false
 
-      - name: Upload Boundless CLI Bundle (Linux AMD64)
+      - name: Upload Boundless CLI Package (Linux AMD64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
