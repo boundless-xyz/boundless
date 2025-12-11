@@ -335,6 +335,7 @@ jobs:
       fail-fast: false
       matrix:
         workspace:
+          - examples/blake3-groth16
           - examples/counter
           - examples/smart-contract-requestor
           - examples/counter-with-callback
