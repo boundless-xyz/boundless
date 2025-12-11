@@ -40,6 +40,26 @@
       prompt: "Enter Broker RPC URL (or press Enter for default or set BROKER_RPC_URL env var)"
       default: "https://rpc.boundless.network"
       private: false
+    - name: _broker_max_concurrent_proofs_prompt
+      prompt: "Enter max concurrent proofs (or set BROKER_MAX_CONCURRENT_PROOFS env var)"
+      default: "1"
+      private: false
+    - name: _broker_max_concurrent_preflights_prompt
+      prompt: "Enter max concurrent preflights (or set BROKER_MAX_CONCURRENT_PREFLIGHTS env var)"
+      default: "2"
+      private: false
+    - name: _broker_peak_prove_khz_prompt
+      prompt: "Enter peak prove kHz (or set BROKER_PEAK_PROVE_KHZ env var)"
+      default: "100"
+      private: false
+    - name: _broker_min_mcycle_price_prompt
+      prompt: "Enter min mcycle price (or set BROKER_MIN_MCYCLE_PRICE env var)"
+      default: "0.00000001"
+      private: false
+    - name: _broker_min_mcycle_price_collateral_token_prompt
+      prompt: "Enter min mcycle price collateral token (or set BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN env var)"
+      default: "0.00005"
+      private: false
     - name: bento_gpu_count
       prompt: "Enter number of GPU/prove agents (or set BENTO_GPU_COUNT env var)"
       default: "1"
@@ -86,14 +106,14 @@
         bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(lookup('vars', '_bento_segment_po2_prompt') | default('20', true), true) | int }}"
         bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(lookup('vars', '_bento_keccak_po2_prompt') | default('17', true), true) | int }}"
       tags: always
-    # Set broker configuration from extra-vars or defaults (avoiding self-reference recursion)
+    # Set broker configuration from env vars, vars_prompt, extra-vars, or defaults (avoiding self-reference recursion)
     - name: Set broker configuration
       ansible.builtin.set_fact:
-        broker_max_concurrent_proofs: "{{ lookup('vars', 'broker_max_concurrent_proofs') | default(1, true) | int }}"
-        broker_max_concurrent_preflights: "{{ lookup('vars', 'broker_max_concurrent_preflights') | default(2, true) | int }}"
-        broker_peak_prove_khz: "{{ lookup('vars', 'broker_peak_prove_khz') | default(100, true) | int }}"
-        broker_min_mcycle_price: "{{ lookup('vars', 'broker_min_mcycle_price') | default('0.00000001', true) | string }}"
-        broker_min_mcycle_price_collateral_token: "{{ lookup('vars', 'broker_min_mcycle_price_collateral_token') | default('0.00005', true) | string }}"
+        broker_max_concurrent_proofs: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PROOFS') | default(lookup('vars', '_broker_max_concurrent_proofs_prompt') | default(lookup('vars', 'broker_max_concurrent_proofs') | default('1', true), true), true) | int }}"
+        broker_max_concurrent_preflights: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PREFLIGHTS') | default(lookup('vars', '_broker_max_concurrent_preflights_prompt') | default(lookup('vars', 'broker_max_concurrent_preflights') | default('2', true), true), true) | int }}"
+        broker_peak_prove_khz: "{{ lookup('env', 'BROKER_PEAK_PROVE_KHZ') | default(lookup('vars', '_broker_peak_prove_khz_prompt') | default(lookup('vars', 'broker_peak_prove_khz') | default('100', true), true), true) | int }}"
+        broker_min_mcycle_price: "{{ lookup('env', 'BROKER_MIN_MCYCLE_PRICE') | default(lookup('vars', '_broker_min_mcycle_price_prompt') | default(lookup('vars', 'broker_min_mcycle_price') | default('0.00000001', true), true), true) | string }}"
+        broker_min_mcycle_price_collateral_token: "{{ lookup('env', 'BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN') | default(lookup('vars', '_broker_min_mcycle_price_collateral_token_prompt') | default(lookup('vars', 'broker_min_mcycle_price_collateral_token') | default('0.00005', true), true), true) | string }}"
         broker_priority_requestor_lists: >-
           {{
             lookup('vars', 'broker_priority_requestor_lists') |
