@@ -562,8 +562,6 @@ POVW_LOG_ID=$POVW_LOG_ID
 AGENT_DOCKERFILE=dockerfiles/agent.dockerfile
 REST_API_DOCKERFILE=dockerfiles/rest_api.dockerfile
 BROKER_DOCKERFILE=dockerfiles/broker.dockerfile
-BLAKE3_GROTH16_ARTIFACTS_URL=https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz
-USE_LOCAL_BLAKE3_GROTH16_SETUP=0
 ENVEOF
 
 EOF
