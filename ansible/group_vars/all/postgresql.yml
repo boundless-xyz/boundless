@@ -16,7 +16,6 @@ postgresql_hba_entries: >-
     lookup('env', 'POSTGRESQL_HBA_ENTRIES') |
     default([
       {'type': 'host', 'database': 'all', 'user': 'all', 'address': '127.0.0.1/32', 'method': 'md5'},
-      {'type': 'host', 'database': 'all', 'user': 'all', 'address': 'localhost/32', 'method': 'md5'},
       {'type': 'host', 'database': 'all', 'user': 'all', 'address': '::1/128', 'method': 'md5'},
       {'type': 'host', 'database': 'all', 'user': 'all', 'address': '10.0.0.0/8', 'method': 'md5'},
       {'type': 'host', 'database': 'all', 'user': 'all', 'address': '172.16.0.0/12', 'method': 'md5'},
