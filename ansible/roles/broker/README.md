@@ -35,7 +35,7 @@ None - all variables have defaults, but you should override them based on your e
 
 #### Bento API Configuration
 
-* `broker_bento_api_url` (default: `"http://localhost:8080"`): URL of the Bento REST API
+* `broker_bento_api_url` (default: `"localhost:8080"`): URL of the Bento REST API
 
 #### Broker Market Configuration
 

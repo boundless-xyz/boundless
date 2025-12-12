@@ -8,10 +8,10 @@ minio_user: "minio"
 minio_group: "minio"
 minio_home: "/var/lib/minio"
 minio_shell: "/usr/sbin/nologin"
-minio_host: "127.0.0.1"
+minio_host: "localhost"
 minio_port: 9000
 minio_console_port: 9001
-minio_bind: "127.0.0.1"
+minio_bind: "localhost"
 minio_data_dir: "/var/lib/minio/data"
 minio_config_dir: "/etc/minio"
 minio_log_dir: "/var/log/minio"

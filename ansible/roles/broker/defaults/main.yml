@@ -27,7 +27,7 @@ broker_db_type: "sqlite"  # sqlite or postgresql
 # Bento API configuration
 # Environment variable: BROKER_BENTO_API_URL
 # Note: default(..., true) handles empty strings from env vars
-broker_bento_api_url: "{{ lookup('env', 'BROKER_BENTO_API_URL') | default('http://127.0.0.1:8080', true) | string }}"
+broker_bento_api_url: "http://localhost:8081"
 
 # Ethereum RPC configuration
 # Environment variable: BROKER_RPC_URL or RPC_URL

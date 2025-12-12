@@ -7,5 +7,4 @@ valkey_host: "{{ lookup('env', 'VALKEY_HOST') | default('localhost', true) | str
 valkey_port: "{{ lookup('env', 'VALKEY_PORT') | default('6379', true) | int }}"
 valkey_bind: "{{ lookup('env', 'VALKEY_BIND') | default('127.0.0.1', true) | string }}"
 valkey_protected_mode: false
-valkey_maxmemory: "12gb"
 valkey_maxmemory_policy: "allkeys-lru"

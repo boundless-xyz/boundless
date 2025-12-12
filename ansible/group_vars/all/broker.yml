@@ -15,7 +15,6 @@ broker_config_file: "{{ broker_config_dir }}/broker.toml"
 broker_db_url: "sqlite://{{ broker_config_dir }}/broker.db"
 # Note: SQLite is the only database type supported by broker
 broker_db_type: "sqlite"
-broker_bento_api_url: "http://127.0.0.1:8080"
 # RPC URL - can be set via BROKER_RPC_URL or RPC_URL environment variable
 broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(lookup('env', 'RPC_URL') | default('https://rpc.boundless.network', true), true) | string }}"
 # Private key - can be set via BROKER_PRIVATE_KEY or PRIVATE_KEY environment variable
