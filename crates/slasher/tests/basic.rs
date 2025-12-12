@@ -37,15 +37,12 @@ use futures_util::StreamExt;
 /// We get the base DATABASE_URL and replace the database name with the test database name.
 async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
     // Get the base DATABASE_URL that sqlx::test uses
-    let base_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set for sqlx::test");
-    
+    let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+
     // Query the test database name (sqlx::test creates unique names)
-    let db_name: String = sqlx::query_scalar("SELECT current_database()")
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    
+    let db_name: String =
+        sqlx::query_scalar("SELECT current_database()").fetch_one(pool).await.unwrap();
+
     // Replace the database name in the URL (everything after the last '/')
     if let Some(last_slash) = base_url.rfind('/') {
         format!("{}/{}", &base_url[..last_slash + 1], db_name)
@@ -60,30 +57,30 @@ async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
 /// the slasher has processed the locked event before proceeding.
 async fn wait_for_slasher_to_process_locked(pool: &sqlx::PgPool, request_id: U256) {
     use std::time::{Duration, Instant};
-    
+
     let timeout = Duration::from_secs(10);
     let poll_interval = Duration::from_millis(200);
     let start = Instant::now();
-    
+
     loop {
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM orders WHERE id = $1)")
             .bind(format!("{request_id:x}"))
             .fetch_one(pool)
             .await
             .unwrap();
-        
+
         if exists {
             tracing::info!("Slasher has processed locked event for request 0x{:x}", request_id);
             return;
         }
-        
+
         if start.elapsed() > timeout {
             panic!(
                 "Timeout waiting for slasher to process locked event for request 0x{:x}",
                 request_id
             );
         }
-        
+
         tokio::time::sleep(poll_interval).await;
     }
 }
@@ -121,10 +118,10 @@ async fn create_order(
 async fn test_basic_usage(pool: sqlx::PgPool) {
     // Run migrations on the isolated test database
     PgDb::from_pool(pool.clone()).await.unwrap();
-    
+
     // Get connection string for spawned binary
     let db_url = get_db_url_from_pool(&pool).await;
-    
+
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -202,10 +199,10 @@ async fn test_basic_usage(pool: sqlx::PgPool) {
 async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     // Run migrations on the isolated test database
     PgDb::from_pool(pool.clone()).await.unwrap();
-    
+
     // Get connection string for spawned binary
     let db_url = get_db_url_from_pool(&pool).await;
-    
+
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
