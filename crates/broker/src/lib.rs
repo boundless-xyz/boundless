@@ -911,7 +911,7 @@ where
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
             );
-            // Initialize aggregation prover with a higher reserved key to prioritize
+            // Initialize aggregation/snark prover with a higher reserved key to prioritize
             aggregation_prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
                     .context("Failed to initialize Bento client")?,
@@ -960,6 +960,7 @@ where
             proving::ProvingService::new(
                 self.db.clone(),
                 prover.clone(),
+                aggregation_prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 self.priority_requestors.clone(),
