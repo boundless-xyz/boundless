@@ -18,5 +18,5 @@ minio_log_dir: "/var/log/minio"
 minio_install_dir: "/usr/local/bin"
 minio_binary_name: "minio"
 # MinIO credentials - can be set via environment variables
-minio_root_user: "{{ lookup('env', 'BENTO_S3_ACCESS_KEY') | default('minioadmin', true) }}"
-minio_root_password: "{{ lookup('env', 'BENTO_S3_SECRET_KEY') | default('minioadmin', true) }}"
+minio_root_user: "{{ lookup('env', 'BENTO_S3_ACCESS_KEY') | default('minadmin', true) }}"
+minio_root_password: "{{ lookup('env', 'BENTO_S3_SECRET_KEY') | default('ioadmin', true) }}"

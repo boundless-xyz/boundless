@@ -73,39 +73,15 @@
         - postgresql
         - postgresql-config
 
-    - name: Ensure default local pg_hba.conf entries for peer authentication
-      ansible.builtin.lineinfile:
-        path: "{{ postgresql_hba_path }}"
-        regexp: >-
-          ^local\s+all\s+{{ item.user }}\s+{{ item.method }}$
-        line: "local\tall\t{{ item.user }}\t{{ item.method }}"
+    - name: Configure pg_hba.conf from template
+      ansible.builtin.template:
+        src: pg_hba.conf.j2
+        dest: "{{ postgresql_hba_path }}"
+        mode: '0640'
+        owner: postgres
+        group: postgres
         backup: true
-        state: present
-      loop:
-        - user: postgres
-          method: peer
-        - user: all
-          method: peer
       when: postgresql_version_dirs.files | length > 0
-      notify: Reload PostgreSQL service
-      tags:
-        - postgresql
-        - postgresql-config
-
-    - name: Ensure pg_hba.conf entries exist
-      ansible.builtin.lineinfile:
-        path: "{{ postgresql_hba_path }}"
-        regexp: >-
-          ^{{ item.type }}\s+{{ item.database }}\s+{{ item.user }}\s+
-          {{ item.address | replace('.', '\\.') | replace('/', '\\/') }}\s+
-          {{ item.method }}$
-        line: "{{ item.type }}\t{{ item.database }}\t{{ item.user }}\t{{ item.address }}\t{{ item.method }}"
-        backup: true
-        state: present
-      loop: "{{ postgresql_hba_entries }}"
-      when:
-        - postgresql_version_dirs.files | length > 0
-        - postgresql_hba_entries | default([]) | length > 0
       notify: Reload PostgreSQL service
       tags:
         - postgresql
