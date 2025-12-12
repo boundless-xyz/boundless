@@ -1045,14 +1045,10 @@ where
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
-        // Ensure address' balance is sufficient to cover the request
-        let balance = self.boundless_market.balance_of(client_address).await?;
-        if balance < U256::from(request.offer.maxPrice) {
-            return Err(ClientError::Error(anyhow!(
-                "Insufficient balance to cover request: {} < {}.\nMake sure to top up your balance by depositing on the Boundless Market.",
-                balance,
-                request.offer.maxPrice
-            )));
+        let max_price = U256::from(request.offer.maxPrice);
+        let value = self.compute_funding_value(client_address, max_price).await?;
+        if value > 0 {
+            self.boundless_market.deposit(value).await?;
         }
 
         let order = offchain_client.submit_request(&request, signer).await?;
