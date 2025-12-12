@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, str::FromStr, time::Duration};
+use std::{cmp::max, future::Future, str::FromStr, time::Duration};
 
 use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
@@ -880,13 +880,15 @@ where
 
             FundingMode::BelowThreshold(threshold) => {
                 if balance < threshold {
+                    let to_send =
+                        max(threshold.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < threshold {} ETH. \
                          Sending additional funds to top up the balance.",
                         format_ether(balance),
                         format_ether(threshold),
                     );
-                    threshold.saturating_sub(balance)
+                    to_send
                 } else {
                     U256::ZERO
                 }
@@ -894,7 +896,8 @@ where
 
             FundingMode::MinMaxBalance { min_balance, max_balance } => {
                 if balance < min_balance {
-                    let to_send = max_balance.saturating_sub(balance);
+                    let to_send =
+                        max(max_balance.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < min {} ETH. \
                          Sending {} ETH (max target {}).",
