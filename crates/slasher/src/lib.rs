@@ -30,12 +30,12 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use db::{DbError, DbObj, SqliteDb};
+use db::{DbError, DbObj, PgDb};
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
 
-mod db;
+pub mod db;
 
 type ProviderWallet = NonceProvider<
     JoinFill<JoinFill<Identity, ChainIdFiller>, DynamicGasFiller>,
@@ -131,7 +131,7 @@ impl SlashService<ProviderWallet> {
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller)
                 .with_timeout(config.tx_timeout);
 
-        let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
+        let db: DbObj = Arc::new(PgDb::new(db_conn).await.map_err(ServiceError::DatabaseError)?);
 
         Ok(Self { boundless_market, db, config })
     }

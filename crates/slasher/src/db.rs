@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use alloy::primitives::U256;
 use async_trait::async_trait;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
+    postgres::{PgPool, PgPoolOptions},
     Row,
 };
 use thiserror::Error;
@@ -58,38 +58,24 @@ pub type DbObj = Arc<dyn SlasherDb + Send + Sync>;
 
 const SQL_BLOCK_KEY: i64 = 0;
 
-pub struct SqliteDb {
-    pool: SqlitePool,
+pub struct PgDb {
+    pool: PgPool,
 }
 
-impl SqliteDb {
-    pub async fn new(conn_str: &str) -> Result<Self, DbError> {
-        let opts = SqliteConnectOptions::from_str(conn_str)?
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-            .create_if_missing(true)
-            .busy_timeout(std::time::Duration::from_secs(5));
-
-        let pool = SqlitePoolOptions::new()
-            // set timeouts to None for sqlite in-memory:
-            // https://github.com/launchbadge/sqlx/issues/1647
-            .max_lifetime(None)
-            .idle_timeout(None)
-            .min_connections(1)
-            // Limit the DB to a single connection to prevent database-locked
-            // this does effectively make the DB single threaded but it should be
-            // a non-issue with the low DB contention
-            .max_connections(1);
-
-        let pool = pool.connect_with(opts).await?;
-
+impl PgDb {
+    /// Constructs a [PgDb] from an existing [PgPool]
+    ///
+    /// This method applies database migrations
+    pub async fn from_pool(pool: PgPool) -> Result<Self, DbError> {
         sqlx::migrate!("./migrations").run(&pool).await?;
-
         Ok(Self { pool })
     }
 
-    #[cfg(test)]
-    pub async fn from(pool: SqlitePool) -> Result<Self, DbError> {
-        Ok(Self { pool })
+    /// Construct a new [PgDb] from a connection string
+    pub async fn new(conn_str: &str) -> Result<Self, DbError> {
+        let pool = PgPoolOptions::new().max_connections(5).connect(conn_str).await?;
+
+        Self::from_pool(pool).await
     }
 }
 
@@ -99,7 +85,7 @@ struct DbOrder {
 }
 
 #[async_trait]
-impl SlasherDb for SqliteDb {
+impl SlasherDb for PgDb {
     async fn add_order(
         &self,
         id: U256,
@@ -109,8 +95,9 @@ impl SlasherDb for SqliteDb {
         tracing::trace!("Adding order: 0x{:x}", id);
         // Only store the order if it has a valid expiration time.
         // If the expires_at is 0, the request is already slashed or fulfilled (or even not locked).
-        if expires_at > 0 && lock_expires_at > 0 && !self.order_exists(id).await? {
-            sqlx::query("INSERT INTO orders (id, expires_at, lock_expires_at) VALUES ($1, $2, $3)")
+        // Use ON CONFLICT DO NOTHING to atomically handle duplicates (prevents race conditions)
+        if expires_at > 0 && lock_expires_at > 0 {
+            sqlx::query("INSERT INTO orders (id, expires_at, lock_expires_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
                 .bind(format!("{id:x}"))
                 .bind(expires_at as i64)
                 .bind(lock_expires_at as i64)
@@ -186,7 +173,9 @@ impl SlasherDb for SqliteDb {
     }
 
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError> {
-        let res = sqlx::query("REPLACE INTO last_block (id, block) VALUES ($1, $2)")
+        let res = sqlx::query(
+            "INSERT INTO last_block (id, block) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET block = $2"
+        )
             .bind(SQL_BLOCK_KEY)
             .bind(block_numb.to_string())
             .execute(&self.pool)
@@ -204,10 +193,16 @@ impl SlasherDb for SqliteDb {
 mod tests {
     use super::*;
     use alloy::primitives::U256;
+    use sqlx::postgres::PgPool;
+
+    async fn setup_test_db(pool: PgPool) -> DbObj {
+        // sqlx::test provides a PgPool connected to a temporary test database
+        Arc::new(PgDb::from_pool(pool).await.unwrap())
+    }
 
     #[sqlx::test]
-    async fn add_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn add_order(pool: PgPool) {
+        let db = setup_test_db(pool).await;
         let id = U256::ZERO;
         db.add_order(id, 10, 5).await.unwrap();
 
@@ -221,8 +216,8 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn drop_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn drop_order(pool: PgPool) {
+        let db = setup_test_db(pool).await;
         let id = U256::ZERO;
         db.add_order(id, 10, 5).await.unwrap();
         db.remove_order(id).await.unwrap();
@@ -231,14 +226,14 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn order_not_exists(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn order_not_exists(pool: PgPool) {
+        let db = setup_test_db(pool).await;
         assert!(!db.order_exists(U256::ZERO).await.unwrap());
     }
 
     #[sqlx::test]
-    async fn order_exists(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn order_exists(pool: PgPool) {
+        let db = setup_test_db(pool).await;
         let id = U256::ZERO;
         db.add_order(id, 10, 5).await.unwrap();
 
@@ -246,8 +241,8 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn get_expired_orders(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn get_expired_orders(pool: PgPool) {
+        let db = setup_test_db(pool).await;
         let id = U256::ZERO;
         let expires_at = 10;
         db.add_order(id, expires_at, 5).await.unwrap();
@@ -261,8 +256,8 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn set_get_block(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn set_get_block(pool: PgPool) {
+        let db = setup_test_db(pool).await;
 
         let mut block_numb = 20;
         db.set_last_block(block_numb).await.unwrap();
@@ -278,8 +273,8 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn get_existing_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn get_existing_order(pool: PgPool) {
+        let db = setup_test_db(pool).await;
         let id = U256::ZERO;
         let expires_at = 100;
         let lock_expires_at = 50;
@@ -294,8 +289,8 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn query_nonexistent_order(pool: SqlitePool) {
-        let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
+    async fn query_nonexistent_order(pool: PgPool) {
+        let db = setup_test_db(pool).await;
         let id = U256::from(999);
 
         let result = db.get_order(id).await.unwrap();
@@ -304,6 +299,109 @@ mod tests {
         db.remove_order(id).await.unwrap();
 
         db.remove_order(id).await.unwrap();
+        assert!(!db.order_exists(id).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn get_last_block_none(pool: PgPool) {
+        let db = setup_test_db(pool).await;
+
+        // Initially no block should be set
+        let result = db.get_last_block().await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[sqlx::test]
+    async fn set_last_block_conflict_update(pool: PgPool) {
+        let db = setup_test_db(pool).await;
+
+        // Set initial block
+        db.set_last_block(100).await.unwrap();
+        assert_eq!(db.get_last_block().await.unwrap().unwrap(), 100);
+
+        // Update with ON CONFLICT - should update existing row
+        db.set_last_block(200).await.unwrap();
+        assert_eq!(db.get_last_block().await.unwrap().unwrap(), 200);
+
+        // Update again
+        db.set_last_block(300).await.unwrap();
+        assert_eq!(db.get_last_block().await.unwrap().unwrap(), 300);
+    }
+
+    #[sqlx::test]
+    async fn get_expired_orders_multiple(pool: PgPool) {
+        let db = setup_test_db(pool).await;
+
+        let id1 = U256::from(1);
+        let id2 = U256::from(2);
+        let id3 = U256::from(3);
+
+        // Add orders with different expiration times
+        db.add_order(id1, 10, 5).await.unwrap(); // expires at 10
+        db.add_order(id2, 20, 15).await.unwrap(); // expires at 20
+        db.add_order(id3, 30, 25).await.unwrap(); // expires at 30
+
+        // No expired orders at timestamp 5
+        let expired = db.get_expired_orders(5).await.unwrap();
+        assert!(expired.is_empty());
+
+        // Only id1 expired at timestamp 15
+        let expired = db.get_expired_orders(15).await.unwrap();
+        assert_eq!(expired.len(), 1);
+        assert!(expired.contains(&id1));
+
+        // id1 and id2 expired at timestamp 25
+        let expired = db.get_expired_orders(25).await.unwrap();
+        assert_eq!(expired.len(), 2);
+        assert!(expired.contains(&id1));
+        assert!(expired.contains(&id2));
+
+        // All expired at timestamp 35
+        let expired = db.get_expired_orders(35).await.unwrap();
+        assert_eq!(expired.len(), 3);
+        assert!(expired.contains(&id1));
+        assert!(expired.contains(&id2));
+        assert!(expired.contains(&id3));
+    }
+
+    #[sqlx::test]
+    async fn add_order_duplicate_prevention(pool: PgPool) {
+        let db = setup_test_db(pool).await;
+        let id = U256::from(42);
+
+        // Add order first time
+        db.add_order(id, 100, 50).await.unwrap();
+        assert!(db.order_exists(id).await.unwrap());
+
+        // Try to add same order again - should not create duplicate
+        db.add_order(id, 100, 50).await.unwrap();
+
+        // Verify only one order exists
+        let result = db.get_order(id).await.unwrap();
+        assert!(result.is_some());
+        let (expires_at, lock_expires_at) = result.unwrap();
+        assert_eq!(expires_at, 100);
+        assert_eq!(lock_expires_at, 50);
+
+        // Verify order_exists still returns true (not duplicated)
+        assert!(db.order_exists(id).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn add_order_with_zero_expires(pool: PgPool) {
+        let db = setup_test_db(pool).await;
+        let id = U256::from(99);
+
+        // Try to add order with expires_at = 0 - should not be stored
+        db.add_order(id, 0, 50).await.unwrap();
+        assert!(!db.order_exists(id).await.unwrap());
+
+        // Try to add order with lock_expires_at = 0 - should not be stored
+        db.add_order(id, 100, 0).await.unwrap();
+        assert!(!db.order_exists(id).await.unwrap());
+
+        // Try to add order with both = 0 - should not be stored
+        db.add_order(id, 0, 0).await.unwrap();
         assert!(!db.order_exists(id).await.unwrap());
     }
 }
