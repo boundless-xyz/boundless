@@ -10,7 +10,7 @@ bento_group: "bento"
 bento_home: "/var/lib/bento"
 bento_install_dependencies: true
 bento_install_dir: "/usr/local/bin"
-bento_keccak_po2: 17
+bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(17, true) | int }}"
 bento_postgresql_database: "{{ postgresql_database }}"
 bento_postgresql_host: "{{ postgresql_host }}"
 bento_postgresql_password: "{{ postgresql_password }}"
@@ -21,7 +21,7 @@ bento_rust_log: "info"
 bento_s3_bucket: bento
 bento_s3_region: auto
 bento_s3_url: http://{{ minio_host }}:{{ minio_port }}
-bento_segment_po2: 20
+bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(20, true) | int }}"
 bento_service_enabled: true
 bento_service_state: started
 bento_shell: "/usr/sbin/nologin"
