@@ -74,17 +74,17 @@
   ansible.builtin.file:
     path: "{{ broker_config_dir }}"
     state: directory
-    mode: '0750'
-    owner: "{{ broker_user }}"
-    group: "{{ broker_group }}"
+    mode: '0755'
+    owner: root
+    group: root
 
 - name: Create Broker working directory
   ansible.builtin.file:
     path: "{{ broker_work_dir }}"
     state: directory
-    mode: '0750'
-    owner: "{{ broker_user }}"
-    group: "{{ broker_group }}"
+    mode: '0755'
+    owner: root
+    group: root
 
 - name: Create Broker configuration file
   ansible.builtin.template:
