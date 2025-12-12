@@ -588,27 +588,37 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     }
                 }
                 SenderType::Keccak(mut keccak_req) => {
-                    let redis_key = format!("{coproc_prefix}:{}", keccak_req.claim_digest);
-                    redis::set_key_with_expiry(
-                        &mut coproc_redis,
-                        &redis_key,
-                        // input,
-                        bytemuck::cast_slice::<_, u8>(&keccak_req.input).to_vec(),
-                        Some(redis_ttl),
-                    )
-                    .await
-                    .map_err(|e| {
-                        tracing::error!("[BENTO-EXEC-031] Failed to set key with expiry: {e:?}");
-                        anyhow::anyhow!("[BENTO-EXEC-031] Failed to set key with expiry").context(e)
-                    })?;
+                    let keccak_input_bytes =
+                        bytemuck::cast_slice::<_, u8>(&keccak_req.input).to_vec();
                     keccak_req.input.clear();
-                    tracing::debug!("Wrote keccak input to redis");
-
                     planner.enqueue_keccak().map_err(|e| {
                         tracing::error!("[BENTO-EXEC-032] Failed to enqueue keccak: {e:?}");
                         anyhow::anyhow!("[BENTO-EXEC-032] Failed to enqueue keccak").context(e)
                     })?;
                     while let Some(tree_task) = planner.next_task() {
+                        if let TaskCmd::Keccak = tree_task.command {
+                            let redis_key =
+                                format!("{coproc_prefix}:{}:{}", tree_task.task_number, keccak_req.claim_digest);
+                            redis::set_key_with_expiry(
+                                &mut coproc_redis,
+                                &redis_key,
+                                keccak_input_bytes.clone(),
+                                Some(redis_ttl),
+                            )
+                            .await
+                            .map_err(|e| {
+                                tracing::error!(
+                                    "[BENTO-EXEC-031] Failed to set keccak key with expiry: {e:?}"
+                                );
+                                anyhow::anyhow!("[BENTO-EXEC-031] Failed to set keccak key")
+                                    .context(e)
+                            })?;
+                            tracing::debug!(
+                                "Wrote keccak input to redis for task {} ({})",
+                                tree_task.task_number,
+                                keccak_req.claim_digest
+                            );
+                        }
                         let req = KeccakReq {
                             claim_digest: keccak_req.claim_digest,
                             control_root: keccak_req.control_root,
