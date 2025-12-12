@@ -214,8 +214,8 @@
     src: launcher.sh.j2
     dest: "{{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh"
     mode: '0755'
-    owner: {{ bento_user }}
-    group: {{ bento_group }}
+    owner: "{{ bento_user }}"
+    group: "{{ bento_group }}"
   notify: Restart Bento service
   tags:
     - bento
