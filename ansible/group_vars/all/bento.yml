@@ -2,7 +2,7 @@
 # Bento Configuration
 bento_agent_timeout_start_sec: 1800
 bento_agent_timeout_stop_sec: 300
-bento_api_url: http://localhost:8081
+bento_api_url: localhost:8081
 bento_config_dir: "/etc/boundless"
 bento_count: 1
 bento_cuda_visible_devices: null # null = auto-detect, otherwise list of GPU indices as strings

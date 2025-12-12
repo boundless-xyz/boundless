@@ -6,19 +6,16 @@
       ansible.builtin.apt:
         name: acl
         state: present
-        update_cache: true
 
     - name: Install PostgreSQL
       ansible.builtin.apt:
         name: postgresql
         state: present
-        update_cache: true
 
     - name: Install Python PostgreSQL library (psycopg2)
       ansible.builtin.apt:
         name: python3-psycopg2
         state: present
-        update_cache: true
 
     - name: Ensure PostgreSQL service is enabled and started
       ansible.builtin.systemd:
