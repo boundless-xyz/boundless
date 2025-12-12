@@ -18,10 +18,8 @@ bento_postgresql_port: "{{ postgresql_port }}"
 bento_postgresql_user: "{{ postgresql_user }}"
 bento_redis_ttl: 57600
 bento_rust_log: "info"
-bento_s3_access_key: CHANGE_ME
 bento_s3_bucket: bento
 bento_s3_region: auto
-bento_s3_secret_key: CHANGE_ME
 bento_s3_url: http://{{ minio_host }}:{{ minio_port }}
 bento_segment_po2: 20
 bento_service_enabled: true
@@ -33,3 +31,6 @@ bento_valkey_host: "{{ valkey_host }}"
 bento_valkey_port: "{{ valkey_port }}"
 bento_version: "v1.1.2"
 bento_work_dir: "/var/lib/bento"
+# Bento configuration - can be set via environment variables
+bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default('', true) }}"
+bento_povw_log_id: "{{ lookup('env', 'POVW_LOG_ID') | default('', true) }}"

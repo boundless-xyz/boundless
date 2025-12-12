@@ -4,47 +4,7 @@
   become: true
   gather_facts: true
 
-  # Interactive prompts for required variables
-  # Note: Environment variables (set below in vars) take precedence over prompted values
-  # If running non-interactively, set environment variables or use -e var=value
-  vars_prompt:
-    - name: broker_private_key
-      prompt: "Enter Broker private key - 0x-prefixed hex string (or set BROKER_PRIVATE_KEY env var)"
-      default: ""
-      private: true
-    - name: broker_rpc_url
-      prompt: "Enter Broker RPC URL (or press Enter for default or set BROKER_RPC_URL env var)"
-      default: "https://rpc.boundless.network"
-      private: false
-
-  vars:
-    # Check environment variables first, then use prompted values or defaults
-    broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(broker_private_key | default('', true), true) }}"
-    broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(broker_rpc_url | default('https://rpc.boundless.network', true), true) }}"
-
   tasks:
-    # Validate required variables
-    - name: Validate required broker variables are set
-      ansible.builtin.assert:
-        that:
-          - broker_private_key is defined
-          - broker_private_key | length > 0
-          - broker_private_key != "0x0000000000000000000000000000000000000000000000000000000000000000"
-          - broker_rpc_url is defined
-          - broker_rpc_url | length > 0
-          - broker_rpc_url != "https://rpc.boundless.network"
-        fail_msg: |
-          Required broker variables are missing or have default values. Please provide:
-          - broker_private_key (must not be the default zero key)
-          - broker_rpc_url (must not be the default URL)
-
-          You can set these via:
-          - Environment variables (BROKER_PRIVATE_KEY, BROKER_RPC_URL)
-          - Ansible vault files
-          - Command line (-e var=value)
-          - Interactive prompts (when running playbook)
-        quiet: true
-      tags: always
     - name: Deploy Broker
       ansible.builtin.include_role:
         name: broker
