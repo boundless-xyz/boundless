@@ -80,16 +80,21 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build Boundless CLI
-        working-directory: boundless
         env:
           PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
         run: |
           # Build package
           cargo build --release --target ${{ matrix.target }} --bin boundless
 
+          # Create boundless directory
+          mkdir -p boundless
+
+          # Copy binary to boundless directory
+          cp target/${{ matrix.target }}/release/boundless boundless/boundless
+
           # Create archive
-          tar -czf boundless-${{ matrix.artifact_name }}.tar.gz target/${{ matrix.target }}/release/boundless/
-          rm -rf target/${{ matrix.target }}/release/boundless/
+          tar -czf boundless-${{ matrix.artifact_name }}.tar.gz boundless/
+          rm -rf target/${{ matrix.target }}/release/boundless
 
       - name: sccache stats
         run: sccache --show-stats
