@@ -24,6 +24,7 @@ env:
   RUST_VERSION: "1.88.0"
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FOUNDRY_VERSION: v1.5.0
 
 jobs:
   build-boundless-cli:
@@ -71,6 +72,11 @@ jobs:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      
       - name: forge build
         run: forge build
         working-directory: contracts
