@@ -16,15 +16,10 @@ broker_db_url: "sqlite://{{ broker_config_dir }}/broker.db"
 # Note: SQLite is the only database type supported by broker
 broker_db_type: "sqlite"
 broker_bento_api_url: "http://127.0.0.1:8080"
-broker_rpc_url: "https://rpc.boundless.network"
-# this is set via env var in the cluster.yml playbook
-broker_private_key: "0x0000000000000000000000000000000000000000000000000000000000000000"
-broker_min_mcycle_price: "0.0000003"
-broker_min_mcycle_price_collateral_token: "0"
-broker_peak_prove_khz: 100
-broker_max_collateral: "200"
-broker_max_concurrent_preflights: 4
-broker_max_concurrent_proofs: 1
+# RPC URL - can be set via BROKER_RPC_URL or RPC_URL environment variable
+broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(lookup('env', 'RPC_URL') | default('https://rpc.boundless.network', true), true) | string }}"
+# Private key - can be set via BROKER_PRIVATE_KEY or PRIVATE_KEY environment variable
+broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(lookup('env', 'PRIVATE_KEY') | default('0x0000000000000000000000000000000000000000000000000000000000000000', true), true) | string }}"
 broker_priority_requestor_lists:
   - "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json"
 broker_allow_client_addresses:
