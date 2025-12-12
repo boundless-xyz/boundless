@@ -73,6 +73,9 @@ jobs:
         with:
           toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
+      - name: Install protoc
+        uses: risc0/risc0/.github/actions/protoc@v3.0.3
+
       - name: Install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -89,9 +92,6 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-
-      - name: Install protoc
-        run: sudo apt install protobuf-compiler -y
 
       - name: Build Bento Components Bundle
         working-directory: bento

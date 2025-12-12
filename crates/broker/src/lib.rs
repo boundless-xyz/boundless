@@ -31,7 +31,7 @@ use boundless_market::{
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
     override_gateway,
-    selector::is_groth16_selector,
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -406,6 +406,18 @@ impl Order {
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
     }
+    fn is_blake3_groth16(&self) -> bool {
+        is_blake3_groth16_selector(self.request.requirements.selector)
+    }
+    pub fn compression_type(&self) -> CompressionType {
+        if self.is_groth16() {
+            CompressionType::Groth16
+        } else if self.is_blake3_groth16() {
+            CompressionType::Blake3Groth16
+        } else {
+            CompressionType::None
+        }
+    }
 }
 
 impl std::fmt::Display for Order {
@@ -417,6 +429,13 @@ impl std::fmt::Display for Order {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CompressionType {
+    None,
+    Groth16,
+    Blake3Groth16,
 }
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -1226,6 +1245,15 @@ fn format_expiries(request: &ProofRequest) -> String {
 /// Returns `true` if the dev mode environment variable is enabled.
 pub(crate) fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
+
+/// Returns `true` if the `ALLOW_LOCAL_FILE_STORAGE` environment variable is enabled.
+pub(crate) fn allow_local_file_storage() -> bool {
+    std::env::var("ALLOW_LOCAL_FILE_STORAGE")
         .ok()
         .map(|x| x.to_lowercase())
         .filter(|x| x == "1" || x == "true" || x == "yes")

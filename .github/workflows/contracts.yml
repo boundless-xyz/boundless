@@ -182,6 +182,9 @@ jobs:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
+      - name: Install protoc
+        run: sudo apt install protobuf-compiler -y
+
       - name: checkout main code
         uses: actions/checkout@v4
         with:

@@ -13,4 +13,5 @@ examples
 crates/**/target
 crates/**/cache_market_x2
 examples/**/target
+**/target/
 infra

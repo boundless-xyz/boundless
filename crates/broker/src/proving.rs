@@ -25,7 +25,7 @@ use crate::{
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils::cancel_proof_and_fail_order,
-    FulfillmentType, Order, OrderStateChange, OrderStatus,
+    CompressionType, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use anyhow::{Context, Result};
 use thiserror::Error;
@@ -85,7 +85,7 @@ impl ProvingService {
         &self,
         order_id: &str,
         stark_proof_id: &str,
-        is_groth16: bool,
+        compression_type: CompressionType,
         snark_proof_id: Option<String>,
     ) -> Result<OrderStatus> {
         let proof_res = self
@@ -94,7 +94,12 @@ impl ProvingService {
             .await
             .context("Monitoring proof (stark) failed")?;
 
-        if is_groth16 && snark_proof_id.is_none() {
+        tracing::debug!(
+            "compression_type: {compression_type:?}, snark_proof_id: {snark_proof_id:?}"
+        );
+        let is_compress = compression_type != CompressionType::None;
+
+        if is_compress && snark_proof_id.is_none() {
             let (retry_count, sleep_ms) = {
                 let config = self.config.lock_all().context("Failed to lock config")?;
                 (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
@@ -104,8 +109,38 @@ impl ProvingService {
                 retry_count,
                 sleep_ms,
                 || async {
-                    let proof_id = self.snark_prover.compress(stark_proof_id).await?;
-                    provers::verify_groth16_receipt(&self.snark_prover, &proof_id).await?;
+                    let proof_id = match compression_type {
+                        CompressionType::Groth16 => self
+                            .snark_prover
+                            .compress(stark_proof_id)
+                            .await
+                            .context("Failed to compress proof")?,
+                        CompressionType::Blake3Groth16 => self
+                            .snark_prover
+                            .compress_blake3_groth16(stark_proof_id)
+                            .await
+                            .context("Failed to compress blake3 groth16 proof")?,
+                        CompressionType::None => {
+                            unreachable!("Compression type should not be None here")
+                        }
+                    };
+                    match compression_type {
+                        CompressionType::Groth16 => {
+                            tracing::trace!(
+                                "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}"
+                            );
+                            provers::verify_groth16_receipt(&self.snark_prover, &proof_id).await?;
+                        }
+                        CompressionType::Blake3Groth16 => {
+                            tracing::trace!(
+                                "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}"
+                            );
+                            provers::verify_blake3_groth16_receipt(&self.snark_prover, &proof_id).await?;
+                        }
+                        CompressionType::None => {
+                            unreachable!("Compression type should not be None here")
+                        }
+                    }
                     Ok::<String, provers::ProverError>(proof_id)
                 },
                 "compress_and_verify",
@@ -123,7 +158,7 @@ impl ProvingService {
                 })?;
         };
 
-        let status = match is_groth16 {
+        let status = match is_compress {
             false => OrderStatus::PendingAgg,
             true => OrderStatus::SkipAggregation,
         };
@@ -241,7 +276,7 @@ impl ProvingService {
         let monitor_task = self.monitor_proof_internal(
             &order_id,
             proof_id,
-            order.is_groth16(),
+            order.compression_type(),
             order.compressed_proof_id,
         );
         tokio::pin!(monitor_task);

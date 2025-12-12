@@ -51,7 +51,7 @@ use boundless_market::{
         boundless_market::BoundlessMarketService, FulfillmentData, Predicate, PredicateType,
         RequestError, RequestInputType,
     },
-    selector::SupportedSelectors,
+    selector::{is_blake3_groth16_selector, SupportedSelectors},
 };
 use moka::future::Cache;
 use thiserror::Error;
@@ -826,13 +826,25 @@ where
             });
         }
 
+        // If the selector is a blake3 groth16 selector, ensure the journal is exactly 32 bytes
+        if is_blake3_groth16_selector(order.request.requirements.selector) && journal.len() != 32 {
+            tracing::info!(
+                "Order {order_id} journal is not 32 bytes for blake3 groth16 selector, skipping",
+            );
+            return Ok(Skip {
+                reason: "blake3 groth16 selector requires 32 byte journal".to_string(),
+            });
+        }
+
         // Validate the predicates:
         let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
             .map_err(|e| OrderPickerErr::RequestError(Arc::new(e.into())))?;
-        let eval_data = FulfillmentData::from_image_id_and_journal(
-            Digest::from_hex(image_id).unwrap(),
-            journal,
-        );
+        let eval_data = if is_blake3_groth16_selector(order.request.requirements.selector) {
+            // These proofs must have no journal delivery because they cannot be authenticated on chain.
+            FulfillmentData::None
+        } else {
+            FulfillmentData::from_image_id_and_journal(Digest::from_hex(image_id).unwrap(), journal)
+        };
         if predicate.eval(&eval_data).is_none() {
             return Ok(Skip { reason: "order predicate check failed".to_string() });
         }
@@ -1549,10 +1561,13 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use async_trait::async_trait;
-    use boundless_market::contracts::{
-        Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-    };
     use boundless_market::storage::{MockStorageProvider, StorageProvider};
+    use boundless_market::{
+        contracts::{
+            Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        },
+        selector::SelectorExt,
+    };
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
@@ -1959,7 +1974,8 @@ pub(crate) mod tests {
             .await;
 
         // set a Groth16 selector
-        order.request.requirements.selector = FixedBytes::from(Selector::groth16_latest() as u32);
+        order.request.requirements.selector =
+            FixedBytes::from(SelectorExt::groth16_latest() as u32);
 
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
@@ -2959,6 +2975,16 @@ pub(crate) mod tests {
             proof_id: &str,
         ) -> Result<Option<Vec<u8>>, ProverError> {
             self.default_prover.get_compressed_receipt(proof_id).await
+        }
+        async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+            self.default_prover.compress_blake3_groth16(proof_id).await
+        }
+
+        async fn get_blake3_groth16_receipt(
+            &self,
+            proof_id: &str,
+        ) -> Result<Option<Vec<u8>>, ProverError> {
+            self.default_prover.get_blake3_groth16_receipt(proof_id).await
         }
     }
 
