@@ -6,7 +6,7 @@ set -euo pipefail
 
 {% if bento_task == 'api' %}
 # API service (single instance)
-{{ bento_install_dir }}/bento-rest-api --bind-addr {{ bento_api_url }} &
+{{ bento_install_dir }}/bento-rest-api --bind-addr {{ bento_api_url }}
 {% elif bento_task == 'prove' %}
 # Prove services (GPU workers)
 {% if bento_count | default(1) | int > 1 %}
