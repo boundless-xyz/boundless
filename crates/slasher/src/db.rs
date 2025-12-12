@@ -95,8 +95,9 @@ impl SlasherDb for PgDb {
         tracing::trace!("Adding order: 0x{:x}", id);
         // Only store the order if it has a valid expiration time.
         // If the expires_at is 0, the request is already slashed or fulfilled (or even not locked).
-        if expires_at > 0 && lock_expires_at > 0 && !self.order_exists(id).await? {
-            sqlx::query("INSERT INTO orders (id, expires_at, lock_expires_at) VALUES ($1, $2, $3)")
+        // Use ON CONFLICT DO NOTHING to atomically handle duplicates (prevents race conditions)
+        if expires_at > 0 && lock_expires_at > 0 {
+            sqlx::query("INSERT INTO orders (id, expires_at, lock_expires_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
                 .bind(format!("{id:x}"))
                 .bind(expires_at as i64)
                 .bind(lock_expires_at as i64)
