@@ -71,6 +71,10 @@ jobs:
           risczero-version: ${{ env.RISC0_CRATE_VERSION }}
           toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
 
+      - name: forge build
+        run: forge build
+        working-directory: contracts
+
       - name: Cache Rust dependencies
         uses: actions/cache@v4
         with:
