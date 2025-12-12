@@ -210,7 +210,7 @@ jobs:
 
       - name: check xtask
         run: cargo check
-        workspace: xtask
+        working-directory: xtask
 
   link-check:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
