@@ -31,7 +31,7 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer -- --include-ignored
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer --exclude boundless-slasher -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -45,6 +45,12 @@ test-cargo-db:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
+    just test-db clean
+
+# Run slasher tests (requires database)
+test-slasher:
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher -- --include-ignored
     just test-db clean
 
 # Run indexer lib tests and all integration tests (requires both RPC URLs)
@@ -211,7 +217,7 @@ format:
 
 # Clean up all build artifacts
 clean: 
-    @just localnet down
+    @just localnet down || true
     @echo "Cleaning up..."
     @rm -rf {{LOGS_DIR}} ./broadcast
     cargo clean
