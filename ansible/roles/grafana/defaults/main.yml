@@ -1,0 +1,58 @@
+---
+# Grafana installation
+grafana_install: true
+
+# Grafana version to install (use "latest" for latest release)
+grafana_version: "11.0.0"
+
+# Grafana service configuration
+grafana_service_enabled: true
+grafana_service_state: started
+
+# Grafana service user
+grafana_user: "grafana"
+grafana_group: "grafana"
+
+# Grafana configuration
+grafana_host: "localhost"
+grafana_port: 3000
+grafana_listen_address: "0.0.0.0"
+
+# Grafana admin credentials - can be set via environment variables
+grafana_admin_user: "{{ lookup('env', 'GRAFANA_ADMIN_USER') | default('admin', true) | string }}"
+grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') | default('admin', true) | string }}"
+
+# Grafana log level
+grafana_log_level: "{{ lookup('env', 'GRAFANA_LOG_LEVEL') | default('WARN', true) | string }}"
+
+# Grafana plugins to install
+grafana_plugins:
+  - "frser-sqlite-datasource"
+
+# Grafana data directory
+grafana_data_dir: "/var/lib/grafana"
+
+# Grafana config directory
+grafana_config_dir: "/etc/grafana"
+
+# Grafana log directory
+grafana_log_dir: "/var/log/grafana"
+
+# Grafana provisioning directory
+grafana_provisioning_dir: "{{ grafana_config_dir }}/provisioning"
+
+# PostgreSQL datasource configuration
+grafana_postgresql_enabled: true
+grafana_postgresql_host: "{{ postgresql_host | default('localhost') }}"
+grafana_postgresql_port: "{{ postgresql_port | default(5432) }}"
+grafana_postgresql_database: "{{ postgresql_database | default('bento') }}"
+grafana_postgresql_user: "{{ postgresql_user | default('bento') }}"
+grafana_postgresql_password: "{{ postgresql_password | default('') }}"
+
+# Broker SQLite datasource configuration
+grafana_broker_sqlite_enabled: true
+grafana_broker_db_path: "/etc/boundless/broker.db"
+
+# Dashboard provisioning
+grafana_dashboards_enabled: true
+grafana_dashboards_dir: "{{ grafana_provisioning_dir }}/dashboards"

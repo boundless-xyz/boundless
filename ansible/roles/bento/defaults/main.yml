@@ -50,6 +50,19 @@ bento_s3_secret_key: "{{ minio_root_password }}"
 bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default('', true) | string }}"
 bento_povw_log_id: "{{ lookup('env', 'BENTO_POVW_LOG_ID') | default('', true) | string }}"
 
+# Prometheus metrics configuration
+# Environment variable: PROMETHEUS_METRICS_ADDR or BENTO_PROMETHEUS_METRICS_ADDR
+bento_prometheus_metrics_addr: >-
+  {{
+    lookup('env', 'PROMETHEUS_METRICS_ADDR') |
+    default(
+      lookup('env', 'BENTO_PROMETHEUS_METRICS_ADDR') |
+      default('127.0.0.1:9090', true),
+      true
+    ) |
+    string
+  }}
+
 # Installation paths
 bento_install_dir: "/usr/local/bin"
 bento_config_dir: "/etc/boundless"

@@ -28,6 +28,8 @@ broker_peak_prove_khz: "{{ lookup('env', 'BROKER_PEAK_PROVE_KHZ') | default(100,
 broker_max_collateral: "{{ lookup('env', 'BROKER_MAX_COLLATERAL') | default('200', true) | string }}"
 broker_max_concurrent_preflights: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PREFLIGHTS') | default(4, true) | int }}"
 broker_max_concurrent_proofs: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PROOFS') | default(1, true) | int }}"
+# Prometheus metrics address - can be set via PROMETHEUS_METRICS_ADDR or BROKER_PROMETHEUS_METRICS_ADDR environment variable
+broker_prometheus_metrics_addr: "{{ lookup('env', 'PROMETHEUS_METRICS_ADDR') | default(lookup('env', 'BROKER_PROMETHEUS_METRICS_ADDR') | default('127.0.0.1:9090', true), true) | string }}"
 broker_priority_requestor_lists:
   - "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json"
 broker_allow_client_addresses:

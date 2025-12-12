@@ -41,3 +41,5 @@ bento_povw_log_id: "{{ lookup('env', 'POVW_LOG_ID') | default('', true) }}"
 # S3 configuration - always uses MinIO root credentials to keep them in sync
 bento_s3_access_key: "{{ minio_root_user }}"
 bento_s3_secret_key: "{{ minio_root_password }}"
+# Prometheus metrics address - can be set via PROMETHEUS_METRICS_ADDR or BENTO_PROMETHEUS_METRICS_ADDR environment variable
+bento_prometheus_metrics_addr: "{{ lookup('env', 'PROMETHEUS_METRICS_ADDR') | default(lookup('env', 'BENTO_PROMETHEUS_METRICS_ADDR') | default('127.0.0.1:9090', true), true) | string }}"

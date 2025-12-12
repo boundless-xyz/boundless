@@ -209,13 +209,14 @@
     - bento
     - bento-config
 
-- name: Set service file path based on count
-  ansible.builtin.set_fact:
-    bento_service_file: >-
-      {%- if bento_count | default(1) | int > 1 -%}
-      /etc/systemd/system/bento-{{ bento_task }}@.service{%- else -%}
-      /etc/systemd/system/bento-{{ bento_task }}.service{%- endif -%}
-    bento_service_count: "{{ bento_count | default(1) | int }}"
+- name: Create Bento launcher script
+  ansible.builtin.template:
+    src: launcher.sh.j2
+    dest: "{{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh"
+    mode: '0755'
+    owner: root
+    group: "{{ bento_group }}"
+  notify: Restart Bento service
   tags:
     - bento
     - bento-service
@@ -223,27 +224,23 @@
 - name: Create Bento service file
   ansible.builtin.template:
     src: bento.service.j2
-    dest: "{{ bento_service_file }}"
+    dest: "/etc/systemd/system/bento-{{ bento_task }}.service"
     mode: '0644'
     owner: root
     group: root
   notify:
     - Reload systemd
-    - Restart Bento service instances
+    - Restart Bento service
   tags:
     - bento
     - bento-service
 
-- name: Ensure Bento service instances are enabled and started
+- name: Ensure Bento service is enabled and started
   ansible.builtin.systemd:
-    name: >-
-      {%- if bento_service_count | int > 1 -%}
-      bento-{{ bento_task }}@{{ item }}{%- else -%}
-      bento-{{ bento_task }}{%- endif -%}
+    name: "bento-{{ bento_task }}"
     enabled: "{{ bento_service_enabled }}"
     state: "{{ bento_service_state }}"
     daemon_reload: true
-  loop: "{{ range(0, bento_service_count | int) | list }}"
   when: bento_service_state != "stopped"
   tags:
     - bento

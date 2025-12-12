@@ -37,6 +37,19 @@ broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(lookup('env', 'RPC
 # Environment variable: BROKER_PRIVATE_KEY or PRIVATE_KEY
 broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(lookup('env', 'PRIVATE_KEY') | default('', true), true) | string }}"
 
+# Prometheus metrics configuration
+# Environment variable: PROMETHEUS_METRICS_ADDR or BROKER_PROMETHEUS_METRICS_ADDR
+broker_prometheus_metrics_addr: >-
+  {{
+    lookup('env', 'PROMETHEUS_METRICS_ADDR') |
+    default(
+      lookup('env', 'BROKER_PROMETHEUS_METRICS_ADDR') |
+      default('127.0.0.1:9090', true),
+      true
+    ) |
+    string
+  }}
+
 # Broker TOML configuration
 broker_min_mcycle_price: "0.00000001"
 broker_min_mcycle_price_collateral_token: "0.00005"
