@@ -63,6 +63,7 @@ impl CodedError for ProvingErr {
 pub struct ProvingService {
     db: DbObj,
     prover: ProverObj,
+    snark_prover: ProverObj,
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
@@ -72,11 +73,12 @@ impl ProvingService {
     pub async fn new(
         db: DbObj,
         prover: ProverObj,
+        snark_prover: ProverObj,
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
     ) -> Result<Self> {
-        Ok(Self { db, prover, config, order_state_tx, priority_requestors })
+        Ok(Self { db, prover, snark_prover, config, order_state_tx, priority_requestors })
     }
 
     async fn monitor_proof_internal(
@@ -109,12 +111,12 @@ impl ProvingService {
                 || async {
                     let proof_id = match compression_type {
                         CompressionType::Groth16 => self
-                            .prover
+                            .snark_prover
                             .compress(stark_proof_id)
                             .await
                             .context("Failed to compress proof")?,
                         CompressionType::Blake3Groth16 => self
-                            .prover
+                            .snark_prover
                             .compress_blake3_groth16(stark_proof_id)
                             .await
                             .context("Failed to compress blake3 groth16 proof")?,
@@ -127,13 +129,13 @@ impl ProvingService {
                             tracing::trace!(
                                 "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}"
                             );
-                            provers::verify_groth16_receipt(&self.prover, &proof_id).await?;
+                            provers::verify_groth16_receipt(&self.snark_prover, &proof_id).await?;
                         }
                         CompressionType::Blake3Groth16 => {
                             tracing::trace!(
                                 "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}"
                             );
-                            provers::verify_blake3_groth16_receipt(&self.prover, &proof_id).await?;
+                            provers::verify_blake3_groth16_receipt(&self.snark_prover, &proof_id).await?;
                         }
                         CompressionType::None => {
                             unreachable!("Compression type should not be None here")
@@ -622,6 +624,7 @@ mod tests {
         let proving_service = ProvingService::new(
             db.clone(),
             prover.clone(),
+            prover.clone(),
             config.clone(),
             order_state_tx,
             priority_requestors,
@@ -650,6 +653,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service_with_fulfillment = ProvingService::new(
             db.clone(),
+            prover.clone(),
             prover.clone(),
             config.clone(),
             order_state_tx.clone(),
@@ -706,6 +710,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
+            prover.clone(),
             prover,
             config.clone(),
             order_state_tx,
@@ -797,6 +802,7 @@ mod tests {
         let priority_requestors = PriorityRequestors::new(config.clone(), 1);
         let proving_service = ProvingService::new(
             db.clone(),
+            prover.clone(),
             prover.clone(),
             config.clone(),
             order_state_tx.clone(),
