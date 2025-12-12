@@ -121,6 +121,20 @@
           "estimatedMaxInputSizeMB": 10
         }
       }
+    },
+    {
+      "address": "0x076aca5883adb08c31e9308c59cd8495a2513da7",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Blueberry)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 3000,
+          "estimatedMcycleCountMax": 6000,
+          "estimatedMaxInputSizeMB": 10
+        }
+      }
     }
   ]
 }

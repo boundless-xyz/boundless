@@ -8,7 +8,9 @@
     "CARGO_TARGET_DIR": "target/analyzer"
   },
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.check.extraArgs": ["--target-dir=target/analyzer"],
+  "rust-analyzer.check.extraArgs": [
+    "--target-dir=target/analyzer"
+  ],
   "rust-analyzer.linkedProjects": [
     "./Cargo.toml",
     "./crates/boundless-market/Cargo.toml",
@@ -19,9 +21,13 @@
     // "./crates/guest/util/identity/Cargo.toml",
     // "./examples/counter/Cargo.toml",
     // "./examples/smart-contract-requestor/Cargo.toml",
-    // "./examples/counter-with-callback/Cargo.toml"
+    // "./examples/counter-with-callback/Cargo.toml",
+    "./examples/blake3-groth16/Cargo.toml",
   ],
-  "rust-analyzer.files.exclude": ["./lib/", "./contracts/out/"],
+  "rust-analyzer.files.exclude": [
+    "./lib/",
+    "./contracts/out/"
+  ],
   "[javascript][javascriptreact][typescript][typescriptreact][github-actions-workflow][json][css]": {
     "editor.defaultFormatter": "biomejs.biome",
     "editor.codeActionsOnSave": {
@@ -32,7 +38,9 @@
   },
   "biome.rename": true,
   "biome.enabled": true,
-  "cSpell.words": ["offchain"],
+  "cSpell.words": [
+    "offchain"
+  ],
   "[typescript]": {
     "editor.defaultFormatter": "vscode.typescript-language-features"
   },

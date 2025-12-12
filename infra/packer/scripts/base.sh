@@ -5,7 +5,8 @@ echo "Installing all Bento dependencies..."
 # Update system
 sudo apt-get update -y
 sudo apt-get install -y jq htop tree git nvtop build-essential pkg-config libssl-dev curl wget gnupg2 software-properties-common apt-transport-https ca-certificates lsb-release protobuf-compiler unzip clang
-
+# journald will handle logging, so we can remove rsyslog
+sudo apt-get remove rsyslog -y
 # Install NVIDIA drivers and CUDA
 echo "Installing NVIDIA drivers and CUDA..."
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
