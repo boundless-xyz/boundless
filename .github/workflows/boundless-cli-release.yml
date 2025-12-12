@@ -1,4 +1,4 @@
-name: Build and Release Boundless CLI Components
+name: Build and Release Boundless CLI
 
 on:
   push:
@@ -24,7 +24,7 @@ env:
 
 jobs:
   build-boundless-cli:
-    name: Build Boundless CLI Components
+    name: Build Boundless CLI
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: read    # Required for checkout
@@ -76,12 +76,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build Boundless CLI Components
+      - name: Build Boundless CLI
         working-directory: boundless
         env:
           PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
         run: |
-          # Build all components
+          # Build package
           cargo build --release --target ${{ matrix.target }} --bin boundless
 
           # Create archive
@@ -147,7 +147,7 @@ jobs:
           tag_name: ${{ steps.get_version.outputs.version }}
           release_name: ${{ steps.get_version.outputs.release_name }}
           body: |
-            ## Boundless CLI Components Release
+            ## Boundless CLI Release
 
             This release includes a package of:
             - **Boundless ClI**
