@@ -11,14 +11,12 @@ bento_home: "/var/lib/bento"
 bento_install_dependencies: true
 bento_install_dir: "/usr/local/bin"
 bento_keccak_po2: 17
-bento_povw_log_id: CHANGE_ME
 bento_postgresql_database: "{{ postgresql_database }}"
 bento_postgresql_host: "{{ postgresql_host }}"
 bento_postgresql_password: "{{ postgresql_password }}"
 bento_postgresql_port: "{{ postgresql_port }}"
 bento_postgresql_user: "{{ postgresql_user }}"
 bento_redis_ttl: 57600
-bento_rewards_address: CHANGE_ME
 bento_rust_log: "info"
 bento_s3_access_key: CHANGE_ME
 bento_s3_bucket: bento

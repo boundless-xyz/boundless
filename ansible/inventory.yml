@@ -3,18 +3,6 @@
 # Sensitive variables can be set via environment variables
 # Example: export POSTGRESQL_PASSWORD="your_password"
 all:
-  vars:
-    # Database & Storage - can be overridden by environment variables
-    postgresql_user: "{{ lookup('env', 'POSTGRESQL_USER') | default('bento', true) }}"
-    postgresql_password: "{{ lookup('env', 'POSTGRESQL_PASSWORD') | default('', true) }}"
-    minio_root_user: "{{ lookup('env', 'MINIO_ROOT_USER') | default('minioadmin', true) }}"
-    minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default('', true) }}"
-    # Bento Configuration
-    bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default('', true) }}"
-    bento_povw_log_id: "{{ lookup('env', 'POVW_LOG_ID') | default('', true) }}"
-    # Broker Configuration
-    broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default('', true) }}"
-    broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default('https://rpc.boundless.network', true) }}"
   hosts:
     localhost:
       ansible_connection: local

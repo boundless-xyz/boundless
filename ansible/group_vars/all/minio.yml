@@ -12,8 +12,6 @@ minio_host: "127.0.0.1"
 minio_port: 9000
 minio_console_port: 9001
 minio_bind: "127.0.0.1"
-minio_root_user: minioadmin
-minio_root_password: CHANGE_ME
 minio_data_dir: "/var/lib/minio/data"
 minio_config_dir: "/etc/minio"
 minio_log_dir: "/var/log/minio"
