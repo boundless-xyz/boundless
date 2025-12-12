@@ -94,6 +94,7 @@ pub async fn keccak(
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
 
     // TODO refactor the keccak paths/flow with a breaking change, to avoid holding value until TTL
+    //     ref: https://linear.app/boundlessnetwork/issue/BM-2056
     // // Clean up keccak input
     // let cleanup_start = Instant::now();
     // let cleanup_result = conn.unlink::<_, ()>(&keccak_input_path).await;
