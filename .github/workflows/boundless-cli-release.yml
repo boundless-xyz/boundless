@@ -88,8 +88,8 @@ jobs:
           cargo build --release --target ${{ matrix.target }} --bin boundless
 
           # Create archive
-          tar -czf boundless-${{ matrix.artifact_name }}.tar.gz boundless/
-          rm -rf boundless/
+          tar -czf boundless-${{ matrix.artifact_name }}.tar.gz target/${{ matrix.target }}/release/boundless/
+          rm -rf target/${{ matrix.target }}/release/boundless/
 
       - name: sccache stats
         run: sccache --show-stats
