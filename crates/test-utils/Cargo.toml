@@ -24,6 +24,7 @@ povw = [
     "dep:bincode",
     "dep:tracing",
 ]
+zkc = []
 
 [dependencies]
 alloy = { workspace = true, features = [
