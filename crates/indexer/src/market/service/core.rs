@@ -14,6 +14,7 @@
 
 use super::IndexerService;
 use crate::db::market::IndexerDb;
+use crate::market::service::execution::execute_requests;
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::B256;
@@ -56,6 +57,13 @@ where
         } else {
             tracing::info!("Starting indexer at block {}", from_block);
         }
+
+        // Spawn a task to execute requests that need their cycle counts populated
+        let db_clone = self.db.clone();
+        let config_clone = self.config.clone();
+        let _task_executor = tokio::spawn(async move {
+            execute_requests(db_clone, config_clone).await;
+        });
 
         let mut attempt = 0;
         loop {

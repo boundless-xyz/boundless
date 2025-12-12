@@ -2791,6 +2791,7 @@ dependencies = [
  "boundless-zkc",
  "broker",
  "bytemuck",
+ "bytes",
  "chrono",
  "clap",
  "futures-util",

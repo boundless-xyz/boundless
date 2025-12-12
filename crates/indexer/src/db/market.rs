@@ -439,6 +439,19 @@ pub struct CycleCount {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CycleCountExecution {
+    pub request_digest: B256,
+    pub session_uuid: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CycleCountExecutionUpdate {
+    pub request_digest: B256,
+    pub program_cycles: u32,
+    pub total_cycles: u32,
+}
+
 impl TxMetadata {
     pub fn new(
         tx_hash: B256,
@@ -615,11 +628,38 @@ pub trait IndexerDb {
         to_timestamp: u64,
     ) -> Result<HashSet<B256>, DbError>;
 
+    /// Get request digests for cycle counts in status PENDING
+    async fn get_cycle_counts_pending(&self, limit: u32) -> Result<HashSet<B256>, DbError>;
+
+    /// Get request digests and session UUID for cycle counts in status EXECUTING
+    async fn get_cycle_counts_executing(
+        &self,
+        limit: u32,
+    ) -> Result<HashSet<CycleCountExecution>, DbError>;
+
+    /// Update cycle status for executing cycle counts
+    async fn set_cycle_counts_executing(
+        &self,
+        execution_info: &HashSet<CycleCountExecution>,
+    ) -> Result<(), DbError>;
+
+    /// Update cycle status for completed cycle counts
+    async fn set_cycle_counts_completed(
+        &self,
+        execution_info: &Vec<CycleCountExecutionUpdate>,
+    ) -> Result<(), DbError>;
+
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
     async fn get_request_inputs(
         &self,
         request_digests: &[B256],
     ) -> Result<Vec<(B256, String, String, Address)>, DbError>;
+
+    /// Get input_type, input_data, image_id, image_url, and max_price from proof_requests for the given request digests
+    async fn get_request_params_for_execution(
+        &self,
+        request_digests: &[B256],
+    ) -> Result<Vec<(B256, String, String, String, String, String)>, DbError>;
 
     // Joins multiple tables to get a comprehensive view of a request.
     async fn get_requests_comprehensive(
@@ -2230,6 +2270,106 @@ impl IndexerDb for MarketDb {
         Ok(request_digests)
     }
 
+    async fn get_cycle_counts_pending(&self, limit: u32) -> Result<HashSet<B256>, DbError> {
+        let query =
+            "SELECT request_digest FROM cycle_counts WHERE cycle_status = 'PENDING' LIMIT $1";
+
+        let rows = sqlx::query(&query).bind(limit as i64).fetch_all(self.pool()).await?;
+
+        let mut request_digests = HashSet::new();
+        for row in rows {
+            let digest_str: String = row.try_get("request_digest")?;
+            let digest = match B256::from_str(&digest_str) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                    continue;
+                }
+            };
+            request_digests.insert(digest);
+        }
+
+        Ok(request_digests)
+    }
+
+    async fn get_cycle_counts_executing(
+        &self,
+        limit: u32,
+    ) -> Result<HashSet<CycleCountExecution>, DbError> {
+        let query = "SELECT request_digest, session_uuid FROM cycle_counts WHERE cycle_status = 'EXECUTING' LIMIT $1";
+
+        let rows = sqlx::query(&query).bind(limit as i64).fetch_all(self.pool()).await?;
+
+        let mut execution_info = HashSet::new();
+        for row in rows {
+            let digest_str: String = row.try_get("request_digest")?;
+            let digest = match B256::from_str(&digest_str) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                    continue;
+                }
+            };
+            let session_uuid: String = row.try_get("session_uuid")?;
+            execution_info.insert(CycleCountExecution { request_digest: digest, session_uuid });
+        }
+
+        Ok(execution_info)
+    }
+
+    async fn set_cycle_counts_executing(
+        &self,
+        execution_info: &HashSet<CycleCountExecution>,
+    ) -> Result<(), DbError> {
+        let execution_vec: Vec<&CycleCountExecution> = execution_info.iter().collect();
+
+        let mut tx = self.pool.begin().await?;
+
+        for execution_data in execution_vec {
+            let query = "UPDATE cycle_counts
+                    SET cycle_status = 'EXECUTING', session_uuid = $1
+                    WHERE request_digest = $2";
+
+            let mut query_builder = sqlx::query(&query);
+
+            query_builder = query_builder
+                .bind(&execution_data.session_uuid)
+                .bind(format!("{:x}", execution_data.request_digest));
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
+    async fn set_cycle_counts_completed(
+        &self,
+        update_info: &Vec<CycleCountExecutionUpdate>,
+    ) -> Result<(), DbError> {
+        let update_vec: Vec<&CycleCountExecutionUpdate> = update_info.iter().collect();
+
+        let mut tx = self.pool.begin().await?;
+
+        for update_data in update_vec {
+            let query = "UPDATE cycle_counts
+                    SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2
+                    WHERE request_digest = $3";
+
+            let mut query_builder = sqlx::query(&query);
+
+            query_builder = query_builder
+                .bind(update_data.program_cycles.to_string())
+                .bind(update_data.total_cycles.to_string())
+                .bind(format!("{:x}", update_data.request_digest));
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
     async fn get_request_inputs(
         &self,
         request_digests: &[B256],
@@ -2285,6 +2425,57 @@ impl IndexerDb for MarketDb {
                 };
 
                 results.push((digest, input_type, input_data, client_address));
+            }
+        }
+
+        Ok(results)
+    }
+
+    async fn get_request_params_for_execution(
+        &self,
+        request_digests: &[B256],
+    ) -> Result<Vec<(B256, String, String, String, String, String)>, DbError> {
+        if request_digests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut results = Vec::new();
+        const BATCH_SIZE: usize = 500;
+
+        for chunk in request_digests.chunks(BATCH_SIZE) {
+            let placeholders =
+                (1..=chunk.len()).map(|i| format!("${}", i)).collect::<Vec<_>>().join(", ");
+
+            let query = format!(
+                "SELECT request_digest, input_type, input_data, image_id, image_url, max_price
+                 FROM proof_requests
+                 WHERE request_digest IN ({})",
+                placeholders
+            );
+
+            let mut query_builder = sqlx::query(&query);
+            for digest in chunk {
+                query_builder = query_builder.bind(format!("{:x}", digest));
+            }
+
+            let rows = query_builder.fetch_all(self.pool()).await?;
+            for row in rows {
+                let digest_str: String = row.try_get("request_digest")?;
+                let input_type: String = row.try_get("input_type")?;
+                let input_data: String = row.try_get("input_data")?;
+                let image_id: String = row.try_get("image_id")?;
+                let image_url: String = row.try_get("image_url")?;
+                let max_price: String = row.try_get("max_price")?;
+
+                let digest = match B256::from_str(&digest_str) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                        continue;
+                    }
+                };
+
+                results.push((digest, input_type, input_data, image_id, image_url, max_price));
             }
         }
 

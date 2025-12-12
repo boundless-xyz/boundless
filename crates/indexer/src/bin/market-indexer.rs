@@ -70,6 +70,22 @@ struct MainArgs {
     /// Depending on RPC provider, one may be more efficient than the other.
     #[clap(long, env, default_value = "tx-by-hash")]
     tx_fetch_strategy: String,
+    /// Interval in seconds between checking for requests with pending cycle counts, which will need
+    /// to be scheduled for execution.
+    #[clap(long, default_value = "3")]
+    execution_interval: u64,
+    /// Timeout in seconds for the HTTP client used to schedule and monitor executions.
+    #[clap(long, default_value = "10")]
+    execution_http_client_timeout: u64,
+    /// Max size in MB for inputs and image data for executions.
+    #[clap(long, default_value = "125")]
+    max_execution_data_size: u32,
+    /// An API key to use for Bento API operations
+    #[clap(long, env)]
+    bento_api_key: String,
+    /// URL to the Bento API
+    #[clap(long, env)]
+    bento_api_url: String,
 }
 
 #[tokio::main]
@@ -103,6 +119,11 @@ async fn main() -> Result<()> {
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
+        execution_interval: Duration::from_secs(args.execution_interval),
+        execution_http_client_timeout: Duration::from_secs(args.execution_http_client_timeout),
+        max_execution_data_size: args.max_execution_data_size,
+        bento_api_key: args.bento_api_key,
+        bento_api_url: args.bento_api_url,
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
