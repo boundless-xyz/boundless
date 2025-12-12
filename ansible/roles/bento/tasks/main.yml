@@ -213,9 +213,9 @@
   ansible.builtin.template:
     src: launcher.sh.j2
     dest: "{{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh"
-    mode: '0750'
+    mode: '0755'
     owner: root
-    group: "{{ bento_group }}"
+    group: root
   notify: Restart Bento service
   tags:
     - bento
