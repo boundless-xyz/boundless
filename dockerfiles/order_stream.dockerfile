@@ -41,7 +41,6 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
-COPY xtask/ ./xtask/
 
 RUN cargo chef prepare  --recipe-path recipe.json
 
@@ -62,7 +61,6 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
-COPY xtask/ ./xtask/
 
 ENV PATH="$PATH:/root/.foundry/bin"
 RUN forge build

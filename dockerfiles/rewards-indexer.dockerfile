@@ -42,7 +42,6 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
-COPY xtask/ ./xtask/
 
 RUN cargo chef prepare  --recipe-path recipe.json
 
@@ -63,7 +62,6 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
-COPY xtask/ ./xtask/
 
 SHELL ["/bin/bash", "-c"]
 
