@@ -55,6 +55,42 @@ use crate::{
     util::NotProvided,
 };
 
+/// Funding mode for requests submission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FundingMode {
+    /// Always send `max_price` as the tx value.
+    Always,
+
+    /// Never send value with the request.
+    ///
+    /// Use this mode only if you are managing the onchain balance through other means
+    /// (e.g., manual top-ups, external funding management).
+    Never,
+
+    /// Use available balance for funding the request.
+    ///
+    /// If the onchain balance is insufficient, the difference will be sent as value.
+    AvailableBalance,
+
+    /// Send value if the balance is below a configurable threshold.
+    ///
+    /// If the onchain balance is insufficient, the difference will be sent as value.
+    /// It's important to set the threshold appropriately to avoid underfunding.
+    BelowThreshold(U256),
+
+    /// Maintain a minimum and maximum balance by funding the request accordingly.
+    ///
+    /// If the onchain balance is below `min_balance`, the request will be funded
+    /// to bring the balance up to `max_balance`. This should minimize the number of
+    /// onchain fundings while ensuring sufficient balance is maintained.
+    MinMaxBalance {
+        /// Minimum balance to maintain.
+        min_balance: U256,
+        /// Maximum balance to maintain.
+        max_balance: U256,
+    },
+}
 /// Builder for the [Client] with standard implementations for the required components.
 #[derive(Clone)]
 pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
@@ -73,15 +109,14 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     pub request_id_layer_config: RequestIdLayerConfigBuilder,
     /// Configuration builder for [Finalizer][crate::request_builder::Finalizer], part of [StandardRequestBuilder].
     pub request_finalizer_config: FinalizerConfigBuilder,
-    /// Use available funds already deposited when creating new offers, if available.
+    /// Funding mode for onchain requests.
     ///
-    /// Default: false
-    /// Setting this to true will cause the client to attempt to use any available funds
-    /// in the user's Boundless Market account when creating new offers. This can help
-    /// reduce the amount of ETH that needs to be sent with each new request submission.
-    /// However, it may also lead to expiry when new requests are sent before the previous ones are locked,
-    /// as the available funds might be insufficient to cover for all of them.
-    pub use_available_funds: bool,
+    /// Defaults to [FundingMode::Always].
+    /// [FundingMode::Never] can be used to never send value with the request.
+    /// [FundingMode::AvailableBalance] can be used to only send value if the current onchain balance is insufficient.
+    /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
+    /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
+    pub funding_mode: FundingMode,
 }
 
 impl<St, Si> Default for ClientBuilder<St, Si> {
@@ -98,7 +133,7 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             storage_layer_config: Default::default(),
             request_id_layer_config: Default::default(),
             request_finalizer_config: Default::default(),
-            use_available_funds: false,
+            funding_mode: FundingMode::Always,
         }
     }
 }
@@ -333,7 +368,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             signer: self.signer,
             request_builder: Some(request_builder),
             deployment,
-            use_available_funds: self.use_available_funds,
+            funding_mode: self.funding_mode,
         };
 
         if let Some(timeout) = self.tx_timeout {
@@ -355,9 +390,9 @@ impl<St, Si> ClientBuilder<St, Si> {
         Self { rpc_url: Some(rpc_url), ..self }
     }
 
-    /// Set whether to use available funds already deposited when creating new offers, if available.
-    pub fn with_use_available_funds(self, use_available_funds: bool) -> Self {
-        Self { use_available_funds, ..self }
+    /// Set the funding mode for onchain requests.
+    pub fn with_funding_mode(self, funding_mode: FundingMode) -> Self {
+        Self { funding_mode, ..self }
     }
 
     /// Set additional RPC URLs for automatic failover.
@@ -433,7 +468,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_layer_config: self.storage_layer_config,
             request_id_layer_config: self.request_id_layer_config,
             request_finalizer_config: self.request_finalizer_config,
-            use_available_funds: self.use_available_funds,
+            funding_mode: self.funding_mode,
         }
     }
 
@@ -467,7 +502,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             request_id_layer_config: self.request_id_layer_config,
             storage_layer_config: self.storage_layer_config,
             offer_layer_config: self.offer_layer_config,
-            use_available_funds: self.use_available_funds,
+            funding_mode: self.funding_mode,
         }
     }
 
@@ -580,15 +615,14 @@ pub struct Client<
     pub request_builder: Option<R>,
     /// Deployment of Boundless that this client is connected to.
     pub deployment: Deployment,
-    /// Use available funds already deposited when creating new offers, if available.
+    /// Funding mode for onchain requests.
     ///
-    /// Default: false
-    /// Setting this to true will cause the client to attempt to use any available funds
-    /// in the user's Boundless Market account when creating new offers. This can help
-    /// reduce the amount of ETH that needs to be sent with each new request submission.
-    /// However, it may also lead to expiry when new requests are sent before the previous ones are locked,
-    /// as the available funds might be insufficient to cover for all of them.
-    pub use_available_funds: bool,
+    /// Defaults to [FundingMode::Always].
+    /// [FundingMode::Never] can be used to never send value with the request.
+    /// [FundingMode::AvailableBalance] can be used to only send value if the current onchain balance is insufficient.
+    /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
+    /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
+    pub funding_mode: FundingMode,
 }
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
@@ -654,7 +688,7 @@ where
             offchain_client: None,
             signer: None,
             request_builder: None,
-            use_available_funds: false,
+            funding_mode: FundingMode::Always,
         }
     }
 }
@@ -726,9 +760,9 @@ where
         }
     }
 
-    /// Use available funds already deposited when creating new offers, if available.
-    pub fn with_use_available_funds(self, use_available_funds: bool) -> Self {
-        Self { use_available_funds, ..self }
+    /// Set the funding mode for onchain requests.
+    pub fn with_funding_mode(self, funding_mode: FundingMode) -> Self {
+        Self { funding_mode, ..self }
     }
 
     /// Set the signer that will be used for signing [ProofRequest].
@@ -753,7 +787,7 @@ where
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
             deployment: self.deployment,
-            use_available_funds: self.use_available_funds,
+            funding_mode: self.funding_mode,
         }
     }
 
@@ -815,6 +849,70 @@ where
         Ok(request)
     }
 
+    async fn compute_funding_value(
+        &self,
+        client_address: Address,
+        max_price: U256,
+    ) -> Result<U256, ClientError> {
+        let balance = self.boundless_market.balance_of(client_address).await?;
+
+        let value = match self.funding_mode {
+            FundingMode::Always => {
+                if balance > max_price.saturating_mul(U256::from(3u8)) {
+                    tracing::warn!(
+                        "Client balance is {} ETH, that is more than 3x the value being sent. \
+                         Consider switching to a different funding mode to avoid overfunding.",
+                        format_ether(balance),
+                    );
+                }
+                max_price
+            }
+
+            FundingMode::Never => U256::ZERO,
+
+            FundingMode::AvailableBalance => {
+                if balance < max_price {
+                    max_price.saturating_sub(balance)
+                } else {
+                    U256::ZERO
+                }
+            }
+
+            FundingMode::BelowThreshold(threshold) => {
+                if balance < threshold {
+                    tracing::warn!(
+                        "Client balance is {} ETH < threshold {} ETH. \
+                         Sending additional funds to top up the balance.",
+                        format_ether(balance),
+                        format_ether(threshold),
+                    );
+                    threshold.saturating_sub(balance)
+                } else {
+                    U256::ZERO
+                }
+            }
+
+            FundingMode::MinMaxBalance { min_balance, max_balance } => {
+                if balance < min_balance {
+                    let to_send = max_balance.saturating_sub(balance);
+                    tracing::warn!(
+                        "Client balance is {} ETH < min {} ETH. \
+                         Sending {} ETH (max target {}).",
+                        format_ether(balance),
+                        format_ether(min_balance),
+                        format_ether(to_send),
+                        format_ether(max_balance),
+                    );
+                    to_send
+                } else {
+                    U256::ZERO
+                }
+            }
+        };
+
+        Ok(value)
+    }
+
     /// Build and submit a proof request by sending an onchain transaction.
     ///
     /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
@@ -867,16 +965,12 @@ where
 
         request.validate()?;
 
-        let value = U256::from(request.offer.maxPrice);
-        let request_id = if self.use_available_funds {
-            self.boundless_market.submit_request(&request, signer).await?
-        } else {
-            let balance = self.boundless_market.balance_of(client_address).await?;
-            if balance > (value * (U256::from(3))) {
-                tracing::warn!("Client balance is {} ETH, that is more than 3x the value being sent with the request. Consider enabling `use_available_funds` to avoid overfunding the client account.", format_ether(balance));
-            }
-            self.boundless_market.submit_request_with_value(&request, signer, value).await?
-        };
+        let max_price = U256::from(request.offer.maxPrice);
+        let value = self.compute_funding_value(client_address, max_price).await?;
+
+        let request_id =
+            self.boundless_market.submit_request_with_value(&request, signer, value).await?;
+
         Ok((request_id, request.expires_at()))
     }
 

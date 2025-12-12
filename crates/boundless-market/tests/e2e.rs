@@ -20,6 +20,7 @@ use alloy::{
 };
 use alloy_primitives::Bytes;
 use boundless_market::{
+    client::FundingMode,
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
@@ -160,45 +161,80 @@ async fn test_submit_request() {
 }
 
 #[tokio::test]
-async fn test_use_available_funds() {
+async fn test_funding_mode() {
     use boundless_market::client::ClientBuilder;
     // Setup anvil
     let anvil = Anvil::new().spawn();
 
     let ctx = create_test_ctx(&anvil).await.unwrap();
+    // Setup client with Always funding mode as it is the default mode
     let client = ClientBuilder::new()
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
-        .with_use_available_funds(false)
         .build()
         .await
         .unwrap();
 
+    // Test Always funding mode: balance after submission should increase by maxPrice
     let balance_before =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     let request = new_request(1, &ctx).await;
     let _ = client.submit_request_onchain(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
-    assert!(balance_before == balance_after - request.offer.maxPrice);
+    assert!(balance_after == balance_before + request.offer.maxPrice);
 
-    let client = ClientBuilder::new()
-        .with_signer(ctx.customer_signer.clone())
-        .with_deployment(ctx.deployment.clone())
-        .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
-        .with_use_available_funds(true)
-        .build()
-        .await
-        .unwrap();
-
+    // Test AvailableBalance funding mode: balance after submission should remain the same
+    let client = client.with_funding_mode(FundingMode::AvailableBalance);
     let balance_before =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     let request = new_request(2, &ctx).await;
     let _ = client.submit_request_onchain(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
-    assert!(balance_before == balance_after);
+    assert!(balance_after == balance_before);
+
+    // Test BelowThreshold funding mode: balance after submission should be equal to threshold
+    // since we set the threshold above the current balance
+    let threshold = request.offer.maxPrice * U256::from(5);
+    let client = client.with_funding_mode(FundingMode::BelowThreshold(threshold));
+    let request = new_request(3, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == threshold);
+
+    // Withdraw all balance
+    ctx.customer_market.withdraw(balance_after).await.unwrap();
+
+    // Test Never funding mode: balance after submission should remain the same
+    let client = client.with_funding_mode(FundingMode::Never);
+    let request = new_request(4, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == U256::ZERO);
+
+    // Test MinMaxBalance funding mode: balance after submission should be equal to max
+    // since we start from zero balance after the withdrawal above
+    let min = request.offer.maxPrice;
+    let max = request.offer.maxPrice * U256::from(10);
+    let client =
+        client.with_funding_mode(FundingMode::MinMaxBalance { min_balance: min, max_balance: max });
+    let request = new_request(5, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == max);
+
+    // Test MinMaxBalance funding mode: balance after submission should remain equal to max
+    // since we are above the min balance
+    let request = new_request(6, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == max);
 }
 
 #[tokio::test]
