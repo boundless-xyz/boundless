@@ -1820,11 +1820,13 @@ pub(crate) mod tests {
         let mut order = ctx
             .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
             .await;
-        
+
         // Set lockCollateral to 20 ETH (more than the 10 ETH deposited in setup)
-        let collateral_token_decimals = ctx.market_service.collateral_token_decimals().await.unwrap();
-        order.request.offer.lockCollateral = parse_units("20.0", collateral_token_decimals).unwrap().into();
-        
+        let collateral_token_decimals =
+            ctx.market_service.collateral_token_decimals().await.unwrap();
+        order.request.offer.lockCollateral =
+            parse_units("20.0", collateral_token_decimals).unwrap().into();
+
         // Recreate the signature since we modified the request
         order.client_sig = order
             .request
@@ -1833,7 +1835,7 @@ pub(crate) mod tests {
             .unwrap()
             .as_bytes()
             .into();
-        
+
         let order_id = order.id();
 
         let _submitted_request_id =
@@ -1848,16 +1850,13 @@ pub(crate) mod tests {
 
         // Verify the order was skipped due to insufficient balance
         let skipped_order = ctx.db.get_order(&order_id).await.unwrap();
-        assert!(
-            skipped_order.is_some(),
-            "Order should be in database"
-        );
+        assert!(skipped_order.is_some(), "Order should be in database");
         assert_eq!(
             skipped_order.unwrap().status,
             OrderStatus::Skipped,
             "Order should be skipped due to insufficient collateral balance"
         );
-        
+
         // Verify the log message was emitted
         assert!(
             logs_contain("No longer have enough collateral deposited to market to lock order"),
