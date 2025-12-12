@@ -19,37 +19,49 @@ ansible-playbook -i inventory.yml broker.yml
 
 ### PostgreSQL
 
-* `POSTGRESQL_USER` (default: `bento`)
-* `POSTGRESQL_PASSWORD` (default: `CHANGE_ME` - **must be set**)
-* `POSTGRESQL_HOST` (default: `localhost`)
-* `POSTGRESQL_PORT` (default: `5432`)
-* `POSTGRESQL_DATABASE` (default: `bento`)
+- `POSTGRESQL_USER` (default: `bento`)
+- `POSTGRESQL_PASSWORD` (default: `CHANGE_ME` - **must be set**)
+- `POSTGRESQL_HOST` (default: `localhost`)
+- `POSTGRESQL_PORT` (default: `5432`)
+- `POSTGRESQL_DATABASE` (default: `bento`)
 
 ### MinIO
 
-* `MINIO_ROOT_USER` (default: `minioadmin`)
-* `MINIO_ROOT_PASSWORD` (default: `minioadmin` - **should be changed**)
+- `MINIO_ROOT_USER` (default: `minioadmin`)
+- `MINIO_ROOT_PASSWORD` (default: `minioadmin` - **should be changed**)
+- `BENTO_S3_ACCESS_KEY` (default: uses `MINIO_ROOT_USER`): MinIO root user (synced with Bento S3 credentials)
+- `BENTO_S3_SECRET_KEY` (default: uses `MINIO_ROOT_PASSWORD`): MinIO root password (synced with Bento S3 credentials)
 
 ### Broker
 
-* `BROKER_POSTGRESQL_USER` (default: empty)
-* `BROKER_POSTGRESQL_PASSWORD` (default: empty)
-* `BROKER_POSTGRESQL_HOST` (default: `localhost`)
-* `BROKER_POSTGRESQL_PORT` (default: `5432`)
-* `BROKER_POSTGRESQL_DATABASE` (default: `broker`)
-* `BROKER_BENTO_API_URL` (default: `http://localhost:8080`)
-* `BROKER_RPC_URL` or `RPC_URL` (default: empty - **required for broker**)
-* `BROKER_PRIVATE_KEY` or `PRIVATE_KEY` (default: empty - **required for broker**)
+- `BROKER_BENTO_API_URL` (default: `http://localhost:8081`): Bento REST API URL
+- `BROKER_RPC_URL` or `RPC_URL` (default: `https://rpc.boundless.network` - **should be overridden**)
+- `BROKER_PRIVATE_KEY` or `PRIVATE_KEY` (default: zero key - **must be set**)
+- `BROKER_MIN_MCYCLE_PRICE` (default: `0.0000003`): Minimum price per mega-cycle
+- `BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN` (default: `0`): Minimum price in collateral token
+- `BROKER_PEAK_PROVE_KHZ` (default: `100`): Estimated peak performance in kHz
+- `BROKER_MAX_COLLATERAL` (default: `200`): Maximum collateral amount
+- `BROKER_MAX_CONCURRENT_PREFLIGHTS` (default: `4`, auto-calculated from CPU): Maximum concurrent preflight tasks
+- `BROKER_MAX_CONCURRENT_PROOFS` (default: `1`): Maximum concurrent proof tasks
+- `PROMETHEUS_METRICS_ADDR` (default: `127.0.0.1:9090`): Prometheus metrics endpoint (shared by all services)
+- `BROKER_PROMETHEUS_METRICS_ADDR` (default: uses `PROMETHEUS_METRICS_ADDR`): Broker-specific metrics endpoint
 
 ### Bento
 
-* `BENTO_S3_BUCKET` (default: `bento`)
-* `BENTO_S3_ACCESS_KEY` (default: uses `MINIO_ROOT_USER`)
-* `BENTO_S3_SECRET_KEY` (default: uses `MINIO_ROOT_PASSWORD`)
-* `BENTO_S3_URL` (default: uses MinIO host/port)
-* `BENTO_S3_REGION` (default: `auto`)
-* `BENTO_REWARDS_ADDRESS` (default: empty)
-* `BENTO_POVW_LOG_ID` (default: empty)
+- `BENTO_S3_BUCKET` (default: `bento`)
+- `BENTO_S3_ACCESS_KEY` (default: uses `MINIO_ROOT_USER`)
+- `BENTO_S3_SECRET_KEY` (default: uses `MINIO_ROOT_PASSWORD`)
+- `BENTO_S3_URL` (default: uses MinIO host/port)
+- `BENTO_S3_REGION` (default: `auto`)
+- `BENTO_REWARDS_ADDRESS` (default: empty)
+- `BENTO_POVW_LOG_ID` (default: empty, can also use `POVW_LOG_ID`)
+- `SEGMENT_PO2` (default: `20`): Segment size parameter
+- `KECCAK_PO2` (default: `17`): Keccak size parameter
+- `BENTO_GPU_COUNT` (default: `1`): Number of GPU prove workers
+- `BENTO_EXEC_COUNT` (default: `4`): Number of exec workers
+- `BENTO_AUX_COUNT` (default: `2`): Number of aux workers
+- `PROMETHEUS_METRICS_ADDR` (default: `127.0.0.1:9090`): Prometheus metrics endpoint (shared by all services)
+- `BENTO_PROMETHEUS_METRICS_ADDR` (default: uses `PROMETHEUS_METRICS_ADDR`): Bento-specific metrics endpoint
 
 ## Usage Examples
 
@@ -206,15 +218,15 @@ This means environment variables will override defaults but can be overridden by
 ## Security Best Practices
 
 1. **Never commit `.env` files to git**
-   * Add `.env` to `.gitignore`
-   * Use `.env.example` as a template
+   - Add `.env` to `.gitignore`
+   - Use `.env.example` as a template
 
 2. **Use secure secret management**
-   * AWS Secrets Manager
-   * HashiCorp Vault
-   * Bitwarden
-   * 1Password
-   * CI/CD secret stores
+   - AWS Secrets Manager
+   - HashiCorp Vault
+   - Bitwarden
+   - 1Password
+   - CI/CD secret stores
 
 3. **Clear environment after use**
    ```bash
@@ -223,12 +235,12 @@ This means environment variables will override defaults but can be overridden by
    ```
 
 4. **Use separate contexts**
-   * Different `.env` files for different environments
-   * Use `direnv` for automatic context switching
+   - Different `.env` files for different environments
+   - Use `direnv` for automatic context switching
 
 5. **Rotate secrets regularly**
-   * Update environment variables when rotating secrets
-   * No need to re-encrypt vault files
+   - Update environment variables when rotating secrets
+   - No need to re-encrypt vault files
 
 ## Example: Complete Setup Script
 
@@ -277,17 +289,17 @@ ansible-playbook -i inventory.yml broker.yml
 
 ### "Variable is empty"
 
-* Check that the environment variable is set: `echo $POSTGRESQL_PASSWORD`
-* Verify variable name matches exactly (case-sensitive)
-* Check if variable is exported: `export POSTGRESQL_PASSWORD="value"`
+- Check that the environment variable is set: `echo $POSTGRESQL_PASSWORD`
+- Verify variable name matches exactly (case-sensitive)
+- Check if variable is exported: `export POSTGRESQL_PASSWORD="value"`
 
 ### "Default value used instead of env var"
 
-* Ensure variable is exported, not just set: `export VAR=value`
-* Check variable precedence (command-line vars override env vars)
+- Ensure variable is exported, not just set: `export VAR=value`
+- Check variable precedence (command-line vars override env vars)
 
 ### "Secrets not loading in CI/CD"
 
-* Verify secrets are set in CI/CD secret store
-* Check that secrets are exported in the CI/CD environment
-* Use `ansible-playbook ... -e "var=value"` to pass secrets directly
+- Verify secrets are set in CI/CD secret store
+- Check that secrets are exported in the CI/CD environment
+- Use `ansible-playbook ... -e "var=value"` to pass secrets directly

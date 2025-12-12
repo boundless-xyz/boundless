@@ -4,20 +4,20 @@ This Ansible role installs RISC Zero's `rzup` toolchain manager and optionally t
 
 ## Requirements
 
-* Rust must be installed (this role depends on the `rust` role)
-* Ubuntu 22.04 or 24.04
-* Sudo/root privileges
+- Rust must be installed (this role depends on the `rust` role)
+- Ubuntu 22.04 or 24.04
+- Sudo/root privileges
 
 ## Role Variables
 
 ### Installation Configuration
 
-* `rzup_install` (default: `true`): Whether to install rzup
-* `rzup_user` (default: `{{ ansible_user_id }}`): User to install rzup for
-* `rzup_group` (default: `{{ ansible_user_id }}`): Group for the user
-* `rzup_home` (default: `null`): Home directory for the user (auto-detected if null)
-* `rzup_install_groth16` (default: `true`): Whether to install risc0-groth16 component
-* `rzup_risc0_home` (default: `null`): RISC0\_HOME directory (defaults to `$HOME/.risc0`)
+- `rzup_install` (default: `true`): Whether to install rzup
+- `rzup_user` (default: `{{ ansible_user_id }}`): User to install rzup for
+- `rzup_group` (default: `{{ ansible_user_id }}`): Group for the user
+- `rzup_home` (default: `null`): Home directory for the user (auto-detected if null)
+- `rzup_install_groth16` (default: `true`): Whether to install risc0-groth16 component
+- `rzup_risc0_home` (default: `null`): RISC0\_HOME directory (defaults to `$HOME/.risc0`)
 
 ## Installation
 
@@ -45,10 +45,10 @@ The role:
 
 ## Tags
 
-* `rzup`: All rzup installation tasks
-* `rzup-install`: rzup installation tasks
-* `rzup-groth16`: risc0-groth16 installation tasks
+- `rzup`: All rzup installation tasks
+- `rzup-install`: rzup installation tasks
+- `rzup-groth16`: risc0-groth16 installation tasks
 
 ## Dependencies
 
-* `rust` role (automatically installed as a dependency)
+- `rust` role (automatically installed as a dependency)
