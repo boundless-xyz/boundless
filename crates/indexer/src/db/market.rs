@@ -448,8 +448,8 @@ pub struct CycleCountExecution {
 #[derive(Debug, Clone)]
 pub struct CycleCountExecutionUpdate {
     pub request_digest: B256,
-    pub program_cycles: u32,
-    pub total_cycles: u32,
+    pub program_cycles: u64,
+    pub total_cycles: u64,
 }
 
 impl TxMetadata {
@@ -659,7 +659,7 @@ pub trait IndexerDb {
     async fn get_request_params_for_execution(
         &self,
         request_digests: &[B256],
-    ) -> Result<Vec<(B256, String, String, String, String, String)>, DbError>;
+    ) -> Result<Vec<(B256, String, String, String, String, u64)>, DbError>;
 
     // Joins multiple tables to get a comprehensive view of a request.
     async fn get_requests_comprehensive(
@@ -2434,7 +2434,7 @@ impl IndexerDb for MarketDb {
     async fn get_request_params_for_execution(
         &self,
         request_digests: &[B256],
-    ) -> Result<Vec<(B256, String, String, String, String, String)>, DbError> {
+    ) -> Result<Vec<(B256, String, String, String, String, u64)>, DbError> {
         if request_digests.is_empty() {
             return Ok(Vec::new());
         }
@@ -2475,7 +2475,22 @@ impl IndexerDb for MarketDb {
                     }
                 };
 
-                results.push((digest, input_type, input_data, image_id, image_url, max_price));
+                let max_price_parsed = match max_price.parse::<u64>() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse max_price '{}': {}", digest_str, e);
+                        continue;
+                    }
+                };
+
+                results.push((
+                    digest,
+                    input_type,
+                    input_data,
+                    image_id,
+                    image_url,
+                    max_price_parsed,
+                ));
             }
         }
 
