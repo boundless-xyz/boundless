@@ -17,7 +17,6 @@ async-trait = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
-risc0-zkvm = { workspace = true, features = ["std", "default"] }
 sqlx = { workspace = true, features = [ "postgres", "runtime-tokio", "json", "migrate", "macros" ] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }

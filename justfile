@@ -192,6 +192,10 @@ check-clippy:
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
 
+    cd examples/blake3-groth16 && \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
+    cargo clippy --workspace --all-targets
+
 # Format all code
 format:
     cargo sort --workspace

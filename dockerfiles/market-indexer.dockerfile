@@ -8,11 +8,6 @@ SHELL ["/bin/bash", "-c"]
 
 RUN cargo install cargo-chef
 
-# Install protoc
-RUN curl -o protoc.zip -L https://github.com/protocolbuffers/protobuf/releases/download/v31.1/protoc-31.1-linux-x86_64.zip \
-    && unzip protoc.zip -d /usr/local \
-    && rm protoc.zip
-
 ARG CACHE_DATE=2025-10-13  # update this date to force rebuild
 # The indexer doesn't need r0vm to run, but its tests do need it. 
 # Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
@@ -43,7 +38,6 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
-COPY xtask/ ./xtask/
 
 RUN cargo chef prepare  --recipe-path recipe.json
 
@@ -64,7 +58,6 @@ COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
-COPY xtask/ ./xtask/
 
 SHELL ["/bin/bash", "-c"]
 
