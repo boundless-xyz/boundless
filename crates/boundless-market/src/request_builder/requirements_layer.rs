@@ -13,8 +13,10 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
+#[cfg(feature = "blake3-groth16")]
 use crate::blake3_groth16;
 use crate::contracts::{Callback, Predicate, Requirements};
+#[cfg(feature = "blake3-groth16")]
 use crate::selector::is_blake3_groth16_selector;
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
@@ -158,7 +160,7 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
         let mut predicate = params.predicate.clone();
-
+        #[cfg(feature = "blake3-groth16")]
         if let Some(selector) = &params.selector {
             if is_blake3_groth16_selector(*selector) {
                 if journal.bytes.len() != 32 {

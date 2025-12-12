@@ -22,7 +22,7 @@
     // "./examples/counter/Cargo.toml",
     // "./examples/smart-contract-requestor/Cargo.toml",
     // "./examples/counter-with-callback/Cargo.toml",
-    "./examples/blake3-groth16/Cargo.toml",
+    // "./examples/blake3-groth16/Cargo.toml",
   ],
   "rust-analyzer.files.exclude": [
     "./lib/",

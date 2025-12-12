@@ -72,7 +72,7 @@ pub use order_stream_client::OrderStreamClient;
 pub mod request_builder;
 
 /// Module providing blake3-groth16 related integrations.
-#[cfg(not(target_os = "zkvm"))]
+#[cfg(all(feature = "blake3-groth16", not(target_os = "zkvm")))]
 pub mod blake3_groth16;
 
 /// Selector module implementing utility functions for supported selectors.
