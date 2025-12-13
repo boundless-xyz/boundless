@@ -34,14 +34,24 @@ pub async fn keccak(
 ) -> Result<()> {
     let start_time = Instant::now();
     let mut conn = agent.redis_pool.get().await?;
-    let keccak_input_path = format!("job:{job_id}:{}:{}", COPROC_CB_PATH, request.claim_digest);
+    let keccak_input_path =
+        format!("job:{job_id}:{}:{task_id}:{}", COPROC_CB_PATH, request.claim_digest);
 
-    // Get keccak input using Redis helper
-    let keccak_input: Vec<u8> =
-        redis::get_key(&mut conn, &keccak_input_path).await.map_err(|e| {
-            anyhow::anyhow!(e)
-                .context(format!("segment data not found for segment key: {keccak_input_path}"))
-        })?;
+    // Get keccak input using Redis helper, preferring the task-scoped key but falling back to the
+    // legacy location to handle in-progress tasks during upgrade.
+    let keccak_input: Vec<u8> = match redis::get_key(&mut conn, &keccak_input_path).await {
+        Ok(input) => input,
+        Err(_) => {
+            tracing::warn!(
+                "[BENTO-KECCAK-013] Keccak input not found for task {} digest {}, falling back to legacy key",
+                task_id,
+                request.claim_digest
+            );
+            let legacy_keccak_input_path =
+                format!("job:{job_id}:{}:{}", COPROC_CB_PATH, request.claim_digest);
+            redis::get_key(&mut conn, &legacy_keccak_input_path).await?
+        }
+    };
 
     let keccak_req = ProveKeccakRequest {
         claim_digest: request.claim_digest,
@@ -93,19 +103,17 @@ pub async fn keccak(
 
     tracing::debug!("Completed keccak proving {}", request.claim_digest);
 
-    // TODO refactor the keccak paths/flow with a breaking change, to avoid holding value until TTL
-    //     ref: https://linear.app/boundlessnetwork/issue/BM-2056
-    // // Clean up keccak input
-    // let cleanup_start = Instant::now();
-    // let cleanup_result = conn.unlink::<_, ()>(&keccak_input_path).await;
-    // let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
-    // helpers::record_redis_operation(
-    //     "unlink",
-    //     cleanup_status,
-    //     cleanup_start.elapsed().as_secs_f64(),
-    // );
-    // cleanup_result
-    //     .map_err(|e| anyhow::anyhow!(e).context("Failed to delete keccak input path key"))?;
+    // Clean up keccak input
+    let cleanup_start = Instant::now();
+    let cleanup_result = conn.unlink::<_, ()>(&keccak_input_path).await;
+    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation(
+        "unlink",
+        cleanup_status,
+        cleanup_start.elapsed().as_secs_f64(),
+    );
+    cleanup_result
+        .map_err(|e| anyhow::anyhow!(e).context("Failed to delete keccak input path key"))?;
 
     // Record total task duration and success
     helpers::record_task_operation(
