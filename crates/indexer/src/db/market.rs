@@ -649,6 +649,9 @@ pub trait IndexerDb {
         execution_info: &Vec<CycleCountExecutionUpdate>,
     ) -> Result<(), DbError>;
 
+    /// Update cycle status for failed cycle counts
+    async fn set_cycle_counts_failed(&self, request_digests: &[B256]) -> Result<(), DbError>;
+
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
     async fn get_request_inputs(
         &self,
@@ -2367,6 +2370,38 @@ impl IndexerDb for MarketDb {
 
         tx.commit().await?;
 
+        Ok(())
+    }
+
+    async fn set_cycle_counts_failed(&self, request_digests: &[B256]) -> Result<(), DbError> {
+        if request_digests.is_empty() {
+            return Ok(());
+        }
+
+        const BATCH_SIZE: usize = 500;
+
+        let mut tx = self.pool.begin().await?;
+
+        for chunk in request_digests.chunks(BATCH_SIZE) {
+            let placeholders =
+                (1..=chunk.len()).map(|i| format!("${}", i)).collect::<Vec<_>>().join(", ");
+
+            let query = format!(
+                "UPDATE cycle_counts
+                 SET cycle_status = 'FAILED'
+                 WHERE request_digest IN ({})",
+                placeholders
+            );
+
+            let mut query_builder = sqlx::query(&query);
+            for digest in chunk {
+                query_builder = query_builder.bind(format!("{:x}", digest));
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 

@@ -47,6 +47,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 url = { workspace = true }
 bytes = "1.10.1"
 bonsai-sdk = { version = "1.4.1", features = ["non_blocking"] }
+broker.workspace = true
 
 [dev-dependencies]
 assert_cmd = "=2.0"

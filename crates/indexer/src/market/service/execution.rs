@@ -19,11 +19,16 @@ use alloy::primitives::B256;
 use anyhow::Result;
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
 use boundless_market::storage::fetch_url;
+use broker::futures_retry::retry;
 use bytes::Bytes;
 use std::collections::HashSet;
 
 pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
     tracing::info!("Started execution task");
+
+    const PENDING_LIMIT: u32 = 10;
+    const EXECUTING_LIMIT: u32 = 40;
+
     let mut interval = tokio::time::interval(config.execution_interval);
 
     let bento_client = BonsaiClient::from_parts(
@@ -38,7 +43,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
 
         // Find cycle counts still in state PENDING
         tracing::debug!("Querying DB for cycle counts in status PENDING...");
-        let pending_requests = match db.get_cycle_counts_pending(10).await {
+        let pending_cycle_counts = match db.get_cycle_counts_pending(PENDING_LIMIT).await {
             Ok(requests) => requests,
             Err(e) => {
                 tracing::error!("Unable to get cycle counts by status: {}", e);
@@ -46,15 +51,15 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
             }
         };
 
-        if !pending_requests.is_empty() {
+        if !pending_cycle_counts.is_empty() {
             tracing::debug!("Pending requests found:");
-            tracing::debug!(?pending_requests);
+            tracing::debug!(?pending_cycle_counts);
         } else {
             tracing::info!("No pending requests found");
         }
 
         // Get the inputs and image data for the pending requests
-        let digest_vec: Vec<B256> = pending_requests.iter().copied().collect();
+        let digest_vec: Vec<B256> = pending_cycle_counts.iter().copied().collect();
         let request_inputs_and_images = match db.get_request_params_for_execution(&digest_vec).await
         {
             Ok(inputs_and_images) => inputs_and_images,
@@ -65,12 +70,16 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
         };
 
         let mut current_executing_requests = HashSet::new();
+        let mut failed_executions = Vec::new();
 
         for (request_digest, input_type, input_data, image_id, image_url, max_price) in
             request_inputs_and_images.clone()
         {
+            // Obtain the request input from either the URL or the inline data
             let input: Bytes =
-                match download_or_decode_input(request_digest, &input_type, &input_data).await {
+                match download_or_decode_input(&config, request_digest, &input_type, &input_data)
+                    .await
+                {
                     Ok(input) => input,
                     Err(e) => {
                         tracing::error!(
@@ -79,11 +88,21 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
                             request_digest,
                             e
                         );
+                        failed_executions.push(request_digest);
                         continue;
                     }
                 };
 
-            let input_uuid: String = match bento_client.upload_input(input.to_vec()).await {
+            // Upload the input via the bento API
+            tracing::debug!("Uploading input for '{}'", request_digest);
+            let input_uuid: String = match retry(
+                config.bento_retry_count,
+                config.bento_retry_sleep_ms,
+                || async { bento_client.upload_input(input.to_vec()).await },
+                "upload_input",
+            )
+            .await
+            {
                 Ok(id) => {
                     tracing::debug!(
                         "Uploaded input for '{}', obtained ID '{}'",
@@ -98,13 +117,20 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
                 }
             };
 
+            // Check if the image exists for the request via the bento API
             tracing::debug!(
                 "Checking if image '{}' exists for request '{}'",
                 image_id,
                 request_digest,
             );
-
-            let image_response: bool = match bento_client.has_img(&image_id).await {
+            let image_response: bool = match retry(
+                config.bento_retry_count,
+                config.bento_retry_sleep_ms,
+                || async { bento_client.has_img(&image_id).await },
+                "has_img",
+            )
+            .await
+            {
                 Ok(exists) => {
                     tracing::debug!("Image exists: {}", exists);
                     exists
@@ -119,7 +145,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
                 }
             };
 
-            // If the image doesn't exist, download it from its URL and upload it via the executor API
+            // If the image doesn't exist, download it from its URL and upload it via the bento API
             if !image_response {
                 tracing::debug!(
                     "Downloading image for '{}' from URL '{}'",
@@ -127,7 +153,14 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
                     image_url
                 );
 
-                let image: Vec<u8> = match fetch_url(&image_url).await {
+                let image: Vec<u8> = match retry(
+                    config.bento_retry_count,
+                    config.bento_retry_sleep_ms,
+                    || async { fetch_url(&image_url).await },
+                    "fetch_url",
+                )
+                .await
+                {
                     Ok(bytes) => {
                         tracing::debug!(
                             "Downloaded image for request '{}' from URL '{}'",
@@ -143,11 +176,19 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
                             image_url,
                             e
                         );
+                        failed_executions.push(request_digest);
                         continue;
                     }
                 };
 
-                match bento_client.upload_img(&image_id, image).await {
+                match retry(
+                    config.bento_retry_count,
+                    config.bento_retry_sleep_ms,
+                    || async { bento_client.upload_img(&image_id, image.clone()).await },
+                    "upload_img",
+                )
+                .await
+                {
                     Ok(result) => {
                         tracing::debug!(
                             "Uploaded image for '{}' with ID '{}'",
@@ -175,15 +216,24 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
                 input_uuid
             );
 
-            let execution_uuid: SessionId = match bento_client
-                .create_session_with_limit(
-                    image_id,
-                    input_uuid,
-                    Vec::new(),
-                    true,
-                    Some(max_price / 100000000),
-                )
-                .await
+            // Start executing the request via the bento API
+            let execution_uuid: SessionId = match retry(
+                config.bento_retry_count,
+                config.bento_retry_sleep_ms,
+                || async {
+                    bento_client
+                        .create_session_with_limit(
+                            image_id.clone(),
+                            input_uuid.clone(),
+                            Vec::new(),
+                            true,
+                            Some(max_price / 100000000),
+                        )
+                        .await
+                },
+                "create_session_with_limit",
+            )
+            .await
             {
                 Ok(id) => {
                     tracing::debug!(
@@ -208,13 +258,13 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
         }
 
         // Update the cycle count status
-        tracing::debug!("Updating cycle count status to EXECUTING...");
+        tracing::debug!("Updating cycle counts with EXECUTING status...");
         db.set_cycle_counts_executing(&current_executing_requests).await.unwrap();
 
         // Monitor requests in status EXECUTING, i.e. the ones that just started executing
         // as well as any ones started earlier that haven't terminated yet
         tracing::debug!("Querying DB for cycle counts in status EXECUTING...");
-        let executing_requests = db.get_cycle_counts_executing(30).await.unwrap();
+        let executing_requests = db.get_cycle_counts_executing(EXECUTING_LIMIT).await.unwrap();
         if !executing_requests.is_empty() {
             tracing::debug!("Executing requests found:");
             tracing::debug!(?executing_requests);
@@ -223,12 +273,18 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
         }
 
         let mut completed_executions = Vec::new();
-        let mut failed_executions = Vec::new();
 
         // Update the cycle counts and status for execution requests that have completed
         for execution_info in executing_requests.clone() {
             let session_id: SessionId = SessionId::new(execution_info.session_uuid.clone());
-            let execution_status = match session_id.status(&bento_client).await {
+            let execution_status = match retry(
+                config.bento_retry_count,
+                config.bento_retry_sleep_ms,
+                || async { session_id.status(&bento_client).await },
+                "status",
+            )
+            .await
+            {
                 Ok(status) => {
                     tracing::debug!(
                         "Retrieved status for request '{}', session '{}': {}",
@@ -282,12 +338,16 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
             }
         }
 
-        tracing::debug!("Updating cycle counts with completed stats...");
+        tracing::debug!("Updating cycle counts with COMPLETED status...");
         db.set_cycle_counts_completed(&completed_executions).await.unwrap();
+
+        tracing::debug!("Updating cycle counts with FAILED status...");
+        db.set_cycle_counts_failed(&failed_executions).await.unwrap();
     }
 }
 
 async fn download_or_decode_input(
+    config: &IndexerServiceConfig,
     request_digest: B256,
     input_type: &String,
     input_data: &String,
@@ -304,7 +364,13 @@ async fn download_or_decode_input(
     if input_type == "Url" {
         let decoded_url = String::from_utf8(decoded_input)?;
         tracing::debug!("Downloading input for '{}', url: '{}'", request_digest, decoded_url);
-        let input = fetch_url(&decoded_url).await?;
+        let input = retry(
+            config.bento_retry_count,
+            config.bento_retry_sleep_ms,
+            || async { fetch_url(&decoded_url).await },
+            "fetch_url",
+        )
+        .await?;
         tracing::debug!("Downloaded input for request '{}'", request_digest);
         let decoded_env = boundless_market::input::GuestEnv::decode(&input)?.stdin;
         tracing::debug!("Decoded input for request '{}'", request_digest);

@@ -159,10 +159,10 @@ pub struct IndexerServiceConfig {
     pub cache_uri: Option<String>,
     pub tx_fetch_strategy: TransactionFetchStrategy,
     pub execution_interval: Duration,
-    pub execution_http_client_timeout: Duration,
-    pub max_execution_data_size: u32,
     pub bento_api_key: String,
     pub bento_api_url: String,
+    pub bento_retry_count: u64,
+    pub bento_retry_sleep_ms: u64,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {
