@@ -194,8 +194,8 @@ class TestIsInCooldown:
     def test_is_in_cooldown_old_scaling(self):
         """Test cooldown check when scaling happened long ago."""
         mock_client = MagicMock()
-        # Scaling happened 15 minutes ago (outside 10 minute cooldown)
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=15)
+        # Scaling happened 45 minutes ago (outside 10 minute cooldown)
+        old_time = datetime.now(timezone.utc) - timedelta(minutes=45)
         mock_client.describe_scaling_activities.return_value = {
             'Activities': [{
                 'StartTime': old_time
