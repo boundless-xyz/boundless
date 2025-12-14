@@ -1,0 +1,10 @@
+---
+- name: Deploy Broker
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Deploy Broker
+      ansible.builtin.include_role:
+        name: broker

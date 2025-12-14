@@ -1,0 +1,47 @@
+---
+# Broker Configuration
+broker_version: "v1.1.1"
+broker_user: "broker"
+broker_group: "broker"
+broker_home: "/var/lib/broker"
+broker_shell: "/usr/sbin/nologin"
+broker_rust_log: "info"
+broker_timeout_start_sec: 1800
+broker_timeout_stop_sec: 300
+broker_install_dir: "/usr/local/bin"
+broker_config_dir: "/etc/boundless"
+broker_work_dir: "/etc/boundless"
+broker_config_file: "{{ broker_config_dir }}/broker.toml"
+broker_db_url: "sqlite://{{ broker_config_dir }}/broker.db"
+# Note: SQLite is the only database type supported by broker
+broker_db_type: "sqlite"
+# Bento API URL - can be set via BROKER_BENTO_API_URL environment variable
+broker_bento_api_url: "{{ lookup('env', 'BROKER_BENTO_API_URL') | default('http://localhost:8081', true) }}"
+# RPC URL - can be set via BROKER_RPC_URL or RPC_URL environment variable
+broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(lookup('env', 'RPC_URL') | default('https://rpc.boundless.network', true), true) | string }}"
+# Private key - can be set via BROKER_PRIVATE_KEY or PRIVATE_KEY environment variable
+broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(lookup('env', 'PRIVATE_KEY') | default('0x0000000000000000000000000000000000000000000000000000000000000000', true), true) | string }}"
+# Broker TOML configuration - can be set via environment variables
+broker_min_mcycle_price: "{{ lookup('env', 'BROKER_MIN_MCYCLE_PRICE') | default('0.0000003', true) | string }}"
+broker_min_mcycle_price_collateral_token: "{{ lookup('env', 'BROKER_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN') | default('0', true) | string }}"
+broker_peak_prove_khz: "{{ lookup('env', 'BROKER_PEAK_PROVE_KHZ') | default(100, true) | int }}"
+broker_max_collateral: "{{ lookup('env', 'BROKER_MAX_COLLATERAL') | default('200', true) | string }}"
+broker_max_concurrent_preflights: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PREFLIGHTS') | default(4, true) | int }}"
+broker_max_concurrent_proofs: "{{ lookup('env', 'BROKER_MAX_CONCURRENT_PROOFS') | default(1, true) | int }}"
+# Prometheus metrics address - can be set via PROMETHEUS_METRICS_ADDR or BROKER_PROMETHEUS_METRICS_ADDR environment variable
+broker_prometheus_metrics_addr: "{{ lookup('env', 'PROMETHEUS_METRICS_ADDR') | default(lookup('env', 'BROKER_PROMETHEUS_METRICS_ADDR') | default('127.0.0.1:9090', true), true) | string }}"
+broker_priority_requestor_lists:
+  - "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json"
+broker_allow_client_addresses:
+  - "0x067D62CBCC72bBb02358cEB85aBE817249AB616b"
+  - "0xa6e98d0ba0ca584509ebcbe00bb36f0c5cfcdd1b"
+  - "0x418be9167e835ad820df53fd16b8fe02f796ce1c"
+  - "0xda824d974d8bac25a0611b7ab5f091d22f63a234"
+  - "0x3d089c2f2cb86d4efde153c81cabd4579784430b"
+  - "0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b"
+  - "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b"
+  - "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c"
+  - "0x1578934C9B006B9568D884C421704d996D402B78"
+  - "0x7276fa3c23c1783bdcb97258717f8f32b75919c9"
+broker_service_enabled: true
+broker_service_state: started

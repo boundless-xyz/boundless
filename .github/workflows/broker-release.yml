@@ -215,3 +215,23 @@ jobs:
           asset_path: ./release-assets/broker-stress
           asset_name: broker-stress
           asset_content_type: application/octet-stream
+
+      - name: Upload SHA256 checksums
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/broker.sha256
+          asset_name: broker.sha256
+          asset_content_type: text/plain
+
+      - name: Upload Broker Stress Test SHA256 checksum
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/broker-stress.sha256
+          asset_name: broker-stress.sha256
+          asset_content_type: text/plain

@@ -1,0 +1,299 @@
+# Boundless Ansible Setup
+
+This Ansible playbook replicates the functionality of `scripts/setup.sh` for automated system provisioning.
+
+## Overview
+
+The playbook sets up a Boundless prover system by:
+
+- Updating system packages
+- Installing essential packages (nvtop, build tools, etc.)
+- Installing GCC 12 for Ubuntu 22.04
+- Installing Docker with NVIDIA Container Toolkit support
+- Installing Rust programming language (via `rust` role)
+- Installing RISC Zero rzup toolchain and risc0-groth16 component (via `rzup` role)
+- Installing Just command runner
+- Installing CUDA Toolkit 13.0
+- Installing Protobuf compiler
+- Performing system cleanup
+
+## Requirements
+
+- Ansible 2.9 or later
+- Target hosts running Ubuntu 22.04 or 24.04
+- SSH access to target hosts (or run locally)
+- Sudo/root privileges on target hosts
+- Ansible collections (install with `ansible-galaxy collection install community.postgresql`)
+
+## Directory Structure
+
+```
+ansible/
+├── cluster.yml            # Full cluster deployment (bento + broker + dependencies)
+├── bento-worker.yml       # Bento worker deployment (no dependencies)
+├── broker.yml             # Broker deployment
+├── inventory.yml          # Inventory file
+├── ansible.cfg            # Ansible configuration
+├── README.md              # This file
+├── ENV_VARS.md            # Environment variable documentation
+└── roles/
+    ├── bento/             # Bento agent service (uses launcher scripts)
+    ├── broker/            # Broker service
+    ├── grafana/           # Grafana monitoring
+    ├── postgresql/         # PostgreSQL database
+    ├── valkey/             # Valkey (Redis) server
+    ├── minio/              # MinIO S3-compatible storage
+    ├── rust/               # Rust programming language
+    └── rzup/               # RISC Zero rzup toolchain
+```
+
+## Installation
+
+Before running playbooks, install required Ansible collections:
+
+```bash
+ansible-galaxy collection install community.postgresql
+```
+
+## Quick Deployment
+
+For interactive deployment with configuration management, use the deployment wizard:
+
+```bash
+# Interactive wizard (saves configuration for future use)
+./scripts/deploy_cluster.py
+
+# Load saved configuration and deploy
+./scripts/deploy_cluster.py --load
+
+# Dry-run (check mode) with wizard
+./scripts/deploy_cluster.py --check
+
+# Dry-run with saved configuration
+./scripts/deploy_cluster.py --load --check
+```
+
+The wizard will:
+
+- Prompt for all required configuration values
+- Save configuration to `.deploy_cluster_config.json` (excluded from git)
+- Allow loading and reusing saved configurations
+- Validate inputs (Ethereum addresses, URLs, etc.)
+- Mask sensitive values (passwords, private keys) in prompts
+
+## Secrets Management
+
+Secrets can be provided via **environment variables** (recommended), Ansible Vault, or playbook variables.
+
+### Quick Start with Environment Variables
+
+1. **Copy the example environment file:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit `.env` with your secrets:**
+   ```bash
+   export POSTGRESQL_PASSWORD="secure_password"
+   export BROKER_PRIVATE_KEY="0x..."
+   export BROKER_RPC_URL="https://..."
+   ```
+
+3. **Source it and run playbooks:**
+   ```bash
+   source .env
+   ansible-playbook -i inventory.yml broker.yml
+   ```
+
+### Other Options
+
+- **Ansible Vault**: See [VAULT.md](VAULT.md) for encrypted vault files
+- **AWS Secrets Manager**: Pull secrets from AWS (see [ENV\_VARS.md](ENV_VARS.md))
+- **Bitwarden/1Password**: Use CLI tools to export to env vars (see [ENV\_VARS.md](ENV_VARS.md))
+
+See [ENV\_VARS.md](ENV_VARS.md) for complete documentation on environment variable usage.
+
+## Usage
+
+### Full Cluster Deployment
+
+Deploy the complete prover stack (Bento + Broker + Dependencies):
+
+```bash
+ansible-playbook -i inventory.yml cluster.yml
+```
+
+### Worker Node Deployment (No Dependencies)
+
+Deploy Bento to worker nodes that connect to remote services:
+
+```bash
+# Deploy bento-prove to worker nodes (skips PostgreSQL, Valkey, MinIO)
+ansible-playbook -i inventory.yml bento-worker.yml -e bento_task=prove
+
+# Deploy specific Bento task without dependencies
+ansible-playbook -i inventory.yml cluster.yml --tags bento-prove --skip-tags bento-deps
+```
+
+### Using Tags
+
+The Bento role supports tags for selective deployment:
+
+```bash
+# Deploy only Bento (skip dependencies)
+ansible-playbook -i inventory.yml cluster.yml --skip-tags bento-deps
+
+# Deploy only dependencies (skip Bento)
+ansible-playbook -i inventory.yml cluster.yml --tags bento-deps
+
+# Deploy only Bento installation (skip config/service)
+ansible-playbook -i inventory.yml cluster.yml --tags bento-install
+
+# Deploy only Bento configuration (skip installation)
+ansible-playbook -i inventory.yml cluster.yml --tags bento-config,bento-service
+
+# Deploy specific Bento task
+ansible-playbook -i inventory.yml cluster.yml --tags bento-prove
+
+# Deploy Grafana monitoring
+ansible-playbook -i inventory.yml cluster.yml --tags grafana
+```
+
+### Available Tags
+
+- `bento` - All Bento tasks
+- `bento-deps` - Dependencies (PostgreSQL, Valkey, MinIO)
+- `bento-user` - User/group creation
+- `bento-install` - Binary installation
+- `bento-config` - Configuration files and directories
+- `bento-service` - Systemd service management
+- `bento-prove` - Bento prove task deployment
+- `bento-api` - Bento API deployment
+- `bento-exec` - Bento exec task deployment
+- `bento-aux` - Bento aux task deployment
+- `postgresql` - PostgreSQL role
+- `valkey` - Valkey role
+- `minio` - MinIO role
+- `broker` - Broker role
+- `rust` - Rust programming language role
+- `rzup` - RISC Zero rzup toolchain role
+
+### Running on specific hosts
+
+```bash
+ansible-playbook -i inventory.yml cluster.yml --limit prover-1
+```
+
+## Service Architecture
+
+### Bento Services
+
+Bento services use a **launcher script approach** where each service type has:
+
+- One systemd unit file: `/etc/systemd/system/bento-{task}.service`
+- One launcher script: `/etc/boundless/bento-{task}-launcher.sh`
+- Multiple instances started in parallel by the launcher (when `bento_count > 1`)
+
+This approach simplifies systemd configuration while allowing multiple instances per service type.
+
+**Service Types**:
+
+- `bento-prove`: GPU proving workers
+- `bento-api`: REST API service
+- `bento-exec`: Execution workers
+- `bento-aux`: Auxiliary workers
+
+### Shared Configuration Directory
+
+Both Bento and Broker services use `/etc/boundless/` as a shared configuration directory. This directory must have `0755` permissions and be owned by `root:root` to allow both services to access it.
+
+## Differences from setup.sh
+
+1. **Git submodules**: The Ansible playbook attempts to initialize git submodules, but this is best done manually or in a separate task since it requires the repository to be present.
+
+2. **Interactive reboot**: The bash script prompts for reboot, but Ansible doesn't handle interactive prompts. You can reboot manually or add a separate task.
+
+3. **Logging**: The bash script logs to `/var/log/setup.log`. Ansible has its own logging mechanisms.
+
+## Notes
+
+- The playbook is idempotent - you can run it multiple times safely
+- Some tasks require a reboot to take full effect (especially GPU drivers and Docker group membership)
+- For Ubuntu 22.04 vs 24.04, different installation methods are used for Rust (rustup installer script vs apt package)
+- The `rust` and `rzup` roles are automatically included when deploying Bento to ensure Groth16 proof generation works correctly
+- Docker group membership changes require logging out and back in, or a reboot
+
+## Troubleshooting
+
+### Permission issues
+
+Ensure your user has sudo privileges. If sudo requires a password, use `-K` or `--ask-become-pass`:
+
+```bash
+# Prompt for sudo password
+ansible-playbook playbook.yml -K
+
+# Or if you also need SSH password
+ansible-playbook playbook.yml -k -K
+```
+
+**Note**: `-k` is for SSH password, `-K` is for sudo/become password.
+
+### Service Permission Denied Errors
+
+If Bento services fail with "Permission denied" errors:
+
+1. **Check directory permissions**:
+   ```bash
+   ls -ld /etc/boundless/
+   # Should be: drwxr-xr-x root root
+   # Fix if needed: sudo chmod 0755 /etc/boundless && sudo chown root:root /etc/boundless
+   ```
+
+2. **Check launcher script permissions**:
+   ```bash
+   ls -l /etc/boundless/bento-*-launcher.sh
+   # Should be: -rwxr-xr-x bento bento
+   # Fix if needed: sudo chmod +x /etc/boundless/bento-*-launcher.sh
+   ```
+
+3. **Reset systemd state**:
+   ```bash
+   sudo systemctl reset-failed bento-{task}
+   sudo systemctl daemon-reload
+   sudo systemctl restart bento-{task}
+   ```
+
+See the role-specific README files for more detailed troubleshooting.
+
+### Connection issues
+
+Test connectivity first:
+
+```bash
+ansible all -i inventory.yml -m ping
+```
+
+### Check what would change
+
+Use `--check` for a dry run:
+
+```bash
+ansible-playbook playbook.yml --check
+```
+
+### Service Debugging
+
+Check service status and logs:
+
+```bash
+# On the target host
+systemctl status bento-prove
+journalctl -u bento-prove -f
+journalctl -u bento-prove -n 100
+```
+
+For detailed troubleshooting, see:
+
+- `roles/bento/README.md` - Bento service troubleshooting
+- `roles/broker/README.md` - Broker service troubleshooting

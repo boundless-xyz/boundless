@@ -1,0 +1,45 @@
+---
+# Bento Configuration
+bento_agent_timeout_start_sec: 1800
+bento_agent_timeout_stop_sec: 300
+bento_api_url: localhost:8081
+bento_config_dir: "/etc/boundless"
+bento_count: 1
+bento_cuda_visible_devices: null # null = auto-detect, otherwise list of GPU indices as strings
+bento_group: "bento"
+bento_home: "/var/lib/bento"
+bento_install_dependencies: true
+bento_install_dir: "/usr/local/bin"
+bento_keccak_po2: "{{ lookup('env', 'KECCAK_PO2') | default(17, true) | int }}"
+bento_postgresql_database: "{{ postgresql_database }}"
+bento_postgresql_host: "{{ postgresql_host }}"
+bento_postgresql_password: "{{ postgresql_password }}"
+bento_postgresql_port: "{{ postgresql_port }}"
+bento_postgresql_user: "{{ postgresql_user }}"
+bento_redis_ttl: 57600
+bento_rust_log: "info"
+bento_s3_bucket: bento
+bento_s3_region: auto
+bento_s3_url: http://{{ minio_host }}:{{ minio_port }}
+bento_segment_po2: "{{ lookup('env', 'SEGMENT_PO2') | default(20, true) | int }}"
+bento_service_enabled: true
+bento_service_state: started
+bento_shell: "/usr/sbin/nologin"
+bento_task: "prove"
+bento_user: "bento"
+bento_valkey_host: "{{ valkey_host }}"
+bento_valkey_port: "{{ valkey_port }}"
+bento_version: "v1.1.2"
+bento_work_dir: "/var/lib/bento"
+# Service counts - can be set via environment variables
+bento_gpu_count: "{{ lookup('env', 'BENTO_GPU_COUNT') | default(1, true) | int }}"
+bento_exec_count: "{{ lookup('env', 'BENTO_EXEC_COUNT') | default(4, true) | int }}"
+bento_aux_count: "{{ lookup('env', 'BENTO_AUX_COUNT') | default(2, true) | int }}"
+# Bento configuration - can be set via environment variables
+bento_rewards_address: "{{ lookup('env', 'BENTO_REWARDS_ADDRESS') | default('', true) }}"
+bento_povw_log_id: "{{ lookup('env', 'POVW_LOG_ID') | default('', true) }}"
+# S3 configuration - always uses MinIO root credentials to keep them in sync
+bento_s3_access_key: "{{ minio_root_user }}"
+bento_s3_secret_key: "{{ minio_root_password }}"
+# Prometheus metrics address - can be set via PROMETHEUS_METRICS_ADDR or BENTO_PROMETHEUS_METRICS_ADDR environment variable
+bento_prometheus_metrics_addr: "{{ lookup('env', 'PROMETHEUS_METRICS_ADDR') | default(lookup('env', 'BENTO_PROMETHEUS_METRICS_ADDR') | default('127.0.0.1:9090', true), true) | string }}"

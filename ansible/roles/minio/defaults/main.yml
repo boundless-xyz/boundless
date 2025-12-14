@@ -1,0 +1,44 @@
+---
+# MinIO installation
+minio_install: true
+
+# MinIO version to install (use "latest" for latest release)
+minio_version: "latest"
+
+# MinIO service configuration
+minio_service_enabled: true
+minio_service_state: started
+
+# MinIO service user
+minio_user: "minio"
+minio_group: "minio"
+minio_home: "/var/lib/minio"
+minio_shell: "/usr/sbin/nologin"
+
+# MinIO configuration
+minio_host: "localhost"
+minio_port: 9000
+minio_console_port: 9001
+# Bind address - can be set via MINIO_BIND environment variable
+# Set to '0.0.0.0' to listen on all interfaces, or specific IP address
+minio_bind: "{{ lookup('env', 'MINIO_BIND') | default('127.0.0.1', true) | string }}"
+
+# MinIO credentials
+# Secrets can be set via environment variables (preferred) or overridden in playbooks
+# Environment variables: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+# Note: default(..., true) handles empty strings from env vars
+minio_root_user: "{{ lookup('env', 'MINIO_ROOT_USER') | default('minioadmin', true) | string }}"
+minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default('minioadmin', true) | string }}"
+
+# MinIO data directory
+minio_data_dir: "/var/lib/minio/data"
+
+# MinIO config directory
+minio_config_dir: "/etc/minio"
+
+# MinIO log directory
+minio_log_dir: "/var/log/minio"
+
+# Installation paths
+minio_install_dir: "/usr/local/bin"
+minio_binary_name: "minio"

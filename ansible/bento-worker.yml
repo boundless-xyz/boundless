@@ -1,0 +1,31 @@
+---
+# Playbook to deploy Bento to worker nodes without dependencies
+# Use this when deploying to worker nodes that connect to remote PostgreSQL, Valkey, and S3 services
+#
+# Usage:
+#   # Deploy only bento (no dependencies) to worker nodes
+#   ansible-playbook -i inventory.yml bento-worker.yml -e bento_task=prove
+#
+#   # Deploy only bento service configuration (skip installation)
+#   ansible-playbook -i inventory.yml bento-worker.yml --tags bento-config,bento-service -e bento_task=prove
+
+- name: Deploy Bento Worker (without dependencies)
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    # Skip dependency installation on worker nodes
+    bento_install_dependencies: false
+
+  tasks:
+    - name: Deploy Bento
+      ansible.builtin.include_role:
+        name: bento
+      vars:
+        bento_task: "{{ bento_task | default('prove') }}"
+        bento_install_dependencies: false
+        bento_count: 2
+      tags:
+        - bento
+        - "bento-{{ bento_task | default('prove') }}"
