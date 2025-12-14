@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: Boundless
-  description: Install RISC Zero rzup toolchain and risc0-groth16 component
+  description: Install RISC Zero rzup toolchain, risc0-groth16, and blake3-groth16 components
   license: license (BSD, MIT)
   min_ansible_version: '2.9'
   galaxy_tags:
@@ -9,6 +9,7 @@ galaxy_info:
     - rzup
     - zkvm
     - groth16
+    - blake3
 
 dependencies:
   - role: rust

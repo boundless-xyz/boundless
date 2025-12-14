@@ -70,21 +70,21 @@
     owner: "{{ broker_user }}"
     group: "{{ broker_group }}"
 
-- name: Create Broker configuration directory
+- name: Ensure /etc/boundless exists (shared parent directory)
   ansible.builtin.file:
-    path: "{{ broker_config_dir }}"
+    path: "/etc/boundless"
     state: directory
     mode: '0755'
     owner: root
     group: root
 
-- name: Create Broker working directory
+- name: Create Broker configuration directory
   ansible.builtin.file:
-    path: "{{ broker_work_dir }}"
+    path: "{{ broker_config_dir }}"
     state: directory
-    mode: '0755'
-    owner: root
-    group: root
+    mode: '0750'
+    owner: "{{ broker_user }}"
+    group: "{{ broker_group }}"
 
 - name: Create Broker configuration file
   ansible.builtin.template:

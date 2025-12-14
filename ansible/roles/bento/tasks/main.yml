@@ -55,6 +55,7 @@
     rzup_group: "{{ bento_group }}"
     rzup_home: "{{ bento_home }}"
     rzup_install_groth16: true
+    rzup_install_blake3_groth16: true
   tags:
     - bento
     - bento-install

@@ -229,3 +229,130 @@
         - rzup
         - rzup-install
         - rzup-groth16
+
+- name: Check if blake3-groth16 is installed
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+    export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+    {{ rzup_bin_path }} list 2>/dev/null | grep -q blake3-groth16 || echo "not_installed"
+  args:
+    executable: /bin/bash
+  register: rzup_blake3_groth16_check
+  changed_when: false
+  failed_when: false
+  when:
+    - rzup_install_blake3_groth16 | bool
+    - rzup_final_check.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-blake3-groth16
+
+- name: Install blake3-groth16 component
+  when:
+    - rzup_install_blake3_groth16 | bool
+    - rzup_final_check.stat.exists | default(false)
+    - "'not_installed' in rzup_blake3_groth16_check.stdout"
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-blake3-groth16
+  block:
+    - name: Install blake3-groth16 via rzup
+      ansible.builtin.shell: |
+        set -o pipefail
+        export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+        export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+        {{ rzup_bin_path }} install blake3-groth16
+      args:
+        creates: "{{ rzup_risc0_home_dir }}/bin/blake3-groth16"
+        executable: /bin/bash
+      environment:
+        PATH: >-
+          {{
+            ansible_facts['env']['PATH'] |
+            default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', true)
+          }}:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin
+        RISC0_HOME: "{{ rzup_risc0_home_dir }}"
+      become: true
+      become_user: "{{ rzup_user }}"
+      register: rzup_blake3_groth16_install
+
+    - name: Verify blake3-groth16 installation
+      ansible.builtin.shell: |
+        set -o pipefail
+        export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+        export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+        {{ rzup_bin_path }} list | grep -q blake3-groth16
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: >-
+          {{
+            ansible_facts['env']['PATH'] |
+            default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', true)
+          }}:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin
+        RISC0_HOME: "{{ rzup_risc0_home_dir }}"
+      become: true
+      become_user: "{{ rzup_user }}"
+      failed_when: false
+      changed_when: false
+
+- name: Verify groth16 components installation and coexistence
+  when:
+    - (rzup_install_groth16 | bool) or (rzup_install_blake3_groth16 | bool)
+    - rzup_final_check.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-groth16
+    - rzup-blake3-groth16
+  block:
+    - name: Check installed groth16 components
+      ansible.builtin.shell: |
+        set -o pipefail
+        export PATH="$PATH:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin"
+        export RISC0_HOME="{{ rzup_risc0_home_dir }}"
+        {{ rzup_bin_path }} list 2>/dev/null | grep -E "(risc0-groth16|blake3-groth16)" || true
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: >-
+          {{
+            ansible_facts['env']['PATH'] |
+            default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', true)
+          }}:/usr/local/bin:{{ rzup_risc0_home_dir }}/bin
+        RISC0_HOME: "{{ rzup_risc0_home_dir }}"
+      become: true
+      become_user: "{{ rzup_user }}"
+      register: rzup_installed_components
+      changed_when: false
+      failed_when: false
+
+    - name: Verify risc0-groth16 binary exists (if enabled)
+      ansible.builtin.stat:
+        path: "{{ rzup_risc0_home_dir }}/bin/risc0-groth16"
+      register: rzup_risc0_groth16_binary
+      when: rzup_install_groth16 | bool
+      failed_when: not rzup_risc0_groth16_binary.stat.exists
+
+    - name: Verify blake3-groth16 binary exists (if enabled)
+      ansible.builtin.stat:
+        path: "{{ rzup_risc0_home_dir }}/bin/blake3-groth16"
+      register: rzup_blake3_groth16_binary
+      when: rzup_install_blake3_groth16 | bool
+      failed_when: not rzup_blake3_groth16_binary.stat.exists
+
+    - name: Verify both components can coexist (when both are enabled)
+      when:
+        - rzup_install_groth16 | bool
+        - rzup_install_blake3_groth16 | bool
+      ansible.builtin.assert:
+        that:
+          - rzup_risc0_groth16_binary.stat.exists | default(false)
+          - rzup_blake3_groth16_binary.stat.exists | default(false)
+          - "'risc0-groth16' in rzup_installed_components.stdout"
+          - "'blake3-groth16' in rzup_installed_components.stdout"
+        fail_msg: "Both risc0-groth16 and blake3-groth16 must be installed and listed by rzup"
+        success_msg: "Both groth16 components are installed and can coexist"
