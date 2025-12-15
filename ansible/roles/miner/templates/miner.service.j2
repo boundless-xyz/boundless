@@ -1,0 +1,19 @@
+[Unit]
+Description=Boundless Miner Service
+After=network.target
+
+[Service]
+Type=simple
+User={{ miner_user }}
+Group={{ miner_group }}
+Environment=NO_COLOR=1
+WorkingDirectory={{ miner_home }}
+ExecStart=/bin/bash -c "while sleep {{ miner_sleep_seconds }}; do {{ miner_install_dir }}/bento_cli --iter-count {{ miner_iter_count }}; done"
+Restart=always
+RestartSec=10
+TimeoutStartSec={{ miner_timeout_start_sec }}
+TimeoutStopSec={{ miner_timeout_stop_sec }}
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,47 @@
+---
+# Miner version (uses same version as bento - bento_cli is installed by Bento role)
+# This variable is kept for reference but not used for installation
+miner_version: "{{ bento_version | default('v1.1.1') }}"
+
+# Service user (uses bento_user from bento role)
+miner_user: "{{ bento_user | default('bento') }}"
+miner_group: "{{ bento_group | default('bento') }}"
+miner_home: "{{ bento_home | default('/var/lib/bento') }}"
+
+# Service timeouts
+miner_timeout_start_sec: 60
+miner_timeout_stop_sec: 30
+
+# Installation paths
+miner_install_dir: "/usr/local/bin"
+
+# Miner configuration
+miner_iter_count: 500000  # Number of iterations per mining cycle
+miner_sleep_seconds: 1  # Sleep between mining cycles
+
+# Bento API configuration
+miner_bento_api_url: "http://localhost:8081"
+
+# Database configuration (from base environment)
+miner_database_url: >-
+  postgresql://{{ bento_postgresql_user }}:{{ bento_postgresql_password }}
+  @{{ bento_postgresql_host }}:{{ bento_postgresql_port }}/{{ bento_postgresql_database }}
+
+# Redis/Valkey configuration
+miner_redis_url: "redis://{{ bento_valkey_host }}:{{ bento_valkey_port }}"
+
+# S3 configuration
+miner_s3_url: "{{ bento_s3_url }}"
+miner_s3_bucket: "{{ bento_s3_bucket }}"
+miner_s3_access_key: "{{ bento_s3_access_key }}"
+miner_s3_secret_key: "{{ bento_s3_secret_key }}"
+
+# RISC0 configuration
+miner_risc0_home: "/usr/local/risc0"
+
+# Logging configuration
+miner_rust_log: "{{ bento_rust_log | default('info') }}"
+
+# Service management
+miner_service_enabled: true
+miner_service_state: started

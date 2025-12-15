@@ -35,17 +35,6 @@
     - bento
     - bento-user
 
-- name: Create Bento working directory
-  ansible.builtin.file:
-    path: "{{ bento_work_dir }}"
-    state: directory
-    mode: '0750'
-    owner: "{{ bento_user }}"
-    group: "{{ bento_group }}"
-  tags:
-    - bento
-    - bento-config
-
 - name: Install Rust for bento user
   ansible.builtin.include_role:
     name: rust
@@ -159,6 +148,24 @@
         group: root
         remote_src: true
       when: not bento_rest_api_check.stat.exists
+      notify: Reload systemd
+
+    - name: Check if Bento CLI binary exists
+      ansible.builtin.stat:
+        path: "{{ bento_install_dir }}/bento_cli"
+      register: bento_cli_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Bento CLI binary (for miner)
+      ansible.builtin.copy:
+        src: /tmp/bento-bundle/bento_cli
+        dest: "{{ bento_install_dir }}/bento_cli"
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: true
+      when: not bento_cli_check.stat.exists
       notify: Reload systemd
 
     - name: Clean up Bento bundle archive

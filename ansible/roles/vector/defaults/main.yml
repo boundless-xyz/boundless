@@ -1,0 +1,30 @@
+---
+# Vector installation
+vector_install: true
+
+# Vector service configuration
+vector_service_enabled: false  # Disabled by default
+vector_service_state: stopped  # Stopped by default
+
+# Vector configuration
+vector_config_dir: "/etc/vector"
+vector_config_file: "/etc/vector/vector.yaml"
+
+# CloudWatch Logs configuration
+vector_cloudwatch_log_group: "/boundless/bento"
+vector_cloudwatch_region: "us-west-2"
+vector_cloudwatch_stream_name: "%Y-%m-%d"
+
+# Services to monitor (systemd units)
+vector_monitor_services:
+  - bento.service
+  - broker.service
+  - miner.service
+
+# Vector buffer configuration
+vector_buffer_type: "disk"
+vector_buffer_max_size: 268435488  # 256MB
+vector_buffer_when_full: "block"
+
+# Vector log level
+vector_log_level: "info"
