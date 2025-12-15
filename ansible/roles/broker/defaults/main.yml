@@ -1,7 +1,6 @@
 ---
 # Broker version to install
 broker_version: "v1.1.1"
-
 # Service user (uses bento_user from bento role)
 # These default to "bento" if bento_user is not defined
 broker_user: "{{ bento_user | default('bento') }}"

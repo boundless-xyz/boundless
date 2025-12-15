@@ -1,10 +1,6 @@
 ---
 # Broker Configuration
 broker_version: "v1.1.1"
-broker_user: "broker"
-broker_group: "broker"
-broker_home: "/var/lib/broker"
-broker_shell: "/usr/sbin/nologin"
 broker_rust_log: "info"
 broker_timeout_start_sec: 1800
 broker_timeout_stop_sec: 300

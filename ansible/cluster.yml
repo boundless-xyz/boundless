@@ -20,6 +20,14 @@
   gather_facts: true
 
   tasks:
+    # Install NVIDIA drivers and CUDA (required for GPU workers)
+    - name: Install NVIDIA drivers and CUDA
+      ansible.builtin.include_role:
+        name: nvidia
+      tags:
+        - nvidia
+        - bento-deps
+
     # Dependencies - only run if bento_install_dependencies is true
     - name: Deploy PostgreSQL
       ansible.builtin.include_role:
