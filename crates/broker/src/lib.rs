@@ -907,27 +907,37 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if is_dev_mode() {
+        let prover: provers::ProverObj;
+        let aggregation_prover: provers::ProverObj;
+        if is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
             Receipts generated from this process are invalid and should never be used in production.");
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
                     .context("Failed to construct Bonsai client")?,
-            )
+            );
+            aggregation_prover = Arc::clone(&prover);
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
-            )
+            );
+            // Initialize aggregation/snark prover with a higher reserved key to prioritize
+            aggregation_prover = Arc::new(
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
+                    .context("Failed to initialize Bento client")?,
+            );
         } else {
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         };
 
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
@@ -969,6 +979,7 @@ where
             proving::ProvingService::new(
                 self.db.clone(),
                 prover.clone(),
+                aggregation_prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 self.priority_requestors.clone(),
@@ -1028,7 +1039,7 @@ where
                 self.deployment().boundless_market_address,
                 prover_addr,
                 config.clone(),
-                prover.clone(),
+                aggregation_prover.clone(),
             )
             .await
             .context("Failed to initialize aggregator service")?,
