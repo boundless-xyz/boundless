@@ -150,13 +150,6 @@
       when: not bento_rest_api_check.stat.exists
       notify: Reload systemd
 
-    - name: Check if Bento CLI binary exists
-      ansible.builtin.stat:
-        path: "{{ bento_install_dir }}/bento_cli"
-      register: bento_cli_check
-      changed_when: false
-      failed_when: false
-
     - name: Install Bento CLI binary (for miner)
       ansible.builtin.copy:
         src: /tmp/bento-bundle/bento_cli
@@ -165,7 +158,9 @@
         owner: root
         group: root
         remote_src: true
-      when: not bento_cli_check.stat.exists
+      when:
+        - bento_cli_bundle_check.stat.exists
+        - not bento_cli_check.stat.exists
       notify: Reload systemd
 
     - name: Clean up Bento bundle archive

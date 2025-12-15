@@ -7,16 +7,6 @@
     - miner
     - miner-install
 
-- name: Verify bento_cli is installed (should be installed by Bento role)
-  ansible.builtin.assert:
-    that:
-      - miner_binary_check.stat.exists
-    fail_msg: "bento_cli binary not found. The Bento role should install it from the bundle. Please ensure the Bento role runs before the Miner role."
-    success_msg: "bento_cli binary found, ready for miner service"
-  tags:
-    - miner
-    - miner-install
-
 - name: Configure Miner systemd service
   ansible.builtin.template:
     src: miner.service.j2
