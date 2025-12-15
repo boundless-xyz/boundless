@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
-use boundless_indexer::market::service::TransactionFetchStrategy;
+use boundless_indexer::market::service::{IndexerServiceExecutionConfig, TransactionFetchStrategy};
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
 use url::Url;
@@ -119,11 +119,13 @@ async fn main() -> Result<()> {
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
-        execution_interval: Duration::from_secs(args.execution_interval),
-        bento_api_key: args.bento_api_key,
-        bento_api_url: args.bento_api_url,
-        bento_retry_count: args.bento_retry_count,
-        bento_retry_sleep_ms: args.bento_retry_sleep_ms,
+        execution_config: Some(IndexerServiceExecutionConfig {
+            execution_interval: Duration::from_secs(args.execution_interval),
+            bento_api_key: args.bento_api_key,
+            bento_api_url: args.bento_api_url,
+            bento_retry_count: args.bento_retry_count,
+            bento_retry_sleep_ms: args.bento_retry_sleep_ms,
+        }),
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());

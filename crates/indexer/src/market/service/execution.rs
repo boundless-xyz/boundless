@@ -14,7 +14,7 @@
 
 use crate::db::market::{CycleCountExecution, CycleCountExecutionUpdate};
 use crate::db::{DbObj, IndexerDb};
-use crate::IndexerServiceConfig;
+use crate::market::service::IndexerServiceExecutionConfig;
 use alloy::primitives::{B256, U256};
 use anyhow::Result;
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
@@ -23,7 +23,7 @@ use broker::futures_retry::retry;
 use bytes::Bytes;
 use std::collections::HashSet;
 
-pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
+pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) {
     tracing::info!("Started execution task");
 
     const PENDING_LIMIT: u32 = 10;
@@ -347,7 +347,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
 }
 
 async fn download_or_decode_input(
-    config: &IndexerServiceConfig,
+    config: &IndexerServiceExecutionConfig,
     request_digest: B256,
     input_type: &String,
     input_data: &String,

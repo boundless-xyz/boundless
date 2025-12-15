@@ -59,11 +59,19 @@ where
         }
 
         // Spawn a task to execute requests that need their cycle counts populated
+        // if the corresponding configuration is present
         let db_clone = self.db.clone();
         let config_clone = self.config.clone();
-        let _task_executor = tokio::spawn(async move {
-            execute_requests(db_clone, config_clone).await;
-        });
+        match config_clone.execution_config {
+            Some(execution_config) => {
+                let _task_executor = tokio::spawn(async move {
+                    execute_requests(db_clone, execution_config).await;
+                });
+            }
+            None => {
+                tracing::info!("Execution configuration not found, not starting executor task");
+            }
+        };
 
         let mut attempt = 0;
         loop {

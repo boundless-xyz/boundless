@@ -158,6 +158,11 @@ pub struct IndexerServiceConfig {
     pub batch_size: u64,
     pub cache_uri: Option<String>,
     pub tx_fetch_strategy: TransactionFetchStrategy,
+    pub execution_config: Option<IndexerServiceExecutionConfig>,
+}
+
+#[derive(Clone)]
+pub struct IndexerServiceExecutionConfig {
     pub execution_interval: Duration,
     pub bento_api_key: String,
     pub bento_api_url: String,
