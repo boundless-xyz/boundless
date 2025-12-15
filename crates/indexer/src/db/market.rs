@@ -646,7 +646,7 @@ pub trait IndexerDb {
     /// Update cycle status for completed cycle counts
     async fn set_cycle_counts_completed(
         &self,
-        execution_info: &Vec<CycleCountExecutionUpdate>,
+        execution_info: &[CycleCountExecutionUpdate],
     ) -> Result<(), DbError>;
 
     /// Update cycle status for failed cycle counts
@@ -2277,7 +2277,7 @@ impl IndexerDb for MarketDb {
         let query =
             "SELECT request_digest FROM cycle_counts WHERE cycle_status = 'PENDING' LIMIT $1";
 
-        let rows = sqlx::query(&query).bind(limit as i64).fetch_all(self.pool()).await?;
+        let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
         let mut request_digests = HashSet::new();
         for row in rows {
@@ -2333,7 +2333,7 @@ impl IndexerDb for MarketDb {
                     SET cycle_status = 'EXECUTING', session_uuid = $1
                     WHERE request_digest = $2";
 
-            let mut query_builder = sqlx::query(&query);
+            let mut query_builder = sqlx::query(query);
 
             query_builder = query_builder
                 .bind(&execution_data.session_uuid)
@@ -2348,7 +2348,7 @@ impl IndexerDb for MarketDb {
 
     async fn set_cycle_counts_completed(
         &self,
-        update_info: &Vec<CycleCountExecutionUpdate>,
+        update_info: &[CycleCountExecutionUpdate],
     ) -> Result<(), DbError> {
         let update_vec: Vec<&CycleCountExecutionUpdate> = update_info.iter().collect();
 
@@ -2359,7 +2359,7 @@ impl IndexerDb for MarketDb {
                     SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2
                     WHERE request_digest = $3";
 
-            let mut query_builder = sqlx::query(&query);
+            let mut query_builder = sqlx::query(query);
 
             query_builder = query_builder
                 .bind(u256_to_padded_string(update_data.program_cycles))

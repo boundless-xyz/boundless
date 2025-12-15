@@ -34,7 +34,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     let bento_client = BonsaiClient::from_parts(
         config.bento_api_url.clone(),
         config.bento_api_key.clone(),
-        &risc0_zkvm::VERSION.to_string(),
+        &risc0_zkvm::VERSION,
     )
     .unwrap();
 
@@ -350,7 +350,7 @@ async fn download_or_decode_input(
     config: &IndexerServiceExecutionConfig,
     request_digest: B256,
     input_type: &String,
-    input_data: &String,
+    input_data: &str,
 ) -> Result<Bytes> {
     tracing::debug!(
         "Download or decode input for '{}', input type: '{}'",
