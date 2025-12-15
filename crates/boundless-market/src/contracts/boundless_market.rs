@@ -646,15 +646,30 @@ impl<P: Provider> BoundlessMarketService<P> {
         let FulfillmentTx { root, unlocked_requests, fulfillments, assessor_receipt, withdraw } =
             tx;
         let price = !unlocked_requests.is_empty();
+        let request_ids = fulfillments.iter().map(|fill| fill.id).collect::<Vec<_>>();
 
         match root {
             None => match (price, withdraw) {
-                (false, false) => self._fulfill(fulfillments, assessor_receipt).await,
-                (false, true) => self.fulfill_and_withdraw(fulfillments, assessor_receipt).await,
+                (false, false) => {
+                    tracing::debug!("Fulfilling requests {:?} with fulfill", request_ids);
+                    self._fulfill(fulfillments, assessor_receipt).await
+                }
+                (false, true) => {
+                    tracing::debug!(
+                        "Fulfilling requests {:?} with fulfill and withdraw",
+                        request_ids
+                    );
+                    self.fulfill_and_withdraw(fulfillments, assessor_receipt).await
+                }
                 (true, false) => {
+                    tracing::debug!("Fulfilling requests {:?} with price and fulfill", request_ids);
                     self.price_and_fulfill(unlocked_requests, fulfillments, assessor_receipt).await
                 }
                 (true, true) => {
+                    tracing::debug!(
+                        "Fulfilling requests {:?} with price and fulfill and withdraw",
+                        request_ids
+                    );
                     self.price_and_fulfill_and_withdraw(
                         unlocked_requests,
                         fulfillments,
@@ -665,13 +680,25 @@ impl<P: Provider> BoundlessMarketService<P> {
             },
             Some(root) => match (price, withdraw) {
                 (false, false) => {
+                    tracing::debug!(
+                        "Fulfilling requests {:?} with submitting root and fulfill",
+                        request_ids
+                    );
                     self.submit_root_and_fulfill(root, fulfillments, assessor_receipt).await
                 }
                 (false, true) => {
+                    tracing::debug!(
+                        "Fulfilling requests {:?} with submitting root and fulfill and withdraw",
+                        request_ids
+                    );
                     self.submit_root_and_fulfill_and_withdraw(root, fulfillments, assessor_receipt)
                         .await
                 }
                 (true, false) => {
+                    tracing::debug!(
+                        "Fulfilling requests {:?} with submitting root and price and fulfill",
+                        request_ids
+                    );
                     self.submit_root_and_price_fulfill(
                         root,
                         unlocked_requests,
@@ -681,6 +708,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                     .await
                 }
                 (true, true) => {
+                    tracing::debug!("Fulfilling requests {:?} with submitting root and price and fulfill and withdraw", request_ids);
                     self.submit_root_and_price_fulfill_and_withdraw(
                         root,
                         unlocked_requests,
