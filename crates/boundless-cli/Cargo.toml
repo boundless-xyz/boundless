@@ -17,20 +17,20 @@ name = "boundless-ffi"
 
 [features]
 # Enables the prove feature on risc0-zkvm to build the prover directly into this CLI.
-prove = ["risc0-zkvm/prove"]
+prove = ["risc0-zkvm/prove", "blake3_groth16/prove"]
 # Enables the cuda feature on risc0-zkvm to build the prover directly into this CLI, with CUDA support.
-cuda = ["prove", "risc0-zkvm/cuda"]
+cuda = ["prove", "risc0-zkvm/cuda", "blake3_groth16/cuda"]
 
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
 atomicwrites = "0.4.4"
 bincode = { workspace = true }
+blake3_groth16 = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
 boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
-boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
 broker = { workspace = true }
 bytemuck = { workspace = true }
@@ -56,7 +56,6 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 shadow-rs = { version = "1.1", default-features = false }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-rustls", "chrono"] }
-tabled = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 toml = "0.8"
 toml_edit = "0.22"
@@ -72,7 +71,7 @@ alloy-node-bindings = { workspace = true }
 assert_cmd = "=2.0"
 assert_fs = "1.1"
 boundless-market = { workspace = true }
-boundless-test-utils = { workspace = true, features = ["povw"] }
+boundless-test-utils = { workspace = true, features = ["povw", "zkc"] }
 order-stream = { workspace = true }
 predicates = "3.1"
 rand = { workspace = true }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::min, sync::Arc};
+use std::sync::Arc;
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
@@ -30,12 +30,12 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use db::{DbError, DbObj, SqliteDb};
+use db::{DbError, DbObj, PgDb};
 use thiserror::Error;
 use tokio::time::Duration;
 use url::Url;
 
-mod db;
+pub mod db;
 
 type ProviderWallet = NonceProvider<
     JoinFill<JoinFill<Identity, ChainIdFiller>, DynamicGasFiller>,
@@ -131,7 +131,7 @@ impl SlashService<ProviderWallet> {
             BoundlessMarketService::new(boundless_market_address, provider.clone(), caller)
                 .with_timeout(config.tx_timeout);
 
-        let db: DbObj = Arc::new(SqliteDb::new(db_conn).await.unwrap());
+        let db: DbObj = Arc::new(PgDb::new(db_conn).await.map_err(ServiceError::DatabaseError)?);
 
         Ok(Self { boundless_market, db, config })
     }
@@ -141,11 +141,50 @@ impl<P> SlashService<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    pub async fn run(self, starting_block: Option<u64>) -> Result<(), ServiceError> {
+    pub async fn run(
+        self,
+        starting_block: Option<u64>,
+        ignore_last_processed_block: Option<bool>,
+    ) -> Result<(), ServiceError> {
         let mut interval = tokio::time::interval(self.config.interval);
         let current_block = self.current_block().await?;
-        let last_processed_block = self.get_last_processed_block().await?.unwrap_or(current_block);
-        let mut from_block = min(starting_block.unwrap_or(last_processed_block), current_block);
+        let last_processed_block = self.get_last_processed_block().await?;
+        tracing::debug!("Last processed block fetched from db: {:?}", last_processed_block);
+
+        // Determine the starting block to process from
+        // If ignore_last_processed_block is true, use the provided starting block
+        // Otherwise, use last_processed_block, if present in the db.
+        // If no last_prcessed_block (e.g. first run), use starting block
+        let mut from_block: u64 = match (
+            ignore_last_processed_block,
+            starting_block,
+            last_processed_block,
+        ) {
+            (Some(true), Some(starting_block), _) => {
+                tracing::debug!("Ignoring last processed block and using provided starting block {} for starting block", starting_block);
+                starting_block
+            }
+            (_, _, Some(last_processed_block)) => {
+                tracing::debug!(
+                    "Using last processed block {} for starting block",
+                    last_processed_block
+                );
+                last_processed_block
+            }
+            (_, Some(starting_block), None) => {
+                tracing::debug!(
+                    "No last processed block. Using provided starting block {} for starting block",
+                    starting_block
+                );
+                starting_block
+            }
+            _ => {
+                tracing::debug!("No last processed block and no starting block provided. Using current block {} for starting block", current_block);
+                current_block
+            }
+        };
+
+        tracing::info!("Starting from block {}", from_block);
 
         let mut attempt = 0;
         loop {
@@ -188,7 +227,7 @@ where
                                 tracing::error!(
                                     "Failed to process blocks from {} to {}: {:?}",
                                     from_block,
-                                    to_block,
+                                    chunk_to,
                                     e
                                 );
                                 return Err(e);
@@ -203,7 +242,7 @@ where
                                 tracing::warn!(
                                     "Failed to process blocks from {} to {}: {:?}, attempt number {}",
                                     from_block,
-                                    to_block,
+                                    chunk_to,
                                     e,
                                     attempt
                                 );
@@ -249,7 +288,9 @@ where
     }
 
     async fn update_last_processed_block(&self, block_number: u64) -> Result<(), ServiceError> {
-        Ok(self.db.set_last_block(block_number).await?)
+        self.db.set_last_block(block_number).await?;
+        tracing::info!("Updated last processed block to {block_number}");
+        Ok(())
     }
 
     async fn process_locked_events(

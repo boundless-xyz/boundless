@@ -1,0 +1,26 @@
+[package]
+name = "example-blake3-groth16"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+alloy = { workspace = true }
+anyhow = { workspace = true }
+blake3_groth16 = { workspace = true }
+boundless-market = { workspace = true }
+clap = { workspace = true }
+guest-util = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
+
+[dev-dependencies]
+boundless-market = { workspace = true, features = ["test-utils"] }
+boundless-test-utils = { workspace = true }
+broker = { workspace = true, features = ["test-utils"] }
+test-log = "0.2"
+
+[features]
+cuda = ["broker/cuda"]

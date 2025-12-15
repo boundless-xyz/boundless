@@ -56,7 +56,8 @@ RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
 SHELL ["/bin/bash", "-c"]
 
 # Consider using if building and running on the same CPU
-ENV RUSTFLAGS="-C target-cpu=native"
+ARG RUSTFLAGS="-C target-cpu=native"
+ENV RUSTFLAGS=${RUSTFLAGS}
 
 RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
     --mount=type=cache,target=/root/.cache/sccache/,id=bento_agent_sc \
@@ -68,11 +69,30 @@ RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
 FROM ${CUDA_RUNTIME_IMG} AS runtime
 
 RUN apt-get update -q -y \
-    && apt-get install -q -y ca-certificates libssl3 \
+    && apt-get install -q -y ca-certificates libssl3 curl tar xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# Download and extract BLAKE3 Groth16 artifacts.
+ARG BLAKE3_GROTH16_ARTIFACTS_URL
+# If USE_LOCAL_BLAKE3_GROTH16_SETUP is set to 1 or yes or true, skip downloading and expect user to mount setup files
+ARG USE_LOCAL_BLAKE3_GROTH16_SETUP
+ENV BLAKE3_GROTH16_SETUP_DIR=/.blake3_groth16_artifacts/
+
+RUN if [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "1" ] || [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "yes" ] || [ "$USE_LOCAL_BLAKE3_GROTH16_SETUP" = "true" ]; then \
+      echo "Using local BLAKE3 Groth16 setup files, skipping download"; \
+    else \
+      if [ -z "$BLAKE3_GROTH16_ARTIFACTS_URL" ]; then \
+        echo "ERROR: BLAKE3_GROTH16_ARTIFACTS_URL not specified. Either set USE_LOCAL_BLAKE3_GROTH16_SETUP=1 and mount the setup files, or provide a URL via BLAKE3_GROTH16_ARTIFACTS_URL"; exit 1; \
+      fi && \
+      mkdir -p $BLAKE3_GROTH16_SETUP_DIR && \
+      curl -L -o /tmp/blake3_groth16_artifacts.tar.xz "$BLAKE3_GROTH16_ARTIFACTS_URL" && \
+      tar -xvf /tmp/blake3_groth16_artifacts.tar.xz -C $BLAKE3_GROTH16_SETUP_DIR  --strip-components=1 && \
+      rm -rf /tmp/* ; \
+    fi
 
 # Main prover
 COPY --from=builder /src/agent /app/agent
 COPY --from=builder /usr/local/risc0 /usr/local/risc0
+
 
 ENTRYPOINT ["/app/agent"]

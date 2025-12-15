@@ -12,8 +12,8 @@ from psycopg2.extras import RealDictCursor
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Cooldown period: 10 minutes
-COOLDOWN_MINUTES = 10
+# Cooldown period: 30 minutes
+COOLDOWN_MINUTES = 30
 
 
 def get_queue_depth(conn) -> int:

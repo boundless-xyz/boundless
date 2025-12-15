@@ -31,7 +31,7 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer -- --include-ignored
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer --exclude boundless-slasher -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -45,6 +45,12 @@ test-cargo-db:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --include-ignored
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
+    just test-db clean
+
+# Run slasher tests (requires database)
+test-slasher:
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher -- --include-ignored
     just test-db clean
 
 # Run indexer lib tests and all integration tests (requires both RPC URLs)
@@ -186,6 +192,10 @@ check-clippy:
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
 
+    cd examples/blake3-groth16 && \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
+    cargo clippy --workspace --all-targets
+
 # Format all code
 format:
     cargo sort --workspace
@@ -207,7 +217,7 @@ format:
 
 # Clean up all build artifacts
 clean: 
-    @just localnet down
+    @just localnet down || true
     @echo "Cleaning up..."
     @rm -rf {{LOGS_DIR}} ./broadcast
     cargo clean
@@ -235,6 +245,7 @@ localnet action="up": check-deps
     PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     DEPOSIT_AMOUNT="100000000000000000000"
+    CHAIN_ID="31337"
     CI=${CI:-0}
     
     if [ "{{action}}" = "up" ]; then
@@ -328,6 +339,7 @@ localnet action="up": check-deps
             echo "Running in CI mode, skipping prover setup."
             python3 contracts/update_deployment_toml.py \
                 --verifier "$VERIFIER_ADDRESS" \
+                --application-verifier "$VERIFIER_ADDRESS" \
                 --set-verifier "$SET_VERIFIER_ADDRESS" \
                 --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
                 --collateral-token "$HIT_POINTS_ADDRESS" \
@@ -349,6 +361,7 @@ localnet action="up": check-deps
             BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
             SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
             VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
+            CHAIN_ID=$CHAIN_ID \
             ./target/debug/boundless account deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
             
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
