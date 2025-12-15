@@ -11,9 +11,12 @@ vector_config_dir: "/etc/vector"
 vector_config_file: "/etc/vector/vector.yaml"
 
 # CloudWatch Logs configuration
+# Can be overridden in group_vars or host_vars to match existing log groups
+# Example: "/boundless/bento/dev" or "/boundless/bento/{{ stack_name }}"
 vector_cloudwatch_log_group: "/boundless/bento"
 vector_cloudwatch_region: "us-west-2"
 vector_cloudwatch_stream_name: "%Y-%m-%d"
+vector_cloudwatch_create_log_group: false  # Set to true to create log group if it doesn't exist
 
 # AWS Authentication
 # Vector will use credentials in this order:

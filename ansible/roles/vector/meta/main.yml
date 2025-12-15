@@ -8,4 +8,6 @@ galaxy_info:
     - vector
     - logging
     - cloudwatch
-dependencies: []
+dependencies:
+  - role: awscli
+    when: vector_cloudwatch_create_log_group | bool

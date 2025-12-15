@@ -20,6 +20,14 @@
   gather_facts: true
 
   tasks:
+    # Install AWS CLI (required for Vector log shipping and other AWS operations)
+    - name: Install AWS CLI
+      ansible.builtin.include_role:
+        name: awscli
+      tags:
+        - awscli
+        - bento-deps
+
     # Install NVIDIA drivers and CUDA (required for GPU workers)
     - name: Install NVIDIA drivers and CUDA
       ansible.builtin.include_role:

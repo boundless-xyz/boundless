@@ -28,8 +28,12 @@ This Ansible role installs and configures Vector for log shipping to AWS CloudWa
 ### CloudWatch Configuration
 
 * `vector_cloudwatch_log_group` (default: `"/boundless/bento"`): CloudWatch Logs group name
+  * **Important**: This must match an existing log group name in CloudWatch, or set `vector_cloudwatch_create_log_group: true` to create it
+  * For Pulumi-managed clusters, the pattern is typically `/boundless/bento/{{ stack_name }}/{{ component_type }}`
+  * Example: `/boundless/bento/dev/manager` or `/boundless/bento/prod/prover`
 * `vector_cloudwatch_region` (default: `"us-west-2"`): AWS region for CloudWatch Logs
 * `vector_cloudwatch_stream_name` (default: `"%Y-%m-%d"`): CloudWatch Logs stream name pattern
+* `vector_cloudwatch_create_log_group` (default: `false`): Create log group if it doesn't exist (requires AWS CLI and credentials)
 
 ### AWS Authentication
 
