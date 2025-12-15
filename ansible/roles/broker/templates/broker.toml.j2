@@ -66,7 +66,7 @@ priority_requestor_lists = [
 # Optional allow list for client addresses.
 #
 # If enabled, all requests from clients not in the allow list are skipped.
-allowed_client_addresses = [
+allow_client_addresses = [
 {% for address in broker_allow_client_addresses %}
 	"{{ address }}"{% if not loop.last %},{% endif %}
 {% endfor %}

@@ -12,14 +12,14 @@
 
     - name: Download Vector setup script
       ansible.builtin.get_url:
-        url: https://repositories.timber.io/public/vector/setup.sh
+        url: https://setup.vector.dev
         dest: /tmp/vector-setup.sh
         mode: '0755'
       when: vector_installed_check.rc != 0
 
     - name: Run Vector setup script
       ansible.builtin.command:
-        cmd: /tmp/vector-setup.sh
+        cmd: /bin/bash /tmp/vector-setup.sh
       args:
         creates: /usr/bin/vector
       when: vector_installed_check.rc != 0
