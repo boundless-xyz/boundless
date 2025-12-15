@@ -26,7 +26,7 @@ use alloy::providers::Provider;
 use std::collections::HashSet;
 
 const DIGEST_BATCH_SIZE: i64 = 5000;
-const STATUS_BATCH_SIZE: usize = 1000;
+const STATUS_BATCH_SIZE: usize = 2500;
 
 // Chunk sizes for backfill progress reporting
 // Note: All chunk sizes must be > 1 to satisfy from_time < to_time validation
@@ -233,7 +233,7 @@ where
             }
 
             let digest_count = digests.len();
-            tracing::info!(
+            tracing::debug!(
                 "Batch {}: Fetched {} digests in {:?}",
                 batch_num,
                 digest_count,
@@ -264,7 +264,7 @@ where
 
                 total_processed += request_statuses.len();
 
-                tracing::info!(
+                tracing::debug!(
                     "Batch {} chunk {}: Processed {} statuses in {:?} (total: {})",
                     batch_num,
                     chunk_idx + 1,
@@ -274,7 +274,7 @@ where
                 );
             }
 
-            tracing::info!("Batch {} completed in {:?}", batch_num, batch_start.elapsed());
+            tracing::info!("Batch {} completed in {:?}. Total statuses backfilled: {}", batch_num, batch_start.elapsed(), total_processed);
         }
 
         tracing::info!(

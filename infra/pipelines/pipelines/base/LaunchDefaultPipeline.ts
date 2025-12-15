@@ -16,33 +16,33 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
     }
 
     protected createPipeline(args: BasePipelineArgs) {
-        const {connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn} = args;
+        const { connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn } = args;
 
-        const {githubTokenSecret, dockerTokenSecret} = this.createSecretsAndPolicy(role, githubToken, dockerToken);
+        const { githubTokenSecret, dockerTokenSecret } = this.createSecretsAndPolicy(role, githubToken, dockerToken);
 
         // Create CodeBuild projects for each stack
         const stagingDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-staging-84532-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-staging-84532", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-84532-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeploymentEthSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-11155111-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         // Create the pipeline
@@ -225,6 +225,7 @@ ${additionalCommandsStr}          - ls -lt
         commands:
           - cd infra/$APP_NAME
           - pulumi install
+          - npm run build
           - echo "DEPLOYING stack $STACK_NAME"
           - pulumi stack select $STACK_NAME
           - pulumi cancel --yes
@@ -284,7 +285,7 @@ ${additionalCommandsStr}          - ls -lt
                     }
                 ]
             },
-            artifacts: {type: "CODEPIPELINE"},
+            artifacts: { type: "CODEPIPELINE" },
             source: {
                 type: "CODEPIPELINE",
                 buildspec: this.getBuildSpec()
