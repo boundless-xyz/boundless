@@ -2648,6 +2648,7 @@ dependencies = [
  "reqwest",
  "serde",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]
@@ -2813,7 +2814,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
- "bonsai-sdk",
+ "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "boundless-cli",
  "boundless-market",
  "boundless-povw",
