@@ -153,3 +153,112 @@
         enabled: "{{ minio_service_enabled }}"
         state: "{{ minio_service_state }}"
         daemon_reload: true
+
+    - name: Wait for MinIO to be ready
+      ansible.builtin.wait_for:
+        host: "{{ minio_bind }}"
+        port: "{{ minio_port }}"
+        delay: 5
+        timeout: 60
+      when: minio_service_state == "started"
+
+    - name: Configure MinIO lifecycle expiration
+      when: minio_lifecycle_expire_days is defined and minio_lifecycle_expire_days | int > 0
+      block:
+        - name: Check if MinIO client (mc) is installed
+          ansible.builtin.stat:
+            path: "{{ minio_install_dir }}/mc"
+          register: minio_client_stat
+
+        - name: Download MinIO client binary
+          ansible.builtin.get_url:
+            url: "https://dl.min.io/client/mc/release/linux-amd64/mc"
+            dest: "{{ minio_install_dir }}/mc"
+            mode: '0755'
+          when: not minio_client_stat.stat.exists
+
+        - name: Create MinIO client config directory
+          ansible.builtin.file:
+            path: "{{ minio_home }}/.mc"
+            state: directory
+            owner: "{{ minio_user }}"
+            group: "{{ minio_group }}"
+            mode: '0755'
+
+        - name: Configure MinIO client alias
+          ansible.builtin.shell: |
+            {{ minio_install_dir }}/mc alias set local http://{{ minio_bind }}:{{ minio_port }} {{ minio_root_user }} {{ minio_root_password }}
+          environment:
+            HOME: "{{ minio_home }}"
+          changed_when: false
+          failed_when: false
+          register: minio_alias_result
+
+        - name: Check if bucket exists
+          ansible.builtin.shell: |
+            {{ minio_install_dir }}/mc ls local/{{ minio_lifecycle_bucket }} > /dev/null 2>&1
+          environment:
+            HOME: "{{ minio_home }}"
+          register: minio_bucket_check
+          changed_when: false
+          failed_when: false
+
+        - name: Create bucket if it doesn't exist
+          ansible.builtin.command:
+            cmd: "{{ minio_install_dir }}/mc mb local/{{ minio_lifecycle_bucket }}"
+          environment:
+            HOME: "{{ minio_home }}"
+          when: minio_bucket_check.rc != 0
+          register: minio_bucket_result
+          failed_when: false
+          changed_when: minio_bucket_result.rc == 0
+
+        - name: Check existing lifecycle rules
+          ansible.builtin.shell: |
+            {{ minio_install_dir }}/mc ilm list local/{{ minio_lifecycle_bucket }} 2>/dev/null || echo ""
+          environment:
+            HOME: "{{ minio_home }}"
+          register: minio_existing_lifecycle
+          changed_when: false
+          failed_when: false
+
+        - name: Check if lifecycle policy matches desired configuration
+          ansible.builtin.set_fact:
+            minio_lifecycle_needs_update: >-
+              {{
+                minio_existing_lifecycle.stdout is not defined or
+                minio_existing_lifecycle.stdout | length == 0 or
+                minio_lifecycle_expire_days | string not in minio_existing_lifecycle.stdout
+              }}
+
+        - name: Remove existing lifecycle rules (if any)
+          ansible.builtin.command:
+            cmd: "{{ minio_install_dir }}/mc ilm clear local/{{ minio_lifecycle_bucket }}"
+          environment:
+            HOME: "{{ minio_home }}"
+          when:
+            - minio_existing_lifecycle.stdout | length > 0
+            - minio_lifecycle_needs_update | bool
+          register: minio_clear_result
+          changed_when: minio_clear_result.rc == 0
+          failed_when: false
+
+        - name: Configure MinIO lifecycle expiration policy
+          ansible.builtin.command:
+            cmd: >-
+              {{ minio_install_dir }}/mc ilm add local/{{ minio_lifecycle_bucket }}
+              --expiry-days {{ minio_lifecycle_expire_days }}
+          environment:
+            HOME: "{{ minio_home }}"
+          register: minio_lifecycle_result
+          changed_when: minio_lifecycle_result.rc == 0
+          failed_when: minio_lifecycle_result.rc != 0
+          when: minio_lifecycle_needs_update | bool
+          tags:
+            - minio
+            - minio-lifecycle
+
+        - name: Display lifecycle configuration
+          ansible.builtin.debug:
+            msg: "MinIO lifecycle policy configured: objects in bucket '{{ minio_lifecycle_bucket }}' will expire after {{ minio_lifecycle_expire_days }} days"
+          when: minio_lifecycle_result.rc == 0

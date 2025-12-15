@@ -21,3 +21,8 @@ minio_binary_name: "minio"
 # Override these in host_vars or vault.yml for production
 minio_root_user: "minioadmin"
 minio_root_password: "minioadmin"
+
+# MinIO lifecycle configuration
+# Objects older than this many days will be automatically expired
+minio_lifecycle_expire_days: 2 # 48 hours
+minio_lifecycle_bucket: "bento" # Bucket name for lifecycle policy

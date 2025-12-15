@@ -42,3 +42,8 @@ minio_log_dir: "/var/log/minio"
 # Installation paths
 minio_install_dir: "/usr/local/bin"
 minio_binary_name: "minio"
+
+# MinIO lifecycle configuration
+# Set to null or empty to disable lifecycle expiration
+minio_lifecycle_expire_days: 2  # Expire objects after 2 days (48 hours)
+minio_lifecycle_bucket: "bento"  # Bucket name for lifecycle policy
