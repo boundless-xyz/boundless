@@ -2783,6 +2783,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
+ "bonsai-sdk",
  "boundless-cli",
  "boundless-market",
  "boundless-povw",

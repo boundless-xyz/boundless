@@ -15,7 +15,7 @@
 use crate::db::market::{CycleCountExecution, CycleCountExecutionUpdate};
 use crate::db::{DbObj, IndexerDb};
 use crate::IndexerServiceConfig;
-use alloy::primitives::B256;
+use alloy::primitives::{B256, U256};
 use anyhow::Result;
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
 use boundless_market::storage::fetch_url;
@@ -321,8 +321,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceConfig) {
 
                     completed_executions.push(CycleCountExecutionUpdate {
                         request_digest: execution_info.request_digest,
-                        program_cycles: stats.cycles,
-                        total_cycles: stats.total_cycles,
+                        program_cycles: U256::from(stats.cycles),
+                        total_cycles: U256::from(stats.total_cycles),
                     });
                 }
                 "RUNNING" => {

@@ -448,8 +448,8 @@ pub struct CycleCountExecution {
 #[derive(Debug, Clone)]
 pub struct CycleCountExecutionUpdate {
     pub request_digest: B256,
-    pub program_cycles: u64,
-    pub total_cycles: u64,
+    pub program_cycles: U256,
+    pub total_cycles: U256,
 }
 
 impl TxMetadata {
@@ -2362,8 +2362,8 @@ impl IndexerDb for MarketDb {
             let mut query_builder = sqlx::query(&query);
 
             query_builder = query_builder
-                .bind(update_data.program_cycles.to_string())
-                .bind(update_data.total_cycles.to_string())
+                .bind(u256_to_padded_string(update_data.program_cycles))
+                .bind(u256_to_padded_string(update_data.total_cycles))
                 .bind(format!("{:x}", update_data.request_digest));
             query_builder.execute(&mut *tx).await?;
         }
