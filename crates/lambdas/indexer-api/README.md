@@ -16,7 +16,7 @@ The following environment variables are required when running the market indexer
 - `MARKET_RPC_URL` (required) - Ethereum RPC endpoint URL for the Boundless Market contract
 - `BOUNDLESS_MARKET_ADDRESS` (required) - Boundless Market contract address
 - `BENTO_API_URL` (required) - Bento API endpoint URL for cycle count computation
-- `BENTO_API_KEY` (required) - API key for the Bento API 
+- `BENTO_API_KEY` (required) - API key for the Bento API
 
 Optional environment variables:
 
