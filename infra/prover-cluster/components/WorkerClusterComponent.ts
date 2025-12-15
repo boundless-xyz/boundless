@@ -19,6 +19,7 @@ export interface WorkerClusterConfig extends BaseComponentConfig {
     proverCount: number;
     executionCount: number;
     auxCount: number;
+    snarkCount: number;
     chainId: string;
     alertsTopicArns: string[];
     rdsEndpoint: pulumi.Output<string>;
@@ -31,9 +32,11 @@ export class WorkerClusterComponent extends BaseComponent {
     public readonly proverAsg: AutoScalingGroupComponent;
     public readonly executionAsg: AutoScalingGroupComponent;
     public readonly auxAsg: AutoScalingGroupComponent;
+    public readonly snarkAsg: AutoScalingGroupComponent;
     public readonly proverAlarms: ProverMetricAlarmComponent;
     public readonly executionAlarms: ExecutorMetricAlarmComponent;
     public readonly auxAlarms: WorkerClusterAlarmComponent;
+    public readonly snarkAlarms: ProverMetricAlarmComponent;
 
     constructor(config: WorkerClusterConfig) {
         super(config, "boundless-bento");
@@ -47,6 +50,9 @@ export class WorkerClusterComponent extends BaseComponent {
         // Create aux cluster
         this.auxAsg = this.createAuxCluster(config);
 
+        // Create snark cluster
+        this.snarkAsg = this.createSnarkCluster(config);
+
         // Create prover cluster alarms
         this.proverAlarms = this.createProverAlarms(config);
 
@@ -55,6 +61,9 @@ export class WorkerClusterComponent extends BaseComponent {
 
         // Create aux cluster alarms
         this.auxAlarms = this.createAuxAlarms(config);
+
+        // Create snark cluster alarms
+        this.snarkAlarms = this.createSnarkAlarms(config);
     }
 
     private createProverCluster(config: WorkerClusterConfig): AutoScalingGroupComponent {
@@ -153,6 +162,39 @@ export class WorkerClusterComponent extends BaseComponent {
             logGroupName: `/boundless/bento/${config.stackName}/aux`,
             alarmDimensions: { AutoScalingGroupName: this.auxAsg.autoScalingGroup.name },
             minAsgSize: this.auxAsg.autoScalingGroup.minSize
+        });
+    }
+
+    private createSnarkCluster(config: WorkerClusterConfig): AutoScalingGroupComponent {
+        const launchTemplateConfig: LaunchTemplateConfig = {
+            ...config,
+            instanceType: "g6.xlarge",
+            componentType: "snark",
+            volumeSize: 100,
+        };
+
+        const launchTemplate = new LaunchTemplateComponent(launchTemplateConfig);
+
+        const asgConfig: AutoScalingGroupConfig = {
+            ...config,
+            launchTemplateId: launchTemplate.launchTemplate.id,
+            launchTemplateUserData: pulumi.output(launchTemplate.launchTemplate.userData).apply(u => u || ""),
+            minSize: 1,
+            maxSize: 1,
+            desiredCapacity: config.snarkCount,
+            componentType: "snark",
+        };
+
+        return new AutoScalingGroupComponent(asgConfig);
+    }
+
+    private createSnarkAlarms(config: WorkerClusterConfig): ProverMetricAlarmComponent {
+        return new ProverMetricAlarmComponent({
+            ...config,
+            serviceName: "bento-snark-cluster",
+            logGroupName: `/boundless/bento/${config.stackName}/snark`,
+            alarmDimensions: { AutoScalingGroupName: this.snarkAsg.autoScalingGroup.name },
+            minAsgSize: this.snarkAsg.autoScalingGroup.minSize
         });
     }
 }

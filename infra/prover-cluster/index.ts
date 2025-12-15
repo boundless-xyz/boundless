@@ -44,6 +44,7 @@ const taskDBName: string = config.require("taskDBName");
 const executionCount: number = config.getNumber("executionCount") || 1;
 const proverCount: number = config.getNumber("proverWorkerCount") || 1;
 const auxCount: number = config.getNumber("auxWorkerCount") || 1;
+const snarkCount: number = config.getNumber("snarkWorkerCount") || 1;
 
 // Broker configuration
 const mcyclePrice: string = config.get("mcyclePrice") || "0.00000001";
@@ -168,6 +169,7 @@ const workerCluster = new WorkerClusterComponent({
     proverCount,
     executionCount,
     auxCount,
+    snarkCount,
     chainId,
     alertsTopicArns: alertsTopicArns,
     rdsEndpoint: dataServices.rdsEndpoint,
@@ -231,6 +233,13 @@ export const auxAsgArn = workerCluster.auxAsg.autoScalingGroup.arn;
 export const auxDesiredCapacity = workerCluster.auxAsg.autoScalingGroup.desiredCapacity;
 export const auxMinSize = workerCluster.auxAsg.autoScalingGroup.minSize;
 export const auxMaxSize = workerCluster.auxAsg.autoScalingGroup.maxSize;
+
+// Snark ASG outputs
+export const snarkAsgName = workerCluster.snarkAsg.autoScalingGroup.name;
+export const snarkAsgArn = workerCluster.snarkAsg.autoScalingGroup.arn;
+export const snarkDesiredCapacity = workerCluster.snarkAsg.autoScalingGroup.desiredCapacity;
+export const snarkMinSize = workerCluster.snarkAsg.autoScalingGroup.minSize;
+export const snarkMaxSize = workerCluster.snarkAsg.autoScalingGroup.maxSize;
 
 // Data services outputs
 export const rdsEndpoint = dataServices.rdsEndpoint;

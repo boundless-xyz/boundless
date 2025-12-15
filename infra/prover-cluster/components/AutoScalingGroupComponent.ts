@@ -9,7 +9,7 @@ export interface AutoScalingGroupConfig extends BaseComponentConfig {
     minSize: number;
     maxSize: number;
     desiredCapacity: number;
-    componentType: "manager" | "prover" | "execution" | "aux";
+    componentType: "manager" | "prover" | "execution" | "aux" | "snark";
 }
 
 export class AutoScalingGroupComponent extends BaseComponent {

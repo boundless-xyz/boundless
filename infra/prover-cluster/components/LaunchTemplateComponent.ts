@@ -20,7 +20,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   setVerifierAddress?: string;
   collateralTokenAddress?: string;
   chainId?: string;
-  componentType: "manager" | "prover" | "execution" | "aux";
+  componentType: "manager" | "prover" | "execution" | "aux" | "snark";
   volumeSize?: number;
   networkInterfaceId?: pulumi.Output<string>;
   rdsEndpoint?: pulumi.Output<string>;
@@ -269,6 +269,7 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
       AWS_REGION=us-west-2
       STACK_NAME=${stackName}
       COMPONENT_TYPE=${componentType}
+      SNARK_STREAM=1
       PROVER_RPC_URL=${rpcUrl}
       PROVER_PRIVATE_KEY=${privKey}
       RPC_URL=${rpcUrl}
@@ -385,6 +386,51 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/gpu_metrics
   }
 }
 EOF
+`;
+          break;
+        case "snark":
+          serviceFile = "bento-snark.service";
+          componentSpecificVars = `
+# Add snark-specific CloudWatch agent configuration
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/gpu_metrics.json << 'EOF'
+{
+  "metrics": {
+    "metrics_collected": {
+      "nvidia_gpu": {
+        "measurement": [
+          "utilization_gpu",
+          "memory_total",
+          "memory_used",
+          "memory_free",
+          "power_draw",
+          "temperature_gpu"
+        ]
+      }
+    }
+  }
+}
+EOF
+
+# Create snark service file (uses snark task type instead of prove)
+cat > /etc/systemd/system/bento-snark.service << 'SNARKEOF'
+[Unit]
+Description=Boundless Bento Snark Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+EnvironmentFile=/etc/environment
+WorkingDirectory=/opt/boundless
+ExecStart=/usr/local/bin/agent -t snark
+Restart=always
+RestartSec=10
+TimeoutStartSec=1800
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target
+SNARKEOF
 `;
           break;
         case "execution":
