@@ -106,3 +106,8 @@
       tags:
         - miner
 
+    - name: Deploy Vector (log shipping)
+      ansible.builtin.include_role:
+        name: vector
+      tags:
+        - vector
