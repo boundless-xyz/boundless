@@ -2301,7 +2301,7 @@ impl IndexerDb for MarketDb {
     ) -> Result<HashSet<CycleCountExecution>, DbError> {
         let query = "SELECT request_digest, session_uuid FROM cycle_counts WHERE cycle_status = 'EXECUTING' LIMIT $1";
 
-        let rows = sqlx::query(&query).bind(limit as i64).fetch_all(self.pool()).await?;
+        let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
         let mut execution_info = HashSet::new();
         for row in rows {

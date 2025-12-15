@@ -34,7 +34,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     let bento_client = BonsaiClient::from_parts(
         config.bento_api_url.clone(),
         config.bento_api_key.clone(),
-        &risc0_zkvm::VERSION,
+        risc0_zkvm::VERSION,
     )
     .unwrap();
 
