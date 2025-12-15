@@ -31,6 +31,27 @@ This Ansible role installs and configures Vector for log shipping to AWS CloudWa
 * `vector_cloudwatch_region` (default: `"us-west-2"`): AWS region for CloudWatch Logs
 * `vector_cloudwatch_stream_name` (default: `"%Y-%m-%d"`): CloudWatch Logs stream name pattern
 
+### AWS Authentication
+
+Vector supports multiple authentication methods for CloudWatch Logs. Credentials are resolved in this order:
+
+1. **IAM Instance Profile** (default, preferred for EC2 instances)
+   * `vector_aws_use_instance_profile` (default: `true`): Use IAM instance profile for authentication
+   * No additional configuration needed if EC2 instance has IAM role attached
+
+2. **AWS Credentials File**
+   * `vector_aws_credentials_file` (default: `null`): Path to AWS credentials file (e.g., `"/root/.aws/credentials"`)
+   * Vector will read credentials from the specified file
+
+3. **Environment Variables**
+   * `vector_aws_access_key_id` (default: `null`): AWS access key ID
+   * `vector_aws_secret_access_key` (default: `null`): AWS secret access key
+   * Credentials are set in `/etc/default/vector` environment file
+
+4. **Explicit Credentials in Config** (not recommended)
+   * If `vector_aws_access_key_id` and `vector_aws_secret_access_key` are set, they will be added to Vector config
+   * **Warning**: This stores credentials in plain text. Use IAM roles or credentials file instead.
+
 ### Service Monitoring
 
 * `vector_monitor_services` (default: `["bento.service", "broker.service", "miner.service"]`): List of systemd units to monitor
@@ -93,11 +114,55 @@ ansible-playbook -i inventory.yml cluster.yml -e "vector_service_enabled=true" -
 
 ## AWS Credentials
 
-Vector requires AWS credentials to ship logs to CloudWatch. Ensure one of the following is configured:
+Vector requires AWS credentials to ship logs to CloudWatch. The role supports multiple authentication methods:
 
-* IAM instance profile (for EC2 instances)
-* AWS credentials file (`~/.aws/credentials`)
-* Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+### Recommended: IAM Instance Profile (EC2)
+
+For EC2 instances, attach an IAM role with CloudWatch Logs permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+No additional configuration needed - Vector will automatically use the instance profile.
+
+### Alternative: AWS Credentials File
+
+```yaml
+vector_aws_credentials_file: "/root/.aws/credentials"
+```
+
+Ensure the credentials file exists and has the format:
+
+```ini
+[default]
+aws_access_key_id = YOUR_ACCESS_KEY
+aws_secret_access_key = YOUR_SECRET_KEY
+```
+
+### Alternative: Environment Variables
+
+```yaml
+vector_aws_access_key_id: "AKIAIOSFODNN7EXAMPLE"
+vector_aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+```
+
+**Note**: Storing credentials in variables is less secure. Prefer IAM roles or credentials files.
 
 ## Tags
 

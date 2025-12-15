@@ -15,9 +15,23 @@ vector_cloudwatch_log_group: "/boundless/bento"
 vector_cloudwatch_region: "us-west-2"
 vector_cloudwatch_stream_name: "%Y-%m-%d"
 
+# AWS Authentication
+# Vector will use credentials in this order:
+# 1. IAM instance profile (if running on EC2) - preferred method
+# 2. AWS credentials file (~/.aws/credentials) - if vector_aws_credentials_file is set
+# 3. Environment variables - if vector_aws_access_key_id and vector_aws_secret_access_key are set
+# 4. Explicit credentials in Vector config - if vector_aws_access_key_id and vector_aws_secret_access_key are set
+vector_aws_use_instance_profile: true  # Use IAM instance profile (preferred for EC2)
+vector_aws_credentials_file: null  # Path to AWS credentials file (e.g., "/root/.aws/credentials")
+vector_aws_access_key_id: null  # AWS access key ID (not recommended, use IAM roles instead)
+vector_aws_secret_access_key: null  # AWS secret access key (not recommended, use IAM roles instead)
+
 # Services to monitor (systemd units)
 vector_monitor_services:
-  - bento.service
+  - bento-api.service
+  - bento-exec.service
+  - bento-aux.service
+  - bento-prove.service
   - broker.service
   - miner.service
 
