@@ -183,7 +183,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = BoundlessMarketService::new(
+        let mut market = BoundlessMarketService::new_for_broker(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -1134,7 +1134,7 @@ pub(crate) mod tests {
         .unwrap();
 
         // Set up market service
-        let market_service = BoundlessMarketService::new(
+        let market_service = BoundlessMarketService::new_for_broker(
             market_address,
             provider.clone(),
             provider.default_signer_address(),

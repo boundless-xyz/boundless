@@ -179,7 +179,7 @@ where
 
         tracing::info!("Searching for existing open orders: {start_block} - {current_block}");
 
-        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let market = BoundlessMarketService::new_for_broker(market_addr, provider.clone(), Address::ZERO);
         // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(
         //     provider.clone(),
         //     Filter::new().from_block(start_block).address(market_addr),
@@ -335,7 +335,7 @@ where
         order_state_tx: broadcast::Sender<OrderStateChange>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
-        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let market = BoundlessMarketService::new_for_broker(market_addr, provider.clone(), Address::ZERO);
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
 
         let stream = Self::poll_market_events(
@@ -726,7 +726,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let boundless_market = BoundlessMarketService::new(
+        let boundless_market = BoundlessMarketService::new_for_broker(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
