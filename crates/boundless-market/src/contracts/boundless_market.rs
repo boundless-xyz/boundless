@@ -51,14 +51,14 @@ pub struct EventQueryConfig {
     /// Maximum number of iterations to search through blocks.
     pub max_iterations: u64,
     /// Number of retries to attempt if a query fails.
-    /// 
+    ///
     /// Retrying queries can be useful to handle RPC provider data inconsistency issues
     /// where calls to fetch events or current block numbers return stale data. For example,
     /// if an event was just emitted but the RPC provider hasn't indexed it yet, a retry
     /// after a short delay may succeed.
     pub retries: u32,
     /// Backoff time in seconds between retry attempts.
-    /// 
+    ///
     /// This delay helps handle transient RPC provider issues where data may be temporarily
     /// inconsistent or unavailable. A short backoff (e.g., 5 seconds) is typically sufficient
     /// to allow the RPC provider to catch up with the latest blockchain state.
@@ -67,38 +67,28 @@ pub struct EventQueryConfig {
 
 impl Default for EventQueryConfig {
     /// Default configuration aimed at SDK operations.
-    /// 
+    ///
     /// This configuration is suitable for SDK operations that require some resilience
     /// against transient RPC provider issues. The default block_range is 1000 blocks,
     /// which is a reasonable compromise between search depth and RPC provider performance.
     /// The default enables searching back ~350,000 blocks, which is around 1 week on Base Mainnet.
     fn default() -> Self {
-        Self {
-            block_range: 499,
-            max_iterations: 500,
-            retries: 1,
-            retries_backoff_s: 5,
-        }
+        Self { block_range: 499, max_iterations: 500, retries: 1, retries_backoff_s: 5 }
     }
 }
 
 impl EventQueryConfig {
     /// Default configuration for broker operations: no retries.
-    /// 
+    ///
     /// Broker operations disable retries to prevent delays, search fewer blocks as the broker tends
     /// to only query in-flight orders, and uses a block_range config aimed to support a wide range  of
     /// free tier RPCs.
-    /// 
+    ///
     /// Default config enables searching back ~50,000 blocks, which is around 1 day on Base Mainnet.
     pub fn default_for_broker() -> Self {
-        Self {
-            block_range: 499,
-            max_iterations: 100,
-            retries: 0,
-            retries_backoff_s: 0,
-        }
+        Self { block_range: 499, max_iterations: 100, retries: 0, retries_backoff_s: 0 }
     }
-    
+
     /// Create with custom values
     pub fn new(
         max_iterations: u64,
@@ -106,12 +96,7 @@ impl EventQueryConfig {
         retries: u32,
         retries_backoff_s: u64,
     ) -> Self {
-        Self {
-            block_range,
-            max_iterations,
-            retries,
-            retries_backoff_s,
-        }
+        Self { block_range, max_iterations, retries, retries_backoff_s }
     }
 }
 
@@ -339,7 +324,7 @@ pub struct ProverSlashedEventData {
 
 impl<P: Provider> BoundlessMarketService<P> {
     /// Creates a new Boundless market service.
-    /// 
+    ///
     /// The default configuration includes retry logic when querying events to handle
     /// transient RPC provider issues.
     pub fn new(address: impl Into<Address>, provider: P, caller: impl Into<Address>) -> Self {
@@ -357,10 +342,14 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Creates a new `BoundlessMarketService` instance optimized for broker operations.
-    /// 
+    ///
     /// This function initializes the service with `EventQueryConfig` set to disable retries.
     /// The broker handles retries at a higher level through its own retry mechanisms.
-    pub fn new_for_broker(address: impl Into<Address>, provider: P, caller: impl Into<Address>) -> Self {
+    pub fn new_for_broker(
+        address: impl Into<Address>,
+        provider: P,
+        caller: impl Into<Address>,
+    ) -> Self {
         let instance = IBoundlessMarket::new(address.into(), provider);
 
         Self {
@@ -1530,56 +1519,63 @@ impl<P: Provider> BoundlessMarketService<P> {
         upper_bound: Option<u64>,
     ) -> Result<ProverSlashedEventData, MarketError> {
         let config = self.event_query_config.clone();
-        self.retry_query(&config, || async {
-            let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
-            let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
-                self.event_query_config.block_range * self.event_query_config.max_iterations,
-            ));
+        self.retry_query(
+            &config,
+            || async {
+                let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
+                let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
+                    self.event_query_config.block_range * self.event_query_config.max_iterations,
+                ));
 
-            let iterations = if lower_bound.is_some() && upper_bound.is_some() {
-                ((upper_block - start_block) / self.event_query_config.block_range).saturating_add(1)
-            } else {
-                self.event_query_config.max_iterations
-            };
+                let iterations = if lower_bound.is_some() && upper_bound.is_some() {
+                    ((upper_block - start_block) / self.event_query_config.block_range)
+                        .saturating_add(1)
+                } else {
+                    self.event_query_config.max_iterations
+                };
 
-            // Loop to progressively search through blocks
-            for _ in 0..iterations {
-                // If the current end block is less than or equal to the starting block, stop searching
-                if upper_block <= start_block {
-                    break;
+                // Loop to progressively search through blocks
+                for _ in 0..iterations {
+                    // If the current end block is less than or equal to the starting block, stop searching
+                    if upper_block <= start_block {
+                        break;
+                    }
+
+                    // Calculate the block range to query: from [lower_block] to [upper_block]
+                    let lower_block =
+                        upper_block.saturating_sub(self.event_query_config.block_range);
+
+                    // Set up the event filter for the specified block range
+                    let mut event_filter = self.instance.ProverSlashed_filter();
+                    event_filter.filter = event_filter
+                        .filter
+                        .topic1(request_id)
+                        .from_block(lower_block)
+                        .to_block(upper_block);
+
+                    // Query the logs for the event
+                    let logs = event_filter.query().await?;
+
+                    if let Some((event, log_meta)) = logs.first() {
+                        let block_num = log_meta.block_number.unwrap_or(0);
+                        let tx_hash = log_meta.transaction_hash.unwrap_or(B256::ZERO);
+                        return Ok(ProverSlashedEventData {
+                            event: event.clone(),
+                            block_number: block_num,
+                            tx_hash,
+                        });
+                    }
+
+                    // Move the upper_block down for the next iteration
+                    upper_block = lower_block.saturating_sub(1);
                 }
 
-                // Calculate the block range to query: from [lower_block] to [upper_block]
-                let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
-
-                // Set up the event filter for the specified block range
-                let mut event_filter = self.instance.ProverSlashed_filter();
-                event_filter.filter = event_filter
-                    .filter
-                    .topic1(request_id)
-                    .from_block(lower_block)
-                    .to_block(upper_block);
-
-                // Query the logs for the event
-                let logs = event_filter.query().await?;
-
-                if let Some((event, log_meta)) = logs.first() {
-                    let block_num = log_meta.block_number.unwrap_or(0);
-                    let tx_hash = log_meta.transaction_hash.unwrap_or(B256::ZERO);
-                    return Ok(ProverSlashedEventData {
-                        event: event.clone(),
-                        block_number: block_num,
-                        tx_hash,
-                    });
-                }
-
-                // Move the upper_block down for the next iteration
-                upper_block = lower_block.saturating_sub(1);
-            }
-
-            // Return error if no logs are found after all iterations
-            Err(MarketError::RequestNotFound(request_id))
-        }, "query_prover_slashed_event").await
+                // Return error if no logs are found after all iterations
+                Err(MarketError::RequestNotFound(request_id))
+            },
+            "query_prover_slashed_event",
+        )
+        .await
     }
 
     /// Returns fulfillment data and seal if the request is fulfilled.
@@ -2201,31 +2197,31 @@ mod tests {
         let counter_clone = counter.clone();
 
         let anvil = alloy::node_bindings::Anvil::new().spawn();
-        let provider = alloy::providers::ProviderBuilder::new()
-            .connect_http(anvil.endpoint_url());
+        let provider = alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint_url());
         let service = BoundlessMarketService::new(Address::ZERO, provider, Address::ZERO);
 
-        let result = service.retry_query(
-            &config,
-            || {
-                let counter = counter_clone.clone();
-                async move {
-                    let current = counter.fetch_add(1, Ordering::SeqCst);
-                    if current == 0 || current == 1 {
-                        Err(MarketError::Error(anyhow::anyhow!("Attempt {} failed", current)))
-                    } else {
-                        Ok(current)
+        let result = service
+            .retry_query(
+                &config,
+                || {
+                    let counter = counter_clone.clone();
+                    async move {
+                        let current = counter.fetch_add(1, Ordering::SeqCst);
+                        if current == 0 || current == 1 {
+                            Err(MarketError::Error(anyhow::anyhow!("Attempt {} failed", current)))
+                        } else {
+                            Ok(current)
+                        }
                     }
-                }
-            },
-            "test_operation",
-        )
-        .await;
+                },
+                "test_operation",
+            )
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 2);
         assert_eq!(counter.load(Ordering::SeqCst), 3); // Initial + 2 retries
-        
+
         // Verify retry logs were emitted
         assert!(logs_contain("Operation [test_operation] failed"));
         assert!(logs_contain("starting retry 1/2"));
@@ -2241,7 +2237,7 @@ mod tests {
 
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        
+
         // Create a service with retry config
         let mut market_service = BoundlessMarketService::new(
             ctx.deployment.boundless_market_address,
@@ -2257,13 +2253,11 @@ mod tests {
 
         // Query for a non-existent request ID - this should trigger retries
         let non_existent_id = U256::from(999999);
-        let result = market_service
-            .query_fulfilled_event(non_existent_id, None, None)
-            .await;
+        let result = market_service.query_fulfilled_event(non_existent_id, None, None).await;
 
         // Should fail after retries
         assert!(result.is_err());
-        
+
         // Verify retry logs were emitted
         assert!(logs_contain("Operation [query_fulfilled_event] failed"));
         assert!(logs_contain("starting retry 1/1"));
