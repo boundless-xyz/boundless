@@ -417,7 +417,7 @@ where
 
             let start = std::time::Instant::now();
             let results = try_join_all(futures).await?;
-            tracing::info!("Got {} transactions in {:?}", results.len(), start.elapsed());
+            tracing::debug!("Got {} transactions in {:?}", results.len(), start.elapsed());
             for (tx_hash, tx_result) in results {
                 match tx_result {
                     Some(tx) => {
@@ -472,7 +472,7 @@ where
 
                 let start = std::time::Instant::now();
                 let block_results = try_join_all(block_futures).await?;
-                tracing::info!("Got {} blocks in {:?}", block_results.len(), start.elapsed());
+                tracing::debug!("Got {} blocks in {:?}", block_results.len(), start.elapsed());
                 for (block_num, block_result) in block_results {
                     if let Some(block) = block_result {
                         let ts = block.header.timestamp;
