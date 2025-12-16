@@ -43,13 +43,10 @@ use super::{
     Offer, ProofRequest, RequestError, RequestId, RequestStatus, TxnErr, TXN_CONFIRM_TIMEOUT,
 };
 
-/// Event query configuration for searching blockchain events.
+/// Retry configuration for query operations.
 #[derive(Clone, Debug)]
-pub struct EventQueryConfig {
-    /// Number of blocks to query per iteration.
-    pub block_range: u64,
-    /// Maximum number of iterations to search through blocks.
-    pub max_iterations: u64,
+#[non_exhaustive]
+pub struct EventRetryConfig {
     /// Number of retries to attempt if a query fails.
     ///
     /// Retrying queries can be useful to handle RPC provider data inconsistency issues
@@ -57,12 +54,29 @@ pub struct EventQueryConfig {
     /// if an event was just emitted but the RPC provider hasn't indexed it yet, a retry
     /// after a short delay may succeed.
     pub retries: u32,
-    /// Backoff time in seconds between retry attempts.
+    /// Fixed delay in milliseconds between retry attempts.
     ///
     /// This delay helps handle transient RPC provider issues where data may be temporarily
-    /// inconsistent or unavailable. A short backoff (e.g., 5 seconds) is typically sufficient
+    /// inconsistent or unavailable. A short delay (e.g., 5000ms) is typically sufficient
     /// to allow the RPC provider to catch up with the latest blockchain state.
-    pub retries_backoff_s: u64,
+    ///
+    /// If `None`, no delay is used between retries.
+    pub retry_delay_ms: Option<u64>,
+}
+
+/// Event query configuration for searching blockchain events.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub struct EventQueryConfig {
+    /// Number of blocks to query per iteration.
+    pub block_range: u64,
+    /// Maximum number of iterations to search through blocks.
+    pub max_iterations: u64,
+    /// Retry configuration for query operations.
+    ///
+    /// If `None`, no retries are attempted. This allows for future-proofing and
+    /// fine-tuning for specific use cases.
+    pub retry_config: Option<EventRetryConfig>,
 }
 
 impl Default for EventQueryConfig {
@@ -73,7 +87,11 @@ impl Default for EventQueryConfig {
     /// which is a reasonable compromise between search depth and RPC provider performance.
     /// The default enables searching back ~350,000 blocks, which is around 1 week on Base Mainnet.
     fn default() -> Self {
-        Self { block_range: 499, max_iterations: 500, retries: 1, retries_backoff_s: 5 }
+        Self {
+            block_range: 499,
+            max_iterations: 500,
+            retry_config: Some(EventRetryConfig { retries: 1, retry_delay_ms: Some(5000) }),
+        }
     }
 }
 
@@ -86,17 +104,7 @@ impl EventQueryConfig {
     ///
     /// Default config enables searching back ~50,000 blocks, which is around 1 day on Base Mainnet.
     pub fn default_for_broker() -> Self {
-        Self { block_range: 499, max_iterations: 100, retries: 0, retries_backoff_s: 0 }
-    }
-
-    /// Create with custom values
-    pub fn new(
-        max_iterations: u64,
-        block_range: u64,
-        retries: u32,
-        retries_backoff_s: u64,
-    ) -> Self {
-        Self { block_range, max_iterations, retries, retries_backoff_s }
+        Self { block_range: 499, max_iterations: 100, retry_config: None }
     }
 }
 
@@ -1103,23 +1111,30 @@ impl<P: Provider> BoundlessMarketService<P> {
         Fut: std::future::Future<Output = Result<T, MarketError>>,
         MarketError: std::fmt::Debug,
     {
-        if config.retries == 0 {
+        let Some(retry_config) = &config.retry_config else {
+            return query_fn().await;
+        };
+
+        let retries = retry_config.retries;
+        if retries == 0 {
             return query_fn().await;
         }
 
         let mut last_error = None;
-        for attempt in 0..=config.retries {
+        for attempt in 0..=retries {
             match query_fn().await {
                 Ok(result) => return Ok(result),
                 Err(err) => {
-                    if attempt < config.retries {
+                    if attempt < retries {
                         tracing::warn!(
                             "Operation [{}] failed: {err:?}, starting retry {}/{}",
                             function_name,
                             attempt + 1,
-                            config.retries
+                            retries
                         );
-                        tokio::time::sleep(Duration::from_secs(config.retries_backoff_s)).await;
+                        if let Some(delay_ms) = retry_config.retry_delay_ms {
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        }
                         last_error = Some(err);
                         continue;
                     }
@@ -1131,7 +1146,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         tracing::warn!(
             "Operation [{}] failed after {} retries, returning last error: {:?}",
             function_name,
-            config.retries,
+            retries,
             last_error
         );
         Err(last_error.unwrap())
@@ -2189,8 +2204,7 @@ mod tests {
         let config = EventQueryConfig {
             block_range: 1000,
             max_iterations: 100,
-            retries: 2,
-            retries_backoff_s: 0, // No delay for test
+            retry_config: Some(EventRetryConfig { retries: 2, retry_delay_ms: None }), // No delay for test
         };
 
         let counter = Arc::new(AtomicU32::new(0));
@@ -2247,8 +2261,7 @@ mod tests {
         market_service = market_service.with_event_query_config(EventQueryConfig {
             block_range: 1000,
             max_iterations: 10,
-            retries: 1,
-            retries_backoff_s: 0, // No delay for test
+            retry_config: Some(EventRetryConfig { retries: 1, retry_delay_ms: None }), // No delay for test
         });
 
         // Query for a non-existent request ID - this should trigger retries
