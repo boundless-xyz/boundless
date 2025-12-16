@@ -790,6 +790,22 @@ pub trait IndexerDb {
         cursor: Option<B256>,
         limit: i64,
     ) -> Result<Vec<B256>, DbError>;
+
+    /// Gets all request digests from request_status table up to the given end_timestamp.
+    /// Returns Vec of (request_digest, created_at) tuples.
+    async fn get_all_request_digests(
+        &self,
+        cursor: Option<(u64, B256)>,
+        end_timestamp: u64,
+        limit: i64,
+    ) -> Result<Vec<(B256, u64)>, DbError>;
+
+    /// Gets the count of request digests in request_status table filtered by end_timestamp.
+    /// Used for logging total digests to process during backfill.
+    async fn count_request_digests_by_timestamp(
+        &self,
+        end_timestamp: u64,
+    ) -> Result<i64, DbError>;
 }
 
 pub type DbObj = Arc<MarketDb>;
@@ -3157,6 +3173,68 @@ impl IndexerDb for MarketDb {
         }
 
         Ok(digests)
+    }
+
+    async fn get_all_request_digests(
+        &self,
+        cursor: Option<(u64, B256)>,
+        end_timestamp: u64,
+        limit: i64,
+    ) -> Result<Vec<(B256, u64)>, DbError> {
+        let rows = if let Some((cursor_ts, cursor_digest)) = cursor {
+            let cursor_digest_hex = format!("0x{:x}", cursor_digest);
+            sqlx::query(
+                "SELECT request_digest, created_at 
+                 FROM request_status
+                 WHERE created_at <= $1
+                   AND (created_at < $2 OR (created_at = $2 AND request_digest > $3))
+                 ORDER BY created_at ASC, request_digest ASC
+                 LIMIT $4",
+            )
+            .bind(end_timestamp as i64)
+            .bind(cursor_ts as i64)
+            .bind(cursor_digest_hex)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT request_digest, created_at 
+                 FROM request_status
+                 WHERE created_at <= $1
+                 ORDER BY created_at ASC, request_digest ASC
+                 LIMIT $2",
+            )
+            .bind(end_timestamp as i64)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        let mut results = Vec::new();
+        for row in rows {
+            let digest_hex: String = row.try_get("request_digest")?;
+            let digest = B256::from_str(&digest_hex)
+                .map_err(|e| DbError::BadTransaction(format!("Invalid digest: {}", e)))?;
+            let created_at = row.get::<i64, _>("created_at") as u64;
+            results.push((digest, created_at));
+        }
+
+        Ok(results)
+    }
+
+    async fn count_request_digests_by_timestamp(
+        &self,
+        end_timestamp: u64,
+    ) -> Result<i64, DbError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM request_status WHERE created_at <= $1"
+        )
+        .bind(end_timestamp as i64)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count)
     }
 }
 
