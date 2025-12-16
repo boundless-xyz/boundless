@@ -50,13 +50,15 @@ bento_povw_log_id: ""
 
 # Prometheus metrics configuration
 # Different ports for each service type to allow Vector to scrape them separately
-# Ports: api=9090, prove=9091, exec=9092, aux=9093
+# Ports: api=9090, prove=9190, exec=9290, aux=9390, snark=9490, join=9490
 bento_prometheus_metrics_addr: "127.0.0.1:9090"  # Default, will be overridden per task
 bento_prometheus_metrics_ports:
   api: 9090
-  prove: 9091
-  exec: 9092
-  aux: 9093
+  prove: 9190
+  exec: 9290
+  aux: 9390
+  snark: 9490
+  join: 9490
 
 # Installation paths
 bento_install_dir: "/usr/local/bin"
