@@ -37,17 +37,8 @@ broker_rpc_url: "{{ lookup('env', 'BROKER_RPC_URL') | default(lookup('env', 'RPC
 broker_private_key: "{{ lookup('env', 'BROKER_PRIVATE_KEY') | default(lookup('env', 'PRIVATE_KEY') | default('', true), true) | string }}"
 
 # Prometheus metrics configuration
-# Environment variable: PROMETHEUS_METRICS_ADDR or BROKER_PROMETHEUS_METRICS_ADDR
-broker_prometheus_metrics_addr: >-
-  {{
-    lookup('env', 'PROMETHEUS_METRICS_ADDR') |
-    default(
-      lookup('env', 'BROKER_PROMETHEUS_METRICS_ADDR') |
-      default('127.0.0.1:9090', true),
-      true
-    ) |
-    string
-  }}
+# Uses port 9094 to avoid conflicts with Bento services
+broker_prometheus_metrics_addr: "127.0.0.1:9094"
 
 # Broker TOML configuration
 broker_min_mcycle_price: "0.00000001"

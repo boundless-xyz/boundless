@@ -16,7 +16,6 @@ vector_config_file: "/etc/vector/vector.yaml"
 vector_cloudwatch_log_group: "/boundless/bento/{{ hostvars[inventory_hostname]['ansible_hostname'] }}"
 vector_cloudwatch_region: "us-west-2"
 vector_cloudwatch_stream_name: "%Y-%m-%d"
-vector_cloudwatch_create_log_group: true  # Set to true to create log group if it doesn't exist
 
 # AWS Authentication
 # Vector will use credentials in this order:
@@ -45,3 +44,31 @@ vector_buffer_when_full: "block"
 
 # Vector log level
 vector_log_level: "info"
+
+# Prometheus metrics collection
+vector_prometheus_enabled: true  # Enable Prometheus metrics scraping
+vector_prometheus_scrape_interval_secs: 15  # Scrape interval in seconds
+
+# Base ports for each service type (instances use base_port + instance_id)
+vector_prometheus_base_ports:
+  api: 9090
+  prove: 9091
+  exec: 9092
+  aux: 9093
+  broker: 9094
+  miner: 9095
+
+# Service instance counts (used to generate endpoints for all instances)
+# These should match bento_gpu_count, bento_exec_count, bento_aux_count from group_vars
+vector_prometheus_service_counts:
+  api: 1  # API is always single instance
+  prove: "{{ bento_gpu_count | default(1) }}"
+  exec: "{{ bento_exec_count | default(4) }}"
+  aux: "{{ bento_aux_count | default(2) }}"
+  broker: 1  # Broker is always single instance
+  miner: 1  # Miner is always single instance
+
+# CloudWatch Metrics configuration
+vector_cloudwatch_metrics_enabled: true  # Enable CloudWatch Metrics sink
+vector_cloudwatch_metrics_namespace: "Boundless/Bento"  # CloudWatch Metrics namespace
+vector_cloudwatch_metrics_region: "{{ vector_cloudwatch_region }}"

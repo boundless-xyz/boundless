@@ -4,34 +4,48 @@ set -euo pipefail
 # Launcher script for Bento {{ bento_task }} service
 # Starts {{ bento_count | default(1) | int }} instance(s) in parallel
 
+# Calculate base Prometheus port for this service type
+BASE_PORT={{ bento_prometheus_metrics_ports[bento_task] | default(9090) }}
+
 {% if bento_task == 'api' %}
 # API service (single instance)
+# API always uses base port (no multiple instances)
+export PROMETHEUS_METRICS_ADDR="127.0.0.1:${BASE_PORT}"
 {{ bento_install_dir }}/bento-rest-api --bind-addr {{ bento_api_url }}
 {% elif bento_task == 'prove' or bento_task == 'snark' or bento_task == 'join' %}
 # Prove services (GPU workers)
 {% if bento_count | default(1) | int > 1 %}
 for id in $(seq 0 $(({{ bento_count | default(1) | int }} - 1))); do
+  # Each instance gets its own Prometheus port: base_port + instance_id
+  export PROMETHEUS_METRICS_ADDR="127.0.0.1:$((BASE_PORT + id))"
   CUDA_VISIBLE_DEVICES=$id {{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }} &
 done
 {% else %}
+export PROMETHEUS_METRICS_ADDR="127.0.0.1:${BASE_PORT}"
 {{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }} &
 {% endif %}
 {% elif bento_task == 'aux' %}
 # Aux service
 {% if bento_count | default(1) | int > 1 %}
 for id in $(seq 0 $(({{ bento_count | default(1) | int }} - 1))); do
+  # Each instance gets its own Prometheus port: base_port + instance_id
+  export PROMETHEUS_METRICS_ADDR="127.0.0.1:$((BASE_PORT + id))"
   {{ bento_install_dir }}/bento-agent -t aux --monitor-requeue --redis-ttl {{ bento_redis_ttl }} &
 done
 {% else %}
+export PROMETHEUS_METRICS_ADDR="127.0.0.1:${BASE_PORT}"
 {{ bento_install_dir }}/bento-agent -t aux --monitor-requeue --redis-ttl {{ bento_redis_ttl }} &
 {% endif %}
 {% else %}
 # Exec or other services
 {% if bento_count | default(1) | int > 1 %}
 for id in $(seq 0 $(({{ bento_count | default(1) | int }} - 1))); do
+  # Each instance gets its own Prometheus port: base_port + instance_id
+  export PROMETHEUS_METRICS_ADDR="127.0.0.1:$((BASE_PORT + id))"
   {{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }} &
 done
 {% else %}
+export PROMETHEUS_METRICS_ADDR="127.0.0.1:${BASE_PORT}"
 {{ bento_install_dir }}/bento-agent -t {{ bento_task }} --redis-ttl {{ bento_redis_ttl }} &
 {% endif %}
 {% endif %}
