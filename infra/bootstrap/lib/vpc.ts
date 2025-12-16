@@ -1,9 +1,11 @@
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
+import * as aws from '@pulumi/aws';
 
 export class Vpc extends pulumi.ComponentResource {
     public vpcx: awsx.ec2.Vpc;
     public numberPrivateSubnets = 2;
+    public s3Endpoint: aws.ec2.VpcEndpoint
 
     constructor(
         name: string,
@@ -75,9 +77,25 @@ export class Vpc extends pulumi.ComponentResource {
                         type: 'Private',
                         cidrBlocks: privateSubnetCidrBlocks,
                     },
-                ],
+                ]
             },
             {parent: this}
+        );
+
+        const routes = aws.ec2.getRouteTablesOutput({
+            vpcId: this.vpcx.vpcId,
+        })
+
+        this.s3Endpoint = new aws.ec2.VpcEndpoint(
+            `base-${name}-s3-endpoint`,
+            {
+                vpcId: this.vpcx.vpcId,
+                serviceName: "com.amazonaws.us-west-2.s3",
+                autoAccept: true,
+                ipAddressType: "ipv4",
+                routeTableIds: routes.ids,
+                vpcEndpointType: "Gateway"
+            }
         );
     }
 }

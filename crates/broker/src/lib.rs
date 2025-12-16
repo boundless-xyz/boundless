@@ -28,9 +28,10 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
+    dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
     override_gateway,
-    selector::is_groth16_selector,
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -72,7 +73,7 @@ pub(crate) mod rpc_retry_policy;
 pub(crate) mod storage;
 pub(crate) mod submitter;
 pub(crate) mod task;
-pub(crate) mod utils;
+pub mod utils;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -81,18 +82,21 @@ pub struct Args {
     #[clap(short = 's', long, env, default_value = "sqlite::memory:")]
     pub db_url: String,
 
-    /// RPC URL (prefers PROVER_RPC_URL; falls back to RPC_URL if unset)
-    #[clap(long, env = "PROVER_RPC_URL", default_value = "http://localhost:8545")]
-    pub rpc_url: Url,
+    /// RPC URL (prefer PROVER_RPC_URL as environment variable; falls back to RPC_URL if unset)
+    ///
+    /// Note we use a String here as the type instead of Url, as the env variable may be
+    /// set to an empty string, especially if using our Docker compose setup, which causes parsing errors with Url.
+    #[clap(long, env = "PROVER_RPC_URL")]
+    pub rpc_url: Option<String>,
 
     /// Additional RPC URLs for automatic failover.
     /// Can be specified multiple times or as a comma-separated list.
     /// If provided along with rpc_url, they will be merged into a single list.
     /// If 2+ URLs are provided total, a fallback provider will be used.
     #[clap(long, env = "PROVER_RPC_URLS", value_delimiter = ',')]
-    pub rpc_urls: Vec<Url>,
+    pub rpc_urls: Vec<String>,
 
-    /// wallet key
+    /// Wallet key
     ///
     /// Can be set via PROVER_PRIVATE_KEY (preferred) or PRIVATE_KEY (backward compatibility) env vars
     #[clap(long, env = "PROVER_PRIVATE_KEY", hide_env_values = true)]
@@ -207,7 +211,7 @@ fn format_order_id(
 /// Order request from the network.
 ///
 /// This will turn into an [`Order`] once it is locked or skipped.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct OrderRequest {
     request: ProofRequest,
     client_sig: Bytes,
@@ -402,6 +406,18 @@ impl Order {
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
     }
+    fn is_blake3_groth16(&self) -> bool {
+        is_blake3_groth16_selector(self.request.requirements.selector)
+    }
+    pub fn compression_type(&self) -> CompressionType {
+        if self.is_groth16() {
+            CompressionType::Groth16
+        } else if self.is_blake3_groth16() {
+            CompressionType::Blake3Groth16
+        } else {
+            CompressionType::None
+        }
+    }
 }
 
 impl std::fmt::Display for Order {
@@ -413,6 +429,13 @@ impl std::fmt::Display for Order {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CompressionType {
+    None,
+    Groth16,
+    Blake3Groth16,
 }
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -467,16 +490,19 @@ pub struct Broker<P> {
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
+    gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
 }
 
 impl<P> Broker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    pub async fn new(mut args: Args, provider: P) -> Result<Self> {
-        let config_watcher =
-            ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
-
+    pub async fn new(
+        mut args: Args,
+        provider: P,
+        config_watcher: ConfigWatcher,
+        gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    ) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
 
@@ -499,7 +525,14 @@ where
         let priority_requestors =
             requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
 
-        Ok(Self { args, db, provider: Arc::new(provider), config_watcher, priority_requestors })
+        Ok(Self {
+            args,
+            db,
+            provider: Arc::new(provider),
+            config_watcher,
+            priority_requestors,
+            gas_priority_mode,
+        })
     }
 
     pub fn deployment(&self) -> &Deployment {
@@ -874,27 +907,37 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if is_dev_mode() {
+        let prover: provers::ProverObj;
+        let aggregation_prover: provers::ProverObj;
+        if is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
             Receipts generated from this process are invalid and should never be used in production.");
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
                     .context("Failed to construct Bonsai client")?,
-            )
+            );
+            aggregation_prover = Arc::clone(&prover);
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
-            )
+            );
+            // Initialize aggregation/snark prover with a higher reserved key to prioritize
+            aggregation_prover = Arc::new(
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
+                    .context("Failed to initialize Bento client")?,
+            );
         } else {
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         };
 
         let prover_addr = self.provider.default_signer_address();
@@ -939,6 +982,7 @@ where
             proving::ProvingService::new(
                 self.db.clone(),
                 prover.clone(),
+                aggregation_prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 self.priority_requestors.clone(),
@@ -972,6 +1016,7 @@ where
                 retry_count: self.args.rpc_retry_max.into(),
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
+            self.gas_priority_mode.clone(),
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -995,7 +1040,7 @@ where
                 self.deployment().boundless_market_address,
                 prover_addr,
                 config.clone(),
-                prover.clone(),
+                aggregation_prover.clone(),
             )
             .await
             .context("Failed to initialize aggregator service")?,
@@ -1207,11 +1252,23 @@ pub(crate) fn is_dev_mode() -> bool {
         .is_some()
 }
 
+/// Returns `true` if the `ALLOW_LOCAL_FILE_STORAGE` environment variable is enabled.
+pub(crate) fn allow_local_file_storage() -> bool {
+    std::env::var("ALLOW_LOCAL_FILE_STORAGE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
+
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
+    use std::sync::Arc;
+
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
+    use boundless_market::dynamic_gas_filler::PriorityMode;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
         market::TestCtx,
@@ -1219,6 +1276,7 @@ pub mod test_utils {
     use tempfile::NamedTempFile;
     use url::Url;
 
+    use crate::config::ConfigWatcher;
     use crate::{config::Config, Args, Broker};
 
     pub struct BrokerBuilder<P> {
@@ -1244,7 +1302,7 @@ pub mod test_utils {
                 db_url: "sqlite::memory:".into(),
                 config_file: config_file.path().to_path_buf(),
                 deployment: Some(ctx.deployment.clone()),
-                rpc_url,
+                rpc_url: Some(rpc_url.to_string()),
                 rpc_urls: Vec::new(),
                 private_key: Some(ctx.prover_signer.clone()),
                 bento_api_url: None,
@@ -1265,7 +1323,17 @@ pub mod test_utils {
         }
 
         pub async fn build(self) -> Result<(Broker<P>, NamedTempFile)> {
-            Ok((Broker::new(self.args, self.provider).await?, self.config_file))
+            let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+            Ok((
+                Broker::new(
+                    self.args,
+                    self.provider,
+                    ConfigWatcher::new(self.config_file.path()).await?,
+                    gas_priority_mode,
+                )
+                .await?,
+                self.config_file,
+            ))
         }
     }
 }

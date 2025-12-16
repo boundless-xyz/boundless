@@ -4,7 +4,7 @@ on:
   pull_request:
     branches:
       - main
-      - 'release-*'
+      - "release-*"
   workflow_dispatch:
 
 concurrency:
@@ -21,7 +21,7 @@ env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "3.0.3"
-  FOUNDRY_VERSION: v1.0.0
+  FOUNDRY_VERSION: v1.5.0
 
 jobs:
   # see: https://github.com/orgs/community/discussions/26822
@@ -37,7 +37,8 @@ jobs:
       - infra
       - rust-pkg-check
       - docs-rs
-      - deployment-address-check
+      - scaler-tests
+      - validate-requestor-lists
 
     runs-on: ubuntu-latest
     steps:
@@ -48,7 +49,7 @@ jobs:
         run: exit 1
 
   rust:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -82,6 +83,7 @@ jobs:
         uses: ./.github/actions/sccache
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -137,13 +139,13 @@ jobs:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
           ETH_MAINNET_RPC_URL: ${{ secrets.ETH_MAINNET_RPC_URL_FREE_TIER }}
+          BASE_MAINNET_RPC_URL: ${{ secrets.BASE_MAINNET_RPC_URL_FREE_TIER }}
 
       - name: sccache stats
         run: sccache --show-stats
 
-
   rust-pkg-check:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -177,8 +179,41 @@ jobs:
       - name: check broker
         run: cargo check --locked -p broker --bin broker
 
+  xtask:
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
+    needs: files-changed
+    if: needs.files-changed.outputs.xtask == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: check xtask
+        run: cargo check
+        working-directory: xtask
+
   link-check:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -205,7 +240,7 @@ jobs:
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
-          version: '=1.15.1'
+          version: "=1.15.1"
           locked: true
 
       - run: cargo binstall -y --force lychee@0.15.1
@@ -224,7 +259,7 @@ jobs:
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
   format:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -241,7 +276,7 @@ jobs:
         uses: baptiste0928/cargo-install@904927dbe77864e0f2281519fe9d5bd097a220b3
         with:
           crate: cargo-binstall
-          version: '=1.15.1'
+          version: "=1.15.1"
           locked: true
 
       - run: cargo binstall -y --force dprint@0.47.2
@@ -249,7 +284,7 @@ jobs:
       - run: dprint check
 
   foundry:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -304,7 +339,7 @@ jobs:
 
   # Check that cargo publish can package the boundless-market crate
   check-publish:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -328,11 +363,12 @@ jobs:
       - run: cargo publish -p boundless-market --dry-run
 
   examples:
-    runs-on: [ self-hosted, Linux, X64, prod, cuda, g6.4xlarge ]
+    runs-on: [self-hosted, Linux, X64, prod, cuda, g6.4xlarge]
     strategy:
       fail-fast: false
       matrix:
         workspace:
+          - examples/blake3-groth16
           - examples/counter
           - examples/smart-contract-requestor
           - examples/counter-with-callback
@@ -401,12 +437,31 @@ jobs:
           RISC0_SKIP_BUILD: 1
 
       - name: forge fmt
+        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge fmt --check
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: forge test
+        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
+
+      - name: install blake3 groth16 artifacts
+        if: matrix.workspace == 'examples/blake3-groth16'
+        run: |
+          set -euxo pipefail
+          export BLAKE3_GROTH16_SETUP_DIR="$HOME/.risc0/blake3_groth16"
+          echo "BLAKE3_GROTH16_SETUP_DIR=$HOME/.risc0/blake3_groth16" >> "$GITHUB_ENV"
+
+          mkdir -p "$BLAKE3_GROTH16_SETUP_DIR"
+          curl -L -o /tmp/blake3_groth16_artifacts.tar.xz \
+            "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
+          tar -xJf /tmp/blake3_groth16_artifacts.tar.xz \
+            -C "$BLAKE3_GROTH16_SETUP_DIR" --strip-components=1
+          rm -f /tmp/blake3_groth16_artifacts.tar.xz
+
+          echo "Contents of setup dir:"
+          ls -R "$BLAKE3_GROTH16_SETUP_DIR"
 
       - name: RUST_LOG="debug" cargo test
         run: cargo test --all-features --locked -- --nocapture
@@ -414,11 +469,13 @@ jobs:
         env:
           RUST_LOG: "info"
           RISC0_INFO: 1
+          BLAKE3_GROTH16_SETUP_DIR: ${{ env.BLAKE3_GROTH16_SETUP_DIR }}
+          USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
 
       - name: sccache stats
         run: sccache --show-stats
   docker:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -448,9 +505,9 @@ jobs:
         id: aws-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: 'us-west-2'
+          aws-region: "us-west-2"
           role-duration-seconds: 14400
-          role-to-assume: 'arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access'
+          role-to-assume: "arn:aws:iam::083632199359:role/gha_oidc_risc0_cache_shared_access"
           output-credentials: true
 
       - name: create ci creds file
@@ -467,7 +524,7 @@ jobs:
         run: docker compose --profile broker --env-file ./.env.broker-template -f compose.yml -f ./dockerfiles/compose.ci.yml build
 
   infra:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}" ]
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
     strategy:
       # Run only on Linux with CPU.
       matrix:
@@ -481,7 +538,7 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history
+          fetch-depth: 0 # Fetch all history
 
       - name: Install Pulumi
         uses: pulumi/setup-pulumi@v2
@@ -489,7 +546,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Run build for changed packages
         run: |
@@ -505,31 +562,62 @@ jobs:
             fi
           done
 
-  deployment-address-check:
+  scaler-tests:
     runs-on: ubuntu-latest
     needs: files-changed
-    if: needs.files-changed.outputs.deployments == 'true'
+    if: needs.files-changed.outputs.scaler == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          cd infra/scaler
+          pip install -r requirements.txt
+
+      - name: Run pytest tests
+        run: |
+          cd infra/scaler
+          pytest -v
+
+  validate-requestor-lists:
+    runs-on: ubuntu-latest
+    needs: files-changed
+    if: needs.files-changed.outputs.requestor_lists == 'true'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
 
-      - name: install python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Check deployment addresses consistency
-        run: python deployments-check.py
+      - name: validate JSON files in requestor-lists
+        run: |
+          for file in requestor-lists/*.json; do
+            if [ -f "$file" ]; then
+              echo "Validating $file..."
+              if ! python3 -m json.tool "$file" > /dev/null; then
+                echo "ERROR: Invalid JSON in $file"
+                exit 1
+              fi
+              echo "✓ $file is valid JSON"
+            fi
+          done
 
   files-changed:
     runs-on: ubuntu-latest
     outputs:
       docker: ${{ steps.changes.outputs.docker }}
-      main:      ${{ steps.changes.outputs.main }}
-      examples:  ${{ steps.changes.outputs.examples }}
-      docs:      ${{ steps.changes.outputs.docs }}
-      infra:     ${{ steps.changes.outputs.infra }}
+      main: ${{ steps.changes.outputs.main }}
+      examples: ${{ steps.changes.outputs.examples }}
+      docs: ${{ steps.changes.outputs.docs }}
+      infra: ${{ steps.changes.outputs.infra }}
       deployments: ${{ steps.changes.outputs.deployments }}
+      scaler: ${{ steps.changes.outputs.scaler }}
+      requestor_lists: ${{ steps.changes.outputs.requestor_lists }}
+      xtask: ${{ steps.changes.outputs.xtask }}
 
     steps:
       - name: checkout code
@@ -573,4 +661,15 @@ jobs:
               - 'contracts/deployment.toml'
               - 'crates/boundless-market/src/deployments.rs'
               - '.github/workflows/main.yml'
-
+            # Changes to scaler lambda function
+            scaler:
+              - 'infra/scaler/**'
+              - '.github/workflows/main.yml'
+            # Changes to requestor lists
+            requestor_lists:
+              - 'requestor-lists/**'
+              - '.github/workflows/main.yml'
+            # Changes to xtask
+              - 'xtask/**'
+              - 'crates/boundless-market/**'
+              - 'blake3_groth16/**'

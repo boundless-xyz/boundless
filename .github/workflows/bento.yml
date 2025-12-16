@@ -29,7 +29,7 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RISC0_TOOLCHAIN_VERSION: 1.88.0
   RISC0_CRATE_VERSION: "3.0.1"
-  FOUNDRY_VERSION: v1.2.3
+  FOUNDRY_VERSION: v1.5.0
 
 jobs:
   bento-test:
@@ -73,6 +73,9 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: risc0/risc0/.github/actions/rustup@v3.0.3
+
+      - name: Install protoc
+        uses: risc0/risc0/.github/actions/protoc@v3.0.3
 
       - name: Install cargo risczero
         uses: ./.github/actions/bininstall-risc0

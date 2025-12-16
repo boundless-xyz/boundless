@@ -1,0 +1,10 @@
+# Dotenv file
+# .env
+
+# Generted by Cargo
+debug/
+target/
+
+# Misc
+.DS_Store
+.idea

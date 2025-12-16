@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.88.0-bookworm AS init
+FROM rust:1.89.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -7,6 +7,7 @@ RUN apt-get -qq update && \
 SHELL ["/bin/bash", "-c"]
 
 RUN cargo install cargo-chef
+
 ARG CACHE_DATE=2025-07-17  # update this date to force rebuild
 # The rewards indexer doesn't need r0vm to run, but cargo chef pulls in dev-dependencies
 # which require it. See https://github.com/LukeMathWalker/cargo-chef/issues/114
@@ -31,10 +32,10 @@ COPY Cargo.lock .
 COPY crates/ ./crates/
 COPY rust-toolchain.toml .
 COPY contracts/ ./contracts/
-COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
+COPY blake3_groth16/ ./blake3_groth16/
 
 RUN cargo chef prepare  --recipe-path recipe.json
 
@@ -51,10 +52,10 @@ COPY Cargo.lock .
 COPY crates/ ./crates/
 COPY rust-toolchain.toml .
 COPY contracts/ ./contracts/
-COPY documentation/ ./documentation/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
+COPY blake3_groth16/ ./blake3_groth16/
 
 SHELL ["/bin/bash", "-c"]
 

@@ -32,6 +32,8 @@ export class ScalerComponent extends BaseComponent {
         const lambdaSecurityGroup = this.createLambdaSecurityGroup(config);
 
         // Allow Lambda security group to access RDS
+        // AWS Lambda RDS connection requires:
+        // 1. Ingress rule on RDS security group to allow traffic from Lambda
         const rdsIngressRule = new aws.ec2.SecurityGroupRule(
             `${config.stackName}-lambda-rds-ingress`,
             {
@@ -42,6 +44,27 @@ export class ScalerComponent extends BaseComponent {
                 securityGroupId: config.rdsSecurityGroupId,
                 sourceSecurityGroupId: lambdaSecurityGroup.id,
                 description: "Allow Lambda to access RDS",
+            },
+            {
+                dependsOn: [lambdaSecurityGroup],
+            }
+        );
+
+        // Note: Lambda SG already has egress for all traffic, but AWS Lambda's RDS connection
+        // detection requires an explicit egress :/ so here it is.
+        const lambdaEgressRule = new aws.ec2.SecurityGroupRule(
+            `${config.stackName}-lambda-rds-egress`,
+            {
+                type: "egress",
+                fromPort: 5432,
+                toPort: 5432,
+                protocol: "tcp",
+                securityGroupId: lambdaSecurityGroup.id,
+                cidrBlocks: ["0.0.0.0/0"], // Allow egress to RDS port
+                description: "Allow Lambda to connect to RDS",
+            },
+            {
+                dependsOn: [lambdaSecurityGroup],
             }
         );
 
@@ -133,12 +156,12 @@ export class ScalerComponent extends BaseComponent {
                 },
             },
             {
-                dependsOn: [logGroup, lambdaLayer, rdsIngressRule],
+                dependsOn: [logGroup, lambdaLayer, lambdaSecurityGroup, rdsIngressRule, lambdaEgressRule],
             }
         );
 
         // Create EventBridge rule to trigger Lambda on schedule
-        const schedule = config.scheduleExpression || "rate(5 minutes)";
+        const schedule = config.scheduleExpression || "rate(60 seconds)";
         this.eventRule = new aws.cloudwatch.EventRule(
             `${config.stackName}-scaler-schedule`,
             {

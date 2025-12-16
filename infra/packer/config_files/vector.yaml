@@ -21,4 +21,7 @@ sinks:
     region: "us-west-2"
     encoding:
       codec: json
-
+    buffer:
+      type: "disk"
+      max_size: 268435488
+      when_full: "block"

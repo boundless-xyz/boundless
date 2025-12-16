@@ -6,9 +6,9 @@
 
 This repository contains the core primitives for Boundless.
 
-> **Note:** If you are a builder looking to build an application on Boundless, you should start with the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) and the [Boundless Builder Docs](https://docs.beboundless.xyz/developers/quick-start).
+> **Note:** If you are a builder looking to build an application on Boundless, you should start with the [Boundless Foundry Template](https://github.com/boundless-xyz/boundless-foundry-template) and the [Boundless Builder Docs](https://docs.boundless.network/developers/quick-start).
 
-> **Note:** If you are a prover looking to get started, please refer to the [Boundless Prover Quick Start Guide](https://docs.beboundless.xyz/provers/quick-start).
+> **Note:** If you are a prover looking to get started, please refer to the [Boundless Prover Quick Start Guide](https://docs.boundless.network/provers/quick-start).
 
 ## Repository Structure
 
@@ -63,16 +63,7 @@ cargo build
 
 ## Documentation
 
-You can find the documentation in the [documentation](./documentation) folder.
-
-To build it and serve it locally, run the following commands:
-
-```sh
-bun install
-bun run docs
-```
-
-Then open your browser and navigate to `http://localhost:5173`.
+You can find the documentation in the [boundless-xyz/docs](https://github.com/boundless-xyz/docs) repo.
 
 ## Audits
 

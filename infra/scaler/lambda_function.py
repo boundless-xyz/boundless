@@ -2,7 +2,8 @@ import os
 import json
 import math
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from datetime import datetime, timezone, timedelta
 
 import boto3
 import psycopg2
@@ -10,6 +11,9 @@ from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Cooldown period: 30 minutes
+COOLDOWN_MINUTES = 30
 
 
 def get_queue_depth(conn) -> int:
@@ -33,8 +37,8 @@ def get_queue_depth(conn) -> int:
 
 def required_workers(queue_depth: int) -> int:
     """Calculate required workers using log2 rounding up."""
-    if queue_depth == 0:
-        return 0
+    if queue_depth <= 5:
+        return 1
     return int(math.ceil(math.log2(queue_depth)) * 2)
 
 
@@ -54,6 +58,54 @@ def get_current_workers(autoscaling_client, asg_name: str) -> int:
         raise ValueError(f"Desired capacity not set for ASG '{asg_name}'")
 
     return desired_capacity
+
+
+def get_last_scaling_time(autoscaling_client, asg_name: str) -> Optional[datetime]:
+    """Get the start time of the most recent scaling activity."""
+    try:
+        response = autoscaling_client.describe_scaling_activities(
+            AutoScalingGroupName=asg_name,
+            MaxRecords=1
+        )
+
+        activities = response.get('Activities', [])
+        if not activities:
+            return None
+
+        # Get the most recent activity (first in the list)
+        activity = activities[0]
+        start_time = activity.get('StartTime')
+
+        if start_time:
+            # AWS SDK returns datetime objects, ensure it's timezone-aware
+            if isinstance(start_time, datetime):
+                # If it's naive, assume UTC
+                if start_time.tzinfo is None:
+                    return start_time.replace(tzinfo=timezone.utc)
+                return start_time
+            # If it's a string, parse it
+            elif isinstance(start_time, str):
+                return datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to get last scaling time: {e}")
+        return None
+
+
+def is_in_cooldown(autoscaling_client, asg_name: str) -> bool:
+    """Check if the ASG is still in cooldown period (10 minutes since last scaling)."""
+    last_scaling_time = get_last_scaling_time(autoscaling_client, asg_name)
+
+    if last_scaling_time is None:
+        # No previous scaling activity, cooldown doesn't apply
+        return False
+
+    now = datetime.now(timezone.utc)
+    time_since_last_scale = now - last_scaling_time
+    cooldown_period = timedelta(minutes=COOLDOWN_MINUTES)
+
+    return time_since_last_scale < cooldown_period
 
 
 def scale(
@@ -82,6 +134,37 @@ def scale(
     # Clamp required workers to min/max bounds
     target_capacity = max(min_size, min(required_workers_count, max_size))
 
+    # Check if we're scaling down (cooldown only applies to scale down)
+    is_scaling_down = target_capacity < current_workers
+
+    # Apply cooldown only when scaling down
+    if is_scaling_down and is_in_cooldown(autoscaling_client, asg_name):
+        last_scaling_time = get_last_scaling_time(autoscaling_client, asg_name)
+        now = datetime.now(timezone.utc)
+        time_since_last_scale = now - last_scaling_time if last_scaling_time else timedelta(0)
+        remaining_cooldown = timedelta(minutes=COOLDOWN_MINUTES) - time_since_last_scale
+
+        logger.info(
+            f"ASG {asg_name} is in cooldown period (scale down blocked). "
+            f"Would scale from {current_workers} to {target_capacity} workers, "
+            f"but last scaling: {last_scaling_time}, "
+            f"remaining cooldown: {remaining_cooldown.total_seconds() / 60:.1f} minutes"
+        )
+
+        return {
+            'asg_name': asg_name,
+            'queue_depth': queue_depth,
+            'required_workers': required_workers_count,
+            'current_workers': current_workers,
+            'target_capacity': current_workers,  # Keep current capacity
+            'min_size': min_size,
+            'max_size': max_size,
+            'scaled': False,
+            'in_cooldown': True,
+            'last_scaling_time': last_scaling_time.isoformat() if last_scaling_time else None,
+            'remaining_cooldown_seconds': int(remaining_cooldown.total_seconds()) if remaining_cooldown.total_seconds() > 0 else 0
+        }
+
     result = {
         'asg_name': asg_name,
         'queue_depth': queue_depth,
@@ -90,7 +173,8 @@ def scale(
         'target_capacity': target_capacity,
         'min_size': min_size,
         'max_size': max_size,
-        'scaled': False
+        'scaled': False,
+        'in_cooldown': False
     }
 
     if current_workers != target_capacity:

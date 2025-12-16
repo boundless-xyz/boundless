@@ -795,11 +795,11 @@ pub mod prover {
                     .beacon_api(beacon_api);
 
                 // Patch in extra blocks in order to complete the chain of blocks as needed. This
-                // is required because EIP 4788 has a buffer size of 8191. We use 8000 here as the
+                // is required because EIP 4788 has a buffer size of 8191. We use 6000 here as the
                 // max gap. Add a recent block to make sure we will chain to a present value.
                 let latest_block_number =
                     self.provider.get_block_number().await.context("Failed to get block number")?;
-                let patched_block_numbers = PatchedIterator::<_, 8000>::new(
+                let patched_block_numbers = PatchedIterator::<_, 6000>::new(
                     block_numbers.into_iter().chain([latest_block_number - 2]),
                 );
                 Input::build(

@@ -25,7 +25,7 @@ const EXCLUDE_CONTRACTS: [&str; 2] = [
 ];
 
 // Contracts to copy bytecode for. Used for deploying contracts in tests.
-const ARTIFACT_TARGET_CONTRACTS: [&str; 8] = [
+const ARTIFACT_TARGET_CONTRACTS: [&str; 9] = [
     "BoundlessMarket",
     "HitPoints",
     "RiscZeroMockVerifier",
@@ -33,6 +33,7 @@ const ARTIFACT_TARGET_CONTRACTS: [&str; 8] = [
     "ERC1967Proxy",
     "RiscZeroVerifierRouter",
     "RiscZeroGroth16Verifier",
+    "Blake3Groth16Verifier",
     "MockCallback",
 ];
 
@@ -254,7 +255,7 @@ fn get_interfaces(contract: &str) -> &str {
             "constructor(address verifier, bytes32 imageId, string memory imageUrl) {}"
         }
         "BoundlessMarket" => {
-            r#"constructor(address verifier, bytes32 assessorId, bytes32 deprecatedAssessorId, uint32 deprecatedAssessorDuration, address stakeTokenContract) {}
+            r#"constructor(address verifier, address applicationVerifier, bytes32 assessorId, bytes32 deprecatedAssessorId, uint32 deprecatedAssessorDuration, address stakeTokenContract) {}
             function initialize(address initialOwner, string calldata imageUrl) {}"#
         }
         "ERC1967Proxy" => "constructor(address implementation, bytes memory data) payable {}",
@@ -264,6 +265,9 @@ fn get_interfaces(contract: &str) -> &str {
             function addVerifier(bytes4 selector, address verifier) {}"#
         }
         "RiscZeroGroth16Verifier" => {
+            r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
+        }
+        "Blake3Groth16Verifier" => {
             r#"constructor(bytes32 control_root, bytes32 bn254_control_id) {}"#
         }
         "MockCallback" => {

@@ -32,7 +32,10 @@ use boundless_market::{
     order_stream_client::OrderStreamClient,
 };
 use futures_util::StreamExt;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{
+    broadcast,
+    mpsc::{self, error::TrySendError},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -398,6 +401,12 @@ where
                         }
                     }
 
+                    tracing::debug!(
+                        "Processed from block {} to block {} [found {} events]",
+                        from_block,
+                        to_block,
+                        out.len()
+                    );
                     Ok(out)
                 }
             },
@@ -577,19 +586,35 @@ where
             return Ok(()); // Return early without propagating the error if signature verification fails.
         }
 
-        let new_order = OrderRequest::new(
+        let new_order = Box::new(OrderRequest::new(
             event.request.clone(),
             event.clientSignature.clone(),
             FulfillmentType::LockAndFulfill,
             market_addr,
             chain_id,
-        );
+        ));
 
         let order_id = new_order.id();
-        if let Err(e) = new_order_tx.send(Box::new(new_order)).await {
-            tracing::error!("Failed to send new on-chain order {} to OrderPicker: {}", order_id, e);
+        if let Err(error) = new_order_tx.try_send(new_order.clone()) {
+            match error {
+                TrySendError::Full(_) => {
+                    tracing::warn!("Failed to send new on-chain order {} to OrderPicker: channel is full, blocking until space is available.", order_id);
+                    if let Err(e) = new_order_tx.send(new_order).await {
+                        tracing::error!(
+                            "Failed to send new on-chain order {} to OrderPicker: {e:?}",
+                            order_id
+                        );
+                    }
+                }
+                _ => {
+                    tracing::error!(
+                        "Failed to send new on-chain order {} to OrderPicker: {error:?}",
+                        order_id
+                    );
+                }
+            }
         } else {
-            tracing::trace!("Sent new on-chain order {} to OrderPicker via channel.", order_id);
+            tracing::debug!("Sent new on-chain order {} to OrderPicker via channel.", order_id);
         }
         Ok(())
     }
@@ -822,7 +847,7 @@ mod tests {
             .unwrap();
 
         // Lock the request
-        ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+        ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
         assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
         assert!(
             ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()

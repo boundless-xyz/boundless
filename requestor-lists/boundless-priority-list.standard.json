@@ -93,6 +93,48 @@
           "estimatedMaxInputSizeMB": 10
         }
       }
+    },
+    {
+      "address": "0x418be9167e835ad820df53fd16b8fe02f796ce1c",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Acai)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 200,
+          "estimatedMcycleCountMax": 200,
+          "estimatedMaxInputSizeMB": 10
+        }
+      }
+    },
+    {
+      "address": "0xb686f080c2c7045d13d196787c99bc9972480fd3",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Strawberry)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 1800,
+          "estimatedMcycleCountMax": 2100,
+          "estimatedMaxInputSizeMB": 10
+        }
+      }
+    },
+    {
+      "address": "0x076aca5883adb08c31e9308c59cd8495a2513da7",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Blueberry)",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 3000,
+          "estimatedMcycleCountMax": 6000,
+          "estimatedMaxInputSizeMB": 10
+        }
+      }
     }
   ]
 }

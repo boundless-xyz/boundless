@@ -36,6 +36,9 @@ use crate::monitor::Monitor;
 // for time "now" before this lambda runs on time "now".
 const METRIC_LAG_SECONDS: i64 = 60;
 
+const MAX_BACKFILL_HOURS: i64 = 6;
+const SECONDS_PER_HOUR: i64 = 3600;
+
 /// Incoming message structure for the Lambda event
 #[derive(Deserialize, Debug)]
 pub struct Event {
@@ -82,7 +85,16 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
 
     let now = Utc::now().timestamp() - METRIC_LAG_SECONDS;
     let now_str = chrono::DateTime::from_timestamp(now, 0).unwrap().to_rfc3339();
-    let start_time = monitor.get_last_run().await.context("Failed to get last run time")?;
+    let mut start_time = monitor.get_last_run().await.context("Failed to get last run time")?;
+
+    // Avoid fetching too many metrics/events from the database, by only fetching a maximum of 6 hours of data.
+    // This is a safeguard to prevent the lambda from running indefinitely if the previous run time is not set,
+    // or if the previous run time is more than 6 hours ago due to some sort of outage.
+    if start_time < now - SECONDS_PER_HOUR * MAX_BACKFILL_HOURS {
+        debug!("Previous run time is more than {MAX_BACKFILL_HOURS} hours ago, setting to {MAX_BACKFILL_HOURS} hours ago. Some events may be missed.");
+        start_time = now - SECONDS_PER_HOUR * MAX_BACKFILL_HOURS;
+    }
+
     let start_time_str = chrono::DateTime::from_timestamp(start_time, 0).unwrap().to_rfc3339();
 
     let mut metrics = vec![];
@@ -108,7 +120,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
     metrics.push(new_metric("requests_number", requests_count as f64, now));
 
     let fulfillments = monitor
-        .fetch_fulfillments(start_time, now)
+        .fetch_fulfilled_requests(start_time, now)
         .await
         .context("Failed to fetch fulfilled requests number")?;
     let fulfillment_count = fulfillments.len();
@@ -162,7 +174,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         ));
 
         let fulfilled = monitor
-            .fetch_fulfillments_from_client(start_time, now, address)
+            .fetch_fulfilled_requests_from_client(start_time, now, address)
             .await
             .context("Failed to fetch fulfilled requests number for client {client}")?;
         let fulfilled_count = fulfilled.len();
@@ -185,7 +197,7 @@ pub async fn function_handler(event: LambdaEvent<Event>) -> Result<(), Error> {
         let address = Address::from_str(&prover).context("Failed to parse prover address")?;
 
         let fulfilled = monitor
-            .fetch_fulfillments_by_prover(start_time, now, address)
+            .fetch_fulfilled_requests_by_prover(start_time, now, address)
             .await
             .context("Failed to fetch fulfilled requests number by prover {prover}")?;
         let fulfilled_count = fulfilled.len();

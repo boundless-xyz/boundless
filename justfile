@@ -31,7 +31,7 @@ test-cargo: test-cargo-root test-cargo-example test-cargo-db
 
 # Run Cargo tests for root workspace
 test-cargo-root:
-    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer -- --include-ignored
+    RISC0_DEV_MODE=1 cargo test --workspace --exclude order-stream --exclude boundless-cli --exclude indexer-api --exclude boundless-indexer --exclude boundless-slasher -- --include-ignored
 
 # Run Cargo tests for counter example
 test-cargo-example:
@@ -47,7 +47,13 @@ test-cargo-db:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-cli -- --include-ignored
     just test-db clean
 
-# Run indexer integration tests (requires ETH_MAINNET_RPC_URL)
+# Run slasher tests (requires database)
+test-slasher:
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher -- --include-ignored
+    just test-db clean
+
+# Run indexer lib tests and all integration tests (requires both RPC URLs)
 test-indexer:
     #!/usr/bin/env bash
     set -e
@@ -55,8 +61,60 @@ test-indexer:
         echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
         exit 1
     fi
-    RISC0_DEV_MODE=1 cargo test -p boundless-indexer --all-targets -- --ignored --nocapture
-    RISC0_DEV_MODE=1 cargo test -p indexer-api --all-targets -- --ignored --nocapture
+    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
+        echo "Error: BASE_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --ignored
+
+# Run indexer lib tests and market integration tests (requires BASE_MAINNET_RPC_URL)
+test-indexer-market:
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
+        echo "Error: BASE_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test market -- --ignored
+
+# Run indexer lib tests and rewards integration tests (requires ETH_MAINNET_RPC_URL)
+test-indexer-rewards:
+    #!/usr/bin/env bash
+    set -e
+    if [ -z "$ETH_MAINNET_RPC_URL" ]; then
+        echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test rewards -- --ignored
+
+# Run indexer-api integration tests (warns if RPC URLs are missing but still runs)
+test-indexer-api:
+    #!/usr/bin/env bash
+    set -e
+    WARNINGS=""
+    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
+        WARNINGS="${WARNINGS}Warning: BASE_MAINNET_RPC_URL environment variable is not set\n"
+    fi
+    if [ -z "$ETH_MAINNET_RPC_URL" ]; then
+        WARNINGS="${WARNINGS}Warning: ETH_MAINNET_RPC_URL environment variable is not set\n"
+    fi
+    RISC0_DEV_MODE=1 cargo test -p indexer-api -- --ignored
+    if [ -n "$WARNINGS" ]; then
+        echo ""
+        echo "=========================================="
+        echo "WARNINGS:"
+        echo -e "$WARNINGS"
+        echo "=========================================="
+    fi
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
@@ -65,7 +123,7 @@ test-db action="setup":
         docker inspect postgres-test > /dev/null 2>&1 || \
         docker run -d \
             --name postgres-test \
-            -e POSTGRES_PASSWORD=password \
+            -e POSTGRES_PASSWORD=password --shm-size=2gb \
             -p 5433:5432 \
             postgres:latest
         # Wait for PostgreSQL to be ready
@@ -81,21 +139,16 @@ test-db action="setup":
     fi
 
 # Run all formatting and linting checks
-check: check-links check-license check-format check-clippy check-docs check-deployments
+check: check-links check-license check-format check-clippy
 
 # Check links in markdown files
 check-links:
     @echo "Checking links in markdown files..."
-    git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+    git ls-files '*.md' | xargs lychee --base . --cache --
 
 # Check licenses
 check-license:
     @python license-check.py
-
-# Check deployments addresses
-check-deployments:
-    @echo "Checking deployment addresses..."
-    @python deployments-check.py
 
 # Check code formatting
 check-format:
@@ -113,7 +166,6 @@ check-format:
     cd crates/guest/assessor && cargo fmt --all --check
     cd crates/guest/util && cargo sort --workspace --check
     cd crates/guest/util && cargo fmt --all --check
-    cd documentation && bun install && bun run check
     dprint check
     forge fmt --check
 
@@ -140,10 +192,9 @@ check-clippy:
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
 
-check-docs:
-    cd documentation && bun install
-    # Matches the docs-rs job in CI 
-    RUSTDOCFLAGS="--cfg docsrs -D warnings" RISC0_SKIP_BUILD=1 cargo +nightly-2025-05-09 doc -p boundless-market --all-features --no-deps
+    cd examples/blake3-groth16 && \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
+    cargo clippy --workspace --all-targets
 
 # Format all code
 format:
@@ -161,17 +212,24 @@ format:
     cd crates/guest/assessor && cargo fmt --all
     cd crates/guest/util && cargo sort --workspace
     cd crates/guest/util && cargo fmt --all
-    cd documentation && bun install && bun run format-markdown
     dprint fmt
     forge fmt
 
 # Clean up all build artifacts
 clean: 
-    @just localnet down
+    @just localnet down || true
     @echo "Cleaning up..."
     @rm -rf {{LOGS_DIR}} ./broadcast
     cargo clean
     forge clean
+    cd bento && cargo clean
+    cd examples/counter && cargo clean
+    cd examples/composition && cargo clean
+    cd examples/counter-with-callback && cargo clean
+    cd examples/smart-contract-requestor && cargo clean
+    cd crates/guest/assessor && cargo clean
+    cd crates/guest/assessor/assessor-guest && cargo clean
+    cd crates/guest/util && cargo clean
     @echo "Cleanup complete."
 
 # Manage the development network (up or down, defaults to up)
@@ -187,6 +245,7 @@ localnet action="up": check-deps
     PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     ADMIN_ADDRESS="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     DEPOSIT_AMOUNT="100000000000000000000"
+    CHAIN_ID="31337"
     CI=${CI:-0}
     
     if [ "{{action}}" = "up" ]; then
@@ -280,6 +339,7 @@ localnet action="up": check-deps
             echo "Running in CI mode, skipping prover setup."
             python3 contracts/update_deployment_toml.py \
                 --verifier "$VERIFIER_ADDRESS" \
+                --application-verifier "$VERIFIER_ADDRESS" \
                 --set-verifier "$SET_VERIFIER_ADDRESS" \
                 --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
                 --collateral-token "$HIT_POINTS_ADDRESS" \
@@ -301,6 +361,7 @@ localnet action="up": check-deps
             BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
             SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
             VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
+            CHAIN_ID=$CHAIN_ID \
             ./target/debug/boundless account deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
             
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"

@@ -37,6 +37,7 @@ use boundless_market::contracts::{
     IBoundlessMarket::IBoundlessMarketErrors,
     RequestStatus, TxnErr,
 };
+use boundless_market::dynamic_gas_filler::PriorityMode;
 use boundless_market::selector::SupportedSelectors;
 use moka::{future::Cache, Expiry};
 use std::sync::Arc;
@@ -156,6 +157,7 @@ pub struct OrderMonitor<P> {
     prove_cache: Arc<Cache<String, Arc<OrderRequest>>>,
     supported_selectors: SupportedSelectors,
     rpc_retry_config: RpcRetryConfig,
+    gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
 }
 
 impl<P> OrderMonitor<P>
@@ -174,6 +176,7 @@ where
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
+        gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -215,6 +218,7 @@ where
             prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
             supported_selectors: SupportedSelectors::default(),
             rpc_retry_config,
+            gas_priority_mode,
         };
         Ok(monitor)
     }
@@ -245,71 +249,75 @@ where
             return Err(OrderMonitorErr::AlreadyLocked);
         }
 
-        let conf_priority_gas = {
-            let conf = self.config.lock_all().context("Failed to lock config")?;
-            conf.market.lockin_priority_gas
-        };
+        let collateral_balance = self
+            .market
+            .balance_of_collateral(self.prover_addr)
+            .await
+            .context("Failed to get collateral balance")?;
+        if collateral_balance < order.request.offer.lockCollateral {
+            tracing::warn!("No longer have enough collateral deposited to market to lock order 0x{:x}, skipping [need: {} ZKC, have: {} ZKC]", request_id, format_ether(order.request.offer.lockCollateral), format_ether(collateral_balance));
+            return Err(OrderMonitorErr::InsufficientBalance);
+        }
 
         tracing::info!(
             "Locking request: 0x{:x} for stake: {}",
             request_id,
             order.request.offer.lockCollateral
         );
-        let lock_block = self
-            .market
-            .lock_request(&order.request, order.client_sig.clone(), conf_priority_gas)
-            .await
-            .map_err(|e| -> OrderMonitorErr {
-                match e {
-                    MarketError::TxnError(txn_err) => match txn_err {
-                        TxnErr::BoundlessMarketErr(IBoundlessMarketErrors::RequestIsLocked(_)) => {
-                            OrderMonitorErr::AlreadyLocked
+        let lock_block =
+            self.market.lock_request(&order.request, order.client_sig.clone()).await.map_err(
+                |e| -> OrderMonitorErr {
+                    match e {
+                        MarketError::TxnError(txn_err) => match txn_err {
+                            TxnErr::BoundlessMarketErr(
+                                IBoundlessMarketErrors::RequestIsLocked(_),
+                            ) => OrderMonitorErr::AlreadyLocked,
+                            _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
+                        },
+                        MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
+                        MarketError::TxnConfirmationError(e) => {
+                            OrderMonitorErr::LockTxNotConfirmed(e.to_string())
                         }
-                        _ => OrderMonitorErr::LockTxFailed(txn_err.to_string()),
-                    },
-                    MarketError::RequestAlreadyLocked(_e) => OrderMonitorErr::AlreadyLocked,
-                    MarketError::TxnConfirmationError(e) => {
-                        OrderMonitorErr::LockTxNotConfirmed(e.to_string())
-                    }
-                    MarketError::LockRevert(e) => {
-                        // Note: lock revert could be for any number of reasons;
-                        // 1/ someone may have locked in the block before us,
-                        // 2/ the lock may have expired,
-                        // 3/ the request may have been fulfilled,
-                        // 4/ the requestor may have withdrawn their funds
-                        // Currently we don't have a way to determine the cause of the revert.
-                        OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
-                    }
-                    MarketError::Error(e) => {
-                        // Insufficient balance error is thrown both when the requestor has insufficient balance,
-                        // Requestor having insufficient balance can happen and is out of our control. The prover
-                        // having insufficient balance is unexpected as we should have checked for that before
-                        // committing to locking the order.
-                        let prover_addr_str =
-                            self.prover_addr.to_string().to_lowercase().replace("0x", "");
-                        if e.to_string().contains("InsufficientBalance") {
-                            if e.to_string().to_lowercase().contains(&prover_addr_str) {
-                                OrderMonitorErr::InsufficientBalance
+                        MarketError::LockRevert(e) => {
+                            // Note: lock revert could be for any number of reasons;
+                            // 1/ someone may have locked in the block before us,
+                            // 2/ the lock may have expired,
+                            // 3/ the request may have been fulfilled,
+                            // 4/ the requestor may have withdrawn their funds
+                            // Currently we don't have a way to determine the cause of the revert.
+                            OrderMonitorErr::LockTxFailed(format!("Tx hash 0x{e:x}"))
+                        }
+                        MarketError::Error(e) => {
+                            // Insufficient balance error is thrown both when the requestor has insufficient balance,
+                            // Requestor having insufficient balance can happen and is out of our control. The prover
+                            // having insufficient balance is unexpected as we should have checked for that before
+                            // committing to locking the order.
+                            let prover_addr_str =
+                                self.prover_addr.to_string().to_lowercase().replace("0x", "");
+                            if e.to_string().contains("InsufficientBalance") {
+                                if e.to_string().to_lowercase().contains(&prover_addr_str) {
+                                    OrderMonitorErr::InsufficientBalance
+                                } else {
+                                    OrderMonitorErr::LockTxFailed(format!(
+                                        "Requestor has insufficient balance at lock time: {e}"
+                                    ))
+                                }
+                            } else if e.to_string().contains("RequestIsLocked") {
+                                OrderMonitorErr::AlreadyLocked
                             } else {
-                                OrderMonitorErr::LockTxFailed(format!(
-                                    "Requestor has insufficient balance at lock time: {e}"
-                                ))
+                                OrderMonitorErr::UnexpectedError(e)
                             }
-                        } else if e.to_string().contains("RequestIsLocked") {
-                            OrderMonitorErr::AlreadyLocked
-                        } else {
-                            OrderMonitorErr::UnexpectedError(e)
+                        }
+                        _ => {
+                            if e.to_string().contains("RequestIsLocked") {
+                                OrderMonitorErr::AlreadyLocked
+                            } else {
+                                OrderMonitorErr::UnexpectedError(e.into())
+                            }
                         }
                     }
-                    _ => {
-                        if e.to_string().contains("RequestIsLocked") {
-                            OrderMonitorErr::AlreadyLocked
-                        } else {
-                            OrderMonitorErr::UnexpectedError(e.into())
-                        }
-                    }
-                }
-            })?;
+                },
+            )?;
 
         // Fetch the block to retrieve the lock timestamp. This has been observed to return
         // inconsistent state between the receipt being available but the block not yet.
@@ -419,10 +427,10 @@ where
         ) -> bool {
             let expiration = order.expiry();
             if expiration < current_block_timestamp {
-                tracing::debug!("Request {:x} has now expired. Skipping.", order.request.id);
+                tracing::info!("Request {:x} has now expired. Skipping.", order.request.id);
                 false
             } else if expiration.saturating_sub(now_timestamp()) < min_deadline {
-                tracing::debug!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, expiration, min_deadline);
+                tracing::info!("Request {:x} deadline at {} is less than the minimum deadline {} seconds required to prove an order. Skipping.", order.request.id, expiration, min_deadline);
                 false
             } else {
                 true
@@ -461,7 +469,7 @@ where
                 .await
                 .context("Failed to check if request is fulfilled")?;
             if is_fulfilled {
-                tracing::debug!(
+                tracing::info!(
                     "Request 0x{:x} was locked by another prover and was fulfilled. Skipping.",
                     order.request.id
                 );
@@ -485,7 +493,7 @@ where
         for (_, order) in self.lock_and_prove_cache.iter() {
             let is_lock_expired = order.request.lock_expires_at() < current_block_timestamp;
             if is_lock_expired {
-                tracing::debug!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
+                tracing::info!("Request {:x} was scheduled to be locked by us, but its lock has now expired. Skipping.", order.request.id);
                 self.skip_order(&order, "lock expired before we locked").await;
             } else if let Some((locker, _)) =
                 self.db.get_request_locked(U256::from(order.request.id)).await?
@@ -497,11 +505,11 @@ where
                 let locker_address_normalized = locker_address.trim_start_matches("0x");
 
                 if locker_address_normalized != our_address_normalized {
-                    tracing::debug!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us ({}), but is already locked by another prover ({}). Skipping.", order.request.id, our_address, locker_address);
                     self.skip_order(&order, "locked by another prover").await;
                 } else {
                     // Edge case where we locked the order, but due to some reason was not moved to proving state. Should not happen.
-                    tracing::debug!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
+                    tracing::info!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
@@ -695,6 +703,8 @@ where
 
         // Apply peak khz limit if specified
         let num_commited_orders = committed_orders.len();
+        let committed_order_ids_for_logging =
+            committed_orders.iter().map(|order| order.id()).collect::<Vec<_>>().join(",");
         if config.peak_prove_khz.is_some() && !orders.is_empty() {
             let peak_prove_khz = config.peak_prove_khz.unwrap();
             let total_commited_cycles = committed_orders
@@ -812,10 +822,11 @@ where
             }
         }
 
-        tracing::info!(
-            "Started with {} orders ready to be locked and/or proven. Already commited to {} orders. After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
+        tracing::debug!(
+            "Started with {} orders ready to be locked and/or proven. Already commited to {} orders ({}). After applying capacity limits of {} max concurrent proofs and {} peak khz, filtered to {} orders: {:?}",
             num_orders,
             num_commited_orders,
+            committed_order_ids_for_logging,
             if let Some(max_concurrent_proofs) = config.max_concurrent_proofs {
                 max_concurrent_proofs.to_string()
             } else {
@@ -848,6 +859,9 @@ where
         let mut new_orders = self.priced_order_rx.lock().await;
         let mut prev_orders_by_status = String::new();
 
+        // Cache the gas priority mode to avoid unnecessary write locks
+        let mut cached_gas_priority_mode: Option<PriorityMode> = None;
+
         loop {
             tokio::select! {
                 // Ensure cancellation is observed first, then new orders, then handling lock/prove
@@ -876,9 +890,11 @@ where
                             "Order monitor processing block {block_number} at timestamp {block_timestamp}"
                         );
 
-                        let monitor_config = {
+                        // Extract config values before any async operations
+                        let (monitor_config, config_gas_mode) = {
                             let config = self.config.lock_all().context("Failed to read config")?;
-                            OrderMonitorConfig {
+                            let gas_mode = config.market.gas_priority_mode.clone();
+                            let cfg = OrderMonitorConfig {
                                 min_deadline: config.market.min_deadline,
                                 peak_prove_khz: config.market.peak_prove_khz,
                                 max_concurrent_proofs: Some(config.market.max_concurrent_proofs),
@@ -886,8 +902,30 @@ where
                                 batch_buffer_time_secs: config.batcher.block_deadline_buffer_secs,
                                 order_commitment_priority: config.market.order_commitment_priority,
                                 priority_addresses: config.market.priority_requestor_addresses.clone(),
-                            }
+                            };
+                            (cfg, gas_mode)
                         };
+
+                        // Check if gas_priority_mode has changed and update if needed
+                        // First check our cached value to avoid taking a write lock unnecessarily
+                        let needs_update =
+                            cached_gas_priority_mode.as_ref() != Some(&config_gas_mode);
+
+                        if needs_update {
+                            // Only take the write lock if the value has actually changed
+                            let mut current_mode = self.gas_priority_mode.write().await;
+                            let old_mode = current_mode.clone();
+                            *current_mode = config_gas_mode.clone();
+                            drop(current_mode);
+
+                            cached_gas_priority_mode = Some(config_gas_mode.clone());
+
+                            tracing::info!(
+                                "Gas priority mode changed from {:?} to {:?}",
+                                old_mode,
+                                config_gas_mode
+                            );
+                        }
 
                         // Get orders that are valid and ready for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
                         let mut valid_orders = self.get_valid_orders(block_timestamp, monitor_config.min_deadline).await?;
@@ -1134,6 +1172,8 @@ pub(crate) mod tests {
         // Create required channels for tests
         let (priced_order_tx, priced_order_rx) = mpsc::channel(16);
 
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::Medium));
+
         let monitor = OrderMonitor::new(
             db.clone(),
             provider.clone(),
@@ -1145,6 +1185,7 @@ pub(crate) mod tests {
             priced_order_rx,
             collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
+            gas_priority_mode,
         )
         .unwrap();
 
@@ -1774,5 +1815,60 @@ pub(crate) mod tests {
         assert!(valid_orders_in_future
             .iter()
             .any(|order| order.id() == fulfill_after_expire_order_id));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_insufficient_collateral_balance() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create an order with a lockCollateral requirement higher than what's deposited
+        // The test setup deposits 10 ETH, so we'll use 20 ETH to trigger the insufficient balance check
+        let mut order = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+
+        // Set lockCollateral to 20 ETH (more than the 10 ETH deposited in setup)
+        let collateral_token_decimals =
+            ctx.market_service.collateral_token_decimals().await.unwrap();
+        order.request.offer.lockCollateral =
+            parse_units("20.0", collateral_token_decimals).unwrap().into();
+
+        // Recreate the signature since we modified the request
+        order.client_sig = order
+            .request
+            .sign_request(&ctx.signer, ctx.market_address, ctx.anvil.chain_id())
+            .await
+            .unwrap()
+            .as_bytes()
+            .into();
+
+        let order_id = order.id();
+
+        let _submitted_request_id =
+            ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+
+        // Add order to cache and attempt to lock it
+        ctx.monitor.lock_and_prove_cache.insert(order_id.clone(), Arc::from(order)).await;
+
+        // Process the order - it should fail due to insufficient collateral balance
+        let valid_orders = ctx.monitor.get_valid_orders(current_timestamp, 50).await.unwrap();
+        ctx.monitor.lock_and_prove_orders(&valid_orders).await.unwrap();
+
+        // Verify the order was skipped due to insufficient balance
+        let skipped_order = ctx.db.get_order(&order_id).await.unwrap();
+        assert!(skipped_order.is_some(), "Order should be in database");
+        assert_eq!(
+            skipped_order.unwrap().status,
+            OrderStatus::Skipped,
+            "Order should be skipped due to insufficient collateral balance"
+        );
+
+        // Verify the log message was emitted
+        assert!(
+            logs_contain("No longer have enough collateral deposited to market to lock order"),
+            "Expected log message about insufficient collateral balance"
+        );
     }
 }

@@ -1153,6 +1153,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
 
 [[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2033,6 +2039,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3888aaa89e4b2a40fca9848e400f6a658a5a3978de7be858e209cafa8be9a4a0"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+]
+
+[[package]]
+name = "blake3_groth16"
+version = "1.2.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "bincode",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
+ "borsh",
+ "boundless-market",
+ "hex",
+ "risc0-groth16",
+ "risc0-zkp",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2077,6 +2119,18 @@ name = "bonsai-sdk"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21055e2f49cbbdbfe9f8f96d597c5527b0c6ab7933341fdc2f147180e48a988e"
+dependencies = [
+ "duplicate",
+ "maybe-async",
+ "reqwest",
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "bonsai-sdk"
+version = "1.4.1"
+source = "git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2#6ed3f0321638ae7eb9c097b8aa8becba3f4b1350"
 dependencies = [
  "duplicate",
  "maybe-async",
@@ -2134,6 +2188,8 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "blake3",
+ "borsh",
  "bytemuck",
  "chrono",
  "clap",
@@ -2146,6 +2202,7 @@ dependencies = [
  "rand 0.9.2",
  "reqwest",
  "risc0-aggregation",
+ "risc0-binfmt",
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
@@ -2161,7 +2218,6 @@ dependencies = [
  "tokio-tungstenite",
  "tower",
  "tracing",
- "tracing-subscriber 0.3.20",
  "url",
  "utoipa",
 ]
@@ -2174,6 +2230,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "blake3_groth16",
  "boundless-market",
  "boundless-zkc",
  "guest-assessor",
@@ -2195,12 +2252,7 @@ dependencies = [
  "anyhow",
  "clap",
  "derive_builder",
- "risc0-build",
- "risc0-build-ethereum 3.0.1",
- "risc0-zkvm",
- "serde",
  "serde_json",
- "tokio",
  "tracing",
 ]
 
@@ -2217,7 +2269,8 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "bincode",
- "bonsai-sdk",
+ "blake3_groth16",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
  "boundless-test-utils",
@@ -2595,6 +2648,12 @@ dependencies = [
  "quote",
  "unicode-xid",
 ]
+
+[[package]]
+name = "constant_time_eq"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
 name = "core-foundation"
@@ -3423,7 +3482,6 @@ dependencies = [
  "boundless-test-utils",
  "broker",
  "clap",
- "guest-util",
  "risc0-zkvm",
  "test-log",
  "tokio",
@@ -6336,7 +6394,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "url",
 ]
 
 [[package]]
@@ -6836,7 +6893,7 @@ dependencies = [
  "addr2line 0.24.2",
  "anyhow",
  "bincode",
- "bonsai-sdk",
+ "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "borsh",
  "bytemuck",
  "bytes",

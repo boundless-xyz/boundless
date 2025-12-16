@@ -28,7 +28,7 @@ use boundless_market::{
     dynamic_gas_filler::DynamicGasFiller,
     nonce_layer::NonceProvider,
 };
-use broker::{Args, Broker, Config, CustomRetryPolicy};
+use broker::{config::ConfigWatcher, Args, Broker, CustomRetryPolicy};
 use clap::Parser;
 use tower::ServiceBuilder;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -36,17 +36,9 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut args = Args::parse();
+    let args = Args::parse();
 
-    // Backward compatibility: allow RPC_URL when PROVER_RPC_URL is not set
-    if std::env::var("PROVER_RPC_URL").is_err() {
-        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
-            args.rpc_url =
-                Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
-            tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
-        }
-    }
-    let config = Config::load(&args.config_file).await?;
+    let all_rpc_urls = collect_rpc_urls(args.rpc_url.clone(), args.rpc_urls.clone())?;
 
     if args.log_json {
         tracing_subscriber::fmt()
@@ -62,6 +54,10 @@ async fn main() -> Result<()> {
             .init();
     }
 
+    // Create config watcher early so we can use it for the gas filler
+    let config_watcher =
+        ConfigWatcher::new(&args.config_file).await.context("Failed to load broker config")?;
+
     // Handle private key fallback: PROVER_PRIVATE_KEY -> PRIVATE_KEY
     let private_key = args
         .private_key
@@ -70,19 +66,8 @@ async fn main() -> Result<()> {
         .context(
             "Private key not provided. Set PROVER_PRIVATE_KEY or PRIVATE_KEY environment variable",
         )?;
-    args.private_key = Some(private_key.clone());
 
     let wallet = EthereumWallet::from(private_key.clone());
-
-    // Collect all RPC URLs (merge rpc_url and rpc_urls) and deduplicate
-    let mut seen = std::collections::HashSet::new();
-    seen.insert(args.rpc_url.clone());
-    seen.extend(args.rpc_urls.iter().cloned());
-    let all_rpc_urls: Vec<Url> = seen.into_iter().collect();
-
-    if all_rpc_urls.is_empty() {
-        anyhow::bail!("no RPC URLs provided, please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables");
-    }
 
     let retry_layer = RetryBackoffLayer::new_with_policy(
         args.rpc_retry_max,
@@ -113,29 +98,44 @@ async fn main() -> Result<()> {
         RpcClient::builder().transport(transport, false)
     } else {
         // Single URL - use regular provider
-        tracing::info!("Configuring broker with single RPC URL: {}", args.rpc_url);
-        RpcClient::builder().layer(retry_layer).http(args.rpc_url.clone())
+        let single_url = &all_rpc_urls[0];
+        tracing::info!("Configuring broker with single RPC URL: {}", single_url);
+        RpcClient::builder().layer(retry_layer).http(single_url.clone())
     };
-    let balance_alerts_layer = BalanceAlertLayer::new(BalanceAlertConfig {
-        watch_address: wallet.default_signer().address(),
-        warn_threshold: config
-            .market
-            .balance_warn_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-        error_threshold: config
-            .market
-            .balance_error_threshold
-            .map(|s| parse_ether(&s))
-            .transpose()?,
-    });
 
+    // Read config for balance alerts (scope the guard so we can move config_watcher later)
+    let balance_alerts_config = {
+        let config = config_watcher.config.lock_all().context("Failed to read config")?;
+        BalanceAlertConfig {
+            watch_address: wallet.default_signer().address(),
+            warn_threshold: config
+                .market
+                .balance_warn_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+            error_threshold: config
+                .market
+                .balance_error_threshold
+                .as_ref()
+                .map(|s| parse_ether(s))
+                .transpose()?,
+        }
+    };
+    let balance_alerts_layer = BalanceAlertLayer::new(balance_alerts_config);
+
+    let priority_mode = {
+        let config = config_watcher.config.lock_all().context("Failed to read config")?;
+        config.market.gas_priority_mode.clone()
+    };
     let dynamic_gas_filler = DynamicGasFiller::new(
-        0.2,  // 20% increase of gas limit
-        0.05, // 5% increase of gas_price per pending transaction
-        2.0,  // 2x max gas multiplier
+        20, // 20% increase of gas limit
+        priority_mode,
         wallet.default_signer().address(),
     );
+
+    // Clone the priority_mode Arc so we can pass it to the broker for runtime updates
+    let gas_priority_mode = dynamic_gas_filler.priority_mode.clone();
 
     let base_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
@@ -145,7 +145,8 @@ async fn main() -> Result<()> {
         .connect_client(client);
 
     let provider = NonceProvider::new(base_provider, wallet.clone());
-    let broker = Broker::new(args.clone(), provider.clone()).await?;
+    let broker =
+        Broker::new(args.clone(), provider.clone(), config_watcher, gas_priority_mode).await?;
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
@@ -166,4 +167,50 @@ async fn main() -> Result<()> {
     broker.start_service().await.context("Broker service failed")?;
 
     Ok(())
+}
+
+/// Collect and parse all RPC URLs from args and environment variables
+/// Returns a deduplicated list of valid RPC URLs
+fn collect_rpc_urls(rpc_url: Option<String>, rpc_urls: Vec<String>) -> Result<Vec<Url>> {
+    let mut all_rpc_urls = std::collections::HashSet::new();
+
+    // Parse PROVER_RPC_URL (ignore if empty)
+    if let Some(url_str) = rpc_url {
+        if !url_str.is_empty() {
+            let url =
+                Url::parse(&url_str).context("Invalid PROVER_RPC_URL environment variable")?;
+            all_rpc_urls.insert(url);
+        }
+    }
+
+    // Parse PROVER_RPC_URLS (ignore empty strings, split by comma)
+    for url_str in rpc_urls {
+        let url_str = url_str.trim();
+        if !url_str.is_empty() {
+            let url =
+                Url::parse(url_str).context("Invalid PROVER_RPC_URLS environment variable")?;
+            all_rpc_urls.insert(url);
+        }
+    }
+
+    // Backward compatibility: check RPC_URL if no URLs collected yet
+    if all_rpc_urls.is_empty() {
+        if let Ok(legacy_rpc_url) = std::env::var("RPC_URL") {
+            if !legacy_rpc_url.is_empty() {
+                let url =
+                    Url::parse(&legacy_rpc_url).context("Invalid RPC_URL environment variable")?;
+                all_rpc_urls.insert(url);
+                tracing::info!("Using RPC_URL environment variable (PROVER_RPC_URL not set)");
+            }
+        }
+    }
+
+    // Error early if no RPC URLs provided
+    if all_rpc_urls.is_empty() {
+        anyhow::bail!(
+            "No RPC URLs provided. Please set at least one using PROVER_RPC_URL or PROVER_RPC_URLS environment variables"
+        );
+    }
+
+    Ok(all_rpc_urls.into_iter().collect())
 }

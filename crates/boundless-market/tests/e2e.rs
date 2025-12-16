@@ -20,6 +20,7 @@ use alloy::{
 };
 use alloy_primitives::Bytes;
 use boundless_market::{
+    client::FundingMode,
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
@@ -37,6 +38,7 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 use tracing_test::traced_test;
+use url::Url;
 
 fn now_timestamp() -> u64 {
     std::time::SystemTime::now()
@@ -159,6 +161,83 @@ async fn test_submit_request() {
 }
 
 #[tokio::test]
+async fn test_funding_mode() {
+    use boundless_market::client::ClientBuilder;
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+    // Setup client with Always funding mode as it is the default mode
+    let client = ClientBuilder::new()
+        .with_signer(ctx.customer_signer.clone())
+        .with_deployment(ctx.deployment.clone())
+        .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .build()
+        .await
+        .unwrap();
+
+    // Test Always funding mode: balance after submission should increase by maxPrice
+    let balance_before =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    let request = new_request(1, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == balance_before + request.offer.maxPrice);
+
+    // Test AvailableBalance funding mode: balance after submission should remain the same
+    let client = client.with_funding_mode(FundingMode::AvailableBalance);
+    let balance_before =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    let request = new_request(2, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == balance_before);
+
+    // Test BelowThreshold funding mode: balance after submission should be equal to threshold
+    // since we set the threshold above the current balance
+    let threshold = request.offer.maxPrice * U256::from(5);
+    let client = client.with_funding_mode(FundingMode::BelowThreshold(threshold));
+    let request = new_request(3, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == threshold);
+
+    // Withdraw all balance
+    ctx.customer_market.withdraw(balance_after).await.unwrap();
+
+    // Test Never funding mode: balance after submission should remain the same
+    let client = client.with_funding_mode(FundingMode::Never);
+    let request = new_request(4, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == U256::ZERO);
+
+    // Test MinMaxBalance funding mode: balance after submission should be equal to max
+    // since we start from zero balance after the withdrawal above
+    let min = request.offer.maxPrice;
+    let max = request.offer.maxPrice * U256::from(10);
+    let client =
+        client.with_funding_mode(FundingMode::MinMaxBalance { min_balance: min, max_balance: max });
+    let request = new_request(5, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == max);
+
+    // Test MinMaxBalance funding mode: balance after submission should remain equal to max
+    // since we are above the min balance
+    let request = new_request(6, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == max);
+}
+
+#[tokio::test]
 #[traced_test]
 async fn test_e2e() {
     // Setup anvil
@@ -191,7 +270,7 @@ async fn test_e2e() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -265,7 +344,7 @@ async fn test_e2e_merged_submit_fulfill() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -406,7 +485,7 @@ async fn test_e2e_no_payment() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()
@@ -535,7 +614,7 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
     ctx.prover_market.deposit_collateral_with_permit(deposit, &ctx.prover_signer).await.unwrap();
 
     // Lock the request
-    ctx.prover_market.lock_request(request, customer_sig, None).await.unwrap();
+    ctx.prover_market.lock_request(request, customer_sig).await.unwrap();
     assert!(ctx.customer_market.is_locked(request_id).await.unwrap());
     assert!(
         ctx.customer_market.get_status(request_id, Some(expires_at)).await.unwrap()

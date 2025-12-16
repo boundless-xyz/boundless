@@ -1,0 +1,3 @@
+[alias]
+xtask = "run --manifest-path xtask/Cargo.toml --package xtask --release --"
+xtask-setup-blake3-groth16 = "run --manifest-path xtask/Cargo.toml --package xtask --no-default-features -F cuda --release -- setup-blake3-groth16"

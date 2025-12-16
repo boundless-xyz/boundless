@@ -27,7 +27,7 @@ const environment: string = config.get("environment") || "custom";
 const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
 const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
 const managerInstanceType: string = config.require("managerInstanceType");
-const orderStreamUrl: string = config.require("orderStreamUrl");
+const orderStreamUrl: pulumi.Output<string> = config.requireSecret("orderStreamUrl"); // Use secret to avoid exposing staging urls
 const verifierAddress: string = config.require("verifierAddress");
 const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
 const setVerifierAddress: string = config.require("setVerifierAddress");
@@ -54,6 +54,7 @@ const maxCollateral: string = config.get("maxCollateral") || "200";
 const maxFileSize: string = config.get("maxFileSize") || "0";
 const maxMcycleLimit: string = config.get("maxMcycleLimit") || "0";
 const maxConcurrentProofs: number = config.getNumber("maxConcurrentProofs") || 1;
+const maxJournalBytes: number = config.getNumber("maxJournalBytes") || 1000000;
 const balanceWarnThreshold: string = config.get("balanceWarnThreshold") || "0";
 const balanceErrorThreshold: string = config.get("balanceErrorThreshold") || "0";
 const collateralBalanceWarnThreshold: string = config.get("collateralBalanceWarnThreshold") || "0";
@@ -64,9 +65,11 @@ const maxFetchRetries: number = config.getNumber("maxFetchRetries") || 3;
 const allowClientAddresses: string = config.get("allowClientAddresses") || "";
 const lockinPriorityGas: string = config.get("lockinPriorityGas") || "0";
 
+const rustLogLevel: string = config.get("rustLogLevel") || "info,broker=debug,boundless_market=debug";
+
 // Look up the latest packer-built AMI
 const boundlessBentoVersion: string = config.get("boundlessBentoVersion") || "nightly";
-const boundlessAmiName: string = config.get("boundlessAmiName") || `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
+const boundlessAmiName: string = `boundless-${boundlessBentoVersion}-ubuntu-24.04-nvidia*`;
 const boundlessAmi = aws.ec2.getAmi({
     mostRecent: true,
     owners: ["self", "968153779208"], // Self and Boundless AWS account
@@ -139,6 +142,7 @@ const manager = new ManagerComponent({
     maxFileSize,
     maxMcycleLimit,
     maxConcurrentProofs,
+    maxJournalBytes,
     balanceWarnThreshold,
     balanceErrorThreshold,
     collateralBalanceWarnThreshold,
@@ -148,6 +152,7 @@ const manager = new ManagerComponent({
     maxFetchRetries,
     allowClientAddresses,
     lockinPriorityGas,
+    rustLogLevel,
 });
 
 // Create worker clusters

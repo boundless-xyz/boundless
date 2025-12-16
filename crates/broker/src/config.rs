@@ -20,6 +20,7 @@ use std::{
 
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
+use boundless_market::dynamic_gas_filler::PriorityMode;
 use notify::{EventKind, Watcher};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -32,6 +33,10 @@ use tokio::{
 use crate::{errors::CodedError, impl_coded_debug};
 
 mod defaults {
+    use super::PriorityMode;
+
+    const ESTIMATED_GROTH16_TIME: u64 = 15;
+
     pub const fn max_journal_bytes() -> usize {
         10_000
     }
@@ -60,6 +65,10 @@ mod defaults {
     pub const fn additional_proof_cycles() -> u64 {
         // 2 mcycles for assessor + 270k cycles for set builder by default
         2_000_000 + 270_000
+    }
+
+    pub fn priority_mode() -> PriorityMode {
+        PriorityMode::Medium
     }
 
     pub const fn max_submission_attempts() -> u32 {
@@ -100,8 +109,13 @@ mod defaults {
         8000
     }
 
+    pub const fn min_mcycle_limit() -> u64 {
+        0
+    }
+
     pub const fn min_deadline() -> u64 {
-        300
+        // Currently 150 seconds
+        block_deadline_buffer_secs() + 30
     }
 
     pub const fn lookback_blocks() -> u64 {
@@ -157,7 +171,8 @@ mod defaults {
     }
 
     pub const fn block_deadline_buffer_secs() -> u64 {
-        180
+        // Currently 120 seconds
+        txn_timeout() * max_submission_attempts() as u64 + ESTIMATED_GROTH16_TIME * 2
     }
 
     pub const fn txn_timeout() -> u64 {
@@ -238,6 +253,11 @@ pub struct MarketConf {
     /// Orders over this max_cycles will be skipped after preflight
     #[serde(default = "defaults::max_mcycle_limit")]
     pub max_mcycle_limit: u64,
+    /// Min cycles (in mcycles)
+    ///
+    /// Orders under this min_cycles will be skipped after preflight
+    #[serde(default = "defaults::min_mcycle_limit")]
+    pub min_mcycle_limit: u64,
     /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
     ///
     /// If enabled, the order will be preflighted without constraints.
@@ -295,7 +315,20 @@ pub struct MarketConf {
     ///
     /// If enabled, all requests from clients in the deny list are skipped.
     pub deny_requestor_addresses: Option<HashSet<Address>>,
-    /// lockRequest priority gas
+    /// Transaction priority mode (low, medium, high, or custom)
+    ///
+    /// Controls the multipliers applied to the provider's baseline EIP-1559
+    /// estimate. The baseline uses the median 20th-percentile tip from the last
+    /// 10 blocks as `max_priority_fee_per_gas` and doubles the current base fee
+    /// for `max_fee_per_gas`; `PriorityMode` then scales up that value based on the priority mode.
+    /// Defaults to "medium". Use the `custom` variant to explicitly set the base-fee multiplier
+    /// percentage (100 = 1x), priority-fee multiplier percentage, the fee-history percentile, and the
+    /// dynamic multiplier, e.g.:
+    /// `gas_priority_mode = { custom = { base_fee_multiplier_percentage = 300, priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 5 } }`.
+    #[serde(default = "defaults::priority_mode")]
+    pub gas_priority_mode: PriorityMode,
+
+    /// DEPRECATED: lockRequest priority gas
     ///
     /// Optional additional gas to add to the transaction for lockinRequest, good
     /// for increasing the priority if competing with multiple provers during the
@@ -404,6 +437,7 @@ impl Default for MarketConf {
             min_mcycle_price_collateral_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
+            min_mcycle_limit: defaults::min_mcycle_limit(),
             priority_requestor_addresses: None,
             priority_requestor_lists: defaults::priority_requestor_lists(),
             max_journal_bytes: defaults::max_journal_bytes(),
@@ -415,6 +449,7 @@ impl Default for MarketConf {
             max_collateral: "0.1".to_string(),
             allow_client_addresses: None,
             deny_requestor_addresses: None,
+            gas_priority_mode: defaults::priority_mode(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
             max_fetch_retries: Some(2),
@@ -662,7 +697,9 @@ pub struct ConfigWatcher {
 impl ConfigWatcher {
     /// Initialize a new config watcher and handle
     pub async fn new(config_path: &Path) -> Result<Self> {
-        let config = Arc::new(RwLock::new(Config::load(config_path).await?));
+        let initial_config = Config::load(config_path).await?;
+        log_deprecated_config_usage(&initial_config);
+        let config = Arc::new(RwLock::new(initial_config));
         let config_copy = config.clone();
         let config_path_copy = config_path.to_path_buf();
 
@@ -712,6 +749,7 @@ impl ConfigWatcher {
                                 continue;
                             }
                         };
+                        log_deprecated_config_usage(&new_config);
                         *config = new_config;
                     }
                     _ => {
@@ -740,6 +778,14 @@ impl ConfigWatcher {
     }
 }
 
+fn log_deprecated_config_usage(config: &Config) {
+    if config.market.lockin_priority_gas.is_some() {
+        tracing::warn!(
+            "market.lockin_priority_gas is deprecated and ignored; configure market.gas_priority_mode instead"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -759,6 +805,7 @@ min_deadline = 300
 lookback_blocks = 100
 max_stake = "0.1"
 max_file_size = 50_000_000
+min_mcycle_limit = 5
 
 [prover]
 bonsai_r0_zkvm_ver = "1.0.1"
@@ -788,8 +835,9 @@ max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
 deny_requestor_addresses = ["0x0000000000000000000000000000000000000000"]
-lockin_priority_gas = 100
+gas_priority_mode = "high"
 max_mcycle_limit = 10
+min_mcycle_limit = 5
 
 [prover]
 status_poll_retry_count = 2
@@ -808,6 +856,14 @@ txn_timeout = 45
 batch_poll_time_ms = 1200
 single_txn_fulfill = true
 withdraw = true"#;
+
+    const CONFIG_CUSTOM_PRIORITY_MODE: &str = r#"
+[market]
+mcycle_price = "0.2"
+mcycle_price_collateral_token = "0.2"
+max_stake = "0.1"
+gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 9 } }
+"#;
 
     const BAD_CONFIG: &str = r#"
 [market]
@@ -833,7 +889,8 @@ error = ?"#;
         assert_eq!(config.market.lookback_blocks, 100);
         assert_eq!(config.market.max_collateral, "0.1");
         assert_eq!(config.market.max_file_size, 50_000_000);
-        assert_eq!(config.market.lockin_priority_gas, None);
+        assert_eq!(config.market.min_mcycle_limit, 5);
+        assert_eq!(config.market.gas_priority_mode, PriorityMode::Medium);
 
         assert_eq!(config.prover.status_poll_ms, 1000);
         assert_eq!(config.prover.status_poll_retry_count, 3);
@@ -851,6 +908,23 @@ error = ?"#;
         assert_eq!(config.batcher.block_deadline_buffer_secs, 120);
         assert_eq!(config.batcher.txn_timeout, 45);
         assert_eq!(config.batcher.batch_poll_time_ms, None);
+    }
+
+    #[tokio::test]
+    async fn config_parser_custom_priority_mode() {
+        let mut config_temp = NamedTempFile::new().unwrap();
+        write_config(CONFIG_CUSTOM_PRIORITY_MODE, config_temp.as_file_mut());
+        let config = Config::load(config_temp.path()).await.unwrap();
+
+        assert_eq!(
+            config.market.gas_priority_mode,
+            PriorityMode::Custom {
+                base_fee_multiplier_percentage: 200,
+                priority_fee_multiplier_percentage: 150,
+                priority_fee_percentile: 15.0,
+                dynamic_multiplier_percentage: 9,
+            }
+        );
     }
 
     #[tokio::test]
@@ -877,6 +951,7 @@ error = ?"#;
             assert_eq!(config.market.min_deadline, 300);
             assert_eq!(config.market.lookback_blocks, 100);
             assert_eq!(config.market.max_mcycle_limit, 8000);
+            assert_eq!(config.market.min_mcycle_limit, 5);
             assert_eq!(config.prover.status_poll_ms, 1000);
         }
 
@@ -896,9 +971,10 @@ error = ?"#;
                 config.market.deny_requestor_addresses,
                 Some([Address::ZERO].into_iter().collect())
             );
-            assert_eq!(config.market.lockin_priority_gas, Some(100));
+            assert_eq!(config.market.gas_priority_mode, PriorityMode::High);
             assert_eq!(config.market.max_fetch_retries, Some(10));
             assert_eq!(config.market.max_mcycle_limit, 10);
+            assert_eq!(config.market.min_mcycle_limit, 5);
             assert_eq!(config.prover.status_poll_ms, 1000);
             assert_eq!(config.prover.status_poll_retry_count, 2);
             assert_eq!(config.prover.req_retry_count, 1);

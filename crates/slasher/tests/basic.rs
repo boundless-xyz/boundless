@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{process::Command, time::Duration};
+use std::{process::Command, sync::Arc, time::Duration};
 
 use alloy::{
     node_bindings::Anvil,
@@ -26,11 +26,64 @@ use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
+use boundless_slasher::db::PgDb;
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::create_test_ctx;
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use futures_util::StreamExt;
-use std::sync::Arc;
+
+/// Extract the database connection string from a sqlx::test PgPool.
+/// sqlx::test creates an isolated database per test with a unique name.
+/// We get the base DATABASE_URL and replace the database name with the test database name.
+async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+    // Get the base DATABASE_URL that sqlx::test uses
+    let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+
+    // Query the test database name (sqlx::test creates unique names)
+    let db_name: String =
+        sqlx::query_scalar("SELECT current_database()").fetch_one(pool).await.unwrap();
+
+    // Replace the database name in the URL (everything after the last '/')
+    if let Some(last_slash) = base_url.rfind('/') {
+        format!("{}/{}", &base_url[..last_slash + 1], db_name)
+    } else {
+        // Fallback: append database name if no slash found
+        format!("{}/{}", base_url, db_name)
+    }
+}
+
+/// Wait for slasher to process a locked event (i.e., wait for order to appear in database).
+/// Similar to `wait_for_indexer` in indexer tests, this polls the database to ensure
+/// the slasher has processed the locked event before proceeding.
+async fn wait_for_slasher_to_process_locked(pool: &sqlx::PgPool, request_id: U256) {
+    use std::time::{Duration, Instant};
+
+    let timeout = Duration::from_secs(10);
+    let poll_interval = Duration::from_millis(200);
+    let start = Instant::now();
+
+    loop {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM orders WHERE id = $1)")
+            .bind(format!("{request_id:x}"))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+
+        if exists {
+            tracing::info!("Slasher has processed locked event for request 0x{:x}", request_id);
+            return;
+        }
+
+        if start.elapsed() > timeout {
+            panic!(
+                "Timeout waiting for slasher to process locked event for request 0x{:x}",
+                request_id
+            );
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
 
 async fn create_order(
     signer: &impl Signer,
@@ -61,8 +114,14 @@ async fn create_order(
     (req, client_sig.as_bytes().into())
 }
 
-#[tokio::test]
-async fn test_basic_usage() {
+#[sqlx::test(migrations = "./migrations")]
+async fn test_basic_usage(pool: sqlx::PgPool) {
+    // Run migrations on the isolated test database
+    PgDb::from_pool(pool.clone()).await.unwrap();
+
+    // Get connection string for spawned binary
+    let db_url = get_db_url_from_pool(&pool).await;
+
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -76,7 +135,7 @@ async fn test_basic_usage() {
         "--boundless-market-address",
         &ctx.deployment.boundless_market_address.to_string(),
         "--db",
-        "sqlite::memory:",
+        &db_url,
         "--interval",
         "1",
         "--retries",
@@ -115,7 +174,10 @@ async fn test_basic_usage() {
 
     // Do the operations that should trigger the slash
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone()).await.unwrap();
+
+    // Wait for slasher to process the locked event before expecting slash
+    wait_for_slasher_to_process_locked(&pool, request.id).await;
 
     // Wait for the slash event with timeout
     tokio::select! {
@@ -132,9 +194,15 @@ async fn test_basic_usage() {
     }
 }
 
-#[tokio::test]
+#[sqlx::test(migrations = "./migrations")]
 #[ignore = "Generate proofs. Slow without dev mode"]
-async fn test_slash_fulfilled() {
+async fn test_slash_fulfilled(pool: sqlx::PgPool) {
+    // Run migrations on the isolated test database
+    PgDb::from_pool(pool.clone()).await.unwrap();
+
+    // Get connection string for spawned binary
+    let db_url = get_db_url_from_pool(&pool).await;
+
     let anvil = Anvil::new().spawn();
     let rpc_url = anvil.endpoint_url();
     let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -148,7 +216,7 @@ async fn test_slash_fulfilled() {
         "--boundless-market-address",
         &ctx.deployment.boundless_market_address.to_string(),
         "--db",
-        "sqlite::memory:",
+        &db_url,
         "--interval",
         "1",
         "--retries",
@@ -187,7 +255,11 @@ async fn test_slash_fulfilled() {
 
     // Do the operations that should trigger the slash
     ctx.customer_market.deposit(U256::from(1)).await.unwrap();
-    ctx.prover_market.lock_request(&request, client_sig.clone(), None).await.unwrap();
+    ctx.prover_market.lock_request(&request, client_sig.clone()).await.unwrap();
+
+    // Wait for slasher to process the locked event before fulfilling
+    wait_for_slasher_to_process_locked(&pool, request.id).await;
+
     let client =
         boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());

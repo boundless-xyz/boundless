@@ -28,6 +28,7 @@ use alloy::{
 use alloy_primitives::{B256, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 use anyhow::{Context, Ok, Result};
+use boundless_market::dynamic_gas_filler::PriorityMode;
 use boundless_market::{
     contracts::{
         boundless_market::BoundlessMarketService,
@@ -89,6 +90,7 @@ pub async fn deploy_boundless_market<P: Provider>(
 ) -> Result<Address> {
     let market_instance = BoundlessMarket::deploy(
         &deployer_provider,
+        verifier,
         verifier,
         <[u8; 32]>::from(assessor_guest_id).into(),
         B256::ZERO, // DEPRECATED_ASSESSOR_ID
@@ -226,9 +228,8 @@ pub async fn create_test_ctx_with_rpc_url(
     let verifier_signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
     let dynamic_gas_filler = DynamicGasFiller::new(
-        0.2,  // 20% increase of gas limit
-        0.05, // 5% increase of gas_price per pending transaction
-        2.0,  // 2x max gas multiplier
+        20, // 20% increase of gas limit
+        PriorityMode::Medium,
         prover_signer.address(),
     );
     let base_prover_provider = ProviderBuilder::new()
@@ -239,7 +240,8 @@ pub async fn create_test_ctx_with_rpc_url(
     let prover_provider =
         NonceProvider::new(base_prover_provider, EthereumWallet::from(prover_signer.clone()));
 
-    let dynamic_gas_filler = DynamicGasFiller::new(0.2, 0.05, 2.0, customer_signer.address());
+    let dynamic_gas_filler =
+        DynamicGasFiller::new(20, PriorityMode::Medium, customer_signer.address());
     let base_customer_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .filler(ChainIdFiller::default())
@@ -248,7 +250,8 @@ pub async fn create_test_ctx_with_rpc_url(
     let customer_provider =
         NonceProvider::new(base_customer_provider, EthereumWallet::from(customer_signer.clone()));
 
-    let dynamic_gas_filler = DynamicGasFiller::new(0.2, 0.05, 2.0, verifier_signer.address());
+    let dynamic_gas_filler =
+        DynamicGasFiller::new(20, PriorityMode::Medium, verifier_signer.address());
     let base_verifier_provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .filler(ChainIdFiller::default())

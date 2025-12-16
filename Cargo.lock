@@ -758,7 +758,7 @@ dependencies = [
  "alloy-json-abi",
  "alloy-sol-macro-input",
  "const-hex",
- "heck 0.5.0",
+ "heck",
  "indexmap 2.12.0",
  "proc-macro-error2",
  "proc-macro2",
@@ -777,7 +777,7 @@ dependencies = [
  "alloy-json-abi",
  "const-hex",
  "dunce",
- "heck 0.5.0",
+ "heck",
  "macro-string",
  "proc-macro2",
  "quote",
@@ -2545,6 +2545,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3888aaa89e4b2a40fca9848e400f6a658a5a3978de7be858e209cafa8be9a4a0"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+]
+
+[[package]]
+name = "blake3_groth16"
+version = "1.2.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "bincode",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
+ "borsh",
+ "boundless-market",
+ "circom-witnesscalc",
+ "guest-util",
+ "hex",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "risc0-groth16",
+ "risc0-groth16-sys",
+ "risc0-zkp",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-log",
+ "tokio",
+ "tracing",
+ "wtns-file",
+]
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2598,6 +2642,18 @@ name = "bonsai-sdk"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21055e2f49cbbdbfe9f8f96d597c5527b0c6ab7933341fdc2f147180e48a988e"
+dependencies = [
+ "duplicate",
+ "maybe-async",
+ "reqwest",
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "bonsai-sdk"
+version = "1.4.1"
+source = "git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2#6ed3f0321638ae7eb9c097b8aa8becba3f4b1350"
 dependencies = [
  "duplicate",
  "maybe-async",
@@ -2687,11 +2743,11 @@ dependencies = [
  "assert_fs",
  "atomicwrites",
  "bincode",
- "bonsai-sdk",
+ "blake3_groth16",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
  "boundless-povw",
- "boundless-rewards",
  "boundless-test-utils",
  "boundless-zkc",
  "broker",
@@ -2720,7 +2776,6 @@ dependencies = [
  "serde_yaml 0.9.34+deprecated",
  "shadow-rs",
  "sqlx",
- "tabled",
  "tempfile",
  "tokio",
  "tokio-test",
@@ -2741,10 +2796,6 @@ dependencies = [
  "boundless-market",
  "boundless-test-utils",
  "clap",
- "hex",
- "rand 0.9.2",
- "reqwest",
- "risc0-zkvm",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",
@@ -2760,6 +2811,8 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "boundless-cli",
  "boundless-market",
  "boundless-povw",
@@ -2767,17 +2820,21 @@ dependencies = [
  "boundless-test-utils",
  "boundless-zkc",
  "broker",
+ "bytemuck",
  "chrono",
  "clap",
  "futures-util",
  "hex",
  "indexer-monitor",
  "order-stream",
+ "rand 0.9.2",
  "risc0-zkvm",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tempfile",
+ "test-log",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -2798,6 +2855,8 @@ dependencies = [
  "async-stream",
  "async-trait",
  "aws-sdk-s3",
+ "blake3",
+ "borsh",
  "boundless-test-utils",
  "bytemuck",
  "chrono",
@@ -2811,6 +2870,7 @@ dependencies = [
  "rand 0.9.2",
  "reqwest",
  "risc0-aggregation",
+ "risc0-binfmt",
  "risc0-circuit-recursion",
  "risc0-ethereum-contracts",
  "risc0-zkvm",
@@ -2841,9 +2901,7 @@ dependencies = [
  "boundless-market",
  "boundless-test-utils",
  "clap",
- "hex",
  "rand 0.9.2",
- "reqwest",
  "risc0-zkvm",
  "tokio",
  "tracing",
@@ -2893,9 +2951,7 @@ dependencies = [
  "anyhow",
  "boundless-povw",
  "boundless-zkc",
- "chrono",
  "futures-util",
- "serde",
  "tokio",
  "tracing",
 ]
@@ -2915,7 +2971,6 @@ dependencies = [
  "futures-util",
  "hex",
  "risc0-ethereum-contracts",
- "risc0-zkvm",
  "sqlx",
  "thiserror 2.0.17",
  "tokio",
@@ -2934,6 +2989,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "bincode",
+ "blake3_groth16",
  "boundless-market",
  "boundless-povw",
  "boundless-zkc",
@@ -2942,7 +2998,6 @@ dependencies = [
  "guest-assessor",
  "guest-set-builder",
  "guest-util",
- "postcard",
  "rand 0.9.2",
  "reqwest",
  "risc0-aggregation",
@@ -2952,7 +3007,6 @@ dependencies = [
  "risc0-steel",
  "risc0-zkvm",
  "serde",
- "serde_json",
  "tokio",
  "tracing",
  "uuid",
@@ -2970,12 +3024,7 @@ dependencies = [
  "clap",
  "derive_builder",
  "rand 0.9.2",
- "risc0-build",
- "risc0-build-ethereum 3.0.1",
- "risc0-zkvm",
- "serde",
  "serde_json",
- "tokio",
  "tracing",
 ]
 
@@ -2993,7 +3042,8 @@ dependencies = [
  "aws-sdk-s3",
  "aws-smithy-http-client",
  "bincode",
- "bonsai-sdk",
+ "blake3_groth16",
+ "bonsai-sdk 1.4.1 (git+https://github.com/risc0/risc0?branch=flaub%2Fshrink-bitvm2)",
  "boundless-assessor",
  "boundless-market",
  "boundless-test-utils",
@@ -3019,6 +3069,7 @@ dependencies = [
  "reqwest-retry",
  "risc0-aggregation",
  "risc0-ethereum-contracts",
+ "risc0-groth16",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -3027,6 +3078,7 @@ dependencies = [
  "sqlx",
  "temp-env",
  "tempfile",
+ "test-log",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
@@ -3098,12 +3150,6 @@ name = "byte-slice-cast"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7575182f7272186991736b70173b0ea045398f984bf5ebbb3804736ce1330c9d"
-
-[[package]]
-name = "bytecount"
-version = "0.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
 name = "bytemuck"
@@ -3394,7 +3440,7 @@ version = "4.5.49"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a0b5487afeab2deb2ff4e03a807ad1a03ac532ff5a2cee5d86884440c7f7671"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -3499,6 +3545,12 @@ dependencies = [
  "quote",
  "unicode-xid",
 ]
+
+[[package]]
+name = "constant_time_eq"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
 name = "convert_case"
@@ -4159,24 +4211,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "780955b8b195a21ab8e4ac6b60dd1dbdcec1dc6c51c0617964b08c81785e12c9"
 
 [[package]]
-name = "doc-test"
-version = "1.2.0"
-dependencies = [
- "alloy",
- "alloy-primitives 1.4.1",
- "alloy-sol-types",
- "anyhow",
- "boundless-market",
- "glob",
- "postcard",
- "regex",
- "risc0-steel",
- "risc0-zkvm",
- "tracing",
- "url",
-]
-
-[[package]]
 name = "docker-generate"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4226,7 +4260,7 @@ version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e92f10a49176cbffacaedabfaa11d51db1ea0f80a83c26e1873b43cd1742c24"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "proc-macro2",
  "proc-macro2-diagnostics",
 ]
@@ -5258,12 +5292,6 @@ dependencies = [
 
 [[package]]
 name = "heck"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
-
-[[package]]
-name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
@@ -5789,7 +5817,9 @@ dependencies = [
  "assert_cmd",
  "aws-config",
  "axum 0.7.9",
+ "base64 0.22.1",
  "boundless-indexer",
+ "chrono",
  "lambda_http",
  "lambda_runtime",
  "openssl",
@@ -7316,17 +7346,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "papergrid"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ad43c07024ef767f9160710b3a6773976194758c7919b17e63b863db0bdf7fb"
-dependencies = [
- "bytecount",
- "fnv",
- "unicode-width 0.1.14",
-]
-
-[[package]]
 name = "parity-scale-codec"
 version = "3.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7882,7 +7901,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -8244,7 +8263,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "url",
 ]
 
 [[package]]
@@ -8988,7 +9006,7 @@ dependencies = [
  "addr2line 0.24.2",
  "anyhow",
  "bincode",
- "bonsai-sdk",
+ "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "borsh",
  "bytemuck",
  "bytes",
@@ -10144,7 +10162,7 @@ checksum = "19a9c1841124ac5a61741f96e1d9e2ec77424bf323962dd894bdb93f37d5219b"
 dependencies = [
  "dotenvy",
  "either",
- "heck 0.5.0",
+ "heck",
  "hex",
  "once_cell",
  "proc-macro2",
@@ -10372,7 +10390,7 @@ version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "proc-macro2",
  "quote",
  "syn 2.0.110",
@@ -10469,30 +10487,6 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
-]
-
-[[package]]
-name = "tabled"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c998b0c8b921495196a48aabaf1901ff28be0760136e31604f7967b0792050e"
-dependencies = [
- "papergrid",
- "tabled_derive",
- "unicode-width 0.1.14",
-]
-
-[[package]]
-name = "tabled_derive"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c138f99377e5d653a371cdad263615634cfc8467685dfe8e73e2b8e98f44b17"
-dependencies = [
- "heck 0.4.1",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]

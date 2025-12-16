@@ -14,7 +14,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   taskDBPassword: string;
   ethRpcUrl?: pulumi.Output<string>;
   privateKey?: pulumi.Output<string>;
-  orderStreamUrl?: string;
+  orderStreamUrl?: pulumi.Output<string>;
   verifierAddress?: string;
   boundlessMarketAddress?: string;
   setVerifierAddress?: string;
@@ -36,6 +36,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   maxFileSize?: string;
   maxMcycleLimit?: string;
   maxConcurrentProofs?: number;
+  maxJournalBytes?: number;
   balanceWarnThreshold?: string;
   balanceErrorThreshold?: string;
   collateralBalanceWarnThreshold?: string;
@@ -45,6 +46,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   maxFetchRetries?: number;
   allowClientAddresses?: string;
   lockinPriorityGas?: string;
+  rustLogLevel?: string;
 }
 
 export class LaunchTemplateComponent extends BaseComponent {
@@ -148,6 +150,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFileSize || "500000000000",
       config.maxMcycleLimit || "1000000000000",
       config.maxConcurrentProofs || 1,
+      config.maxJournalBytes || 20000,
       config.balanceWarnThreshold || "50",
       config.balanceErrorThreshold || "100",
       config.collateralBalanceWarnThreshold || "50",
@@ -155,7 +158,8 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFetchRetries || 3,
       config.allowClientAddresses || "",
       config.lockinPriorityGas || "0",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas]) => {
+      config.rustLogLevel || "debug",
+    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, rustLogLevel]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
@@ -174,6 +178,7 @@ max_collateral = "${maxCollateral}"
 max_file_size = ${maxFileSize}
 max_mcycle_limit = ${maxMcycleLimit}
 max_concurrent_proofs = ${maxConcurrentProofs}
+max_journal_bytes = ${maxJournalBytes}
 balance_warn_threshold = "${balanceWarnThreshold}"
 balance_error_threshold = "${balanceErrorThreshold}"
 collateral_balance_warn_threshold = "${collateralBalanceWarnThreshold}"
@@ -245,7 +250,7 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
 
   - path: /etc/environment.d/bento.conf
     content: |
-      RUST_LOG=info
+      RUST_LOG=${rustLogLevel}
       BENTO_API_LISTEN_ADDR=0.0.0.0
       BENTO_API_PORT=8081
       SNARK_TIMEOUT=1800
@@ -306,6 +311,8 @@ runcmd:
   - |
     /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
   - |
+    echo "VECTOR_LOG=debug" >> /etc/default/vector
+  - |
     /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
   - |
     cp /opt/boundless/config/bento.service /etc/systemd/system/bento.service
@@ -338,8 +345,9 @@ runcmd:
       config.rdsEndpoint!,
       config.s3BucketName!,
       config.s3AccessKeyId!,
-      config.s3SecretAccessKey!
-    ]).apply(([managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey]) => {
+      config.s3SecretAccessKey!,
+      config.rustLogLevel || "debug",
+    ]).apply(([managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, rustLogLevel]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
@@ -347,7 +355,7 @@ runcmd:
       // Workers connect to Redis/Valkey on the manager node
       const redisHost = managerIp;
       const redisPort = "6379";
-      const commonEnvVars = this.generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsHost, rdsPort, redisHost, redisPort, s3BucketName, s3AccessKeyId, s3SecretAccessKey);
+      const commonEnvVars = this.generateCommonEnvVars(managerIp, dbName, dbUser, dbPass, stackName, componentType, rdsHost, rdsPort, redisHost, redisPort, s3BucketName, s3AccessKeyId, s3SecretAccessKey, rustLogLevel);
 
       let componentSpecificVars = "";
       let serviceFile = "";
@@ -423,13 +431,14 @@ systemctl enable bento.service`;
     s3BucketName: string,
     s3AccessKeyId: string,
     s3SecretAccessKey: string,
+    rustLogLevel: string,
   ): string {
     return `# Database and Redis URLs (AWS services)
 echo "DATABASE_URL=postgresql://${dbUser}:${dbPass}@${rdsHost}:${rdsPort}/${dbName}" >> /etc/environment
 echo "REDIS_URL=redis://${redisHost}:${redisPort}" >> /etc/environment
 
 # S3 Configuration - using AWS S3
-echo "RUST_LOG=info" >> /etc/environment
+echo "RUST_LOG=${rustLogLevel}" >> /etc/environment
 echo "S3_BUCKET=${s3BucketName}" >> /etc/environment
 echo "S3_URL=https://s3.us-west-2.amazonaws.com" >> /etc/environment
 echo "S3_ACCESS_KEY=${s3AccessKeyId}" >> /etc/environment
@@ -438,7 +447,10 @@ echo "AWS_REGION=us-west-2" >> /etc/environment
 echo "REDIS_TTL=57600" >> /etc/environment
 echo "STACK_NAME=${stackName}" >> /etc/environment
 echo "COMPONENT_TYPE=${componentType}" >> /etc/environment
+
 /usr/bin/sed -i 's|group_name: "/boundless/bent.*"|group_name: "/boundless/bento/${stackName}/${componentType}"|g' /etc/vector/vector.yaml
+echo "VECTOR_LOG=debug" >> /etc/default/vector
+
 /usr/bin/sed -i 's|"namespace": "Boundless/Services/bent.*",|"namespace": "Boundless/Services/${stackName}/bento-${componentType}-cluster",|g' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
 # Add CloudWatch agent configuration common to all worker clusters

@@ -1,0 +1,1 @@
+docker build -t boundless-blake3-g16:latest -f dockerfiles/rapidsnark.dockerfile .

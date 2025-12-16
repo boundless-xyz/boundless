@@ -13,5 +13,6 @@
 // limitations under the License.
 
 pub mod delegations;
+pub mod market;
 pub mod povw;
 pub mod staking;
