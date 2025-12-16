@@ -152,8 +152,8 @@
 
     - name: Install Bento CLI binary (for miner)
       ansible.builtin.copy:
-        src: /tmp/bento-bundle/bento_cli
-        dest: "{{ bento_install_dir }}/bento_cli"
+        src: /tmp/bento-bundle/bento-cli
+        dest: "{{ bento_install_dir }}/bento-cli"
         mode: '0755'
         owner: root
         group: root

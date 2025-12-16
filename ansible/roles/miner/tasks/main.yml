@@ -1,7 +1,7 @@
 ---
 - name: Check if Miner binary (bento_cli) exists
   ansible.builtin.stat:
-    path: "{{ miner_install_dir }}/bento_cli"
+    path: "{{ miner_install_dir }}/bento-cli"
   register: miner_binary_check
   tags:
     - miner
