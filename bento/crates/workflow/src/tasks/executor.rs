@@ -25,7 +25,8 @@ use taskdb::planner::{
 use tempfile::NamedTempFile;
 use workflow_common::{
     AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
-    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
+    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SNARK_WORK_TYPE,
+    SnarkReq, UnionReq,
     metrics::{
         ASSUMPTION_COUNT, EXECUTION_ERRORS, GUEST_FAULTS, S3_OPERATIONS, SEGMENT_COUNT,
         TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES, helpers,
