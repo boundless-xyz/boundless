@@ -1,10 +1,5 @@
 # Market Indexer
 
-## Development Local
-
-```
-```
-
 ## Development on AWS
 ```
 export ORDER_STREAM_URL="" 
@@ -35,9 +30,9 @@ pulumi up
 # Market Indexer Backfill
 
 ## Overview
-The market indexer backfill runs as an on-demand ECS Fargate task, triggered via Lambda function.
+In staging/prod, the market indexer backfill runs as an on-demand ECS Fargate task, triggered via EventBridge daily.
 
-In production we periodically run a backfill automatically. This README lets you run a backfill manually.
+It is also possible to trigger a backfill manually. This involves executing a lambda function, which spawns the ECS task.
 
 ## Prerequisites
 - AWS CLI v2
@@ -45,11 +40,11 @@ In production we periodically run a backfill automatically. This README lets you
 - Node.js & npm (for building Lambda)
 - IAM permissions: `lambda:InvokeFunction`
 
-## Setup
+## Manual backfill
 
 Assume you have deployed the infra stack already.
 
-## Get the Lambda Function Name
+### Get the Lambda Function Name
 
 From Pulumi:
 ```bash
@@ -60,8 +55,6 @@ From AWS CLI:
 ```bash
 aws lambda list-functions --query 'Functions[?contains(FunctionName, `backfill-trigger`)].FunctionName'
 ```
-
-## Usage
 
 ### Using the Script
 ```bash
@@ -91,18 +84,6 @@ aws lambda invoke \
 - `endBlock`: Ending block number (default: latest indexed)
 - `txFetchStrategy`: "block-receipts" or "tx-by-hash" (default: "tx-by-hash")
 
-## Monitoring
-
-View task logs:
-```bash
-aws logs tail /aws/ecs/<environment>-backfill --follow
-```
-
-Check task status:
-```bash
-aws ecs describe-tasks --cluster <cluster> --tasks <task-arn>
-```
-
 ## Development
 
 The Lambda source is in `backfill-trigger-lambda/src/index.ts`. After making changes:
@@ -112,43 +93,3 @@ npm run build
 cd ..
 pulumi up
 ```
-
-## Architecture
-
-### Components
-1. **Docker Image**: `market-indexer-backfill` binary built from Rust source
-2. **ECS Task Definition**: Fargate task with all network config prebaked
-3. **Lambda Function**: TypeScript function that triggers ECS tasks
-4. **IAM Roles**: Execution role for ECS, task role for S3/DB access, Lambda role for ECS triggering
-
-### Infrastructure Flow
-```
-User → trigger-backfill.sh → Lambda Function → ECS RunTask → Fargate Task
-```
-
-All infrastructure configuration (cluster, subnets, security groups, RPC URLs, contract addresses, S3 buckets) is stored in Lambda environment variables, so users only need to specify backfill-specific parameters (mode, block range).
-
-## Troubleshooting
-
-### Lambda function not found
-Ensure you've deployed with Pulumi and the Lambda was created successfully:
-```bash
-pulumi stack output backfillLambdaName
-aws lambda get-function --function-name <lambda-name>
-```
-
-### Task fails to start
-Check Lambda logs for errors:
-```bash
-aws logs tail /aws/lambda/<lambda-name> --follow
-```
-
-### Task starts but fails
-Check the backfill task logs:
-```bash
-aws logs tail /aws/ecs/<environment>-backfill --follow
-```
-
-### Permission errors
-Ensure your IAM user/role has `lambda:InvokeFunction` permission for the Lambda function.
-
