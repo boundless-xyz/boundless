@@ -126,7 +126,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = BoundlessMarketService::new(
+        let mut market = BoundlessMarketService::new_for_broker(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -767,11 +767,15 @@ mod tests {
         .await
         .unwrap();
 
-        let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
+        let market =
+            BoundlessMarketService::new_for_broker(market_address, provider.clone(), prover_addr);
         market.deposit_collateral_with_permit(default_allowance(), &signer).await.unwrap();
 
-        let market_customer =
-            BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);
+        let market_customer = BoundlessMarketService::new_for_broker(
+            market_address,
+            customer_provider.clone(),
+            customer_addr,
+        );
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
