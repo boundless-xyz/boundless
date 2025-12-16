@@ -22,7 +22,6 @@ members = [
     "crates/slasher",
     "crates/test-utils",
     "crates/zkc",
-    "scripts/test-sdk",
 ]
 
 [workspace.package]

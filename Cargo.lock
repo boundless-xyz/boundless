@@ -10564,22 +10564,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-sdk"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "alloy-primitives 1.4.1",
- "anyhow",
- "boundless-market",
- "hex",
- "risc0-ethereum-contracts",
- "tokio",
- "tracing",
- "tracing-subscriber 0.3.20",
- "url",
-]
-
-[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
