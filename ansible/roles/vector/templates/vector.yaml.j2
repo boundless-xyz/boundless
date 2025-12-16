@@ -63,7 +63,6 @@ sinks:
 {% endfor %}
     namespace: "{{ vector_cloudwatch_metrics_namespace }}"
     region: "{{ vector_cloudwatch_metrics_region }}"
-    default_namespace: "{{ vector_cloudwatch_metrics_namespace }}"
     buffer:
       type: "{{ vector_buffer_type }}"
       max_size: {{ vector_buffer_max_size }}
