@@ -37,14 +37,18 @@ ansible/
 ├── README.md              # This file
 ├── ENV_VARS.md            # Environment variable documentation
 └── roles/
-    ├── bento/             # Bento agent service (uses launcher scripts)
-    ├── broker/            # Broker service
-    ├── grafana/           # Grafana monitoring
-    ├── postgresql/         # PostgreSQL database
-    ├── valkey/             # Valkey (Redis) server
+    ├── awscli/             # AWS CLI v2 installation
+    ├── bento/              # Bento agent service (uses launcher scripts)
+    ├── broker/             # Broker service
+    ├── grafana/            # Grafana monitoring
+    ├── miner/              # Miner service
     ├── minio/              # MinIO S3-compatible storage
+    ├── nvidia/             # NVIDIA drivers and CUDA Toolkit
+    ├── postgresql/         # PostgreSQL database
     ├── rust/               # Rust programming language
-    └── rzup/               # RISC Zero rzup toolchain
+    ├── rzup/               # RISC Zero rzup toolchain
+    ├── valkey/             # Valkey (Redis) server
+    └── vector/             # Vector log shipping to CloudWatch
 ```
 
 ## Installation
@@ -190,10 +194,14 @@ ansible-playbook -i inventory.yml cluster.yml --tags grafana
 * `bento-api` - Bento API deployment
 * `bento-exec` - Bento exec task deployment
 * `bento-aux` - Bento aux task deployment
+* `awscli` - AWS CLI installation
+* `nvidia` - NVIDIA drivers and CUDA Toolkit
 * `postgresql` - PostgreSQL role
 * `valkey` - Valkey role
 * `minio` - MinIO role
 * `broker` - Broker role
+* `miner` - Miner service role
+* `vector` - Vector log shipping role
 * `rust` - Rust programming language role
 * `rzup` - RISC Zero rzup toolchain role
 
@@ -314,5 +322,7 @@ journalctl -u bento-prove -n 100
 
 For detailed troubleshooting, see:
 
+* `roles/awscli/README.md` - AWS CLI installation troubleshooting
 * `roles/bento/README.md` - Bento service troubleshooting
 * `roles/broker/README.md` - Broker service troubleshooting
+* `roles/vector/README.md` - Vector log shipping troubleshooting

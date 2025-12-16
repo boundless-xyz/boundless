@@ -72,7 +72,9 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
 
 ## Dependencies
 
-None.
+* **AWS CLI** (optional): Required if `vector_cloudwatch_create_log_group` is enabled
+  * The `awscli` role should be run before the `vector` role if log group creation is needed
+  * AWS CLI is automatically installed by the `cluster.yml` playbook
 
 ## Example Playbook
 
@@ -81,6 +83,9 @@ None.
 - hosts: all
   become: true
   roles:
+    # Install AWS CLI first (required for log group operations)
+    - role: awscli
+    # Install and configure Vector
     - role: vector
       vars:
         # Enable Vector service
@@ -88,18 +93,22 @@ None.
         vector_service_state: started
         # Customize CloudWatch log group
         vector_cloudwatch_log_group: "/boundless/bento/production"
+        # Create log group if it doesn't exist (requires AWS CLI)
+        vector_cloudwatch_create_log_group: true
 ```
 
 ## What This Role Does
 
-1. **Installs Vector** from the official Timber.io repository
+1. **Installs Vector** from the official Vector repository
 2. **Creates configuration directory** `/etc/vector`
 3. **Configures Vector** to:
    * Monitor systemd journald logs for specified services
    * Extract log messages
    * Ship logs to AWS CloudWatch Logs
-4. **Configures Vector environment** (`/etc/default/vector`)
+4. **Configures Vector environment** (`/etc/default/vector`) with AWS credentials (if provided)
 5. **Manages Vector service** (disabled and stopped by default)
+
+**Note**: This role does not install AWS CLI. If you need to create CloudWatch log groups automatically, ensure the `awscli` role runs before this role.
 
 ## Enabling Vector
 

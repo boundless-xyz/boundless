@@ -2,17 +2,22 @@
 # Boundless Prover Deployment Playbook
 #
 # This playbook deploys a complete Boundless prover stack including:
+# - AWS CLI (for AWS operations and Vector log shipping)
+# - NVIDIA drivers and CUDA Toolkit (for GPU workers)
 # - PostgreSQL database
 # - Valkey (Redis-compatible) cache
 # - MinIO object storage
 # - Bento proving agents (prove, execute, aux, api)
 # - Broker service
+# - Miner service
+# - Vector log shipping (disabled by default)
 #
 # Usage:
 #   ansible-playbook -i inventory.yml cluster.yml
 #
 # Required Variables:
-#   See validation task below for required variables and setup instructions.
+#   See host_vars and group_vars for configuration options.
+#   Sensitive values should be set in vault files or via -e flags.
 #
 - name: Deploy Boundless Prover
   hosts: all
