@@ -287,7 +287,7 @@ export class ExecutorMetricAlarmComponent extends WorkerClusterAlarmComponent {
 
 export class ProverMetricAlarmComponent extends WorkerClusterAlarmComponent {
     constructor(config: MetricAlarmConfig) {
-        super(config); 
+        super(config);
         this.createProverMetricAlarms(config)
     }
 
