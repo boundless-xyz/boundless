@@ -76,10 +76,10 @@ struct MainArgs {
     execution_interval: u64,
     /// An API key to use for Bento API operations
     #[clap(long, env)]
-    bento_api_key: String,
+    bento_api_key: Option<String>,
     /// URL to the Bento API
     #[clap(long, env)]
-    bento_api_url: String,
+    bento_api_url: Option<String>,
     /// Number of times bento API operations will be retried in case of errors
     #[clap(long, default_value = "3")]
     bento_retry_count: u64,

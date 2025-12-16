@@ -164,8 +164,8 @@ pub struct IndexerServiceConfig {
 #[derive(Clone)]
 pub struct IndexerServiceExecutionConfig {
     pub execution_interval: Duration,
-    pub bento_api_key: String,
-    pub bento_api_url: String,
+    pub bento_api_key: Option<String>,
+    pub bento_api_url: Option<String>,
     pub bento_retry_count: u64,
     pub bento_retry_sleep_ms: u64,
 }

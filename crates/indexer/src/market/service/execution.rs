@@ -32,8 +32,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     let mut interval = tokio::time::interval(config.execution_interval);
 
     let bento_client = BonsaiClient::from_parts(
-        config.bento_api_url.clone(),
-        config.bento_api_key.clone(),
+        config.bento_api_url.clone().unwrap(),
+        config.bento_api_key.clone().unwrap(),
         risc0_zkvm::VERSION,
     )
     .unwrap();

@@ -64,9 +64,15 @@ where
         let config_clone = self.config.clone();
         match config_clone.execution_config {
             Some(execution_config) => {
-                let _task_executor = tokio::spawn(async move {
-                    execute_requests(db_clone, execution_config).await;
-                });
+                if execution_config.bento_api_url.is_some()
+                    && execution_config.bento_api_key.is_some()
+                {
+                    let _task_executor = tokio::spawn(async move {
+                        execute_requests(db_clone, execution_config).await;
+                    });
+                } else {
+                    tracing::info!("Bento API URL or key not provided, not starting executor task");
+                }
             }
             None => {
                 tracing::info!("Execution configuration not found, not starting executor task");
