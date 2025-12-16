@@ -229,8 +229,11 @@ where
             let batch_start = std::time::Instant::now();
 
             // Fetch next batch of digests with timestamp filtering
-            let digest_results =
-                self.indexer.db.get_all_request_digests(cursor, end_timestamp, DIGEST_BATCH_SIZE).await?;
+            let digest_results = self
+                .indexer
+                .db
+                .get_all_request_digests(cursor, end_timestamp, DIGEST_BATCH_SIZE)
+                .await?;
 
             if digest_results.is_empty() {
                 tracing::info!("No more digests to process");
@@ -240,7 +243,7 @@ where
             // Extract just the digests (created_at is used for cursor only)
             let digests: Vec<B256> = digest_results.iter().map(|(digest, _)| *digest).collect();
             let digest_count = digests.len();
-            
+
             tracing::info!(
                 "Batch {}: Fetched {} digests in {:?} (total processed: {})",
                 batch_num,
