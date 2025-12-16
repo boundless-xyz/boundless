@@ -74,6 +74,9 @@ jobs:
       - name: Setup Rust toolchain
         uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
+      - name: Install protoc
+        uses: risc0/risc0/.github/actions/protoc@v3.0.3
+
       - name: Install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -84,9 +87,6 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: Install protoc
-        run: sudo apt install protobuf-compiler -y
 
       - name: Install cargo-sort
         uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4

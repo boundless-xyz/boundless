@@ -83,6 +83,7 @@ jobs:
         uses: ./.github/actions/sccache
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      - uses: risc0/risc0/.github/actions/protoc@v3.0.3
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
@@ -93,9 +94,6 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-
-      - name: Install protoc
-        run: sudo apt install protobuf-compiler -y
 
       - name: Install cargo-sort
         uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
@@ -180,6 +178,39 @@ jobs:
 
       - name: check broker
         run: cargo check --locked -p broker --bin broker
+
+  xtask:
+    runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
+    strategy:
+      # Run only on Linux with CPU.
+      matrix:
+        include:
+          - os: Linux
+            feature: default
+            device: cpu
+    needs: files-changed
+    if: needs.files-changed.outputs.xtask == 'true'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+      - uses: risc0/risc0/.github/actions/rustup@v3.0.3
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: check xtask
+        run: cargo check
+        working-directory: xtask
 
   link-check:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
@@ -337,6 +368,7 @@ jobs:
       fail-fast: false
       matrix:
         workspace:
+          - examples/blake3-groth16
           - examples/counter
           - examples/smart-contract-requestor
           - examples/counter-with-callback
@@ -376,9 +408,6 @@ jobs:
         with:
           version: ${{ env.FOUNDRY_VERSION }}
 
-      - name: Install protoc
-        run: sudo apt install protobuf-compiler -y
-
       - name: Install cargo-sort
         uses: risc0/cargo-install@b9307573043522ab0d3e3be64a51763b765b52a4
         with:
@@ -408,12 +437,31 @@ jobs:
           RISC0_SKIP_BUILD: 1
 
       - name: forge fmt
+        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge fmt --check
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: forge test
+        if: matrix.workspace != 'examples/blake3-groth16'
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
+
+      - name: install blake3 groth16 artifacts
+        if: matrix.workspace == 'examples/blake3-groth16'
+        run: |
+          set -euxo pipefail
+          export BLAKE3_GROTH16_SETUP_DIR="$HOME/.risc0/blake3_groth16"
+          echo "BLAKE3_GROTH16_SETUP_DIR=$HOME/.risc0/blake3_groth16" >> "$GITHUB_ENV"
+
+          mkdir -p "$BLAKE3_GROTH16_SETUP_DIR"
+          curl -L -o /tmp/blake3_groth16_artifacts.tar.xz \
+            "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
+          tar -xJf /tmp/blake3_groth16_artifacts.tar.xz \
+            -C "$BLAKE3_GROTH16_SETUP_DIR" --strip-components=1
+          rm -f /tmp/blake3_groth16_artifacts.tar.xz
+
+          echo "Contents of setup dir:"
+          ls -R "$BLAKE3_GROTH16_SETUP_DIR"
 
       - name: RUST_LOG="debug" cargo test
         run: cargo test --all-features --locked -- --nocapture
@@ -421,6 +469,8 @@ jobs:
         env:
           RUST_LOG: "info"
           RISC0_INFO: 1
+          BLAKE3_GROTH16_SETUP_DIR: ${{ env.BLAKE3_GROTH16_SETUP_DIR }}
+          USE_LOCAL_BLAKE3_GROTH16_SETUP: 1
 
       - name: sccache stats
         run: sccache --show-stats
@@ -567,6 +617,7 @@ jobs:
       deployments: ${{ steps.changes.outputs.deployments }}
       scaler: ${{ steps.changes.outputs.scaler }}
       requestor_lists: ${{ steps.changes.outputs.requestor_lists }}
+      xtask: ${{ steps.changes.outputs.xtask }}
 
     steps:
       - name: checkout code
@@ -618,3 +669,7 @@ jobs:
             requestor_lists:
               - 'requestor-lists/**'
               - '.github/workflows/main.yml'
+            # Changes to xtask
+              - 'xtask/**'
+              - 'crates/boundless-market/**'
+              - 'blake3_groth16/**'
