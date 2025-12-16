@@ -44,7 +44,6 @@ use super::{
 };
 
 /// Retry configuration for query operations.
-
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct EventRetryConfig {
