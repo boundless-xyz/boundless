@@ -74,3 +74,13 @@ bento_count: 1
 # Set to false to skip installing PostgreSQL, Valkey, and MinIO on this host
 # Useful when deploying to worker nodes that connect to remote services
 bento_install_dependencies: true
+
+# Join workers to the Bento cluster
+# Set to true to join the worker to the Bento cluster
+# Set to false to skip join worksers in the Bento cluster
+bento_join_workers: false
+
+# Snark workers to the Bento cluster
+# Set to true to join the snark worker to the Bento cluster
+# Set to false to skip join snark workers in the Bento cluster
+bento_snark_workers: false

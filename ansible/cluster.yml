@@ -107,6 +107,32 @@
         - bento
         - bento-aux
 
+    - name: Deploy Bento Snark Worker
+      ansible.builtin.include_role:
+        name: bento
+      vars:
+        bento_task: "snark"
+        bento_install_dependencies: false
+        bento_count: "{{ bento_snark_count }}"
+      when:
+        - bento_snark_workers | bool
+      tags:
+        - bento
+        - bento-snark
+
+    - name: Deploy Bento Join Worker
+      ansible.builtin.include_role:
+        name: bento
+      vars:
+        bento_task: "join"
+        bento_install_dependencies: false
+        bento_count: "{{ bento_join_count }}"
+      when:
+        - bento_join_workers | bool
+      tags:
+        - bento
+        - bento-join
+
     - name: Deploy Broker
       ansible.builtin.include_role:
         name: broker

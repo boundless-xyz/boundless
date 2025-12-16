@@ -10,24 +10,15 @@
     enabled: "{{ bento_service_enabled | bool }}"
   failed_when: false
 
-- name: Get all Bento service names
-  ansible.builtin.shell: |
-    set -o pipefail
-    # List all bento services (both regular and template instances)
-    systemctl list-units --type=service --all --no-pager --no-legend | \
-      grep -E 'bento-(prove|api|exec|aux)(@[0-9]+)?\.service' | \
-      awk '{print $1}' || true
-  args:
-    executable: /bin/bash
-  register: bento_all_services_list
-  changed_when: false
-  failed_when: false
-
 - name: Restart all Bento services
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted
-  loop: "{{ bento_all_services_list.stdout_lines | default([]) }}"
+  loop:
+    - "bento-api"
+    - "bento-exec"
+    - "bento-aux"
+    - "bento-prove"
   register: bento_all_restart_result
   failed_when: false
   ignore_errors: true
