@@ -69,6 +69,8 @@ vector_prometheus_service_counts:
   prove: "{{ bento_gpu_count | default(1) }}"
   exec: "{{ bento_exec_count | default(4) }}"
   aux: "{{ bento_aux_count | default(2) }}"
+  snark: "{{ bento_snark_count | default(0) }}"  # Snark workers (0 if not enabled)
+  join: "{{ bento_join_count | default(0) }}"  # Join workers (0 if not enabled)
   broker: 1  # Broker is always single instance
   # miner: Not included - miner doesn't expose Prometheus metrics
 
