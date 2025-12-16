@@ -14,9 +14,5 @@ config:
     secure: v1:aDACh+FhCJte0D8a:x1Qz6hBhdgjHUAhu3m5NBvipn0MFctp5PRSNttCgV+7mPVgUU7+mvkRDwEa+K8Ll1IUToGX/eKBkwBeE+XYrWbuv+5EFsE9SHiY=
   indexer:RDS_PASSWORD:
     secure: v1:w4gH1O7RvkOIKDd+:QSjcdDB9Fz4L45pDn/KqazFQ7f3jmVqk6huQozjQ
-  indexer:BENTO_API_URL:
-    secure: v1:3StxfNxj3frkUJNs:KM7FbnTvZPYRzMYlI51pV6s95QNH/VL7a3cTYROdhyC6Aq2oCmYy+LpoYCRKJQ1wloin2CIIKy2IDWFbkjhqvpmMmQ20FgxsIH8Uk+BiTJVta+5RUOMOfZg=
-  indexer:BENTO_API_KEY:
-    secure: v1:Sk50eYSjW0shSH1l:dHJXvw4nRjWYKvwpaiLtLJz0FrH1sCrxWd9Z/76RPCSSVNLbPuaxKY2GzqgkfC/ne9k9PehrjC+Ngn0=
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFHtwzjU7yLfdQ9logy0MInAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNhj+98DbHRflFcp9AgEQgDvp1BoYvt06/rXZ3L1vMct30E+uQelDoPiY/hIdIIdV2JfqTHKgFfsu73W3Rsy2zG9W0sRQcSl8jrc1tg==

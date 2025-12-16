@@ -26,8 +26,10 @@ use std::collections::HashSet;
 pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) {
     tracing::info!("Started execution task");
 
-    const PENDING_LIMIT: u32 = 10;
-    const EXECUTING_LIMIT: u32 = 40;
+    // Aim to have at most this many requests executing to populate cycle counts in status PENDING
+    const MAX_CONCURRENT_EXECUTING: u32 = 5;
+    // Aim to send out at most this many status queries to check on the status of executing requests
+    const MAX_STATUS_QUERIES: u32 = 20;
 
     let mut interval = tokio::time::interval(config.execution_interval);
 
@@ -41,25 +43,54 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     loop {
         interval.tick().await;
 
-        // Find cycle counts still in state PENDING
-        tracing::debug!("Querying DB for cycle counts in status PENDING...");
-        let pending_cycle_counts = match db.get_cycle_counts_pending(PENDING_LIMIT).await {
-            Ok(requests) => requests,
-            Err(e) => {
-                tracing::error!("Unable to get cycle counts by status: {}", e);
-                continue;
-            }
-        };
+        // Check on and log the current state of cycle counts
+        let (pending_count, executing_count, _failed_count) =
+            match db.count_cycle_counts_by_status().await {
+                Ok(counts) => counts,
+                Err(e) => {
+                    tracing::error!("Unable to count cycle counts by status: {}", e);
+                    continue;
+                }
+            };
 
-        if !pending_cycle_counts.is_empty() {
-            tracing::debug!("Pending requests found:");
-            tracing::debug!(?pending_cycle_counts);
+        tracing::info!(
+            "Current execution state: {} pending cycle counts, {} executing",
+            pending_count,
+            executing_count
+        );
+
+        // Find cycle counts still in state PENDING, up to the max we want to have executing at a time
+        let mut digests_to_process = HashSet::new();
+
+        let mut pending_to_process = 0;
+        if executing_count < MAX_CONCURRENT_EXECUTING {
+            pending_to_process = MAX_CONCURRENT_EXECUTING - executing_count;
+        }
+        if pending_to_process > 0 {
+            tracing::debug!(
+                "Querying DB for cycle counts in status PENDING (max {})...",
+                pending_to_process
+            );
+
+            let pending_cycle_counts = match db.get_cycle_counts_pending(pending_to_process).await {
+                Ok(requests) => requests,
+                Err(e) => {
+                    tracing::error!("Unable to get cycle counts in status PENDING: {}", e);
+                    continue;
+                }
+            };
+            digests_to_process.extend(pending_cycle_counts);
+        }
+
+        if !digests_to_process.is_empty() {
+            tracing::debug!("Pending requests to process:");
+            tracing::debug!(?digests_to_process);
         } else {
-            tracing::info!("No pending requests found");
+            tracing::info!("No pending requests to process");
         }
 
         // Get the inputs and image data for the pending requests
-        let digest_vec: Vec<B256> = pending_cycle_counts.iter().copied().collect();
+        let digest_vec: Vec<B256> = digests_to_process.iter().copied().collect();
         let request_inputs_and_images = match db.get_request_params_for_execution(&digest_vec).await
         {
             Ok(inputs_and_images) => inputs_and_images,
@@ -263,8 +294,11 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
         // Monitor requests in status EXECUTING, i.e. the ones that just started executing
         // as well as any ones started earlier that haven't terminated yet
-        tracing::debug!("Querying DB for cycle counts in status EXECUTING...");
-        let executing_requests = db.get_cycle_counts_executing(EXECUTING_LIMIT).await.unwrap();
+        tracing::debug!(
+            "Querying DB for cycle counts in status EXECUTING (max {})...",
+            MAX_STATUS_QUERIES
+        );
+        let executing_requests = db.get_cycle_counts_executing(MAX_STATUS_QUERIES).await.unwrap();
         if !executing_requests.is_empty() {
             tracing::debug!("Executing requests found:");
             tracing::debug!(?executing_requests);

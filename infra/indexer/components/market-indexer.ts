@@ -22,8 +22,8 @@ export interface MarketIndexerArgs {
   dockerRemoteBuilder?: string;
   orderStreamUrl?: pulumi.Output<string>;
   orderStreamApiKey?: pulumi.Output<string>;
-  bentoApiUrl: pulumi.Output<string>;
-  bentoApiKey: pulumi.Output<string>;
+  bentoApiUrl?: pulumi.Output<string>;
+  bentoApiKey?: pulumi.Output<string>;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -171,10 +171,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
             pulumi.interpolate`s3://${infra.cacheBucket.bucket}`,
             ...(orderStreamUrl ? ['--order-stream-url', orderStreamUrl] : []),
             ...(orderStreamApiKey ? ['--order-stream-api-key', orderStreamApiKey] : []),
-            '--bento-api-url',
-            bentoApiUrl,
-            '--bento-api-key',
-            bentoApiKey
+            ...(bentoApiUrl ? ['--bento-api-url', bentoApiUrl] : []),
+            ...(bentoApiKey ? ['--bento-api-key', bentoApiKey] : []),
           ],
           secrets: [
             {

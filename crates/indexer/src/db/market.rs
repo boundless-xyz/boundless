@@ -652,6 +652,9 @@ pub trait IndexerDb {
     /// Update cycle status for failed cycle counts
     async fn set_cycle_counts_failed(&self, request_digests: &[B256]) -> Result<(), DbError>;
 
+    /// Return counts of cycle_counts rows in status 'PENDING', 'EXECUTING', and 'FAILED'
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError>;
+
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
     async fn get_request_inputs(
         &self,
@@ -2275,7 +2278,7 @@ impl IndexerDb for MarketDb {
 
     async fn get_cycle_counts_pending(&self, limit: u32) -> Result<HashSet<B256>, DbError> {
         let query =
-            "SELECT request_digest FROM cycle_counts WHERE cycle_status = 'PENDING' LIMIT $1";
+            "SELECT request_digest FROM cycle_counts WHERE cycle_status = 'PENDING' ORDER BY updated_at LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
@@ -2299,7 +2302,7 @@ impl IndexerDb for MarketDb {
         &self,
         limit: u32,
     ) -> Result<HashSet<CycleCountExecution>, DbError> {
-        let query = "SELECT request_digest, session_uuid FROM cycle_counts WHERE cycle_status = 'EXECUTING' LIMIT $1";
+        let query = "SELECT request_digest, session_uuid FROM cycle_counts WHERE cycle_status = 'EXECUTING' ORDER BY updated_at LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
@@ -2403,6 +2406,22 @@ impl IndexerDb for MarketDb {
 
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError> {
+        let query = "SELECT
+                     COUNT(*) FILTER (WHERE cycle_status = 'PENDING') AS pending_count,
+                     COUNT(*) FILTER (WHERE cycle_status = 'EXECUTING') AS executing_count,
+                     COUNT(*) FILTER (WHERE cycle_status = 'FAILED') AS failed_count
+                     FROM cycle_counts";
+
+        let query_builder = sqlx::query(query);
+        let row = query_builder.fetch_one(self.pool()).await?;
+        let pending_count: i64 = row.get("pending_count");
+        let executing_count: i64 = row.get("executing_count");
+        let failed_count: i64 = row.get("failed_count");
+
+        Ok((pending_count as u32, executing_count as u32, failed_count as u32))
     }
 
     async fn get_request_inputs(

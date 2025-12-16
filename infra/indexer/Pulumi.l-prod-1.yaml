@@ -18,7 +18,3 @@ config:
     secure: v1:Bm3FUPbytchzaS94:uO0iW9AUegk+SkbPOOpmnwfn3rRZjmSznZ4/NM2l0o6Bqon5qKkxcuTffdicUDHeE7sA9D9UrFGpXkHGgHIINhBkCaRw+m7wu9Y=
   indexer:RDS_PASSWORD:
     secure: v1:Dgy+uSuiBgyEcb13:XtMKpSotMXWM3UnaY0RehuUKvF2IliQRxDQH0RgN4w==
-  indexer:BENTO_API_URL:
-    secure: v1:241smsVYdJrp3x97:4Xphhu28RYX3EYc4s2JaNU9R7tROCcQjbcrugpCVYgrC+NM5n505nR8OFfzg0Bu2LGuoTKRsBSAxtPJNpq/EpjZcf9A+gvqcPloXCWRi/Ia5iWObnXU=
-  indexer:BENTO_API_KEY:
-    secure: v1:6NfJyGHR0KZ5ILgG:WGwjEGCZMDw9aJjBhcVSbaiP4W23yg/8p27V6I5a6ol56QVlb70d2p7JaJ4yv9/eyYskkpZm4/EeR9M=
