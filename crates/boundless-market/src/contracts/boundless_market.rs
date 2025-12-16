@@ -44,6 +44,7 @@ use super::{
 };
 
 /// Retry configuration for query operations.
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct EventRetryConfig {
@@ -65,8 +66,8 @@ pub struct EventRetryConfig {
 }
 
 /// Event query configuration for searching blockchain events.
-#[non_exhaustive]
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct EventQueryConfig {
     /// Number of blocks to query per iteration.
     pub block_range: u64,
@@ -74,8 +75,7 @@ pub struct EventQueryConfig {
     pub max_iterations: u64,
     /// Retry configuration for query operations.
     ///
-    /// If `None`, no retries are attempted. This allows for future-proofing and
-    /// fine-tuning for specific use cases.
+    /// If `None`, no retries are attempted.
     pub retry_config: Option<EventRetryConfig>,
 }
 
