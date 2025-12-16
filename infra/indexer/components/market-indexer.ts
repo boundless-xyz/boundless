@@ -206,8 +206,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       },
     }, { parent: this, dependsOn: [infra.taskRole, infra.taskRolePolicyAttachment] });
 
-    // ===== BACKFILL INFRASTRUCTURE =====
-
+    // Backfill infrastructure
     // Build backfill Docker image
     const backfillImage = new docker_build.Image(`${serviceName}-backfill-img-${infra.databaseVersion}`, {
       tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-backfill-${dockerTag}-${infra.databaseVersion}`],
@@ -354,8 +353,6 @@ export class MarketIndexer extends pulumi.ComponentResource {
       rule: backfillScheduleRule.name,
       arn: backfillLambda.arn,
     }, { parent: this });
-
-    // ===== END BACKFILL INFRASTRUCTURE =====
 
     // Grant execution role permission to write to this service's specific log group
     const logGroupArn = pulumi.interpolate`arn:aws:logs:${region}:${accountId}:log-group:${serviceLogGroupName}:*`;
