@@ -136,7 +136,7 @@ impl AggregatorService {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Error fetching proof from batch: {e:?} containing orders {:x?}, excluding",
+                        "Error fetching proof from batch: {e:?} containing orders {:?}, excluding",
                         all_orders
                     );
                 }
@@ -144,7 +144,7 @@ impl AggregatorService {
         }
 
         if claims.is_empty() {
-            anyhow::bail!(format!("No valid proofs found in batch with orders {:x?}", all_orders));
+            anyhow::bail!(format!("No valid proofs found in batch with orders {:?}", all_orders));
         }
 
         if valid_proof_ids.len() < proofs.len() {
@@ -189,7 +189,7 @@ impl AggregatorService {
             (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
         };
 
-        tracing::debug!("Starting proving of set-builder with orders {:x?}", all_orders);
+        tracing::debug!("Starting proving of set-builder with orders {:?}", all_orders);
         let (proof_res, journal) = retry_with_context(
             retry_count,
             sleep_ms,
@@ -209,7 +209,7 @@ impl AggregatorService {
                     })?;
 
                 tracing::debug!(
-                    "Set-builder proof complete with orders {:x?}, proof id: {} cycles: {} time: {}",
+                    "Set-builder proof complete with orders {:?}, proof id: {} cycles: {} time: {}",
                     all_orders,
                     proof_res.id,
                     proof_res.stats.total_cycles,
@@ -243,7 +243,7 @@ impl AggregatorService {
                 Ok::<_, provers::ProverError>((proof_res, journal))
             },
             "set_builder_prove_and_get_journal",
-            &format!("orders {:x?}", all_orders),
+            &format!("orders {:?}", all_orders),
         )
         .await?;
 
@@ -582,17 +582,17 @@ impl AggregatorService {
             let assessor_order_ids: Vec<String> = all_orders.clone();
 
             tracing::debug!(
-                "Running assessor for batch {batch_id} with orders {:x?}",
+                "Running assessor for batch {batch_id} with orders {:?}",
                 assessor_order_ids
             );
 
             let assessor_proof_id =
                 self.prove_assessor(&assessor_order_ids).await.with_context(|| {
-                    format!("Failed to prove assessor with orders {assessor_order_ids:x?}")
+                    format!("Failed to prove assessor with orders {assessor_order_ids:?}")
                 })?;
 
             tracing::debug!(
-                "Assessor proof complete for batch {batch_id} with orders {:x?}, proof id: {}",
+                "Assessor proof complete for batch {batch_id} with orders {:?}, proof id: {}",
                 assessor_order_ids,
                 assessor_proof_id
             );
@@ -610,7 +610,7 @@ impl AggregatorService {
             .collect();
 
         tracing::debug!(
-            "Running set builder for batch {batch_id} of orders {:x?} and proofs {:x?}",
+            "Running set builder for batch {batch_id} of orders {:?} and proofs {:?}",
             all_orders,
             proof_ids
         );
@@ -618,12 +618,12 @@ impl AggregatorService {
             .prove_set_builder(batch.aggregation_state.as_ref(), &proof_ids, finalize, &all_orders)
             .await
             .context(format!(
-                "Failed to prove set builder for batch {batch_id} with orders {:x?}",
+                "Failed to prove set builder for batch {batch_id} with orders {:?}",
                 all_orders
             ))?;
 
         tracing::debug!(
-            "Completed aggregation into batch {batch_id} of orders {:x?} and proofs {:x?}",
+            "Completed aggregation into batch {batch_id} of orders {:?} and proofs {:?}",
             all_orders,
             proof_ids
         );
@@ -637,7 +637,7 @@ impl AggregatorService {
             )
             .await
             .with_context(|| {
-                format!("Failed to update batch {batch_id} with orders {:x?} in the DB", all_orders)
+                format!("Failed to update batch {batch_id} with orders {:?} in the DB", all_orders)
             })?;
 
         Ok(aggregation_state.proof_id)
@@ -674,7 +674,7 @@ impl AggregatorService {
                     .aggregate_proofs(batch_id, &batch, &new_proofs, &new_groth16_proofs, finalize)
                     .await
                     .context(format!(
-                        "Failed to aggregate proofs for batch {batch_id} with orders {:x?}",
+                        "Failed to aggregate proofs for batch {batch_id} with orders {:?}",
                         batch.orders
                     ))?;
                 (aggregation_proof_id, finalize)
@@ -692,7 +692,7 @@ impl AggregatorService {
 
         if compress {
             tracing::debug!(
-                "Starting groth16 compression proof for batch {batch_id} with orders {:x?}",
+                "Starting groth16 compression proof for batch {batch_id} with orders {:?}",
                 batch.orders
             );
 
@@ -701,7 +701,7 @@ impl AggregatorService {
                 (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
             };
 
-            let context = format!("batch {batch_id} with orders {:x?}", batch.orders);
+            let context = format!("batch {batch_id} with orders {:?}", batch.orders);
             let compress_proof_id = match retry_with_context(
                 retry_count,
                 sleep_ms,
@@ -725,13 +725,13 @@ impl AggregatorService {
                 }
             };
             tracing::debug!(
-                "Completed groth16 compression for batch {batch_id} with orders {:x?}",
+                "Completed groth16 compression for batch {batch_id} with orders {:?}",
                 batch.orders
             );
 
             self.db.complete_batch(batch_id, &compress_proof_id).await.with_context(|| {
                 format!(
-                    "Failed to set batch {batch_id} with orders {:x?} as complete",
+                    "Failed to set batch {batch_id} with orders {:?} as complete",
                     batch.orders
                 )
             })?;
