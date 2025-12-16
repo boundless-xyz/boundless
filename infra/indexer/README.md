@@ -1,6 +1,7 @@
 # Market Indexer
 
 ## Development on AWS
+
 ```
 export ORDER_STREAM_URL="" 
 export ORDER_STREAM_API_KEY="" 
@@ -30,11 +31,13 @@ pulumi up
 # Market Indexer Backfill
 
 ## Overview
+
 In staging/prod, the market indexer backfill runs as an on-demand ECS Fargate task, triggered via EventBridge daily.
 
 It is also possible to trigger a backfill manually. This involves executing a lambda function, which spawns the ECS task.
 
 ## Prerequisites
+
 - AWS CLI v2
 - jq (JSON parsing)
 - Node.js & npm (for building Lambda)
@@ -47,16 +50,19 @@ Assume you have deployed the infra stack already.
 ### Get the Lambda Function Name
 
 From Pulumi:
+
 ```bash
 pulumi stack output backfillLambdaName
 ```
 
 From AWS CLI:
+
 ```bash
 aws lambda list-functions --query 'Functions[?contains(FunctionName, `backfill-trigger`)].FunctionName'
 ```
 
 ### Using the Script
+
 ```bash
 ./scripts/trigger-backfill.sh \
   --lambda-name <from above> \
@@ -66,6 +72,7 @@ aws lambda list-functions --query 'Functions[?contains(FunctionName, `backfill-t
 ```
 
 ### (Backup, prefer script) Direct Lambda Invocation
+
 ```bash
 aws lambda invoke \
   --function-name dev-backfill-trigger \
@@ -77,16 +84,19 @@ aws lambda invoke \
 ## Parameters
 
 **Required:**
+
 - `mode`: "statuses_and_aggregates" or "aggregates"
 - `startBlock`: Starting block number
 
 **Optional:**
+
 - `endBlock`: Ending block number (default: latest indexed)
 - `txFetchStrategy`: "block-receipts" or "tx-by-hash" (default: "tx-by-hash")
 
 ## Development
 
 The Lambda source is in `backfill-trigger-lambda/src/index.ts`. After making changes:
+
 ```bash
 cd backfill-trigger-lambda
 npm run build
