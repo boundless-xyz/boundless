@@ -18,7 +18,7 @@ use crate::{
     config::ConfigLock,
     db::DbObj,
     errors::CodedError,
-    futures_retry::retry,
+    futures_retry::retry_with_context,
     impl_coded_debug, now_timestamp,
     provers::{self, ProverObj},
     requestor_monitor::PriorityRequestors,
@@ -107,7 +107,7 @@ impl ProvingService {
             .context("Monitoring proof (stark) failed")?;
 
         tracing::debug!(
-            "compression_type: {compression_type:?}, snark_proof_id: {snark_proof_id:?}"
+            "Order {order_id} has compression_type: {compression_type:?}, snark_proof_id: {snark_proof_id:?}"
         );
         let is_compress = compression_type != CompressionType::None;
 
@@ -117,7 +117,8 @@ impl ProvingService {
                 (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
             };
 
-            let compressed_proof_id = retry(
+            let context = format!("order {order_id}");
+            let compressed_proof_id = retry_with_context(
                 retry_count,
                 sleep_ms,
                 || async {
@@ -126,12 +127,12 @@ impl ProvingService {
                             .snark_prover
                             .compress(stark_proof_id)
                             .await
-                            .context("Failed to compress proof")?,
+                            .context("Failed to compress proof for order {order_id}")?,
                         CompressionType::Blake3Groth16 => self
                             .snark_prover
                             .compress_blake3_groth16(stark_proof_id)
                             .await
-                            .context("Failed to compress blake3 groth16 proof")?,
+                            .context("Failed to compress blake3 groth16 proof for order {order_id}")?,
                         CompressionType::None => {
                             unreachable!("Compression type should not be None here")
                         }
@@ -139,13 +140,13 @@ impl ProvingService {
                     match compression_type {
                         CompressionType::Groth16 => {
                             tracing::trace!(
-                                "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}"
+                                "Verifying compressed Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
                             );
                             provers::verify_groth16_receipt(&self.snark_prover, &proof_id).await?;
                         }
                         CompressionType::Blake3Groth16 => {
                             tracing::trace!(
-                                "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}"
+                                "Verifying compressed Blake3 Groth16 receipt locally for proof_id: {proof_id}, order {order_id}"
                             );
                             provers::verify_blake3_groth16_receipt(&self.snark_prover, &proof_id).await?;
                         }
@@ -156,9 +157,9 @@ impl ProvingService {
                     Ok::<String, provers::ProverError>(proof_id)
                 },
                 "compress_and_verify",
+                &context,
             )
-            .await
-            .context("Failed to compress and verify proof")?;
+            .await?;
 
             self.db
                 .set_order_compressed_proof_id(order_id, &compressed_proof_id)
@@ -203,7 +204,7 @@ impl ProvingService {
                     Some(val) => val.clone(),
                     None => upload_image_uri(&self.prover, &order.request, &self.config)
                         .await
-                        .context("Failed to upload image")?,
+                        .context(format!("Failed to upload image for order {order_id}"))?,
                 };
 
                 let input_id = match order.input_id.as_ref() {
@@ -215,14 +216,14 @@ impl ProvingService {
                         &self.priority_requestors,
                     )
                     .await
-                    .context("Failed to upload input")?,
+                    .context(format!("Failed to upload input for order {order_id}"))?,
                 };
 
                 let proof_id = self
                     .prover
                     .prove_stark(&image_id, &input_id, /* TODO assumptions */ vec![])
                     .await
-                    .context("Failed to prove customer proof STARK order")?;
+                    .context(format!("Failed to prove customer proof STARK order {order_id}"))?;
 
                 tracing::debug!("Order {order_id} being proved, proof id: {proof_id}");
 
@@ -395,11 +396,13 @@ impl ProvingService {
             (config.prover.proof_retry_count, config.prover.proof_retry_sleep_ms)
         };
 
-        let proof_id = match retry(
+        let context = format!("order {order_id}");
+        let proof_id = match retry_with_context(
             proof_retry_count,
             proof_retry_sleep_ms,
             || async { self.get_or_create_stark_session(order.clone()).await },
             "get_or_create_stark_session",
+            &context,
         )
         .await
         {
@@ -416,11 +419,12 @@ impl ProvingService {
 
         order.proof_id = Some(proof_id);
 
-        let result = retry(
+        let result = retry_with_context(
             proof_retry_count,
             proof_retry_sleep_ms,
             || async { self.monitor_proof_with_timeout(order.clone()).await },
             "monitor_proof_with_timeout",
+            &context,
         )
         .await;
 
