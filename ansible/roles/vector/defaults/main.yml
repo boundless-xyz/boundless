@@ -51,6 +51,7 @@ vector_prometheus_scrape_interval_secs: 15  # Scrape interval in seconds
 
 # Base ports for each service type (instances use base_port + instance_id)
 # These must match bento_prometheus_metrics_ports in the bento role
+# Only include services that expose Prometheus metrics
 vector_prometheus_base_ports:
   api: 9090
   prove: 9190
@@ -59,7 +60,7 @@ vector_prometheus_base_ports:
   snark: 9490
   join: 9490
   broker: 9590  # Broker uses port 9590
-  miner: 9600   # Miner uses port 9600
+  # miner: Not included - miner doesn't expose Prometheus metrics
 
 # Service instance counts (used to generate endpoints for all instances)
 # These should match bento_gpu_count, bento_exec_count, bento_aux_count from group_vars
