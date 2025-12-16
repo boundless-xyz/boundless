@@ -640,7 +640,7 @@ where
     }
 
     async fn fetch_and_upload_assessor_image(&self, prover: &ProverObj) -> Result<Digest> {
-        let boundless_market = BoundlessMarketService::new(
+        let boundless_market = BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
@@ -942,7 +942,7 @@ where
 
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
-        let collateral_token_decimals = BoundlessMarketService::new(
+        let collateral_token_decimals = BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
