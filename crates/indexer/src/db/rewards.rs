@@ -18,8 +18,8 @@ use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
 use boundless_rewards::{StakingPosition, WorkLogRewardInfo};
 use chrono::Utc;
-use serde_json;
 use log::LevelFilter;
+use serde_json;
 use sqlx::{any::AnyPoolOptions, AnyPool, ConnectOptions, Row};
 
 use super::DbError;
@@ -493,10 +493,9 @@ impl RewardsDb {
 
         // Parse connection options to configure slow query logging
         let mut connect_opts = sqlx::any::AnyConnectOptions::from_str(database_url)?;
-        
+
         // Configure slow query logging: only log queries that take over 2 seconds
-        connect_opts = connect_opts
-            .log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
+        connect_opts = connect_opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
 
         let pool = if let Some(opts) = pool_options {
             opts.connect_with(connect_opts).await?

@@ -816,10 +816,9 @@ impl MarketDb {
     ) -> Result<Self, DbError> {
         install_default_drivers();
         let mut opts = AnyConnectOptions::from_str(conn_str)?;
-        
+
         // Configure slow query logging: only log queries that take over 2 seconds
-        opts = opts
-            .log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
+        opts = opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
 
         let pool = if let Some(pool_opts) = pool_options {
             pool_opts.connect_with(opts).await?
