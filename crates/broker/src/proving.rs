@@ -82,7 +82,15 @@ impl ProvingService {
         priority_requestors: PriorityRequestors,
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
     ) -> Result<Self> {
-        Ok(Self { db, prover, snark_prover, config, order_state_tx, priority_requestors, fulfillment_market })
+        Ok(Self {
+            db,
+            prover,
+            snark_prover,
+            config,
+            order_state_tx,
+            priority_requestors,
+            fulfillment_market,
+        })
     }
 
     async fn monitor_proof_internal(
