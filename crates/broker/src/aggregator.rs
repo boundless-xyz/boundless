@@ -730,10 +730,7 @@ impl AggregatorService {
             );
 
             self.db.complete_batch(batch_id, &compress_proof_id).await.with_context(|| {
-                format!(
-                    "Failed to set batch {batch_id} with orders {:?} as complete",
-                    batch.orders
-                )
+                format!("Failed to set batch {batch_id} with orders {:?} as complete", batch.orders)
             })?;
         }
 
