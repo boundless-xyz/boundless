@@ -44,38 +44,3 @@ vector_buffer_when_full: "block"
 
 # Vector log level
 vector_log_level: "info"
-
-# Prometheus metrics collection
-vector_prometheus_enabled: true  # Enable Prometheus metrics scraping
-vector_prometheus_scrape_interval_secs: 15  # Scrape interval in seconds
-
-# Base ports for each service type (instances use base_port + instance_id)
-# These must match bento_prometheus_metrics_ports in the bento role
-# Only include services that expose Prometheus metrics
-vector_prometheus_base_ports:
-  api: 9090
-  prove: 9190
-  exec: 9290
-  aux: 9390
-  snark: 9490
-  join: 9490
-  broker: 9590  # Broker uses port 9590
-  # miner: Not included - miner doesn't expose Prometheus metrics
-
-# Service instance counts (used to generate endpoints for all instances)
-# These should match bento_gpu_count, bento_exec_count, bento_aux_count from group_vars
-# Only include services that actually expose Prometheus metrics
-vector_prometheus_service_counts:
-  api: 1  # API is always single instance
-  prove: "{{ bento_gpu_count | default(1) }}"
-  exec: "{{ bento_exec_count | default(4) }}"
-  aux: "{{ bento_aux_count | default(2) }}"
-  snark: "{{ bento_snark_count | default(0) }}"  # Snark workers (0 if not enabled)
-  join: "{{ bento_join_count | default(0) }}"  # Join workers (0 if not enabled)
-  broker: 1  # Broker is always single instance
-  # miner: Not included - miner doesn't expose Prometheus metrics
-
-# CloudWatch Metrics configuration
-vector_cloudwatch_metrics_enabled: true  # Enable CloudWatch Metrics sink
-vector_cloudwatch_metrics_namespace: "Boundless/Bento"  # CloudWatch Metrics namespace
-vector_cloudwatch_metrics_region: "{{ vector_cloudwatch_region }}"

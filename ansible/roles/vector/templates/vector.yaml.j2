@@ -5,18 +5,6 @@ sources:
 {% for service in vector_monitor_services %}
       - {{ service }}
 {% endfor %}
-{% if vector_prometheus_enabled | bool %}
-{% for service_name, base_port in vector_prometheus_base_ports.items() %}
-{% set instance_count = vector_prometheus_service_counts[service_name] | int %}
-{% for instance_id in range(instance_count) %}
-  prometheus_{{ service_name }}_{{ instance_id }}:
-    type: prometheus_scrape
-    endpoints:
-      - "http://127.0.0.1:{{ base_port + instance_id }}/metrics"
-    scrape_interval_secs: {{ vector_prometheus_scrape_interval_secs }}
-{% endfor %}
-{% endfor %}
-{% endif %}
 
 transforms:
   extract_message:
@@ -24,19 +12,6 @@ transforms:
     inputs: ["journald"]
     source: |
       . = .message
-{% if vector_prometheus_enabled | bool %}
-{% for service_name, base_port in vector_prometheus_base_ports.items() %}
-{% set instance_count = vector_prometheus_service_counts[service_name] | int %}
-{% for instance_id in range(instance_count) %}
-  enrich_metrics_{{ service_name }}_{{ instance_id }}:
-    type: remap
-    inputs: ["prometheus_{{ service_name }}_{{ instance_id }}"]
-    source: |
-      .service = "bento-{{ service_name }}"
-      .instance_id = {{ instance_id }}
-{% endfor %}
-{% endfor %}
-{% endif %}
 
 sinks:
   cloudwatch_bento:
@@ -51,21 +26,4 @@ sinks:
       type: "{{ vector_buffer_type }}"
       max_size: {{ vector_buffer_max_size }}
       when_full: "{{ vector_buffer_when_full }}"
-{% if vector_prometheus_enabled | bool and vector_cloudwatch_metrics_enabled | bool %}
-  cloudwatch_metrics:
-    type: aws_cloudwatch_metrics
-    inputs:
-{% for service_name, base_port in vector_prometheus_base_ports.items() %}
-{% set instance_count = vector_prometheus_service_counts[service_name] | int %}
-{% for instance_id in range(instance_count) %}
-      - enrich_metrics_{{ service_name }}_{{ instance_id }}
-{% endfor %}
-{% endfor %}
-    namespace: "{{ vector_cloudwatch_metrics_namespace }}"
-    region: "{{ vector_cloudwatch_metrics_region }}"
-    buffer:
-      type: "{{ vector_buffer_type }}"
-      max_size: {{ vector_buffer_max_size }}
-      when_full: "{{ vector_buffer_when_full }}"
-{% endif %}
 
