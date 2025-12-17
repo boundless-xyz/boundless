@@ -24,11 +24,14 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
+bonsai-sdk = { version = "1.4.1", features = ["non_blocking"] }
 boundless-market = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-rewards = { workspace = true }
 boundless-zkc = { workspace = true }
+broker = { workspace = true }
 bytemuck = { workspace = true }
+bytes = "1.10.1"
 chrono = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }
@@ -39,7 +42,7 @@ risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+sqlx = { workspace = true, features = ["any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros"] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
@@ -57,7 +60,7 @@ futures-util = { workspace = true }
 indexer-monitor = { path = "../lambdas/indexer-monitor" }
 order-stream = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
-sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+sqlx = { workspace = true, features = ["any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros"] }
 test-log = { workspace = true }
 tracing-test = { workspace = true }
 

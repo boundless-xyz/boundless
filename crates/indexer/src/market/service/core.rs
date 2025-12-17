@@ -14,6 +14,7 @@
 
 use super::IndexerService;
 use crate::db::market::IndexerDb;
+use crate::market::service::execution::execute_requests;
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::B256;
@@ -56,6 +57,27 @@ where
         } else {
             tracing::info!("Starting indexer at block {}", from_block);
         }
+
+        // Spawn a task to execute requests that need their cycle counts populated
+        // if the corresponding configuration is present
+        let db_clone = self.db.clone();
+        let config_clone = self.config.clone();
+        match config_clone.execution_config {
+            Some(execution_config) => {
+                if execution_config.bento_api_url.is_some()
+                    && execution_config.bento_api_key.is_some()
+                {
+                    let _task_executor = tokio::spawn(async move {
+                        execute_requests(db_clone, execution_config).await;
+                    });
+                } else {
+                    tracing::info!("Bento API URL or key not provided, not starting executor task");
+                }
+            }
+            None => {
+                tracing::info!("Execution configuration not found, not starting executor task");
+            }
+        };
 
         let mut attempt = 0;
         loop {

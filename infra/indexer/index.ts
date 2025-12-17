@@ -68,6 +68,8 @@ export = () => {
     const logsEthRpcUrl = isDev ? pulumi.output(getEnvVar("LOGS_ETH_RPC_URL")) : config.requireSecret('LOGS_ETH_RPC_URL');
     const orderStreamApiKey = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_API_KEY")) : config.requireSecret('ORDER_STREAM_API_KEY');
     const orderStreamUrl = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) : config.getSecret('ORDER_STREAM_URL');
+    const bentoApiUrl = isDev ? pulumi.output(getEnvVar("BENTO_API_URL")) : config.getSecret('BENTO_API_URL');
+    const bentoApiKey = isDev ? pulumi.output(getEnvVar("BENTO_API_KEY")) : config.getSecret('BENTO_API_KEY');
 
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
@@ -85,6 +87,8 @@ export = () => {
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
+      bentoApiUrl,
+      bentoApiKey,
     }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 

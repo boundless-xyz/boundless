@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
-use boundless_indexer::market::service::TransactionFetchStrategy;
+use boundless_indexer::market::service::{IndexerServiceExecutionConfig, TransactionFetchStrategy};
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
 use url::Url;
@@ -70,6 +70,28 @@ struct MainArgs {
     /// Depending on RPC provider, one may be more efficient than the other.
     #[clap(long, env, default_value = "tx-by-hash")]
     tx_fetch_strategy: String,
+    /// Interval in seconds between checking for requests with pending cycle counts, which will need
+    /// to be scheduled for execution.
+    #[clap(long, default_value = "3")]
+    execution_interval: u64,
+    /// An API key to use for Bento API operations
+    #[clap(long, env)]
+    bento_api_key: Option<String>,
+    /// URL to the Bento API
+    #[clap(long, env)]
+    bento_api_url: Option<String>,
+    /// Number of times bento API operations will be retried in case of errors
+    #[clap(long, default_value = "3")]
+    bento_retry_count: u64,
+    /// Wait interval between retries of bento API operations in case of errors, in milliseconds
+    #[clap(long, default_value = "1000")]
+    bento_retry_sleep_ms: u64,
+    /// Max number of requests submitted for execution to populate cycle counts
+    #[clap(long, default_value = "20")]
+    max_concurrent_executing: u32,
+    /// Max number of executing requests queried for status on each iteration of the execution task
+    #[clap(long, default_value = "30")]
+    max_status_queries: u32,
 }
 
 #[tokio::main]
@@ -103,6 +125,15 @@ async fn main() -> Result<()> {
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
+        execution_config: Some(IndexerServiceExecutionConfig {
+            execution_interval: Duration::from_secs(args.execution_interval),
+            bento_api_key: args.bento_api_key,
+            bento_api_url: args.bento_api_url,
+            bento_retry_count: args.bento_retry_count,
+            bento_retry_sleep_ms: args.bento_retry_sleep_ms,
+            max_concurrent_executing: args.max_concurrent_executing,
+            max_status_queries: args.max_status_queries,
+        }),
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
