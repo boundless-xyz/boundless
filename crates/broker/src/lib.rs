@@ -22,7 +22,7 @@ use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, FixedBytes, U256},
-    providers::{Provider, WalletProvider},
+    providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use anyhow::{Context, Result};
@@ -940,16 +940,19 @@ where
             aggregation_prover = Arc::clone(&prover);
         };
 
+        let prover_addr = self.provider.default_signer_address();
+
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
-        let collateral_token_decimals = BoundlessMarketService::new_for_broker(
+        let market = Arc::new(BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
-            self.provider.clone(),
-            Address::ZERO,
-        )
-        .collateral_token_decimals()
-        .await
-        .context("Failed to get stake token decimals. Possible RPC error.")?;
+            DynProvider::new(self.provider.clone()),
+            prover_addr,
+        ));
+        let collateral_token_decimals = market
+            .collateral_token_decimals()
+            .await
+            .context("Failed to get stake token decimals. Possible RPC error.")?;
 
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
@@ -983,6 +986,7 @@ where
                 config.clone(),
                 order_state_tx.clone(),
                 self.priority_requestors.clone(),
+                market.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,
@@ -997,9 +1001,6 @@ where
                 .context("Failed to start proving service")?;
             Ok(())
         });
-
-        let prover_addr =
-            self.args.private_key.as_ref().expect("Private key must be set").address();
 
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
