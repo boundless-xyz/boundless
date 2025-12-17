@@ -28,7 +28,7 @@ mod tasks;
 
 pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
-    SNARK_TIMEOUT_DEFAULT, s3::S3Client,
+    SNARK_TIMEOUT_DEFAULT, SNARK_WORK_TYPE, s3::S3Client,
 };
 
 /// Workflow agent
@@ -236,6 +236,7 @@ impl Agent {
         let prover = if args.task_stream == PROVE_WORK_TYPE
             || args.task_stream == JOIN_WORK_TYPE
             || args.task_stream == COPROC_WORK_TYPE
+            || args.task_stream == SNARK_WORK_TYPE
         {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts)
