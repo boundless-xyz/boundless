@@ -632,6 +632,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &pool_copy,
                             &coproc_stream,
                             &join_stream,
+                            &snark_stream,
                             &union_stream,
                             &aux_stream,
                             &job_id_copy,
