@@ -50,3 +50,4 @@ config:
   prover-cluster:denyRequestorAddresses: ""
   prover-cluster:maxFetchRetries: 3
   prover-cluster:lockinPriorityGas: "300"
+  prover-cluster:orderCommitmentPriority: "shortest_expiry"

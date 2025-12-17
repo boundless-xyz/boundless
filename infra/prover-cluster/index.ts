@@ -64,6 +64,7 @@ const denyRequestorAddresses: string = config.get("denyRequestorAddresses") || "
 const maxFetchRetries: number = config.getNumber("maxFetchRetries") || 3;
 const allowClientAddresses: string = config.get("allowClientAddresses") || "";
 const lockinPriorityGas: string = config.get("lockinPriorityGas") || "0";
+const orderCommitmentPriority: string = config.get("orderCommitmentPriority") || "cycle_price";
 
 const rustLogLevel: string = config.get("rustLogLevel") || "info,broker=debug,boundless_market=debug";
 
@@ -152,6 +153,7 @@ const manager = new ManagerComponent({
     maxFetchRetries,
     allowClientAddresses,
     lockinPriorityGas,
+    orderCommitmentPriority,
     rustLogLevel,
 });
 
