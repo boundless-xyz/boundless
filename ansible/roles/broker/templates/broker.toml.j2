@@ -93,3 +93,7 @@ max_concurrent_preflights = {{ broker_max_concurrent_preflights }}
 # Used to limit proof tasks spawned to prevent overwhelming the system.
 max_concurrent_proofs = {{ broker_max_concurrent_proofs }}
 
+# Maximum journal size in bytes
+#
+# Orders with a journal larger than this will be skipped.
+max_journal_bytes = {{ broker_max_journal_bytes }}

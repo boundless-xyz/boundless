@@ -47,6 +47,7 @@ broker_peak_prove_khz: 100
 broker_max_collateral: "200"
 broker_max_concurrent_preflights: 2
 broker_max_concurrent_proofs: 1
+broker_max_journal_bytes: 20000
 broker_priority_requestor_lists:
   - "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json"
 
