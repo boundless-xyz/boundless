@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use super::DbError;
@@ -25,9 +26,10 @@ use boundless_market::contracts::{
     AssessorReceipt, Fulfillment, FulfillmentDataType, Predicate, PredicateType, ProofRequest,
     RequestInputType,
 };
+use log::LevelFilter;
 use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
-    AnyPool, Row,
+    AnyPool, ConnectOptions, Row,
 };
 
 const SQL_BLOCK_KEY: i64 = 0;
@@ -812,10 +814,11 @@ impl MarketDb {
         pool_options: Option<AnyPoolOptions>,
         skip_migrations: bool,
     ) -> Result<Self, DbError> {
-        use std::time::Duration;
-
         install_default_drivers();
-        let opts = AnyConnectOptions::from_str(conn_str)?;
+        let mut opts = AnyConnectOptions::from_str(conn_str)?;
+
+        // Configure slow query logging: only log queries that take over 2 seconds
+        opts = opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
 
         let pool = if let Some(pool_opts) = pool_options {
             pool_opts.connect_with(opts).await?
