@@ -49,6 +49,8 @@ target/
 .cursor
 .codex
 
+infra/**/build
+
 
 # Ignore generated files
 contracts/src/EchoImageID.sol

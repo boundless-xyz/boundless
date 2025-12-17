@@ -33,6 +33,7 @@ chrono = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }
 hex = { workspace = true }
+log = "0.4"
 rand = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
