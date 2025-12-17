@@ -2278,7 +2278,7 @@ impl IndexerDb for MarketDb {
 
     async fn get_cycle_counts_pending(&self, limit: u32) -> Result<HashSet<B256>, DbError> {
         let query =
-            "SELECT request_digest FROM cycle_counts WHERE cycle_status = 'PENDING' ORDER BY updated_at LIMIT $1";
+            "SELECT request_digest FROM cycle_counts WHERE cycle_status = 'PENDING' ORDER BY updated_at DESC LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
@@ -2302,7 +2302,7 @@ impl IndexerDb for MarketDb {
         &self,
         limit: u32,
     ) -> Result<HashSet<CycleCountExecution>, DbError> {
-        let query = "SELECT request_digest, session_uuid FROM cycle_counts WHERE cycle_status = 'EXECUTING' ORDER BY updated_at LIMIT $1";
+        let query = "SELECT request_digest, session_uuid FROM cycle_counts WHERE cycle_status = 'EXECUTING' ORDER BY updated_at DESC LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
@@ -2329,17 +2329,21 @@ impl IndexerDb for MarketDb {
     ) -> Result<(), DbError> {
         let execution_vec: Vec<&CycleCountExecution> = execution_info.iter().collect();
 
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
         let mut tx = self.pool.begin().await?;
 
         for execution_data in execution_vec {
             let query = "UPDATE cycle_counts
-                    SET cycle_status = 'EXECUTING', session_uuid = $1
-                    WHERE request_digest = $2";
+                    SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                    WHERE request_digest = $3";
 
             let mut query_builder = sqlx::query(query);
 
             query_builder = query_builder
                 .bind(&execution_data.session_uuid)
+                .bind(current_timestamp as i64)
                 .bind(format!("{:x}", execution_data.request_digest));
             query_builder.execute(&mut *tx).await?;
         }
@@ -2355,25 +2359,18 @@ impl IndexerDb for MarketDb {
     ) -> Result<(), DbError> {
         let mut tx = self.pool.begin().await?;
 
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
         for update_data in update_info {
             // Update cycle_counts table
             let query = "UPDATE cycle_counts
-                    SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2
-                    WHERE request_digest = $3";
+                    SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2, updated_at = $3
+                    WHERE request_digest = $4";
             sqlx::query(query)
                 .bind(u256_to_padded_string(update_data.program_cycles))
                 .bind(u256_to_padded_string(update_data.total_cycles))
-                .bind(format!("{:x}", update_data.request_digest))
-                .execute(&mut *tx)
-                .await?;
-
-            // Also update request_status table
-            let query = "UPDATE request_status
-                    SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2
-                    WHERE request_digest = $3";
-            sqlx::query(query)
-                .bind(u256_to_padded_string(update_data.program_cycles))
-                .bind(u256_to_padded_string(update_data.total_cycles))
+                .bind(current_timestamp as i64)
                 .bind(format!("{:x}", update_data.request_digest))
                 .execute(&mut *tx)
                 .await?;
@@ -2391,20 +2388,23 @@ impl IndexerDb for MarketDb {
 
         const BATCH_SIZE: usize = 500;
 
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
         let mut tx = self.pool.begin().await?;
 
         for chunk in request_digests.chunks(BATCH_SIZE) {
             let placeholders =
-                (1..=chunk.len()).map(|i| format!("${}", i)).collect::<Vec<_>>().join(", ");
+                (1..=chunk.len()).map(|i| format!("${}", i + 1)).collect::<Vec<_>>().join(", ");
 
             let query = format!(
                 "UPDATE cycle_counts
-                 SET cycle_status = 'FAILED'
+                 SET cycle_status = 'FAILED', updated_at = $1
                  WHERE request_digest IN ({})",
                 placeholders
             );
 
-            let mut query_builder = sqlx::query(&query);
+            let mut query_builder = sqlx::query(&query).bind(current_timestamp as i64);
             for digest in chunk {
                 query_builder = query_builder.bind(format!("{:x}", digest));
             }
