@@ -2353,22 +2353,30 @@ impl IndexerDb for MarketDb {
         &self,
         update_info: &[CycleCountExecutionUpdate],
     ) -> Result<(), DbError> {
-        let update_vec: Vec<&CycleCountExecutionUpdate> = update_info.iter().collect();
-
         let mut tx = self.pool.begin().await?;
 
-        for update_data in update_vec {
+        for update_data in update_info {
+            // Update cycle_counts table
             let query = "UPDATE cycle_counts
                     SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2
                     WHERE request_digest = $3";
-
-            let mut query_builder = sqlx::query(query);
-
-            query_builder = query_builder
+            sqlx::query(query)
                 .bind(u256_to_padded_string(update_data.program_cycles))
                 .bind(u256_to_padded_string(update_data.total_cycles))
-                .bind(format!("{:x}", update_data.request_digest));
-            query_builder.execute(&mut *tx).await?;
+                .bind(format!("{:x}", update_data.request_digest))
+                .execute(&mut *tx)
+                .await?;
+
+            // Also update request_status table
+            let query = "UPDATE request_status
+                    SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2
+                    WHERE request_digest = $3";
+            sqlx::query(query)
+                .bind(u256_to_padded_string(update_data.program_cycles))
+                .bind(u256_to_padded_string(update_data.total_cycles))
+                .bind(format!("{:x}", update_data.request_digest))
+                .execute(&mut *tx)
+                .await?;
         }
 
         tx.commit().await?;
