@@ -609,7 +609,7 @@ where
             let next_expected_hour = latest.period_timestamp + SECONDS_PER_HOUR;
             if next_expected_hour < from_time {
                 let gap_hours = (from_time - latest.period_timestamp) / SECONDS_PER_HOUR;
-                tracing::info!(
+                tracing::warn!(
                     "Detected gap of {} hours in all-time summaries (latest: {}, recompute window start: {}). Extending processing range to backfill.",
                     gap_hours, latest.period_timestamp, from_time
                 );
@@ -636,7 +636,7 @@ where
                 }
                 None => {
                     // No previous aggregate exists - this is the first run, initialize with zeros
-                    tracing::debug!(
+                    tracing::info!(
                     "No previous all-time aggregate found, initializing with zeros at timestamp {}",
                     base_timestamp
                 );
@@ -692,7 +692,7 @@ where
             } else {
                 // No activity this hour - cumulative values stay the same, but we still
                 // need to save an all-time entry for this hour to maintain the cumulative chain
-                tracing::debug!(
+                tracing::warn!(
                     "No hourly summary found for hour {}, maintaining cumulative with no change",
                     hour_ts
                 );

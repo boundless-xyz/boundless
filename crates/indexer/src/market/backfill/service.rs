@@ -26,7 +26,7 @@ use alloy::providers::Provider;
 use std::collections::HashSet;
 
 const DIGEST_BATCH_SIZE: i64 = 5000;
-const STATUS_BATCH_SIZE: usize = 1000;
+const STATUS_BATCH_SIZE: usize = 2500;
 
 // Chunk sizes for backfill progress reporting
 // Note: All chunk sizes must be > 1 to satisfy from_time < to_time validation
@@ -209,13 +209,18 @@ where
         tracing::info!("Starting status backfill...");
 
         let current_timestamp = self.indexer.block_timestamp(self.end_block).await?;
+        let end_timestamp = current_timestamp;
         tracing::info!(
-            "Using end block {} with timestamp {} as 'current time' for status computation",
+            "Using end block {} with timestamp {} as 'current time' for status computation and filtering",
             self.end_block,
-            current_timestamp
+            end_timestamp
         );
 
-        let mut cursor: Option<B256> = None;
+        // Get total count of digests to process for logging
+        let total_count = self.indexer.db.count_request_digests_by_timestamp(end_timestamp).await?;
+        tracing::info!("Total statuses (digests) to recompute: {}", total_count);
+
+        let mut cursor: Option<(u64, B256)> = None;
         let mut total_processed = 0;
         let mut batch_num = 0;
 
@@ -223,25 +228,35 @@ where
             batch_num += 1;
             let batch_start = std::time::Instant::now();
 
-            // Fetch next batch of digests
-            let digests =
-                self.indexer.db.get_request_digests_paginated(cursor, DIGEST_BATCH_SIZE).await?;
+            // Fetch next batch of digests with timestamp filtering
+            let digest_results = self
+                .indexer
+                .db
+                .get_all_request_digests(cursor, end_timestamp, DIGEST_BATCH_SIZE)
+                .await?;
 
-            if digests.is_empty() {
+            if digest_results.is_empty() {
                 tracing::info!("No more digests to process");
                 break;
             }
 
+            // Extract just the digests (created_at is used for cursor only)
+            let digests: Vec<B256> = digest_results.iter().map(|(digest, _)| *digest).collect();
             let digest_count = digests.len();
+
             tracing::info!(
-                "Batch {}: Fetched {} digests in {:?}",
+                "Batch {}: Fetched {} digests in {:?} (total processed: {})",
                 batch_num,
                 digest_count,
-                batch_start.elapsed()
+                batch_start.elapsed(),
+                total_processed + digest_count
             );
 
-            // Update cursor for next iteration
-            cursor = digests.last().copied();
+            // Update cursor for next iteration (use last item's timestamp and digest)
+            // Note: digest_results is Vec<(B256, u64)> but cursor is (u64, B256)
+            if let Some((last_digest, last_ts)) = digest_results.last() {
+                cursor = Some((*last_ts, *last_digest));
+            }
 
             // Process in smaller sub-batches to avoid overwhelming the DB
             for (chunk_idx, chunk) in digests.chunks(STATUS_BATCH_SIZE).enumerate() {
@@ -262,23 +277,29 @@ where
                 // Upsert statuses
                 self.indexer.db.upsert_request_statuses(&request_statuses).await?;
 
-                total_processed += request_statuses.len();
-
-                tracing::info!(
-                    "Batch {} chunk {}: Processed {} statuses in {:?} (total: {})",
+                tracing::debug!(
+                    "Batch {} chunk {}: Processed {} statuses in {:?}",
                     batch_num,
                     chunk_idx + 1,
                     request_statuses.len(),
-                    chunk_start.elapsed(),
-                    total_processed
+                    chunk_start.elapsed()
                 );
             }
 
-            tracing::info!("Batch {} completed in {:?}", batch_num, batch_start.elapsed());
+            // Count unique digests processed
+            total_processed += digest_count;
+
+            tracing::info!(
+                "Batch {} completed in {:?}. Total unique digests processed: {}/{}",
+                batch_num,
+                batch_start.elapsed(),
+                total_processed,
+                total_count
+            );
         }
 
         tracing::info!(
-            "Status backfill completed: {} statuses updated in {:?}",
+            "Status backfill completed: {} unique digests processed in {:?}",
             total_processed,
             start_time.elapsed()
         );
