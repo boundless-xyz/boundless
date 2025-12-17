@@ -27,9 +27,9 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     tracing::info!("Started execution task");
 
     // Aim to have at most this many requests executing to populate cycle counts in status PENDING
-    const MAX_CONCURRENT_EXECUTING: u32 = 5;
+    const MAX_CONCURRENT_EXECUTING: u32 = 20;
     // Aim to send out at most this many status queries to check on the status of executing requests
-    const MAX_STATUS_QUERIES: u32 = 20;
+    const MAX_STATUS_QUERIES: u32 = 30;
 
     let mut interval = tokio::time::interval(config.execution_interval);
 
