@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     config::ConfigLock,
@@ -27,7 +27,9 @@ use crate::{
     utils::cancel_proof_and_fail_order,
     CompressionType, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
+use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
+use boundless_market::contracts::boundless_market::BoundlessMarketService;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
@@ -67,6 +69,7 @@ pub struct ProvingService {
     config: ConfigLock,
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
+    fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
 }
 
 impl ProvingService {
@@ -77,8 +80,17 @@ impl ProvingService {
         config: ConfigLock,
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
+        fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
     ) -> Result<Self> {
-        Ok(Self { db, prover, snark_prover, config, order_state_tx, priority_requestors })
+        Ok(Self {
+            db,
+            prover,
+            snark_prover,
+            config,
+            order_state_tx,
+            priority_requestors,
+            fulfillment_market,
+        })
     }
 
     async fn monitor_proof_internal(
@@ -377,6 +389,7 @@ impl ProvingService {
 
     async fn prove_and_update_db(&self, mut order: Order) {
         let order_id = order.id();
+        let request_id = order.request.id;
 
         let (proof_retry_count, proof_retry_sleep_ms) = {
             let config = self.config.lock_all().unwrap();
@@ -418,6 +431,27 @@ impl ProvingService {
         match result {
             Ok(order_status) => {
                 tracing::info!("Successfully completed proof monitoring for order {order_id}");
+
+                // Note: this sanity check isn't strictly necessary, but is to avoid submitting the
+                // order when the fulfillment event was missed.
+                if order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire {
+                    let is_fulfilled = self
+                        .fulfillment_market
+                        .is_fulfilled(request_id)
+                        .await
+                        .inspect_err(|e| {
+                            tracing::warn!(
+                            "Failed to sanity check fulfillment status for order {order_id}: {e:?}"
+                        );
+                        })
+                        .unwrap_or(false);
+                    if is_fulfilled {
+                        tracing::warn!("Fulfillment event was missed, skipping aggregation for fulfilled order {order_id}");
+                        handle_order_failure(&self.db, &order_id, "Fulfilled before aggregation")
+                            .await;
+                        return;
+                    }
+                }
 
                 if let Err(e) = self.db.set_aggregation_status(&order_id, order_status).await {
                     tracing::error!("Failed to set aggregation status for order {order_id}: {e:?}");
@@ -535,14 +569,31 @@ mod tests {
         FulfillmentType, OrderStatus,
     };
     use alloy::primitives::{Address, Bytes, U256};
+    use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+    use alloy::transports::mock::Asserter;
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
     use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID};
     use chrono::Utc;
+    use hex::encode;
     use risc0_zkvm::sha::Digest;
     use std::sync::Arc;
     use tracing_test::traced_test;
+
+    fn mock_market(responses: Vec<bool>) -> Arc<BoundlessMarketService<DynProvider>> {
+        let asserter = Asserter::new();
+        for fulfilled in responses {
+            let mut data = [0u8; 32];
+            if fulfilled {
+                data[31] = 1;
+            }
+            asserter.push_success(&format!("0x{}", encode(data)));
+        }
+
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter).erased();
+        Arc::new(BoundlessMarketService::new(Address::ZERO, provider, Address::ZERO))
+    }
 
     fn create_test_order(
         request_id: U256,
@@ -614,6 +665,7 @@ mod tests {
     async fn prove_order() {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
+        let market = mock_market(vec![false; 4]);
         let prover: ProverObj = Arc::new(DefaultProver::new());
 
         let image_id = Digest::from(ECHO_ID).to_string();
@@ -632,6 +684,7 @@ mod tests {
             config.clone(),
             order_state_tx,
             priority_requestors,
+            market.clone(),
         )
         .await
         .unwrap();
@@ -662,6 +715,7 @@ mod tests {
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,
+            market.clone(),
         )
         .await
         .unwrap();
@@ -699,6 +753,7 @@ mod tests {
         let config = ConfigLock::default();
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
+        let market = mock_market(vec![false; 6]);
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -719,6 +774,7 @@ mod tests {
             config.clone(),
             order_state_tx,
             priority_requestors,
+            market,
         )
         .await
         .unwrap();
@@ -794,6 +850,7 @@ mod tests {
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
+        let market = mock_market(vec![false; 6]);
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -811,6 +868,7 @@ mod tests {
             config.clone(),
             order_state_tx.clone(),
             priority_requestors,
+            market,
         )
         .await
         .unwrap();

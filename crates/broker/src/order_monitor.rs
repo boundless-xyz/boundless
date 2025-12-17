@@ -477,8 +477,16 @@ where
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                 self.skip_order(&order, "expired").await;
             } else if is_target_time_reached(&order, current_block_timestamp) {
-                tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
-                candidate_orders.push(order);
+                if self.market.is_fulfilled(order.request.id).await? {
+                    tracing::debug!(
+                    "Lock expiry timeout occurred, but 0x{:x} was already fulfilled by another prover. Skipping.",
+                    order.request.id
+                );
+                    self.skip_order(&order, "was fulfilled by other").await;
+                } else {
+                    tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
+                    candidate_orders.push(order);
+                }
             }
         }
 
