@@ -86,6 +86,12 @@ struct MainArgs {
     /// Wait interval between retries of bento API operations in case of errors, in milliseconds
     #[clap(long, default_value = "1000")]
     bento_retry_sleep_ms: u64,
+    /// Max number of requests submitted for execution to populate cycle counts
+    #[clap(long, default_value = "20")]
+    max_concurrent_executing: u32,
+    /// Max number of executing requests queried for status on each iteration of the execution task
+    #[clap(long, default_value = "30")]
+    max_status_queries: u32,
 }
 
 #[tokio::main]
@@ -125,6 +131,8 @@ async fn main() -> Result<()> {
             bento_api_url: args.bento_api_url,
             bento_retry_count: args.bento_retry_count,
             bento_retry_sleep_ms: args.bento_retry_sleep_ms,
+            max_concurrent_executing: args.max_concurrent_executing,
+            max_status_queries: args.max_status_queries,
         }),
     };
 

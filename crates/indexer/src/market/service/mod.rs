@@ -168,6 +168,8 @@ pub struct IndexerServiceExecutionConfig {
     pub bento_api_url: Option<String>,
     pub bento_retry_count: u64,
     pub bento_retry_sleep_ms: u64,
+    pub max_concurrent_executing: u32,
+    pub max_status_queries: u32,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {

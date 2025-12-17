@@ -26,10 +26,12 @@ use std::collections::HashSet;
 pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) {
     tracing::info!("Started execution task");
 
-    // Aim to have at most this many requests executing to populate cycle counts in status PENDING
-    const MAX_CONCURRENT_EXECUTING: u32 = 20;
-    // Aim to send out at most this many status queries to check on the status of executing requests
-    const MAX_STATUS_QUERIES: u32 = 30;
+    tracing::debug!("Configuration:");
+    tracing::debug!("  execution_interval: {}", config.execution_interval.as_secs());
+    tracing::debug!("  bento_retry_count: {}", config.bento_retry_count);
+    tracing::debug!("  bento_retry_sleep_ms: {}", config.bento_retry_sleep_ms);
+    tracing::debug!("  max_concurrent_executing: {}", config.max_concurrent_executing);
+    tracing::debug!("  max_status_queries: {}", config.max_status_queries);
 
     let mut interval = tokio::time::interval(config.execution_interval);
 
@@ -63,8 +65,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         let mut digests_to_process = HashSet::new();
 
         let mut pending_to_process = 0;
-        if executing_count < MAX_CONCURRENT_EXECUTING {
-            pending_to_process = MAX_CONCURRENT_EXECUTING - executing_count;
+        if executing_count < config.max_concurrent_executing {
+            pending_to_process = config.max_concurrent_executing - executing_count;
         }
         if pending_to_process > 0 {
             tracing::debug!(
@@ -296,9 +298,10 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         // as well as any ones started earlier that haven't terminated yet
         tracing::debug!(
             "Querying DB for cycle counts in status EXECUTING (max {})...",
-            MAX_STATUS_QUERIES
+            config.max_status_queries
         );
-        let executing_requests = db.get_cycle_counts_executing(MAX_STATUS_QUERIES).await.unwrap();
+        let executing_requests =
+            db.get_cycle_counts_executing(config.max_status_queries).await.unwrap();
         if !executing_requests.is_empty() {
             tracing::debug!("Executing requests found:");
             tracing::debug!(?executing_requests);
