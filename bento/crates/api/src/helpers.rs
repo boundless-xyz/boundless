@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use sqlx::PgPool;
 use uuid::Uuid;
 use workflow_common::{
-    AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, ExecutorResp, JOIN_WORK_TYPE, PROVE_WORK_TYPE,
+    AUX_WORK_TYPE, COPROC_WORK_TYPE, EXEC_WORK_TYPE, ExecutorResp, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_WORK_TYPE,
 };
 
 /// Extract reserved value from api_key string
@@ -26,7 +26,7 @@ pub fn extract_reserved(api_key: &str) -> i32 {
 pub async fn get_or_create_streams(
     pool: &PgPool,
     user_id: &str,
-) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid)> {
+) -> Result<(Uuid, Uuid, Uuid, Uuid, Uuid, Uuid)> {
     let reserved = extract_reserved(user_id);
     let aux_stream = if let Some(res) = taskdb::get_stream(pool, user_id, AUX_WORK_TYPE)
         .await
@@ -88,7 +88,19 @@ pub async fn get_or_create_streams(
             .context("Failed to create taskdb gpu join stream")?
     };
 
-    Ok((aux_stream, exec_stream, gpu_prove_stream, gpu_coproc_stream, gpu_join_stream))
+    let gpu_snark_stream = if let Some(res) = taskdb::get_stream(pool, user_id, SNARK_WORK_TYPE)
+    .await
+    .context("Failed to get gpu snark stream")?
+    {
+        res
+    } else {
+        tracing::info!("Creating a new gpu snark stream for key: {user_id}");
+        taskdb::create_stream(pool, SNARK_WORK_TYPE, reserved, 1.0, user_id)
+            .await
+            .context("Failed to create taskdb gpu snark stream")?
+    };
+
+    Ok((aux_stream, exec_stream, gpu_prove_stream, gpu_coproc_stream, gpu_join_stream, gpu_snark_stream))
 }
 
 pub async fn get_exec_stats(pool: &PgPool, job_id: &Uuid) -> Result<ExecutorResp> {

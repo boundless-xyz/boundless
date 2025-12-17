@@ -5,7 +5,7 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
+    redis::{self},
     tasks::{COPROC_CB_PATH, serialize_obj},
 };
 use anyhow::{Context, Result, anyhow, bail};
