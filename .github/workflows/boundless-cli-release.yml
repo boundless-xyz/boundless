@@ -102,6 +102,9 @@ jobs:
           # Create boundless directory
           mkdir -p boundless
 
+          # Make build executable
+          chmod +x target/${{ matrix.target }}/release/boundless
+
           # Copy binary to boundless directory
           cp target/${{ matrix.target }}/release/boundless boundless/boundless
 
