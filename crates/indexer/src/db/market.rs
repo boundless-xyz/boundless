@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use super::DbError;
@@ -25,9 +26,10 @@ use boundless_market::contracts::{
     AssessorReceipt, Fulfillment, FulfillmentDataType, Predicate, PredicateType, ProofRequest,
     RequestInputType,
 };
+use log::LevelFilter;
 use sqlx::{
     any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
-    AnyPool, Row,
+    AnyPool, ConnectOptions, Row,
 };
 
 const SQL_BLOCK_KEY: i64 = 0;
@@ -790,6 +792,19 @@ pub trait IndexerDb {
         cursor: Option<B256>,
         limit: i64,
     ) -> Result<Vec<B256>, DbError>;
+
+    /// Gets all request digests from request_status table up to the given end_timestamp.
+    /// Returns Vec of (request_digest, created_at) tuples.
+    async fn get_all_request_digests(
+        &self,
+        cursor: Option<(u64, B256)>,
+        end_timestamp: u64,
+        limit: i64,
+    ) -> Result<Vec<(B256, u64)>, DbError>;
+
+    /// Gets the count of request digests in request_status table filtered by end_timestamp.
+    /// Used for logging total digests to process during backfill.
+    async fn count_request_digests_by_timestamp(&self, end_timestamp: u64) -> Result<i64, DbError>;
 }
 
 pub type DbObj = Arc<MarketDb>;
@@ -812,10 +827,11 @@ impl MarketDb {
         pool_options: Option<AnyPoolOptions>,
         skip_migrations: bool,
     ) -> Result<Self, DbError> {
-        use std::time::Duration;
-
         install_default_drivers();
-        let opts = AnyConnectOptions::from_str(conn_str)?;
+        let mut opts = AnyConnectOptions::from_str(conn_str)?;
+
+        // Configure slow query logging: only log queries that take over 2 seconds
+        opts = opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
 
         let pool = if let Some(pool_opts) = pool_options {
             pool_opts.connect_with(opts).await?
@@ -3157,6 +3173,65 @@ impl IndexerDb for MarketDb {
         }
 
         Ok(digests)
+    }
+
+    async fn get_all_request_digests(
+        &self,
+        cursor: Option<(u64, B256)>,
+        end_timestamp: u64,
+        limit: i64,
+    ) -> Result<Vec<(B256, u64)>, DbError> {
+        let rows = if let Some((cursor_ts, cursor_digest)) = cursor {
+            // Format without 0x prefix to match how digests are stored in the database
+            let cursor_digest_hex = format!("{:x}", cursor_digest);
+            sqlx::query(
+                "SELECT request_digest, created_at 
+                 FROM request_status
+                 WHERE created_at <= $1
+                   AND (created_at > $2 OR (created_at = $2 AND request_digest > $3))
+                 ORDER BY created_at ASC, request_digest ASC
+                 LIMIT $4",
+            )
+            .bind(end_timestamp as i64)
+            .bind(cursor_ts as i64)
+            .bind(cursor_digest_hex)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT request_digest, created_at 
+                 FROM request_status
+                 WHERE created_at <= $1
+                 ORDER BY created_at ASC, request_digest ASC
+                 LIMIT $2",
+            )
+            .bind(end_timestamp as i64)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        let mut results = Vec::new();
+        for row in rows {
+            let digest_hex: String = row.try_get("request_digest")?;
+            let digest = B256::from_str(&digest_hex)
+                .map_err(|e| DbError::BadTransaction(format!("Invalid digest: {}", e)))?;
+            let created_at = row.get::<i64, _>("created_at") as u64;
+            results.push((digest, created_at));
+        }
+
+        Ok(results)
+    }
+
+    async fn count_request_digests_by_timestamp(&self, end_timestamp: u64) -> Result<i64, DbError> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM request_status WHERE created_at <= $1")
+                .bind(end_timestamp as i64)
+                .fetch_one(&self.pool)
+                .await?;
+
+        Ok(count)
     }
 }
 
@@ -5624,5 +5699,121 @@ mod tests {
         assert_eq!(*d2, digest2);
         assert_eq!(input_type2, "Inline");
         assert_eq!(*client_addr2, addr2);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_request_digests_pagination() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        // Create test statuses with different timestamps
+        let base_timestamp = 1000;
+        let mut statuses = Vec::new();
+
+        for i in 0..10 {
+            let digest = B256::from([i as u8; 32]);
+            let mut status = create_test_status(digest, RequestStatusType::Submitted);
+            status.created_at = base_timestamp + (i * 100);
+            statuses.push(status);
+        }
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        let end_timestamp = base_timestamp + 2000; // Include all statuses
+
+        // Test: Get first batch without cursor
+        let batch1 = db.get_all_request_digests(None, end_timestamp, 5).await.unwrap();
+        assert_eq!(batch1.len(), 5, "First batch should return 5 items");
+
+        // Verify ordering: should be sorted by created_at ASC, then digest ASC
+        for i in 1..batch1.len() {
+            assert!(batch1[i].1 >= batch1[i - 1].1, "Timestamps should be in ascending order");
+            if batch1[i].1 == batch1[i - 1].1 {
+                assert!(
+                    batch1[i].0 > batch1[i - 1].0,
+                    "Digests should be in ascending order for same timestamp"
+                );
+            }
+        }
+
+        // Test: Get next batch with cursor
+        let last_item = batch1.last().unwrap();
+        let cursor = Some((last_item.1, last_item.0));
+        let batch2 = db.get_all_request_digests(cursor, end_timestamp, 5).await.unwrap();
+        assert_eq!(batch2.len(), 5, "Second batch should return 5 items");
+
+        // Verify no duplicates between batches
+        let batch1_digests: std::collections::HashSet<B256> =
+            batch1.iter().map(|(d, _)| *d).collect();
+        let batch2_digests: std::collections::HashSet<B256> =
+            batch2.iter().map(|(d, _)| *d).collect();
+        assert!(
+            batch1_digests.is_disjoint(&batch2_digests),
+            "Batches should not contain duplicate digests"
+        );
+
+        // Test: Get remaining items
+        let last_item2 = batch2.last().unwrap();
+        let cursor2 = Some((last_item2.1, last_item2.0));
+        let batch3 = db.get_all_request_digests(cursor2, end_timestamp, 5).await.unwrap();
+        assert_eq!(batch3.len(), 0, "Third batch should be empty (all items already fetched)");
+
+        // Test: Verify total count matches
+        let all_digests: std::collections::HashSet<B256> =
+            batch1.iter().chain(batch2.iter()).map(|(d, _)| *d).collect();
+        assert_eq!(all_digests.len(), 10, "Should have fetched all 10 unique digests");
+
+        // Test: Filter by end_timestamp
+        let filtered_end = base_timestamp + 250; // Only include first 3 items (1000, 1100, 1200)
+        let filtered = db.get_all_request_digests(None, filtered_end, 10).await.unwrap();
+        assert_eq!(filtered.len(), 3, "Should only return items up to end_timestamp");
+        assert!(
+            filtered.iter().all(|(_, ts)| *ts <= filtered_end),
+            "All returned items should have created_at <= end_timestamp"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_count_request_digests_by_timestamp() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        // Test: Count with no items
+        let count = db.count_request_digests_by_timestamp(1000).await.unwrap();
+        assert_eq!(count, 0, "Should return 0 when no items exist");
+
+        // Create test statuses with different timestamps
+        let base_timestamp = 1000;
+        let mut statuses = Vec::new();
+
+        for i in 0..5 {
+            let digest = B256::from([i as u8; 32]);
+            let mut status = create_test_status(digest, RequestStatusType::Submitted);
+            status.created_at = base_timestamp + (i * 100); // 1000, 1100, 1200, 1300, 1400
+            statuses.push(status);
+        }
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        // Test: Count with end_timestamp before any items
+        let count = db.count_request_digests_by_timestamp(500).await.unwrap();
+        assert_eq!(count, 0, "Should return 0 when end_timestamp is before all items");
+
+        // Test: Count with end_timestamp in the middle
+        let count = db.count_request_digests_by_timestamp(base_timestamp + 250).await.unwrap();
+        assert_eq!(count, 3, "Should return 3 items (1000, 1100, 1200)");
+
+        // Test: Count with end_timestamp after all items
+        let count = db.count_request_digests_by_timestamp(base_timestamp + 1000).await.unwrap();
+        assert_eq!(count, 5, "Should return all 5 items when end_timestamp is after all items");
+
+        // Test: Verify count matches get_all_request_digests result
+        let digests = db.get_all_request_digests(None, base_timestamp + 250, 100).await.unwrap();
+        let count = db.count_request_digests_by_timestamp(base_timestamp + 250).await.unwrap();
+        assert_eq!(
+            digests.len() as i64,
+            count,
+            "Count should match number of digests returned by get_all_request_digests"
+        );
     }
 }

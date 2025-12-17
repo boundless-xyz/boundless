@@ -14,6 +14,7 @@
 
 use std::future::Future;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use bonsai_sdk::{
     non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id as Blake3Groth16Id, SnarkId},
@@ -23,10 +24,10 @@ use risc0_zkvm::Receipt;
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
-use crate::{config::ProverConf, futures_retry::retry_only};
+use crate::config::ProverConf;
 use crate::{
     config::{ConfigErr, ConfigLock},
-    futures_retry::retry,
+    futures_retry::{retry, retry_only_with_context, retry_with_context},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -149,21 +150,43 @@ impl Bonsai {
         .await
     }
 
-    async fn retry_only<T, F, Fut>(
+    async fn retry_with_context<T, F, Fut>(
         &self,
         f: F,
         msg: &str,
+        context: &str,
+    ) -> Result<T, ProverError>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<T, ProverError>>,
+    {
+        retry_with_context(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { f().await },
+            msg,
+            context,
+        )
+        .await
+    }
+
+    async fn retry_only_with_context<T, F, Fut>(
+        &self,
+        f: F,
+        msg: &str,
+        context: &str,
         should_retry: impl Fn(&ProverError) -> bool,
     ) -> Result<T, ProverError>
     where
         F: Fn() -> Fut,
         Fut: Future<Output = Result<T, ProverError>>,
     {
-        retry_only(
+        retry_only_with_context(
             self.req_retry_count,
             self.req_retry_sleep_ms,
             || async { f().await },
             msg,
+            context,
             should_retry,
         )
         .await
@@ -350,12 +373,13 @@ impl Prover for Bonsai {
         executor_limit: Option<u64>,
         order_id: &str,
     ) -> Result<ProofResult, ProverError> {
-        self.retry_only(
+        let context = format!("order {order_id}");
+        self.retry_only_with_context(
             || async {
                 // Convert cycles to Mi-cycles (1024*1024) for Bonsai API
                 let bonsai_limit = executor_limit.map(|cycles| cycles.div_ceil(1024 * 1024));
                 let preflight_id: SessionId = self
-                    .retry(
+                    .retry_with_context(
                         || async {
                             Ok(self
                                 .client
@@ -369,6 +393,7 @@ impl Prover for Bonsai {
                                 .await?)
                         },
                         "create session for preflight",
+                        &context,
                     )
                     .await?;
 
@@ -382,6 +407,7 @@ impl Prover for Bonsai {
                 poller.poll_with_retries_session_id(&preflight_id, &self.client).await
             },
             "preflight",
+            &context,
             |err| matches!(err, ProverError::ProverInternalError(_)),
         )
         .await
@@ -549,7 +575,10 @@ impl Prover for Bonsai {
             retry_counts: self.status_poll_retry_count,
         };
 
-        poller.poll_with_retries_snark_id(&proof_id, &self.client).await?;
+        poller
+            .poll_with_retries_snark_id(&proof_id, &self.client)
+            .await
+            .context(format!("Failed to compress proof {proof_id:?}"))?;
 
         Ok(proof_id.uuid)
     }
@@ -581,7 +610,10 @@ impl Prover for Bonsai {
             retry_counts: self.status_poll_retry_count,
         };
 
-        poller.poll_with_retries_blake3_groth16_id(&proof_id, &self.client).await?;
+        poller
+            .poll_with_retries_blake3_groth16_id(&proof_id, &self.client)
+            .await
+            .context(format!("Failed to compress proof {}", proof_id.uuid))?;
 
         Ok(proof_id.uuid)
     }

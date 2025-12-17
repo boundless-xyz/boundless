@@ -453,6 +453,7 @@ async fn test_e2e_price_and_fulfill_batch() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn test_e2e_no_payment() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
@@ -513,11 +514,13 @@ async fn test_e2e_no_payment() {
         };
 
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
-        // fulfill the request.
+        // fulfill the request. This call emits a PaymentRequirementsFailed log since the lock
+        // belongs to a different prover, but the request itself still becomes fulfilled on-chain.
         ctx.prover_market
             .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
             .await
-            .unwrap();
+            .expect("fulfillment should succeed even if payment requirements fail");
+        assert!(logs_contain("Payment requirements failed for at least one fulfillment"));
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
         let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         assert!(balance_before == balance_after);
