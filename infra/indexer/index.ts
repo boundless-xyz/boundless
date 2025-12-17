@@ -13,14 +13,14 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
-  const chainId = config.require('CHAIN_ID');
+  const chainId = config.require('CHAIN_ID');``
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
 
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
-  const dockerDir = config.require('DOCKER_DIR');
-  const dockerTag = config.require('DOCKER_TAG');
+  const dockerDir = config.get('DOCKER_DIR') || '../../';
+  const dockerTag = config.get('DOCKER_TAG') || 'latest';
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const baseStackName = config.require('BASE_STACK');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
@@ -42,7 +42,7 @@ export = () => {
   const marketMetricsNamespace = `Boundless/Market/${marketName}`;
 
   const boundlessAddress = config.get('BOUNDLESS_ADDRESS');
-  const startBlock = boundlessAddress ? config.require('START_BLOCK') : undefined;
+  const startBlock = boundlessAddress ? config.get('START_BLOCK') || '35060420' : undefined;
 
   const vezkcAddress = config.get('VEZKC_ADDRESS');
   const zkcAddress = config.get('ZKC_ADDRESS');
@@ -151,12 +151,18 @@ export = () => {
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
-  return api
-    ? {
-      apiEndpoint: api.cloudFrontDomain,
-      apiGatewayEndpoint: api.apiEndpoint,
-      distributionId: api.distributionId,
-    }
-    : {};
+  const outputs: Record<string, any> = {};
+
+  if (api) {
+    outputs.apiEndpoint = api.cloudFrontDomain;
+    outputs.apiGatewayEndpoint = api.apiEndpoint;
+    outputs.distributionId = api.distributionId;
+  }
+
+  if (marketIndexer) {
+    outputs.backfillLambdaName = marketIndexer.backfillLambdaName;
+  }
+
+  return outputs;
 
 };

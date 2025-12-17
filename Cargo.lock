@@ -2829,6 +2829,7 @@ dependencies = [
  "futures-util",
  "hex",
  "indexer-monitor",
+ "log",
  "order-stream",
  "rand 0.9.2",
  "risc0-zkvm",

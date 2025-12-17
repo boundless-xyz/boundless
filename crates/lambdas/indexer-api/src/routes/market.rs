@@ -355,6 +355,9 @@ pub struct MarketAggregateEntry {
     /// Total number of locked requests that were fulfilled in this period
     pub total_locked_and_fulfilled: i64,
 
+    /// Total number of secondary fulfillments in this period
+    pub total_secondary_fulfillments: i64,
+
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
 
@@ -436,6 +439,9 @@ pub struct MarketCumulativeEntry {
 
     /// Total number of locked requests that were fulfilled (cumulative)
     pub total_locked_and_fulfilled: i64,
+
+    /// Total number of secondary fulfillments (cumulative)
+    pub total_secondary_fulfillments: i64,
 
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
@@ -558,6 +564,9 @@ pub struct RequestorAggregateEntry {
     /// Total number of locked requests that were fulfilled in this period
     pub total_locked_and_fulfilled: i64,
 
+    /// Total number of secondary fulfillments in this period
+    pub total_secondary_fulfillments: i64,
+
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
 
@@ -640,6 +649,9 @@ pub struct RequestorCumulativeEntry {
 
     /// Total number of locked requests that were fulfilled (cumulative)
     pub total_locked_and_fulfilled: i64,
+
+    /// Total number of secondary fulfillments (cumulative)
+    pub total_secondary_fulfillments: i64,
 
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
@@ -862,6 +874,7 @@ async fn get_market_aggregates_impl(
                 total_expired: summary.total_expired as i64,
                 total_locked_and_expired: summary.total_locked_and_expired as i64,
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
@@ -1010,6 +1023,7 @@ async fn get_market_cumulatives_impl(
                 total_expired: summary.total_expired as i64,
                 total_locked_and_expired: summary.total_locked_and_expired as i64,
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
@@ -1221,6 +1235,7 @@ async fn get_requestor_aggregates_impl(
                 total_expired: summary.total_expired as i64,
                 total_locked_and_expired: summary.total_locked_and_expired as i64,
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
@@ -1378,6 +1393,7 @@ async fn get_requestor_cumulatives_impl(
                 total_expired: summary.total_expired as i64,
                 total_locked_and_expired: summary.total_locked_and_expired as i64,
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
