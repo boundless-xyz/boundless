@@ -13,7 +13,7 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
-  const chainId = config.require('CHAIN_ID');``
+  const chainId = config.require('CHAIN_ID');
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
@@ -126,6 +126,7 @@ export = () => {
       intervalMinutes: '1',
       dbUrlSecret: infra.dbUrlSecret,
       rdsSgId: infra.rdsSecurityGroupId,
+      indexerSgId: infra.indexerSecurityGroup.id,
       chainId: chainId,
       rustLogLevel: rustLogLevel,
       boundlessAlertsTopicArns: alertsTopicArns,

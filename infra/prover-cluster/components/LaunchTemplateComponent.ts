@@ -46,6 +46,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   maxFetchRetries?: number;
   allowClientAddresses?: string;
   lockinPriorityGas?: string;
+  orderCommitmentPriority?: string;
   rustLogLevel?: string;
 }
 
@@ -158,8 +159,9 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFetchRetries || 3,
       config.allowClientAddresses || "",
       config.lockinPriorityGas || "0",
+      config.orderCommitmentPriority || "cycle_price",
       config.rustLogLevel || "debug",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, rustLogLevel]) => {
+    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
@@ -186,6 +188,7 @@ collateral_balance_error_threshold = "${collateralBalanceErrorThreshold}"
 max_fetch_retries = ${maxFetchRetries}
 ${allowClientAddresses ? `allow_client_addresses = ${allowClientAddresses}\n` : ''}
 ${lockinPriorityGas ? `lockin_priority_gas = ${lockinPriorityGas}\n` : ''}
+order_commitment_priority = "${orderCommitmentPriority}"
 priority_requestor_lists = [
 	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
 ]

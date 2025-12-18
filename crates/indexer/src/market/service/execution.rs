@@ -108,6 +108,19 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         for (request_digest, input_type, input_data, image_id, image_url, max_price) in
             request_inputs_and_images.clone()
         {
+            // Validate required fields are not empty
+            if image_id.is_empty() || input_type.is_empty() || input_data.is_empty() {
+                tracing::error!(
+                    "Request '{}' has empty required fields: image_id={}, input_type={}, input_data={}",
+                    request_digest,
+                    if image_id.is_empty() { "<empty>" } else { &image_id },
+                    if input_type.is_empty() { "<empty>" } else { &input_type },
+                    if input_data.is_empty() { "<empty>" } else { "<present>" }
+                );
+                failed_executions.push(request_digest);
+                continue;
+            }
+
             // Obtain the request input from either the URL or the inline data
             let input: Bytes =
                 match download_or_decode_input(&config, request_digest, &input_type, &input_data)
