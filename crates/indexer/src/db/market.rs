@@ -447,6 +447,19 @@ pub struct CycleCountExecution {
     pub session_uuid: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RequestWithId {
+    pub request_id: U256,
+    pub request_digest: B256,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExecutionWithId {
+    pub request_id: U256,
+    pub request_digest: B256,
+    pub session_uuid: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct CycleCountExecutionUpdate {
     pub request_digest: B256,
@@ -630,14 +643,15 @@ pub trait IndexerDb {
         to_timestamp: u64,
     ) -> Result<HashSet<B256>, DbError>;
 
-    /// Get request digests for cycle counts in status PENDING
-    async fn get_cycle_counts_pending(&self, limit: u32) -> Result<HashSet<B256>, DbError>;
+    /// Get request digests with request IDs for cycle counts in status PENDING
+    async fn get_cycle_counts_pending(&self, limit: u32)
+        -> Result<HashSet<RequestWithId>, DbError>;
 
-    /// Get request digests and session UUID for cycle counts in status EXECUTING
+    /// Get request digests with request IDs and session UUID for cycle counts in status EXECUTING
     async fn get_cycle_counts_executing(
         &self,
         limit: u32,
-    ) -> Result<HashSet<CycleCountExecution>, DbError>;
+    ) -> Result<HashSet<ExecutionWithId>, DbError>;
 
     /// Update cycle status for executing cycle counts
     async fn set_cycle_counts_executing(
@@ -2292,13 +2306,20 @@ impl IndexerDb for MarketDb {
         Ok(request_digests)
     }
 
-    async fn get_cycle_counts_pending(&self, limit: u32) -> Result<HashSet<B256>, DbError> {
-        let query =
-            "SELECT request_digest FROM cycle_counts WHERE cycle_status = 'PENDING' ORDER BY updated_at DESC LIMIT $1";
+    async fn get_cycle_counts_pending(
+        &self,
+        limit: u32,
+    ) -> Result<HashSet<RequestWithId>, DbError> {
+        let query = "SELECT cc.request_digest, pr.request_id 
+                     FROM cycle_counts cc 
+                     INNER JOIN proof_requests pr ON cc.request_digest = pr.request_digest 
+                     WHERE cc.cycle_status = 'PENDING' 
+                     ORDER BY cc.updated_at DESC 
+                     LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
-        let mut request_digests = HashSet::new();
+        let mut requests = HashSet::new();
         for row in rows {
             let digest_str: String = row.try_get("request_digest")?;
             let digest = match B256::from_str(&digest_str) {
@@ -2308,17 +2329,25 @@ impl IndexerDb for MarketDb {
                     continue;
                 }
             };
-            request_digests.insert(digest);
+            let request_id_str: String = row.try_get("request_id")?;
+            let request_id = U256::from_str_radix(&request_id_str, 16)
+                .map_err(|e| DbError::BadTransaction(format!("Invalid request_id: {}", e)))?;
+            requests.insert(RequestWithId { request_id, request_digest: digest });
         }
 
-        Ok(request_digests)
+        Ok(requests)
     }
 
     async fn get_cycle_counts_executing(
         &self,
         limit: u32,
-    ) -> Result<HashSet<CycleCountExecution>, DbError> {
-        let query = "SELECT request_digest, session_uuid FROM cycle_counts WHERE cycle_status = 'EXECUTING' ORDER BY updated_at DESC LIMIT $1";
+    ) -> Result<HashSet<ExecutionWithId>, DbError> {
+        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id 
+                     FROM cycle_counts cc 
+                     INNER JOIN proof_requests pr ON cc.request_digest = pr.request_digest 
+                     WHERE cc.cycle_status = 'EXECUTING' 
+                     ORDER BY cc.updated_at DESC 
+                     LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
 
@@ -2332,8 +2361,25 @@ impl IndexerDb for MarketDb {
                     continue;
                 }
             };
-            let session_uuid: String = row.try_get("session_uuid")?;
-            execution_info.insert(CycleCountExecution { request_digest: digest, session_uuid });
+            let session_uuid: Option<String> = row.try_get("session_uuid")?;
+            let session_uuid = match session_uuid {
+                Some(uuid) => uuid,
+                None => {
+                    tracing::warn!(
+                        "session_uuid is NULL for EXECUTING request_digest '{}', skipping",
+                        digest_str
+                    );
+                    continue;
+                }
+            };
+            let request_id_str: String = row.try_get("request_id")?;
+            let request_id = U256::from_str_radix(&request_id_str, 16)
+                .map_err(|e| DbError::BadTransaction(format!("Invalid request_id: {}", e)))?;
+            execution_info.insert(ExecutionWithId {
+                request_id,
+                request_digest: digest,
+                session_uuid,
+            });
         }
 
         Ok(execution_info)
@@ -6083,5 +6129,125 @@ mod tests {
             count,
             "Count should match number of digests returned by get_all_request_digests"
         );
+    }
+
+    // Helper to create test proof requests and cycle counts
+    async fn setup_test_requests_and_cycles(
+        db: &DbObj,
+        digests: &[B256],
+        requests: &[ProofRequest],
+        statuses: &[&str],
+    ) {
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        db.add_proof_requests(
+            &digests
+                .iter()
+                .zip(requests.iter())
+                .map(|(d, r)| {
+                    (*d, r.clone(), metadata, "onchain".to_string(), metadata.block_timestamp)
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .unwrap();
+
+        let cycle_counts: Vec<CycleCount> = digests
+            .iter()
+            .zip(statuses.iter())
+            .map(|(d, s)| CycleCount {
+                request_digest: *d,
+                cycle_status: s.to_string(),
+                program_cycles: if *s == "COMPLETED" { Some(U256::from(1000)) } else { None },
+                total_cycles: if *s == "COMPLETED" { Some(U256::from(1015)) } else { None },
+                created_at: timestamp,
+                updated_at: timestamp,
+            })
+            .collect();
+
+        db.add_cycle_counts(&cycle_counts).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_cycle_counts_pending() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        setup_test_requests_and_cycles(
+            &db,
+            &digests,
+            &requests,
+            &["PENDING", "PENDING", "COMPLETED"],
+        )
+        .await;
+
+        let pending = db.get_cycle_counts_pending(10).await.unwrap();
+        assert_eq!(pending.len(), 2);
+        assert!(pending
+            .iter()
+            .any(|r| r.request_id == requests[0].id && r.request_digest == digests[0]));
+        assert!(pending
+            .iter()
+            .any(|r| r.request_id == requests[1].id && r.request_digest == digests[1]));
+        assert!(!pending.iter().any(|r| r.request_id == requests[2].id));
+
+        assert_eq!(db.get_cycle_counts_pending(1).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_cycle_counts_executing() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let requests = vec![
+            generate_request(10, &Address::ZERO),
+            generate_request(20, &Address::ZERO),
+            generate_request(30, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([10; 32]), B256::from([20; 32]), B256::from([30; 32])];
+        setup_test_requests_and_cycles(
+            &db,
+            &digests,
+            &requests,
+            &["PENDING", "PENDING", "PENDING"],
+        )
+        .await;
+
+        db.set_cycle_counts_executing(
+            &vec![
+                CycleCountExecution {
+                    request_digest: digests[0],
+                    session_uuid: "session-1".to_string(),
+                },
+                CycleCountExecution {
+                    request_digest: digests[1],
+                    session_uuid: "session-2".to_string(),
+                },
+            ]
+            .into_iter()
+            .collect(),
+        )
+        .await
+        .unwrap();
+
+        let executing = db.get_cycle_counts_executing(10).await.unwrap();
+        assert_eq!(executing.len(), 2);
+        assert!(executing
+            .iter()
+            .any(|r| r.request_id == requests[0].id && r.session_uuid == "session-1"));
+        assert!(executing
+            .iter()
+            .any(|r| r.request_id == requests[1].id && r.session_uuid == "session-2"));
+        assert!(!executing.iter().any(|r| r.request_id == requests[2].id));
+
+        assert_eq!(db.get_cycle_counts_executing(1).await.unwrap().len(), 1);
     }
 }
