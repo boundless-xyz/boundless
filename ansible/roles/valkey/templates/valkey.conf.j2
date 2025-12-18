@@ -1,4 +1,4 @@
-bind {{ valkey_bind }}
+bind {{ valkey_host }}
 port {{ valkey_port }}
 protected-mode {{ 'yes' if valkey_protected_mode else 'no' }}
 maxmemory {{ valkey_maxmemory }}

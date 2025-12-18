@@ -88,7 +88,6 @@ Set in `host_vars` or via `-e`:
 
 * `valkey_host` (default: `"localhost"`)
 * `valkey_port` (default: `6379`)
-* `valkey_bind` (default: `"127.0.0.1"`)
 * `valkey_maxmemory` (default: `"12gb"`)
 
 ### Broker

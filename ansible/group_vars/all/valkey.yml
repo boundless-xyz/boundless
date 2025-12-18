@@ -5,7 +5,6 @@ valkey_service_enabled: true
 valkey_service_state: started
 valkey_host: "localhost"
 valkey_port: 6379
-valkey_bind: "127.0.0.1"
 valkey_protected_mode: false
 valkey_maxmemory: "12gb"
 valkey_maxmemory_policy: "allkeys-lru"

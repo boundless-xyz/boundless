@@ -9,9 +9,6 @@ valkey_service_state: started
 # Valkey configuration
 valkey_host: "localhost"
 valkey_port: 6379
-# Bind address - can be set via VALKEY_BIND environment variable
-# Set to '0.0.0.0' to listen on all interfaces, or specific IP address
-valkey_bind: "{{ lookup('env', 'VALKEY_BIND') | default('127.0.0.1', true) | string }}"
 valkey_protected_mode: false
 valkey_maxmemory: "12gb"
 valkey_maxmemory_policy: "allkeys-lru"
