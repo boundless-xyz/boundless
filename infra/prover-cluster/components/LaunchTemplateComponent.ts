@@ -27,7 +27,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   s3AccessKeyId?: pulumi.Output<string>;
   s3SecretAccessKey?: pulumi.Output<string>;
   // Broker configuration
-  brokerRpcUrls?: pulumi.Output<string[]>;
+  brokerRpcUrls?: pulumi.Output<string>;
   mcyclePrice?: string;
   peakProveKhz?: number;
   minDeadline?: number;
@@ -142,7 +142,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.s3BucketName!,
       config.s3AccessKeyId!,
       config.s3SecretAccessKey!,
-      config.brokerRpcUrls! as pulumi.Input<string[]>,
+      config.brokerRpcUrls!,
       config.mcyclePrice || "0.00000001",
       config.peakProveKhz || 100,
       config.minDeadline || 0,
@@ -162,7 +162,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.orderCommitmentPriority || "cycle_price",
       config.rustLogLevel || "debug",
     ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
-      const brokerRpcUrlsStr = (brokerRpcUrls as string[]).map((url: string) => `"${url}"`).join(',');
+      const brokerRpcUrlsStr = brokerRpcUrls;
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
