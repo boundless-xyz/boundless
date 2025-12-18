@@ -361,7 +361,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             db.get_cycle_counts_executing(config.max_status_queries).await.unwrap();
         if !executing_requests.is_empty() {
             tracing::debug!(
-                "Executing requests found: {}",
+                "Executing cycle count requests found: {}",
                 executing_requests
                     .iter()
                     .map(|r| format!("id=0x{:x}, digest={:x}", r.request_id, r.request_digest))
@@ -369,7 +369,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     .join(", ")
             );
         } else {
-            tracing::info!("No executing requests found");
+            tracing::info!("No executing cycle countrequests found");
         }
 
         let mut completed_executions = Vec::new();
@@ -437,22 +437,50 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     );
                 }
                 _ => {
+                    tracing::error!(
+                        "Cycle count status for request id=0x{:x}, digest={:x} is not SUCCEEDED or RUNNING: {}. Marking as FAILED.",
+                        execution_info.request_id,
+                        execution_info.request_digest,
+                        execution_status.status
+                    );
                     failed_executions.push(execution_info.request_digest);
                 }
             }
         }
 
-        db.set_cycle_counts_completed(&completed_executions).await.unwrap();
-        tracing::debug!(
-            "Updated cycle counts for {} requests with COMPLETED status",
-            completed_executions.len()
-        );
+        if !completed_executions.is_empty() {
+            let requests_info = completed_executions
+                .iter()
+                .map(|c| {
+                    format!(
+                        "id=0x{:x}, digest={:x}",
+                        digest_to_request_id.get(&c.request_digest).unwrap(),
+                        c.request_digest
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            db.set_cycle_counts_completed(&completed_executions).await.unwrap();
+            tracing::debug!(
+                "Updated cycle counts for {} requests with COMPLETED status: {}",
+                completed_executions.len(),
+                requests_info
+            );
+        }
 
-        db.set_cycle_counts_failed(&failed_executions).await.unwrap();
-        tracing::debug!(
-            "Updated cycle counts for {} requests with FAILED status",
-            failed_executions.len()
-        );
+        if !failed_executions.is_empty() {
+            let requests_info = failed_executions
+                .iter()
+                .map(|c| format!("id=0x{:x}, digest={:x}", digest_to_request_id.get(c).unwrap(), c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            db.set_cycle_counts_failed(&failed_executions).await.unwrap();
+            tracing::debug!(
+                "Updated cycle counts for {} requests with FAILED status: {}",
+                failed_executions.len(),
+                requests_info
+            );
+        }
     }
 }
 
