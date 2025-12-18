@@ -159,6 +159,7 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         &self,
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
+        #[allow(unused_mut)]
         let mut predicate = params.predicate.clone();
         #[cfg(feature = "blake3-groth16")]
         if let Some(selector) = &params.selector {
