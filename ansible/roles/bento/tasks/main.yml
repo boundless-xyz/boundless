@@ -84,8 +84,53 @@
     - bento
     - bento-install
 
+- name: Check installed Bento version
+  ansible.builtin.stat:
+    path: "{{ bento_config_dir }}/.bento_version"
+  register: bento_version_file_check
+  tags:
+    - bento
+    - bento-install
+
+- name: Read installed Bento version
+  ansible.builtin.slurp:
+    src: "{{ bento_config_dir }}/.bento_version"
+  register: bento_installed_version
+  when: bento_version_file_check.stat.exists
+  tags:
+    - bento
+    - bento-install
+
+- name: Set installed version fact
+  ansible.builtin.set_fact:
+    bento_installed_version_str: "{{ bento_installed_version.content | b64decode | trim }}"
+  when: bento_version_file_check.stat.exists
+  tags:
+    - bento
+    - bento-install
+
+- name: Set installed version fact (when file doesn't exist)
+  ansible.builtin.set_fact:
+    bento_installed_version_str: ""
+  when: not bento_version_file_check.stat.exists
+  tags:
+    - bento
+    - bento-install
+
+- name: Determine if Bento needs to be updated
+  ansible.builtin.set_fact:
+    bento_needs_update: >-
+      {{
+        not bento_agent_check.stat.exists or
+        not bento_rest_api_check.stat.exists or
+        bento_installed_version_str != bento_version
+      }}
+  tags:
+    - bento
+    - bento-install
+
 - name: Install Bento
-  when: not bento_agent_check.stat.exists or not bento_rest_api_check.stat.exists
+  when: bento_needs_update | bool
   tags:
     - bento
     - bento-install
@@ -136,7 +181,6 @@
         owner: root
         group: root
         remote_src: true
-      when: not bento_agent_check.stat.exists
       notify: Reload systemd
 
     - name: Install Bento REST API binary
@@ -147,8 +191,21 @@
         owner: root
         group: root
         remote_src: true
-      when: not bento_rest_api_check.stat.exists
       notify: Reload systemd
+
+    - name: Check if Bento CLI binary exists in bundle
+      ansible.builtin.stat:
+        path: /tmp/bento-bundle/bento-cli
+      register: bento_cli_bundle_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check if Bento CLI binary is already installed
+      ansible.builtin.stat:
+        path: "{{ bento_install_dir }}/bento-cli"
+      register: bento_cli_check
+      changed_when: false
+      failed_when: false
 
     - name: Install Bento CLI binary (for miner)
       ansible.builtin.copy:
@@ -162,6 +219,22 @@
         - bento_cli_bundle_check.stat.exists
         - not bento_cli_check.stat.exists
       notify: Reload systemd
+
+    - name: Ensure Bento configuration directory exists (for version file)
+      ansible.builtin.file:
+        path: "{{ bento_config_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Record installed Bento version
+      ansible.builtin.copy:
+        content: "{{ bento_version }}\n"
+        dest: "{{ bento_config_dir }}/.bento_version"
+        mode: '0644'
+        owner: root
+        group: root
 
     - name: Clean up Bento bundle archive
       ansible.builtin.file:
