@@ -29,7 +29,7 @@ bento_task: "prove"
 bento_user: "bento"
 bento_valkey_host: "{{ valkey_host }}"
 bento_valkey_port: "{{ valkey_port }}"
-bento_version: "v1.1.2"
+bento_version: "v1.2.0"
 bento_work_dir: "/var/lib/bento"
 # Service counts
 bento_gpu_count: 1
