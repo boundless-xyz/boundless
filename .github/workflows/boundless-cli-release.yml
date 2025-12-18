@@ -1,18 +1,6 @@
 name: Build and Release Boundless CLI
 
 on:
-  pull_request:
-    branches:
-      - main
-    inputs:
-      version:
-        description: 'Version to release (e.g., boundless-v1.0.0)'
-        required: true
-        default: 'boundless-v1.0.0'
-      dry_run:
-        description: 'Dry run (build only, no release)'
-        required: false
-        default: 'false'
   push:
     tags:
       - 'boundless-v*'
