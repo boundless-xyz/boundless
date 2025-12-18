@@ -156,7 +156,7 @@
 
     - name: Wait for MinIO to be ready
       ansible.builtin.wait_for:
-        host: "{{ minio_bind }}"
+        host: "{{ minio_host }}"
         port: "{{ minio_port }}"
         delay: 5
         timeout: 60
@@ -187,7 +187,7 @@
 
         - name: Configure MinIO client alias
           ansible.builtin.shell: |
-            {{ minio_install_dir }}/mc alias set local http://{{ minio_bind }}:{{ minio_port }} {{ minio_root_user }} {{ minio_root_password }}
+            {{ minio_install_dir }}/mc alias set local http://{{ minio_host }}:{{ minio_port }} {{ minio_root_user }} {{ minio_root_password }}
           environment:
             HOME: "{{ minio_home }}"
           changed_when: false

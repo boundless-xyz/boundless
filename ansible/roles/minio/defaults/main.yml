@@ -19,16 +19,13 @@ minio_shell: "/usr/sbin/nologin"
 minio_host: "localhost"
 minio_port: 9000
 minio_console_port: 9001
-# Bind address - can be set via MINIO_BIND environment variable
-# Set to '0.0.0.0' to listen on all interfaces, or specific IP address
-minio_bind: "{{ lookup('env', 'MINIO_BIND') | default('127.0.0.1', true) | string }}"
 
 # MinIO credentials
 # Secrets can be set via environment variables (preferred) or overridden in playbooks
 # Environment variables: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
 # Note: default(..., true) handles empty strings from env vars
-minio_root_user: "{{ lookup('env', 'MINIO_ROOT_USER') | default('minioadmin', true) | string }}"
-minio_root_password: "{{ lookup('env', 'MINIO_ROOT_PASSWORD') | default('minioadmin', true) | string }}"
+minio_root_user: "minioadmin"
+minio_root_password: "minioadmin"
 
 # MinIO data directory
 minio_data_dir: "/var/lib/minio/data"

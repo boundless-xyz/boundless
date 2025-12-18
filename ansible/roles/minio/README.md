@@ -32,7 +32,6 @@ This Ansible role installs and configures MinIO, an S3-compatible object storage
 * `minio_host` (default: `"localhost"`): Hostname for MinIO
 * `minio_port` (default: `9000`): Port for MinIO API
 * `minio_console_port` (default: `9001`): Port for MinIO web console
-* `minio_bind` (default: `"0.0.0.0"`): Bind address for MinIO
 
 ### Credentials
 
@@ -94,7 +93,7 @@ To use MinIO with the Bento role, set the following variables:
 ## Notes
 
 * The default credentials (`minioadmin`/`minioadmin`) should be changed in production
-* MinIO will be accessible at `http://{{ minio_bind }}:{{ minio_port }}` for API and `http://{{ minio_bind }}:{{ minio_console_port }}` for web console
+* MinIO will be accessible at `http://{{ minio_host }}:{{ minio_port }}` for API and `http://{{ minio_host }}:{{ minio_console_port }}` for web console
 * The service runs as a dedicated `minio` user for security
 * MinIO uses `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` environment variables for authentication
 
