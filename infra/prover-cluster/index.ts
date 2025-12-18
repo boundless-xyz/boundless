@@ -25,8 +25,8 @@ const environment: string = config.get("environment") || "custom";
 
 // Required base configuration
 const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
-const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
 const managerInstanceType: string = config.require("managerInstanceType");
+const brokerRpcUrls: pulumi.Output<string[]> = pulumi.output(config.requireObject<string[]>("brokerRpcUrls"));
 const orderStreamUrl: pulumi.Output<string> = config.requireSecret("orderStreamUrl"); // Use secret to avoid exposing staging urls
 const verifierAddress: string = config.require("verifierAddress");
 const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
@@ -121,7 +121,7 @@ const manager = new ManagerComponent({
     taskDBName,
     taskDBUsername,
     taskDBPassword,
-    ethRpcUrl,
+    brokerRpcUrls,
     privateKey,
     orderStreamUrl,
     verifierAddress,

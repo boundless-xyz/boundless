@@ -23,8 +23,9 @@ config:
   prover-cluster:proverWorkerCount: "1"
   prover-cluster:privateKey:
     secure: v1:A40tf9hZSLaHuUE0:9yyTkMHaNS2t/CdMkV0Ylly7AI2fZBMtVLuxu5qbaAIJrIUWjJ4tPNii1xL1uNps8LmIai9N6C8xwRAPs6NgwNHLmTcvVBePxVeTsqqcgzdMxA==
-  prover-cluster:ethRpcUrl:
-    secure: v1:lBwY+KQ4/2FTr1Ya:/H/mfCn/NAOKHW0r5Nvwew/GF5HoAnTsxZCG5Gg95RxEZVHDAtSc6kd7OD6MPOM4MHKtrxWDZjdwC97WEq33UuLQQ8UFvHIwUxab31Z1TG5Yp8J5+HByXi21AgKW1CpWgIgT+vgTNU5Kj43K
+  prover-cluster:brokerRpcUrls:
+    - "https://rpc.boundless.network"
+    - "https://rpc.boundless.network"
   prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network"
   prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
   prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
