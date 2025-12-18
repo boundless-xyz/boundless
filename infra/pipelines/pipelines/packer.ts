@@ -69,11 +69,11 @@ export class PackerPipeline extends pulumi.ComponentResource {
                     },
                     {
                         name: "BOUNDLESS_BENTO_VERSION",
-                        value: "v1.1.2",
+                        value: "v1.2.0",
                     },
                     {
                         name: "BOUNDLESS_BROKER_VERSION",
-                        value: "v1.1.2",
+                        value: "v1.2.0",
                     },
                     {
                         name: "DEVELOPMENT_ACCOUNT_ID",
