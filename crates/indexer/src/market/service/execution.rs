@@ -57,6 +57,12 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
             };
 
+        tracing::info!(
+            "Current cycle counts execution state: {} pending, {} executing",
+            pending_count,
+            executing_count
+        );
+
         // Find cycle counts still in state PENDING, up to the max we want to have executing at a time
         let mut requests_to_process: HashSet<RequestWithId> = HashSet::new();
 
@@ -74,12 +80,6 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             };
             requests_to_process.extend(pending_cycle_counts);
         }
-
-        tracing::info!(
-            "Current cycle counts execution state: {} pending, {} executing",
-            pending_count,
-            executing_count
-        );
 
         // Build a map from request_digest to request_id for logging
         let digest_to_request_id: HashMap<B256, U256> =
