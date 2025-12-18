@@ -443,10 +443,16 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         }
 
         db.set_cycle_counts_completed(&completed_executions).await.unwrap();
-        tracing::debug!("Updated cycle counts for {} requests with COMPLETED status", completed_executions.len());
+        tracing::debug!(
+            "Updated cycle counts for {} requests with COMPLETED status",
+            completed_executions.len()
+        );
 
         db.set_cycle_counts_failed(&failed_executions).await.unwrap();
-        tracing::debug!("Updated cycle counts for {} requests with FAILED status", failed_executions.len());
+        tracing::debug!(
+            "Updated cycle counts for {} requests with FAILED status",
+            failed_executions.len()
+        );
     }
 }
 
