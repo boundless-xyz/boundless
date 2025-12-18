@@ -451,14 +451,10 @@ mod tests {
         let hex_input = format!("0x{}", hex::encode(&encoded));
 
         // Decode it
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Inline".to_string(),
-            &hex_input,
-        )
-        .await
-        .unwrap();
+        let result =
+            download_or_decode_input(&config, request_digest, &"Inline".to_string(), &hex_input)
+                .await
+                .unwrap();
 
         assert_eq!(result.as_ref(), test_stdin.as_slice());
     }
@@ -477,14 +473,10 @@ mod tests {
         let hex_input = hex::encode(&encoded);
 
         // Decode it
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Inline".to_string(),
-            &hex_input,
-        )
-        .await
-        .unwrap();
+        let result =
+            download_or_decode_input(&config, request_digest, &"Inline".to_string(), &hex_input)
+                .await
+                .unwrap();
 
         assert_eq!(result.as_ref(), test_stdin.as_slice());
     }
@@ -500,14 +492,10 @@ mod tests {
         let hex_input = format!("0x{}", hex::encode(&encoded));
 
         // Decode it
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Inline".to_string(),
-            &hex_input,
-        )
-        .await
-        .unwrap();
+        let result =
+            download_or_decode_input(&config, request_digest, &"Inline".to_string(), &hex_input)
+                .await
+                .unwrap();
 
         assert!(result.is_empty());
     }
@@ -518,13 +506,9 @@ mod tests {
         let request_digest = B256::from([4; 32]);
 
         // Invalid hex string
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Inline".to_string(),
-            "0xGGGG",
-        )
-        .await;
+        let result =
+            download_or_decode_input(&config, request_digest, &"Inline".to_string(), "0xGGGG")
+                .await;
 
         assert!(result.is_err());
     }
@@ -538,13 +522,9 @@ mod tests {
         let invalid_data = vec![99u8, 1, 2, 3]; // Version 99 is unsupported
         let hex_input = format!("0x{}", hex::encode(&invalid_data));
 
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Inline".to_string(),
-            &hex_input,
-        )
-        .await;
+        let result =
+            download_or_decode_input(&config, request_digest, &"Inline".to_string(), &hex_input)
+                .await;
 
         assert!(result.is_err());
     }
@@ -555,13 +535,8 @@ mod tests {
         let request_digest = B256::from([6; 32]);
 
         // Empty hex input (decodes to empty byte array)
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Inline".to_string(),
-            "0x",
-        )
-        .await;
+        let result =
+            download_or_decode_input(&config, request_digest, &"Inline".to_string(), "0x").await;
 
         // GuestEnv::decode returns error for empty input
         assert!(result.is_err());
@@ -578,14 +553,10 @@ mod tests {
         v0_encoded.extend_from_slice(&test_stdin);
         let hex_input = format!("0x{}", hex::encode(&v0_encoded));
 
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Inline".to_string(),
-            &hex_input,
-        )
-        .await
-        .unwrap();
+        let result =
+            download_or_decode_input(&config, request_digest, &"Inline".to_string(), &hex_input)
+                .await
+                .unwrap();
 
         assert_eq!(result.as_ref(), test_stdin.as_slice());
     }
@@ -616,14 +587,10 @@ mod tests {
         let url = format!("file://{}", file_path);
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Url".to_string(),
-            &hex_url,
-        )
-        .await
-        .unwrap();
+        let result =
+            download_or_decode_input(&config, request_digest, &"Url".to_string(), &hex_url)
+                .await
+                .unwrap();
 
         assert_eq!(result.as_ref(), test_stdin.as_slice());
     }
@@ -640,13 +607,8 @@ mod tests {
         let url = "file:///nonexistent/path/to/file.bin";
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Url".to_string(),
-            &hex_url,
-        )
-        .await;
+        let result =
+            download_or_decode_input(&config, request_digest, &"Url".to_string(), &hex_url).await;
 
         assert!(result.is_err());
     }
@@ -672,13 +634,8 @@ mod tests {
         let url = format!("file://{}", file_path);
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
-        let result = download_or_decode_input(
-            &config,
-            request_digest,
-            &"Url".to_string(),
-            &hex_url,
-        )
-        .await;
+        let result =
+            download_or_decode_input(&config, request_digest, &"Url".to_string(), &hex_url).await;
 
         assert!(result.is_err());
     }
