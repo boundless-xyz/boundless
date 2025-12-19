@@ -43,5 +43,7 @@ broker_allow_client_addresses:
   - "0x0d4b7e56a3d78af33a969938724656c886543444"
   - "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e"
   - "0x076aca5883adb08c31e9308c59cd8495a2513da7"
+  - "0x787134c5461170dd0743f97beb4a322b179babc2"
+  - "0x40a86041f44443Ad137B0F89E3F852Ae588fac42"
 broker_service_enabled: true
 broker_service_state: started
