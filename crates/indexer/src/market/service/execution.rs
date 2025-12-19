@@ -136,7 +136,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         for (request_digest, input_type, input_data, image_id, image_url, max_price) in
             request_inputs_and_images.clone()
         {
-            // Get request_id for logging (may be None if proof_request doesn't exist yet)
+            // Get request_id for logging
             let request_id = digest_to_request_id.get(&request_digest).copied().flatten();
 
             // Validate required fields are not empty

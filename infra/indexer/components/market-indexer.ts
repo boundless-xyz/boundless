@@ -338,19 +338,16 @@ export class MarketIndexer extends pulumi.ComponentResource {
     this.backfillLambdaName = backfillLambda.name;
 
     // Create EventBridge rule for daily scheduled backfill
-    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-sced2`, {
+    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-schedule`, {
       name: `${serviceName}-backfill-daily`,
       description: `Daily scheduled backfill for ${serviceName}`,
       scheduleExpression: 'cron(0 2 * * ? *)', // Run daily at 2 AM UTC
       state: 'ENABLED',
-    }, {
-      parent: this,
-      aliases: [{ name: `${serviceName}-backfill-sced` }, { name: `${serviceName}-backfill-schedule` }],
-    });
+    }, { parent: this });
 
     // Grant EventBridge permission to invoke Lambda
-    new aws.lambda.Permission(`${serviceName}-backfill-perm`, {
-      statementId: `AllowExecutionFromEventBridge-${serviceName}`,
+    new aws.lambda.Permission(`${serviceName}-backfill-schedule-permission`, {
+      statementId: 'AllowExecutionFromEventBridge',
       action: 'lambda:InvokeFunction',
       function: backfillLambda.name,
       principal: 'events.amazonaws.com',
@@ -358,7 +355,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     // Add Lambda as target for EventBridge rule
-    new aws.cloudwatch.EventTarget(`${serviceName}-backfill-tar`, {
+    new aws.cloudwatch.EventTarget(`${serviceName}-backfill-schedule-target`, {
       rule: backfillScheduleRule.name,
       arn: backfillLambda.arn,
     }, { parent: this });
