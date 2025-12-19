@@ -12,7 +12,6 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   taskDBName: string;
   taskDBUsername: string;
   taskDBPassword: string;
-  ethRpcUrl?: pulumi.Output<string>;
   privateKey?: pulumi.Output<string>;
   orderStreamUrl?: pulumi.Output<string>;
   verifierAddress?: string;
@@ -28,6 +27,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   s3AccessKeyId?: pulumi.Output<string>;
   s3SecretAccessKey?: pulumi.Output<string>;
   // Broker configuration
+  brokerRpcUrls?: pulumi.Output<string>;
   mcyclePrice?: string;
   peakProveKhz?: number;
   minDeadline?: number;
@@ -129,7 +129,6 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.taskDBName,
       config.taskDBUsername,
       config.taskDBPassword,
-      config.ethRpcUrl!,
       config.privateKey!,
       config.orderStreamUrl!,
       config.verifierAddress!,
@@ -143,6 +142,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.s3BucketName!,
       config.s3AccessKeyId!,
       config.s3SecretAccessKey!,
+      config.brokerRpcUrls!,
       config.mcyclePrice || "0.00000001",
       config.peakProveKhz || 100,
       config.minDeadline || 0,
@@ -161,7 +161,8 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.lockinPriorityGas || "0",
       config.orderCommitmentPriority || "cycle_price",
       config.rustLogLevel || "debug",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
+    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
+      const brokerRpcUrlsStr = brokerRpcUrls;
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
@@ -272,7 +273,7 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
       AWS_REGION=us-west-2
       STACK_NAME=${stackName}
       COMPONENT_TYPE=${componentType}
-      PROVER_RPC_URL=${rpcUrl}
+      PROVER_RPC_URLS=${brokerRpcUrlsStr}
       PROVER_PRIVATE_KEY=${privKey}
       RPC_URL=${rpcUrl}
       PRIVATE_KEY=${privKey}
