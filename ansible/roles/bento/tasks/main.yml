@@ -251,13 +251,13 @@
         path: /tmp/bento-bundle
         state: absent
 
-- name: Create Bento configuration directory
+- name: Ensure /etc/boundless exists (shared parent directory)
   ansible.builtin.file:
-    path: "{{ bento_config_dir }}"
+    path: "/etc/boundless"
     state: directory
     mode: '0755'
     owner: root
-    group: "{{ bento_group }}"
+    group: root
   tags:
     - bento
     - bento-config
