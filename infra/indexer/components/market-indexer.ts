@@ -307,8 +307,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     // Create Lambda function
-    const backfillLambda = new aws.lambda.Function(`${serviceName}-backfill-trigger`, {
-      name: `${serviceName}-backfill-trigger`,
+    const backfillLambda = new aws.lambda.Function(`${serviceName}-backfill-start`, {
+      name: `${serviceName}-backfill-start`,
       role: lambdaRole.arn,
       runtime: 'nodejs20.x',
       handler: 'index.handler',
@@ -338,19 +338,18 @@ export class MarketIndexer extends pulumi.ComponentResource {
     this.backfillLambdaName = backfillLambda.name;
 
     // Create EventBridge rule for daily scheduled backfill
-    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-sced2`, {
-      name: `${serviceName}-backfill-daily`,
+    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-rule`, {
+      name: `${serviceName}-backfill-rule`,
       description: `Daily scheduled backfill for ${serviceName}`,
       scheduleExpression: 'cron(0 2 * * ? *)', // Run daily at 2 AM UTC
       state: 'ENABLED',
     }, {
       parent: this,
-      aliases: [{ name: `${serviceName}-backfill-sced` }, { name: `${serviceName}-backfill-schedule` }],
     });
 
     // Grant EventBridge permission to invoke Lambda
-    new aws.lambda.Permission(`${serviceName}-backfill-perm`, {
-      statementId: `AllowExecutionFromEventBridge-${serviceName}`,
+    new aws.lambda.Permission(`${serviceName}-backfill-lmbd-perm`, {
+      statementId: `AllowEventBridge-${serviceName}`,
       action: 'lambda:InvokeFunction',
       function: backfillLambda.name,
       principal: 'events.amazonaws.com',
@@ -358,7 +357,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     // Add Lambda as target for EventBridge rule
-    new aws.cloudwatch.EventTarget(`${serviceName}-backfill-tar`, {
+    new aws.cloudwatch.EventTarget(`${serviceName}-backfill-targ`, {
       rule: backfillScheduleRule.name,
       arn: backfillLambda.arn,
     }, { parent: this });
