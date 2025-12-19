@@ -338,12 +338,15 @@ export class MarketIndexer extends pulumi.ComponentResource {
     this.backfillLambdaName = backfillLambda.name;
 
     // Create EventBridge rule for daily scheduled backfill
-    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-sced`, {
+    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-sced2`, {
       name: `${serviceName}-backfill-daily`,
       description: `Daily scheduled backfill for ${serviceName}`,
       scheduleExpression: 'cron(0 2 * * ? *)', // Run daily at 2 AM UTC
       state: 'ENABLED',
-    }, { parent: this });
+    }, {
+      parent: this,
+      aliases: [{ name: `${serviceName}-backfill-sced` }, { name: `${serviceName}-backfill-schedule` }],
+    });
 
     // Grant EventBridge permission to invoke Lambda
     new aws.lambda.Permission(`${serviceName}-backfill-perm`, {
