@@ -376,6 +376,12 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         // as well as any ones started earlier that haven't terminated yet
         let executing_requests: HashSet<ExecutionWithId> =
             db.get_cycle_counts_executing(config.max_status_queries).await.unwrap();
+
+        // Build a map from request_digest to request_id for all executing requests
+        // (including ones that were already executing from previous iterations)
+        let executing_digest_to_request_id: HashMap<B256, Option<U256>> =
+            executing_requests.iter().map(|r| (r.request_digest, r.request_id)).collect();
+
         if !executing_requests.is_empty() {
             tracing::debug!(
                 "Executing cycle count requests found: {}",
@@ -476,7 +482,10 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     format!(
                         "id={}, digest={:x}",
                         fmt_request_id(
-                            digest_to_request_id.get(&c.request_digest).copied().flatten()
+                            executing_digest_to_request_id
+                                .get(&c.request_digest)
+                                .copied()
+                                .flatten()
                         ),
                         c.request_digest
                     )
@@ -495,11 +504,13 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             let requests_info = failed_executions
                 .iter()
                 .map(|c| {
-                    format!(
-                        "id={}, digest={:x}",
-                        fmt_request_id(digest_to_request_id.get(c).copied().flatten()),
-                        c
-                    )
+                    // Check executing requests first, then fall back to newly submitted requests
+                    let request_id = executing_digest_to_request_id
+                        .get(c)
+                        .copied()
+                        .flatten()
+                        .or_else(|| digest_to_request_id.get(c).copied().flatten());
+                    format!("id={}, digest={:x}", fmt_request_id(request_id), c)
                 })
                 .collect::<Vec<_>>()
                 .join(", ");

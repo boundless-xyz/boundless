@@ -23,7 +23,7 @@ use alloy::primitives::B256;
 use alloy::providers::Provider;
 use std::cmp::min;
 use std::collections::HashSet;
-use tokio::task::JoinSet;
+use std::time::Duration;
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -66,6 +66,7 @@ where
         let db_clone = self.db.clone();
         let config_clone = self.config.clone();
         if let Some(execution_config) = config_clone.execution_config {
+            // TODO: Currently we assume running the execution task supervisor itself won't panic, so don't keep the handle.
             tokio::spawn(run_execution_task_supervisor(db_clone, execution_config));
         } else {
             tracing::info!("Execution configuration not found, not starting executor task");
@@ -291,6 +292,7 @@ where
         let to_timestamp = self.block_timestamp(to_block).await?;
         let request_digests =
             self.db.get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp).await?;
+        tracing::debug!("Found {} cycle counts that were updated in the current timestamp range. Will recompute statuses for these requests.", request_digests.len());
         Ok(request_digests)
     }
 
@@ -333,60 +335,40 @@ fn find_starting_block(
 }
 
 /// Simple supervisor that runs the execution task and restarts it on failure.
-/// Uses JoinSet to monitor the task and capture panic/error information.
 async fn run_execution_task_supervisor(db: DbObj, config: IndexerServiceExecutionConfig) {
     const RESTART_DELAY_SECS: u64 = 5;
 
-    let mut tasks: JoinSet<()> = JoinSet::new();
+    loop {
+        tracing::info!("Starting cycle count execution task");
+        let db_clone = db.clone();
+        let config_clone = config.clone();
 
-    // Spawn initial task
-    tracing::info!("Starting cycle count execution task");
-    let db_clone = db.clone();
-    let config_clone = config.clone();
-    tasks.spawn(async move {
-        execute_requests(db_clone, config_clone).await;
-    });
+        let handle = tokio::spawn(async move {
+            execute_requests(db_clone, config_clone).await;
+        });
 
-    // Monitor and restart on failure
-    while let Some(result) = tasks.join_next().await {
-        match result {
+        match handle.await {
             Ok(()) => {
-                // Task returned normally (shouldn't happen since it loops forever)
                 tracing::warn!(
                     "Cycle count execution task returned unexpectedly, restarting in {} seconds",
                     RESTART_DELAY_SECS
                 );
             }
-            Err(e) => {
-                // Task panicked - try to extract the panic message
-                let panic_msg = e
-                    .try_into_panic()
-                    .ok()
-                    .map(|p| {
-                        p.downcast::<String>()
-                            .map(|s| *s)
-                            .or_else(|p| p.downcast::<&str>().map(|s| s.to_string()))
-                            .unwrap_or_else(|_| "Unknown panic".to_string())
-                    })
-                    .unwrap_or_else(|| "Task failed".to_string());
+            Err(e) if e.is_panic() => {
                 tracing::error!(
-                    "Cycle count execution task failed: {}. Restarting in {} seconds...",
-                    panic_msg,
+                    "Cycle count execution task panicked, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Cycle count execution task cancelled ({e}), restarting in {} seconds",
                     RESTART_DELAY_SECS
                 );
             }
         }
 
-        // Wait before restarting
-        tokio::time::sleep(tokio::time::Duration::from_secs(RESTART_DELAY_SECS)).await;
-
-        // Respawn the task
-        tracing::info!("Respawning cycle count execution task");
-        let db_clone = db.clone();
-        let config_clone = config.clone();
-        tasks.spawn(async move {
-            execute_requests(db_clone, config_clone).await;
-        });
+        tokio::time::sleep(Duration::from_secs(RESTART_DELAY_SECS)).await;
     }
 }
 

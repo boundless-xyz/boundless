@@ -449,18 +449,18 @@ pub struct CycleCountExecution {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RequestWithId {
-    /// Some requests may not have a corresponding entry in the proof_requests table. So we can fail to find
-    /// the request id. This can happen if the request was fulfilled without it being submitted on-chain,
-    /// or via our known off-chain order stream.
+    /// Some requests may not have a corresponding entry in the proof_requests table.
+    /// This is because we only populate the proof_request table if we see request submitted event, or
+    /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
     pub request_id: Option<U256>,
     pub request_digest: B256,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExecutionWithId {
-    /// Some requests may not have a corresponding entry in the proof_requests table. So we can fail to find
-    /// the request id. This can happen if the request was fulfilled without it being submitted on-chain,
-    /// or via our known off-chain order stream.
+    /// Some requests may not have a corresponding entry in the proof_requests table.
+    /// This is because we only populate the proof_request table if we see request submitted event, or
+    /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
     pub request_id: Option<U256>,
     pub request_digest: B256,
     pub session_uuid: String,
