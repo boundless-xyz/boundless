@@ -25,10 +25,16 @@ use broker::futures_retry::retry;
 use bytes::Bytes;
 use std::collections::{HashMap, HashSet};
 
+/// Format an optional request ID for logging
+fn fmt_request_id(id: Option<U256>) -> String {
+    id.map(|i| format!("0x{:x}", i)).unwrap_or_else(|| "unknown".to_string())
+}
+
 pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) {
     tracing::info!("Started execution task");
 
     tracing::debug!("Configuration:");
+    tracing::debug!("  bento_api_url: {}", config.bento_api_url);
     tracing::debug!("  execution_interval: {}", config.execution_interval.as_secs());
     tracing::debug!("  bento_retry_count: {}", config.bento_retry_count);
     tracing::debug!("  bento_retry_sleep_ms: {}", config.bento_retry_sleep_ms);
@@ -38,8 +44,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     let mut interval = tokio::time::interval(config.execution_interval);
 
     let bento_client = BonsaiClient::from_parts(
-        config.bento_api_url.clone().unwrap(),
-        config.bento_api_key.clone().unwrap(),
+        config.bento_api_url.clone(),
+        config.bento_api_key.clone(),
         risc0_zkvm::VERSION,
     )
     .unwrap();
@@ -56,11 +62,22 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     continue;
                 }
             };
+        let prev_executing_requests: HashSet<ExecutionWithId> =
+            db.get_cycle_counts_executing(config.max_status_queries).await.unwrap();
 
         tracing::info!(
-            "Current cycle counts execution state: {} pending, {} executing",
+            "Current cycle counts execution state: {} pending, {} executing [{}]",
             pending_count,
-            executing_count
+            executing_count,
+            prev_executing_requests
+                .iter()
+                .map(|r| format!(
+                    "id={}, digest={:x}",
+                    fmt_request_id(r.request_id),
+                    r.request_digest
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         // Find cycle counts still in state PENDING, up to the max we want to have executing at a time
@@ -82,7 +99,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         }
 
         // Build a map from request_digest to request_id for logging
-        let digest_to_request_id: HashMap<B256, U256> =
+        let digest_to_request_id: HashMap<B256, Option<U256>> =
             requests_to_process.iter().map(|req| (req.request_digest, req.request_id)).collect();
 
         if !requests_to_process.is_empty() {
@@ -91,7 +108,11 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 requests_to_process.len(),
                 requests_to_process
                     .iter()
-                    .map(|r| format!("id=0x{:x}, digest={:x}", r.request_id, r.request_digest))
+                    .map(|r| format!(
+                        "id={}, digest={:x}",
+                        fmt_request_id(r.request_id),
+                        r.request_digest
+                    ))
                     .collect::<Vec<_>>()
             );
         } else {
@@ -115,23 +136,14 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         for (request_digest, input_type, input_data, image_id, image_url, max_price) in
             request_inputs_and_images.clone()
         {
-            let request_id = match digest_to_request_id.get(&request_digest).copied() {
-                Some(id) => id,
-                None => {
-                    tracing::error!(
-                        "Cycle count request digest={:x} not found in digest_to_request_id map - this should not happen. Skipping request.",
-                        request_digest
-                    );
-                    failed_executions.push(request_digest);
-                    continue;
-                }
-            };
+            // Get request_id for logging (may be None if proof_request doesn't exist yet)
+            let request_id = digest_to_request_id.get(&request_digest).copied().flatten();
 
             // Validate required fields are not empty
             if image_id.is_empty() || input_type.is_empty() || input_data.is_empty() {
                 tracing::error!(
-                    "Cycle count request id=0x{:x}, digest={:x} has empty required fields: image_id={}, input_type={}, input_data={}",
-                    request_id,
+                    "Cycle count request id={}, digest={:x} has empty required fields: image_id={}, input_type={}, input_data={}",
+                    fmt_request_id(request_id),
                     request_digest,
                     if image_id.is_empty() { "<empty>" } else { &image_id },
                     if input_type.is_empty() { "<empty>" } else { &input_type },
@@ -153,9 +165,9 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 Ok(input) => input,
                 Err(e) => {
                     tracing::error!(
-                            "Unable to download or decode {} input for cycle count computation request id=0x{:x}, digest={:x}: {}",
+                            "Unable to download or decode {} input for cycle count computation request id={}, digest={:x}: {}",
                             input_type,
-                            request_id,
+                            fmt_request_id(request_id),
                             request_digest,
                             e
                         );
@@ -166,8 +178,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
             // Upload the input via the bento API
             tracing::trace!(
-                "Uploading input for request id=0x{:x}, digest={:x}",
-                request_id,
+                "Uploading input for request id={}, digest={:x}",
+                fmt_request_id(request_id),
                 request_digest
             );
             let input_uuid: String = match retry(
@@ -180,8 +192,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             {
                 Ok(id) => {
                     tracing::debug!(
-                        "Uploaded input for cycle count computation request id=0x{:x}, digest={:x}, obtained ID '{}'",
-                        request_id,
+                        "Uploaded input for cycle count computation request id={}, digest={:x}, obtained ID '{}'",
+                        fmt_request_id(request_id),
                         request_digest,
                         id
                     );
@@ -189,8 +201,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to upload input for cycle count computation request id=0x{:x}, digest={:x}: {}",
-                        request_id,
+                        "Failed to upload input for cycle count computation request id={}, digest={:x}: {}",
+                        fmt_request_id(request_id),
                         request_digest,
                         e
                     );
@@ -200,9 +212,9 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
             // Check if the image exists for the request via the bento API
             tracing::trace!(
-                "Checking if image '{}' exists for cycle count computation request id=0x{:x}, digest={:x}",
+                "Checking if image '{}' exists for cycle count computation request id={}, digest={:x}",
                 image_id,
-                request_id,
+                fmt_request_id(request_id),
                 request_digest,
             );
             let image_response: bool = match retry(
@@ -214,13 +226,18 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             .await
             {
                 Ok(exists) => {
-                    tracing::trace!("Image exists for cycle count computation request id=0x{:x}, digest={:x}: {}", request_id, request_digest, exists);
+                    tracing::trace!(
+                        "Image exists for cycle count computation request id={}, digest={:x}: {}",
+                        fmt_request_id(request_id),
+                        request_digest,
+                        exists
+                    );
                     exists
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to check if image exists for cycle count computation request id=0x{:x}, digest={:x}: {}",
-                        request_id,
+                        "Failed to check if image exists for cycle count computation request id={}, digest={:x}: {}",
+                        fmt_request_id(request_id),
                         request_digest,
                         e
                     );
@@ -231,8 +248,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             // If the image doesn't exist, download it from its URL and upload it via the bento API
             if !image_response {
                 tracing::trace!(
-                    "Downloading image for cycle count computation request id=0x{:x}, digest={:x} from URL '{}'",
-                    request_id,
+                    "Downloading image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                    fmt_request_id(request_id),
                     request_digest,
                     image_url
                 );
@@ -247,8 +264,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 {
                     Ok(bytes) => {
                         tracing::debug!(
-                            "Downloaded image for cycle count computation request id=0x{:x}, digest={:x} from URL '{}'",
-                            request_id,
+                            "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                            fmt_request_id(request_id),
                             request_digest,
                             image_url
                         );
@@ -256,8 +273,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     }
                     Err(e) => {
                         tracing::error!(
-                            "Failed to download image for cycle count computation request id=0x{:x}, digest={:x} from URL '{}': {}",
-                            request_id,
+                            "Failed to download image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
+                            fmt_request_id(request_id),
                             request_digest,
                             image_url,
                             e
@@ -277,8 +294,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 {
                     Ok(result) => {
                         tracing::debug!(
-                            "Uploaded image for cycle count computation request id=0x{:x}, digest={:x} with ID '{}'",
-                            request_id,
+                            "Uploaded image for cycle count computation request id={}, digest={:x} with ID '{}'",
+                            fmt_request_id(request_id),
                             request_digest,
                             image_id
                         );
@@ -286,8 +303,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     }
                     Err(e) => {
                         tracing::error!(
-                            "Failed to upload image for cycle count computation request id=0x{:x}, digest={:x} with ID '{}': {}",
-                            request_id,
+                            "Failed to upload image for cycle count computation request id={}, digest={:x} with ID '{}': {}",
+                            fmt_request_id(request_id),
                             request_digest,
                             image_id,
                             e
@@ -298,8 +315,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             }
 
             tracing::trace!(
-                "Creating execution session for cycle count computation request id=0x{:x}, digest={:x} with image ID '{}', input ID '{}'",
-                request_id,
+                "Creating execution session for cycle count computation request id={}, digest={:x} with image ID '{}', input ID '{}'",
+                fmt_request_id(request_id),
                 request_digest,
                 image_id,
                 input_uuid
@@ -326,8 +343,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             {
                 Ok(id) => {
                     tracing::debug!(
-                        "Created session for cycle count computation request id=0x{:x}, digest={:x}, obtained session ID '{}'",
-                        request_id,
+                        "Created session for cycle count computation request id={}, digest={:x}, obtained session ID '{}'",
+                        fmt_request_id(request_id),
                         request_digest,
                         id.uuid
                     );
@@ -335,8 +352,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to create execution session for cycle count computation request id=0x{:x}, digest={:x}: {}",
-                        request_id,
+                        "Failed to create execution session for cycle count computation request id={}, digest={:x}: {}",
+                        fmt_request_id(request_id),
                         request_digest,
                         e
                     );
@@ -364,7 +381,11 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 "Executing cycle count requests found: {}",
                 executing_requests
                     .iter()
-                    .map(|r| format!("id=0x{:x}, digest={:x}", r.request_id, r.request_digest))
+                    .map(|r| format!(
+                        "id={}, digest={:x}",
+                        fmt_request_id(r.request_id),
+                        r.request_digest
+                    ))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
@@ -387,8 +408,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             {
                 Ok(status) => {
                     tracing::trace!(
-                        "Retrieved cycle count status for request id=0x{:x}, digest={:x}, session '{}': {}",
-                        execution_info.request_id,
+                        "Retrieved cycle count status for request id={}, digest={:x}, session '{}': {}",
+                        fmt_request_id(execution_info.request_id),
                         execution_info.request_digest,
                         execution_info.session_uuid,
                         status.status
@@ -397,8 +418,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to retrieve cycle count status for request id=0x{:x}, digest={:x}, session '{}': {}",
-                        execution_info.request_id,
+                        "Failed to retrieve cycle count status for request id={}, digest={:x}, session '{}': {}",
+                        fmt_request_id(execution_info.request_id),
                         execution_info.request_digest,
                         execution_info.session_uuid,
                         e
@@ -413,8 +434,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                         Some(stats) => stats,
                         None => {
                             tracing::error!(
-                                "Cycle count status for request id=0x{:x}, digest={:x} is SUCCEEDED, but no stats are provided",
-                                execution_info.request_id,
+                                "Cycle count status for request id={}, digest={:x} is SUCCEEDED, but no stats are provided",
+                                fmt_request_id(execution_info.request_id),
                                 execution_info.request_digest
                             );
                             failed_executions.push(execution_info.request_digest);
@@ -429,17 +450,17 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     });
                 }
                 "RUNNING" => {
-                    tracing::trace!(
-                        "Cycle count for request id=0x{:x}, digest={:x} with session '{}' is still running",
-                        execution_info.request_id,
+                    tracing::debug!(
+                        "Cycle count for request id={}, digest={:x} with session '{}' is still running",
+                        fmt_request_id(execution_info.request_id),
                         execution_info.request_digest,
                         execution_info.session_uuid
                     );
                 }
                 _ => {
                     tracing::error!(
-                        "Cycle count status for request id=0x{:x}, digest={:x} is not SUCCEEDED or RUNNING: {}. Marking as FAILED.",
-                        execution_info.request_id,
+                        "Cycle count status for request id={}, digest={:x} is not SUCCEEDED or RUNNING: {}. Marking as FAILED.",
+                        fmt_request_id(execution_info.request_id),
                         execution_info.request_digest,
                         execution_status.status
                     );
@@ -453,8 +474,10 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 .iter()
                 .map(|c| {
                     format!(
-                        "id=0x{:x}, digest={:x}",
-                        digest_to_request_id.get(&c.request_digest).unwrap(),
+                        "id={}, digest={:x}",
+                        fmt_request_id(
+                            digest_to_request_id.get(&c.request_digest).copied().flatten()
+                        ),
                         c.request_digest
                     )
                 })
@@ -471,7 +494,13 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         if !failed_executions.is_empty() {
             let requests_info = failed_executions
                 .iter()
-                .map(|c| format!("id=0x{:x}, digest={:x}", digest_to_request_id.get(c).unwrap(), c))
+                .map(|c| {
+                    format!(
+                        "id={}, digest={:x}",
+                        fmt_request_id(digest_to_request_id.get(c).copied().flatten()),
+                        c
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             db.set_cycle_counts_failed(&failed_executions).await.unwrap();

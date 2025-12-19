@@ -76,6 +76,7 @@ async fn setup_backfill_test(
 
     // Wait at least 2 seconds to ensure we're in a different second when backfill runs
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    advance_time_and_mine(&fixture.ctx.customer_provider, 10, 1).await.unwrap();
 
     (fixture, current_block)
 }
