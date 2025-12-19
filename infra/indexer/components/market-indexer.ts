@@ -347,7 +347,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     // Grant EventBridge permission to invoke Lambda
     new aws.lambda.Permission(`${serviceName}-backfill-perm`, {
-      statementId: 'AllowExecutionFromEventBridge',
+      statementId: `AllowExecutionFromEventBridge-${serviceName}`,
       action: 'lambda:InvokeFunction',
       function: backfillLambda.name,
       principal: 'events.amazonaws.com',
