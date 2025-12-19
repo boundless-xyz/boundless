@@ -16,6 +16,7 @@ mod aggregation;
 mod chain_data;
 mod core;
 mod cycle_counts;
+mod execution;
 mod log_processors;
 mod status;
 
@@ -157,6 +158,18 @@ pub struct IndexerServiceConfig {
     pub batch_size: u64,
     pub cache_uri: Option<String>,
     pub tx_fetch_strategy: TransactionFetchStrategy,
+    pub execution_config: Option<IndexerServiceExecutionConfig>,
+}
+
+#[derive(Clone)]
+pub struct IndexerServiceExecutionConfig {
+    pub execution_interval: Duration,
+    pub bento_api_key: Option<String>,
+    pub bento_api_url: Option<String>,
+    pub bento_retry_count: u64,
+    pub bento_retry_sleep_ms: u64,
+    pub max_concurrent_executing: u32,
+    pub max_status_queries: u32,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {

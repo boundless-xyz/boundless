@@ -18,13 +18,13 @@ config:
     secure: v1:JHlOmmcIueh/07mW:N3VN4wA6989LVBIYA4k9qGKK1foPMg==
   prover-cluster:minioPassword:
     secure: v1:bi2qbwEmOoghGwWb:1ww9YtsULpmffCopFmRsuhMQcrI/4noy2XoX40H/IjI=
-  prover-cluster:executionCount: "1"
+  prover-cluster:executionCount: "20"
   prover-cluster:auxWorkerCount: "1"
   prover-cluster:proverWorkerCount: "1"
   prover-cluster:privateKey:
     secure: v1:A40tf9hZSLaHuUE0:9yyTkMHaNS2t/CdMkV0Ylly7AI2fZBMtVLuxu5qbaAIJrIUWjJ4tPNii1xL1uNps8LmIai9N6C8xwRAPs6NgwNHLmTcvVBePxVeTsqqcgzdMxA==
-  prover-cluster:ethRpcUrl:
-    secure: v1:lBwY+KQ4/2FTr1Ya:/H/mfCn/NAOKHW0r5Nvwew/GF5HoAnTsxZCG5Gg95RxEZVHDAtSc6kd7OD6MPOM4MHKtrxWDZjdwC97WEq33UuLQQ8UFvHIwUxab31Z1TG5Yp8J5+HByXi21AgKW1CpWgIgT+vgTNU5Kj43K
+  prover-cluster:brokerRpcUrls:
+    secure: v1:7NnAmQGlXeo8z6GF:7dyYQqf+RqH3bLREu1A32qbYewd7wdepu+7wGTMwWRdMq3zxszHZruEuPWpRHjMl5fVJA2bO0XH7XGY5B+Ebi/twvQY841isnruxKnrxUBdpyBL57+MczAk6/LxreMlITS9JN5WNRdL9rP92uvutszI7z63Wh2oG2ck5tlqc9TqbjwXYPhAKxqapt2280fgVbq7opgiMkE78EfJsZmrY71O2O/9n/zNePWwn2w==
   prover-cluster:orderStreamUrl: "https://base-mainnet.boundless.network"
   prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
   prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
@@ -35,18 +35,18 @@ config:
   prover-cluster:apiKey:
     secure: v1:cQTlzOGOQeKDgN3q:xi9tY9JD1CKOjVZhxbnSczW3xiHs4dg+Ioi11z1lYiLkzuITbQQaqljkXtujYP/U1hirI5CLD7OzpOQ=
   prover-cluster:mcyclePrice: "0.00000003"
-  prover-cluster:peakProveKhz: 10000
-  prover-cluster:minDeadline: 600
-  prover-cluster:lookbackBlocks: 300
+  prover-cluster:peakProveKhz: "10000"
+  prover-cluster:minDeadline: "600"
+  prover-cluster:lookbackBlocks: "300"
   prover-cluster:maxCollateral: "200"
-  prover-cluster:maxFileSize: 500000000000
+  prover-cluster:maxFileSize: "500000000000"
   prover-cluster:maxMcycleLimit: "500000000000"
-  prover-cluster:maxConcurrentProofs: 1
+  prover-cluster:maxConcurrentProofs: "1"
   prover-cluster:balanceWarnThreshold: "0"
   prover-cluster:balanceErrorThreshold: "0"
   prover-cluster:collateralBalanceWarnThreshold: "0"
   prover-cluster:collateralBalanceErrorThreshold: "0"
   prover-cluster:denyRequestorAddresses: ""
-  prover-cluster:maxFetchRetries: 3
+  prover-cluster:maxFetchRetries: "3"
   prover-cluster:allowClientAddresses: ""
   prover-cluster:lockinPriorityGas: "300"

@@ -229,6 +229,37 @@
         - rzup
         - rzup-install
         - rzup-groth16
+      
+- name: Download Blake3 Groth16 Prover Artifacts 
+  ansible.builtin.get_url:
+    url: https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz
+    dest: /tmp/blake3_groth16_artifacts.tar.xz
+    mode: '0755'
+  when:
+    - rzup_install_groth16_artifacts | bool
+    - rzup_final_check.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-groth16
+  register: rzup_blake3_artifacts_download
+
+- name: Extract Blake3 Groth16 Prover Artifacts
+  ansible.builtin.unarchive:
+    src: /tmp/blake3_groth16_artifacts.tar.xz
+    dest: "{{ rzup_risc0_home_dir }}/extensions/"
+    remote_src: true
+    owner: "{{ rzup_user }}"
+    group: "{{ rzup_group }}"
+    mode: '0755'
+  when:
+    - rzup_install_groth16_artifacts | bool
+    - rzup_final_check.stat.exists | default(false)
+  tags:
+    - rzup
+    - rzup-install
+    - rzup-groth16
+  register: rzup_blake3_artifacts_extract
 
 - name: Verify groth16 component installation
   when:

@@ -25,8 +25,8 @@ const environment: string = config.get("environment") || "custom";
 
 // Required base configuration
 const privateKey: pulumi.Output<string> = config.requireSecret("privateKey");
-const ethRpcUrl: pulumi.Output<string> = config.requireSecret("ethRpcUrl");
 const managerInstanceType: string = config.require("managerInstanceType");
+const brokerRpcUrls: pulumi.Output<string> = pulumi.output(config.require("brokerRpcUrls"));
 const orderStreamUrl: pulumi.Output<string> = config.requireSecret("orderStreamUrl"); // Use secret to avoid exposing staging urls
 const verifierAddress: string = config.require("verifierAddress");
 const boundlessMarketAddress: string = config.require("boundlessMarketAddress");
@@ -64,6 +64,7 @@ const denyRequestorAddresses: string = config.get("denyRequestorAddresses") || "
 const maxFetchRetries: number = config.getNumber("maxFetchRetries") || 3;
 const allowClientAddresses: string = config.get("allowClientAddresses") || "";
 const lockinPriorityGas: string = config.get("lockinPriorityGas") || "0";
+const orderCommitmentPriority: string = config.get("orderCommitmentPriority") || "cycle_price";
 
 const rustLogLevel: string = config.get("rustLogLevel") || "info,broker=debug,boundless_market=debug";
 
@@ -120,7 +121,7 @@ const manager = new ManagerComponent({
     taskDBName,
     taskDBUsername,
     taskDBPassword,
-    ethRpcUrl,
+    brokerRpcUrls,
     privateKey,
     orderStreamUrl,
     verifierAddress,
@@ -152,6 +153,7 @@ const manager = new ManagerComponent({
     maxFetchRetries,
     allowClientAddresses,
     lockinPriorityGas,
+    orderCommitmentPriority,
     rustLogLevel,
 });
 

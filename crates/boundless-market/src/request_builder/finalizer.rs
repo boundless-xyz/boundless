@@ -15,8 +15,10 @@
 use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::{
-        FulfillmentData, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        FulfillmentData, Offer, Predicate, PredicateType, ProofRequest, RequestId, RequestInput,
+        Requirements,
     },
+    selector::is_blake3_groth16_selector,
     util::now_timestamp,
 };
 use anyhow::{bail, Context};
@@ -134,8 +136,21 @@ impl Adapt<Finalizer> for RequestParams {
         let eval = match (&self.journal, self.image_id) {
             (Some(journal), Some(image_id)) => {
                 tracing::debug!("Evaluating journal and image id against predicate ");
-                let eval_data =
-                    FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone());
+                let eval_data = if is_blake3_groth16_selector(requirements.selector) {
+                    if requirements.predicate.predicateType != PredicateType::ClaimDigestMatch {
+                        bail!("Blake3Groth16 proofs require a ClaimDigestMatch predicate");
+                    }
+                    if journal.bytes.len() != 32 {
+                        bail!(
+                            "Blake3Groth16 proofs require a 32-byte journal, got {} bytes",
+                            journal.bytes.len()
+                        );
+                    }
+                    // It is not possible to fulfill a blake3 groth16 request with fulfillment data
+                    FulfillmentData::None
+                } else {
+                    FulfillmentData::from_image_id_and_journal(image_id, journal.bytes.clone())
+                };
                 predicate.eval(&eval_data).is_some()
             }
             // Do not run the check.

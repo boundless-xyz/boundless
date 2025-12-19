@@ -14,19 +14,20 @@
 
 use std::future::Future;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use bonsai_sdk::{
-    non_blocking::{Client as BonsaiClient, SessionId, SnarkId},
+    non_blocking::{Client as BonsaiClient, SessionId, ShrinkBitvm2Id as Blake3Groth16Id, SnarkId},
     SdkErr,
 };
 use risc0_zkvm::Receipt;
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
-use crate::{config::ProverConf, futures_retry::retry_only};
+use crate::config::ProverConf;
 use crate::{
     config::{ConfigErr, ConfigLock},
-    futures_retry::retry,
+    futures_retry::{retry, retry_only_with_context, retry_with_context},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -149,21 +150,43 @@ impl Bonsai {
         .await
     }
 
-    async fn retry_only<T, F, Fut>(
+    async fn retry_with_context<T, F, Fut>(
         &self,
         f: F,
         msg: &str,
+        context: &str,
+    ) -> Result<T, ProverError>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<T, ProverError>>,
+    {
+        retry_with_context(
+            self.req_retry_count,
+            self.req_retry_sleep_ms,
+            || async { f().await },
+            msg,
+            context,
+        )
+        .await
+    }
+
+    async fn retry_only_with_context<T, F, Fut>(
+        &self,
+        f: F,
+        msg: &str,
+        context: &str,
         should_retry: impl Fn(&ProverError) -> bool,
     ) -> Result<T, ProverError>
     where
         F: Fn() -> Fut,
         Fut: Future<Output = Result<T, ProverError>>,
     {
-        retry_only(
+        retry_only_with_context(
             self.req_retry_count,
             self.req_retry_sleep_ms,
             || async { f().await },
             msg,
+            context,
             should_retry,
         )
         .await
@@ -278,6 +301,46 @@ impl StatusPoller {
             }
         }
     }
+
+    async fn poll_with_retries_blake3_groth16_id(
+        &self,
+        proof_id: &Blake3Groth16Id,
+        client: &BonsaiClient,
+    ) -> Result<String, ProverError> {
+        loop {
+            let status = retry::<_, SdkErr, _, _>(
+                self.retry_counts,
+                self.poll_sleep_ms,
+                || async { proof_id.status(client).await },
+                "get blake3 groth16 (shrink_bitvm2) status",
+            )
+            .await;
+
+            if let Err(_err) = status {
+                return Err(ProverError::StatusFailure);
+            }
+
+            let status = status.unwrap();
+
+            match status.status.as_ref() {
+                "RUNNING" => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(self.poll_sleep_ms))
+                        .await;
+                    continue;
+                }
+                "SUCCEEDED" => return Ok(proof_id.uuid.clone()),
+                status_code => {
+                    let err_msg = status.error_msg.unwrap_or_default();
+                    if err_msg.contains("INTERNAL_ERROR") {
+                        return Err(ProverError::ProverInternalError(err_msg.clone()));
+                    }
+                    return Err(ProverError::ProvingFailed(format!(
+                        "snark proving failed with status {status_code}: {err_msg}"
+                    )));
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -310,12 +373,13 @@ impl Prover for Bonsai {
         executor_limit: Option<u64>,
         order_id: &str,
     ) -> Result<ProofResult, ProverError> {
-        self.retry_only(
+        let context = format!("order {order_id}");
+        self.retry_only_with_context(
             || async {
                 // Convert cycles to Mi-cycles (1024*1024) for Bonsai API
                 let bonsai_limit = executor_limit.map(|cycles| cycles.div_ceil(1024 * 1024));
                 let preflight_id: SessionId = self
-                    .retry(
+                    .retry_with_context(
                         || async {
                             Ok(self
                                 .client
@@ -329,6 +393,7 @@ impl Prover for Bonsai {
                                 .await?)
                         },
                         "create session for preflight",
+                        &context,
                     )
                     .await?;
 
@@ -342,6 +407,7 @@ impl Prover for Bonsai {
                 poller.poll_with_retries_session_id(&preflight_id, &self.client).await
             },
             "preflight",
+            &context,
             |err| matches!(err, ProverError::ProverInternalError(_)),
         )
         .await
@@ -509,7 +575,10 @@ impl Prover for Bonsai {
             retry_counts: self.status_poll_retry_count,
         };
 
-        poller.poll_with_retries_snark_id(&proof_id, &self.client).await?;
+        poller
+            .poll_with_retries_snark_id(&proof_id, &self.client)
+            .await
+            .context(format!("Failed to compress proof {proof_id:?}"))?;
 
         Ok(proof_id.uuid)
     }
@@ -523,6 +592,50 @@ impl Prover for Bonsai {
         let Some(output) = status.output else { return Ok(None) };
         let receipt_buf = self
             .retry(|| async { Ok(self.client.download(&output).await?) }, "download snark output")
+            .await?;
+
+        Ok(Some(receipt_buf))
+    }
+
+    async fn compress_blake3_groth16(&self, proof_id: &str) -> Result<String, ProverError> {
+        let proof_id = self
+            .retry(
+                || async { Ok(self.client.shrink_bitvm2(proof_id.into()).await?) },
+                "create blake3_groth16 (bitvm2)",
+            )
+            .await?;
+
+        let poller = StatusPoller {
+            poll_sleep_ms: self.status_poll_ms,
+            retry_counts: self.status_poll_retry_count,
+        };
+
+        poller
+            .poll_with_retries_blake3_groth16_id(&proof_id, &self.client)
+            .await
+            .context(format!("Failed to compress proof {}", proof_id.uuid))?;
+
+        Ok(proof_id.uuid)
+    }
+
+    async fn get_blake3_groth16_receipt(
+        &self,
+        proof_id: &str,
+    ) -> Result<Option<Vec<u8>>, ProverError> {
+        let snark_id = Blake3Groth16Id { uuid: proof_id.into() };
+        let status = self
+            .retry(
+                || async { Ok(snark_id.status(&self.client).await?) },
+                "get status of blake3 groth16",
+            )
+            .await?;
+
+        let Some(output) = status.output else { return Ok(None) };
+        let receipt_buf = self
+            .retry(
+                || async { Ok(self.client.download(&output).await?) },
+                "download blake3 groth16 (bitvm2) output",
+            )
             .await?;
 
         Ok(Some(receipt_buf))

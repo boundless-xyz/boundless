@@ -23,3 +23,7 @@ config:
     secure: v1:uUHqkWGSHlc3+m3s:PERf1Dj+ES2WhAK3ofMFLnf1dJiZ+yWBRX50cYtO
   indexer:LOGS_ETH_RPC_URL:
     secure: v1:mtDoiRDofMGFzYoM:JV1359OLhOYkTQpaQZMh3OSBhoco7dF1zR1fMDGu6icxE7JV4ZQDMAnefN8ouQTNtOOM7DBYtMn76Z2UslaAbkX9RdPiF16UXp+P
+  indexer:BENTO_API_URL:
+    secure: v1:i34aAHkpfpIhYJyo:d6XnXd+9SG7CXeaS97wZF+/Ytfmi0AmcBF/ClSVlVcI8w0CEXJoq1dK5DVaKF2HsVgCCj5ywqxvGk8PP88MdNC1IAcPtGpE1pOVM0LS/jhYpblU8FqDhBLs=
+  indexer:BENTO_API_KEY:
+    secure: v1:yYD4Dh/pPE5TSz+Z:m4QtVtKYCKcn+i17Dsx3lWXy3D3ieipkxrhCiKGJ7u/rXWRU0wIdrr9zEHM9qqYF+AeJnOkDOmz8qao=

@@ -13,9 +13,7 @@ alloy = { version = "1.0.34", features = ["network", "providers", "transports", 
 anyhow = { workspace = true }
 boundless-povw = { workspace = true }
 boundless-zkc = { workspace = true }
-chrono = { workspace = true }
 futures-util = { workspace = true }
-serde = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

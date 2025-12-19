@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, str::FromStr, time::Duration};
+use std::{cmp::max, future::Future, str::FromStr, time::Duration};
 
 use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
@@ -25,7 +25,7 @@ use alloy::{
     },
     transports::{http::Http, layers::FallbackLayer},
 };
-use alloy_primitives::{Signature, B256};
+use alloy_primitives::{utils::format_ether, Signature, B256};
 use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
@@ -55,6 +55,42 @@ use crate::{
     util::NotProvided,
 };
 
+/// Funding mode for requests submission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FundingMode {
+    /// Always send `max_price` as the tx value.
+    Always,
+
+    /// Never send value with the request.
+    ///
+    /// Use this mode only if you are managing the onchain balance through other means
+    /// (e.g., manual top-ups, external funding management).
+    Never,
+
+    /// Use available balance for funding the request.
+    ///
+    /// If the onchain balance is insufficient, the difference will be sent as value.
+    AvailableBalance,
+
+    /// Send value if the balance is below a configurable threshold.
+    ///
+    /// If the onchain balance is insufficient, the difference will be sent as value.
+    /// It's important to set the threshold appropriately to avoid underfunding.
+    BelowThreshold(U256),
+
+    /// Maintain a minimum and maximum balance by funding the request accordingly.
+    ///
+    /// If the onchain balance is below `min_balance`, the request will be funded
+    /// to bring the balance up to `max_balance`. This should minimize the number of
+    /// onchain fundings while ensuring sufficient balance is maintained.
+    MinMaxBalance {
+        /// Minimum balance to maintain.
+        min_balance: U256,
+        /// Maximum balance to maintain.
+        max_balance: U256,
+    },
+}
 /// Builder for the [Client] with standard implementations for the required components.
 #[derive(Clone)]
 pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
@@ -73,6 +109,14 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     pub request_id_layer_config: RequestIdLayerConfigBuilder,
     /// Configuration builder for [Finalizer][crate::request_builder::Finalizer], part of [StandardRequestBuilder].
     pub request_finalizer_config: FinalizerConfigBuilder,
+    /// Funding mode for onchain requests.
+    ///
+    /// Defaults to [FundingMode::Always].
+    /// [FundingMode::Never] can be used to never send value with the request.
+    /// [FundingMode::AvailableBalance] can be used to only send value if the current onchain balance is insufficient.
+    /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
+    /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
+    pub funding_mode: FundingMode,
 }
 
 impl<St, Si> Default for ClientBuilder<St, Si> {
@@ -89,6 +133,7 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             storage_layer_config: Default::default(),
             request_id_layer_config: Default::default(),
             request_finalizer_config: Default::default(),
+            funding_mode: FundingMode::Always,
         }
     }
 }
@@ -323,6 +368,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             signer: self.signer,
             request_builder: Some(request_builder),
             deployment,
+            funding_mode: self.funding_mode,
         };
 
         if let Some(timeout) = self.tx_timeout {
@@ -342,6 +388,11 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the RPC URL
     pub fn with_rpc_url(self, rpc_url: Url) -> Self {
         Self { rpc_url: Some(rpc_url), ..self }
+    }
+
+    /// Set the funding mode for onchain requests.
+    pub fn with_funding_mode(self, funding_mode: FundingMode) -> Self {
+        Self { funding_mode, ..self }
     }
 
     /// Set additional RPC URLs for automatic failover.
@@ -417,6 +468,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_layer_config: self.storage_layer_config,
             request_id_layer_config: self.request_id_layer_config,
             request_finalizer_config: self.request_finalizer_config,
+            funding_mode: self.funding_mode,
         }
     }
 
@@ -450,6 +502,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             request_id_layer_config: self.request_id_layer_config,
             storage_layer_config: self.storage_layer_config,
             offer_layer_config: self.offer_layer_config,
+            funding_mode: self.funding_mode,
         }
     }
 
@@ -562,6 +615,14 @@ pub struct Client<
     pub request_builder: Option<R>,
     /// Deployment of Boundless that this client is connected to.
     pub deployment: Deployment,
+    /// Funding mode for onchain requests.
+    ///
+    /// Defaults to [FundingMode::Always].
+    /// [FundingMode::Never] can be used to never send value with the request.
+    /// [FundingMode::AvailableBalance] can be used to only send value if the current onchain balance is insufficient.
+    /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
+    /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
+    pub funding_mode: FundingMode,
 }
 
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
@@ -627,6 +688,7 @@ where
             offchain_client: None,
             signer: None,
             request_builder: None,
+            funding_mode: FundingMode::Always,
         }
     }
 }
@@ -698,6 +760,11 @@ where
         }
     }
 
+    /// Set the funding mode for onchain requests.
+    pub fn with_funding_mode(self, funding_mode: FundingMode) -> Self {
+        Self { funding_mode, ..self }
+    }
+
     /// Set the signer that will be used for signing [ProofRequest].
     /// ```rust
     /// # use boundless_market::Client;
@@ -720,6 +787,7 @@ where
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
             deployment: self.deployment,
+            funding_mode: self.funding_mode,
         }
     }
 
@@ -781,6 +849,73 @@ where
         Ok(request)
     }
 
+    async fn compute_funding_value(
+        &self,
+        client_address: Address,
+        max_price: U256,
+    ) -> Result<U256, ClientError> {
+        let balance = self.boundless_market.balance_of(client_address).await?;
+
+        let value = match self.funding_mode {
+            FundingMode::Always => {
+                if balance > max_price.saturating_mul(U256::from(3u8)) {
+                    tracing::warn!(
+                        "Client balance is {} ETH, that is more than 3x the value being sent. \
+                         Consider switching to a different funding mode to avoid overfunding.",
+                        format_ether(balance),
+                    );
+                }
+                max_price
+            }
+
+            FundingMode::Never => U256::ZERO,
+
+            FundingMode::AvailableBalance => {
+                if balance < max_price {
+                    max_price.saturating_sub(balance)
+                } else {
+                    U256::ZERO
+                }
+            }
+
+            FundingMode::BelowThreshold(threshold) => {
+                if balance < threshold {
+                    let to_send =
+                        max(threshold.saturating_sub(balance), max_price.saturating_sub(balance));
+                    tracing::warn!(
+                        "Client balance is {} ETH < threshold {} ETH. \
+                         Sending additional funds to top up the balance.",
+                        format_ether(balance),
+                        format_ether(threshold),
+                    );
+                    to_send
+                } else {
+                    U256::ZERO
+                }
+            }
+
+            FundingMode::MinMaxBalance { min_balance, max_balance } => {
+                if balance < min_balance {
+                    let to_send =
+                        max(max_balance.saturating_sub(balance), max_price.saturating_sub(balance));
+                    tracing::warn!(
+                        "Client balance is {} ETH < min {} ETH. \
+                         Sending {} ETH (max target {}).",
+                        format_ether(balance),
+                        format_ether(min_balance),
+                        format_ether(to_send),
+                        format_ether(max_balance),
+                    );
+                    to_send
+                } else {
+                    U256::ZERO
+                }
+            }
+        };
+
+        Ok(value)
+    }
+
     /// Build and submit a proof request by sending an onchain transaction.
     ///
     /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
@@ -833,7 +968,12 @@ where
 
         request.validate()?;
 
-        let request_id = self.boundless_market.submit_request(&request, signer).await?;
+        let max_price = U256::from(request.offer.maxPrice);
+        let value = self.compute_funding_value(client_address, max_price).await?;
+
+        let request_id =
+            self.boundless_market.submit_request_with_value(&request, signer, value).await?;
+
         Ok((request_id, request.expires_at()))
     }
 
@@ -905,14 +1045,10 @@ where
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
-        // Ensure address' balance is sufficient to cover the request
-        let balance = self.boundless_market.balance_of(client_address).await?;
-        if balance < U256::from(request.offer.maxPrice) {
-            return Err(ClientError::Error(anyhow!(
-                "Insufficient balance to cover request: {} < {}.\nMake sure to top up your balance by depositing on the Boundless Market.",
-                balance,
-                request.offer.maxPrice
-            )));
+        let max_price = U256::from(request.offer.maxPrice);
+        let value = self.compute_funding_value(client_address, max_price).await?;
+        if value > 0 {
+            self.boundless_market.deposit(value).await?;
         }
 
         let order = offchain_client.submit_request(&request, signer).await?;

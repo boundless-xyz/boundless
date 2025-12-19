@@ -16,14 +16,9 @@ alloy-chains = "0.2"
 anyhow = "1.0"
 clap = { workspace = true }
 derive_builder = "0.20.2"
-risc0-zkvm = { workspace = true, features = ["client", "unstable"] }
-serde = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }
 
 [build-dependencies]
-risc0-build = { workspace = true, features = ["unstable"] }
-risc0-build-ethereum = { workspace = true }
 serde_json = { version = "1.0" }
 
 [dev-dependencies]

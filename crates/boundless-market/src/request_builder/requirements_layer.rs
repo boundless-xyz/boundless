@@ -13,7 +13,11 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
+#[cfg(feature = "blake3-groth16")]
+use crate::blake3_groth16;
 use crate::contracts::{Callback, Predicate, Requirements};
+#[cfg(feature = "blake3-groth16")]
+use crate::selector::is_blake3_groth16_selector;
 use alloy::primitives::{aliases::U96, Address, FixedBytes, B256};
 use anyhow::{ensure, Context};
 use clap::Args;
@@ -155,10 +159,41 @@ impl Layer<(Digest, &Journal, &RequirementParams)> for RequirementsLayer {
         &self,
         (image_id, journal, params): (Digest, &Journal, &RequirementParams),
     ) -> Result<Self::Output, Self::Error> {
-        let predicate = params
-            .predicate
-            .clone()
-            .unwrap_or_else(|| Predicate::digest_match(image_id, journal.digest()));
+        #[allow(unused_mut)]
+        let mut predicate = params.predicate.clone();
+        #[cfg(feature = "blake3-groth16")]
+        if let Some(selector) = &params.selector {
+            if is_blake3_groth16_selector(*selector) {
+                if journal.bytes.len() != 32 {
+                    anyhow::bail!(
+                        "Blake3Groth16 proofs require a 32-byte journal, got {} bytes",
+                        journal.bytes.len()
+                    );
+                }
+                if let Some(pred) = &predicate {
+                    matches!(pred, Predicate::ClaimDigestMatch(_)).then_some(()).ok_or_else(
+                        || {
+                            anyhow::anyhow!(
+                                "Blake3Groth16 proofs require a ClaimDigestMatch predicate"
+                            )
+                        },
+                    )?;
+                } else {
+                    predicate = Some(params.predicate.clone().unwrap_or_else(|| {
+                        let blake3_claim_digest = blake3_groth16::Blake3Groth16ReceiptClaim::ok(
+                            image_id,
+                            journal.bytes.clone(),
+                        )
+                        .digest();
+                        Predicate::claim_digest_match(blake3_claim_digest)
+                    }));
+                }
+            }
+        }
+
+        let predicate =
+            predicate.unwrap_or_else(|| Predicate::digest_match(image_id, journal.digest()));
+
         if let Some(params_image_id) = params.image_id {
             ensure!(
                 image_id == Digest::from(<[u8; 32]>::from(params_image_id)),

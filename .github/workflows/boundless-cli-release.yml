@@ -1,0 +1,223 @@
+name: Build and Release Boundless CLI
+
+on:
+  push:
+    tags:
+      - 'boundless-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., boundless-v1.0.0)'
+        required: true
+        default: 'boundless-v1.0.0'
+      dry_run:
+        description: 'Dry run (build only, no release)'
+        required: false
+        default: 'false'
+
+env:
+  RISC0_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_CRATE_VERSION: "3.0.3"
+  RUST_VERSION: "1.88.0"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FOUNDRY_VERSION: v1.5.0
+
+jobs:
+  build-boundless-cli:
+    name: Build Boundless CLI
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    permissions:
+      contents: read    # Required for checkout
+      id-token: write   # Required for OIDC authentication with AWS
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: linux
+            arch: x64
+            artifact_name: linux-amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev
+
+      - name: setup sccache + s3
+        uses: ./.github/actions/sccache
+
+      - name: Setup Rust toolchain
+        uses: risc0/risc0/.github/actions/rustup@v3.0.3
+        with:
+          toolchain: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install protoc
+        uses: risc0/risc0/.github/actions/protoc@v3.0.3
+      
+      - name: Install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_CRATE_VERSION }}
+          toolchain-version: ${{ env.RISC0_TOOLCHAIN_VERSION }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      
+      - name: forge build
+        run: forge build
+        working-directory: contracts
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            boundless/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Boundless CLI
+        env:
+          PATH: /usr/local/cuda/bin:/usr/bin:/usr/local/bin:/home/runner/.cargo/bin:$PATH
+        run: |
+          # Build package
+          cargo build --release --target ${{ matrix.target }} --bin boundless
+
+          # Create boundless directory
+          mkdir -p boundless
+
+          # Make build executable
+          chmod +x target/${{ matrix.target }}/release/boundless
+
+          # Copy binary to boundless directory
+          cp target/${{ matrix.target }}/release/boundless boundless/boundless
+
+          # Create archive
+          tar -czf boundless-${{ matrix.artifact_name }}.tar.gz boundless/
+          rm -rf target/${{ matrix.target }}/release/boundless
+
+      - name: sccache stats
+        run: sccache --show-stats
+
+      - name: Create checksums
+        run: |
+          sha256sum boundless-${{ matrix.artifact_name }}.tar.gz > boundless-${{ matrix.artifact_name }}.tar.gz.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: boundless-${{ matrix.artifact_name }}
+          path: |
+            boundless-${{ matrix.artifact_name }}.tar.gz
+            boundless-${{ matrix.artifact_name }}.tar.gz.sha256
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-boundless-cli
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/boundless-v') && github.event.inputs.dry_run != 'true'
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          for artifact in artifacts/boundless-*; do
+            if [ -d "$artifact" ]; then
+              cp -r "$artifact"/* release-assets/
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_name=Boundless CLI Release $VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          release_name: ${{ steps.get_version.outputs.release_name }}
+          body: |
+            ## Boundless CLI Release
+
+            This release includes a package of:
+            - **Boundless ClI**
+
+            ### Supported Platforms
+            - Linux AMD64
+
+            ### Installation
+            Download the appropriate package for your platform and extract:
+            ```bash
+            # Download and extract
+            tar -xzf boundless-linux-amd64.tar.gz
+            cd boundless
+
+            # Make executables
+            chmod +x boundless
+            ```
+
+            ### Usage
+            ```bash
+            # Run agent
+            ./boundless --help
+
+            ```
+
+            ### Verification
+            Verify the integrity of downloaded packages using the provided SHA256 checksums.
+          draft: false
+          prerelease: false
+
+      - name: Upload Boundless CLI Package (Linux AMD64)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/boundless-linux-amd64.tar.gz
+          asset_name: boundless-linux-amd64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload SHA256 checksums
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/boundless-linux-amd64.tar.gz.sha256
+          asset_name: boundless-linux-amd64.tar.gz.sha256
+          asset_content_type: text/plain
