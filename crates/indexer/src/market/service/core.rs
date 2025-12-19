@@ -349,7 +349,7 @@ async fn run_execution_task_supervisor(db: DbObj, config: IndexerServiceExecutio
 
         match handle.await {
             Ok(()) => {
-                tracing::warn!(
+                tracing::error!(
                     "Cycle count execution task returned unexpectedly, restarting in {} seconds",
                     RESTART_DELAY_SECS
                 );
