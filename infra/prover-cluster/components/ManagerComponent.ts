@@ -13,7 +13,7 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     taskDBName: string;
     taskDBUsername: string;
     taskDBPassword: string;
-    ethRpcUrl: pulumi.Output<string>;
+    brokerRpcUrls: pulumi.Output<string>;
     privateKey: pulumi.Output<string>;
     orderStreamUrl: pulumi.Output<string>;
     verifierAddress: string;
