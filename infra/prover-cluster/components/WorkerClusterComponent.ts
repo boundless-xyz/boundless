@@ -71,7 +71,7 @@ export class WorkerClusterComponent extends BaseComponent {
             ...config,
             launchTemplateId: launchTemplate.launchTemplate.id,
             launchTemplateUserData: pulumi.output(launchTemplate.launchTemplate.userData).apply(u => u || ""),
-            minSize: 0,
+            minSize: config.proverCount < 15 ? config.proverCount : 15,
             maxSize: 100,
             desiredCapacity: config.proverCount,
             componentType: "prover",

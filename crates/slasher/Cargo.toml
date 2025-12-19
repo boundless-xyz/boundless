@@ -17,8 +17,7 @@ async-trait = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
-risc0-zkvm = { workspace = true, features = ["std", "default"] }
-sqlx = { workspace = true, features = [ "sqlite", "runtime-tokio", "json", "migrate", "macros" ] }
+sqlx = { workspace = true, features = [ "postgres", "runtime-tokio", "json", "migrate", "macros" ] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
@@ -31,5 +30,6 @@ boundless-test-utils = { workspace = true }
 broker = { workspace = true }
 futures-util = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
+sqlx = { workspace = true, features = [ "postgres", "runtime-tokio", "json", "migrate", "macros" ] }
 tracing-test = { workspace = true }
 

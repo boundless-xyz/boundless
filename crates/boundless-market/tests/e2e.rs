@@ -20,6 +20,7 @@ use alloy::{
 };
 use alloy_primitives::Bytes;
 use boundless_market::{
+    client::FundingMode,
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
@@ -37,6 +38,7 @@ use risc0_zkvm::{
     ReceiptClaim,
 };
 use tracing_test::traced_test;
+use url::Url;
 
 fn now_timestamp() -> u64 {
     std::time::SystemTime::now()
@@ -156,6 +158,83 @@ async fn test_submit_request() {
 
     let (log, _) = logs.first().unwrap();
     assert!(log.requestId == request_id);
+}
+
+#[tokio::test]
+async fn test_funding_mode() {
+    use boundless_market::client::ClientBuilder;
+    // Setup anvil
+    let anvil = Anvil::new().spawn();
+
+    let ctx = create_test_ctx(&anvil).await.unwrap();
+    // Setup client with Always funding mode as it is the default mode
+    let client = ClientBuilder::new()
+        .with_signer(ctx.customer_signer.clone())
+        .with_deployment(ctx.deployment.clone())
+        .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .build()
+        .await
+        .unwrap();
+
+    // Test Always funding mode: balance after submission should increase by maxPrice
+    let balance_before =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    let request = new_request(1, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == balance_before + request.offer.maxPrice);
+
+    // Test AvailableBalance funding mode: balance after submission should remain the same
+    let client = client.with_funding_mode(FundingMode::AvailableBalance);
+    let balance_before =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    let request = new_request(2, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == balance_before);
+
+    // Test BelowThreshold funding mode: balance after submission should be equal to threshold
+    // since we set the threshold above the current balance
+    let threshold = request.offer.maxPrice * U256::from(5);
+    let client = client.with_funding_mode(FundingMode::BelowThreshold(threshold));
+    let request = new_request(3, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == threshold);
+
+    // Withdraw all balance
+    ctx.customer_market.withdraw(balance_after).await.unwrap();
+
+    // Test Never funding mode: balance after submission should remain the same
+    let client = client.with_funding_mode(FundingMode::Never);
+    let request = new_request(4, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == U256::ZERO);
+
+    // Test MinMaxBalance funding mode: balance after submission should be equal to max
+    // since we start from zero balance after the withdrawal above
+    let min = request.offer.maxPrice;
+    let max = request.offer.maxPrice * U256::from(10);
+    let client =
+        client.with_funding_mode(FundingMode::MinMaxBalance { min_balance: min, max_balance: max });
+    let request = new_request(5, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == max);
+
+    // Test MinMaxBalance funding mode: balance after submission should remain equal to max
+    // since we are above the min balance
+    let request = new_request(6, &ctx).await;
+    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let balance_after =
+        ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
+    assert!(balance_after == max);
 }
 
 #[tokio::test]
@@ -374,6 +453,7 @@ async fn test_e2e_price_and_fulfill_batch() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn test_e2e_no_payment() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
@@ -434,11 +514,13 @@ async fn test_e2e_no_payment() {
         };
 
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
-        // fulfill the request.
+        // fulfill the request. This call emits a PaymentRequirementsFailed log since the lock
+        // belongs to a different prover, but the request itself still becomes fulfilled on-chain.
         ctx.prover_market
             .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
             .await
-            .unwrap();
+            .expect("fulfillment should succeed even if payment requirements fail");
+        assert!(logs_contain("Payment requirements failed for at least one fulfillment"));
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
         let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         assert!(balance_before == balance_after);

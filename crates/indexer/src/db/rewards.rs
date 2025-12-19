@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
 use boundless_rewards::{StakingPosition, WorkLogRewardInfo};
 use chrono::Utc;
+use log::LevelFilter;
 use serde_json;
-use sqlx::{any::AnyPoolOptions, AnyPool, Row};
+use sqlx::{any::AnyPoolOptions, AnyPool, ConnectOptions, Row};
 
 use super::DbError;
 
@@ -488,12 +489,16 @@ impl RewardsDb {
         pool_options: Option<AnyPoolOptions>,
         skip_migrations: bool,
     ) -> Result<Self, DbError> {
-        use std::time::Duration;
-
         sqlx::any::install_default_drivers();
 
+        // Parse connection options to configure slow query logging
+        let mut connect_opts = sqlx::any::AnyConnectOptions::from_str(database_url)?;
+
+        // Configure slow query logging: only log queries that take over 2 seconds
+        connect_opts = connect_opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
+
         let pool = if let Some(opts) = pool_options {
-            opts.connect(database_url).await?
+            opts.connect_with(connect_opts).await?
         } else {
             // Lambda-optimized defaults
             AnyPoolOptions::new()
@@ -501,7 +506,7 @@ impl RewardsDb {
                 .acquire_timeout(Duration::from_secs(5)) // Lambda: fail fast for users
                 .idle_timeout(Some(Duration::from_secs(300))) // Lambda: match container warm time
                 .max_lifetime(Some(Duration::from_secs(300))) // Lambda: 5 min max
-                .connect(database_url)
+                .connect_with(connect_opts)
                 .await?
         };
 

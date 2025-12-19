@@ -22,7 +22,7 @@ use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, FixedBytes, U256},
-    providers::{Provider, WalletProvider},
+    providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use anyhow::{Context, Result};
@@ -31,7 +31,7 @@ use boundless_market::{
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
     override_gateway,
-    selector::is_groth16_selector,
+    selector::{is_blake3_groth16_selector, is_groth16_selector},
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -406,6 +406,18 @@ impl Order {
     pub fn is_groth16(&self) -> bool {
         is_groth16_selector(self.request.requirements.selector)
     }
+    fn is_blake3_groth16(&self) -> bool {
+        is_blake3_groth16_selector(self.request.requirements.selector)
+    }
+    pub fn compression_type(&self) -> CompressionType {
+        if self.is_groth16() {
+            CompressionType::Groth16
+        } else if self.is_blake3_groth16() {
+            CompressionType::Blake3Groth16
+        } else {
+            CompressionType::None
+        }
+    }
 }
 
 impl std::fmt::Display for Order {
@@ -417,6 +429,13 @@ impl std::fmt::Display for Order {
         };
         write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CompressionType {
+    None,
+    Groth16,
+    Blake3Groth16,
 }
 
 #[derive(sqlx::Type, Default, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -621,7 +640,7 @@ where
     }
 
     async fn fetch_and_upload_assessor_image(&self, prover: &ProverObj) -> Result<Digest> {
-        let boundless_market = BoundlessMarketService::new(
+        let boundless_market = BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
@@ -888,39 +907,52 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if is_dev_mode() {
+        let prover: provers::ProverObj;
+        let aggregation_prover: provers::ProverObj;
+        if is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
             Receipts generated from this process are invalid and should never be used in production.");
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
                     .context("Failed to construct Bonsai client")?,
-            )
+            );
+            aggregation_prover = Arc::clone(&prover);
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
-            )
+            );
+            // Initialize aggregation/snark prover with a higher reserved key to prioritize
+            aggregation_prover = Arc::new(
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
+                    .context("Failed to initialize Bento client")?,
+            );
         } else {
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         };
+
+        let prover_addr = self.provider.default_signer_address();
 
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
-        let collateral_token_decimals = BoundlessMarketService::new(
+        let market = Arc::new(BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
-            self.provider.clone(),
-            Address::ZERO,
-        )
-        .collateral_token_decimals()
-        .await
-        .context("Failed to get stake token decimals. Possible RPC error.")?;
+            DynProvider::new(self.provider.clone()),
+            prover_addr,
+        ));
+        let collateral_token_decimals = market
+            .collateral_token_decimals()
+            .await
+            .context("Failed to get stake token decimals. Possible RPC error.")?;
 
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
@@ -950,9 +982,11 @@ where
             proving::ProvingService::new(
                 self.db.clone(),
                 prover.clone(),
+                aggregation_prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 self.priority_requestors.clone(),
+                market.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,
@@ -967,9 +1001,6 @@ where
                 .context("Failed to start proving service")?;
             Ok(())
         });
-
-        let prover_addr =
-            self.args.private_key.as_ref().expect("Private key must be set").address();
 
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
@@ -1009,7 +1040,7 @@ where
                 self.deployment().boundless_market_address,
                 prover_addr,
                 config.clone(),
-                prover.clone(),
+                aggregation_prover.clone(),
             )
             .await
             .context("Failed to initialize aggregator service")?,
@@ -1215,6 +1246,15 @@ fn format_expiries(request: &ProofRequest) -> String {
 /// Returns `true` if the dev mode environment variable is enabled.
 pub(crate) fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
+}
+
+/// Returns `true` if the `ALLOW_LOCAL_FILE_STORAGE` environment variable is enabled.
+pub(crate) fn allow_local_file_storage() -> bool {
+    std::env::var("ALLOW_LOCAL_FILE_STORAGE")
         .ok()
         .map(|x| x.to_lowercase())
         .filter(|x| x == "1" || x == "true" || x == "yes")

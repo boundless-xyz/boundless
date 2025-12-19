@@ -24,9 +24,12 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    balance_alerts_layer::BalanceAlertConfig, client::Client, deployments::Deployment,
-    input::GuestEnv, request_builder::OfferParams, storage::fetch_url,
-    storage::StorageProviderConfig,
+    balance_alerts_layer::BalanceAlertConfig,
+    client::{Client, FundingMode},
+    deployments::Deployment,
+    input::GuestEnv,
+    request_builder::OfferParams,
+    storage::{fetch_url, StorageProviderConfig},
 };
 use clap::Parser;
 use rand::Rng;
@@ -178,6 +181,7 @@ async fn run(args: &MainArgs) -> Result<()> {
                 .min_price_per_cycle(args.min_price_per_mcycle >> 20)
                 .max_price_per_cycle(args.max_price_per_mcycle >> 20)
         })
+        .with_funding_mode(FundingMode::AvailableBalance)
         .build()
         .await?;
 

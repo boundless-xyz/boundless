@@ -186,12 +186,14 @@ where
                 updated_at: current_timestamp,
             });
         }
+
         // debug client_address to whether we got cycle counts or not
         // build map of client_address to whether we got cycle counts or not. to get cliebnt address we will need to first build a map of request_digest to client_address.
         let request_digest_to_client_address = request_inputs
             .iter()
             .map(|(request_digest, _, _, client_address)| (request_digest, client_address))
             .collect::<HashMap<_, _>>();
+
         // then print debug of client_address to whether we got cycle counts or not
         let mut seen_client_addresses = HashSet::new();
         for (request_digest, client_address) in request_digest_to_client_address {

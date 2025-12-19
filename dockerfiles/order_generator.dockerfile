@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.88.0-bookworm AS init
+FROM rust:1.89.0-bookworm AS init
 
 RUN apt-get -qq update && \
     apt-get install -y -q clang
@@ -31,6 +31,7 @@ COPY contracts/ ./contracts/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
+COPY blake3_groth16/ ./blake3_groth16/
 
 RUN cargo chef prepare  --recipe-path recipe.json
 
@@ -50,6 +51,7 @@ COPY contracts/ ./contracts/
 COPY lib/ ./lib/
 COPY remappings.txt .
 COPY foundry.toml .
+COPY blake3_groth16/ ./blake3_groth16/
 
 SHELL ["/bin/bash", "-c"]
 
