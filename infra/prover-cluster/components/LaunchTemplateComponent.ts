@@ -161,7 +161,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.lockinPriorityGas || "0",
       config.orderCommitmentPriority || "cycle_price",
       config.rustLogLevel || "debug",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
+    ]).apply(([dbName, dbUser, dbPass, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
       const brokerRpcUrlsStr = brokerRpcUrls;
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
@@ -275,7 +275,6 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
       COMPONENT_TYPE=${componentType}
       PROVER_RPC_URLS=${brokerRpcUrlsStr}
       PROVER_PRIVATE_KEY=${privKey}
-      RPC_URL=${rpcUrl}
       PRIVATE_KEY=${privKey}
       ORDER_STREAM_URL=${orderStreamUrl}
       VERIFIER_ADDRESS=${verifierAddress}
