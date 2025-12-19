@@ -14,3 +14,4 @@ rzup_install_groth16: true
 
 # RISC0_HOME directory (defaults to $HOME/.risc0)
 rzup_risc0_home: null  # null = use $HOME/.risc0
+rzup_install_groth16_artifacts: true
