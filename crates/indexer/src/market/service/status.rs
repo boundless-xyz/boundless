@@ -160,7 +160,8 @@ where
         request_digests: HashSet<B256>,
         block_number: u64,
     ) -> Result<(), ServiceError> {
-        tracing::debug!(
+        tracing::debug!("{} request digests to update", request_digests.len());
+        tracing::trace!(
             "Request digests to update: {:?}",
             request_digests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
         );
