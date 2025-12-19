@@ -65,6 +65,9 @@ bento_install_dir: "/usr/local/bin"
 bento_config_dir: "/etc/boundless"
 bento_work_dir: "/var/lib/bento"
 
+# Blake3 Groth16 prover artifacts directory
+bento_blake3_groth16_setup_dir: null
+
 # GPU configuration
 # If bento_cuda_visible_devices is not set, GPUs will be auto-detected using nvidia-smi
 # Set this manually to override auto-detection (e.g., ["0", "1"] for specific GPUs)

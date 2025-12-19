@@ -15,6 +15,7 @@ Group={{ bento_group }}
 EnvironmentFile={{ bento_config_dir }}/bento.env
 Environment="RISC0_HOME={{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}"
 Environment="PATH=/usr/local/bin:{{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="BLAKE3_GROTH16_SETUP_DIR={{ bento_blake3_groth16_setup_dir | default(bento_home ~ '/.risc0/extensions/blake3_groth16_artifacts') }}"
 WorkingDirectory={{ bento_work_dir }}
 ExecStart={{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh
 SyslogIdentifier=bento-{{ bento_task }}
