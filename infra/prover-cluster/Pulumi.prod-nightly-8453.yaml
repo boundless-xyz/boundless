@@ -18,7 +18,7 @@ config:
     secure: v1:JHlOmmcIueh/07mW:N3VN4wA6989LVBIYA4k9qGKK1foPMg==
   prover-cluster:minioPassword:
     secure: v1:bi2qbwEmOoghGwWb:1ww9YtsULpmffCopFmRsuhMQcrI/4noy2XoX40H/IjI=
-  prover-cluster:executionCount: "1"
+  prover-cluster:executionCount: "20"
   prover-cluster:auxWorkerCount: "1"
   prover-cluster:proverWorkerCount: "1"
   prover-cluster:privateKey:
