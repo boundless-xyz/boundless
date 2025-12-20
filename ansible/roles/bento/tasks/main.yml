@@ -181,7 +181,7 @@
         owner: root
         group: root
         remote_src: true
-      notify: Reload systemd
+      notify: Restart Bento service
 
     - name: Install Bento REST API binary
       ansible.builtin.copy:
@@ -191,7 +191,7 @@
         owner: root
         group: root
         remote_src: true
-      notify: Reload systemd
+      notify: Restart Bento service
 
     - name: Check if Bento CLI binary exists in bundle
       ansible.builtin.stat:
@@ -218,7 +218,7 @@
       when:
         - bento_cli_bundle_check.stat.exists
         - not bento_cli_check.stat.exists
-      notify: Reload systemd
+      # No notify needed - bento-cli is used by miner service, not bento service
 
     - name: Ensure Bento configuration directory exists (for version file)
       ansible.builtin.file:
@@ -235,6 +235,7 @@
         mode: '0644'
         owner: root
         group: root
+      # No notify needed - version file is metadata only, doesn't require service restart
 
     - name: Clean up Bento bundle archive
       ansible.builtin.file:
@@ -291,7 +292,7 @@
     mode: '0640'
     owner: root
     group: "{{ bento_group }}"
-  notify: Restart all Bento services
+  notify: Restart Bento service
   tags:
     - bento
     - bento-config
