@@ -13,7 +13,7 @@ BASE_PORT={{ bento_prometheus_metrics_ports[bento_task] | default(9090) }}
 export PROMETHEUS_METRICS_ADDR="127.0.0.1:${BASE_PORT}"
 {{ bento_install_dir }}/bento-rest-api --bind-addr {{ bento_api_url }}
 {% elif bento_task == 'prove' or bento_task == 'snark' or bento_task == 'join' %}
-# Prove services (GPU workers)
+# Prove, Snark, and Join services (GPU workers)
 {% if bento_count | default(1) | int > 1 %}
 for id in $(seq 0 $(({{ bento_count | default(1) | int }} - 1))); do
   # Each instance gets its own Prometheus port: base_port + instance_id
