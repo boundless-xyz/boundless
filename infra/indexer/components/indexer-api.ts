@@ -140,7 +140,6 @@ export class IndexerApi extends pulumi.ComponentResource {
       },
       memorySize: 256,
       timeout: 30,
-      reservedConcurrentExecutions: 10,
       vpcConfig: {
         subnetIds: args.privSubNetIds,
         securityGroupIds: [args.indexerSgId],
@@ -189,23 +188,6 @@ export class IndexerApi extends pulumi.ComponentResource {
       alarmActions,
     }, { parent: this });
 
-    // Alarm for Lambda Concurrent Executions approaching limit
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-lambda-concurrent-executions`, {
-      name: `${serviceName}-lambda-concurrent-executions`,
-      comparisonOperator: 'GreaterThanThreshold',
-      evaluationPeriods: 2,
-      metricName: 'ConcurrentExecutions',
-      namespace: 'AWS/Lambda',
-      period: 60, // 1 minute
-      statistic: 'Maximum',
-      threshold: 20, // Alert at 20 concurrent executions (80% of 25 limit)
-      alarmDescription: `Lambda concurrent executions approaching reserved limit of 25`,
-      dimensions: {
-        FunctionName: lambda.name,
-      },
-      treatMissingData: 'notBreaching',
-    }, { parent: this });
-
     // Create API Gateway v2 (HTTP API)
     const api = new aws.apigatewayv2.Api(
       `${serviceName}-api`,
@@ -249,16 +231,58 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Create deployment stage
+    // Create CloudWatch log group for API Gateway access logs
+    const accessLogGroup = new aws.cloudwatch.LogGroup(
+      `${serviceName}-api-access-logs`,
+      {
+        name: `/aws/apigateway/${serviceName}`,
+        retentionInDays: 30,
+      },
+      { parent: this },
+    );
+
+    // Create deployment stage with access logging
     new aws.apigatewayv2.Stage(
       `${serviceName}-stage`,
       {
         apiId: api.id,
         name: '$default',
         autoDeploy: true,
+        accessLogSettings: {
+          destinationArn: accessLogGroup.arn,
+          format: JSON.stringify({
+            requestId: '$context.requestId',
+            ip: '$context.identity.sourceIp',
+            requestTime: '$context.requestTime',
+            httpMethod: '$context.httpMethod',
+            path: '$context.path',
+            status: '$context.status',
+            responseLength: '$context.responseLength',
+            integrationLatency: '$context.integrationLatency',
+            integrationError: '$context.integrationErrorMessage',
+          }),
+        },
       },
       { parent: this },
     );
+
+    // Alarm for API Gateway 5xx errors
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-5xx-alarm`, {
+      name: `${serviceName}-5xx-errors`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: '5xx',
+      namespace: 'AWS/ApiGateway',
+      period: 60,
+      statistic: 'Sum',
+      threshold: 10,
+      alarmDescription: `API Gateway 5xx errors detected for ${serviceName}`,
+      dimensions: {
+        ApiId: api.id,
+      },
+      treatMissingData: 'notBreaching',
+      alarmActions,
+    }, { parent: this });
 
     this.apiEndpoint = pulumi.interpolate`${api.apiEndpoint}`;
 
@@ -331,7 +355,7 @@ export class IndexerApi extends pulumi.ComponentResource {
             priority: 1,
             statement: {
               rateBasedStatement: {
-                limit: 100, // 75 requests per 5 minutes per IP
+                limit: 150, // 150 requests per 5 minutes per IP
                 aggregateKeyType: 'IP',
                 forwardedIpConfig: {
                   headerName: 'CF-Connecting-IP',
