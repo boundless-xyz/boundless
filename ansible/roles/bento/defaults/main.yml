@@ -1,6 +1,6 @@
 ---
 # Bento version to install
-bento_version: "v1.1.2"
+bento_version: "v1.2.0"
 
 # Bento task type (prove, execute, aux, etc.)
 bento_task: "prove"

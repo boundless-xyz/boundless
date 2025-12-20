@@ -229,8 +229,8 @@
         - rzup
         - rzup-install
         - rzup-groth16
-      
-- name: Download Blake3 Groth16 Prover Artifacts 
+
+- name: Download Blake3 Groth16 Prover Artifacts
   ansible.builtin.get_url:
     url: https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz
     dest: /tmp/blake3_groth16_artifacts.tar.xz
