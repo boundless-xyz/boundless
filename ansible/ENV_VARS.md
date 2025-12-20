@@ -97,22 +97,28 @@ Set in `host_vars` or via `-e`:
 * `broker_bento_api_url` (default: `"http://localhost:8081"`)
 * `broker_rpc_url` (default: `"https://rpc.boundless.network"` - **should be overridden**)
 * `broker_private_key` (default: zero key - **must be set**)
-* `broker_min_mcycle_price` (default: `"0.0000003"`)
+* `broker_min_mcycle_price` (default: `"0.00000001"`)
+* `broker_min_mcycle_price_collateral_token` (default: `"0.00005"`)
 * `broker_peak_prove_khz` (default: `100`)
 * `broker_max_collateral` (default: `"200"`)
-* `broker_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`)
+* `broker_max_concurrent_preflights` (default: `2`)
+* `broker_max_concurrent_proofs` (default: `1`)
+* `broker_prometheus_metrics_addr` (default: `"127.0.0.1:9590"`)
+* `broker_user` (default: `"{{ bento_user | default('bento') }}"`): Service user (defaults to `bento` user)
+* `broker_group` (default: `"{{ bento_group | default('bento') }}"`): Service group (defaults to `bento` group)
 
 ### Bento
 
 Set in `host_vars` or via `-e`:
 
-* `bento_task` (default: `"prove"`): Service type (prove, exec, aux, api)
+* `bento_task` (default: `"prove"`): Service type (prove, exec, aux, api, snark, join, union, coproc)
 * `bento_count` (default: `1`): Number of instances
 * `bento_segment_po2` (default: `20`)
 * `bento_keccak_po2` (default: `17`)
 * `bento_rewards_address` (default: `""`)
 * `bento_povw_log_id` (default: `""`)
-* `bento_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`)
+* `bento_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`): Base Prometheus metrics address (ports vary by service: api=9090, prove=9190, exec=9290, aux=9390, snark=9490, join=9490)
+* `bento_version` (default: `"v1.2.0"`): Version of Bento to install (tracked in `/etc/boundless/.bento_version`)
 
 ## Remote Worker Node Configuration
 

@@ -23,7 +23,7 @@
       ansible.builtin.include_role:
         name: bento
       vars:
-        bento_task: "{{ bento_task | default('prove') }}"
+        # bento_task is set via -e flag or uses role default ("prove")
         bento_install_dependencies: false
         bento_count: 2
       tags:
