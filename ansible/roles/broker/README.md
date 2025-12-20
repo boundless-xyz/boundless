@@ -21,11 +21,11 @@ None - all variables have defaults, but you should override them based on your e
 #### Installation Configuration
 
 * `broker_version` (default: `"v1.1.1"`): Version of Broker to install
-* `broker_user` (default: `"broker"`): User to run the service as
-* `broker_group` (default: `"broker"`): Group for the broker user
+* `broker_user` (default: `"{{ bento_user | default('bento') }}"`): User to run the service as (defaults to `bento` user)
+* `broker_group` (default: `"{{ bento_group | default('bento') }}"`): Group for the broker user (defaults to `bento` group)
 * `broker_install_dir` (default: `"/usr/local/bin"`): Directory to install binary
-* `broker_config_dir` (default: `"/etc/boundless"`): Directory for configuration files (shared with Bento)
-* `broker_work_dir` (default: `"/etc/boundless"`): Working directory for the service
+* `broker_config_dir` (default: `"/etc/boundless/broker"`): Directory for broker-specific configuration files
+* `broker_work_dir` (default: `"/etc/boundless/broker"`): Working directory for the service
 
 #### Service Configuration
 
@@ -104,7 +104,7 @@ None
 * **Ansible Variable System**: All configuration variables follow Ansible's standard variable precedence (host\_vars → group\_vars → defaults)
 * **Prometheus Metrics**: Configurable Prometheus metrics endpoint (defaults to `127.0.0.1:9090`)
 * **Clean Installation**: Downloads, installs binary, and cleans up temporary files
-* **Dedicated User**: Creates a dedicated `broker` system user with proper directory structure and permissions
+* **Shared User**: Uses the `bento` user by default (same user as Bento services) to simplify permissions and configuration
 
 ## Handlers
 
@@ -123,9 +123,11 @@ None
 
 4. **Performance Tuning**: Adjust `broker_peak_prove_khz`, `broker_max_concurrent_preflights`, and `broker_max_concurrent_proofs` based on your hardware capabilities and benchmarking results. `broker_max_concurrent_preflights` is automatically calculated from CPU count if not set.
 
-5. **Shared Directory**: Broker shares `/etc/boundless/` with Bento services. This directory must have `0755` permissions and be owned by `root:root` to allow both services to access it.
+5. **Shared Directory**: Broker uses `/etc/boundless/broker/` for its configuration and database files, while sharing the parent `/etc/boundless/` directory with Bento services. The parent directory must have `0755` permissions and be owned by `root:root` to allow both services to access it. The Bento role automatically sets these permissions to prevent conflicts.
 
 6. **Private Key**: The `broker_private_key` must be set (not the default zero key). Set it in `host_vars/HOSTNAME/vault.yml` or via command-line (`-e broker_private_key="0x..."`).
+
+7. **User Configuration**: By default, the broker service runs as the `bento` user (same as Bento services) to simplify permissions. This can be overridden by setting `broker_user` and `broker_group` variables.
 
 ## Troubleshooting
 

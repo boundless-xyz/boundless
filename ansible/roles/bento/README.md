@@ -174,8 +174,10 @@ bento_install_dependencies: false
 ## Features
 
 * **Idempotent**: Safe to run multiple times
+* **Version Tracking**: Tracks installed Bento version in `/etc/boundless/.bento_version` and only reinstalls when version changes or binaries are missing
 * **Launcher Script Architecture**: Uses launcher scripts to start multiple instances per service type, simplifying systemd configuration
 * **Service Management**: Properly manages systemd service with handlers, supports multiple instances via launcher scripts
+* **Smart Restart Logic**: Services restart only when binaries or configuration files change, not on cleanup tasks or version file updates
 * **Configuration Management**: Creates environment file, launcher scripts, and service file from templates
 * **Directory Management**: Creates necessary directories with proper permissions (shared `/etc/boundless/` directory)
 * **Clean Installation**: Downloads, extracts, installs binaries, and cleans up temporary files
@@ -183,7 +185,7 @@ bento_install_dependencies: false
 * **Valkey Support**: Integrates with `valkey` role for Valkey (Redis fork) installation and configuration
 * **S3 Support**: Integrates with `minio` role for MinIO S3-compatible storage (credentials automatically synchronized)
 * **Rust Support**: Automatically installs Rust for the bento user via `rust` role
-* **RISC Zero Support**: Automatically installs rzup, risc0-groth16, and blake3-groth16 for Groth16 proof generation via `rzup` role
+* **RISC Zero Support**: Automatically installs rzup and risc0-groth16 for Groth16 proof generation via `rzup` role
 * **Credential Matching**: Automatically uses credentials from dependent roles, ensuring consistency
 * **Ansible Variable System**: All configuration variables follow Ansible's standard variable precedence (host\_vars → group\_vars → defaults)
 * **Prometheus Metrics**: Configurable Prometheus metrics endpoint (defaults to `127.0.0.1:9090`)
@@ -194,10 +196,16 @@ bento_install_dependencies: false
 ## Handlers
 
 * `Reload systemd`: Reloads systemd daemon after service file changes
-* `Restart Bento service`: Restarts the Bento service
+* `Restart Bento service`: Restarts the specific Bento service (e.g., `bento-prove`, `bento-api`)
 * `Start Bento service`: Starts the Bento service
 * `Stop Bento service`: Stops the Bento service
-* `Restart all Bento services`: Restarts all Bento services (used when environment file changes)
+* `Restart all Bento services`: Restarts all Bento services (legacy handler, not used in current implementation)
+
+**Note**: Handlers are triggered only when:
+
+* Binary files are installed or updated
+* Configuration files (environment file, launcher script, service file) are changed
+* Cleanup tasks and version file updates do NOT trigger service restarts
 
 ## Service Architecture
 
@@ -215,6 +223,10 @@ Each Bento service type uses a launcher script that:
 * `/etc/boundless/bento-api-launcher.sh` - Starts REST API
 * `/etc/boundless/bento-exec-launcher.sh` - Starts exec workers
 * `/etc/boundless/bento-aux-launcher.sh` - Starts aux workers
+* `/etc/boundless/bento-snark-launcher.sh` - Starts SNARK compression workers
+* `/etc/boundless/bento-join-launcher.sh` - Starts join task workers
+* `/etc/boundless/bento-union-launcher.sh` - Starts union task workers
+* `/etc/boundless/bento-coproc-launcher.sh` - Starts coprocessor workers
 
 **Systemd Units**:
 
@@ -222,16 +234,21 @@ Each Bento service type uses a launcher script that:
 * `/etc/systemd/system/bento-api.service`
 * `/etc/systemd/system/bento-exec.service`
 * `/etc/systemd/system/bento-aux.service`
+* `/etc/systemd/system/bento-snark.service`
+* `/etc/systemd/system/bento-join.service`
+* `/etc/systemd/system/bento-union.service`
+* `/etc/systemd/system/bento-coproc.service`
 
 ### Directory Permissions
 
-**Critical**: The `/etc/boundless/` directory must have `0755` permissions and be owned by `root:root` to allow both `bento` and `broker` users to access it.
+**Critical**: The `/etc/boundless/` directory must have `0755` permissions and be owned by `root:root` to allow both `bento` and `broker` users to access it. The Bento role automatically sets these permissions to prevent conflicts with the Broker role.
 
 **File Permissions**:
 
+* Config directory (`/etc/boundless/`): `0755`, owned by `root:root` (shared with broker)
 * Launcher scripts: `0755`, owned by `bento:bento`
-* Environment file: `0640`, owned by `root:bento`
-* Config directory: `0755`, owned by `root:root`
+* Environment file (`bento.env`): `0640`, owned by `root:bento`
+* Version file (`.bento_version`): `0644`, owned by `root:root` (metadata only, no restart on change)
 
 ## Troubleshooting
 

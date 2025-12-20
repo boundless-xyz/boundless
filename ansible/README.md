@@ -11,7 +11,7 @@ The playbook sets up a Boundless prover system by:
 * Installing GCC 12 for Ubuntu 22.04
 * Installing Docker with NVIDIA Container Toolkit support
 * Installing Rust programming language (via `rust` role)
-* Installing RISC Zero rzup toolchain, risc0-groth16, and blake3-groth16 components (via `rzup` role)
+* Installing RISC Zero rzup toolchain and risc0-groth16 component (via `rzup` role)
 * Installing Just command runner
 * Installing CUDA Toolkit 13.0
 * Installing Protobuf compiler
@@ -194,6 +194,10 @@ ansible-playbook -i inventory.yml cluster.yml --tags grafana
 * `bento-api` - Bento API deployment
 * `bento-exec` - Bento exec task deployment
 * `bento-aux` - Bento aux task deployment
+* `bento-snark` - Bento snark task deployment
+* `bento-join` - Bento join task deployment
+* `bento-union` - Bento union task deployment
+* `bento-coproc` - Bento coproc task deployment
 * `awscli` - AWS CLI installation
 * `nvidia` - NVIDIA drivers and CUDA Toolkit
 * `postgresql` - PostgreSQL role
@@ -229,10 +233,16 @@ This approach simplifies systemd configuration while allowing multiple instances
 * `bento-api`: REST API service
 * `bento-exec`: Execution workers
 * `bento-aux`: Auxiliary workers
+* `bento-snark`: SNARK compression workers (when `SNARK_STREAM=1`)
+* `bento-join`: Join task workers (when `JOIN_STREAM=1`)
+* `bento-union`: Union task workers (when `UNION_STREAM=1`)
+* `bento-coproc`: Coprocessor workers (when `COPROC_STREAM=1`)
 
 ### Shared Configuration Directory
 
 Both Bento and Broker services use `/etc/boundless/` as a shared configuration directory. This directory must have `0755` permissions and be owned by `root:root` to allow both services to access it.
+
+**Important**: The Bento role manages this directory and sets it to `root:root` with `0755` permissions. The Broker role also ensures this directory exists with the same permissions to prevent conflicts.
 
 ## Differences from setup.sh
 
@@ -247,8 +257,10 @@ Both Bento and Broker services use `/etc/boundless/` as a shared configuration d
 * The playbook is idempotent - you can run it multiple times safely
 * Some tasks require a reboot to take full effect (especially GPU drivers and Docker group membership)
 * For Ubuntu 22.04 vs 24.04, different installation methods are used for Rust (rustup installer script vs apt package)
-* The `rust` and `rzup` roles are automatically included when deploying Bento to ensure Groth16 and Blake3 Groth16 proof generation works correctly
+* The `rust` and `rzup` roles are automatically included when deploying Bento to ensure Groth16 proof generation works correctly
 * Docker group membership changes require logging out and back in, or a reboot
+* **Version Tracking**: The Bento role tracks installed versions in `/etc/boundless/.bento_version` and only reinstalls when the version changes or binaries are missing
+* **Service Restart Logic**: Services restart only when binaries or configuration files change, not on cleanup tasks or version file updates
 
 ## Troubleshooting
 
