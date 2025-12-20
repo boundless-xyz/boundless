@@ -92,6 +92,9 @@
         bento_task: "exec"
         bento_install_dependencies: false
         bento_count: "{{ bento_exec_count }}"
+        # Enable stream routing on executor node
+        bento_enable_snark_stream: "{{ bento_snark_workers | bool }}"
+        bento_enable_join_stream: "{{ bento_join_workers | bool }}"
       tags:
         - bento
         - bento-exec

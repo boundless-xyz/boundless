@@ -94,3 +94,11 @@ bento_join_workers: false
 # Set to true to join the snark worker to the Bento cluster
 # Set to false to skip join snark workers in the Bento cluster
 bento_snark_workers: false
+
+# Stream routing configuration (set on executor/manager node, not worker nodes)
+# These control which streams the executor uses for routing tasks
+# Set to true on the executor/manager node (typically exec service) to enable stream routing
+bento_enable_snark_stream: false
+bento_enable_join_stream: false
+bento_enable_union_stream: false
+bento_enable_coproc_stream: false
