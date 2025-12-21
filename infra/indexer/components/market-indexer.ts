@@ -24,6 +24,7 @@ export interface MarketIndexerArgs {
   orderStreamApiKey?: pulumi.Output<string>;
   bentoApiUrl?: pulumi.Output<string>;
   bentoApiKey?: pulumi.Output<string>;
+  rustLogLevel: string;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -50,6 +51,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       orderStreamApiKey,
       bentoApiUrl,
       bentoApiKey,
+      rustLogLevel,
     } = args;
 
     const serviceName = name;
@@ -185,7 +187,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
           environment: [
             {
               name: 'RUST_LOG',
-              value: 'boundless_indexer=debug,info',
+              value: rustLogLevel,
             },
             {
               name: 'NO_COLOR',
