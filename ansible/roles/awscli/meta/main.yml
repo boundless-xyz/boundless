@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  author: Boundless
+  description: Install and verify AWS CLI v2
+  license: BSD
+  min_ansible_version: '2.9'
+  platforms:
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - aws
+    - awscli
+    - cloud
+dependencies: []

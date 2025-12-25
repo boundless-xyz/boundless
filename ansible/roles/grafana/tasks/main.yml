@@ -1,0 +1,126 @@
+---
+- name: Install Grafana
+  when: grafana_install | bool
+  block:
+    - name: Add Grafana APT repository GPG key
+      ansible.builtin.get_url:
+        url: "https://packages.grafana.com/gpg.key"
+        dest: /usr/share/keyrings/grafana.gpg
+        mode: '0644'
+      when: ansible_os_family == "Debian"
+
+    - name: Add Grafana APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/grafana.gpg] https://packages.grafana.com/oss/deb stable main"
+        state: present
+        update_cache: true
+        filename: grafana
+      when: ansible_os_family == "Debian"
+
+    - name: Install Grafana
+      ansible.builtin.apt:
+        name: "grafana{{ '=' + grafana_version if grafana_version != 'latest' else '' }}"
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Create Grafana directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ grafana_user }}"
+        group: "{{ grafana_group }}"
+        mode: '0755'
+      loop:
+        - "{{ grafana_data_dir }}"
+        - "{{ grafana_config_dir }}"
+        - "{{ grafana_log_dir }}"
+        - "{{ grafana_provisioning_dir }}"
+        - "{{ grafana_provisioning_dir }}/datasources"
+        - "{{ grafana_dashboards_dir }}"
+
+    - name: Configure Grafana main configuration
+      ansible.builtin.template:
+        src: grafana.ini.j2
+        dest: "{{ grafana_config_dir }}/grafana.ini"
+        mode: '0640'
+        owner: root
+        group: "{{ grafana_group }}"
+      notify: Restart Grafana service
+      tags:
+        - grafana
+        - grafana-config
+
+    - name: Configure PostgreSQL datasource
+      ansible.builtin.template:
+        src: datasources/postgres.yml.j2
+        dest: "{{ grafana_provisioning_dir }}/datasources/postgres.yml"
+        mode: '0644'
+        owner: root
+        group: root
+      when: grafana_postgresql_enabled | bool
+      notify: Restart Grafana service
+      tags:
+        - grafana
+        - grafana-config
+
+    - name: Configure Broker SQLite datasource
+      ansible.builtin.template:
+        src: datasources/sqlite.yml.j2
+        dest: "{{ grafana_provisioning_dir }}/datasources/sqlite.yml"
+        mode: '0644'
+        owner: root
+        group: root
+      when: grafana_broker_sqlite_enabled | bool
+      notify: Restart Grafana service
+      tags:
+        - grafana
+        - grafana-config
+
+    - name: Configure dashboard provisioning
+      ansible.builtin.template:
+        src: dashboards/dashboard.yml.j2
+        dest: "{{ grafana_provisioning_dir }}/dashboards/dashboard.yml"
+        mode: '0644'
+        owner: root
+        group: root
+      when: grafana_dashboards_enabled | bool
+      notify: Restart Grafana service
+      tags:
+        - grafana
+        - grafana-config
+
+    - name: Copy dashboard files
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ grafana_dashboards_dir }}/{{ item | basename }}"
+        mode: '0644'
+        owner: root
+        group: root
+      loop: "{{ grafana_dashboard_files | default([]) }}"
+      when:
+        - grafana_dashboards_enabled | bool
+        - grafana_dashboard_files is defined
+        - grafana_dashboard_files | length > 0
+      notify: Restart Grafana service
+      tags:
+        - grafana
+        - grafana-dashboards
+
+    - name: Install Grafana plugins
+      ansible.builtin.command:
+        cmd: "grafana-cli plugins install {{ item }}"
+        creates: "{{ grafana_data_dir }}/plugins/{{ item }}"
+      loop: "{{ grafana_plugins | default([]) }}"
+      when: grafana_plugins is defined and grafana_plugins | length > 0
+      notify: Restart Grafana service
+      tags:
+        - grafana
+        - grafana-plugins
+
+    - name: Ensure Grafana service is enabled and started
+      ansible.builtin.systemd:
+        name: grafana-server
+        enabled: "{{ grafana_service_enabled }}"
+        state: "{{ grafana_service_state }}"
+        daemon_reload: true

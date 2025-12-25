@@ -71,6 +71,14 @@ sudo systemctl enable vector
 
 # Final cleanup
 log "Performing final cleanup..."
+# Clean up source code and build artifacts
+log "Removing source repository and build artifacts..."
+cd ~
+rm -rf boundless/
+# Clean up Rust build cache (optional, but saves space)
+log "Cleaning Rust build cache..."
+cargo clean
+# Clean up apt cache and temporary files
 sudo apt-get autoremove -y
 sudo apt-get autoclean
 sudo rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,150 @@
+---
+- name: Install Vector
+  when: vector_install | bool
+  block:
+    - name: Check if Vector is already installed
+      ansible.builtin.command:
+        cmd: which vector
+      register: vector_installed_check
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+
+    - name: Download Vector setup script
+      ansible.builtin.get_url:
+        url: https://setup.vector.dev
+        dest: /tmp/vector-setup.sh
+        mode: '0755'
+      when: vector_installed_check.rc != 0
+
+    - name: Run Vector setup script
+      ansible.builtin.command:
+        cmd: /bin/bash /tmp/vector-setup.sh
+      args:
+        creates: /usr/bin/vector
+      when: vector_installed_check.rc != 0
+      register: vector_setup_result
+      changed_when: vector_setup_result.rc == 0
+      failed_when: vector_setup_result.rc != 0
+
+    - name: Clean up Vector setup script
+      ansible.builtin.file:
+        path: /tmp/vector-setup.sh
+        state: absent
+      when: vector_installed_check.rc != 0
+
+    - name: Install Vector package
+      ansible.builtin.apt:
+        name: vector
+        state: present
+        update_cache: true
+      when: vector_installed_check.rc != 0
+      notify: Reload systemd
+
+- name: Create Vector configuration directory
+  ansible.builtin.file:
+    path: "{{ vector_config_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  tags:
+    - vector
+    - vector-config
+
+- name: Configure Vector
+  ansible.builtin.template:
+    src: vector.yaml.j2
+    dest: "{{ vector_config_file }}"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart Vector service
+  tags:
+    - vector
+    - vector-config
+
+- name: Configure Vector environment
+  ansible.builtin.lineinfile:
+    path: /etc/default/vector
+    regexp: '^VECTOR_LOG='
+    line: "VECTOR_LOG={{ vector_log_level }}"
+    create: true
+    mode: '0644'
+  notify: Restart Vector service
+  tags:
+    - vector
+    - vector-config
+
+- name: Configure AWS credentials file (if specified)
+  when: vector_aws_credentials_file is defined and vector_aws_credentials_file is not none
+  tags:
+    - vector
+    - vector-config
+  block:
+    - name: Create AWS credentials directory
+      ansible.builtin.file:
+        path: "{{ vector_aws_credentials_file | dirname }}"
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+
+    - name: Check if AWS credentials file exists
+      ansible.builtin.stat:
+        path: "{{ vector_aws_credentials_file }}"
+      register: vector_aws_creds_file_check
+      changed_when: false
+      failed_when: false
+
+    - name: Warn if AWS credentials file does not exist
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: AWS credentials file {{ vector_aws_credentials_file }} does not exist.
+          Vector will use IAM instance profile or environment variables for authentication.
+      when: not vector_aws_creds_file_check.stat.exists
+
+    - name: Set AWS_SHARED_CREDENTIALS_FILE environment variable
+      ansible.builtin.lineinfile:
+        path: /etc/default/vector
+        regexp: '^AWS_SHARED_CREDENTIALS_FILE='
+        line: "AWS_SHARED_CREDENTIALS_FILE={{ vector_aws_credentials_file }}"
+        create: true
+        mode: '0644'
+      notify: Restart Vector service
+
+- name: Configure AWS environment variables (if specified)
+  when: >-
+    vector_aws_access_key_id is defined and
+    vector_aws_access_key_id is not none and
+    vector_aws_secret_access_key is defined and
+    vector_aws_secret_access_key is not none
+  tags:
+    - vector
+    - vector-config
+  block:
+    - name: Add AWS credentials to Vector environment
+      ansible.builtin.lineinfile:
+        path: /etc/default/vector
+        regexp: '^{{ item.regexp }}'
+        line: "{{ item.line }}"
+        create: true
+        mode: '0644'
+      loop:
+        - regexp: '^AWS_ACCESS_KEY_ID='
+          line: "AWS_ACCESS_KEY_ID={{ vector_aws_access_key_id }}"
+        - regexp: '^AWS_SECRET_ACCESS_KEY='
+          line: "AWS_SECRET_ACCESS_KEY={{ vector_aws_secret_access_key }}"
+        - regexp: '^AWS_DEFAULT_REGION='
+          line: "AWS_DEFAULT_REGION={{ vector_cloudwatch_region }}"
+      notify: Restart Vector service
+
+- name: Ensure Vector service is configured
+  ansible.builtin.systemd:
+    name: vector.service
+    enabled: "{{ vector_service_enabled }}"
+    state: "{{ vector_service_state }}"
+    daemon_reload: true
+  tags:
+    - vector
+    - vector-service

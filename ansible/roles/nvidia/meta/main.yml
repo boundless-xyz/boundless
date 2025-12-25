@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Boundless
+  description: Install NVIDIA drivers, CUDA Toolkit, and NVIDIA Container Toolkit
+  license: BSD
+  min_ansible_version: '2.9'
+  galaxy_tags:
+    - nvidia
+    - cuda
+    - gpu
+dependencies: []
