@@ -118,7 +118,11 @@ where
             let start = std::time::Instant::now();
             match self.process_blocks(from_block, batch_end).await {
                 Ok(_) => {
-                    tracing::info!("process_blocks completed in {:?} [num_blocks={}]", start.elapsed(), batch_end - from_block + 1);
+                    tracing::info!(
+                        "process_blocks completed in {:?} [num_blocks={}]",
+                        start.elapsed(),
+                        batch_end - from_block + 1
+                    );
                     attempt = 0;
                     from_block = batch_end + 1;
 
