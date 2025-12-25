@@ -97,3 +97,8 @@ max_concurrent_proofs = {{ broker_max_concurrent_proofs }}
 #
 # Orders with a journal larger than this will be skipped.
 max_journal_bytes = {{ broker_max_journal_bytes }}
+
+# Maximum files size in bytes
+#
+# Orders with a file larger than this will be skipped.
+max_file_size = {{ broker_max_file_size }}

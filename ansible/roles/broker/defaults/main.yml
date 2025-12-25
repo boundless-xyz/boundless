@@ -56,6 +56,11 @@ broker_priority_requestor_lists:
 # If enabled, all requests from clients not in the allow list are skipped.
 broker_allow_client_addresses: []
 
+# Maximum files size in bytes
+#
+# Orders with a file larger than this will be skipped.
+broker_max_file_size: 500000000000
+
 # Service management
 broker_service_enabled: true
 broker_service_state: started
