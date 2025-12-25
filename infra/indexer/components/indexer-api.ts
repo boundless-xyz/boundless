@@ -490,17 +490,17 @@ export class IndexerApi extends pulumi.ComponentResource {
           cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
           compress: true,
 
-          // Cache policy for default behavior (current leaderboard)
-          defaultTtl: 60,    // 1 minute default
-          minTtl: 0,         // Allow immediate expiration
-          maxTtl: 300,       // Max 5 minutes
+          // Cache policy: Respect Cache-Control headers from API
+          defaultTtl: 0,     // Use origin's Cache-Control header
+          minTtl: 0,         // Allow no caching
+          maxTtl: 300,       // Max 5 minutes (safety limit)
 
           forwardedValues: {
             queryString: true, // Forward query parameters for pagination
             cookies: {
               forward: 'none',
             },
-            headers: [], // API Gateway doesn't need special headers
+            headers: ['Cache-Control'], // Forward Cache-Control to respect API's caching directives
           },
         },
 
@@ -538,20 +538,8 @@ export class IndexerApi extends pulumi.ComponentResource {
 
         customErrorResponses: [
           {
-            errorCode: 403,
-            responseCode: 403,
-            responsePagePath: '/error.html',
-            errorCachingMinTtl: 10,
-          },
-          {
-            errorCode: 404,
-            responseCode: 404,
-            responsePagePath: '/error.html',
-            errorCachingMinTtl: 10,
-          },
-          {
             errorCode: 500,
-            errorCachingMinTtl: 0, // Don't cache errors
+            errorCachingMinTtl: 0,
           },
           {
             errorCode: 502,

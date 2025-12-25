@@ -366,11 +366,13 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         }
 
         // Update the cycle count status
-        db.set_cycle_counts_executing(&current_executing_requests).await.unwrap();
-        tracing::debug!(
-            "Updated cycle counts for {} requests with EXECUTING status",
-            current_executing_requests.len()
-        );
+        if !current_executing_requests.is_empty() {
+            db.set_cycle_counts_executing(&current_executing_requests).await.unwrap();
+            tracing::debug!(
+                "Updated cycle counts for {} requests with EXECUTING status",
+                current_executing_requests.len()
+            );
+        }
 
         // Monitor requests in status EXECUTING, i.e. the ones that just started executing
         // as well as any ones started earlier that haven't terminated yet
