@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use anyhow::Result;
-use lambda_http::{run, Error};
-use tracing_subscriber::EnvFilter;
+use lambda_http::{run, tracing, Error};
 
 mod db;
 mod handler;
@@ -25,17 +24,8 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Initialize tracing with JSON format for CloudWatch
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_ansi(false)
-        .with_target(false)
-        .with_line_number(true)
-        .without_time()
-        .json()
-        .init();
+    // Use Lambda's built-in subscriber (respects RUST_LOG env var)
+    tracing::init_default_subscriber();
 
     tracing::info!("Starting indexer-api Lambda function");
 

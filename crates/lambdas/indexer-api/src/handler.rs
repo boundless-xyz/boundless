@@ -14,7 +14,7 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -122,7 +122,8 @@ async fn openapi_yaml() -> impl IntoResponse {
 }
 
 /// 404 handler
-async fn not_found() -> impl IntoResponse {
+async fn not_found(uri: Uri) -> impl IntoResponse {
+    tracing::warn!(path = %uri.path(), "Endpoint not found");
     (
         StatusCode::NOT_FOUND,
         Json(json!({
