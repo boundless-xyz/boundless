@@ -14,7 +14,7 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -22,7 +22,11 @@ use axum::{
 use lambda_http::Error;
 use serde_json::json;
 use std::{env, sync::Arc};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+};
+use tracing::Level;
 
 use crate::db::AppState;
 use crate::openapi::ApiDoc;
@@ -50,6 +54,11 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     // Configure CORS
     let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
 
+    // Configure request/response tracing
+    let trace_layer = TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().level(Level::DEBUG))
+        .on_response(DefaultOnResponse::new().level(Level::DEBUG));
+
     // Build the router
     Router::new()
         // Health check endpoint
@@ -62,6 +71,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .nest("/v1", api_v1_routes(state))
         // Add CORS layer
         .layer(cors)
+        // Add request/response tracing layer
+        .layer(trace_layer)
         // Add fallback for unmatched routes
         .fallback(not_found)
 }
@@ -111,7 +122,8 @@ async fn openapi_yaml() -> impl IntoResponse {
 }
 
 /// 404 handler
-async fn not_found() -> impl IntoResponse {
+async fn not_found(uri: Uri) -> impl IntoResponse {
+    tracing::warn!(path = %uri.path(), "Endpoint not found");
     (
         StatusCode::NOT_FOUND,
         Json(json!({
@@ -124,15 +136,21 @@ async fn not_found() -> impl IntoResponse {
 /// Global error handler that converts anyhow errors to HTTP responses
 pub fn handle_error(err: anyhow::Error) -> impl IntoResponse {
     // Log the full error with backtrace for debugging
-    tracing::error!("Request failed: {:?}", err);
+    tracing::error!(error = ?err, "Request failed");
 
-    // Check if it's a database connection error
-    let error_message = err.to_string();
+    // Convert error message to lowercase for case-insensitive matching
+    let error_message = err.to_string().to_lowercase();
+
+    // Determine appropriate status code based on error type
     let (status, message) = if error_message.contains("database")
         || error_message.contains("connection")
+        || error_message.contains("pool")
     {
         (StatusCode::SERVICE_UNAVAILABLE, "Database connection error. Please try again later.")
-    } else if error_message.contains("not found") || error_message.contains("No data found") {
+    } else if error_message.starts_with("no data available")
+        || error_message.starts_with("no povw")
+        || error_message.contains("does not exist")
+    {
         (StatusCode::NOT_FOUND, "The requested data was not found.")
     } else {
         // For production, return a generic message. In dev, you might want to return the actual error

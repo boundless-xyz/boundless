@@ -180,7 +180,6 @@ impl Monitor {
     /// Fetch the requests that have been submitted within the given range from a specific client address.
     /// NOTE: This function queries the `proof_requests` table, not the `request_submitted_events` table,
     ///       because the `request_submitted_events` table is not updated when a request is submitted offchain.
-    ///       This is therefore an approximation of when requests were submitted.
     ///
     /// from: timestamp in seconds.
     /// to: timestamp in seconds.

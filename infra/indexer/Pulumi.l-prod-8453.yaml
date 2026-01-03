@@ -12,7 +12,9 @@ config:
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:RDS_PASSWORD:
     secure: v1:dYPYATp59XJzpu9S:iPZ7dZZ+VxIIqykU5iHZAgXNyBmDY5RT6sFzLkQPp/Z4VA==
-  indexer:RUST_LOG: indexer_monitor=debug
+  indexer:RUST_LOG_API: debug
+  indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
+  indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "35060420"
   indexer:ETH_RPC_URL:

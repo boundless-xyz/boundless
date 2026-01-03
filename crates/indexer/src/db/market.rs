@@ -449,13 +449,19 @@ pub struct CycleCountExecution {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RequestWithId {
-    pub request_id: U256,
+    /// Some requests may not have a corresponding entry in the proof_requests table.
+    /// This is because we only populate the proof_request table if we see request submitted event, or
+    /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
+    pub request_id: Option<U256>,
     pub request_digest: B256,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExecutionWithId {
-    pub request_id: U256,
+    /// Some requests may not have a corresponding entry in the proof_requests table.
+    /// This is because we only populate the proof_request table if we see request submitted event, or
+    /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
+    pub request_id: Option<U256>,
     pub request_digest: B256,
     pub session_uuid: String,
 }
@@ -2310,11 +2316,11 @@ impl IndexerDb for MarketDb {
         &self,
         limit: u32,
     ) -> Result<HashSet<RequestWithId>, DbError> {
-        let query = "SELECT cc.request_digest, pr.request_id 
-                     FROM cycle_counts cc 
-                     INNER JOIN proof_requests pr ON cc.request_digest = pr.request_digest 
-                     WHERE cc.cycle_status = 'PENDING' 
-                     ORDER BY cc.updated_at DESC 
+        let query = "SELECT cc.request_digest, pr.request_id
+                     FROM cycle_counts cc
+                     LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
+                     WHERE cc.cycle_status = 'PENDING'
+                     ORDER BY cc.updated_at DESC
                      LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
@@ -2329,9 +2335,9 @@ impl IndexerDb for MarketDb {
                     continue;
                 }
             };
-            let request_id_str: String = row.try_get("request_id")?;
-            let request_id = U256::from_str_radix(&request_id_str, 16)
-                .map_err(|e| DbError::BadTransaction(format!("Invalid request_id: {}", e)))?;
+            let request_id: Option<U256> = row
+                .try_get::<Option<String>, _>("request_id")?
+                .and_then(|s| U256::from_str_radix(&s, 16).ok());
             requests.insert(RequestWithId { request_id, request_digest: digest });
         }
 
@@ -2342,11 +2348,11 @@ impl IndexerDb for MarketDb {
         &self,
         limit: u32,
     ) -> Result<HashSet<ExecutionWithId>, DbError> {
-        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id 
-                     FROM cycle_counts cc 
-                     INNER JOIN proof_requests pr ON cc.request_digest = pr.request_digest 
-                     WHERE cc.cycle_status = 'EXECUTING' 
-                     ORDER BY cc.updated_at DESC 
+        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id
+                     FROM cycle_counts cc
+                     LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
+                     WHERE cc.cycle_status = 'EXECUTING'
+                     ORDER BY cc.updated_at DESC
                      LIMIT $1";
 
         let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
@@ -2372,9 +2378,9 @@ impl IndexerDb for MarketDb {
                     continue;
                 }
             };
-            let request_id_str: String = row.try_get("request_id")?;
-            let request_id = U256::from_str_radix(&request_id_str, 16)
-                .map_err(|e| DbError::BadTransaction(format!("Invalid request_id: {}", e)))?;
+            let request_id: Option<U256> = row
+                .try_get::<Option<String>, _>("request_id")?
+                .and_then(|s| U256::from_str_radix(&s, 16).ok());
             execution_info.insert(ExecutionWithId {
                 request_id,
                 request_digest: digest,
@@ -6193,11 +6199,11 @@ mod tests {
         assert_eq!(pending.len(), 2);
         assert!(pending
             .iter()
-            .any(|r| r.request_id == requests[0].id && r.request_digest == digests[0]));
+            .any(|r| r.request_id == Some(requests[0].id) && r.request_digest == digests[0]));
         assert!(pending
             .iter()
-            .any(|r| r.request_id == requests[1].id && r.request_digest == digests[1]));
-        assert!(!pending.iter().any(|r| r.request_id == requests[2].id));
+            .any(|r| r.request_id == Some(requests[1].id) && r.request_digest == digests[1]));
+        assert!(!pending.iter().any(|r| r.request_id == Some(requests[2].id)));
 
         assert_eq!(db.get_cycle_counts_pending(1).await.unwrap().len(), 1);
     }
@@ -6242,11 +6248,11 @@ mod tests {
         assert_eq!(executing.len(), 2);
         assert!(executing
             .iter()
-            .any(|r| r.request_id == requests[0].id && r.session_uuid == "session-1"));
+            .any(|r| r.request_id == Some(requests[0].id) && r.session_uuid == "session-1"));
         assert!(executing
             .iter()
-            .any(|r| r.request_id == requests[1].id && r.session_uuid == "session-2"));
-        assert!(!executing.iter().any(|r| r.request_id == requests[2].id));
+            .any(|r| r.request_id == Some(requests[1].id) && r.session_uuid == "session-2"));
+        assert!(!executing.iter().any(|r| r.request_id == Some(requests[2].id)));
 
         assert_eq!(db.get_cycle_counts_executing(1).await.unwrap().len(), 1);
     }

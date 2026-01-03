@@ -9,7 +9,9 @@ config:
   indexer:POVW_ACCOUNTING_ADDRESS: 0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF8
   indexer:VEZKC_ADDRESS: 0xE8Ae8eE8ffa57F6a79B6Cbe06BAFc0b05F3ffbf4
   indexer:ZKC_ADDRESS: 0x000006c2A22ff4A44ff1f5d0F2ed65F781F55555
-  indexer:RUST_LOG: "info"
+  indexer:RUST_LOG_API: info,indexer_api=debug
+  indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
+  indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:CHAIN_ID: "1"
   indexer:INDEXER_API_DOMAIN: indexer.eth-mainnet.boundless.network
   indexer:GH_TOKEN_SECRET:

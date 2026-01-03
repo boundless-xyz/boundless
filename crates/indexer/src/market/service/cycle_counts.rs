@@ -157,7 +157,7 @@ where
             return Ok(());
         }
 
-        tracing::debug!("Processing cycle counts for {} new requests", new_requests.len());
+        tracing::debug!("Requesting cycle counts for {} new requests", new_requests.len());
 
         // Query proof_requests table for input_type, input_data, and client_address
         let request_inputs = self.db.get_request_inputs(&new_requests).await?;
@@ -215,7 +215,7 @@ where
         if !cycle_counts.is_empty() {
             self.db.add_cycle_counts(&cycle_counts).await?;
             tracing::info!(
-                "process_cycle_counts completed in {:?} [{} cycle counts inserted: {} COMPLETED, {} PENDING]",
+                "request_cycle_counts completed in {:?} [{} cycle counts inserted: {} COMPLETED (hardcoded), {} PENDING]",
                 start.elapsed(),
                 cycle_counts.len(),
                 cycle_counts.iter().filter(|cc| cc.cycle_status == "COMPLETED").count(),

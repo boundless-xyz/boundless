@@ -197,3 +197,18 @@ Tests are ignored by default as they require an Ethereum RPC URL to be set, as t
 ```
 just test-indexer-api
 ```
+
+#### Debugging Tests
+
+Sometimes test failures can be swallowed since the indexer is run as a separate process e.g.
+
+```
+thread 'staking_tests::test_staking_epochs_summary' panicked at crates/lambdas/indexer-api/tests/local_integration.rs:102:26:
+Failed to initialize test environment: Indexer exited with error: ExitStatus(unix_wait_status(256))
+```
+
+Use following to see all the logs:
+
+```
+cargo test --package indexer-api --test local_integration -- --ignored --nocapture
+```
