@@ -662,7 +662,7 @@ pub trait IndexerDb {
     /// Update cycle status for executing cycle counts
     async fn set_cycle_counts_executing(
         &self,
-        execution_info: &HashSet<CycleCountExecution>,
+        execution_info: &[CycleCountExecution],
     ) -> Result<(), DbError>;
 
     /// Update cycle status for completed cycle counts
@@ -2393,16 +2393,18 @@ impl IndexerDb for MarketDb {
 
     async fn set_cycle_counts_executing(
         &self,
-        execution_info: &HashSet<CycleCountExecution>,
+        execution_info: &[CycleCountExecution],
     ) -> Result<(), DbError> {
-        let execution_vec: Vec<&CycleCountExecution> = execution_info.iter().collect();
+        if execution_info.is_empty() {
+            return Ok(());
+        }
 
         let current_timestamp =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
         let mut tx = self.pool.begin().await?;
 
-        for execution_data in execution_vec {
+        for execution_data in execution_info {
             let query = "UPDATE cycle_counts
                     SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
                     WHERE request_digest = $3";
@@ -2425,6 +2427,10 @@ impl IndexerDb for MarketDb {
         &self,
         update_info: &[CycleCountExecutionUpdate],
     ) -> Result<(), DbError> {
+        if update_info.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
         let current_timestamp =
@@ -6137,287 +6143,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    #[traced_test]
-    async fn test_set_cycle_counts_executing() {
-        let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
-
-        let now =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
-        let digest1 = B256::from([1; 32]);
-        let digest2 = B256::from([2; 32]);
-
-        // Add PENDING cycle counts
-        db.add_cycle_counts(&[
-            CycleCount {
-                request_digest: digest1,
-                cycle_status: "PENDING".to_string(),
-                program_cycles: None,
-                total_cycles: None,
-                created_at: now,
-                updated_at: now,
-            },
-            CycleCount {
-                request_digest: digest2,
-                cycle_status: "PENDING".to_string(),
-                program_cycles: None,
-                total_cycles: None,
-                created_at: now,
-                updated_at: now,
-            },
-        ])
-        .await
-        .unwrap();
-
-        // Set them to EXECUTING
-        let execution_info: HashSet<CycleCountExecution> = [
-            CycleCountExecution { request_digest: digest1, session_uuid: "session-1".to_string() },
-            CycleCountExecution { request_digest: digest2, session_uuid: "session-2".to_string() },
-        ]
-        .into_iter()
-        .collect();
-
-        db.set_cycle_counts_executing(&execution_info).await.unwrap();
-
-        // Verify the status and session_uuid were updated
-        let result1 = sqlx::query(
-            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
-        )
-        .bind(format!("{:x}", digest1))
-        .fetch_one(&test_db.pool)
-        .await
-        .unwrap();
-        assert_eq!(result1.get::<String, _>("cycle_status"), "EXECUTING");
-        assert_eq!(result1.get::<String, _>("session_uuid"), "session-1");
-
-        let result2 = sqlx::query(
-            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
-        )
-        .bind(format!("{:x}", digest2))
-        .fetch_one(&test_db.pool)
-        .await
-        .unwrap();
-        assert_eq!(result2.get::<String, _>("cycle_status"), "EXECUTING");
-        assert_eq!(result2.get::<String, _>("session_uuid"), "session-2");
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_set_cycle_counts_completed() {
-        let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
-
-        let now =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
-        let digest1 = B256::from([1; 32]);
-        let digest2 = B256::from([2; 32]);
-
-        // Add EXECUTING cycle counts
-        sqlx::query(
-            "INSERT INTO cycle_counts (request_digest, cycle_status, session_uuid, created_at, updated_at)
-             VALUES ($1, 'EXECUTING', $2, $3, $4)",
-        )
-        .bind(format!("{:x}", digest1))
-        .bind("session-1")
-        .bind(now as i64)
-        .bind(now as i64)
-        .execute(&test_db.pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            "INSERT INTO cycle_counts (request_digest, cycle_status, session_uuid, created_at, updated_at)
-             VALUES ($1, 'EXECUTING', $2, $3, $4)",
-        )
-        .bind(format!("{:x}", digest2))
-        .bind("session-2")
-        .bind(now as i64)
-        .bind(now as i64)
-        .execute(&test_db.pool)
-        .await
-        .unwrap();
-
-        // Set them to COMPLETED with cycle data
-        let updates = vec![
-            CycleCountExecutionUpdate {
-                request_digest: digest1,
-                program_cycles: U256::from(50_000_000_000u64),
-                total_cycles: U256::from(51_000_000_000u64),
-            },
-            CycleCountExecutionUpdate {
-                request_digest: digest2,
-                program_cycles: U256::from(100_000_000_000u64),
-                total_cycles: U256::from(102_000_000_000u64),
-            },
-        ];
-
-        db.set_cycle_counts_completed(&updates).await.unwrap();
-
-        // Verify the status and cycle counts were updated
-        let result1 = sqlx::query("SELECT cycle_status, program_cycles, total_cycles FROM cycle_counts WHERE request_digest = $1")
-            .bind(format!("{:x}", digest1))
-            .fetch_one(&test_db.pool)
-            .await
-            .unwrap();
-        assert_eq!(result1.get::<String, _>("cycle_status"), "COMPLETED");
-        let program1: Option<String> = result1.get("program_cycles");
-        assert_eq!(program1, Some(u256_to_padded_string(U256::from(50_000_000_000u64))));
-        let total1: Option<String> = result1.get("total_cycles");
-        assert_eq!(total1, Some(u256_to_padded_string(U256::from(51_000_000_000u64))));
-
-        let result2 = sqlx::query("SELECT cycle_status, program_cycles, total_cycles FROM cycle_counts WHERE request_digest = $1")
-            .bind(format!("{:x}", digest2))
-            .fetch_one(&test_db.pool)
-            .await
-            .unwrap();
-        assert_eq!(result2.get::<String, _>("cycle_status"), "COMPLETED");
-        let program2: Option<String> = result2.get("program_cycles");
-        assert_eq!(program2, Some(u256_to_padded_string(U256::from(100_000_000_000u64))));
-        let total2: Option<String> = result2.get("total_cycles");
-        assert_eq!(total2, Some(u256_to_padded_string(U256::from(102_000_000_000u64))));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_set_cycle_counts_failed() {
-        let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
-
-        let now =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
-        let digest1 = B256::from([1; 32]);
-        let digest2 = B256::from([2; 32]);
-        let digest3 = B256::from([3; 32]);
-
-        // Add cycle counts in different states
-        db.add_cycle_counts(&[
-            CycleCount {
-                request_digest: digest1,
-                cycle_status: "PENDING".to_string(),
-                program_cycles: None,
-                total_cycles: None,
-                created_at: now,
-                updated_at: now,
-            },
-            CycleCount {
-                request_digest: digest2,
-                cycle_status: "PENDING".to_string(),
-                program_cycles: None,
-                total_cycles: None,
-                created_at: now,
-                updated_at: now,
-            },
-            CycleCount {
-                request_digest: digest3,
-                cycle_status: "PENDING".to_string(),
-                program_cycles: None,
-                total_cycles: None,
-                created_at: now,
-                updated_at: now,
-            },
-        ])
-        .await
-        .unwrap();
-
-        // Set some to FAILED
-        db.set_cycle_counts_failed(&[digest1, digest2]).await.unwrap();
-
-        // Verify status was updated
-        let result1 =
-            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
-                .bind(format!("{:x}", digest1))
-                .fetch_one(&test_db.pool)
-                .await
-                .unwrap();
-        assert_eq!(result1.get::<String, _>("cycle_status"), "FAILED");
-
-        let result2 =
-            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
-                .bind(format!("{:x}", digest2))
-                .fetch_one(&test_db.pool)
-                .await
-                .unwrap();
-        assert_eq!(result2.get::<String, _>("cycle_status"), "FAILED");
-
-        // digest3 should still be PENDING
-        let result3 =
-            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
-                .bind(format!("{:x}", digest3))
-                .fetch_one(&test_db.pool)
-                .await
-                .unwrap();
-        assert_eq!(result3.get::<String, _>("cycle_status"), "PENDING");
-
-        // Test with empty array - should not error
-        db.set_cycle_counts_failed(&[]).await.unwrap();
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_get_request_params_for_execution() {
-        let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
-
-        let addr1 = Address::from([1; 20]);
-        let addr2 = Address::from([2; 20]);
-        let digest1 = B256::from([1; 32]);
-        let digest2 = B256::from([2; 32]);
-        let digest3 = B256::from([3; 32]); // Non-existent
-
-        let request1 = generate_request(1, &addr1);
-        let request2 = generate_request(2, &addr2);
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
-
-        db.add_proof_requests(&[(
-            digest1,
-            request1.clone(),
-            metadata,
-            "onchain".to_string(),
-            metadata.block_timestamp,
-        )])
-        .await
-        .unwrap();
-        db.add_proof_requests(&[(
-            digest2,
-            request2.clone(),
-            metadata,
-            "onchain".to_string(),
-            metadata.block_timestamp,
-        )])
-        .await
-        .unwrap();
-
-        // Query params for execution
-        let results =
-            db.get_request_params_for_execution(&[digest1, digest2, digest3]).await.unwrap();
-        assert_eq!(results.len(), 2); // Only 2 exist
-
-        // Check digest1
-        let (d1, input_type1, _input_data1, image_id1, image_url1, max_price1) =
-            results.iter().find(|(d, _, _, _, _, _)| *d == digest1).unwrap();
-        assert_eq!(*d1, digest1);
-        assert_eq!(input_type1, "Inline");
-        assert!(!image_id1.is_empty());
-        assert!(!image_url1.is_empty());
-        assert!(*max_price1 > 0);
-
-        // Check digest2
-        let (d2, input_type2, _input_data2, image_id2, image_url2, max_price2) =
-            results.iter().find(|(d, _, _, _, _, _)| *d == digest2).unwrap();
-        assert_eq!(*d2, digest2);
-        assert_eq!(input_type2, "Inline");
-        assert!(!image_id2.is_empty());
-        assert!(!image_url2.is_empty());
-        assert!(*max_price2 > 0);
-
-        // Test with empty array
-        let empty_results = db.get_request_params_for_execution(&[]).await.unwrap();
-        assert!(empty_results.is_empty());
-
     // Helper to create test proof requests and cycle counts
     async fn setup_test_requests_and_cycles(
         db: &DbObj,
@@ -6508,20 +6233,30 @@ mod tests {
         )
         .await;
 
-        db.set_cycle_counts_executing(
-            &vec![
-                CycleCountExecution {
-                    request_digest: digests[0],
-                    session_uuid: "session-1".to_string(),
-                },
-                CycleCountExecution {
-                    request_digest: digests[1],
-                    session_uuid: "session-2".to_string(),
-                },
-            ]
-            .into_iter()
-            .collect(),
+        // Update cycle counts to EXECUTING
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
         )
+        .bind("session-1")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-2")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[1]))
+        .execute(&test_db.pool)
         .await
         .unwrap();
 
@@ -6536,5 +6271,235 @@ mod tests {
         assert!(!executing.iter().any(|r| r.request_id == Some(requests[2].id)));
 
         assert_eq!(db.get_cycle_counts_executing(1).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_executing() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Set them to EXECUTING
+        let execution_info = vec![
+            CycleCountExecution {
+                request_digest: digests[0],
+                session_uuid: "session-1".to_string(),
+            },
+            CycleCountExecution {
+                request_digest: digests[1],
+                session_uuid: "session-2".to_string(),
+            },
+        ];
+
+        db.set_cycle_counts_executing(&execution_info).await.unwrap();
+
+        // Verify the status and session_uuid were updated
+        let result1 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result1.get::<String, _>("session_uuid"), "session-1");
+
+        let result2 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[1]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result2.get::<String, _>("session_uuid"), "session-2");
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_executing(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_completed() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Update cycle counts to EXECUTING
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-1")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-2")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        // Set them to COMPLETED with cycle data
+        let updates = vec![
+            CycleCountExecutionUpdate {
+                request_digest: digests[0],
+                program_cycles: U256::from(50_000_000_000u64),
+                total_cycles: U256::from(51_000_000_000u64),
+            },
+            CycleCountExecutionUpdate {
+                request_digest: digests[1],
+                program_cycles: U256::from(100_000_000_000u64),
+                total_cycles: U256::from(102_000_000_000u64),
+            },
+        ];
+
+        db.set_cycle_counts_completed(&updates).await.unwrap();
+
+        // Verify the status and cycle counts were updated
+        let result1 = sqlx::query(
+            "SELECT cycle_status, program_cycles, total_cycles
+                FROM cycle_counts
+                WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "COMPLETED");
+        let program1: Option<String> = result1.get("program_cycles");
+        assert_eq!(program1, Some(u256_to_padded_string(U256::from(50_000_000_000u64))));
+        let total1: Option<String> = result1.get("total_cycles");
+        assert_eq!(total1, Some(u256_to_padded_string(U256::from(51_000_000_000u64))));
+
+        let result2 = sqlx::query("SELECT cycle_status, program_cycles, total_cycles FROM cycle_counts WHERE request_digest = $1")
+            .bind(format!("{:x}", digests[1]))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "COMPLETED");
+        let program2: Option<String> = result2.get("program_cycles");
+        assert_eq!(program2, Some(u256_to_padded_string(U256::from(100_000_000_000u64))));
+        let total2: Option<String> = result2.get("total_cycles");
+        assert_eq!(total2, Some(u256_to_padded_string(U256::from(102_000_000_000u64))));
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_completed(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_failed() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        setup_test_requests_and_cycles(
+            &db,
+            &digests,
+            &requests,
+            &["PENDING", "PENDING", "PENDING"],
+        )
+        .await;
+
+        // Set some to FAILED
+        db.set_cycle_counts_failed(&[digests[0], digests[1]]).await.unwrap();
+
+        // Verify status was updated
+        let result1 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[0]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "FAILED");
+
+        let result2 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[1]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "FAILED");
+
+        // digests[2] should still be PENDING
+        let result3 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[2]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result3.get::<String, _>("cycle_status"), "PENDING");
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_failed(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_get_request_params_for_execution() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        let digest_nonexistent = B256::from([3; 32]); // Non-existent
+        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Query params for execution
+        let results = db
+            .get_request_params_for_execution(&[digests[0], digests[1], digest_nonexistent])
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2); // Only 2 exist
+
+        // Check digests[0]
+        let (d1, input_type1, _input_data1, image_id1, image_url1, max_price1) =
+            results.iter().find(|(d, _, _, _, _, _)| *d == digests[0]).unwrap();
+        assert_eq!(*d1, digests[0]);
+        assert_eq!(input_type1, "Inline");
+        assert!(!image_id1.is_empty());
+        assert!(!image_url1.is_empty());
+        assert!(*max_price1 > 0);
+
+        // Check digests[1]
+        let (d2, input_type2, _input_data2, image_id2, image_url2, max_price2) =
+            results.iter().find(|(d, _, _, _, _, _)| *d == digests[1]).unwrap();
+        assert_eq!(*d2, digests[1]);
+        assert_eq!(input_type2, "Inline");
+        assert!(!image_id2.is_empty());
+        assert!(!image_url2.is_empty());
+        assert!(*max_price2 > 0);
+
+        // Test with empty array
+        let empty_results = db.get_request_params_for_execution(&[]).await.unwrap();
+        assert!(empty_results.is_empty());
     }
 }
