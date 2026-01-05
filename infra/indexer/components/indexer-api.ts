@@ -355,7 +355,7 @@ export class IndexerApi extends pulumi.ComponentResource {
             priority: 1,
             statement: {
               rateBasedStatement: {
-                limit: 150, // 150 requests per 5 minutes per IP
+                limit: 200, // 150 requests per 5 minutes per IP
                 aggregateKeyType: 'IP',
               },
             },
