@@ -210,6 +210,32 @@ pub async fn request_work(
     if let Some(task) = res { Ok(task.get()) } else { Ok(None) }
 }
 
+pub async fn request_work_batch(
+    pool: &PgPool,
+    worker_type: &str,
+    batch_size: i32,
+) -> Result<Vec<ReadyTask>, TaskDbErr> {
+    let start = std::time::Instant::now();
+    let res = sqlx::query_as!(
+        ReadyTaskRaw,
+        "SELECT * FROM request_work_batch($1, $2)",
+        worker_type,
+        batch_size
+    )
+    .fetch_all(pool)
+    .await;
+
+    let duration = start.elapsed().as_secs_f64();
+    let status = match &res {
+        Ok(_) => "success",
+        Err(_) => "error",
+    };
+    workflow_common::metrics::helpers::record_db_operation("request_work_batch", status, duration);
+
+    let res = res?;
+    Ok(res.into_iter().filter_map(|raw| raw.get()).collect())
+}
+
 pub async fn update_task_done(
     pool: &PgPool,
     job_id: &Uuid,
@@ -288,7 +314,8 @@ pub async fn requeue_tasks(pool: &PgPool, limit: i64) -> Result<usize, TaskDbErr
         "SELECT job_id, task_id
         FROM tasks
         WHERE
-            state = 'running' AND timeout_secs < EXTRACT(EPOCH FROM (now() - GREATEST(started_at, updated_at)))
+            state = 'running'
+            AND timeout_secs < EXTRACT(EPOCH FROM (now() - COALESCE(updated_at, started_at)))
         LIMIT $1",
         limit
     )
@@ -335,6 +362,14 @@ pub async fn fix_stuck_pending_tasks(pool: &PgPool) -> Result<i32, TaskDbErr> {
 pub async fn clear_completed_jobs(pool: &PgPool) -> Result<i32, TaskDbErr> {
     let result =
         sqlx::query_scalar::<_, i32>("SELECT clear_completed_jobs()").fetch_one(pool).await?;
+
+    Ok(result)
+}
+
+/// Fail all tasks belonging to failed jobs to prevent wasted processing
+pub async fn fail_tasks_from_failed_jobs(pool: &PgPool) -> Result<i32, TaskDbErr> {
+    let result =
+        sqlx::query_scalar::<_, i32>("SELECT fail_tasks_from_failed_jobs()").fetch_one(pool).await?;
 
     Ok(result)
 }

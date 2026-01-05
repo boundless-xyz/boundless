@@ -11,7 +11,7 @@ use crate::redis::RedisPool;
 use anyhow::{Context, Result};
 use clap::Parser;
 use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::{PgListener, PgPool, PgPoolOptions};
 use std::{
     rc::Rc,
     str::FromStr,
@@ -49,6 +49,12 @@ pub struct Args {
     /// Time to wait between request_work calls
     #[arg(env, short, long, default_value_t = 1)]
     pub poll_time: u64,
+
+    /// Batch size for pulling multiple tasks at once
+    ///
+    /// Number of tasks to pull when notification received
+    #[arg(env, long, default_value_t = 5)]
+    pub batch_size: i32,
 
     /// taskdb postgres DATABASE_URL
     #[clap(env)]
@@ -338,22 +344,161 @@ impl Agent {
                         }
                     }
                 });
+
+                // Also enable failed job task cleanup
+                let term_sig_copy = term_sig.clone();
+                let db_pool_copy = self.db_pool.clone();
+                let cleanup_interval = self.args.cleanup_poll_interval;
+                tokio::spawn(async move {
+                    loop {
+                        if let Err(e) = Self::poll_for_failed_job_cleanup(
+                            term_sig_copy.clone(),
+                            db_pool_copy.clone(),
+                            cleanup_interval,
+                        )
+                        .await
+                        {
+                            tracing::error!("[BENTO-WF-106-D] Failed job task cleanup failed: {:#}", e);
+                            time::sleep(time::Duration::from_secs(cleanup_interval)).await;
+                        }
+                    }
+                });
             }
         }
+
+        // Set up PostgreSQL LISTEN for task notifications
+        let mut listener = PgListener::connect_with(&self.db_pool)
+            .await
+            .context("[BENTO-WF-106] Failed to create PgListener")?;
+        listener
+            .listen("task_ready")
+            .await
+            .context("[BENTO-WF-106-B] Failed to LISTEN on task_ready channel")?;
+
+        tracing::info!(
+            "Worker started with NOTIFY/LISTEN (batch_size={}, poll_time={}s)",
+            self.args.batch_size,
+            self.args.poll_time
+        );
+
+        // Immediately check for available work on startup
+        tracing::debug!("Checking for work on startup...");
+        let mut startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+            .await
+            .context("[BENTO-WF-107-E] Failed to request_work_batch on startup")?;
+
+        // Process startup batch and continue grabbing work until queue is empty
+        while !startup_tasks.is_empty() && !term_sig.load(Ordering::Relaxed) {
+            for task in startup_tasks {
+                if let Err(err) = self.process_work(&task).await {
+                let mut err_str = format!("{:#}", err);
+                if !err_str.contains("stopped intentionally due to session limit")
+                    && !err_str.contains("Session limit exceeded")
+                {
+                    tracing::error!("[BENTO-WF-108] Failure during task processing: {err_str}");
+                }
+
+                if task.max_retries > 0 {
+                    if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
+                        "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
+                    )
+                    .bind(task.job_id)
+                    .bind(&task.task_id)
+                    .fetch_optional(&self.db_pool)
+                    .await
+                    .context("[BENTO-WF-109] Failed to read current retries")?
+                        && current_retries + 1 > task.max_retries {
+                            err_str.truncate(1024);
+                            let final_err = if err_str.is_empty() {
+                                "retry max hit".to_string()
+                            } else {
+                                format!("retry max hit: {}", err_str)
+                            };
+                            taskdb::update_task_failed(
+                                &self.db_pool,
+                                &task.job_id,
+                                &task.task_id,
+                                &final_err,
+                            )
+                            .await
+                            .context("[BENTO-WF-110] Failed to report task failure")?;
+                            continue;
+                        }
+
+                    if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
+                        .await
+                        .context("[BENTO-WF-111] Failed to update task retries")?
+                    {
+                        tracing::info!("update_task_retried failed: {}", task.job_id);
+                    }
+                } else {
+                    err_str.truncate(1024);
+                    taskdb::update_task_failed(
+                        &self.db_pool,
+                        &task.job_id,
+                        &task.task_id,
+                        &err_str,
+                    )
+                    .await
+                    .context("[BENTO-WF-112] Failed to report task failure")?;
+                }
+            }
+            }
+
+            // Grab more work
+            startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                .await
+                .context("[BENTO-WF-107-F] Failed to request_work_batch during startup processing")?;
+        }
+
+        tracing::debug!("Startup work processing complete, entering main loop");
 
         while !term_sig.load(Ordering::Relaxed) {
             // Update database pool metrics periodically
             self.update_db_pool_metrics();
 
-            let task = taskdb::request_work(&self.db_pool, &self.args.task_stream)
-                .await
-                .context("[BENTO-WF-107] Failed to request_work")?;
-            let Some(task) = task else {
-                time::sleep(time::Duration::from_secs(self.args.poll_time)).await;
-                continue;
+            // Wait for notification OR timeout (periodic fallback check)
+            let tasks = tokio::select! {
+                notification = listener.recv() => {
+                    // Received notification, batch-pull tasks
+                    match notification {
+                        Ok(notif) => {
+                            // Check if notification is for our worker type
+                            if notif.payload() == self.args.task_stream {
+                                tracing::debug!("Received task_ready notification for {}", self.args.task_stream);
+                                taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                                    .await
+                                    .context("[BENTO-WF-107] Failed to request_work_batch")?
+                            } else {
+                                // Notification for different worker type, ignore
+                                continue;
+                            }
+                        }
+                        Err(err) => {
+                            tracing::warn!("PgListener error: {}", err);
+                            // On error, do a single request_work as fallback
+                            if let Some(task) = taskdb::request_work(&self.db_pool, &self.args.task_stream)
+                                .await
+                                .context("[BENTO-WF-107-B] Failed to request_work (fallback)")? {
+                                vec![task]
+                            } else {
+                                vec![]
+                            }
+                        }
+                    }
+                }
+                _ = time::sleep(time::Duration::from_secs(self.args.poll_time * 10)) => {
+                    // Periodic fallback check (every 10x poll_time) in case NOTIFY was missed
+                    tracing::debug!("Periodic check for tasks");
+                    taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                        .await
+                        .context("[BENTO-WF-107-C] Failed to request_work_batch (periodic)")?
+                }
             };
 
-            if let Err(err) = self.process_work(&task).await {
+            // Process all tasks from the batch
+            for task in tasks {
+                if let Err(err) = self.process_work(&task).await {
                 let mut err_str = format!("{:#}", err);
                 if !err_str.contains("stopped intentionally due to session limit")
                     && !err_str.contains("Session limit exceeded")
@@ -408,7 +553,78 @@ impl Agent {
                     .await
                     .context("[BENTO-WF-112] Failed to report task failure")?;
                 }
-                continue;
+            }
+        }
+
+            // Keep grabbing more work while the queue is not empty
+            loop {
+                let more_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                    .await
+                    .context("[BENTO-WF-107-D] Failed to request_work_batch (continuous)")?;
+
+                if more_tasks.is_empty() {
+                    break;
+                }
+
+                // Process the batch
+                for task in more_tasks {
+                    if let Err(err) = self.process_work(&task).await {
+                    let mut err_str = format!("{:#}", err);
+                    if !err_str.contains("stopped intentionally due to session limit")
+                        && !err_str.contains("Session limit exceeded")
+                    {
+                        tracing::error!("[BENTO-WF-108] Failure during task processing: {err_str}");
+                    }
+
+                    if task.max_retries > 0 {
+                        // If the next retry would exceed the limit, set a final error now
+                        if let Some(current_retries) = sqlx::query_scalar::<_, i32>(
+                            "SELECT retries FROM tasks WHERE job_id = $1 AND task_id = $2 AND state = 'running'",
+                        )
+                        .bind(task.job_id)
+                        .bind(&task.task_id)
+                        .fetch_optional(&self.db_pool)
+                        .await
+                        .context("[BENTO-WF-109] Failed to read current retries")?
+                            && current_retries + 1 > task.max_retries {
+                                // Prevent massive errors from being reported to the DB
+                                err_str.truncate(1024);
+                                let final_err = if err_str.is_empty() {
+                                    "retry max hit".to_string()
+                                } else {
+                                    format!("retry max hit: {}", err_str)
+                                };
+                                taskdb::update_task_failed(
+                                    &self.db_pool,
+                                    &task.job_id,
+                                    &task.task_id,
+                                    &final_err,
+                                )
+                                .await
+                                .context("[BENTO-WF-110] Failed to report task failure")?;
+                                continue;
+                            }
+
+                        if !taskdb::update_task_retry(&self.db_pool, &task.job_id, &task.task_id)
+                            .await
+                            .context("[BENTO-WF-111] Failed to update task retries")?
+                        {
+                            tracing::info!("update_task_retried failed: {}", task.job_id);
+                        }
+                    } else {
+                        // Prevent massive errors from being reported to the DB
+                        err_str.truncate(1024);
+                        taskdb::update_task_failed(
+                            &self.db_pool,
+                            &task.job_id,
+                            &task.task_id,
+                            &err_str,
+                        )
+                        .await
+                        .context("[BENTO-WF-112] Failed to report task failure")?;
+                    }
+                }
+                }
             }
         }
         tracing::warn!("Handled SIGTERM, shutting down...");
@@ -589,6 +805,27 @@ impl Agent {
                 workflow_common::metrics::helpers::record_completed_jobs_garbage_collection_metrics(
                     cleared_count as u64,
                 );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Fail all tasks belonging to failed jobs to prevent wasted processing
+    async fn poll_for_failed_job_cleanup(
+        term_sig: Arc<AtomicBool>,
+        db_pool: PgPool,
+        poll_interval: u64,
+    ) -> Result<()> {
+        while !term_sig.load(Ordering::Relaxed) {
+            // Sleep before each check to avoid running on startup
+            time::sleep(tokio::time::Duration::from_secs(poll_interval)).await;
+
+            tracing::debug!("Failing tasks from failed jobs...");
+
+            let failed_count = taskdb::fail_tasks_from_failed_jobs(&db_pool).await?;
+            if failed_count > 0 {
+                tracing::info!("Failed {} tasks from failed jobs", failed_count);
             }
         }
 
