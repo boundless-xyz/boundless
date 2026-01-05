@@ -285,6 +285,39 @@
     - bento
     - bento-config
 
+- name: Detect GPU count using nvidia-smi
+  ansible.builtin.command:
+    cmd: nvidia-smi --list-gpus | wc -l
+  register: bento_gpu_count_result
+  changed_when: false
+  failed_when: false
+  when: bento_gpu_count is none or bento_gpu_count | default(0) | int == 0
+  tags:
+    - bento
+    - bento-config
+
+- name: Set GPU count from auto-detection
+  ansible.builtin.set_fact:
+    bento_gpu_count: "{{ bento_gpu_count_result.stdout | trim | int }}"
+  when:
+    - bento_gpu_count is none or bento_gpu_count | default(0) | int == 0
+    - bento_gpu_count_result is defined
+    - bento_gpu_count_result.rc == 0
+    - (bento_gpu_count_result.stdout | trim | int) > 0
+  tags:
+    - bento
+    - bento-config
+
+- name: Set GPU count to zero if auto-detection failed
+  ansible.builtin.set_fact:
+    bento_gpu_count: 0
+  when:
+    - bento_gpu_count is none or bento_gpu_count | default(0) | int == 0
+    - bento_gpu_count_result is not defined or bento_gpu_count_result.rc != 0 or (bento_gpu_count_result.stdout | trim | int) == 0
+  tags:
+    - bento
+    - bento-config
+
 - name: Create Bento environment file
   ansible.builtin.template:
     src: bento.env.j2
@@ -299,8 +332,8 @@
 
 - name: Create Bento launcher script
   ansible.builtin.template:
-    src: launcher.sh.j2
-    dest: "{{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh"
+    src: bento-launcher.sh.j2
+    dest: "{{ bento_config_dir }}/bento-launcher.sh"
     mode: '0755'
     owner: "{{ bento_user }}"
     group: "{{ bento_group }}"
@@ -312,7 +345,7 @@
 - name: Create Bento service file
   ansible.builtin.template:
     src: bento.service.j2
-    dest: "/etc/systemd/system/bento-{{ bento_task }}.service"
+    dest: "/etc/systemd/system/bento.service"
     mode: '0644'
     owner: root
     group: root
@@ -325,7 +358,7 @@
 
 - name: Ensure Bento service is enabled and started
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: "bento"
     enabled: "{{ bento_service_enabled }}"
     state: "{{ bento_service_state }}"
     daemon_reload: true

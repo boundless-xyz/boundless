@@ -1,0 +1,65 @@
+#!/bin/bash
+set -euo pipefail
+
+# Unified launcher script for all Bento services
+# Starts all configured services in parallel
+
+# Source environment variables
+source {{ bento_config_dir }}/bento.env
+
+# Prometheus port configuration
+API_PORT={{ bento_prometheus_metrics_ports['api'] | default(9090) }}
+PROVE_PORT={{ bento_prometheus_metrics_ports['prove'] | default(9190) }}
+EXEC_PORT={{ bento_prometheus_metrics_ports['exec'] | default(9290) }}
+AUX_PORT={{ bento_prometheus_metrics_ports['aux'] | default(9390) }}
+SNARK_PORT={{ bento_prometheus_metrics_ports['snark'] | default(9490) }}
+JOIN_PORT={{ bento_prometheus_metrics_ports['join'] | default(9490) }}
+
+# Configuration values
+BENTO_API_URL="{{ bento_api_url }}"
+BENTO_REDIS_TTL="{{ bento_redis_ttl }}"
+BENTO_INSTALL_DIR="{{ bento_install_dir }}"
+
+# Start API service (if enabled)
+{% if bento_enable_api | default(true) | bool %}
+PROMETHEUS_METRICS_ADDR="127.0.0.1:${API_PORT}" ${BENTO_INSTALL_DIR}/bento-rest-api --bind-addr ${BENTO_API_URL} &
+{% endif %}
+
+# Start prove workers
+{% if bento_gpu_count | default(0) | int > 0 %}
+for id in $(seq 0 $(({{ bento_gpu_count | default(1) | int }} - 1))); do
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((PROVE_PORT + id))" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t prove --redis-ttl ${BENTO_REDIS_TTL} &
+done
+{% endif %}
+
+# Start exec workers
+{% if bento_exec_count | default(0) | int > 0 %}
+for id in $(seq 0 $(({{ bento_exec_count | default(1) | int }} - 1))); do
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((EXEC_PORT + id))" ${BENTO_INSTALL_DIR}/bento-agent -t exec --redis-ttl ${BENTO_REDIS_TTL} &
+done
+{% endif %}
+
+# Start aux workers
+{% if bento_aux_count | default(0) | int > 0 %}
+for id in $(seq 0 $(({{ bento_aux_count | default(1) | int }} - 1))); do
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((AUX_PORT + id))" ${BENTO_INSTALL_DIR}/bento-agent -t aux --redis-ttl ${BENTO_REDIS_TTL} &
+done
+{% endif %}
+
+# Start snark workers (if enabled)
+{% if bento_snark_workers | default(false) | bool and bento_snark_count | default(0) | int > 0 %}
+for id in $(seq 0 $(({{ bento_snark_count | default(1) | int }} - 1))); do
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((SNARK_PORT + id))" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t snark --redis-ttl ${BENTO_REDIS_TTL} &
+done
+{% endif %}
+
+# Start join workers (if enabled)
+{% if bento_join_workers | default(false) | bool and bento_join_count | default(0) | int > 0 %}
+for id in $(seq 0 $(({{ bento_join_count | default(1) | int }} - 1))); do
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((JOIN_PORT + id))" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t join --redis-ttl ${BENTO_REDIS_TTL} &
+done
+{% endif %}
+
+# Wait for all processes to exit
+wait
+
