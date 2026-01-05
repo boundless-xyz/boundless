@@ -1,5 +1,5 @@
 [Unit]
-Description=Boundless Bento {{ bento_task }} Service ({{ bento_count | default(1) | int }} instance(s))
+Description=Boundless Bento Service
 
 {% if bento_install_dependencies | default(true) | bool %}
 After=network.target postgresql.service valkey-server.service
@@ -17,8 +17,8 @@ Environment="RISC0_HOME={{ bento_risc0_home_service | default(bento_home ~ '/.ri
 Environment="PATH=/usr/local/bin:{{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="BLAKE3_GROTH16_SETUP_DIR={{ bento_blake3_groth16_setup_dir | default(bento_home ~ '/.risc0/extensions/blake3_groth16_artifacts') }}"
 WorkingDirectory={{ bento_work_dir }}
-ExecStart={{ bento_config_dir }}/bento-{{ bento_task }}-launcher.sh
-SyslogIdentifier=bento-{{ bento_task }}
+ExecStart={{ bento_config_dir }}/bento-launcher.sh
+SyslogIdentifier=bento
 
 Restart=always
 RestartSec=10
@@ -27,4 +27,3 @@ TimeoutStopSec={{ bento_agent_timeout_stop_sec }}
 
 [Install]
 WantedBy=multi-user.target
-

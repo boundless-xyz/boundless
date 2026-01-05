@@ -102,3 +102,14 @@ bento_enable_snark_stream: false
 bento_enable_join_stream: false
 bento_enable_union_stream: false
 bento_enable_coproc_stream: false
+
+# Service enablement flags
+bento_enable_api: true  # Enable API service in unified launcher
+
+# Service instance counts (used by unified launcher)
+# bento_gpu_count: null = auto-detect using nvidia-smi, 0 = no GPUs, >0 = explicit count
+bento_gpu_count: null
+bento_exec_count: 4
+bento_aux_count: 2
+bento_snark_count: 1
+bento_join_count: 1

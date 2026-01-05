@@ -5,40 +5,20 @@
 
 - name: Restart Bento service
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: "bento"
     state: restarted
     enabled: "{{ bento_service_enabled | bool }}"
   failed_when: false
 
-- name: Restart all Bento services
-  ansible.builtin.systemd:
-    name: "{{ item }}"
-    state: restarted
-  loop:
-    - "bento-api"
-    - "bento-exec"
-    - "bento-aux"
-    - "bento-prove"
-  register: bento_all_restart_result
-  failed_when: false
-  ignore_errors: true
-
-- name: Warn about failed all-bento service restarts
-  ansible.builtin.debug:
-    msg: "WARNING: Failed to restart {{ item.item }}. Service may need manual intervention."
-  loop: "{{ bento_all_restart_result.results | default([]) }}"
-  when: item.failed | default(false)
-  failed_when: false
-
 - name: Start Bento service
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: "bento"
     state: started
     enabled: "{{ bento_service_enabled | bool }}"
   failed_when: false
 
 - name: Stop Bento service
   ansible.builtin.systemd:
-    name: "bento-{{ bento_task }}"
+    name: "bento"
     state: stopped
   failed_when: false

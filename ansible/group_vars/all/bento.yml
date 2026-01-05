@@ -32,7 +32,8 @@ bento_valkey_port: "{{ valkey_port }}"
 bento_version: "v1.2.0"
 bento_work_dir: "/var/lib/bento"
 # Service counts
-bento_gpu_count: 1
+# bento_gpu_count: null = auto-detect using nvidia-smi, 0 = no GPUs, >0 = explicit count
+bento_gpu_count: null
 bento_exec_count: 4
 bento_aux_count: 2
 # Bento configuration
