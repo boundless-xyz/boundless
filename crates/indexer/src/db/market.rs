@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -2405,6 +2405,14 @@ impl IndexerDb for MarketDb {
         let mut tx = self.pool.begin().await?;
 
         for execution_data in execution_info {
+            if execution_data.session_uuid.is_empty() {
+                tracing::error!(
+                    "Empty session UUID for cycle count request to mark as EXECUTING, digest={:x}: skipping",
+                    execution_data.request_digest
+                );
+                continue;
+            }
+
             let query = "UPDATE cycle_counts
                     SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
                     WHERE request_digest = $3";
@@ -6321,6 +6329,74 @@ mod tests {
 
         // Test with empty array - should not error
         db.set_cycle_counts_executing(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_executing_empty_session_uuid() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db;
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
+
+        // Set them to EXECUTING, but one has an empty session UUID
+        let execution_info = vec![
+            CycleCountExecution {
+                request_digest: digests[0],
+                session_uuid: "session-1".to_string(),
+            },
+            CycleCountExecution {
+                request_digest: digests[1],
+                session_uuid: "".to_string(), // Empty session UUID - should be skipped
+            },
+            CycleCountExecution {
+                request_digest: digests[2],
+                session_uuid: "session-3".to_string(),
+            },
+        ];
+
+        db.set_cycle_counts_executing(&execution_info).await.unwrap();
+
+        // Verify digests[0] was updated to EXECUTING
+        let result1 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result1.get::<String, _>("session_uuid"), "session-1");
+
+        // Verify digests[1] was NOT updated (still PENDING) due to empty session UUID
+        let result2 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[1]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "PENDING");
+        let session_uuid2: Option<String> = result2.get("session_uuid");
+        assert!(session_uuid2.is_none());
+
+        // Verify digests[2] was updated to EXECUTING
+        let result3 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[2]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result3.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result3.get::<String, _>("session_uuid"), "session-3");
     }
 
     #[tokio::test]

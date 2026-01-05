@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -211,6 +211,14 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
             };
 
+            if input_uuid.is_empty() {
+                tracing::error!("Empty input UUID received after input upload for cycle count computation request id={}, digest={:x}",
+                    fmt_request_id(request_id),
+                    request_digest
+                );
+                continue;
+            }
+
             // Check if the image exists for the request via the bento API
             tracing::trace!(
                 "Checking if image '{}' exists for cycle count computation request id={}, digest={:x}",
@@ -362,6 +370,14 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
             };
 
+            if execution_uuid.uuid.is_empty() {
+                tracing::error!("Empty session UUID received after creating execution session for cycle count computation request id={}, digest={:x}",
+                    fmt_request_id(request_id),
+                    request_digest
+                );
+                continue;
+            }
+
             current_executing_requests
                 .push(CycleCountExecution { request_digest, session_uuid: execution_uuid.uuid });
         }
@@ -406,6 +422,14 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
         // Update the cycle counts and status for execution requests that have completed
         for execution_info in executing_requests.clone() {
+            if execution_info.session_uuid.is_empty() {
+                tracing::error!("Empty session UUID retrieved from DB for cycle count computation request id={}, digest={:x}",
+                    fmt_request_id(execution_info.request_id),
+                    execution_info.request_digest
+                );
+                continue;
+            }
+
             let session_id: SessionId = SessionId::new(execution_info.session_uuid.clone());
             let execution_status = match retry(
                 config.bento_retry_count,
