@@ -68,6 +68,7 @@ pub mod nonce_layer;
 pub use order_stream_client::OrderStreamClient;
 
 #[cfg(not(target_os = "zkvm"))]
+/// Cryptocurrency price oracle client with multiple data source support.
 pub mod price_oracle;
 
 /// Module providing functionality to build requests.
