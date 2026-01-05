@@ -157,7 +157,7 @@ where
             return Ok(());
         }
 
-        tracing::debug!("Processing cycle counts for {} new requests", new_requests.len());
+        tracing::debug!("Requesting cycle counts for {} new requests", new_requests.len());
 
         // Query proof_requests table for input_type, input_data, and client_address
         let request_inputs = self.db.get_request_inputs(&new_requests).await?;
@@ -186,12 +186,14 @@ where
                 updated_at: current_timestamp,
             });
         }
+
         // debug client_address to whether we got cycle counts or not
         // build map of client_address to whether we got cycle counts or not. to get cliebnt address we will need to first build a map of request_digest to client_address.
         let request_digest_to_client_address = request_inputs
             .iter()
             .map(|(request_digest, _, _, client_address)| (request_digest, client_address))
             .collect::<HashMap<_, _>>();
+
         // then print debug of client_address to whether we got cycle counts or not
         let mut seen_client_addresses = HashSet::new();
         for (request_digest, client_address) in request_digest_to_client_address {
@@ -213,7 +215,7 @@ where
         if !cycle_counts.is_empty() {
             self.db.add_cycle_counts(&cycle_counts).await?;
             tracing::info!(
-                "process_cycle_counts completed in {:?} [{} cycle counts inserted: {} COMPLETED, {} PENDING]",
+                "request_cycle_counts completed in {:?} [{} cycle counts inserted: {} COMPLETED (hardcoded), {} PENDING]",
                 start.elapsed(),
                 cycle_counts.len(),
                 cycle_counts.iter().filter(|cc| cc.cycle_status == "COMPLETED").count(),

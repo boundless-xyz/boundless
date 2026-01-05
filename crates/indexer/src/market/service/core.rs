@@ -14,13 +14,16 @@
 
 use super::IndexerService;
 use crate::db::market::IndexerDb;
+use crate::db::DbObj;
 use crate::market::service::execution::execute_requests;
+use crate::market::service::IndexerServiceExecutionConfig;
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::B256;
 use alloy::providers::Provider;
 use std::cmp::min;
 use std::collections::HashSet;
+use std::time::Duration;
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -58,26 +61,16 @@ where
             tracing::info!("Starting indexer at block {}", from_block);
         }
 
-        // Spawn a task to execute requests that need their cycle counts populated
+        // Spawn a supervisor task for the cycle count executor
         // if the corresponding configuration is present
         let db_clone = self.db.clone();
         let config_clone = self.config.clone();
-        match config_clone.execution_config {
-            Some(execution_config) => {
-                if execution_config.bento_api_url.is_some()
-                    && execution_config.bento_api_key.is_some()
-                {
-                    let _task_executor = tokio::spawn(async move {
-                        execute_requests(db_clone, execution_config).await;
-                    });
-                } else {
-                    tracing::info!("Bento API URL or key not provided, not starting executor task");
-                }
-            }
-            None => {
-                tracing::info!("Execution configuration not found, not starting executor task");
-            }
-        };
+        if let Some(execution_config) = config_clone.execution_config {
+            // TODO: Currently we assume running the execution task supervisor itself won't panic, so don't keep the handle.
+            tokio::spawn(run_execution_task_supervisor(db_clone, execution_config));
+        } else {
+            tracing::info!("Execution configuration not found, not starting executor task");
+        }
 
         let mut attempt = 0;
         loop {
@@ -125,7 +118,11 @@ where
             let start = std::time::Instant::now();
             match self.process_blocks(from_block, batch_end).await {
                 Ok(_) => {
-                    tracing::info!("process_blocks completed in {:?}", start.elapsed());
+                    tracing::info!(
+                        "process_blocks completed in {:?} [num_blocks={}]",
+                        start.elapsed(),
+                        batch_end - from_block + 1
+                    );
                     attempt = 0;
                     from_block = batch_end + 1;
 
@@ -299,6 +296,7 @@ where
         let to_timestamp = self.block_timestamp(to_block).await?;
         let request_digests =
             self.db.get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp).await?;
+        tracing::debug!("Found {} cycle counts that were updated in the current timestamp range. Will recompute statuses for these requests.", request_digests.len());
         Ok(request_digests)
     }
 
@@ -337,6 +335,44 @@ fn find_starting_block(
     } else {
         tracing::info!("Using {} as starting block", from);
         from
+    }
+}
+
+/// Simple supervisor that runs the execution task and restarts it on failure.
+async fn run_execution_task_supervisor(db: DbObj, config: IndexerServiceExecutionConfig) {
+    const RESTART_DELAY_SECS: u64 = 5;
+
+    loop {
+        tracing::info!("Starting cycle count execution task");
+        let db_clone = db.clone();
+        let config_clone = config.clone();
+
+        let handle = tokio::spawn(async move {
+            execute_requests(db_clone, config_clone).await;
+        });
+
+        match handle.await {
+            Ok(()) => {
+                tracing::error!(
+                    "Cycle count execution task returned unexpectedly, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) if e.is_panic() => {
+                tracing::error!(
+                    "Cycle count execution task panicked, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Cycle count execution task cancelled ({e}), restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(RESTART_DELAY_SECS)).await;
     }
 }
 

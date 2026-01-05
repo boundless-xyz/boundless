@@ -64,18 +64,23 @@ async fn setup_backfill_test(
     .await
     .unwrap();
 
+    // Wait for request to be indexed
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    advance_time_and_mine(&fixture.ctx.customer_provider, 10, 1).await.unwrap();
+
     // Wait for indexer to finish processing
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
-
-    // Get current block number for backfill end_block
-    let current_block = fixture.ctx.customer_provider.get_block_number().await.unwrap();
 
     // Kill the indexer process
     indexer_process.kill().unwrap();
     let _ = indexer_process.wait();
 
-    // Wait at least 2 seconds to ensure we're in a different second when backfill runs
+    // Advance time and mine a block to ensure we're in a different second when backfill runs
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    advance_time_and_mine(&fixture.ctx.customer_provider, 10, 1).await.unwrap();
+
+    // Get current block number for backfill end_block
+    let current_block = fixture.ctx.customer_provider.get_block_number().await.unwrap();
 
     (fixture, current_block)
 }

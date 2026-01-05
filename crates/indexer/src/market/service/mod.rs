@@ -54,7 +54,7 @@ pub const SECONDS_PER_HOUR: u64 = 3600;
 pub const SECONDS_PER_DAY: u64 = 86400;
 pub const SECONDS_PER_WEEK: u64 = 604800;
 // TODO: Debug why all times don't work with hourly aggregation recompute hours of 2.
-const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 12;
+const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 6;
 const DAILY_AGGREGATION_RECOMPUTE_DAYS: u64 = 2;
 const WEEKLY_AGGREGATION_RECOMPUTE_WEEKS: u64 = 2;
 const MONTHLY_AGGREGATION_RECOMPUTE_MONTHS: u64 = 2;
@@ -164,8 +164,8 @@ pub struct IndexerServiceConfig {
 #[derive(Clone)]
 pub struct IndexerServiceExecutionConfig {
     pub execution_interval: Duration,
-    pub bento_api_key: Option<String>,
-    pub bento_api_url: Option<String>,
+    pub bento_api_url: String,
+    pub bento_api_key: String,
     pub bento_retry_count: u64,
     pub bento_retry_sleep_ms: u64,
     pub max_concurrent_executing: u32,

@@ -34,7 +34,7 @@ use crate::monitor::Monitor;
 // We apply a lag to the metrics to avoid race conditions with the indexer,
 // where the indexer might not have finished processing and publishing the events
 // for time "now" before this lambda runs on time "now".
-const METRIC_LAG_SECONDS: i64 = 60;
+const METRIC_LAG_SECONDS: i64 = 300;
 
 const MAX_BACKFILL_HOURS: i64 = 6;
 const SECONDS_PER_HOUR: i64 = 3600;

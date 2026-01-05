@@ -74,23 +74,31 @@ struct MainArgs {
     /// to be scheduled for execution.
     #[clap(long, default_value = "3")]
     execution_interval: u64,
-    /// An API key to use for Bento API operations
-    #[clap(long, env)]
-    bento_api_key: Option<String>,
-    /// URL to the Bento API
-    #[clap(long, env)]
+    /// Bento API execution configuration. All fields in this group require bento_api_url to be set.
+    #[clap(flatten)]
+    bento_config: BentoExecutionConfig,
+}
+
+/// Bento API execution configuration.
+#[derive(Parser, Debug, Clone)]
+struct BentoExecutionConfig {
+    /// URL to the Bento API (required if any other bento option is provided)
+    #[clap(long, env, requires = "bento_api_key")]
     bento_api_url: Option<String>,
+    /// An API key to use for Bento API operations (required if bento_api_url is provided)
+    #[clap(long, env, requires = "bento_api_url")]
+    bento_api_key: Option<String>,
     /// Number of times bento API operations will be retried in case of errors
-    #[clap(long, default_value = "3")]
+    #[clap(long, default_value = "3", requires = "bento_api_url")]
     bento_retry_count: u64,
     /// Wait interval between retries of bento API operations in case of errors, in milliseconds
-    #[clap(long, default_value = "1000")]
+    #[clap(long, default_value = "1000", requires = "bento_api_url")]
     bento_retry_sleep_ms: u64,
     /// Max number of requests submitted for execution to populate cycle counts
-    #[clap(long, default_value = "20")]
+    #[clap(long, default_value = "20", requires = "bento_api_url")]
     max_concurrent_executing: u32,
     /// Max number of executing requests queried for status on each iteration of the execution task
-    #[clap(long, default_value = "30")]
+    #[clap(long, default_value = "30", requires = "bento_api_url")]
     max_status_queries: u32,
 }
 
@@ -119,21 +127,28 @@ async fn main() -> Result<()> {
         ),
     };
 
+    // Bento execution config is enabled if bento_api_url and bento_api_key are provided
+    let execution_config = match (args.bento_config.bento_api_url, args.bento_config.bento_api_key)
+    {
+        (Some(bento_api_url), Some(bento_api_key)) => Some(IndexerServiceExecutionConfig {
+            execution_interval: Duration::from_secs(args.execution_interval),
+            bento_api_url,
+            bento_api_key,
+            bento_retry_count: args.bento_config.bento_retry_count,
+            bento_retry_sleep_ms: args.bento_config.bento_retry_sleep_ms,
+            max_concurrent_executing: args.bento_config.max_concurrent_executing,
+            max_status_queries: args.bento_config.max_status_queries,
+        }),
+        _ => None,
+    };
+
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(args.interval),
         retries: args.retries,
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
-        execution_config: Some(IndexerServiceExecutionConfig {
-            execution_interval: Duration::from_secs(args.execution_interval),
-            bento_api_key: args.bento_api_key,
-            bento_api_url: args.bento_api_url,
-            bento_retry_count: args.bento_retry_count,
-            bento_retry_sleep_ms: args.bento_retry_sleep_ms,
-            max_concurrent_executing: args.max_concurrent_executing,
-            max_status_queries: args.max_status_queries,
-        }),
+        execution_config,
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
