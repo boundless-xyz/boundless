@@ -261,7 +261,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       password: rdsPassword,
       maxAllocatedStorage: 500,
       port: rdsPort,
-      instanceClass: 'db.t4g.small',
+      instanceClass: 'db.t4g.xlarge',
       allocatedStorage: 20,
       storageEncrypted: true,
       skipFinalSnapshot: true,
