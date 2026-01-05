@@ -355,12 +355,8 @@ export class IndexerApi extends pulumi.ComponentResource {
             priority: 1,
             statement: {
               rateBasedStatement: {
-                limit: 150, // 150 requests per 5 minutes per IP
+                limit: 200, // 200 requests per 5 minutes per IP
                 aggregateKeyType: 'IP',
-                forwardedIpConfig: {
-                  headerName: 'CF-Connecting-IP',
-                  fallbackBehavior: 'MATCH',
-                },
               },
             },
             action: {
@@ -439,6 +435,77 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this, provider: usEast1Provider }, // WAF for CloudFront must be in us-east-1
     );
 
+    // Cache policy for default behavior: short TTL (60s default, 300s max)
+    const shortCachePolicy = new aws.cloudfront.CachePolicy(
+      `${serviceName}-short-cache`,
+      {
+        name: `${serviceName}-short-cache`,
+        comment: 'Short cache for API responses (60s default)',
+        defaultTtl: 60,
+        minTtl: 0,
+        maxTtl: 300,
+        parametersInCacheKeyAndForwardedToOrigin: {
+          cookiesConfig: {
+            cookieBehavior: 'none',
+          },
+          headersConfig: {
+            headerBehavior: 'none',
+          },
+          queryStringsConfig: {
+            queryStringBehavior: 'all',
+          },
+          enableAcceptEncodingGzip: true,
+          enableAcceptEncodingBrotli: true,
+        },
+      },
+      { parent: this },
+    );
+
+    // Cache policy for epoch leaderboard: longer TTL (5m default, 1h max)
+    const epochLeaderboardCachePolicy = new aws.cloudfront.CachePolicy(
+      `${serviceName}-long-cache`,
+      {
+        name: `${serviceName}-long-cache`,
+        comment: 'Longer cache for historical epoch data (5m default)',
+        defaultTtl: 300,
+        minTtl: 60,
+        maxTtl: 3600,
+        parametersInCacheKeyAndForwardedToOrigin: {
+          cookiesConfig: {
+            cookieBehavior: 'none',
+          },
+          headersConfig: {
+            headerBehavior: 'none',
+          },
+          queryStringsConfig: {
+            queryStringBehavior: 'all',
+          },
+          enableAcceptEncodingGzip: true,
+          enableAcceptEncodingBrotli: true,
+        },
+      },
+      { parent: this },
+    );
+
+    // Origin request policy: forward all query strings to origin
+    const originRequestPolicy = new aws.cloudfront.OriginRequestPolicy(
+      `${serviceName}-origin-request`,
+      {
+        name: `${serviceName}-origin-request`,
+        comment: 'Forward all query strings to origin',
+        cookiesConfig: {
+          cookieBehavior: 'none',
+        },
+        headersConfig: {
+          headerBehavior: 'none',
+        },
+        queryStringsConfig: {
+          queryStringBehavior: 'all',
+        },
+      },
+      { parent: this },
+    );
+
     // Parse API endpoint to get domain
     const apiDomain = this.apiEndpoint.apply(endpoint => {
       const url = new URL(endpoint);
@@ -489,19 +556,8 @@ export class IndexerApi extends pulumi.ComponentResource {
           allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
           cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
           compress: true,
-
-          // Cache policy: Respect Cache-Control headers from API
-          defaultTtl: 0,     // Use origin's Cache-Control header
-          minTtl: 0,         // Allow no caching
-          maxTtl: 300,       // Max 5 minutes (safety limit)
-
-          forwardedValues: {
-            queryString: true, // Forward query parameters for pagination
-            cookies: {
-              forward: 'none',
-            },
-            headers: ['Cache-Control'], // Forward Cache-Control to respect API's caching directives
-          },
+          cachePolicyId: shortCachePolicy.id,
+          originRequestPolicyId: originRequestPolicy.id,
         },
 
         orderedCacheBehaviors: [
@@ -513,18 +569,8 @@ export class IndexerApi extends pulumi.ComponentResource {
             allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
             cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
             compress: true,
-
-            defaultTtl: 300,   // 5 minutes default
-            minTtl: 60,        // At least 1 minute
-            maxTtl: 3600,      // Max 1 hour
-
-            forwardedValues: {
-              queryString: true,
-              cookies: {
-                forward: 'none',
-              },
-              headers: [],
-            },
+            cachePolicyId: epochLeaderboardCachePolicy.id,
+            originRequestPolicyId: originRequestPolicy.id,
           },
         ],
 
