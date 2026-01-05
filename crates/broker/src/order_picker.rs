@@ -228,7 +228,7 @@ where
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
     ) -> Self {
-        let market = BoundlessMarketService::new(
+        let market = BoundlessMarketService::new_for_broker(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -1766,7 +1766,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-            let boundless_market = BoundlessMarketService::new(
+            let boundless_market = BoundlessMarketService::new_for_broker(
                 market_address,
                 provider.clone(),
                 provider.default_signer_address(),

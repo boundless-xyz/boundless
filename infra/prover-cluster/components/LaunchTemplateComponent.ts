@@ -12,7 +12,6 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   taskDBName: string;
   taskDBUsername: string;
   taskDBPassword: string;
-  ethRpcUrl?: pulumi.Output<string>;
   privateKey?: pulumi.Output<string>;
   orderStreamUrl?: pulumi.Output<string>;
   verifierAddress?: string;
@@ -28,6 +27,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   s3AccessKeyId?: pulumi.Output<string>;
   s3SecretAccessKey?: pulumi.Output<string>;
   // Broker configuration
+  brokerRpcUrls?: pulumi.Output<string>;
   mcyclePrice?: string;
   peakProveKhz?: number;
   minDeadline?: number;
@@ -46,6 +46,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   maxFetchRetries?: number;
   allowClientAddresses?: string;
   lockinPriorityGas?: string;
+  orderCommitmentPriority?: string;
   rustLogLevel?: string;
 }
 
@@ -128,7 +129,6 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.taskDBName,
       config.taskDBUsername,
       config.taskDBPassword,
-      config.ethRpcUrl!,
       config.privateKey!,
       config.orderStreamUrl!,
       config.verifierAddress!,
@@ -142,6 +142,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.s3BucketName!,
       config.s3AccessKeyId!,
       config.s3SecretAccessKey!,
+      config.brokerRpcUrls!,
       config.mcyclePrice || "0.00000001",
       config.peakProveKhz || 100,
       config.minDeadline || 0,
@@ -158,8 +159,10 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFetchRetries || 3,
       config.allowClientAddresses || "",
       config.lockinPriorityGas || "0",
+      config.orderCommitmentPriority || "cycle_price",
       config.rustLogLevel || "debug",
-    ]).apply(([dbName, dbUser, dbPass, rpcUrl, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, rustLogLevel]) => {
+    ]).apply(([dbName, dbUser, dbPass, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
+      const brokerRpcUrlsStr = brokerRpcUrls;
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
       const rdsHost = rdsEndpointStr.split(':')[0];
@@ -186,6 +189,7 @@ collateral_balance_error_threshold = "${collateralBalanceErrorThreshold}"
 max_fetch_retries = ${maxFetchRetries}
 ${allowClientAddresses ? `allow_client_addresses = ${allowClientAddresses}\n` : ''}
 ${lockinPriorityGas ? `lockin_priority_gas = ${lockinPriorityGas}\n` : ''}
+order_commitment_priority = "${orderCommitmentPriority}"
 priority_requestor_lists = [
 	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
 ]
@@ -269,9 +273,8 @@ ${aggregationDimensionsJson.split('\n').map(line => `      ${line}`).join('\n')}
       AWS_REGION=us-west-2
       STACK_NAME=${stackName}
       COMPONENT_TYPE=${componentType}
-      PROVER_RPC_URL=${rpcUrl}
+      PROVER_RPC_URLS=${brokerRpcUrlsStr}
       PROVER_PRIVATE_KEY=${privKey}
-      RPC_URL=${rpcUrl}
       PRIVATE_KEY=${privKey}
       ORDER_STREAM_URL=${orderStreamUrl}
       VERIFIER_ADDRESS=${verifierAddress}

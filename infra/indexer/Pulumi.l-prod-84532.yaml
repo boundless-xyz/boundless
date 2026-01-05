@@ -12,7 +12,9 @@ config:
   indexer:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   indexer:RDS_PASSWORD:
     secure: v1:MOLzFoAkg9kvoitx:IkFCUOBp2J7uKRuwvkd4PUO3YEvLII+R4tvBkiihJtWsRg==
-  indexer:RUST_LOG: indexer_monitor=debug
+  indexer:RUST_LOG_API: info,indexer_api=debug
+  indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
+  indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "30570944"
   indexer:ETH_RPC_URL:
@@ -22,3 +24,7 @@ config:
     secure: v1:/0rPNdjL1Pd1G+Ul:ZQjYsnr5r3dbvZnQRJ8BQRK8zYyDODOEjIlo6KwWiMe7byTgNA1UfUYpZof/pUSJCR0ccA9epyfKO02q2tk+097V/PyJI8GaxWTn
   indexer:ORDER_STREAM_API_KEY:
     secure: v1:m6WPylUvKKtSfmSv:8U9kK/h04l4lR7BCP2oi0ylQ1jMtIXVYAo/xl3q2
+  indexer:BENTO_API_URL:
+    secure: v1:CGZIDIR+/rZ+uBqg:5LHdmraz/IS5iH9hvdSI1xxIcHXRvryr6yqXLMDne0CCh+aexpdDzm0iDWzwbVSnXeU76N0tzYIWzRvPIN9ZL8K8JMu1WDkEAqw6hcZ9p38vKDdJT/0=
+  indexer:BENTO_API_KEY:
+    secure: v1:Tbd9Zd2klTvDDkej:6RgPRVcCZve2w92Hx5bk1YJZ6dED3ZFkEEzr6CpZUOmyqowomdhxBbvRfyX9UVARzP/i19nh7Gjfhu4=

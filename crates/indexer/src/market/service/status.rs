@@ -19,7 +19,7 @@ use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::{B256, U256};
 use alloy::providers::Provider;
 use boundless_market::contracts::pricing::price_at_time;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 impl<P, ANP> IndexerService<P, ANP>
@@ -160,7 +160,8 @@ where
         request_digests: HashSet<B256>,
         block_number: u64,
     ) -> Result<(), ServiceError> {
-        tracing::debug!(
+        tracing::debug!("{} request digests to update", request_digests.len());
+        tracing::trace!(
             "Request digests to update: {:?}",
             request_digests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
         );
@@ -189,10 +190,22 @@ where
         tracing::info!("get_requests_comprehensive completed in {:?} [queried with {} digests, {} requests found]", start_get_requests_comprehensive.elapsed(), request_digests.len(), requests_with_events.len());
 
         let start_compute_request_status = std::time::Instant::now();
-        let request_statuses: Vec<_> = requests_with_events
+        let mut request_statuses: Vec<_> = requests_with_events
             .into_iter()
             .map(|req| self.compute_request_status(req, current_timestamp))
             .collect();
+
+        let cycle_counts = self.db.get_cycle_counts(&request_digests).await?;
+        let cycle_counts_map: HashMap<_, _> =
+            cycle_counts.into_iter().map(|cc| (cc.request_digest, cc)).collect();
+
+        for status in request_statuses.iter_mut() {
+            if let Some(cc) = cycle_counts_map.get(&status.request_digest) {
+                status.cycle_status = Some(cc.cycle_status.clone());
+                status.program_cycles = cc.program_cycles;
+                status.total_cycles = cc.total_cycles;
+            }
+        }
 
         tracing::info!(
             "compute_request_status completed in {:?} [{} statuses computed]",

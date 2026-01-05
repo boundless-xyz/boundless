@@ -15,6 +15,8 @@ The following environment variables are required when running the market indexer
 
 - `MARKET_RPC_URL` (required) - Ethereum RPC endpoint URL for the Boundless Market contract
 - `BOUNDLESS_MARKET_ADDRESS` (required) - Boundless Market contract address
+- `BENTO_API_URL` (required) - Bento API endpoint URL for cycle count computation
+- `BENTO_API_KEY` (required) - API key for the Bento API
 
 Optional environment variables:
 
@@ -84,6 +86,8 @@ export ORDER_STREAM_URL="https://order-stream.example.com"  # Optional
 export ORDER_STREAM_API_KEY="your-api-key"  # Optional
 export TX_FETCH_STRATEGY="tx-by-hash"  # Optional: "block-receipts" or "tx-by-hash"
 export RUST_LOG="info"  # Optional
+export BENTO_API_URL="https://bento-api.url"
+export BENTO_API_KEY="api-key"
 
 # Run indexer for max of 7200 seconds (2 hours), processing blocks 35060420 to 38958539
 # Using PostgreSQL database with cache directory
@@ -192,4 +196,19 @@ Tests are ignored by default as they require an Ethereum RPC URL to be set, as t
 
 ```
 just test-indexer-api
+```
+
+#### Debugging Tests
+
+Sometimes test failures can be swallowed since the indexer is run as a separate process e.g.
+
+```
+thread 'staking_tests::test_staking_epochs_summary' panicked at crates/lambdas/indexer-api/tests/local_integration.rs:102:26:
+Failed to initialize test environment: Indexer exited with error: ExitStatus(unix_wait_status(256))
+```
+
+Use following to see all the logs:
+
+```
+cargo test --package indexer-api --test local_integration -- --ignored --nocapture
 ```

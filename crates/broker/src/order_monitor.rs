@@ -183,7 +183,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = BoundlessMarketService::new(
+        let mut market = BoundlessMarketService::new_for_broker(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -247,6 +247,16 @@ where
         if is_locked {
             tracing::warn!("Request 0x{:x} already locked: {order_status:?}, skipping", request_id);
             return Err(OrderMonitorErr::AlreadyLocked);
+        }
+
+        let collateral_balance = self
+            .market
+            .balance_of_collateral(self.prover_addr)
+            .await
+            .context("Failed to get collateral balance")?;
+        if collateral_balance < order.request.offer.lockCollateral {
+            tracing::warn!("No longer have enough collateral deposited to market to lock order 0x{:x}, skipping [need: {} ZKC, have: {} ZKC]", request_id, format_ether(order.request.offer.lockCollateral), format_ether(collateral_balance));
+            return Err(OrderMonitorErr::InsufficientBalance);
         }
 
         tracing::info!(
@@ -467,8 +477,16 @@ where
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                 self.skip_order(&order, "expired").await;
             } else if is_target_time_reached(&order, current_block_timestamp) {
-                tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
-                candidate_orders.push(order);
+                if self.market.is_fulfilled(order.request.id).await? {
+                    tracing::debug!(
+                    "Lock expiry timeout occurred, but 0x{:x} was already fulfilled by another prover. Skipping.",
+                    order.request.id
+                );
+                    self.skip_order(&order, "was fulfilled by other").await;
+                } else {
+                    tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
+                    candidate_orders.push(order);
+                }
             }
         }
 
@@ -1124,7 +1142,7 @@ pub(crate) mod tests {
         .unwrap();
 
         // Set up market service
-        let market_service = BoundlessMarketService::new(
+        let market_service = BoundlessMarketService::new_for_broker(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
@@ -1797,5 +1815,60 @@ pub(crate) mod tests {
         assert!(valid_orders_in_future
             .iter()
             .any(|order| order.id() == fulfill_after_expire_order_id));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_insufficient_collateral_balance() {
+        let mut ctx = setup_om_test_context().await;
+        let current_timestamp = now_timestamp();
+
+        // Create an order with a lockCollateral requirement higher than what's deposited
+        // The test setup deposits 10 ETH, so we'll use 20 ETH to trigger the insufficient balance check
+        let mut order = ctx
+            .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
+            .await;
+
+        // Set lockCollateral to 20 ETH (more than the 10 ETH deposited in setup)
+        let collateral_token_decimals =
+            ctx.market_service.collateral_token_decimals().await.unwrap();
+        order.request.offer.lockCollateral =
+            parse_units("20.0", collateral_token_decimals).unwrap().into();
+
+        // Recreate the signature since we modified the request
+        order.client_sig = order
+            .request
+            .sign_request(&ctx.signer, ctx.market_address, ctx.anvil.chain_id())
+            .await
+            .unwrap()
+            .as_bytes()
+            .into();
+
+        let order_id = order.id();
+
+        let _submitted_request_id =
+            ctx.market_service.submit_request(&order.request, &ctx.signer).await.unwrap();
+
+        // Add order to cache and attempt to lock it
+        ctx.monitor.lock_and_prove_cache.insert(order_id.clone(), Arc::from(order)).await;
+
+        // Process the order - it should fail due to insufficient collateral balance
+        let valid_orders = ctx.monitor.get_valid_orders(current_timestamp, 50).await.unwrap();
+        ctx.monitor.lock_and_prove_orders(&valid_orders).await.unwrap();
+
+        // Verify the order was skipped due to insufficient balance
+        let skipped_order = ctx.db.get_order(&order_id).await.unwrap();
+        assert!(skipped_order.is_some(), "Order should be in database");
+        assert_eq!(
+            skipped_order.unwrap().status,
+            OrderStatus::Skipped,
+            "Order should be skipped due to insufficient collateral balance"
+        );
+
+        // Verify the log message was emitted
+        assert!(
+            logs_contain("No longer have enough collateral deposited to market to lock order"),
+            "Expected log message about insufficient collateral balance"
+        );
     }
 }

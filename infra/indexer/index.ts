@@ -19,14 +19,17 @@ export = () => {
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
 
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
-  const dockerDir = config.require('DOCKER_DIR');
-  const dockerTag = config.require('DOCKER_TAG');
+  const dockerDir = config.get('DOCKER_DIR') || '../../';
+  const dockerTag = config.get('DOCKER_TAG') || 'latest';
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const baseStackName = config.require('BASE_STACK');
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
-  const rustLogLevel = config.get('RUST_LOG') || 'info';
+
+  const rustLogApi = config.get('RUST_LOG_API') || 'info';
+  const rustLogMonitor = config.get('RUST_LOG_MONITOR') || 'info';
+  const rustLogIndexer = config.get('RUST_LOG_INDEXER') || 'info';
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -42,7 +45,7 @@ export = () => {
   const marketMetricsNamespace = `Boundless/Market/${marketName}`;
 
   const boundlessAddress = config.get('BOUNDLESS_ADDRESS');
-  const startBlock = boundlessAddress ? config.require('START_BLOCK') : undefined;
+  const startBlock = boundlessAddress ? config.get('START_BLOCK') || '35060420' : undefined;
 
   const vezkcAddress = config.get('VEZKC_ADDRESS');
   const zkcAddress = config.get('ZKC_ADDRESS');
@@ -68,6 +71,8 @@ export = () => {
     const logsEthRpcUrl = isDev ? pulumi.output(getEnvVar("LOGS_ETH_RPC_URL")) : config.requireSecret('LOGS_ETH_RPC_URL');
     const orderStreamApiKey = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_API_KEY")) : config.requireSecret('ORDER_STREAM_API_KEY');
     const orderStreamUrl = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) : config.getSecret('ORDER_STREAM_URL');
+    const bentoApiUrl = isDev ? pulumi.output(process.env.BENTO_API_URL || '') : config.getSecret('BENTO_API_URL');
+    const bentoApiKey = isDev ? pulumi.output(process.env.BENTO_API_KEY || '') : config.getSecret('BENTO_API_KEY');
 
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
@@ -85,6 +90,9 @@ export = () => {
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
+      bentoApiUrl,
+      bentoApiKey,
+      rustLogLevel: rustLogIndexer,
     }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
@@ -122,8 +130,9 @@ export = () => {
       intervalMinutes: '1',
       dbUrlSecret: infra.dbUrlSecret,
       rdsSgId: infra.rdsSecurityGroupId,
+      indexerSgId: infra.indexerSecurityGroup.id,
       chainId: chainId,
-      rustLogLevel: rustLogLevel,
+      rustLogLevel: rustLogMonitor,
       boundlessAlertsTopicArns: alertsTopicArns,
       serviceMetricsNamespace,
       marketMetricsNamespace,
@@ -139,7 +148,7 @@ export = () => {
       secretHash: infra.secretHash,
       rdsSgId: infra.rdsSecurityGroupId,
       indexerSgId: infra.indexerSecurityGroup.id,
-      rustLogLevel: rustLogLevel,
+      rustLogLevel: rustLogApi,
       chainId: chainId,
       domain: indexerApiDomain,
       boundlessAlertsTopicArns: alertsTopicArns,
@@ -147,12 +156,18 @@ export = () => {
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
-  return api
-    ? {
-      apiEndpoint: api.cloudFrontDomain,
-      apiGatewayEndpoint: api.apiEndpoint,
-      distributionId: api.distributionId,
-    }
-    : {};
+  const outputs: Record<string, any> = {};
+
+  if (api) {
+    outputs.apiEndpoint = api.cloudFrontDomain;
+    outputs.apiGatewayEndpoint = api.apiEndpoint;
+    outputs.distributionId = api.distributionId;
+  }
+
+  if (marketIndexer) {
+    outputs.backfillLambdaName = marketIndexer.backfillLambdaName;
+  }
+
+  return outputs;
 
 };

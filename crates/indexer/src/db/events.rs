@@ -33,15 +33,6 @@ const REQUEST_FULFILLED_EVENT_BATCH_SIZE: usize = 500;
 ///
 /// This trait provides methods for inserting blockchain events into the database.
 /// It requires `IndexerDb` for pool access and transaction handling.
-///
-/// # Example
-///
-/// ```ignore
-/// use crate::db::{MarketDb, EventsDb};
-///
-/// let db = MarketDb::new("sqlite::memory:", None, false).await?;
-/// db.add_request_submitted_events(&events).await?;
-/// ```
 #[async_trait]
 pub trait EventsDb: IndexerDb {
     async fn add_request_submitted_events(

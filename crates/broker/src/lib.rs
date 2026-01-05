@@ -22,7 +22,7 @@ use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, FixedBytes, U256},
-    providers::{Provider, WalletProvider},
+    providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
 use anyhow::{Context, Result};
@@ -640,7 +640,7 @@ where
     }
 
     async fn fetch_and_upload_assessor_image(&self, prover: &ProverObj) -> Result<Digest> {
-        let boundless_market = BoundlessMarketService::new(
+        let boundless_market = BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
             self.provider.clone(),
             Address::ZERO,
@@ -907,39 +907,52 @@ where
         }
 
         // Construct the prover object interface
-        let prover: provers::ProverObj = if is_dev_mode() {
+        let prover: provers::ProverObj;
+        let aggregation_prover: provers::ProverObj;
+        if is_dev_mode() {
             tracing::warn!("WARNING: Running the Broker in dev mode does not generate valid receipts. \
             Receipts generated from this process are invalid and should never be used in production.");
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         } else if let (Some(bonsai_api_key), Some(bonsai_api_url)) =
             (self.args.bonsai_api_key.as_ref(), self.args.bonsai_api_url.as_ref())
         {
             tracing::info!("Configured to run with Bonsai backend");
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bonsai_api_url.as_ref(), bonsai_api_key)
                     .context("Failed to construct Bonsai client")?,
-            )
+            );
+            aggregation_prover = Arc::clone(&prover);
         } else if let Some(bento_api_url) = self.args.bento_api_url.as_ref() {
             tracing::info!("Configured to run with Bento backend");
 
-            Arc::new(
+            prover = Arc::new(
                 provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:1000")
                     .context("Failed to initialize Bento client")?,
-            )
+            );
+            // Initialize aggregation/snark prover with a higher reserved key to prioritize
+            aggregation_prover = Arc::new(
+                provers::Bonsai::new(config.clone(), bento_api_url.as_ref(), "v1:reserved:2000")
+                    .context("Failed to initialize Bento client")?,
+            );
         } else {
-            Arc::new(provers::DefaultProver::new())
+            prover = Arc::new(provers::DefaultProver::new());
+            aggregation_prover = Arc::clone(&prover);
         };
+
+        let prover_addr = self.provider.default_signer_address();
 
         let (pricing_tx, pricing_rx) = mpsc::channel(PRICING_CHANNEL_CAPACITY);
 
-        let collateral_token_decimals = BoundlessMarketService::new(
+        let market = Arc::new(BoundlessMarketService::new_for_broker(
             self.deployment().boundless_market_address,
-            self.provider.clone(),
-            Address::ZERO,
-        )
-        .collateral_token_decimals()
-        .await
-        .context("Failed to get stake token decimals. Possible RPC error.")?;
+            DynProvider::new(self.provider.clone()),
+            prover_addr,
+        ));
+        let collateral_token_decimals = market
+            .collateral_token_decimals()
+            .await
+            .context("Failed to get stake token decimals. Possible RPC error.")?;
 
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(
@@ -969,9 +982,11 @@ where
             proving::ProvingService::new(
                 self.db.clone(),
                 prover.clone(),
+                aggregation_prover.clone(),
                 config.clone(),
                 order_state_tx.clone(),
                 self.priority_requestors.clone(),
+                market.clone(),
             )
             .await
             .context("Failed to initialize proving service")?,
@@ -986,9 +1001,6 @@ where
                 .context("Failed to start proving service")?;
             Ok(())
         });
-
-        let prover_addr =
-            self.args.private_key.as_ref().expect("Private key must be set").address();
 
         let order_monitor = Arc::new(order_monitor::OrderMonitor::new(
             self.db.clone(),
@@ -1028,7 +1040,7 @@ where
                 self.deployment().boundless_market_address,
                 prover_addr,
                 config.clone(),
-                prover.clone(),
+                aggregation_prover.clone(),
             )
             .await
             .context("Failed to initialize aggregator service")?,

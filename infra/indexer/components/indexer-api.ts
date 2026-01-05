@@ -140,7 +140,6 @@ export class IndexerApi extends pulumi.ComponentResource {
       },
       memorySize: 256,
       timeout: 30,
-      reservedConcurrentExecutions: 10,
       vpcConfig: {
         subnetIds: args.privSubNetIds,
         securityGroupIds: [args.indexerSgId],
@@ -189,23 +188,6 @@ export class IndexerApi extends pulumi.ComponentResource {
       alarmActions,
     }, { parent: this });
 
-    // Alarm for Lambda Concurrent Executions approaching limit
-    new aws.cloudwatch.MetricAlarm(`${serviceName}-lambda-concurrent-executions`, {
-      name: `${serviceName}-lambda-concurrent-executions`,
-      comparisonOperator: 'GreaterThanThreshold',
-      evaluationPeriods: 2,
-      metricName: 'ConcurrentExecutions',
-      namespace: 'AWS/Lambda',
-      period: 60, // 1 minute
-      statistic: 'Maximum',
-      threshold: 20, // Alert at 20 concurrent executions (80% of 25 limit)
-      alarmDescription: `Lambda concurrent executions approaching reserved limit of 25`,
-      dimensions: {
-        FunctionName: lambda.name,
-      },
-      treatMissingData: 'notBreaching',
-    }, { parent: this });
-
     // Create API Gateway v2 (HTTP API)
     const api = new aws.apigatewayv2.Api(
       `${serviceName}-api`,
@@ -249,16 +231,58 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Create deployment stage
+    // Create CloudWatch log group for API Gateway access logs
+    const accessLogGroup = new aws.cloudwatch.LogGroup(
+      `${serviceName}-api-access-logs`,
+      {
+        name: `/aws/apigateway/${serviceName}`,
+        retentionInDays: 30,
+      },
+      { parent: this },
+    );
+
+    // Create deployment stage with access logging
     new aws.apigatewayv2.Stage(
       `${serviceName}-stage`,
       {
         apiId: api.id,
         name: '$default',
         autoDeploy: true,
+        accessLogSettings: {
+          destinationArn: accessLogGroup.arn,
+          format: JSON.stringify({
+            requestId: '$context.requestId',
+            ip: '$context.identity.sourceIp',
+            requestTime: '$context.requestTime',
+            httpMethod: '$context.httpMethod',
+            path: '$context.path',
+            status: '$context.status',
+            responseLength: '$context.responseLength',
+            integrationLatency: '$context.integrationLatency',
+            integrationError: '$context.integrationErrorMessage',
+          }),
+        },
       },
       { parent: this },
     );
+
+    // Alarm for API Gateway 5xx errors
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-5xx-alarm`, {
+      name: `${serviceName}-5xx-errors`,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      metricName: '5xx',
+      namespace: 'AWS/ApiGateway',
+      period: 60,
+      statistic: 'Sum',
+      threshold: 10,
+      alarmDescription: `API Gateway 5xx errors detected for ${serviceName}`,
+      dimensions: {
+        ApiId: api.id,
+      },
+      treatMissingData: 'notBreaching',
+      alarmActions,
+    }, { parent: this });
 
     this.apiEndpoint = pulumi.interpolate`${api.apiEndpoint}`;
 
@@ -331,12 +355,8 @@ export class IndexerApi extends pulumi.ComponentResource {
             priority: 1,
             statement: {
               rateBasedStatement: {
-                limit: 100, // 75 requests per 5 minutes per IP
+                limit: 200, // 200 requests per 5 minutes per IP
                 aggregateKeyType: 'IP',
-                forwardedIpConfig: {
-                  headerName: 'CF-Connecting-IP',
-                  fallbackBehavior: 'MATCH',
-                },
               },
             },
             action: {
@@ -415,6 +435,77 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this, provider: usEast1Provider }, // WAF for CloudFront must be in us-east-1
     );
 
+    // Cache policy for default behavior: short TTL (60s default, 300s max)
+    const shortCachePolicy = new aws.cloudfront.CachePolicy(
+      `${serviceName}-short-cache`,
+      {
+        name: `${serviceName}-short-cache`,
+        comment: 'Short cache for API responses (60s default)',
+        defaultTtl: 60,
+        minTtl: 0,
+        maxTtl: 300,
+        parametersInCacheKeyAndForwardedToOrigin: {
+          cookiesConfig: {
+            cookieBehavior: 'none',
+          },
+          headersConfig: {
+            headerBehavior: 'none',
+          },
+          queryStringsConfig: {
+            queryStringBehavior: 'all',
+          },
+          enableAcceptEncodingGzip: true,
+          enableAcceptEncodingBrotli: true,
+        },
+      },
+      { parent: this },
+    );
+
+    // Cache policy for epoch leaderboard: longer TTL (5m default, 1h max)
+    const epochLeaderboardCachePolicy = new aws.cloudfront.CachePolicy(
+      `${serviceName}-long-cache`,
+      {
+        name: `${serviceName}-long-cache`,
+        comment: 'Longer cache for historical epoch data (5m default)',
+        defaultTtl: 300,
+        minTtl: 60,
+        maxTtl: 3600,
+        parametersInCacheKeyAndForwardedToOrigin: {
+          cookiesConfig: {
+            cookieBehavior: 'none',
+          },
+          headersConfig: {
+            headerBehavior: 'none',
+          },
+          queryStringsConfig: {
+            queryStringBehavior: 'all',
+          },
+          enableAcceptEncodingGzip: true,
+          enableAcceptEncodingBrotli: true,
+        },
+      },
+      { parent: this },
+    );
+
+    // Origin request policy: forward all query strings to origin
+    const originRequestPolicy = new aws.cloudfront.OriginRequestPolicy(
+      `${serviceName}-origin-request`,
+      {
+        name: `${serviceName}-origin-request`,
+        comment: 'Forward all query strings to origin',
+        cookiesConfig: {
+          cookieBehavior: 'none',
+        },
+        headersConfig: {
+          headerBehavior: 'none',
+        },
+        queryStringsConfig: {
+          queryStringBehavior: 'all',
+        },
+      },
+      { parent: this },
+    );
+
     // Parse API endpoint to get domain
     const apiDomain = this.apiEndpoint.apply(endpoint => {
       const url = new URL(endpoint);
@@ -465,19 +556,8 @@ export class IndexerApi extends pulumi.ComponentResource {
           allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
           cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
           compress: true,
-
-          // Cache policy for default behavior (current leaderboard)
-          defaultTtl: 60,    // 1 minute default
-          minTtl: 0,         // Allow immediate expiration
-          maxTtl: 300,       // Max 5 minutes
-
-          forwardedValues: {
-            queryString: true, // Forward query parameters for pagination
-            cookies: {
-              forward: 'none',
-            },
-            headers: [], // API Gateway doesn't need special headers
-          },
+          cachePolicyId: shortCachePolicy.id,
+          originRequestPolicyId: originRequestPolicy.id,
         },
 
         orderedCacheBehaviors: [
@@ -489,18 +569,8 @@ export class IndexerApi extends pulumi.ComponentResource {
             allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
             cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
             compress: true,
-
-            defaultTtl: 300,   // 5 minutes default
-            minTtl: 60,        // At least 1 minute
-            maxTtl: 3600,      // Max 1 hour
-
-            forwardedValues: {
-              queryString: true,
-              cookies: {
-                forward: 'none',
-              },
-              headers: [],
-            },
+            cachePolicyId: epochLeaderboardCachePolicy.id,
+            originRequestPolicyId: originRequestPolicy.id,
           },
         ],
 
@@ -514,20 +584,8 @@ export class IndexerApi extends pulumi.ComponentResource {
 
         customErrorResponses: [
           {
-            errorCode: 403,
-            responseCode: 403,
-            responsePagePath: '/error.html',
-            errorCachingMinTtl: 10,
-          },
-          {
-            errorCode: 404,
-            responseCode: 404,
-            responsePagePath: '/error.html',
-            errorCachingMinTtl: 10,
-          },
-          {
             errorCode: 500,
-            errorCachingMinTtl: 0, // Don't cache errors
+            errorCachingMinTtl: 0,
           },
           {
             errorCode: 502,
