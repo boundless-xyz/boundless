@@ -124,7 +124,7 @@ pub async fn batch_prover(
         let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
         pipe.set_ex(&output_key, &receipts[i], agent.args.redis_ttl);
     }
-    pipe.query_async(&mut *conn)
+    pipe.query_async::<_, ()>(&mut *conn)
         .await
         .context("Failed to pipeline SET receipts")?;
     helpers::record_redis_operation(
