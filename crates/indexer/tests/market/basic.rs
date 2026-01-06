@@ -17,7 +17,7 @@
 use std::str::FromStr;
 
 use alloy::{
-    primitives::{utils::parse_ether, B256, Bytes, U256},
+    primitives::{utils::parse_ether, Bytes, B256, U256},
     providers::{ext::AnvilApi, Provider},
     rpc::types::BlockNumberOrTag,
 };
@@ -438,8 +438,8 @@ async fn test_aggregation_across_hours() {
         &request1,
         client_sig1.as_bytes().into(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -494,8 +494,8 @@ async fn test_aggregation_across_hours() {
         &request2,
         client_sig2.as_bytes().into(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
@@ -1541,13 +1541,19 @@ async fn test_effective_prove_mhz_calculation() {
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
     assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
     assert!(status.fulfilled_at.is_some());
-    assert!(status.effective_prove_mhz.is_none(), "effective_prove_mhz should be None without cycle counts");
+    assert!(
+        status.effective_prove_mhz.is_none(),
+        "effective_prove_mhz should be None without cycle counts"
+    );
 
     // Now manually insert cycle counts AFTER fulfillment
     // Manually insert as we don't run the cycle count executor in these tests.
     let program_cycles = 100_000_000u64; // 100M cycles
     let total_cycles = (program_cycles as f64 * 1.0158) as u64; // ~101.58M cycles with overhead
-    let cycle_count_updated_at = insert_cycle_counts_with_overhead(&fixture.test_db, request_digest, program_cycles).await.unwrap();
+    let cycle_count_updated_at =
+        insert_cycle_counts_with_overhead(&fixture.test_db, request_digest, program_cycles)
+            .await
+            .unwrap();
 
     // Advance time and mine a block to trigger indexer to process cycle count updates
     // Ensure we mine beyond the cycle count updated_at timestamp
@@ -1559,7 +1565,7 @@ async fn test_effective_prove_mhz_calculation() {
     };
     advance_time_and_mine(&fixture.ctx.customer_provider, advance_seconds, 1).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
- 
+
     // Verify effective_prove_mhz is now populated
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
     assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
@@ -1572,7 +1578,9 @@ async fn test_effective_prove_mhz_calculation() {
     // Calculate expected effective_prove_mhz
     let fulfilled_at = status.fulfilled_at.unwrap() as u64;
     let proof_delivery_time = fulfilled_at - created_at;
-    let expected_mhz = (U256::from(total_cycles) / (U256::from(proof_delivery_time) * U256::from(1_000_000u64))).to::<u64>();
+    let expected_mhz = (U256::from(total_cycles)
+        / (U256::from(proof_delivery_time) * U256::from(1_000_000u64)))
+    .to::<u64>();
 
     // Verify effective_prove_mhz is calculated correctly
     assert!(

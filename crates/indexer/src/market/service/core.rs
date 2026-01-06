@@ -290,10 +290,7 @@ where
     /// Process cycle count updates that occurred between the last processed block and the current block timestamp.
     /// Note, we fetch last processed block from the DB, rather than using the "from" block. This is because cycle
     /// counts may have been updated between the last processed block's timestamp and the from block timestamp, that could be missed.
-    async fn process_cycle_counts(
-        &mut self,
-        to_block: u64,
-    ) -> Result<HashSet<B256>, ServiceError> {
+    async fn process_cycle_counts(&mut self, to_block: u64) -> Result<HashSet<B256>, ServiceError> {
         // Get the last processed block to determine the lower bound for cycle count queries.
         // We use last_processed_block's timestamp + 1 as the lower bound to ensure we don't miss
         // cycle counts updated between block timestamps when processing blocks individually.

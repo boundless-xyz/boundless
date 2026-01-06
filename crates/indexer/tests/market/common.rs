@@ -621,10 +621,8 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
     // Get current block number from the chain
     let current_block = provider.get_block_number().await.unwrap();
     // Get block timestamp from the chain
-    let block = provider
-                                .get_block_by_number(BlockNumberOrTag::Number(current_block))
-                                .await
-                                .unwrap();
+    let block =
+        provider.get_block_by_number(BlockNumberOrTag::Number(current_block)).await.unwrap();
     let block_timestamp = block.unwrap().header.timestamp;
 
     // Wait for indexer to process up to current block with timeout
@@ -640,7 +638,11 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
         if let Ok((ref last_block_str,)) = result {
             if let Ok(last_block) = last_block_str.parse::<u64>() {
                 if last_block >= current_block {
-                    tracing::info!("Indexer caught up to block {} at timestamp {}", current_block, block_timestamp);
+                    tracing::info!(
+                        "Indexer caught up to block {} at timestamp {}",
+                        current_block,
+                        block_timestamp
+                    );
                     return;
                 }
             }

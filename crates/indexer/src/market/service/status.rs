@@ -106,7 +106,8 @@ where
         // Compute effective_prove_mhz: total_cycles / proof_delivery_time / 1_000_000
         // Equivalent to: total_cycles / (proof_delivery_time * 1_000_000)
         // proof_delivery_time = fulfilled_at - created_at (in seconds)
-        let effective_prove_mhz = req.fulfilled_at
+        let effective_prove_mhz = req
+            .fulfilled_at
             .zip(req.total_cycles)
             .filter(|(fulfilled_at, total_cycles)| {
                 *fulfilled_at > req.created_at && *total_cycles > U256::ZERO

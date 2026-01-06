@@ -14,11 +14,11 @@
 
 use std::{sync::Arc, time::SystemTime};
 
+use crate::db::market::u256_to_padded_string;
 use crate::db::{
     market::{CycleCount, IndexerDb},
     DbError, DbObj, MarketDb,
 };
-use crate::db::market::u256_to_padded_string;
 use alloy::primitives::{B256, U256};
 use sqlx::any::install_default_drivers;
 use sqlx::AnyPool;
@@ -111,11 +111,15 @@ impl TestDb {
         total_cycles: U256,
     ) -> Result<u64, DbError> {
         // Get the last processed block number
-        let last_block = self.db.get_last_block().await?
-            .expect("No last block found in database - indexer must have processed at least one block");
-        
+        let last_block = self.db.get_last_block().await?.expect(
+            "No last block found in database - indexer must have processed at least one block",
+        );
+
         // Get the timestamp for the last processed block, and add 10 seconds to it
-        let mut updated_at = self.db.get_block_timestamp(last_block).await?
+        let mut updated_at = self
+            .db
+            .get_block_timestamp(last_block)
+            .await?
             .expect("Last block timestamp not found in database");
         updated_at += 10;
 
@@ -136,9 +140,13 @@ impl TestDb {
             updated_at,
         };
 
-        tracing::info!("Inserting cycle count for request digest: {:x}, created_at: {}, updated_at: {}", request_digest, created_at, updated_at);
+        tracing::debug!(
+            "Inserting cycle count for request digest: {:x}, created_at: {}, updated_at: {}",
+            request_digest,
+            created_at,
+            updated_at
+        );
 
-        // Use direct SQL query with ON CONFLICT DO UPDATE to upsert cycle counts
         sqlx::query(
             "INSERT INTO cycle_counts (request_digest, cycle_status, program_cycles, total_cycles, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6)
