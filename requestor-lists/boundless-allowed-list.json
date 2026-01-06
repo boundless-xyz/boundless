@@ -1,0 +1,134 @@
+{
+  "name": "Boundless Allowed List",
+  "description": "List of requestors that are allowed to submit requests. If this list is configured, only requestors in this list will be accepted. NOTE: This file is for internal Boundless usage only. External provers should just use the priority lists (boundless-priority-list.*.json) in this directory instead.",
+  "schemaVersion": {
+    "major": 1,
+    "minor": 0
+  },
+  "version": {
+    "major": 1,
+    "minor": 0
+  },
+  "requestors": [
+    {
+      "address": "0x067D62CBCC72bBb02358cEB85aBE817249AB616b",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0xa6e98d0ba0ca584509ebcbe00bb36f0c5cfcdd1b",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x418be9167e835ad820df53fd16b8fe02f796ce1c",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Acai)",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0xda824d974d8bac25a0611b7ab5f091d22f63a234",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x3d089c2f2cb86d4efde153c81cabd4579784430b",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Marionberry)",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Lingonberry #2)",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Lingonberry #1)",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x1578934C9B006B9568D884C421704d996D402B78",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x7276fa3c23c1783bdcb97258717f8f32b75919c9",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Cranberries)",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0xb686f080c2c7045d13d196787c99bc9972480fd3",
+      "chainId": 8453,
+      "name": "Anonymous Customer (Strawberry)",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x0d4b7e56a3d78af33a969938724656c886543444",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x40a86041f44443Ad137B0F89E3F852Ae588fac42",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    },
+    {
+      "address": "0x787134c5461170dd0743f97beb4a322b179babc2",
+      "chainId": 8453,
+      "name": "Allowed Requestor",
+      "description": "",
+      "tags": [],
+      "extensions": {}
+    }
+  ]
+}

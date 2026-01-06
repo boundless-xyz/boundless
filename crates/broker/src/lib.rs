@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -490,6 +490,7 @@ pub struct Broker<P> {
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
+    allow_requestors: requestor_monitor::AllowRequestors,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
 }
 
@@ -524,6 +525,8 @@ where
 
         let priority_requestors =
             requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
+        let allow_requestors =
+            requestor_monitor::AllowRequestors::new(config_watcher.config.clone(), chain_id);
 
         Ok(Self {
             args,
@@ -531,6 +534,7 @@ where
             provider: Arc::new(provider),
             config_watcher,
             priority_requestors,
+            allow_requestors,
             gas_priority_mode,
         })
     }
@@ -967,6 +971,7 @@ where
             collateral_token_decimals,
             order_state_tx.clone(),
             self.priority_requestors.clone(),
+            self.allow_requestors.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -1071,9 +1076,11 @@ where
             Ok(())
         });
 
-        // Start the RequestorMonitor to periodically fetch priority lists
-        let requestor_monitor =
-            Arc::new(requestor_monitor::RequestorMonitor::new(self.priority_requestors.clone()));
+        // Start the RequestorMonitor to periodically fetch priority and allow lists
+        let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
+            self.priority_requestors.clone(),
+            self.allow_requestors.clone(),
+        ));
         let config_clone = config.clone();
         let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
         non_critical_tasks.spawn(async move {
