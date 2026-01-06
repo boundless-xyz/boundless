@@ -230,8 +230,7 @@ jobs:
         id: restore-cache
         uses: actions/cache@v4
         with:
-          path: .lycheecache
-          # Stable key so cache is reused across commits; bump -v1 if you want to reset.
+          path: ~/.cache/lychee
           key: lychee-${{ runner.os }}-v1
           restore-keys: |
             lychee-${{ runner.os }}-
@@ -256,7 +255,6 @@ jobs:
             | xargs lychee \
                 --base . \
                 --cache \
-                --cache-dir .lycheecache \
                 --max-concurrency 2 \
                 --max-retries 6 \
                 --retry-wait-time 2 \
@@ -268,8 +266,8 @@ jobs:
         uses: actions/cache/save@v4
         if: always()
         with:
-          path: .lycheecache
-          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+          path: ~/.cache/lychee
+          key: lychee-${{ runner.os }}-v1
 
   format:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
