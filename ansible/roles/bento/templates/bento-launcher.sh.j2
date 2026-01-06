@@ -5,6 +5,10 @@ set -euo pipefail
 # Starts all configured services in parallel
 
 # Source environment variables
+if [[ ! -f {{ bento_config_dir }}/bento.env ]]; then
+    echo "Error: bento.env not found at {{ bento_config_dir }}/bento.env" >&2
+    exit 1
+fi
 source {{ bento_config_dir }}/bento.env
 
 # Prometheus port configuration
@@ -13,53 +17,136 @@ PROVE_PORT={{ bento_prometheus_metrics_ports['prove'] | default(9190) }}
 EXEC_PORT={{ bento_prometheus_metrics_ports['exec'] | default(9290) }}
 AUX_PORT={{ bento_prometheus_metrics_ports['aux'] | default(9390) }}
 SNARK_PORT={{ bento_prometheus_metrics_ports['snark'] | default(9490) }}
-JOIN_PORT={{ bento_prometheus_metrics_ports['join'] | default(9490) }}
+JOIN_PORT={{ bento_prometheus_metrics_ports['join'] | default(9590) }}
 
 # Configuration values
 BENTO_API_URL="{{ bento_api_url }}"
 BENTO_REDIS_TTL="{{ bento_redis_ttl }}"
 BENTO_INSTALL_DIR="{{ bento_install_dir }}"
 
+# Array to track background process PIDs
+declare -a PIDS=()
+
+# Cleanup function to kill all background processes on exit
+cleanup() {
+    local exit_code=$?
+    echo "Shutting down Bento services..." >&2
+    for pid in "${PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+    # Wait a bit for graceful shutdown, then force kill
+    sleep 2
+    for pid in "${PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+    exit $exit_code
+}
+
+# Set up signal handlers for graceful shutdown
+trap cleanup EXIT INT TERM
+
+# Validate binaries exist
+if [[ ! -x ${BENTO_INSTALL_DIR}/bento-agent ]]; then
+    echo "Error: bento-agent not found or not executable at ${BENTO_INSTALL_DIR}/bento-agent" >&2
+    exit 1
+fi
+
 # Start API service (if enabled)
 {% if bento_enable_api | default(true) | bool %}
+if [[ ! -x ${BENTO_INSTALL_DIR}/bento-rest-api ]]; then
+    echo "Error: bento-rest-api not found or not executable at ${BENTO_INSTALL_DIR}/bento-rest-api" >&2
+    exit 1
+fi
+echo "Starting API service on ${BENTO_API_URL} (metrics: 127.0.0.1:${API_PORT})"
 PROMETHEUS_METRICS_ADDR="127.0.0.1:${API_PORT}" ${BENTO_INSTALL_DIR}/bento-rest-api --bind-addr ${BENTO_API_URL} &
+PIDS+=($!)
 {% endif %}
 
 # Start prove workers
 {% if bento_gpu_count | default(0) | int > 0 %}
+echo "Starting {{ bento_gpu_count | default(1) | int }} prove worker(s)"
 for id in $(seq 0 $(({{ bento_gpu_count | default(1) | int }} - 1))); do
-  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((PROVE_PORT + id))" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t prove --redis-ttl ${BENTO_REDIS_TTL} &
+  worker_port=$((PROVE_PORT + id))
+  if [[ $worker_port -gt 65535 ]]; then
+    echo "Error: Calculated port $worker_port exceeds maximum (65535)" >&2
+    exit 1
+  fi
+  echo "  Starting prove worker $id (GPU $id, metrics: 127.0.0.1:$worker_port)"
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$worker_port" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t prove --redis-ttl ${BENTO_REDIS_TTL} &
+  PIDS+=($!)
 done
 {% endif %}
 
 # Start exec workers
 {% if bento_exec_count | default(0) | int > 0 %}
+echo "Starting {{ bento_exec_count | default(1) | int }} exec worker(s)"
 for id in $(seq 0 $(({{ bento_exec_count | default(1) | int }} - 1))); do
-  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((EXEC_PORT + id))" ${BENTO_INSTALL_DIR}/bento-agent -t exec --redis-ttl ${BENTO_REDIS_TTL} &
+  worker_port=$((EXEC_PORT + id))
+  if [[ $worker_port -gt 65535 ]]; then
+    echo "Error: Calculated port $worker_port exceeds maximum (65535)" >&2
+    exit 1
+  fi
+  echo "  Starting exec worker $id (metrics: 127.0.0.1:$worker_port)"
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$worker_port" ${BENTO_INSTALL_DIR}/bento-agent -t exec --redis-ttl ${BENTO_REDIS_TTL} &
+  PIDS+=($!)
 done
 {% endif %}
 
 # Start aux workers
 {% if bento_aux_count | default(0) | int > 0 %}
+echo "Starting {{ bento_aux_count | default(1) | int }} aux worker(s)"
 for id in $(seq 0 $(({{ bento_aux_count | default(1) | int }} - 1))); do
-  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((AUX_PORT + id))" ${BENTO_INSTALL_DIR}/bento-agent -t aux --redis-ttl ${BENTO_REDIS_TTL} &
+  worker_port=$((AUX_PORT + id))
+  if [[ $worker_port -gt 65535 ]]; then
+    echo "Error: Calculated port $worker_port exceeds maximum (65535)" >&2
+    exit 1
+  fi
+  echo "  Starting aux worker $id (metrics: 127.0.0.1:$worker_port)"
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$worker_port" ${BENTO_INSTALL_DIR}/bento-agent -t aux --redis-ttl ${BENTO_REDIS_TTL} &
+  PIDS+=($!)
 done
 {% endif %}
 
 # Start snark workers (if enabled)
 {% if bento_snark_workers | default(false) | bool and bento_snark_count | default(0) | int > 0 %}
+echo "Starting {{ bento_snark_count | default(1) | int }} snark worker(s)"
 for id in $(seq 0 $(({{ bento_snark_count | default(1) | int }} - 1))); do
-  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((SNARK_PORT + id))" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t snark --redis-ttl ${BENTO_REDIS_TTL} &
+  worker_port=$((SNARK_PORT + id))
+  if [[ $worker_port -gt 65535 ]]; then
+    echo "Error: Calculated port $worker_port exceeds maximum (65535)" >&2
+    exit 1
+  fi
+  echo "  Starting snark worker $id (GPU $id, metrics: 127.0.0.1:$worker_port)"
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$worker_port" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t snark --redis-ttl ${BENTO_REDIS_TTL} &
+  PIDS+=($!)
 done
 {% endif %}
 
 # Start join workers (if enabled)
 {% if bento_join_workers | default(false) | bool and bento_join_count | default(0) | int > 0 %}
+echo "Starting {{ bento_join_count | default(1) | int }} join worker(s)"
 for id in $(seq 0 $(({{ bento_join_count | default(1) | int }} - 1))); do
-  PROMETHEUS_METRICS_ADDR="127.0.0.1:$((JOIN_PORT + id))" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t join --redis-ttl ${BENTO_REDIS_TTL} &
+  worker_port=$((JOIN_PORT + id))
+  if [[ $worker_port -gt 65535 ]]; then
+    echo "Error: Calculated port $worker_port exceeds maximum (65535)" >&2
+    exit 1
+  fi
+  echo "  Starting join worker $id (GPU $id, metrics: 127.0.0.1:$worker_port)"
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$worker_port" CUDA_VISIBLE_DEVICES=$id ${BENTO_INSTALL_DIR}/bento-agent -t join --redis-ttl ${BENTO_REDIS_TTL} &
+  PIDS+=($!)
 done
 {% endif %}
 
+if [[ ${#PIDS[@]} -eq 0 ]]; then
+    echo "Warning: No services were started. Check your configuration." >&2
+    exit 1
+fi
+
+echo "All services started. Waiting for processes..."
 # Wait for all processes to exit
 wait
 
