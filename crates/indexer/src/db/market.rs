@@ -6343,8 +6343,13 @@ mod tests {
             generate_request(3, &Address::ZERO),
         ];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
-        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING", "PENDING"])
-            .await;
+        setup_test_requests_and_cycles(
+            &db,
+            &digests,
+            &requests,
+            &["PENDING", "PENDING", "PENDING"],
+        )
+        .await;
 
         // Set them to EXECUTING, but one has an empty session UUID
         let execution_info = vec![
