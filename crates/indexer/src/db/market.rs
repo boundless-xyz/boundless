@@ -6152,48 +6152,10 @@ mod tests {
     }
 
     // Helper to create test proof requests and cycle counts
-    async fn setup_test_requests_and_cycles(
-        db: &DbObj,
-        digests: &[B256],
-        requests: &[ProofRequest],
-        statuses: &[&str],
-    ) {
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
-        let timestamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
-        db.add_proof_requests(
-            &digests
-                .iter()
-                .zip(requests.iter())
-                .map(|(d, r)| {
-                    (*d, r.clone(), metadata, "onchain".to_string(), metadata.block_timestamp)
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await
-        .unwrap();
-
-        let cycle_counts: Vec<CycleCount> = digests
-            .iter()
-            .zip(statuses.iter())
-            .map(|(d, s)| CycleCount {
-                request_digest: *d,
-                cycle_status: s.to_string(),
-                program_cycles: if *s == "COMPLETED" { Some(U256::from(1000)) } else { None },
-                total_cycles: if *s == "COMPLETED" { Some(U256::from(1015)) } else { None },
-                created_at: timestamp,
-                updated_at: timestamp,
-            })
-            .collect();
-
-        db.add_cycle_counts(&cycle_counts).await.unwrap();
-    }
-
     #[tokio::test]
     async fn test_get_cycle_counts_pending() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests = vec![
             generate_request(1, &Address::ZERO),
@@ -6201,13 +6163,9 @@ mod tests {
             generate_request(3, &Address::ZERO),
         ];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
-        setup_test_requests_and_cycles(
-            &db,
-            &digests,
-            &requests,
-            &["PENDING", "PENDING", "COMPLETED"],
-        )
-        .await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "COMPLETED"])
+            .await;
 
         let pending = db.get_cycle_counts_pending(10).await.unwrap();
         assert_eq!(pending.len(), 2);
@@ -6225,7 +6183,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_cycle_counts_executing() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests = vec![
             generate_request(10, &Address::ZERO),
@@ -6233,13 +6191,9 @@ mod tests {
             generate_request(30, &Address::ZERO),
         ];
         let digests = vec![B256::from([10; 32]), B256::from([20; 32]), B256::from([30; 32])];
-        setup_test_requests_and_cycles(
-            &db,
-            &digests,
-            &requests,
-            &["PENDING", "PENDING", "PENDING"],
-        )
-        .await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
 
         // Update cycle counts to EXECUTING
         let timestamp =
@@ -6285,12 +6239,14 @@ mod tests {
     #[traced_test]
     async fn test_set_cycle_counts_executing() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests =
             vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
-        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING"]).await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"])
+            .await;
 
         // Set them to EXECUTING
         let execution_info = vec![
@@ -6335,7 +6291,7 @@ mod tests {
     #[traced_test]
     async fn test_set_cycle_counts_executing_empty_session_uuid() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests = vec![
             generate_request(1, &Address::ZERO),
@@ -6343,13 +6299,9 @@ mod tests {
             generate_request(3, &Address::ZERO),
         ];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
-        setup_test_requests_and_cycles(
-            &db,
-            &digests,
-            &requests,
-            &["PENDING", "PENDING", "PENDING"],
-        )
-        .await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
 
         // Set them to EXECUTING, but one has an empty session UUID
         let execution_info = vec![
@@ -6408,12 +6360,14 @@ mod tests {
     #[traced_test]
     async fn test_set_cycle_counts_completed() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests =
             vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
-        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING"]).await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"])
+            .await;
 
         // Update cycle counts to EXECUTING
         let timestamp =
@@ -6493,7 +6447,7 @@ mod tests {
     #[traced_test]
     async fn test_set_cycle_counts_failed() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests = vec![
             generate_request(1, &Address::ZERO),
@@ -6501,13 +6455,9 @@ mod tests {
             generate_request(3, &Address::ZERO),
         ];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
-        setup_test_requests_and_cycles(
-            &db,
-            &digests,
-            &requests,
-            &["PENDING", "PENDING", "PENDING"],
-        )
-        .await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
 
         // Set some to FAILED
         db.set_cycle_counts_failed(&[digests[0], digests[1]]).await.unwrap();
@@ -6544,15 +6494,58 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_count_cycle_counts_by_status() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db.clone();
+
+        // Test with empty DB - should return 0 of each
+        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        assert_eq!(pending, 0);
+        assert_eq!(executing, 0);
+        assert_eq!(failed, 0);
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+            generate_request(4, &Address::ZERO),
+            generate_request(5, &Address::ZERO),
+            generate_request(6, &Address::ZERO),
+        ];
+        let digests = vec![
+            B256::from([1; 32]),
+            B256::from([2; 32]),
+            B256::from([3; 32]),
+            B256::from([4; 32]),
+            B256::from([5; 32]),
+            B256::from([6; 32]),
+        ];
+        test_db
+            .setup_requests_and_cycles(
+                &digests,
+                &requests,
+                &["PENDING", "PENDING", "PENDING", "EXECUTING", "EXECUTING", "FAILED"],
+            )
+            .await;
+
+        // Count cycle count statuses
+        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        assert_eq!(pending, 3);
+        assert_eq!(executing, 2);
+        assert_eq!(failed, 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_get_request_params_for_execution() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests =
             vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
         let digest_nonexistent = B256::from([3; 32]); // Non-existent
-        setup_test_requests_and_cycles(&db, &digests, &requests, &["PENDING", "PENDING"]).await;
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
 
         // Query params for execution
         let results = db

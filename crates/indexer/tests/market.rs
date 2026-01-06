@@ -24,3 +24,6 @@ mod basic;
 
 #[path = "market/basic_backfill.rs"]
 mod basic_backfill;
+
+#[path = "market/execution.rs"]
+mod execution;

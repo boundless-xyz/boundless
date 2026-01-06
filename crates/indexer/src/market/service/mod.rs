@@ -23,6 +23,9 @@ mod status;
 // Re-export aggregation helper for use in backfill
 pub use aggregation::sum_hourly_aggregates_into_base;
 
+// Re-export execute_requests for integration tests
+pub use execution::execute_requests;
+
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
