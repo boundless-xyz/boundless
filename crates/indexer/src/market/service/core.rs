@@ -211,7 +211,7 @@ where
         self.request_cycle_counts(cycle_count_requests).await?;
 
         // Collect request digests that have been updated in the current block range with cycle count data.
-        let cycle_count_updated_digests = self.process_cycle_counts(from, to).await?;
+        let cycle_count_updated_digests = self.process_cycle_counts(to).await?;
 
         // Process deposit/withdrawal events. These don't cause request statuses to be updated, so we don't
         // need to track them as touched requests.
@@ -287,16 +287,32 @@ where
         self.block_num_to_timestamp.clear();
     }
 
+    /// Process cycle count updates that occurred between the last processed block and the current block timestamp.
+    /// Note, we fetch last processed block from the DB, rather than using the "from" block. This is because cycle
+    /// counts may have been updated between the last processed block's timestamp and the from block timestamp, that could be missed.
     async fn process_cycle_counts(
         &mut self,
-        from_block: u64,
         to_block: u64,
     ) -> Result<HashSet<B256>, ServiceError> {
-        let from_timestamp = self.block_timestamp(from_block).await?;
+        // Get the last processed block to determine the lower bound for cycle count queries.
+        // We use last_processed_block's timestamp + 1 as the lower bound to ensure we don't miss
+        // cycle counts updated between block timestamps when processing blocks individually.
+        let from_timestamp = match self.get_last_processed_block().await? {
+            Some(last_block) => {
+                // Use last processed block's timestamp + 1 as lower bound
+                // This ensures we don't miss cycle counts updated between the last processed block
+                // and the current block range
+                self.block_timestamp(last_block).await? + 1
+            }
+            None => {
+                // No previous block processed, start from timestamp 0
+                0
+            }
+        };
         let to_timestamp = self.block_timestamp(to_block).await?;
         let request_digests =
             self.db.get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp).await?;
-        tracing::debug!("Found {} cycle counts that were updated in the current timestamp range. Will recompute statuses for these requests.", request_digests.len());
+        tracing::debug!("Found {} cycle counts that were updated in the timestamp range [{}, {}]. Will recompute statuses for these requests.", request_digests.len(), from_timestamp, to_timestamp);
         Ok(request_digests)
     }
 

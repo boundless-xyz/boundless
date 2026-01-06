@@ -103,6 +103,22 @@ where
             (None, None)
         };
 
+        // Compute effective_prove_mhz: total_cycles / proof_delivery_time / 1_000_000
+        // Equivalent to: total_cycles / (proof_delivery_time * 1_000_000)
+        // proof_delivery_time = fulfilled_at - created_at (in seconds)
+        let effective_prove_mhz = req.fulfilled_at
+            .zip(req.total_cycles)
+            .filter(|(fulfilled_at, total_cycles)| {
+                *fulfilled_at > req.created_at && *total_cycles > U256::ZERO
+            })
+            .and_then(|(fulfilled_at, total_cycles)| {
+                let proof_delivery_time = fulfilled_at - req.created_at;
+                U256::from(proof_delivery_time)
+                    .checked_mul(U256::from(1_000_000u64))
+                    .map(|divisor| total_cycles / divisor)
+                    .map(|mhz_u256| mhz_u256.to::<u64>())
+            });
+
         RequestStatus {
             request_digest: req.request_digest,
             request_id: req.request_id,
@@ -135,7 +151,7 @@ where
             program_cycles: req.program_cycles,
             total_cycles: req.total_cycles,
             peak_prove_mhz: req.peak_prove_mhz,
-            effective_prove_mhz: req.effective_prove_mhz,
+            effective_prove_mhz,
             cycle_status: req.cycle_status,
             lock_price,
             lock_price_per_cycle,
