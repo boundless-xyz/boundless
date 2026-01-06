@@ -6244,9 +6244,7 @@ mod tests {
         let requests =
             vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
-        test_db
-            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"])
-            .await;
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
 
         // Set them to EXECUTING
         let execution_info = vec![
@@ -6365,9 +6363,7 @@ mod tests {
         let requests =
             vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
-        test_db
-            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"])
-            .await;
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
 
         // Update cycle counts to EXECUTING
         let timestamp =
