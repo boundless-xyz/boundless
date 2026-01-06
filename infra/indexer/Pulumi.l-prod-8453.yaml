@@ -28,3 +28,5 @@ config:
     secure: v1:xD9x2Do54QsoZ8z9:E+vSeXm3g3Oy5YrannT284/+x3P0d9V35x89Skdti41ML1KocppwWyvDjlYotZXhggRePlFJ0bytRQTpNj20/wXJOo4tsFgL/RHpp4GzTHB4PThXuyM=
   indexer:BENTO_API_KEY:
     secure: v1:qJcWpUCoJ+WigTSB:zuB+u/ZWBkrwqnRZwI8UbjqXl5JM/bqCOIdn6wpeepWgbmrnAzGUeN4vqxwJDiYdtkrSMkL1PFBcjhk=
+  indexer:PROXY_SECRET:
+    secure: v1:lJlgu7dJjEdBpg+J:49guE+TSvKTHVlf/LXakKarxpItokDS83AbT1XKJ2nAme8PrEX0Gcg==
