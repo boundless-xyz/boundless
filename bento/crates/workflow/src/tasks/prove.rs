@@ -9,7 +9,7 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
-use deadpool_redis::redis::{self as redis_crate, pipe};
+use deadpool_redis::redis::pipe;
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
 use std::time::Instant;
 use uuid::Uuid;
@@ -83,51 +83,34 @@ pub async fn batch_prover(
         tracing::debug!("Completed proof for segment {index}");
     }
 
-    tracing::debug!("All proofs complete, starting parallel lifts");
+    tracing::debug!("All proofs complete, starting lifts");
 
-    // Step 2: Lift all segments in parallel using blocking tasks
+    // Step 2: Lift all segments sequentially
     let lift_start = Instant::now();
-    let prover = agent.prover.clone().context("[BENTO-PROVE-BATCH-003] Missing prover")?;
-    let verifier_ctx = agent.verifier_ctx.clone();
+    let prover = agent.prover.as_ref().context("[BENTO-PROVE-BATCH-003] Missing prover")?;
+    let verifier_ctx = &agent.verifier_ctx;
     let is_povw = agent.is_povw_enabled();
 
-    let mut lift_tasks = Vec::with_capacity(batch_size);
+    let mut receipts = Vec::with_capacity(batch_size);
     for (index, segment_receipt) in segment_receipts {
-        let prover = prover.clone();
-        let verifier_ctx = verifier_ctx.clone();
+        let lift_data = if is_povw {
+            let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
+                prover.lift_povw(&segment_receipt)?;
+            lift_receipt
+                .verify_integrity_with_context(verifier_ctx)
+                .context("[BENTO-PROVE-BATCH-004] Failed to verify POVW lift integrity")?;
+            serialize_obj(&lift_receipt).expect("Failed to serialize POVW")
+        } else {
+            let lift_receipt: SuccinctReceipt<ReceiptClaim> = prover.lift(&segment_receipt)?;
+            lift_receipt
+                .verify_integrity_with_context(verifier_ctx)
+                .context("[BENTO-PROVE-BATCH-005] Failed to verify lift integrity")?;
+            serialize_obj(&lift_receipt).expect("Failed to serialize")
+        };
 
-        let task = tokio::task::spawn_blocking(move || -> Result<(usize, Vec<u8>)> {
-            if is_povw {
-                let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
-                    prover.lift_povw(&segment_receipt)?;
-                lift_receipt
-                    .verify_integrity_with_context(&verifier_ctx)
-                    .context("[BENTO-PROVE-BATCH-004] Failed to verify POVW lift integrity")?;
-                Ok((index, serialize_obj(&lift_receipt).expect("Failed to serialize POVW")))
-            } else {
-                let lift_receipt: SuccinctReceipt<ReceiptClaim> =
-                    prover.lift(&segment_receipt)?;
-                lift_receipt
-                    .verify_integrity_with_context(&verifier_ctx)
-                    .context("[BENTO-PROVE-BATCH-005] Failed to verify lift integrity")?;
-                Ok((index, serialize_obj(&lift_receipt).expect("Failed to serialize")))
-            }
-        });
-
-        lift_tasks.push(task);
-    }
-
-    // Wait for all lifts to complete
-    let mut lift_results = Vec::with_capacity(batch_size);
-    for task in lift_tasks {
-        let (index, lift_data) = task.await.context("Lift task panicked")??;
-        lift_results.push((index, lift_data));
+        receipts.push(lift_data);
         tracing::debug!("Completed lift for segment {index}");
     }
-
-    // Sort by index to maintain order
-    lift_results.sort_by_key(|(index, _)| *index);
-    let receipts: Vec<Vec<u8>> = lift_results.into_iter().map(|(_, data)| data).collect();
 
     let lift_elapsed = lift_start.elapsed().as_secs_f64();
     let lift_op = if is_povw { "lift_povw_batch" } else { "lift_batch" };
@@ -139,7 +122,7 @@ pub async fn batch_prover(
     let mut pipe = pipe();
     for (i, (task_id, _)) in requests.iter().enumerate() {
         let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
-        pipe.set_ex(&output_key, &receipts[i], agent.args.redis_ttl as usize);
+        pipe.set_ex(&output_key, &receipts[i], agent.args.redis_ttl);
     }
     pipe.query_async(&mut *conn)
         .await

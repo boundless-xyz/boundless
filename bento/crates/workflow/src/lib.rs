@@ -21,6 +21,7 @@ use std::{
 };
 use taskdb::ReadyTask;
 use tokio::time;
+use uuid::Uuid;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
 mod redis;
 mod tasks;
@@ -187,8 +188,8 @@ pub struct Agent {
     pub s3_client: S3Client,
     /// all configuration params:
     args: Args,
-    /// risc0 Prover server
-    prover: Option<Arc<dyn ProverServer>>,
+    /// risc0 Prover server (Rc used as returned by get_prover_server)
+    prover: Option<std::rc::Rc<dyn ProverServer>>,
     /// risc0 verifier context
     verifier_ctx: VerifierContext,
 }
@@ -245,7 +246,7 @@ impl Agent {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts)
                 .context("[BENTO-WF-102] Failed to initialize prover server")?;
-            Some(Arc::from(prover))
+            Some(prover)
         } else {
             None
         };
@@ -571,7 +572,7 @@ impl Agent {
 
         for (i, task) in tasks.iter().enumerate() {
             // Try to parse as TaskType
-            let task_type: Result<TaskType> = serde_json::from_value(task.task_def.clone());
+            let task_type = serde_json::from_value::<TaskType>(task.task_def.clone());
             match task_type {
                 Ok(TaskType::Prove(_)) => {
                     // First prove task - set job_id
