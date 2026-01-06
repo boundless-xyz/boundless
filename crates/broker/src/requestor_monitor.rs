@@ -247,7 +247,10 @@ pub struct RequestorMonitor {
 }
 
 impl RequestorMonitor {
-    pub fn new(priority_requestors: PriorityRequestors, allowed_requestors: AllowedRequestors) -> Self {
+    pub fn new(
+        priority_requestors: PriorityRequestors,
+        allowed_requestors: AllowedRequestors,
+    ) -> Self {
         Self { priority_requestors, allowed_requestors }
     }
 
@@ -286,7 +289,11 @@ impl RequestorMonitor {
                             self.priority_requestors.update_from_list(&list, url);
                         }
                         Err(e) => {
-                            tracing::error!("Failed to fetch priority requestor list from {}: {}", url, e);
+                            tracing::error!(
+                                "Failed to fetch priority requestor list from {}: {}",
+                                url,
+                                e
+                            );
                             // Keep existing cached entries from this URL on failure
                         }
                     }
@@ -319,7 +326,11 @@ impl RequestorMonitor {
                             self.allowed_requestors.update_from_list(&list, url);
                         }
                         Err(e) => {
-                            tracing::error!("Failed to fetch allowed requestor list from {}: {}", url, e);
+                            tracing::error!(
+                                "Failed to fetch allowed requestor list from {}: {}",
+                                url,
+                                e
+                            );
                         }
                     }
                 }
@@ -775,12 +786,21 @@ mod tests {
 
         // Process second list - should create union (all addresses from both lists allowed)
         allowed_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
-        
+
         // All addresses from both lists should be allowed (union behavior)
-        assert!(allowed_requestors.is_allowed_requestor(&addr1), "addr1 from list1 should be allowed");
-        assert!(allowed_requestors.is_allowed_requestor(&addr2), "addr2 from both lists should be allowed");
-        assert!(allowed_requestors.is_allowed_requestor(&addr3), "addr3 from list2 should be allowed");
-        
+        assert!(
+            allowed_requestors.is_allowed_requestor(&addr1),
+            "addr1 from list1 should be allowed"
+        );
+        assert!(
+            allowed_requestors.is_allowed_requestor(&addr2),
+            "addr2 from both lists should be allowed"
+        );
+        assert!(
+            allowed_requestors.is_allowed_requestor(&addr3),
+            "addr3 from list2 should be allowed"
+        );
+
         // Address 2 appears in both lists - metadata from last processed list should be used
         let entry = allowed_requestors.get_requestor_entry(&addr2).unwrap();
         assert_eq!(entry.name, "Second Entry (Updated)");
@@ -823,7 +843,7 @@ mod tests {
         // Process lists in one order
         allowed_requestors.update_from_list(&list1, "https://test.example.com/list1.json");
         allowed_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
-        
+
         assert!(allowed_requestors.is_allowed_requestor(&addr1));
         assert!(allowed_requestors.is_allowed_requestor(&addr2));
 
@@ -831,9 +851,15 @@ mod tests {
         let allowed_requestors2 = AllowedRequestors::new(config, 1);
         allowed_requestors2.update_from_list(&list2, "https://test.example.com/list2.json");
         allowed_requestors2.update_from_list(&list1, "https://test.example.com/list1.json");
-        
-        assert!(allowed_requestors2.is_allowed_requestor(&addr1), "Order should not matter - addr1 should be allowed");
-        assert!(allowed_requestors2.is_allowed_requestor(&addr2), "Order should not matter - addr2 should be allowed");
+
+        assert!(
+            allowed_requestors2.is_allowed_requestor(&addr1),
+            "Order should not matter - addr1 should be allowed"
+        );
+        assert!(
+            allowed_requestors2.is_allowed_requestor(&addr2),
+            "Order should not matter - addr2 should be allowed"
+        );
     }
 
     #[test]
@@ -862,7 +888,7 @@ mod tests {
 
         // Address in list should be allowed
         assert!(allowed_requestors.is_allowed_requestor(&allowed_addr));
-        
+
         // Address not in list should not be allowed
         assert!(!allowed_requestors.is_allowed_requestor(&not_allowed_addr));
     }
