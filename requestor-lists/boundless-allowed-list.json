@@ -1,6 +1,6 @@
 {
   "name": "Boundless Allowed List",
-  "description": "List of requestors that are allowed to submit requests. If this list is configured, only requestors in this list will be accepted.",
+  "description": "List of requestors that are allowed to submit requests. If this list is configured, only requestors in this list will be accepted. NOTE: This file is for internal Boundless usage only. External provers should just use the priority lists (boundless-priority-list.*.json) in this directory instead.",
   "schemaVersion": {
     "major": 1,
     "minor": 0

@@ -67,7 +67,7 @@ pub struct PriorityRequestors {
 
 /// Tracks allowed requestors from both static config and remote lists
 #[derive(Clone, Debug)]
-pub struct AllowedRequestors {
+pub struct AllowRequestors {
     /// Map of requestor addresses to their cached entries (from remote lists)
     requestors: Arc<RwLock<HashMap<Address, CachedEntry>>>,
     /// Config lock for reading latest static addresses
@@ -158,7 +158,7 @@ impl PriorityRequestors {
     }
 }
 
-impl AllowedRequestors {
+impl AllowRequestors {
     pub fn new(config: ConfigLock, chain_id: u64) -> Self {
         Self { requestors: Arc::new(RwLock::new(HashMap::new())), config, chain_id }
     }
@@ -193,11 +193,11 @@ impl AllowedRequestors {
     }
 
     /// Check if an address is an allowed requestor
-    pub fn is_allowed_requestor(&self, address: &Address) -> bool {
+    pub fn is_allow_requestor(&self, address: &Address) -> bool {
         self.get_requestor_entry(address).is_some()
     }
 
-    /// Update the allowed requestors from a list
+    /// Update the allow requestors from a list
     fn update_from_list(&self, list: &RequestorList, source_url: &str) {
         let mut requestors = match self.requestors.write() {
             Ok(r) => r,
@@ -243,15 +243,12 @@ impl AllowedRequestors {
 /// Service for periodically monitoring and refreshing requestor priority and allowed lists
 pub struct RequestorMonitor {
     priority_requestors: PriorityRequestors,
-    allowed_requestors: AllowedRequestors,
+    allow_requestors: AllowRequestors,
 }
 
 impl RequestorMonitor {
-    pub fn new(
-        priority_requestors: PriorityRequestors,
-        allowed_requestors: AllowedRequestors,
-    ) -> Self {
-        Self { priority_requestors, allowed_requestors }
+    pub fn new(priority_requestors: PriorityRequestors, allow_requestors: AllowRequestors) -> Self {
+        Self { priority_requestors, allow_requestors }
     }
 
     /// Refresh all configured requestor lists (both priority and allowed)
@@ -261,7 +258,7 @@ impl RequestorMonitor {
                 self.priority_requestors.config.lock_all().map_err(|_| MonitorError::LockFailed)?;
             (
                 config.market.priority_requestor_lists.clone(),
-                config.market.allowed_requestor_lists.clone(),
+                config.market.allow_requestor_lists.clone(),
             )
         };
 
@@ -322,8 +319,8 @@ impl RequestorMonitor {
                             );
                             // Clear entries from this URL before adding new ones
                             // (allows updating a list by re-fetching from the same URL)
-                            self.allowed_requestors.clear_from_url(url);
-                            self.allowed_requestors.update_from_list(&list, url);
+                            self.allow_requestors.clear_from_url(url);
+                            self.allow_requestors.update_from_list(&list, url);
                         }
                         Err(e) => {
                             tracing::error!(
@@ -373,8 +370,8 @@ impl RetryTask for RequestorMonitor {
 
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let priority_requestors = self.priority_requestors.clone();
-        let allowed_requestors = self.allowed_requestors.clone();
-        let monitor = Self { priority_requestors, allowed_requestors };
+        let allow_requestors = self.allow_requestors.clone();
+        let monitor = Self { priority_requestors, allow_requestors };
 
         Box::pin(async move {
             monitor.monitor_loop(cancel_token).await;
@@ -624,7 +621,7 @@ mod tests {
     #[test]
     fn test_allowed_chain_id_filtering() {
         let config = create_test_config();
-        let allowed_requestors = AllowedRequestors::new(config, 1); // Chain ID 1 (mainnet)
+        let allow_requestors = AllowRequestors::new(config, 1); // Chain ID 1 (mainnet)
 
         let list = RequestorList::new(
             "Multi-Chain List".to_string(),
@@ -652,7 +649,7 @@ mod tests {
             ],
         );
 
-        allowed_requestors.update_from_list(&list, "https://test.example.com/list.json");
+        allow_requestors.update_from_list(&list, "https://test.example.com/list.json");
 
         // Should only have entries from chain_id 1
         let mainnet_addr1: alloy::primitives::Address =
@@ -662,15 +659,15 @@ mod tests {
         let mainnet_addr2: alloy::primitives::Address =
             "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e".parse().unwrap();
 
-        assert!(allowed_requestors.is_allowed_requestor(&mainnet_addr1));
-        assert!(!allowed_requestors.is_allowed_requestor(&base_addr)); // Different chain
-        assert!(allowed_requestors.is_allowed_requestor(&mainnet_addr2));
+        assert!(allow_requestors.is_allow_requestor(&mainnet_addr1));
+        assert!(!allow_requestors.is_allow_requestor(&base_addr)); // Different chain
+        assert!(allow_requestors.is_allow_requestor(&mainnet_addr2));
     }
 
     #[test]
     fn test_get_allowed_requestor_entry() {
         let config = create_test_config();
-        let allowed_requestors = AllowedRequestors::new(config, 1);
+        let allow_requestors = AllowRequestors::new(config, 1);
 
         let addr: alloy::primitives::Address =
             "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
@@ -687,9 +684,9 @@ mod tests {
             )],
         );
 
-        allowed_requestors.update_from_list(&list, "https://test.example.com/list.json");
+        allow_requestors.update_from_list(&list, "https://test.example.com/list.json");
 
-        let entry = allowed_requestors.get_requestor_entry(&addr);
+        let entry = allow_requestors.get_requestor_entry(&addr);
         assert!(entry.is_some());
 
         let entry = entry.unwrap();
@@ -710,9 +707,9 @@ mod tests {
             cfg.market.allow_client_addresses = Some(vec![static_addr]);
         }
 
-        let allowed_requestors = AllowedRequestors::new(config, 1);
+        let allow_requestors = AllowRequestors::new(config, 1);
 
-        let entry = allowed_requestors.get_requestor_entry(&static_addr);
+        let entry = allow_requestors.get_requestor_entry(&static_addr);
         assert!(entry.is_some());
 
         let entry = entry.unwrap();
@@ -727,7 +724,7 @@ mod tests {
     #[test]
     fn test_allowed_multiple_lists_union() {
         let config = create_test_config();
-        let allowed_requestors = AllowedRequestors::new(config, 1);
+        let allow_requestors = AllowRequestors::new(config, 1);
 
         let addr1: alloy::primitives::Address =
             "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
@@ -779,37 +776,31 @@ mod tests {
         );
 
         // Process first list
-        allowed_requestors.update_from_list(&list1, "https://test.example.com/list1.json");
-        assert!(allowed_requestors.is_allowed_requestor(&addr1));
-        assert!(allowed_requestors.is_allowed_requestor(&addr2));
-        assert!(!allowed_requestors.is_allowed_requestor(&addr3));
+        allow_requestors.update_from_list(&list1, "https://test.example.com/list1.json");
+        assert!(allow_requestors.is_allow_requestor(&addr1));
+        assert!(allow_requestors.is_allow_requestor(&addr2));
+        assert!(!allow_requestors.is_allow_requestor(&addr3));
 
         // Process second list - should create union (all addresses from both lists allowed)
-        allowed_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
+        allow_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
 
         // All addresses from both lists should be allowed (union behavior)
+        assert!(allow_requestors.is_allow_requestor(&addr1), "addr1 from list1 should be allowed");
         assert!(
-            allowed_requestors.is_allowed_requestor(&addr1),
-            "addr1 from list1 should be allowed"
-        );
-        assert!(
-            allowed_requestors.is_allowed_requestor(&addr2),
+            allow_requestors.is_allow_requestor(&addr2),
             "addr2 from both lists should be allowed"
         );
-        assert!(
-            allowed_requestors.is_allowed_requestor(&addr3),
-            "addr3 from list2 should be allowed"
-        );
+        assert!(allow_requestors.is_allow_requestor(&addr3), "addr3 from list2 should be allowed");
 
         // Address 2 appears in both lists - metadata from last processed list should be used
-        let entry = allowed_requestors.get_requestor_entry(&addr2).unwrap();
+        let entry = allow_requestors.get_requestor_entry(&addr2).unwrap();
         assert_eq!(entry.name, "Second Entry (Updated)");
     }
 
     #[test]
     fn test_allowed_multiple_lists_order_independent() {
         let config = create_test_config();
-        let allowed_requestors = AllowedRequestors::new(config.clone(), 1);
+        let allow_requestors = AllowRequestors::new(config.clone(), 1);
 
         let addr1: alloy::primitives::Address =
             "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
@@ -841,23 +832,23 @@ mod tests {
         );
 
         // Process lists in one order
-        allowed_requestors.update_from_list(&list1, "https://test.example.com/list1.json");
-        allowed_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
+        allow_requestors.update_from_list(&list1, "https://test.example.com/list1.json");
+        allow_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
 
-        assert!(allowed_requestors.is_allowed_requestor(&addr1));
-        assert!(allowed_requestors.is_allowed_requestor(&addr2));
+        assert!(allow_requestors.is_allow_requestor(&addr1));
+        assert!(allow_requestors.is_allow_requestor(&addr2));
 
         // Clear and process in reverse order - result should be the same (union)
-        let allowed_requestors2 = AllowedRequestors::new(config, 1);
-        allowed_requestors2.update_from_list(&list2, "https://test.example.com/list2.json");
-        allowed_requestors2.update_from_list(&list1, "https://test.example.com/list1.json");
+        let allow_requestors2 = AllowRequestors::new(config, 1);
+        allow_requestors2.update_from_list(&list2, "https://test.example.com/list2.json");
+        allow_requestors2.update_from_list(&list1, "https://test.example.com/list1.json");
 
         assert!(
-            allowed_requestors2.is_allowed_requestor(&addr1),
+            allow_requestors2.is_allow_requestor(&addr1),
             "Order should not matter - addr1 should be allowed"
         );
         assert!(
-            allowed_requestors2.is_allowed_requestor(&addr2),
+            allow_requestors2.is_allow_requestor(&addr2),
             "Order should not matter - addr2 should be allowed"
         );
     }
@@ -865,7 +856,7 @@ mod tests {
     #[test]
     fn test_allowed_list_whitelist_behavior() {
         let config = create_test_config();
-        let allowed_requestors = AllowedRequestors::new(config, 1);
+        let allow_requestors = AllowRequestors::new(config, 1);
 
         let allowed_addr: alloy::primitives::Address =
             "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
@@ -884,12 +875,12 @@ mod tests {
             )],
         );
 
-        allowed_requestors.update_from_list(&list, "https://test.example.com/list.json");
+        allow_requestors.update_from_list(&list, "https://test.example.com/list.json");
 
         // Address in list should be allowed
-        assert!(allowed_requestors.is_allowed_requestor(&allowed_addr));
+        assert!(allow_requestors.is_allow_requestor(&allowed_addr));
 
         // Address not in list should not be allowed
-        assert!(!allowed_requestors.is_allowed_requestor(&not_allowed_addr));
+        assert!(!allow_requestors.is_allow_requestor(&not_allowed_addr));
     }
 }

@@ -27,7 +27,7 @@ use crate::{
     db::DbObj,
     errors::CodedError,
     provers::{ProverError, ProverObj},
-    requestor_monitor::{AllowedRequestors, PriorityRequestors},
+    requestor_monitor::{AllowRequestors, PriorityRequestors},
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils, FulfillmentType, OrderRequest, OrderStateChange,
@@ -180,7 +180,7 @@ pub struct OrderPicker<P> {
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
-    allowed_requestors: AllowedRequestors,
+    allow_requestors: AllowRequestors,
 }
 
 #[derive(Debug)]
@@ -228,7 +228,7 @@ where
         collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
-        allowed_requestors: AllowedRequestors,
+        allow_requestors: AllowRequestors,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -261,7 +261,7 @@ where
             ),
             order_state_tx,
             priority_requestors,
-            allowed_requestors,
+            allow_requestors,
         }
     }
 
@@ -408,16 +408,16 @@ where
 
         // Check if requestor is allowed (from both static config and dynamic lists)
         let client_addr = order.request.client_address();
-        if !self.allowed_requestors.is_allowed_requestor(&client_addr) {
+        if !self.allow_requestors.is_allow_requestor(&client_addr) {
             // Only skip if allow list is actually configured (either static or dynamic)
             let has_allow_list = {
                 let config = self.config.lock_all().context("Failed to read config")?;
                 config.market.allow_client_addresses.is_some()
-                    || config.market.allowed_requestor_lists.is_some()
+                    || config.market.allow_requestor_lists.is_some()
             };
             if has_allow_list {
                 return Ok(Skip {
-                    reason: format!("order from {client_addr} is not in allowed requestors"),
+                    reason: format!("order from {client_addr} is not in allow requestors"),
                 });
             }
         }
@@ -1801,7 +1801,7 @@ pub(crate) mod tests {
 
             let chain_id = provider.get_chain_id().await.unwrap();
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
-            let allowed_requestors = AllowedRequestors::new(config.clone(), chain_id);
+            let allow_requestors = AllowRequestors::new(config.clone(), chain_id);
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1820,7 +1820,7 @@ pub(crate) mod tests {
                 self.collateral_token_decimals.unwrap_or(6),
                 order_state_tx,
                 priority_requestors,
-                allowed_requestors,
+                allow_requestors,
             );
 
             PickerTestCtx {
@@ -2139,7 +2139,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain("is not in allowed requestors"));
+        assert!(logs_contain("is not in allow requestors"));
     }
 
     #[tokio::test]
