@@ -151,7 +151,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      instanceClass: 'db.r6g.large',
+      instanceClass: 'db.r6g.xlarge',
       identifier: `${serviceName}-aurora-reader-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
