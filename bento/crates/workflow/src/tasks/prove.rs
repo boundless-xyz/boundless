@@ -60,8 +60,8 @@ pub async fn batch_prover(
         .collect();
     let segments = segments?;
 
-    // Process each segment sequentially
-    let mut receipts = Vec::with_capacity(batch_size);
+    // Step 1: Prove all segments sequentially
+    let mut segment_receipts = Vec::with_capacity(batch_size);
     for (i, segment) in segments.iter().enumerate() {
         let index = requests[i].1.index;
         tracing::debug!("Proving segment {index} ({}/{batch_size})", i + 1);
@@ -79,44 +79,60 @@ pub async fn batch_prover(
             .verify_integrity_with_context(&agent.verifier_ctx)
             .context("[BENTO-PROVE-BATCH-002] Failed to verify segment receipt integrity")?;
 
-        tracing::debug!("Lifting segment {index}");
-
-        // Lift based on POVW mode
-        let lift_data = if agent.is_povw_enabled() {
-            let lift_start = Instant::now();
-            let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = agent
-                .prover
-                .as_ref()
-                .context("[BENTO-PROVE-BATCH-003] Missing prover from batch prove task")?
-                .lift_povw(&segment_receipt)?;
-            let lift_elapsed = lift_start.elapsed().as_secs_f64();
-
-            lift_receipt
-                .verify_integrity_with_context(&agent.verifier_ctx)
-                .context("[BENTO-PROVE-BATCH-004] Failed to verify POVW lift receipt integrity")?;
-            helpers::record_task_operation("prove", "lift_povw", "success", lift_elapsed);
-
-            serialize_obj(&lift_receipt).expect("Failed to serialize POVW segment")
-        } else {
-            let lift_start = Instant::now();
-            let lift_receipt: SuccinctReceipt<ReceiptClaim> = agent
-                .prover
-                .as_ref()
-                .context("[BENTO-PROVE-BATCH-005] Missing prover from batch prove task")?
-                .lift(&segment_receipt)?;
-            let lift_elapsed = lift_start.elapsed().as_secs_f64();
-
-            lift_receipt
-                .verify_integrity_with_context(&agent.verifier_ctx)
-                .context("[BENTO-PROVE-BATCH-006] Failed to verify lift receipt integrity")?;
-            helpers::record_task_operation("prove", "lift", "success", lift_elapsed);
-
-            serialize_obj(&lift_receipt).expect("Failed to serialize segment")
-        };
-
-        receipts.push(lift_data);
-        tracing::debug!("Completed proof and lift for segment {index}");
+        segment_receipts.push((index, segment_receipt));
+        tracing::debug!("Completed proof for segment {index}");
     }
+
+    tracing::debug!("All proofs complete, starting parallel lifts");
+
+    // Step 2: Lift all segments in parallel using blocking tasks
+    let lift_start = Instant::now();
+    let prover = agent.prover.clone().context("[BENTO-PROVE-BATCH-003] Missing prover")?;
+    let verifier_ctx = agent.verifier_ctx.clone();
+    let is_povw = agent.is_povw_enabled();
+
+    let mut lift_tasks = Vec::with_capacity(batch_size);
+    for (index, segment_receipt) in segment_receipts {
+        let prover = prover.clone();
+        let verifier_ctx = verifier_ctx.clone();
+
+        let task = tokio::task::spawn_blocking(move || -> Result<(usize, Vec<u8>)> {
+            if is_povw {
+                let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> =
+                    prover.lift_povw(&segment_receipt)?;
+                lift_receipt
+                    .verify_integrity_with_context(&verifier_ctx)
+                    .context("[BENTO-PROVE-BATCH-004] Failed to verify POVW lift integrity")?;
+                Ok((index, serialize_obj(&lift_receipt).expect("Failed to serialize POVW")))
+            } else {
+                let lift_receipt: SuccinctReceipt<ReceiptClaim> =
+                    prover.lift(&segment_receipt)?;
+                lift_receipt
+                    .verify_integrity_with_context(&verifier_ctx)
+                    .context("[BENTO-PROVE-BATCH-005] Failed to verify lift integrity")?;
+                Ok((index, serialize_obj(&lift_receipt).expect("Failed to serialize")))
+            }
+        });
+
+        lift_tasks.push(task);
+    }
+
+    // Wait for all lifts to complete
+    let mut lift_results = Vec::with_capacity(batch_size);
+    for task in lift_tasks {
+        let (index, lift_data) = task.await.context("Lift task panicked")??;
+        lift_results.push((index, lift_data));
+        tracing::debug!("Completed lift for segment {index}");
+    }
+
+    // Sort by index to maintain order
+    lift_results.sort_by_key(|(index, _)| *index);
+    let receipts: Vec<Vec<u8>> = lift_results.into_iter().map(|(_, data)| data).collect();
+
+    let lift_elapsed = lift_start.elapsed().as_secs_f64();
+    let lift_op = if is_povw { "lift_povw_batch" } else { "lift_batch" };
+    helpers::record_task_operation("prove", lift_op, "success", lift_elapsed);
+    tracing::debug!("All {batch_size} lifts complete in {:?}", lift_start.elapsed());
 
     // Pipeline SET operations for all receipts
     let pipeline_start = Instant::now();

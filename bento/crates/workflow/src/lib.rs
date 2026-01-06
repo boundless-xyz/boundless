@@ -13,7 +13,6 @@ use clap::Parser;
 use risc0_zkvm::{ProverOpts, ProverServer, VerifierContext, get_prover_server};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::{
-    rc::Rc,
     str::FromStr,
     sync::{
         Arc,
@@ -189,7 +188,7 @@ pub struct Agent {
     /// all configuration params:
     args: Args,
     /// risc0 Prover server
-    prover: Option<Rc<dyn ProverServer>>,
+    prover: Option<Arc<dyn ProverServer>>,
     /// risc0 verifier context
     verifier_ctx: VerifierContext,
 }
@@ -246,7 +245,7 @@ impl Agent {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts)
                 .context("[BENTO-WF-102] Failed to initialize prover server")?;
-            Some(prover)
+            Some(Arc::from(prover))
         } else {
             None
         };
