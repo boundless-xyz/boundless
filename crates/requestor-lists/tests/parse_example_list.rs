@@ -39,7 +39,7 @@ fn test_parse_boundless_allowed_list() {
     assert_eq!(list.name, "Boundless Allowed List");
     assert_eq!(
         list.description,
-        "List of requestors that are allowed to submit requests. If this list is configured, only requestors in this list will be accepted."
+        "List of requestors that are allowed to submit requests. If this list is configured, only requestors in this list will be accepted. NOTE: This file is for internal Boundless usage only. External provers should just use the priority lists (boundless-priority-list.*.json) in this directory instead."
     );
     assert_eq!(list.schema_version.major, 1);
     assert_eq!(list.schema_version.minor, 0);
