@@ -9,10 +9,157 @@ use crate::{
     tasks::{RECUR_RECEIPT_PATH, SEGMENTS_PATH, deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
+use deadpool_redis::redis::{self as redis_crate, pipe};
 use risc0_zkvm::{ReceiptClaim, SuccinctReceipt, WorkClaim};
 use std::time::Instant;
 use uuid::Uuid;
 use workflow_common::{ProveReq, metrics::helpers};
+
+/// Batch prove multiple segments with optimized Redis operations
+pub async fn batch_prover(
+    agent: &Agent,
+    job_id: &Uuid,
+    requests: &[(String, ProveReq)], // (task_id, request) pairs
+) -> Result<()> {
+    if requests.is_empty() {
+        return Ok(());
+    }
+
+    let start_time = Instant::now();
+    let batch_size = requests.len();
+    tracing::debug!("Starting batch proof for job {job_id} with {batch_size} segments");
+
+    let mut conn = agent.redis_pool.get().await?;
+    let job_prefix = format!("job:{job_id}");
+
+    // Build all segment keys
+    let segment_keys: Vec<String> = requests
+        .iter()
+        .map(|(_, req)| format!("{job_prefix}:{SEGMENTS_PATH}:{}", req.index))
+        .collect();
+
+    // MGET all segments at once
+    let mget_start = Instant::now();
+    let segments_data: Vec<Vec<u8>> = conn
+        .mget(&segment_keys)
+        .await
+        .context("Failed to MGET segments")?;
+    helpers::record_redis_operation("mget", "success", mget_start.elapsed().as_secs_f64());
+
+    tracing::debug!("Fetched {batch_size} segments in {:?}", mget_start.elapsed());
+
+    // Deserialize all segments
+    let segments: Result<Vec<_>> = segments_data
+        .iter()
+        .enumerate()
+        .map(|(i, data)| {
+            deserialize_obj(data).with_context(|| {
+                format!("Failed to deserialize segment at index {}", requests[i].1.index)
+            })
+        })
+        .collect();
+    let segments = segments?;
+
+    // Process each segment sequentially
+    let mut receipts = Vec::with_capacity(batch_size);
+    for (i, segment) in segments.iter().enumerate() {
+        let index = requests[i].1.index;
+        tracing::debug!("Proving segment {index} ({}/{batch_size})", i + 1);
+
+        let prove_start = Instant::now();
+        let segment_receipt = agent
+            .prover
+            .as_ref()
+            .context("[BENTO-PROVE-BATCH-001] Missing prover from batch prove task")?
+            .prove_segment(&agent.verifier_ctx, segment)?;
+        let prove_elapsed = prove_start.elapsed().as_secs_f64();
+        helpers::record_task_operation("prove", "prove_segment", "success", prove_elapsed);
+
+        segment_receipt
+            .verify_integrity_with_context(&agent.verifier_ctx)
+            .context("[BENTO-PROVE-BATCH-002] Failed to verify segment receipt integrity")?;
+
+        tracing::debug!("Lifting segment {index}");
+
+        // Lift based on POVW mode
+        let lift_data = if agent.is_povw_enabled() {
+            let lift_start = Instant::now();
+            let lift_receipt: SuccinctReceipt<WorkClaim<ReceiptClaim>> = agent
+                .prover
+                .as_ref()
+                .context("[BENTO-PROVE-BATCH-003] Missing prover from batch prove task")?
+                .lift_povw(&segment_receipt)?;
+            let lift_elapsed = lift_start.elapsed().as_secs_f64();
+
+            lift_receipt
+                .verify_integrity_with_context(&agent.verifier_ctx)
+                .context("[BENTO-PROVE-BATCH-004] Failed to verify POVW lift receipt integrity")?;
+            helpers::record_task_operation("prove", "lift_povw", "success", lift_elapsed);
+
+            serialize_obj(&lift_receipt).expect("Failed to serialize POVW segment")
+        } else {
+            let lift_start = Instant::now();
+            let lift_receipt: SuccinctReceipt<ReceiptClaim> = agent
+                .prover
+                .as_ref()
+                .context("[BENTO-PROVE-BATCH-005] Missing prover from batch prove task")?
+                .lift(&segment_receipt)?;
+            let lift_elapsed = lift_start.elapsed().as_secs_f64();
+
+            lift_receipt
+                .verify_integrity_with_context(&agent.verifier_ctx)
+                .context("[BENTO-PROVE-BATCH-006] Failed to verify lift receipt integrity")?;
+            helpers::record_task_operation("prove", "lift", "success", lift_elapsed);
+
+            serialize_obj(&lift_receipt).expect("Failed to serialize segment")
+        };
+
+        receipts.push(lift_data);
+        tracing::debug!("Completed proof and lift for segment {index}");
+    }
+
+    // Pipeline SET operations for all receipts
+    let pipeline_start = Instant::now();
+    let mut pipe = pipe();
+    for (i, (task_id, _)) in requests.iter().enumerate() {
+        let output_key = format!("{job_prefix}:{RECUR_RECEIPT_PATH}:{task_id}");
+        pipe.set_ex(&output_key, &receipts[i], agent.args.redis_ttl as usize);
+    }
+    pipe.query_async(&mut *conn)
+        .await
+        .context("Failed to pipeline SET receipts")?;
+    helpers::record_redis_operation(
+        "pipeline_set",
+        "success",
+        pipeline_start.elapsed().as_secs_f64(),
+    );
+
+    tracing::debug!("Stored {batch_size} receipts in {:?}", pipeline_start.elapsed());
+
+    // UNLINK all segments at once
+    let cleanup_start = Instant::now();
+    let cleanup_result = conn.unlink::<_, ()>(&segment_keys).await;
+    let cleanup_status = if cleanup_result.is_ok() { "success" } else { "error" };
+    helpers::record_redis_operation("unlink", cleanup_status, cleanup_start.elapsed().as_secs_f64());
+    cleanup_result.context("Failed to UNLINK segment keys")?;
+
+    tracing::debug!("Cleaned up {batch_size} segments");
+
+    // Record total batch operation
+    helpers::record_task_operation(
+        "prove",
+        "batch_complete",
+        "success",
+        start_time.elapsed().as_secs_f64(),
+    );
+
+    tracing::info!(
+        "Batch proof complete for job {job_id}: {batch_size} segments in {:?}",
+        start_time.elapsed()
+    );
+
+    Ok(())
+}
 
 /// Run a prove request
 pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<()> {
