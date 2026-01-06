@@ -231,8 +231,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .lycheecache
-          key: cache-lychee-${{ github.sha }}
-          restore-keys: cache-lychee-
+          # Stable key so cache is reused across commits; bump -v1 if you want to reset.
+          key: lychee-${{ runner.os }}-v1
+          restore-keys: |
+            lychee-${{ runner.os }}-
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
@@ -249,7 +251,18 @@ jobs:
         # lychee does not respect the .gitignore natively
         # https://github.com/lycheeverse/lychee/issues/470#issuecomment-1094690229
         # don't run on `documentation` folder, it has it's own checker for links
-        run: git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+        run: |
+          git ls-files '*.md' ':!:documentation/*' \
+            | xargs lychee \
+                --base . \
+                --cache \
+                --cache-dir .lycheecache \
+                --max-concurrency 2 \
+                --max-retries 6 \
+                --retry-wait-time 2 \
+                --timeout 20 \
+                --accept 429 \
+                --
 
       - name: save lychee cache
         uses: actions/cache/save@v4
