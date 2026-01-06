@@ -27,7 +27,7 @@ use crate::{
     db::DbObj,
     errors::CodedError,
     provers::{ProverError, ProverObj},
-    requestor_monitor::PriorityRequestors,
+    requestor_monitor::{AllowedRequestors, PriorityRequestors},
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils, FulfillmentType, OrderRequest, OrderStateChange,
@@ -180,6 +180,7 @@ pub struct OrderPicker<P> {
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
+    allowed_requestors: AllowedRequestors,
 }
 
 #[derive(Debug)]
@@ -227,6 +228,7 @@ where
         collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
+        allowed_requestors: AllowedRequestors,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -259,6 +261,7 @@ where
             ),
             order_state_tx,
             priority_requestors,
+            allowed_requestors,
         }
     }
 
@@ -384,11 +387,10 @@ where
             return Ok(Skip { reason: "order has expired".to_string() });
         };
 
-        let (min_deadline, allowed_addresses_opt, denied_addresses_opt, min_mcycle_limit) = {
+        let (min_deadline, denied_addresses_opt, min_mcycle_limit) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             (
                 config.market.min_deadline,
-                config.market.allow_client_addresses.clone(),
                 config.market.deny_requestor_addresses.clone(),
                 config.market.min_mcycle_limit,
             )
@@ -404,18 +406,23 @@ where
             });
         }
 
-        // Initial sanity checks:
-        if let Some(allow_addresses) = allowed_addresses_opt {
-            let client_addr = order.request.client_address();
-            if !allow_addresses.contains(&client_addr) {
+        // Check if requestor is allowed (from both static config and dynamic lists)
+        let client_addr = order.request.client_address();
+        if !self.allowed_requestors.is_allowed_requestor(&client_addr) {
+            // Only skip if allow list is actually configured (either static or dynamic)
+            let has_allow_list = {
+                let config = self.config.lock_all().context("Failed to read config")?;
+                config.market.allow_client_addresses.is_some()
+                    || config.market.allowed_requestor_lists.is_some()
+            };
+            if has_allow_list {
                 return Ok(Skip {
-                    reason: format!("order from {client_addr} is not in allowed addrs"),
+                    reason: format!("order from {client_addr} is not in allowed requestors"),
                 });
             }
         }
 
         if let Some(deny_addresses) = denied_addresses_opt {
-            let client_addr = order.request.client_address();
             if deny_addresses.contains(&client_addr) {
                 return Ok(Skip {
                     reason: format!(
@@ -1794,6 +1801,7 @@ pub(crate) mod tests {
 
             let chain_id = provider.get_chain_id().await.unwrap();
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
+            let allowed_requestors = AllowedRequestors::new(config.clone(), chain_id);
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1812,6 +1820,7 @@ pub(crate) mod tests {
                 self.collateral_token_decimals.unwrap_or(6),
                 order_state_tx,
                 priority_requestors,
+                allowed_requestors,
             );
 
             PickerTestCtx {
@@ -2130,7 +2139,7 @@ pub(crate) mod tests {
         let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
-        assert!(logs_contain("is not in allowed addrs"));
+        assert!(logs_contain("is not in allowed requestors"));
     }
 
     #[tokio::test]

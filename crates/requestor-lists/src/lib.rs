@@ -336,6 +336,14 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_allowed_list_example() {
+        let json = include_str!("../../../requestor-lists/boundless-allowed-list.json");
+        let list = RequestorList::from_json(json).unwrap();
+        assert_eq!(list.name, "Boundless Allowed List");
+        assert!(!list.requestors.is_empty());
+    }
+
+    #[test]
     fn test_multiple_chains_in_list() {
         let entry_chain_1 = RequestorEntry {
             address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap(),

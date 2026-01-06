@@ -30,3 +30,20 @@ fn test_parse_boundless_recommended_list() {
     assert_eq!(list.version.minor, 0);
     assert!(!list.requestors.is_empty());
 }
+
+#[test]
+fn test_parse_boundless_allowed_list() {
+    let json = include_str!("../../../requestor-lists/boundless-allowed-list.json");
+    let list = RequestorList::from_json(json).expect("Failed to parse list");
+
+    assert_eq!(list.name, "Boundless Allowed List");
+    assert_eq!(
+        list.description,
+        "List of requestors that are allowed to submit requests. If this list is configured, only requestors in this list will be accepted."
+    );
+    assert_eq!(list.schema_version.major, 1);
+    assert_eq!(list.schema_version.minor, 0);
+    assert_eq!(list.version.major, 1);
+    assert_eq!(list.version.minor, 0);
+    assert!(!list.requestors.is_empty());
+}

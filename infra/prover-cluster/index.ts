@@ -62,7 +62,7 @@ const collateralBalanceErrorThreshold: string = config.get("collateralBalanceErr
 const priorityRequestorAddresses: string = config.get("priorityRequestorAddresses") || "";
 const denyRequestorAddresses: string = config.get("denyRequestorAddresses") || "";
 const maxFetchRetries: number = config.getNumber("maxFetchRetries") || 3;
-const allowClientAddresses: string = config.get("allowClientAddresses") || "";
+const allowedRequestorLists: string = config.get("allowedRequestorLists") || "";
 const lockinPriorityGas: string = config.get("lockinPriorityGas") || "0";
 const orderCommitmentPriority: string = config.get("orderCommitmentPriority") || "cycle_price";
 
@@ -151,7 +151,7 @@ const manager = new ManagerComponent({
     priorityRequestorAddresses,
     denyRequestorAddresses,
     maxFetchRetries,
-    allowClientAddresses,
+    allowedRequestorLists,
     lockinPriorityGas,
     orderCommitmentPriority,
     rustLogLevel,
