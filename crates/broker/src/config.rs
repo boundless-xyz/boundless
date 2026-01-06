@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,6 +103,10 @@ mod defaults {
         Some(vec![
             "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json".to_string()
         ])
+    }
+
+    pub fn allow_requestor_lists() -> Option<Vec<String>> {
+        None
     }
 
     pub const fn max_mcycle_limit() -> u64 {
@@ -311,6 +315,11 @@ pub struct MarketConf {
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
     pub allow_client_addresses: Option<Vec<Address>>,
+    /// Optional URLs to fetch requestor allow lists from.
+    ///
+    /// These lists will be periodically refreshed and merged with allow_client_addresses.
+    #[serde(default = "defaults::allow_requestor_lists")]
+    pub allow_requestor_lists: Option<Vec<String>>,
     /// Optional deny list for requestor address.
     ///
     /// If enabled, all requests from clients in the deny list are skipped.
@@ -440,6 +449,7 @@ impl Default for MarketConf {
             min_mcycle_limit: defaults::min_mcycle_limit(),
             priority_requestor_addresses: None,
             priority_requestor_lists: defaults::priority_requestor_lists(),
+            allow_requestor_lists: defaults::allow_requestor_lists(),
             max_journal_bytes: defaults::max_journal_bytes(),
             peak_prove_khz: None,
             min_deadline: defaults::min_deadline(),
