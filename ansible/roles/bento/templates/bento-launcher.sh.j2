@@ -106,7 +106,7 @@ for id in $(seq 0 $(({{ bento_aux_count | default(1) | int }} - 1))); do
     exit 1
   fi
   echo "  Starting aux worker $id (metrics: 127.0.0.1:$worker_port)"
-  PROMETHEUS_METRICS_ADDR="127.0.0.1:$worker_port" ${BENTO_INSTALL_DIR}/bento-agent -t aux --redis-ttl ${BENTO_REDIS_TTL} &
+  PROMETHEUS_METRICS_ADDR="127.0.0.1:$worker_port" ${BENTO_INSTALL_DIR}/bento-agent --monitor-requeue -t aux --redis-ttl ${BENTO_REDIS_TTL} &
   PIDS+=($!)
 done
 {% endif %}
