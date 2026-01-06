@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 use std::str::FromStr;
 
 use alloy::{
-    primitives::{utils::parse_ether, Bytes, U256},
+    primitives::{utils::parse_ether, Bytes, B256, U256},
     providers::{ext::AnvilApi, Provider},
     rpc::types::BlockNumberOrTag,
 };
@@ -1363,6 +1363,8 @@ struct RequestStatusRow {
     slash_recipient: Option<String>,
     slash_transferred_amount: Option<String>,
     slash_burned_amount: Option<String>,
+    total_cycles: Option<String>,
+    effective_prove_mhz: Option<i64>,
 }
 
 async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
@@ -1378,7 +1380,7 @@ async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRo
     let row = sqlx::query(
         "SELECT request_digest, request_id, request_status, slashed_status, source, created_at, updated_at,
                 locked_at, fulfilled_at, slashed_at, lock_end, slash_recipient,
-                slash_transferred_amount, slash_burned_amount
+                slash_transferred_amount, slash_burned_amount, total_cycles, effective_prove_mhz
          FROM request_status
          WHERE request_id = $1",
     )
@@ -1402,6 +1404,8 @@ async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRo
         slash_recipient: row.get("slash_recipient"),
         slash_transferred_amount: row.get("slash_transferred_amount"),
         slash_burned_amount: row.get("slash_burned_amount"),
+        total_cycles: row.try_get("total_cycles").ok(),
+        effective_prove_mhz: row.try_get("effective_prove_mhz").ok(),
     }
 }
 
@@ -1473,6 +1477,126 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
     assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
     assert!(status.fulfilled_at.is_some());
+
+    indexer_process.kill().unwrap();
+}
+
+#[test_log::test(tokio::test)]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_effective_prove_mhz_calculation() {
+    let fixture = new_market_test_fixture().await.unwrap();
+
+    let block = fixture
+        .ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    let start_block = block.header.number.saturating_sub(1);
+
+    let mut indexer_process = IndexerCliBuilder::new(
+        fixture.test_db.db_url.clone(),
+        fixture.anvil.endpoint_url().to_string(),
+        fixture.ctx.deployment.boundless_market_address.to_string(),
+    )
+    .retries("1")
+    .start_block(&start_block.to_string())
+    .spawn()
+    .unwrap();
+
+    let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+
+    // Create and submit request
+    let (req, sig) = create_order_with_timeouts(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+        1000000,
+        1000000,
+    )
+    .await;
+
+    fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    fixture.ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Get the request digest and created_at
+    let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
+    let request_digest = B256::from_str(&format!("0x{}", status.request_digest)).unwrap();
+    let created_at = status.created_at as u64;
+
+    // Lock request
+    fixture.ctx.prover_market.lock_request(&req, sig.clone()).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Fulfill request WITHOUT cycle counts first
+    fulfill_request(&fixture.ctx, &fixture.prover, &req, sig.clone()).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Verify fulfilled status but effective_prove_mhz should be None without cycle counts
+    let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
+    assert!(status.fulfilled_at.is_some());
+    assert!(
+        status.effective_prove_mhz.is_none(),
+        "effective_prove_mhz should be None without cycle counts"
+    );
+
+    // Now manually insert cycle counts AFTER fulfillment
+    // Manually insert as we don't run the cycle count executor in these tests.
+    let program_cycles = 100_000_000u64; // 100M cycles
+    let total_cycles = (program_cycles as f64 * 1.0158) as u64; // ~101.58M cycles with overhead
+    let cycle_count_updated_at =
+        insert_cycle_counts_with_overhead(&fixture.test_db, request_digest, program_cycles)
+            .await
+            .unwrap();
+
+    // Advance time and mine a block to trigger indexer to process cycle count updates
+    // Ensure we mine beyond the cycle count updated_at timestamp
+    let current_timestamp = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let advance_seconds = if current_timestamp >= cycle_count_updated_at {
+        1
+    } else {
+        cycle_count_updated_at - current_timestamp + 1
+    };
+    advance_time_and_mine(&fixture.ctx.customer_provider, advance_seconds, 1).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Verify effective_prove_mhz is now populated
+    let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
+    assert!(status.fulfilled_at.is_some());
+    assert!(
+        status.total_cycles.is_some(),
+        "total_cycles should be populated after inserting cycle counts"
+    );
+
+    // Calculate expected effective_prove_mhz
+    let fulfilled_at = status.fulfilled_at.unwrap() as u64;
+    let proof_delivery_time = fulfilled_at - created_at;
+    let expected_mhz = (U256::from(total_cycles)
+        / (U256::from(proof_delivery_time) * U256::from(1_000_000u64)))
+    .to::<u64>();
+
+    // Verify effective_prove_mhz is calculated correctly
+    assert!(
+        status.effective_prove_mhz.is_some(),
+        "effective_prove_mhz should be calculated for fulfilled requests with cycle counts"
+    );
+    let actual_mhz = status.effective_prove_mhz.unwrap() as u64;
+    assert_eq!(
+        actual_mhz, expected_mhz,
+        "effective_prove_mhz should equal total_cycles / (proof_delivery_time * 1_000_000). \
+         Expected: {}, Actual: {}, total_cycles: {}, proof_delivery_time: {}",
+        expected_mhz, actual_mhz, total_cycles, proof_delivery_time
+    );
+
+    // Verify it's a positive number
+    assert!(actual_mhz > 0, "effective_prove_mhz should be positive, got {}", actual_mhz);
 
     indexer_process.kill().unwrap();
 }

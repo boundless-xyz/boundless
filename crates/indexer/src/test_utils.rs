@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
+use crate::db::market::u256_to_padded_string;
 use crate::db::{
     market::{CycleCount, IndexerDb},
     DbError, DbObj, MarketDb,
@@ -100,24 +101,71 @@ impl TestDb {
 
     /// Helper for tests to manually insert cycle counts for non-hardcoded requestors.
     /// This allows testing cycle aggregations and lock_price_per_cycle percentiles.
+    /// Uses the timestamp of the last processed block plus 10 seconds for updated_at.
+    /// Preserves existing created_at if the row already exists.
+    /// Returns the updated_at timestamp that was used, so callers can ensure mining happens beyond it.
     pub async fn insert_test_cycle_counts(
         &self,
         request_digest: B256,
         program_cycles: U256,
         total_cycles: U256,
-    ) -> Result<(), DbError> {
-        let current_timestamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    ) -> Result<u64, DbError> {
+        // Get the last processed block number
+        let last_block = self.db.get_last_block().await?.expect(
+            "No last block found in database - indexer must have processed at least one block",
+        );
+
+        // Get the timestamp for the last processed block, and add 10 seconds to it
+        let mut updated_at = self
+            .db
+            .get_block_timestamp(last_block)
+            .await?
+            .expect("Last block timestamp not found in database");
+        updated_at += 10;
+
+        // Check if cycle_count already exists and preserve its created_at
+        let digests = std::collections::HashSet::from([request_digest]);
+        let existing_counts = self.db.get_cycle_counts(&digests).await?;
+        let created_at = existing_counts
+            .first()
+            .map(|cc| cc.created_at)
+            .unwrap_or(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs());
 
         let cycle_count = CycleCount {
             request_digest,
             cycle_status: "COMPLETED".to_string(),
             program_cycles: Some(program_cycles),
             total_cycles: Some(total_cycles),
-            created_at: current_timestamp,
-            updated_at: current_timestamp,
+            created_at,
+            updated_at,
         };
 
-        self.db.add_cycle_counts(&[cycle_count]).await
+        tracing::debug!(
+            "Inserting cycle count for request digest: {:x}, created_at: {}, updated_at: {}",
+            request_digest,
+            created_at,
+            updated_at
+        );
+
+        sqlx::query(
+            "INSERT INTO cycle_counts (request_digest, cycle_status, program_cycles, total_cycles, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (request_digest) DO UPDATE SET
+             cycle_status = EXCLUDED.cycle_status,
+             program_cycles = EXCLUDED.program_cycles,
+             total_cycles = EXCLUDED.total_cycles,
+             created_at = EXCLUDED.created_at,
+             updated_at = EXCLUDED.updated_at"
+        )
+        .bind(format!("{:x}", request_digest))
+        .bind(&cycle_count.cycle_status)
+        .bind(cycle_count.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
+        .bind(cycle_count.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
+        .bind(created_at as i64)
+        .bind(updated_at as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(updated_at)
     }
 }

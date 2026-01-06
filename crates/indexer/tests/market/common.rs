@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -576,12 +576,13 @@ pub async fn fulfill_request<P: Provider + WalletProvider + Clone + 'static>(
     Ok(())
 }
 
-/// Helper to insert cycle counts with automatic overhead calculation
+/// Helper to insert cycle counts with automatic overhead calculation.
+/// Returns the updated_at timestamp that was set, so callers can ensure mining happens beyond it.
 pub async fn insert_cycle_counts_with_overhead(
     test_db: &TestDb,
     request_digest: alloy::primitives::B256,
     program_cycles: u64,
-) -> Result<(), boundless_indexer::db::DbError> {
+) -> Result<u64, boundless_indexer::db::DbError> {
     let total_cycles = (program_cycles as f64 * 1.0158) as u64;
     test_db
         .insert_test_cycle_counts(
@@ -619,6 +620,10 @@ pub async fn advance_time_to_and_mine<P: Provider + WalletProvider + Clone + 'st
 pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
     // Get current block number from the chain
     let current_block = provider.get_block_number().await.unwrap();
+    // Get block timestamp from the chain
+    let block =
+        provider.get_block_by_number(BlockNumberOrTag::Number(current_block)).await.unwrap();
+    let block_timestamp = block.unwrap().header.timestamp;
 
     // Wait for indexer to process up to current block with timeout
     let timeout = Duration::from_secs(30);
@@ -633,7 +638,11 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
         if let Ok((ref last_block_str,)) = result {
             if let Ok(last_block) = last_block_str.parse::<u64>() {
                 if last_block >= current_block {
-                    tracing::info!("Indexer caught up to block {} ", current_block);
+                    tracing::info!(
+                        "Indexer caught up to block {} at timestamp {}",
+                        current_block,
+                        block_timestamp
+                    );
                     return;
                 }
             }
