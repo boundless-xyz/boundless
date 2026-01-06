@@ -757,7 +757,7 @@ mod tests {
             PricePair::ZkcUsd => {
                 // ZKC is much cheaper, so use lower bounds
                 assert!(
-                    price >= U256::from(1u128 * SCALE / 100), // $0.01
+                    price >= U256::from(SCALE / 100), // $0.01
                     "{} ZKC price should be at least $0.01",
                     source_name
                 );
