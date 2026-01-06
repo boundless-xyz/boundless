@@ -242,6 +242,7 @@ impl EthPriceClient {
     // ----------------- Public API -----------------
 
     /// Fetch ETH/USD price as a fixed-point U256 scaled by 10^SCALE_DECIMALS.
+    /// Uses the first successful source (legacy behavior).
     pub async fn fetch_eth_usd(&self) -> Result<U256, EthPriceError> {
         let mut last_err: Option<EthPriceError> = None;
 
@@ -271,6 +272,138 @@ impl EthPriceClient {
         }
 
         Err(last_err.unwrap_or(EthPriceError::AllProvidersFailed))
+    }
+
+    /// Fetch ETH/USD price using consensus from multiple sources.
+    /// Returns the median of all successful sources, which is more robust to outliers
+    /// than using a single source. Requires at least `min_sources` successful responses.
+    ///
+    /// # Arguments
+    /// * `min_sources` - Minimum number of sources that must succeed (default: 2)
+    /// * `max_deviation_percent` - Maximum deviation from median to accept (default: 5%)
+    ///   Prices that deviate more than this from the median are considered outliers and rejected.
+    pub async fn fetch_eth_usd_consensus(
+        &self,
+        min_sources: Option<usize>,
+        max_deviation_percent: Option<u64>,
+    ) -> Result<U256, EthPriceError> {
+        let min_sources = min_sources.unwrap_or(2);
+        let max_deviation_percent = max_deviation_percent.unwrap_or(5);
+
+        // Fetch prices from all sources in parallel
+        let mut prices = Vec::new();
+        let mut errors = Vec::new();
+
+        for source in &self.sources {
+            let source_name = match source {
+                PriceSource::CoinGecko => "CoinGecko",
+                PriceSource::Coinbase => "Coinbase",
+                PriceSource::Binance => "Binance",
+                PriceSource::Onchain(_) => "Onchain",
+            };
+
+            let res = match source {
+                PriceSource::CoinGecko => self.fetch_coingecko().await,
+                PriceSource::Coinbase => self.fetch_coinbase().await,
+                PriceSource::Binance => self.fetch_binance().await,
+                PriceSource::Onchain(cfg) => self.fetch_onchain_oracle(cfg).await,
+            };
+
+            match res {
+                Ok(price) => {
+                    tracing::debug!("Price source {} returned: {}", source_name, price);
+                    prices.push(price);
+                }
+                Err(e) => {
+                    tracing::debug!("Price source {} failed: {}", source_name, e);
+                    errors.push((source_name, e));
+                }
+            }
+        }
+
+        if prices.len() < min_sources {
+            let error_msg = format!(
+                "Only {} sources succeeded, need at least {}",
+                prices.len(),
+                min_sources
+            );
+            tracing::warn!("{}", error_msg);
+            return Err(if errors.is_empty() {
+                EthPriceError::AllProvidersFailed
+            } else {
+                // Use the first error as representative
+                match &errors[0].1 {
+                    EthPriceError::Http(_) => EthPriceError::AllProvidersFailed,
+                    EthPriceError::InvalidData(msg) => EthPriceError::InvalidData(msg),
+                    EthPriceError::StaleData(secs) => EthPriceError::StaleData(*secs),
+                    _ => EthPriceError::AllProvidersFailed,
+                }
+            });
+        }
+
+        // Sort prices to find median
+        let num_sources = prices.len();
+        let mut sorted_prices = prices;
+        sorted_prices.sort();
+
+        // Calculate median
+        let median = if sorted_prices.len() % 2 == 0 {
+            // Even number of prices: average the two middle values
+            let mid = sorted_prices.len() / 2;
+            (sorted_prices[mid - 1] + sorted_prices[mid]) / U256::from(2)
+        } else {
+            // Odd number: use the middle value
+            sorted_prices[sorted_prices.len() / 2]
+        };
+
+        // Filter out outliers that deviate too much from median
+        let max_deviation = median
+            .checked_mul(U256::from(max_deviation_percent))
+            .and_then(|n| n.checked_div(U256::from(100)))
+            .unwrap_or_else(|| median / U256::from(20)); // Fallback to 5%
+
+        let filtered_prices: Vec<U256> = sorted_prices
+            .into_iter()
+            .filter(|&p| {
+                let diff = if p > median {
+                    p - median
+                } else {
+                    median - p
+                };
+                diff <= max_deviation
+            })
+            .collect();
+
+        if filtered_prices.len() < min_sources {
+            tracing::warn!(
+                "After outlier filtering, only {} prices remain (need {})",
+                filtered_prices.len(),
+                min_sources
+            );
+            // Return median anyway if we have at least one price
+            if filtered_prices.is_empty() {
+                return Err(EthPriceError::InvalidData("all prices rejected as outliers"));
+            }
+        }
+
+        // Recalculate median from filtered prices
+        let mut sorted_filtered = filtered_prices;
+        sorted_filtered.sort();
+        let consensus_price = if sorted_filtered.len() % 2 == 0 {
+            let mid = sorted_filtered.len() / 2;
+            (sorted_filtered[mid - 1] + sorted_filtered[mid]) / U256::from(2)
+        } else {
+            sorted_filtered[sorted_filtered.len() / 2]
+        };
+
+        tracing::info!(
+            "Consensus price: {} (from {} sources, median of {} after filtering)",
+            consensus_price,
+            num_sources,
+            sorted_filtered.len()
+        );
+
+        Ok(consensus_price)
     }
 
     /// High-level helper:
@@ -325,13 +458,25 @@ impl EthPriceClient {
         let resp: Value = self.http.get(&url).send().await?.error_for_status()?.json().await?;
 
         // Extract the price from the JSON response
-        let price_str = resp
+        // CoinGecko can return the price as either a number or a string
+        let price_value = resp
             .get(self.pair.coingecko_id())
             .and_then(|v| v.get("usd"))
-            .and_then(|v| v.as_str())
             .ok_or(EthPriceError::InvalidData("missing price in CoinGecko response"))?;
 
-        Self::price_str_to_scaled_u256(price_str)
+        // Handle both number and string formats
+        let price_str = match price_value {
+            Value::Number(n) => {
+                // Convert number to string, preserving precision
+                n.as_f64()
+                    .ok_or(EthPriceError::InvalidData("invalid number format in CoinGecko response"))?
+                    .to_string()
+            }
+            Value::String(s) => s.clone(),
+            _ => return Err(EthPriceError::InvalidData("price is not a number or string in CoinGecko response")),
+        };
+
+        Self::price_str_to_scaled_u256(&price_str)
     }
 
     async fn fetch_coinbase(&self) -> Result<U256, EthPriceError> {
@@ -573,5 +718,175 @@ mod tests {
 
         let err = EthPriceError::UsdToWeiOverflow;
         assert_eq!(err.to_string(), "Overflow converting USD amount to wei (amount too large)");
+    }
+
+    // Integration tests that actually hit real APIs and on-chain oracles
+    // These are marked with #[ignore] because they require network access
+    // Run with: cargo test -- --ignored
+
+    // Test helper to create a client with a single source
+    fn create_client_with_source(pair: PricePair, source: PriceSource) -> EthPriceClient {
+        EthPriceClient {
+            http: Client::builder()
+                .timeout(Duration::from_secs(HTTP_TIMEOUT_SECS))
+                .build()
+                .expect("failed to build HTTP client"),
+            sources: vec![source],
+            api_endpoints: ApiEndpoints::default(),
+            pair,
+        }
+    }
+
+    // Helper to validate price is within reasonable bounds for a given pair
+    fn validate_price(price: U256, pair: PricePair, source_name: &str) {
+        assert!(!price.is_zero(), "{} price should be non-zero", source_name);
+        
+        match pair {
+            PricePair::EthUsd => {
+                assert!(
+                    price >= U256::from(100u128 * SCALE),
+                    "{} ETH price should be at least $100",
+                    source_name
+                );
+                assert!(
+                    price <= U256::from(100_000u128 * SCALE),
+                    "{} ETH price should be at most $100,000",
+                    source_name
+                );
+            }
+            PricePair::ZkcUsd => {
+                // ZKC is much cheaper, so use lower bounds
+                assert!(
+                    price >= U256::from(1u128 * SCALE / 100), // $0.01
+                    "{} ZKC price should be at least $0.01",
+                    source_name
+                );
+                assert!(
+                    price <= U256::from(1000u128 * SCALE), // $1000
+                    "{} ZKC price should be at most $1000",
+                    source_name
+                );
+            }
+        }
+    }
+
+    // Helper to test a single price source
+    async fn test_price_source(
+        pair: PricePair,
+        source: PriceSource,
+        source_name: &str,
+    ) -> Result<U256, EthPriceError> {
+        let client = create_client_with_source(pair, source);
+        let price = client.fetch_eth_usd().await?;
+        validate_price(price, pair, source_name);
+        println!("{} {}/USD price: {} (scaled)", source_name, pair.coingecko_id(), price);
+        Ok(price)
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_all_price_sources_eth_usd() {
+        // Test all HTTP sources
+        test_price_source(PricePair::EthUsd, PriceSource::CoinGecko, "CoinGecko")
+            .await
+            .expect("CoinGecko should return a valid price");
+        test_price_source(PricePair::EthUsd, PriceSource::Coinbase, "Coinbase")
+            .await
+            .expect("Coinbase should return a valid price");
+        test_price_source(PricePair::EthUsd, PriceSource::Binance, "Binance")
+            .await
+            .expect("Binance should return a valid price");
+
+        // Test on-chain oracle (Chainlink ETH/USD on Ethereum mainnet)
+        let oracle_config = OnchainOracleConfig {
+            rpc_url: "https://eth.llamarpc.com".parse().unwrap(),
+            oracle_address: "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"
+                .parse()
+                .expect("valid address"),
+            decimals: 8,
+            max_staleness_secs: Some(MAX_ORACLE_STALENESS_SECS),
+        };
+        test_price_source(PricePair::EthUsd, PriceSource::Onchain(oracle_config), "Onchain")
+            .await
+            .expect("Onchain oracle should return a valid price");
+
+        // Test failover mechanism - all sources should work
+        let client = EthPriceClient::new(PricePair::EthUsd);
+        let price = client.fetch_eth_usd().await.expect("Failover should succeed with at least one source");
+        validate_price(price, PricePair::EthUsd, "Failover");
+        println!("Failover ETH/USD price: {} (scaled)", price);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_all_price_sources_zkc_usd() {
+        // ZKC might not be available on all exchanges, so we check if it succeeds
+        let sources = [
+            (PriceSource::CoinGecko, "CoinGecko"),
+            (PriceSource::Coinbase, "Coinbase"),
+            (PriceSource::Binance, "Binance"),
+        ];
+
+        for (source, name) in sources {
+            match test_price_source(PricePair::ZkcUsd, source, name).await {
+                Ok(price) => println!("{} ZKC/USD price: {} (scaled)", name, price),
+                Err(_) => println!("{} ZKC/USD not available (this is okay)", name),
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_usd_to_wei_with_real_price() {
+        let client = EthPriceClient::new(PricePair::EthUsd);
+
+        // Test converting USD amounts to wei
+        let test_cases = [
+            ("100", 10_000_000_000_000_000u128, "100 USD should be at least 0.01 ETH"),
+            ("1", 1u128, "1 USD should convert to non-zero wei"),
+        ];
+
+        for (usd_str, min_wei, error_msg) in test_cases {
+            let wei = client
+                .usd_str_to_wei(usd_str)
+                .await
+                .unwrap_or_else(|e| panic!("Should be able to convert ${} to wei: {}", usd_str, e));
+            assert!(!wei.is_zero(), "{} USD should convert to non-zero wei", usd_str);
+            assert!(wei >= U256::from(min_wei), "{}", error_msg);
+            assert!(wei <= U256::from(WEI_SCALE_U128), "{} USD should be at most 1 ETH", usd_str);
+            println!("${} USD = {} wei", usd_str, wei);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_consensus_price_mechanism() {
+        let client = EthPriceClient::new(PricePair::EthUsd);
+
+        // Test consensus with default settings (min 2 sources, 5% max deviation)
+        let consensus_price = client
+            .fetch_eth_usd_consensus(None, None)
+            .await
+            .expect("Consensus should succeed with multiple sources");
+        validate_price(consensus_price, PricePair::EthUsd, "Consensus");
+        println!("Consensus ETH/USD price: {} (scaled)", consensus_price);
+
+        // Compare with single-source fetch
+        let single_price = client.fetch_eth_usd().await.expect("Single source should succeed");
+        let diff = if consensus_price > single_price {
+            consensus_price - single_price
+        } else {
+            single_price - consensus_price
+        };
+        println!("Single-source ETH/USD price: {} (scaled)", single_price);
+        println!("Difference: {} (scaled)", diff);
+
+        // Test with stricter requirements (optional - may fail if not enough sources)
+        if let Ok(strict_price) = client.fetch_eth_usd_consensus(Some(3), Some(2)).await {
+            validate_price(strict_price, PricePair::EthUsd, "Strict consensus");
+            println!("Strict consensus (3 sources, 2% deviation): {} (scaled)", strict_price);
+        } else {
+            println!("Strict consensus failed (expected if not enough sources or too much variance)");
+        }
     }
 }
