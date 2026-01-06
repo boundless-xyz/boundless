@@ -141,11 +141,6 @@ for id in $(seq 0 $(({{ bento_join_count | default(1) | int }} - 1))); do
 done
 {% endif %}
 
-if [[ ${#PIDS[@]} -eq 0 ]]; then
-    echo "Warning: No services were started. Check your configuration." >&2
-    exit 1
-fi
-
 echo "All services started. Waiting for processes..."
 # Wait for all processes to exit
 wait
