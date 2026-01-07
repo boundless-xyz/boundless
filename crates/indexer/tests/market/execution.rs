@@ -70,14 +70,14 @@ struct BentoMockConfig {
     session_uuid: String,
     expected_cycles: u64,
     expected_total_cycles: u64,
-    fail_create_session: bool,
+    fail_execution: bool,
 }
 
 /// Setup mock responses for the Bento API
 async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
     let mock_url = mock_server.uri();
 
-    // Mock GET /inputs/upload - returns URL and uuid
+    // Mock GET /inputs/upload - return URL and uuid
     Mock::given(method("GET"))
         .and(path("/inputs/upload"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -104,7 +104,7 @@ async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
         .mount(mock_server)
         .await;
 
-    // Mock POST /sessions/create - returns session uuid
+    // Mock POST /sessions/create - return session uuid
     Mock::given(method("POST"))
         .and(path("/sessions/create"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -117,7 +117,7 @@ async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
     // Mock GET /sessions/status/{uuid} - return status with stats
     Mock::given(method("GET"))
         .and(path_regex(r"/sessions/status/.+"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(if config.fail_create_session {
+        .respond_with(ResponseTemplate::new(200).set_body_json(if config.fail_execution {
             serde_json::json!({
                 "status": "FAILED",
                 "state": null,
@@ -187,7 +187,7 @@ async fn test_execute_requests_processes_pending_cycle_counts() {
         session_uuid: "test-session-uuid".to_string(),
         expected_cycles,
         expected_total_cycles,
-        fail_create_session: false,
+        fail_execution: false,
     })
     .await;
 
@@ -272,7 +272,7 @@ async fn test_execute_requests_handles_failed_execution() {
         session_uuid: "test-session-uuid".to_string(),
         expected_cycles: 0,
         expected_total_cycles: 0,
-        fail_create_session: true,
+        fail_execution: true,
     })
     .await;
 
