@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,11 +57,11 @@ fn parse_period_requestor_summary_row(
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
-    let best_peak_prove_mhz: i64 = row.try_get("best_peak_prove_mhz")?;
+    let best_peak_prove_mhz: f64 = row.try_get("best_peak_prove_mhz_v2")?;
     let best_peak_prove_mhz_prover: Option<String> = row.try_get("best_peak_prove_mhz_prover").ok();
     let best_peak_prove_mhz_request_id_str: Option<String> =
         row.try_get("best_peak_prove_mhz_request_id").ok();
-    let best_effective_prove_mhz: i64 = row.try_get("best_effective_prove_mhz")?;
+    let best_effective_prove_mhz: f64 = row.try_get("best_effective_prove_mhz_v2")?;
     let best_effective_prove_mhz_prover: Option<String> =
         row.try_get("best_effective_prove_mhz_prover").ok();
     let best_effective_prove_mhz_request_id_str: Option<String> =
@@ -96,11 +96,11 @@ fn parse_period_requestor_summary_row(
         locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
         total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
         total_cycles: padded_string_to_u256(&total_cycles_str)?,
-        best_peak_prove_mhz: best_peak_prove_mhz as u64,
+        best_peak_prove_mhz,
         best_peak_prove_mhz_prover,
         best_peak_prove_mhz_request_id: best_peak_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
-        best_effective_prove_mhz: best_effective_prove_mhz as u64,
+        best_effective_prove_mhz,
         best_effective_prove_mhz_prover,
         best_effective_prove_mhz_request_id: best_effective_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
@@ -134,11 +134,11 @@ fn parse_all_time_requestor_summary_row(
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
-    let best_peak_prove_mhz: i64 = row.try_get("best_peak_prove_mhz")?;
+    let best_peak_prove_mhz: f64 = row.try_get("best_peak_prove_mhz_v2")?;
     let best_peak_prove_mhz_prover: Option<String> = row.try_get("best_peak_prove_mhz_prover").ok();
     let best_peak_prove_mhz_request_id_str: Option<String> =
         row.try_get("best_peak_prove_mhz_request_id").ok();
-    let best_effective_prove_mhz: i64 = row.try_get("best_effective_prove_mhz")?;
+    let best_effective_prove_mhz: f64 = row.try_get("best_effective_prove_mhz_v2")?;
     let best_effective_prove_mhz_prover: Option<String> =
         row.try_get("best_effective_prove_mhz_prover").ok();
     let best_effective_prove_mhz_request_id_str: Option<String> =
@@ -166,11 +166,11 @@ fn parse_all_time_requestor_summary_row(
         locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
         total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
         total_cycles: padded_string_to_u256(&total_cycles_str)?,
-        best_peak_prove_mhz: best_peak_prove_mhz as u64,
+        best_peak_prove_mhz,
         best_peak_prove_mhz_prover,
         best_peak_prove_mhz_request_id: best_peak_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
-        best_effective_prove_mhz: best_effective_prove_mhz as u64,
+        best_effective_prove_mhz,
         best_effective_prove_mhz_prover,
         best_effective_prove_mhz_request_id: best_effective_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
@@ -301,12 +301,12 @@ pub trait RequestorDb: IndexerDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
@@ -327,12 +327,12 @@ pub trait RequestorDb: IndexerDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP";
 
         sqlx::query(query_str)
@@ -355,12 +355,12 @@ pub trait RequestorDb: IndexerDb {
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
-            .bind(summary.best_peak_prove_mhz as i64)
             .bind(summary.best_peak_prove_mhz_prover)
             .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-            .bind(summary.best_effective_prove_mhz as i64)
             .bind(summary.best_effective_prove_mhz_prover)
             .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+            .bind(summary.best_peak_prove_mhz)
+            .bind(summary.best_effective_prove_mhz)
             .execute(self.pool())
             .await?;
 
@@ -529,8 +529,9 @@ pub trait RequestorDb: IndexerDb {
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
                 total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
-                best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+                best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
             FROM all_time_requestor_summary 
             WHERE requestor_address = $1 
             ORDER BY period_timestamp DESC 
@@ -559,8 +560,9 @@ pub trait RequestorDb: IndexerDb {
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
                 total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
-                best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+                best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
             FROM all_time_requestor_summary 
             WHERE requestor_address = $1 AND period_timestamp = $2";
 
@@ -1143,12 +1145,12 @@ async fn upsert_requestor_summary_generic(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
-            best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
             best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2,
+            best_effective_prove_mhz_v2,
             updated_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, CURRENT_TIMESTAMP)
         ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
@@ -1174,15 +1176,15 @@ async fn upsert_requestor_summary_generic(
             total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
             total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
             locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
-            total_program_cycles = EXCLUDED.total_program_cycles,
-            total_cycles = EXCLUDED.total_cycles,
-            best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
-            best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
-            best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
-            best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
-            best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
-            updated_at = CURRENT_TIMESTAMP",
+                total_program_cycles = EXCLUDED.total_program_cycles,
+                total_cycles = EXCLUDED.total_cycles,
+                best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
+                updated_at = CURRENT_TIMESTAMP",
         table_name
     );
 
@@ -1213,12 +1215,12 @@ async fn upsert_requestor_summary_generic(
         .bind(summary.locked_orders_fulfillment_rate)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
-        .bind(summary.best_peak_prove_mhz as i64)
         .bind(summary.best_peak_prove_mhz_prover)
         .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-        .bind(summary.best_effective_prove_mhz as i64)
         .bind(summary.best_effective_prove_mhz_prover)
         .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+        .bind(summary.best_peak_prove_mhz)
+        .bind(summary.best_effective_prove_mhz)
         .execute(pool)
         .await?;
 
@@ -1242,8 +1244,9 @@ async fn get_requestor_summaries_by_range_generic(
             total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
             total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
             total_program_cycles, total_cycles,
-            best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+            best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
         FROM {} WHERE requestor_address = $1 AND period_timestamp >= $2 AND period_timestamp < $3 ORDER BY period_timestamp ASC",
         table_name
     );
@@ -1328,8 +1331,9 @@ async fn get_requestor_summaries_generic(
             total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
             total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
             total_program_cycles, total_cycles,
-            best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+            best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
         FROM {}
         {}
         {}
@@ -1440,12 +1444,12 @@ async fn get_all_time_requestor_summaries_generic(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
-            best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
-            best_effective_prove_mhz_request_id
+            best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2,
+            best_effective_prove_mhz_v2
         FROM all_time_requestor_summary
         {}
         {}
@@ -1590,8 +1594,8 @@ mod tests {
                 slash_burned_amount: if i == 4 { Some("50".to_string()) } else { None },
                 program_cycles: if i < 3 { Some(U256::from(50_000_000 * (i + 1))) } else { None },
                 total_cycles: if i < 3 { Some(U256::from(50_790_000 * (i + 1))) } else { None },
-                peak_prove_mhz: if i < 3 { Some(1000 + (i * 100)) } else { None },
-                effective_prove_mhz: if i < 3 { Some(900 + (i * 100)) } else { None },
+                peak_prove_mhz: if i < 3 { Some((1000 + (i * 100)) as f64) } else { None },
+                effective_prove_mhz: if i < 3 { Some((900 + (i * 100)) as f64) } else { None },
                 cycle_status: if i < 3 { Some("resolved".to_string()) } else { None },
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("30".to_string()),
@@ -1692,10 +1696,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.625,
             total_program_cycles: U256::from(50_000_000_000u64),
             total_cycles: U256::from(50_790_000_000u64),
-            best_peak_prove_mhz: 1500,
+            best_peak_prove_mhz: 1500.0,
             best_peak_prove_mhz_prover: Some("0x1234".to_string()),
             best_peak_prove_mhz_request_id: Some(U256::from(123)),
-            best_effective_prove_mhz: 1400,
+            best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: Some("0x5678".to_string()),
             best_effective_prove_mhz_request_id: Some(U256::from(456)),
         };
@@ -1752,10 +1756,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.909,
             total_program_cycles: U256::from(500_000_000_000u64),
             total_cycles: U256::from(507_900_000_000u64),
-            best_peak_prove_mhz: 2000,
+            best_peak_prove_mhz: 2000.0,
             best_peak_prove_mhz_prover: Some("0xaaa".to_string()),
             best_peak_prove_mhz_request_id: Some(U256::from(999)),
-            best_effective_prove_mhz: 1900,
+            best_effective_prove_mhz: 1900.0,
             best_effective_prove_mhz_prover: Some("0xbbb".to_string()),
             best_effective_prove_mhz_request_id: Some(U256::from(888)),
         };
@@ -1838,10 +1842,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.8,
                 total_program_cycles: U256::from(100_000_000 * (i + 1)),
                 total_cycles: U256::from(101_580_000 * (i + 1)),
-                best_peak_prove_mhz: 1000,
+                best_peak_prove_mhz: 1000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 900,
+                best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -1894,10 +1898,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.833,
             total_program_cycles: U256::from(1_000_000_000),
             total_cycles: U256::from(1_015_800_000),
-            best_peak_prove_mhz: 1200,
+            best_peak_prove_mhz: 1200.0,
             best_peak_prove_mhz_prover: None,
             best_peak_prove_mhz_request_id: None,
-            best_effective_prove_mhz: 1100,
+            best_effective_prove_mhz: 1100.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
         };
@@ -1948,10 +1952,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.909,
             total_program_cycles: U256::from(5_000_000_000u64),
             total_cycles: U256::from(5_079_000_000u64),
-            best_peak_prove_mhz: 1500,
+            best_peak_prove_mhz: 1500.0,
             best_peak_prove_mhz_prover: None,
             best_peak_prove_mhz_request_id: None,
-            best_effective_prove_mhz: 1400,
+            best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
         };
@@ -1995,10 +1999,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.909,
             total_program_cycles: U256::from(1_000_000_000),
             total_cycles: U256::from(1_015_800_000),
-            best_peak_prove_mhz: 1000,
+            best_peak_prove_mhz: 1000.0,
             best_peak_prove_mhz_prover: None,
             best_peak_prove_mhz_request_id: None,
-            best_effective_prove_mhz: 900,
+            best_effective_prove_mhz: 900.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
         };
@@ -2306,8 +2310,8 @@ mod tests {
             slash_burned_amount: None,
             program_cycles: Some(U256::from(50_000_000)),
             total_cycles: Some(U256::from(50_790_000)),
-            peak_prove_mhz: Some(1000),
-            effective_prove_mhz: Some(900),
+            peak_prove_mhz: Some(1000.0),
+            effective_prove_mhz: Some(900.0),
             cycle_status: Some("resolved".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -2683,8 +2687,8 @@ mod tests {
             slash_burned_amount: None,
             program_cycles: Some(U256::from(50_000_000)),
             total_cycles: Some(U256::from(50_790_000)),
-            peak_prove_mhz: Some(1000),
-            effective_prove_mhz: Some(900),
+            peak_prove_mhz: Some(1000.0),
+            effective_prove_mhz: Some(900.0),
             cycle_status: Some("resolved".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -3026,8 +3030,8 @@ mod tests {
                 slash_burned_amount: None,
                 program_cycles: Some(U256::from(50_000_000)),
                 total_cycles: Some(U256::from(50_790_000)),
-                peak_prove_mhz: Some(1000),
-                effective_prove_mhz: Some(900),
+                peak_prove_mhz: Some(1000.0),
+                effective_prove_mhz: Some(900.0),
                 cycle_status: Some("resolved".to_string()),
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("30".to_string()),
@@ -3404,8 +3408,8 @@ mod tests {
                 } else {
                     None
                 },
-                peak_prove_mhz: if fulfilled_at.is_some() { Some(1000) } else { None },
-                effective_prove_mhz: if fulfilled_at.is_some() { Some(900) } else { None },
+                peak_prove_mhz: if fulfilled_at.is_some() { Some(1000.0) } else { None },
+                effective_prove_mhz: if fulfilled_at.is_some() { Some(900.0) } else { None },
                 cycle_status: if fulfilled_at.is_some() {
                     Some("resolved".to_string())
                 } else {
@@ -3570,10 +3574,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.5,
                 total_program_cycles: U256::from(50_000_000),
                 total_cycles: U256::from(50_790_000),
-                best_peak_prove_mhz: 1000,
+                best_peak_prove_mhz: 1000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 900,
+                best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -3717,10 +3721,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.8,
                 total_program_cycles: U256::from(100_000_000),
                 total_cycles: U256::from(101_580_000),
-                best_peak_prove_mhz: 1000,
+                best_peak_prove_mhz: 1000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 900,
+                best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -3814,10 +3818,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.83,
                 total_program_cycles: U256::from(500_000_000),
                 total_cycles: U256::from(507_900_000),
-                best_peak_prove_mhz: 1200,
+                best_peak_prove_mhz: 1200.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 1100,
+                best_effective_prove_mhz: 1100.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -3894,10 +3898,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.9,
                 total_program_cycles: U256::from(1_000_000_000u64 * (i + 1)),
                 total_cycles: U256::from(1_015_800_000u64 * (i + 1)),
-                best_peak_prove_mhz: 2000,
+                best_peak_prove_mhz: 2000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 1900,
+                best_effective_prove_mhz: 1900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };

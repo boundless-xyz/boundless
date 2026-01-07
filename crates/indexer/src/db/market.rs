@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -175,10 +175,10 @@ pub struct PeriodMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -210,10 +210,10 @@ pub struct AllTimeMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -246,10 +246,10 @@ pub struct PeriodRequestorSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -302,10 +302,10 @@ pub struct AllTimeRequestorSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -342,8 +342,8 @@ pub struct RequestStatus {
     pub slash_burned_amount: Option<String>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<u64>,
-    pub effective_prove_mhz: Option<u64>,
+    pub peak_prove_mhz: Option<f64>,
+    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
@@ -405,8 +405,8 @@ pub struct RequestComprehensive {
     pub fulfill_tx_hash: Option<B256>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<u64>,
-    pub effective_prove_mhz: Option<u64>,
+    pub peak_prove_mhz: Option<f64>,
+    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub fulfill_journal: Option<String>,
     pub fulfill_seal: Option<String>,
@@ -1672,12 +1672,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
@@ -1699,12 +1699,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP",
         )
         .bind(summary.period_timestamp as i64)
@@ -1726,12 +1726,12 @@ impl IndexerDb for MarketDb {
         .bind(summary.locked_orders_fulfillment_rate)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
-        .bind(summary.best_peak_prove_mhz as i64)
         .bind(summary.best_peak_prove_mhz_prover)
         .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-        .bind(summary.best_effective_prove_mhz as i64)
         .bind(summary.best_effective_prove_mhz_prover)
         .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+        .bind(summary.best_peak_prove_mhz)
+        .bind(summary.best_effective_prove_mhz)
         .execute(&self.pool)
         .await?;
 
@@ -1763,12 +1763,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             WHERE period_timestamp = $1",
         )
@@ -1813,14 +1813,14 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz: row.get::<f64, _>("best_effective_prove_mhz_v2"),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -1854,12 +1854,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             ORDER BY period_timestamp DESC
             LIMIT 1",
@@ -1904,14 +1904,14 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz: row.get::<f64, _>("best_effective_prove_mhz_v2"),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -2009,7 +2009,8 @@ impl IndexerDb for MarketDb {
                     submit_block, lock_block, fulfill_block, slashed_block,
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
-                    program_cycles, total_cycles, peak_prove_mhz, effective_prove_mhz, cycle_status,
+                    program_cycles, total_cycles,
+                    peak_prove_mhz_v2, effective_prove_mhz_v2, cycle_status,
                     lock_price, lock_price_per_cycle,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
@@ -2059,8 +2060,8 @@ impl IndexerDb for MarketDb {
                     slash_burned_amount = EXCLUDED.slash_burned_amount,
                     program_cycles = EXCLUDED.program_cycles,
                     total_cycles = EXCLUDED.total_cycles,
-                    peak_prove_mhz = EXCLUDED.peak_prove_mhz,
-                    effective_prove_mhz = EXCLUDED.effective_prove_mhz,
+                    peak_prove_mhz_v2 = EXCLUDED.peak_prove_mhz_v2,
+                    effective_prove_mhz_v2 = EXCLUDED.effective_prove_mhz_v2,
                     cycle_status = EXCLUDED.cycle_status,
                     lock_price = EXCLUDED.lock_price,
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
@@ -2101,8 +2102,8 @@ impl IndexerDb for MarketDb {
                     .bind(&status.slash_burned_amount)
                     .bind(status.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
                     .bind(status.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
-                    .bind(status.peak_prove_mhz.map(|m| m as i64))
-                    .bind(status.effective_prove_mhz.map(|m| m as i64))
+                    .bind(status.peak_prove_mhz)
+                    .bind(status.effective_prove_mhz)
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
                     .bind(&status.lock_price_per_cycle)
@@ -2367,17 +2368,7 @@ impl IndexerDb for MarketDb {
                     continue;
                 }
             };
-            let session_uuid: Option<String> = row.try_get("session_uuid")?;
-            let session_uuid = match session_uuid {
-                Some(uuid) => uuid,
-                None => {
-                    tracing::warn!(
-                        "session_uuid is NULL for EXECUTING request_digest '{}', skipping",
-                        digest_str
-                    );
-                    continue;
-                }
-            };
+            let session_uuid: String = row.try_get("session_uuid")?;
             let request_id: Option<U256> = row
                 .try_get::<Option<String>, _>("request_id")?
                 .and_then(|s| U256::from_str_radix(&s, 16).ok());
@@ -3590,12 +3581,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
@@ -3624,12 +3615,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP",
             table_name
         );
@@ -3661,12 +3652,12 @@ impl MarketDb {
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
-            .bind(summary.best_peak_prove_mhz as i64)
             .bind(summary.best_peak_prove_mhz_prover)
             .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-            .bind(summary.best_effective_prove_mhz as i64)
             .bind(summary.best_effective_prove_mhz_prover)
             .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+            .bind(summary.best_peak_prove_mhz)
+            .bind(summary.best_effective_prove_mhz)
             .execute(&self.pool)
             .await?;
 
@@ -3755,12 +3746,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM {}
             {}
             {}
@@ -3860,7 +3851,7 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -3870,7 +3861,7 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str_radix(&s, 16).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz: row.get::<f64, _>("best_effective_prove_mhz_v2"),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
@@ -3959,12 +3950,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             {}
             {}
@@ -4036,7 +4027,7 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -4046,7 +4037,7 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str(&s).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz: row.get::<f64, _>("best_effective_prove_mhz_v2"),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
@@ -4177,16 +4168,11 @@ impl MarketDb {
                 .ok()
                 .flatten()
                 .and_then(|s| padded_string_to_u256(&s).ok()),
-            peak_prove_mhz: row
-                .try_get::<Option<i64>, _>("peak_prove_mhz")
-                .ok()
-                .flatten()
-                .map(|m| m as u64),
+            peak_prove_mhz: row.try_get::<Option<f64>, _>("peak_prove_mhz_v2").ok().flatten(),
             effective_prove_mhz: row
-                .try_get::<Option<i64>, _>("effective_prove_mhz")
+                .try_get::<Option<f64>, _>("effective_prove_mhz_v2")
                 .ok()
-                .flatten()
-                .map(|m| m as u64),
+                .flatten(),
             cycle_status: row.try_get("cycle_status").ok(),
             lock_price: row.try_get("lock_price").ok(),
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
@@ -4600,10 +4586,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4784,10 +4770,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4841,10 +4827,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4902,10 +4888,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4954,10 +4940,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -5007,10 +4993,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -5075,10 +5061,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
