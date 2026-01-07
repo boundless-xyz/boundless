@@ -26,6 +26,9 @@ use workflow_common::{COPROC_WORK_TYPE, TaskType};
 mod redis;
 mod tasks;
 
+/// Generic batch processing info: (job_id, task_indices, task_type_name)
+type BatchInfo = (Uuid, Vec<usize>, &'static str);
+
 pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
     SNARK_TIMEOUT_DEFAULT, s3::S3Client,
@@ -380,16 +383,87 @@ impl Agent {
 
         // Process startup batch and continue grabbing work until queue is empty
         while !startup_tasks.is_empty() && !term_sig.load(Ordering::Relaxed) {
-            // Check if we can batch process prove tasks
-            if let Some(batch_info) = self.identify_prove_batch(&startup_tasks) {
-                // Process the prove batch with optimized Redis operations
-                if let Err(err) = self.process_prove_batch(&startup_tasks, &batch_info).await {
-                    tracing::error!("[BENTO-WF-108-BATCH-STARTUP] Batch prove failed, falling back to individual processing: {:#}", err);
+            // Try batching for each task type in priority order
+            // Check for Prove tasks
+            if let Some(batch_info) = self.identify_task_batch(
+                &startup_tasks,
+                |tt| matches!(tt, TaskType::Prove(_)),
+                "prove",
+            ) {
+                if let Err(err) = self.process_task_batch(
+                    &startup_tasks,
+                    &batch_info,
+                    |tt| if let TaskType::Prove(req) = tt { Some(req.clone()) } else { None },
+                    tasks::prove::batch_prover,
+                ).await {
+                    tracing::error!("[BENTO-WF-108-BATCH-STARTUP] Batch prove failed: {:#}", err);
                 } else {
-                    // Batch succeeded, continue to next batch of tasks
                     startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
                         .await
-                        .context("[BENTO-WF-107-F] Failed to request_work_batch during startup processing")?;
+                        .context("[BENTO-WF-107-F] Failed to request_work_batch during startup")?;
+                    continue;
+                }
+            }
+
+            // Check for Join tasks
+            if let Some(batch_info) = self.identify_task_batch(
+                &startup_tasks,
+                |tt| matches!(tt, TaskType::Join(_)),
+                "join",
+            ) {
+                if let Err(err) = self.process_task_batch(
+                    &startup_tasks,
+                    &batch_info,
+                    |tt| if let TaskType::Join(req) = tt { Some(req.clone()) } else { None },
+                    tasks::join::batch_join,
+                ).await {
+                    tracing::error!("[BENTO-WF-108-BATCH-JOIN-STARTUP] Batch join failed: {:#}", err);
+                } else {
+                    startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                        .await
+                        .context("[BENTO-WF-107-F] Failed to request_work_batch during startup")?;
+                    continue;
+                }
+            }
+
+            // Check for Keccak tasks
+            if let Some(batch_info) = self.identify_task_batch(
+                &startup_tasks,
+                |tt| matches!(tt, TaskType::Keccak(_)),
+                "keccak",
+            ) {
+                if let Err(err) = self.process_task_batch(
+                    &startup_tasks,
+                    &batch_info,
+                    |tt| if let TaskType::Keccak(req) = tt { Some(req.clone()) } else { None },
+                    tasks::keccak::batch_keccak,
+                ).await {
+                    tracing::error!("[BENTO-WF-108-BATCH-KECCAK-STARTUP] Batch keccak failed: {:#}", err);
+                } else {
+                    startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                        .await
+                        .context("[BENTO-WF-107-F] Failed to request_work_batch during startup")?;
+                    continue;
+                }
+            }
+
+            // Check for Union tasks
+            if let Some(batch_info) = self.identify_task_batch(
+                &startup_tasks,
+                |tt| matches!(tt, TaskType::Union(_)),
+                "union",
+            ) {
+                if let Err(err) = self.process_task_batch(
+                    &startup_tasks,
+                    &batch_info,
+                    |tt| if let TaskType::Union(req) = tt { Some(req.clone()) } else { None },
+                    tasks::union::batch_union,
+                ).await {
+                    tracing::error!("[BENTO-WF-108-BATCH-UNION-STARTUP] Batch union failed: {:#}", err);
+                } else {
+                    startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                        .await
+                        .context("[BENTO-WF-107-F] Failed to request_work_batch during startup")?;
                     continue;
                 }
             }
@@ -470,13 +544,84 @@ impl Agent {
 
             // Process all tasks from the batch and continue grabbing work while queue is not empty
             while !tasks.is_empty() && !term_sig.load(Ordering::Relaxed) {
-                // Check if we can batch process prove tasks
-                if let Some(batch_info) = self.identify_prove_batch(&tasks) {
-                    // Process the prove batch with optimized Redis operations
-                    if let Err(err) = self.process_prove_batch(&tasks, &batch_info).await {
-                        tracing::error!("[BENTO-WF-108-BATCH] Batch prove failed, falling back to individual processing: {:#}", err);
+                // Try batching for each task type in priority order
+                // Check for Prove tasks
+                if let Some(batch_info) = self.identify_task_batch(
+                    &tasks,
+                    |tt| matches!(tt, TaskType::Prove(_)),
+                    "prove",
+                ) {
+                    if let Err(err) = self.process_task_batch(
+                        &tasks,
+                        &batch_info,
+                        |tt| if let TaskType::Prove(req) = tt { Some(req.clone()) } else { None },
+                        tasks::prove::batch_prover,
+                    ).await {
+                        tracing::error!("[BENTO-WF-108-BATCH] Batch prove failed: {:#}", err);
                     } else {
-                        // Batch succeeded, continue to next batch of tasks
+                        tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                            .await
+                            .context("[BENTO-WF-107-D] Failed to request_work_batch (continuous)")?;
+                        continue;
+                    }
+                }
+
+                // Check for Join tasks
+                if let Some(batch_info) = self.identify_task_batch(
+                    &tasks,
+                    |tt| matches!(tt, TaskType::Join(_)),
+                    "join",
+                ) {
+                    if let Err(err) = self.process_task_batch(
+                        &tasks,
+                        &batch_info,
+                        |tt| if let TaskType::Join(req) = tt { Some(req.clone()) } else { None },
+                        tasks::join::batch_join,
+                    ).await {
+                        tracing::error!("[BENTO-WF-108-BATCH-JOIN] Batch join failed: {:#}", err);
+                    } else {
+                        tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                            .await
+                            .context("[BENTO-WF-107-D] Failed to request_work_batch (continuous)")?;
+                        continue;
+                    }
+                }
+
+                // Check for Keccak tasks
+                if let Some(batch_info) = self.identify_task_batch(
+                    &tasks,
+                    |tt| matches!(tt, TaskType::Keccak(_)),
+                    "keccak",
+                ) {
+                    if let Err(err) = self.process_task_batch(
+                        &tasks,
+                        &batch_info,
+                        |tt| if let TaskType::Keccak(req) = tt { Some(req.clone()) } else { None },
+                        tasks::keccak::batch_keccak,
+                    ).await {
+                        tracing::error!("[BENTO-WF-108-BATCH-KECCAK] Batch keccak failed: {:#}", err);
+                    } else {
+                        tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
+                            .await
+                            .context("[BENTO-WF-107-D] Failed to request_work_batch (continuous)")?;
+                        continue;
+                    }
+                }
+
+                // Check for Union tasks
+                if let Some(batch_info) = self.identify_task_batch(
+                    &tasks,
+                    |tt| matches!(tt, TaskType::Union(_)),
+                    "union",
+                ) {
+                    if let Err(err) = self.process_task_batch(
+                        &tasks,
+                        &batch_info,
+                        |tt| if let TaskType::Union(req) = tt { Some(req.clone()) } else { None },
+                        tasks::union::batch_union,
+                    ).await {
+                        tracing::error!("[BENTO-WF-108-BATCH-UNION] Batch union failed: {:#}", err);
+                    } else {
                         tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
                             .await
                             .context("[BENTO-WF-107-D] Failed to request_work_batch (continuous)")?;
@@ -560,38 +705,44 @@ impl Agent {
         Ok(())
     }
 
-    /// Identify if all tasks in the batch are prove tasks from the same job
-    fn identify_prove_batch(&self, tasks: &[ReadyTask]) -> Option<(Uuid, Vec<usize>)> {
+    /// Generic batch detection for any task type from the same job
+    ///
+    /// Checks if batch contains 2+ tasks of the given type from the same job.
+    /// Returns (job_id, indices, type_name) if batchable.
+    fn identify_task_batch(
+        &self,
+        tasks: &[ReadyTask],
+        matcher: impl Fn(&TaskType) -> bool,
+        type_name: &'static str,
+    ) -> Option<BatchInfo> {
         if tasks.is_empty() {
             return None;
         }
 
-        // Check if all tasks are prove tasks from the same job
         let mut job_id: Option<Uuid> = None;
-        let mut prove_indices = Vec::new();
+        let mut task_indices = Vec::new();
 
         for (i, task) in tasks.iter().enumerate() {
-            // Try to parse as TaskType
             let task_type = serde_json::from_value::<TaskType>(task.task_def.clone());
             match task_type {
-                Ok(TaskType::Prove(_)) => {
-                    // First prove task - set job_id
+                Ok(ref tt) if matcher(tt) => {
+                    // First matching task - set job_id
                     if job_id.is_none() {
                         job_id = Some(task.job_id);
                     }
 
                     // Check if same job
                     if Some(task.job_id) == job_id {
-                        prove_indices.push(i);
+                        task_indices.push(i);
                     } else {
                         // Different job_id - can't batch
                         return None;
                     }
                 }
                 _ => {
-                    // Non-prove task in batch - can't batch all tasks
-                    // Only batch if we already have some prove tasks
-                    if !prove_indices.is_empty() {
+                    // Non-matching task in batch
+                    // Stop if we already have some matching tasks
+                    if !task_indices.is_empty() {
                         break;
                     }
                     return None;
@@ -599,48 +750,56 @@ impl Agent {
             }
         }
 
-        // Only batch if we have 2+ prove tasks from the same job
-        if prove_indices.len() >= 2 {
-            job_id.map(|jid| (jid, prove_indices))
+        // Only batch if we have 2+ tasks from the same job
+        if task_indices.len() >= 2 {
+            job_id.map(|jid| (jid, task_indices, type_name))
         } else {
             None
         }
     }
 
-    /// Process a batch of prove tasks with optimized Redis operations
-    async fn process_prove_batch(
+    /// Generic batch processor
+    ///
+    /// Extracts tasks, calls the batch processor function, marks tasks as done
+    async fn process_task_batch<T, F, Fut>(
         &self,
         tasks: &[ReadyTask],
-        batch_info: &(Uuid, Vec<usize>),
-    ) -> Result<()> {
-        let (job_id, indices) = batch_info;
+        batch_info: &BatchInfo,
+        extractor: impl Fn(&TaskType) -> Option<T>,
+        processor: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(&Agent, &Uuid, &[(String, T)]) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
+        let (job_id, indices, type_name) = batch_info;
 
-        // Extract prove requests with their task IDs
-        let mut prove_requests = Vec::new();
+        // Extract typed requests with their task IDs
+        let mut requests = Vec::new();
         for &i in indices {
             let task = &tasks[i];
             let task_type: TaskType = serde_json::from_value(task.task_def.clone())
                 .context("Failed to deserialize task_def")?;
 
-            if let TaskType::Prove(prove_req) = task_type {
-                prove_requests.push((task.task_id.clone(), prove_req));
+            if let Some(req) = extractor(&task_type) {
+                requests.push((task.task_id.clone(), req));
             }
         }
 
-        if prove_requests.is_empty() {
+        if requests.is_empty() {
             return Ok(());
         }
 
         tracing::info!(
-            "Batch processing {} prove tasks for job {}",
-            prove_requests.len(),
+            "Batch processing {} {} tasks for job {}",
+            requests.len(),
+            type_name,
             job_id
         );
 
-        // Call batch prover
-        tasks::prove::batch_prover(self, job_id, &prove_requests)
-            .await
-            .context("Batch prove failed")?;
+        // Call the batch processor
+        processor(self, job_id, &requests).await
+            .with_context(|| format!("Batch {} failed", type_name))?;
 
         // Mark all tasks as done
         for &i in indices {
@@ -649,8 +808,8 @@ impl Agent {
                 .await
                 .with_context(|| {
                     format!(
-                        "Failed to mark task done: {}:{}",
-                        task.job_id, task.task_id
+                        "Failed to mark {} task done: {}:{}",
+                        type_name, task.job_id, task.task_id
                     )
                 })?;
         }
