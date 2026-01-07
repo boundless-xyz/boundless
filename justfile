@@ -53,6 +53,14 @@ test-slasher:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher -- --include-ignored
     just test-db clean
 
+# Run order-stream tests (requires database)
+test-order-stream:
+    #!/usr/bin/env bash
+    set -e
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+
 # Run indexer lib tests and all integration tests (requires both RPC URLs)
 test-indexer:
     #!/usr/bin/env bash

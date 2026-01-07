@@ -333,6 +333,8 @@ pub struct AppState {
     /// Map of WebSocket connections by address
     connections: Arc<RwLock<ConnectionsMap>>,
     /// Map of pending connections by address with their timestamp
+    /// Used to track connections that are in the process of being upgraded, and means only 1 reconnnect
+    /// can happen every 10s.
     pending_connections: Arc<Mutex<HashMap<Address, Instant>>>,
     /// Ethereum RPC provider
     rpc_provider: ReadOnlyProvider,
@@ -855,6 +857,133 @@ mod tests {
         app_state.remove_pending_connection(&addr).await;
         let pending_connection = app_state.set_pending_connection(addr).await;
         assert!(pending_connection, "Should return true after removing the connection");
+    }
+
+    #[sqlx::test]
+    async fn test_websocket_connection_replacement(pool: PgPool) {
+        // Set the ping interval to 500ms for this test
+        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
+
+        // Set up server and client
+        let (client, app_state, ctx, _anvil, server_handle, _addr) =
+            setup_server_and_client(pool).await;
+
+        // Connect first websocket connection
+        let first_socket = client.connect_async(&ctx.prover_signer).await.unwrap();
+        let mut first_stream = order_stream(first_socket);
+
+        // Verify first connection is active in connections map
+        {
+            let connections = app_state.connections.read().await;
+            assert!(
+                connections.contains_key(&ctx.prover_signer.address()),
+                "First connection should be active"
+            );
+        }
+
+        // Create channels to track messages on both connections
+        let (first_order_tx, mut first_order_rx) = tokio::sync::mpsc::channel(1);
+        let (second_order_tx, mut second_order_rx) = tokio::sync::mpsc::channel(1);
+
+        // Spawn task to listen on first connection
+        let first_stream_task = tokio::spawn(async move {
+            while let Some(order) = first_stream.next().await {
+                // Send order through channel, or break if channel is closed
+                if first_order_tx.send(order).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Wait a bit to ensure first connection is fully established
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Connect second websocket connection for the same address
+        let second_socket = client.connect_async(&ctx.prover_signer).await.unwrap();
+        let mut second_stream = order_stream(second_socket);
+
+        // Wait a bit for the old connection to be closed
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        // Verify new connection is active in connections map
+        {
+            let connections = app_state.connections.read().await;
+            assert!(
+                connections.contains_key(&ctx.prover_signer.address()),
+                "New connection should be active"
+            );
+            assert_eq!(
+                connections.len(),
+                1,
+                "Should only have one connection for this address"
+            );
+        }
+
+        // Spawn task to listen on second connection
+        let second_stream_task = tokio::spawn(async move {
+            while let Some(order) = second_stream.next().await {
+                // Send order through channel, or break if channel is closed
+                if second_order_tx.send(order).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Submit an order and verify it's received on the new connection (not the old one)
+        let app_state_clone = app_state.clone();
+        let watch_task: JoinHandle<Result<DbOrder, OrderDbErr>> = tokio::spawn(async move {
+            let mut new_orders = app_state_clone.db.order_stream().await.unwrap();
+            let order = new_orders.next().await.unwrap().unwrap();
+            Ok(order)
+        });
+
+        let order = client
+            .submit_request(&new_request(1, &ctx.prover_signer.address()), &ctx.prover_signer)
+            .await
+            .unwrap();
+
+        let db_order = watch_task.await.unwrap().unwrap();
+
+        // Wait for the order to be received on the new connection
+        let order_result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(4),
+            second_order_rx.recv(),
+        )
+        .await;
+
+        match order_result {
+            Ok(Some(received_order)) => {
+                assert_eq!(
+                    received_order.order, order,
+                    "Received order should match submitted order on new connection"
+                );
+                assert_eq!(order, db_order.order);
+            }
+            Ok(None) => {
+                panic!("Order channel closed unexpectedly on new connection");
+            }
+            Err(_) => {
+                panic!("Timed out waiting for order on new connection");
+            }
+        }
+
+        // Verify old connection did not receive the order
+        // The old connection should be closed, so it shouldn't receive any messages
+        let old_order_result = tokio::time::timeout(
+            tokio::time::Duration::from_millis(500),
+            first_order_rx.recv(),
+        )
+        .await;
+        assert!(
+            old_order_result.is_err() || matches!(old_order_result, Ok(None)),
+            "Old connection should not receive the order"
+        );
+        
+        // Clean up - abort tasks directly
+        first_stream_task.abort();
+        second_stream_task.abort();
+        app_state.shutdown.cancel();
+        server_handle.abort();
     }
 
     #[sqlx::test]
