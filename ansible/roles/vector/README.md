@@ -27,7 +27,7 @@ This Ansible role installs and configures Vector for log shipping to AWS CloudWa
 
 ### CloudWatch Configuration
 
-* `vector_cloudwatch_log_group` (default: `"/boundless/bento"`): CloudWatch Logs group name
+* `vector_cloudwatch_log_group` (default: `"/boundless/bento/{{ hostvars[inventory_hostname]['ansible_hostname'] }}"`): CloudWatch Logs group name
   * **Important**: This must match an existing log group name in CloudWatch
   * For Pulumi-managed clusters, the pattern is typically `/boundless/bento/{{ stack_name }}/{{ component_type }}`
   * Example: `/boundless/bento/dev/manager` or `/boundless/bento/prod/prover`
@@ -51,17 +51,13 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
    * `vector_aws_secret_access_key` (default: `null`): AWS secret access key
    * Credentials are set in `/etc/default/vector` environment file
 
-4. **Explicit Credentials in Config** (not recommended)
-   * If `vector_aws_access_key_id` and `vector_aws_secret_access_key` are set, they will be added to Vector config
-   * **Warning**: This stores credentials in plain text. Use IAM roles or credentials file instead.
-
 ### Service Monitoring
 
-* `vector_monitor_services` (default: `["bento.service", "broker.service", "miner.service"]`): List of systemd units to monitor
+* `vector_monitor_services` (default: `["bento-api.service", "bento-exec.service", "bento-aux.service", "bento-prove.service", "broker.service", "miner.service"]`): List of systemd units to monitor
 
 ### Buffer Configuration
 
-* `vector_buffer_type` (default: `"disk"`): Buffer type (disk or memory)
+* `vector_buffer_type` (default: `"memory"`): Buffer type (disk or memory)
 * `vector_buffer_max_size` (default: `268435488`): Maximum buffer size in bytes (256MB)
 * `vector_buffer_when_full` (default: `"block"`): Behavior when buffer is full (block or drop)
 

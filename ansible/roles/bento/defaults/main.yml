@@ -2,7 +2,7 @@
 # Bento version to install
 bento_version: "v1.2.0"
 
-# Bento task type (prove, execute, aux, etc.)
+# Legacy task label (used for tagging, not by the launcher)
 bento_task: "prove"
 
 # Service user
@@ -75,9 +75,7 @@ bento_cuda_visible_devices: null  # null = auto-detect, otherwise list of GPU in
 bento_service_enabled: true
 bento_service_state: started
 
-# Number of service instances to deploy
-# When count > 1, systemd template units will be used (e.g., bento-prove@0, bento-prove@1)
-# When count is 1 or not set, a single service will be created (e.g., bento-prove)
+# Legacy instance count (not used by the unified launcher)
 bento_count: 1
 
 # Dependency installation control
@@ -87,12 +85,12 @@ bento_install_dependencies: true
 
 # Join workers to the Bento cluster
 # Set to true to join the worker to the Bento cluster
-# Set to false to skip join worksers in the Bento cluster
+# Set to false to skip join workers in the Bento cluster
 bento_join_workers: false
 
 # Snark workers to the Bento cluster
 # Set to true to join the snark worker to the Bento cluster
-# Set to false to skip join snark workers in the Bento cluster
+# Set to false to skip joining snark workers in the Bento cluster
 bento_snark_workers: false
 
 # Stream routing configuration (set on executor/manager node, not worker nodes)

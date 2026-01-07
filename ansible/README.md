@@ -1,6 +1,6 @@
 # Boundless Ansible Setup
 
-This Ansible playbook replicates the functionality of `scripts/setup.sh` for automated system provisioning.
+This Ansible playbook replicates the functionality of the repo root `scripts/setup.sh` for automated system provisioning.
 
 ## Overview
 
@@ -61,29 +61,15 @@ ansible-galaxy collection install community.postgresql
 
 ## Quick Deployment
 
-For interactive deployment with configuration management, use the deployment wizard:
+From this directory, run:
 
 ```bash
-# Interactive wizard (saves configuration for future use)
-./scripts/deploy_cluster.py
+# Full cluster deployment (bento + broker + dependencies)
+ansible-playbook -i inventory.yml cluster.yml
 
-# Load saved configuration and deploy
-./scripts/deploy_cluster.py --load
-
-# Dry-run (check mode) with wizard
-./scripts/deploy_cluster.py --check
-
-# Dry-run with saved configuration
-./scripts/deploy_cluster.py --load --check
+# Bento worker deployment (no dependencies)
+ansible-playbook -i inventory.yml bento-worker.yml
 ```
-
-The wizard will:
-
-* Prompt for all required configuration values
-* Save configuration to `.deploy_cluster_config.json` (excluded from git)
-* Allow loading and reusing saved configurations
-* Validate inputs (Ethereum addresses, URLs, etc.)
-* Mask sensitive values (passwords, private keys) in prompts
 
 ## Configuration Management
 
@@ -98,14 +84,14 @@ Configuration is managed using Ansible's built-in variable system. Variables can
 
 1. **Create host-specific configuration:**
    ```bash
-   # Edit host_vars/prover-01/main.yml for non-sensitive config
-   nano ansible/host_vars/prover-01/main.yml
+   # Edit host_vars/example/main.yml for non-sensitive config
+   nano ansible/host_vars/example/main.yml
    ```
 
 2. **Set sensitive values in vault:**
    ```bash
    # Create encrypted vault file
-   ansible-vault create ansible/host_vars/prover-01/vault.yml
+   ansible-vault create ansible/host_vars/example/vault.yml
    ```
 
 3. **Or use command-line variables:**
@@ -134,7 +120,7 @@ minio_host: "10.0.1.10"
 
 Sensitive values (passwords, keys) should be set in `host_vars/HOSTNAME/vault.yml` or passed via `-e` flags.
 
-See `host_vars/prover-01/main.yml` for a complete example.
+See `host_vars/example/main.yml` for a complete example.
 
 ## Usage
 
@@ -151,8 +137,8 @@ ansible-playbook -i inventory.yml cluster.yml
 Deploy Bento to worker nodes that connect to remote services:
 
 ```bash
-# Deploy bento-prove to worker nodes (skips PostgreSQL, Valkey, MinIO)
-ansible-playbook -i inventory.yml bento-worker.yml -e bento_task=prove
+# Deploy Bento to worker nodes (skips PostgreSQL, Valkey, MinIO)
+ansible-playbook -i inventory.yml bento-worker.yml
 
 # Deploy specific Bento task without dependencies
 ansible-playbook -i inventory.yml cluster.yml --tags bento-prove --skip-tags bento-deps
@@ -209,6 +195,8 @@ ansible-playbook -i inventory.yml cluster.yml --tags grafana
 * `rust` - Rust programming language role
 * `rzup` - RISC Zero rzup toolchain role
 
+Note: Bento worker enablement is controlled by `bento_*_count` and `bento_*_workers` variables, not tags.
+
 ### Running on specific hosts
 
 ```bash
@@ -219,15 +207,14 @@ ansible-playbook -i inventory.yml cluster.yml --limit prover-1
 
 ### Bento Services
 
-Bento services use a **launcher script approach** where each service type has:
+Bento services use a **unified launcher script** managed by a single systemd unit:
 
-* One systemd unit file: `/etc/systemd/system/bento-{task}.service`
-* One launcher script: `/etc/boundless/bento-{task}-launcher.sh`
-* Multiple instances started in parallel by the launcher (when `bento_count > 1`)
+* Systemd unit: `/etc/systemd/system/bento.service`
+* Launcher script: `/etc/boundless/bento-launcher.sh`
 
-This approach simplifies systemd configuration while allowing multiple instances per service type.
+The launcher starts the API (if enabled) and all configured worker types in parallel based on `bento_*` counts and flags.
 
-**Service Types**:
+**Worker Types**:
 
 * `bento-prove`: GPU proving workers
 * `bento-api`: REST API service
@@ -291,16 +278,16 @@ If Bento services fail with "Permission denied" errors:
 
 2. **Check launcher script permissions**:
    ```bash
-   ls -l /etc/boundless/bento-*-launcher.sh
+   ls -l /etc/boundless/bento-launcher.sh
    # Should be: -rwxr-xr-x bento bento
-   # Fix if needed: sudo chmod +x /etc/boundless/bento-*-launcher.sh
+   # Fix if needed: sudo chmod +x /etc/boundless/bento-launcher.sh
    ```
 
 3. **Reset systemd state**:
    ```bash
-   sudo systemctl reset-failed bento-{task}
+   sudo systemctl reset-failed bento
    sudo systemctl daemon-reload
-   sudo systemctl restart bento-{task}
+   sudo systemctl restart bento
    ```
 
 See the role-specific README files for more detailed troubleshooting.
@@ -327,9 +314,9 @@ Check service status and logs:
 
 ```bash
 # On the target host
-systemctl status bento-prove
-journalctl -u bento-prove -f
-journalctl -u bento-prove -n 100
+systemctl status bento
+journalctl -u bento -f
+journalctl -u bento -n 100
 ```
 
 For detailed troubleshooting, see:

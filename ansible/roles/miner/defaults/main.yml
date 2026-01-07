@@ -1,6 +1,7 @@
 ---
-# Miner version (uses same version as bento - bento_cli is installed by Bento role)
+# Miner version (defaults to bento_version if set, otherwise v1.1.1)
 # This variable is kept for reference but not used for installation
+# The miner role assumes bento-cli is already present in miner_install_dir
 miner_version: "{{ bento_version | default('v1.1.1') }}"
 
 # Service user (uses bento_user from bento role)

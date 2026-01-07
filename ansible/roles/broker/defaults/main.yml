@@ -21,7 +21,7 @@ broker_config_file: "{{ broker_config_dir }}/broker.toml"
 
 # Database configuration
 broker_db_url: "sqlite://{{ broker_config_dir }}/broker.db"
-broker_db_type: "sqlite"  # sqlite or postgresql
+broker_db_type: "sqlite"  # sqlite only
 
 # Bento API configuration
 # Environment variable: BROKER_BENTO_API_URL
