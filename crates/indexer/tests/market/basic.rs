@@ -1364,7 +1364,7 @@ struct RequestStatusRow {
     slash_transferred_amount: Option<String>,
     slash_burned_amount: Option<String>,
     total_cycles: Option<String>,
-    effective_prove_mhz: Option<i64>,
+    effective_prove_mhz: Option<f64>,
 }
 
 async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
@@ -1380,7 +1380,7 @@ async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRo
     let row = sqlx::query(
         "SELECT request_digest, request_id, request_status, slashed_status, source, created_at, updated_at,
                 locked_at, fulfilled_at, slashed_at, lock_end, slash_recipient,
-                slash_transferred_amount, slash_burned_amount, total_cycles, effective_prove_mhz
+                slash_transferred_amount, slash_burned_amount, total_cycles, effective_prove_mhz_v2 as effective_prove_mhz
          FROM request_status
          WHERE request_id = $1",
     )
@@ -1578,25 +1578,28 @@ async fn test_effective_prove_mhz_calculation() {
     // Calculate expected effective_prove_mhz
     let fulfilled_at = status.fulfilled_at.unwrap() as u64;
     let proof_delivery_time = fulfilled_at - created_at;
-    let expected_mhz = (U256::from(total_cycles)
-        / (U256::from(proof_delivery_time) * U256::from(1_000_000u64)))
-    .to::<u64>();
-
-    // Verify effective_prove_mhz is calculated correctly
+    let expected_mhz = total_cycles.to_string().parse::<f64>().unwrap_or(0.0) / (proof_delivery_time as f64 * 1_000_000.0);
+    let actual_mhz: f64 = status.effective_prove_mhz.unwrap();
+    
+    // Use floating point comparison with epsilon
+    const EPSILON: f64 = 0.00000001; // 8 decimal places precision
     assert!(
-        status.effective_prove_mhz.is_some(),
-        "effective_prove_mhz should be calculated for fulfilled requests with cycle counts"
-    );
-    let actual_mhz = status.effective_prove_mhz.unwrap() as u64;
-    assert_eq!(
-        actual_mhz, expected_mhz,
+        (actual_mhz - expected_mhz).abs() < EPSILON,
         "effective_prove_mhz should equal total_cycles / (proof_delivery_time * 1_000_000). \
          Expected: {}, Actual: {}, total_cycles: {}, proof_delivery_time: {}",
         expected_mhz, actual_mhz, total_cycles, proof_delivery_time
     );
 
     // Verify it's a positive number
-    assert!(actual_mhz > 0, "effective_prove_mhz should be positive, got {}", actual_mhz);
+    assert!(actual_mhz > 0.0, "effective_prove_mhz should be positive, got {}", actual_mhz);
+    
+    // Verify it has decimal precision
+    let fractional_part = actual_mhz - actual_mhz.floor();
+    assert!(
+        fractional_part > EPSILON,
+        "effective_prove_mhz should have decimal precision, but got whole number: {}",
+        actual_mhz
+    );
 
     indexer_process.kill().unwrap();
 }
