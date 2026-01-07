@@ -18,7 +18,7 @@ use crate::db::market::{
 use crate::db::{DbObj, IndexerDb};
 use crate::market::service::IndexerServiceExecutionConfig;
 use alloy::primitives::{B256, U256};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
 use boundless_market::storage::fetch_url;
 use broker::futures_retry::retry;
@@ -130,7 +130,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             }
         };
 
-        let mut current_executing_requests = HashSet::new();
+        let mut current_executing_requests = Vec::new();
         let mut failed_executions = Vec::new();
 
         for (request_digest, input_type, input_data, image_id, image_url, max_price) in
@@ -156,6 +156,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             // Obtain the request input from either the URL or the inline data
             let input: Bytes = match download_or_decode_input(
                 &config,
+                request_id,
                 request_digest,
                 &input_type,
                 &input_data,
@@ -209,6 +210,14 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     continue;
                 }
             };
+
+            if input_uuid.is_empty() {
+                tracing::error!("Empty input UUID received after input upload for cycle count computation request id={}, digest={:x}",
+                    fmt_request_id(request_id),
+                    request_digest
+                );
+                continue;
+            }
 
             // Check if the image exists for the request via the bento API
             tracing::trace!(
@@ -361,8 +370,16 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
             };
 
+            if execution_uuid.uuid.is_empty() {
+                tracing::error!("Empty session UUID received after creating execution session for cycle count computation request id={}, digest={:x}",
+                    fmt_request_id(request_id),
+                    request_digest
+                );
+                continue;
+            }
+
             current_executing_requests
-                .insert(CycleCountExecution { request_digest, session_uuid: execution_uuid.uuid });
+                .push(CycleCountExecution { request_digest, session_uuid: execution_uuid.uuid });
         }
 
         // Update the cycle count status
@@ -405,6 +422,14 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
         // Update the cycle counts and status for execution requests that have completed
         for execution_info in executing_requests.clone() {
+            if execution_info.session_uuid.is_empty() {
+                tracing::error!("Empty session UUID retrieved from DB for cycle count computation request id={}, digest={:x}",
+                    fmt_request_id(execution_info.request_id),
+                    execution_info.request_digest
+                );
+                continue;
+            }
+
             let session_id: SessionId = SessionId::new(execution_info.session_uuid.clone());
             let execution_status = match retry(
                 config.bento_retry_count,
@@ -528,12 +553,23 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
 async fn download_or_decode_input(
     config: &IndexerServiceExecutionConfig,
+    request_id: Option<U256>,
     request_digest: B256,
     input_type: &String,
     input_data: &str,
 ) -> Result<Bytes> {
+    if input_type != "Url" && input_type != "Inline" {
+        return Err(anyhow!(
+            "Invalid input type for request id='{}', digest={:x}: '{}'",
+            fmt_request_id(request_id),
+            request_digest,
+            input_type
+        ));
+    }
+
     tracing::debug!(
-        "Download or decode input for '{}', input type: '{}'",
+        "Download or decode input for request id='{}', digest={:x}, input type: '{}'",
+        fmt_request_id(request_id),
         request_digest,
         input_type
     );
@@ -543,7 +579,12 @@ async fn download_or_decode_input(
 
     if input_type == "Url" {
         let decoded_url = String::from_utf8(decoded_input)?;
-        tracing::debug!("Downloading input for '{}', url: '{}'", request_digest, decoded_url);
+        tracing::debug!(
+            "Downloading input for request id='{}', digest={:x}, url: '{}'",
+            fmt_request_id(request_id),
+            request_digest,
+            decoded_url
+        );
         let input = retry(
             config.bento_retry_count,
             config.bento_retry_sleep_ms,
@@ -551,13 +592,318 @@ async fn download_or_decode_input(
             "fetch_url",
         )
         .await?;
-        tracing::debug!("Downloaded input for request '{}'", request_digest);
+        tracing::debug!(
+            "Downloaded input for request id='{}', digest={:x}",
+            fmt_request_id(request_id),
+            request_digest
+        );
         let decoded_env = boundless_market::input::GuestEnv::decode(&input)?.stdin;
-        tracing::debug!("Decoded input for request '{}'", request_digest);
+        tracing::debug!(
+            "Decoded input for request id='{}', digest={:x}",
+            fmt_request_id(request_id),
+            request_digest
+        );
         Ok(Bytes::from(decoded_env))
     } else {
         let decoded_env = boundless_market::input::GuestEnv::decode(&decoded_input)?.stdin;
-        tracing::debug!("Decoded input for request '{}'", request_digest);
+        tracing::debug!(
+            "Decoded input for request id='{}', digest={:x}",
+            fmt_request_id(request_id),
+            request_digest
+        );
         Ok(Bytes::from(decoded_env))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boundless_market::input::GuestEnv;
+    use std::time::Duration;
+
+    fn test_config() -> IndexerServiceExecutionConfig {
+        IndexerServiceExecutionConfig {
+            execution_interval: Duration::from_secs(60),
+            bento_api_key: "apikey".to_string(),
+            bento_api_url: "apiurl".to_string(),
+            bento_retry_count: 3,
+            bento_retry_sleep_ms: 100,
+            max_concurrent_executing: 5,
+            max_status_queries: 20,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_inline() {
+        let config = test_config();
+        let request_digest = B256::from([1; 32]);
+
+        // Create a GuestEnv with some test data
+        let test_stdin = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+        let guest_env = GuestEnv::from_stdin(test_stdin.clone());
+        let encoded = guest_env.encode().unwrap();
+
+        // Hex-encode the GuestEnv
+        let hex_input = format!("0x{}", hex::encode(&encoded));
+
+        // Decode it
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Inline".to_string(),
+            &hex_input,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.as_ref(), test_stdin.as_slice());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_inline_without_0x_prefix() {
+        let config = test_config();
+        let request_digest = B256::from([2; 32]);
+
+        // Create a GuestEnv with some test data
+        let test_stdin = vec![10u8, 20, 30, 40];
+        let guest_env = GuestEnv::from_stdin(test_stdin.clone());
+        let encoded = guest_env.encode().unwrap();
+
+        // Hex-encode without 0x prefix
+        let hex_input = hex::encode(&encoded);
+
+        // Decode it
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Inline".to_string(),
+            &hex_input,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.as_ref(), test_stdin.as_slice());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_inline_empty_stdin() {
+        let config = test_config();
+        let request_digest = B256::from([3; 32]);
+
+        // Create a GuestEnv with empty stdin
+        let guest_env = GuestEnv::from_stdin(Vec::new());
+        let encoded = guest_env.encode().unwrap();
+        let hex_input = format!("0x{}", hex::encode(&encoded));
+
+        // Decode it
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Inline".to_string(),
+            &hex_input,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_invalid_hex() {
+        let config = test_config();
+        let request_digest = B256::from([4; 32]);
+
+        // Invalid hex string
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Inline".to_string(),
+            "0xGGGG",
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_invalid_guest_env() {
+        let config = test_config();
+        let request_digest = B256::from([5; 32]);
+
+        // Valid hex but invalid GuestEnv encoding (unsupported version)
+        let invalid_data = vec![99u8, 1, 2, 3]; // Version 99 is unsupported
+        let hex_input = format!("0x{}", hex::encode(&invalid_data));
+
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Inline".to_string(),
+            &hex_input,
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_empty_input() {
+        let config = test_config();
+        let request_digest = B256::from([6; 32]);
+
+        // Empty hex input (decodes to empty byte array)
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Inline".to_string(),
+            "0x",
+        )
+        .await;
+
+        // GuestEnv::decode returns error for empty input
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_v0_encoding() {
+        let config = test_config();
+        let request_digest = B256::from([7; 32]);
+
+        // V0 encoding: version byte 0 followed by raw stdin bytes
+        let test_stdin = vec![100u8, 200, 150];
+        let mut v0_encoded = vec![0u8]; // Version 0
+        v0_encoded.extend_from_slice(&test_stdin);
+        let hex_input = format!("0x{}", hex::encode(&v0_encoded));
+
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Inline".to_string(),
+            &hex_input,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.as_ref(), test_stdin.as_slice());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_url_file() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Enable dev mode for file:// URL support
+        std::env::set_var("RISC0_DEV_MODE", "1");
+
+        let config = test_config();
+        let request_digest = B256::from([8; 32]);
+
+        // Create test data
+        let test_stdin = vec![10u8, 20, 30, 40, 50];
+        let guest_env = GuestEnv::from_stdin(test_stdin.clone());
+        let encoded = guest_env.encode().unwrap();
+
+        // Write encoded GuestEnv to a temp file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&encoded).unwrap();
+        temp_file.flush().unwrap();
+        let file_path = temp_file.path().to_str().unwrap();
+
+        // Create file:// URL and hex-encode it
+        let url = format!("file://{}", file_path);
+        let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
+
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Url".to_string(),
+            &hex_url,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.as_ref(), test_stdin.as_slice());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_url_file_not_found() {
+        // Enable dev mode for file:// URL support
+        std::env::set_var("RISC0_DEV_MODE", "1");
+
+        let config = test_config();
+        let request_digest = B256::from([9; 32]);
+
+        // Create a file:// URL to a non-existent file
+        let url = "file:///nonexistent/path/to/file.bin";
+        let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
+
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Url".to_string(),
+            &hex_url,
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_url_invalid_guest_env() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Enable dev mode for file:// URL support
+        std::env::set_var("RISC0_DEV_MODE", "1");
+
+        let config = test_config();
+        let request_digest = B256::from([10; 32]);
+
+        // Write invalid GuestEnv data (unsupported version) to temp file
+        let invalid_data = vec![99u8, 1, 2, 3];
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&invalid_data).unwrap();
+        temp_file.flush().unwrap();
+        let file_path = temp_file.path().to_str().unwrap();
+
+        let url = format!("file://{}", file_path);
+        let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
+
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Url".to_string(),
+            &hex_url,
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_download_or_decode_input_invalid_input_type() {
+        let config = test_config();
+        let request_digest = B256::from([4; 32]);
+
+        // Invalid input type
+        let result = download_or_decode_input(
+            &config,
+            Some(U256::from(1)),
+            request_digest,
+            &"Unsupported".to_string(),
+            "0x",
+        )
+        .await;
+
+        assert!(result.is_err());
     }
 }

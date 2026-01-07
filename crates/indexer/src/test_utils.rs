@@ -16,10 +16,11 @@ use std::{sync::Arc, time::SystemTime};
 
 use crate::db::market::u256_to_padded_string;
 use crate::db::{
-    market::{CycleCount, IndexerDb},
+    market::{CycleCount, IndexerDb, TxMetadata},
     DbError, DbObj, MarketDb,
 };
-use alloy::primitives::{B256, U256};
+use alloy::primitives::{Address, B256, U256};
+use boundless_market::contracts::ProofRequest;
 use sqlx::any::install_default_drivers;
 use sqlx::AnyPool;
 use tempfile::NamedTempFile;
@@ -167,5 +168,46 @@ impl TestDb {
         .await?;
 
         Ok(updated_at)
+    }
+
+    /// Helper for tests to set up proof requests and cycle counts together.
+    /// This is useful for testing cycle count state transitions.
+    pub async fn setup_requests_and_cycles(
+        &self,
+        digests: &[B256],
+        requests: &[ProofRequest],
+        statuses: &[&str],
+    ) {
+        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        self.db
+            .add_proof_requests(
+                &digests
+                    .iter()
+                    .zip(requests.iter())
+                    .map(|(d, r)| {
+                        (*d, r.clone(), metadata, "onchain".to_string(), metadata.block_timestamp)
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .unwrap();
+
+        let cycle_counts: Vec<CycleCount> = digests
+            .iter()
+            .zip(statuses.iter())
+            .map(|(d, s)| CycleCount {
+                request_digest: *d,
+                cycle_status: s.to_string(),
+                program_cycles: if *s == "COMPLETED" { Some(U256::from(1000)) } else { None },
+                total_cycles: if *s == "COMPLETED" { Some(U256::from(1015)) } else { None },
+                created_at: timestamp,
+                updated_at: timestamp,
+            })
+            .collect();
+
+        self.db.add_cycle_counts(&cycle_counts).await.unwrap();
     }
 }
