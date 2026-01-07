@@ -69,7 +69,7 @@ pub async fn batch_join(
     let mut join_results = Vec::with_capacity(batch_size);
     let mut keys_to_cleanup = Vec::new();
 
-    for (task_id, req) in requests {
+    for (_task_id, req) in requests {
         tracing::debug!("Joining {} + {} -> {}", req.left, req.right, req.idx);
 
         // Get receipts from map

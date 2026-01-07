@@ -163,5 +163,5 @@ pub async fn batch_prover(
 /// Run a prove request (delegates to batch_prover for code reuse)
 pub async fn prover(agent: &Agent, job_id: &Uuid, task_id: &str, request: &ProveReq) -> Result<()> {
     // Just call the batch version with a single item
-    batch_prover(agent, job_id, &[(task_id.to_string(), *request)]).await
+    batch_prover(agent, job_id, &[(task_id.to_string(), request.clone())]).await
 }
