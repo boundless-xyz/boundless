@@ -422,10 +422,10 @@ where
         };
 
         // TODO: Populate best prover metrics from fulfilled requests
-        let best_peak_prove_mhz = 0;
+        let best_peak_prove_mhz = 0.0;
         let best_peak_prove_mhz_prover = None;
         let best_peak_prove_mhz_request_id = None;
-        let best_effective_prove_mhz = 0;
+        let best_effective_prove_mhz = 0.0;
         let best_effective_prove_mhz_prover = None;
         let best_effective_prove_mhz_request_id = None;
 
@@ -660,10 +660,10 @@ where
                         locked_orders_fulfillment_rate: 0.0,
                         total_program_cycles: U256::ZERO,
                         total_cycles: U256::ZERO,
-                        best_peak_prove_mhz: 0,
+                        best_peak_prove_mhz: 0.0,
                         best_peak_prove_mhz_prover: None,
                         best_peak_prove_mhz_request_id: None,
-                        best_effective_prove_mhz: 0,
+                        best_effective_prove_mhz: 0.0,
                         best_effective_prove_mhz_prover: None,
                         best_effective_prove_mhz_request_id: None,
                     }
