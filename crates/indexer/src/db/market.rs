@@ -4168,10 +4168,7 @@ impl MarketDb {
                 .ok()
                 .flatten()
                 .and_then(|s| padded_string_to_u256(&s).ok()),
-            peak_prove_mhz: row
-                .try_get::<Option<f64>, _>("peak_prove_mhz_v2")
-                .ok()
-                .flatten(),
+            peak_prove_mhz: row.try_get::<Option<f64>, _>("peak_prove_mhz_v2").ok().flatten(),
             effective_prove_mhz: row
                 .try_get::<Option<f64>, _>("effective_prove_mhz_v2")
                 .ok()

@@ -1578,21 +1578,25 @@ async fn test_effective_prove_mhz_calculation() {
     // Calculate expected effective_prove_mhz
     let fulfilled_at = status.fulfilled_at.unwrap() as u64;
     let proof_delivery_time = fulfilled_at - created_at;
-    let expected_mhz = total_cycles.to_string().parse::<f64>().unwrap_or(0.0) / (proof_delivery_time as f64 * 1_000_000.0);
+    let expected_mhz = total_cycles.to_string().parse::<f64>().unwrap_or(0.0)
+        / (proof_delivery_time as f64 * 1_000_000.0);
     let actual_mhz: f64 = status.effective_prove_mhz.unwrap();
-    
+
     // Use floating point comparison with epsilon
     const EPSILON: f64 = 0.00000001; // 8 decimal places precision
     assert!(
         (actual_mhz - expected_mhz).abs() < EPSILON,
         "effective_prove_mhz should equal total_cycles / (proof_delivery_time * 1_000_000). \
          Expected: {}, Actual: {}, total_cycles: {}, proof_delivery_time: {}",
-        expected_mhz, actual_mhz, total_cycles, proof_delivery_time
+        expected_mhz,
+        actual_mhz,
+        total_cycles,
+        proof_delivery_time
     );
 
     // Verify it's a positive number
     assert!(actual_mhz > 0.0, "effective_prove_mhz should be positive, got {}", actual_mhz);
-    
+
     // Verify it has decimal precision
     let fractional_part = actual_mhz - actual_mhz.floor();
     assert!(

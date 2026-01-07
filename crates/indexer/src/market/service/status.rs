@@ -116,8 +116,7 @@ where
                 // Calculate: total_cycles / (proof_delivery_time * 1_000_000)
                 if proof_delivery_time > 0 {
                     // Convert U256 to f64 by converting to string first, then parsing
-                    let total_cycles_f64 = total_cycles.to_string().parse::<f64>()
-                        .unwrap_or(0.0);
+                    let total_cycles_f64 = total_cycles.to_string().parse::<f64>().unwrap_or(0.0);
                     let mhz = total_cycles_f64 / (proof_delivery_time as f64 * 1_000_000.0);
                     Some(mhz)
                 } else {
