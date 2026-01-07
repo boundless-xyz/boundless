@@ -9,4 +9,9 @@ To update the priority list:
 1. Edit `../../requestor-lists/boundless-recommended-priority-list.json`
 2. Merge to main
 
-The list will be automatically refreshed by brokers according to their configured refresh interval (default: 1 hour).
+To update the allowed list:
+
+1. Edit `../../requestor-lists/boundless-allowed-list.json`
+2. Merge to main
+
+The lists will be automatically refreshed by brokers according to their configured refresh interval (default: 1 hour).

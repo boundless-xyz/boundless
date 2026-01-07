@@ -230,9 +230,10 @@ jobs:
         id: restore-cache
         uses: actions/cache@v4
         with:
-          path: .lycheecache
-          key: cache-lychee-${{ github.sha }}
-          restore-keys: cache-lychee-
+          path: ~/.cache/lychee
+          key: lychee-${{ runner.os }}-v1
+          restore-keys: |
+            lychee-${{ runner.os }}-
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
@@ -249,14 +250,24 @@ jobs:
         # lychee does not respect the .gitignore natively
         # https://github.com/lycheeverse/lychee/issues/470#issuecomment-1094690229
         # don't run on `documentation` folder, it has it's own checker for links
-        run: git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+        run: |
+          git ls-files '*.md' ':!:documentation/*' \
+            | xargs lychee \
+                --base . \
+                --cache \
+                --max-concurrency 2 \
+                --max-retries 6 \
+                --retry-wait-time 2 \
+                --timeout 20 \
+                --accept 429 \
+                --
 
       - name: save lychee cache
         uses: actions/cache/save@v4
         if: always()
         with:
-          path: .lycheecache
-          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+          path: ~/.cache/lychee
+          key: lychee-${{ runner.os }}-v1
 
   format:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]

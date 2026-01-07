@@ -11,6 +11,8 @@ export ETH_RPC_URL="https://x.base-mainnet.quiknode.pro//"
 export RDS_PASSWORD=""
 export DEV_NAME=""
 export CHAIN_ID=""
+# Required for proxy-authenticated forwarded-IP rate limiting (CloudFront WAF)
+export PROXY_SECRET=""
 # Optional
 export DOCKER_REMOTE_BUILDER=
 
