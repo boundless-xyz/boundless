@@ -5,7 +5,7 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
+    redis::AsyncCommands,
     tasks::{deserialize_obj, serialize_obj},
 };
 use anyhow::{Context, Result};
@@ -36,12 +36,12 @@ pub async fn batch_union(
     // Collect all unique input receipt keys needed across all unions
     let mut unique_keys = HashSet::new();
     for (_, req) in requests {
-        unique_keys.insert(req.left.clone());
-        unique_keys.insert(req.right.clone());
+        unique_keys.insert(req.left);
+        unique_keys.insert(req.right);
     }
 
     // Convert to Vec to maintain consistent ordering
-    let unique_keys_vec: Vec<String> = unique_keys.into_iter().collect();
+    let unique_keys_vec: Vec<usize> = unique_keys.into_iter().collect();
     let keys: Vec<String> = unique_keys_vec
         .iter()
         .map(|k| format!("{keccak_receipts_prefix}:{k}"))
@@ -62,9 +62,9 @@ pub async fn batch_union(
     );
 
     // Build a map of receipt_id -> receipt data
-    let mut receipt_map: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut receipt_map: HashMap<usize, Vec<u8>> = HashMap::new();
     for (i, key) in unique_keys_vec.iter().enumerate() {
-        receipt_map.insert(key.clone(), receipts_data[i].clone());
+        receipt_map.insert(*key, receipts_data[i].clone());
     }
 
     // Process each union sequentially
@@ -165,7 +165,7 @@ pub async fn batch_union(
 /// Run the union operation (delegates to batch_union for code reuse)
 pub async fn union(agent: &Agent, job_id: &Uuid, request: &UnionReq) -> Result<()> {
     // Generate a temporary task_id for the single union
-    let task_id = request.idx.clone();
+    let task_id = request.idx.to_string();
 
     // Just call the batch version with a single item
     batch_union(agent, job_id, &[(task_id, request.clone())]).await

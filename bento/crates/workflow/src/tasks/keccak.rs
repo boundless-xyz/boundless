@@ -5,12 +5,12 @@
 
 use crate::{
     Agent,
-    redis::{self, AsyncCommands},
+    redis::AsyncCommands,
     tasks::{COPROC_CB_PATH, serialize_obj},
 };
 use anyhow::{Context, Result, anyhow, bail};
 use deadpool_redis::redis::pipe;
-use risc0_zkvm::ProveKeccakRequest;
+use risc0_zkvm::{Digest, ProveKeccakRequest};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use uuid::Uuid;
@@ -47,11 +47,11 @@ pub async fn batch_keccak(
     // Collect all unique claim_digest keys needed across all keccak tasks
     let mut unique_digests = HashSet::new();
     for (_, req) in requests {
-        unique_digests.insert(req.claim_digest.clone());
+        unique_digests.insert(req.claim_digest);
     }
 
     // Convert to Vec to maintain consistent ordering
-    let unique_digests_vec: Vec<String> = unique_digests.into_iter().collect();
+    let unique_digests_vec: Vec<Digest> = unique_digests.into_iter().collect();
     let input_keys: Vec<String> = unique_digests_vec
         .iter()
         .map(|digest| format!("{job_prefix}:{COPROC_CB_PATH}:{digest}"))
@@ -72,9 +72,9 @@ pub async fn batch_keccak(
     );
 
     // Build a map of claim_digest -> input data
-    let mut input_map: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut input_map: HashMap<Digest, Vec<u8>> = HashMap::new();
     for (i, digest) in unique_digests_vec.iter().enumerate() {
-        input_map.insert(digest.clone(), inputs_data[i].clone());
+        input_map.insert(*digest, inputs_data[i].clone());
     }
 
     // Process each keccak prove sequentially
@@ -89,7 +89,7 @@ pub async fn batch_keccak(
             .with_context(|| format!("Keccak input {} not found in batch", req.claim_digest))?;
 
         let keccak_req = ProveKeccakRequest {
-            claim_digest: req.claim_digest.clone(),
+            claim_digest: req.claim_digest,
             po2: req.po2,
             control_root: req.control_root,
             input: try_keccak_bytes_to_input(keccak_input)?,
@@ -170,5 +170,5 @@ pub async fn keccak(
     request: &KeccakReq,
 ) -> Result<()> {
     // Just call the batch version with a single item
-    batch_keccak(agent, job_id, &[(task_id.to_string(), request.clone())]).await
+    batch_keccak(agent, job_id, &[(task_id.to_string(), *request)]).await
 }

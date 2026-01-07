@@ -393,7 +393,7 @@ impl Agent {
                 if let Err(err) = self.process_task_batch(
                     &startup_tasks,
                     &batch_info,
-                    |tt| if let TaskType::Prove(req) = tt { Some(req.clone()) } else { None },
+                    |tt| if let TaskType::Prove(req) = tt { Some(*req) } else { None },
                     tasks::prove::batch_prover,
                 ).await {
                     tracing::error!("[BENTO-WF-108-BATCH-STARTUP] Batch prove failed: {:#}", err);
@@ -435,7 +435,7 @@ impl Agent {
                 if let Err(err) = self.process_task_batch(
                     &startup_tasks,
                     &batch_info,
-                    |tt| if let TaskType::Keccak(req) = tt { Some(req.clone()) } else { None },
+                    |tt| if let TaskType::Keccak(req) = tt { Some(*req) } else { None },
                     tasks::keccak::batch_keccak,
                 ).await {
                     tracing::error!("[BENTO-WF-108-BATCH-KECCAK-STARTUP] Batch keccak failed: {:#}", err);
@@ -554,7 +554,7 @@ impl Agent {
                     if let Err(err) = self.process_task_batch(
                         &tasks,
                         &batch_info,
-                        |tt| if let TaskType::Prove(req) = tt { Some(req.clone()) } else { None },
+                        |tt| if let TaskType::Prove(req) = tt { Some(*req) } else { None },
                         tasks::prove::batch_prover,
                     ).await {
                         tracing::error!("[BENTO-WF-108-BATCH] Batch prove failed: {:#}", err);
@@ -596,7 +596,7 @@ impl Agent {
                     if let Err(err) = self.process_task_batch(
                         &tasks,
                         &batch_info,
-                        |tt| if let TaskType::Keccak(req) = tt { Some(req.clone()) } else { None },
+                        |tt| if let TaskType::Keccak(req) = tt { Some(*req) } else { None },
                         tasks::keccak::batch_keccak,
                     ).await {
                         tracing::error!("[BENTO-WF-108-BATCH-KECCAK] Batch keccak failed: {:#}", err);
