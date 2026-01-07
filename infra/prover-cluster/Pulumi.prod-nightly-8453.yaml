@@ -48,5 +48,5 @@ config:
   prover-cluster:collateralBalanceErrorThreshold: "0"
   prover-cluster:denyRequestorAddresses: ""
   prover-cluster:maxFetchRetries: "3"
-  prover-cluster:allowClientAddresses: ""
+  prover-cluster:allowRequestorLists: ""
   prover-cluster:lockinPriorityGas: "300"

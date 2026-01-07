@@ -1,3 +1,3 @@
 name: requestor-lists
 runtime: nodejs
-description: Deploy requestor priority lists to S3
+description: Deploy requestor priority and allowed lists to S3
