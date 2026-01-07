@@ -120,12 +120,14 @@ pub(crate) async fn websocket_handler(
         let connections = state.connections.read().await;
         // Only check max_connections if this address doesn't already have a connection
         // (replacing an existing connection doesn't increase the total count)
-        if !connections.contains_key(&client_addr) && connections.len() >= state.config.max_connections {
+        if !connections.contains_key(&client_addr)
+            && connections.len() >= state.config.max_connections
+        {
             return Ok((StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response());
         }
     }
 
-    // We have capacity, so add to pending connections. 
+    // We have capacity, so add to pending connections.
     // Note this pending connection could be a reconnect attempt.
     // Note: This is done without holding the lock to state.connections to minimize lock
     // contention. At worst, the server will upgrade the connection and immediately drop it.
@@ -214,7 +216,11 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
             }
         }
     }
-    tracing::debug!("Broadcasted order 0x{:x} to {} clients", db_order.order.request.id, num_clients);
+    tracing::debug!(
+        "Broadcasted order 0x{:x} to {} clients",
+        db_order.order.request.id,
+        num_clients
+    );
     // Remove the clients that have closed their connections
     if !clients_to_remove.is_empty() {
         {
@@ -237,11 +243,15 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
     // This handles the case where a client reconnects - we replace the old connection with the new one
     {
         let mut connections = state.connections.write().await;
-        if let Some(old_connection) = connections.insert(address, ClientConnection { sender: sender_channel.clone() }) {
+        if let Some(old_connection) =
+            connections.insert(address, ClientConnection { sender: sender_channel.clone() })
+        {
             // An old connection existed - drop its sender channel to close it
             // This will cause the old connection's receiver to return None, breaking its loop
             drop(old_connection.sender);
-            tracing::debug!("Replaced existing connection for client {address} with new connection");
+            tracing::debug!(
+                "Replaced existing connection for client {address} with new connection"
+            );
         }
     }
 

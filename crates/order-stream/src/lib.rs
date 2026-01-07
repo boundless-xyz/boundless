@@ -912,11 +912,7 @@ mod tests {
                 connections.contains_key(&ctx.prover_signer.address()),
                 "New connection should be active"
             );
-            assert_eq!(
-                connections.len(),
-                1,
-                "Should only have one connection for this address"
-            );
+            assert_eq!(connections.len(), 1, "Should only have one connection for this address");
         }
 
         // Spawn task to listen on second connection
@@ -945,11 +941,8 @@ mod tests {
         let db_order = watch_task.await.unwrap().unwrap();
 
         // Wait for the order to be received on the new connection
-        let order_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(4),
-            second_order_rx.recv(),
-        )
-        .await;
+        let order_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(4), second_order_rx.recv()).await;
 
         match order_result {
             Ok(Some(received_order)) => {
@@ -969,16 +962,14 @@ mod tests {
 
         // Verify old connection did not receive the order
         // The old connection should be closed, so it shouldn't receive any messages
-        let old_order_result = tokio::time::timeout(
-            tokio::time::Duration::from_millis(500),
-            first_order_rx.recv(),
-        )
-        .await;
+        let old_order_result =
+            tokio::time::timeout(tokio::time::Duration::from_millis(500), first_order_rx.recv())
+                .await;
         assert!(
             old_order_result.is_err() || matches!(old_order_result, Ok(None)),
             "Old connection should not receive the order"
         );
-        
+
         // Clean up - abort tasks directly
         first_stream_task.abort();
         second_stream_task.abort();
