@@ -40,19 +40,19 @@ None - all variables have defaults, but you should override them based on your e
 
 #### Broker Market Configuration
 
-* `broker_min_mcycle_price` (default: `"0.0000003"`): Minimum price per mega-cycle
-* `broker_min_mcycle_price_collateral_token` (default: `"0"`): Minimum price per mega-cycle in collateral token
+* `broker_min_mcycle_price` (default: `"0.00000001"`): Minimum price per mega-cycle
+* `broker_min_mcycle_price_collateral_token` (default: `"0.00005"`): Minimum price per mega-cycle in collateral token
 * `broker_peak_prove_khz` (default: `100`): Estimated peak performance in kHz
 * `broker_max_collateral` (default: `"200"`): Maximum collateral amount in ZKC
-* `broker_max_concurrent_preflights` (default: `4`): Maximum concurrent preflight tasks (auto-calculated from CPU count if not set)
+* `broker_max_concurrent_preflights` (default: `2`): Maximum concurrent preflight tasks
 * `broker_max_concurrent_proofs` (default: `1`): Maximum concurrent proof tasks
 * `broker_priority_requestor_lists` (default: list with Boundless recommended list): List of priority requestor list URLs
-* `broker_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`): Prometheus metrics endpoint
+* `broker_prometheus_metrics_addr` (default: `"127.0.0.1:9590"`): Prometheus metrics endpoint
 
 #### Ethereum Configuration
 
-* `broker_rpc_url` (default: `"https://rpc.boundless.network"`): Ethereum RPC URL (**should be overridden**)
-* `broker_private_key` (default: zero key): Private key for signing transactions (**must be set**)
+* `broker_rpc_url` (default: `""`): Ethereum RPC URL (**must be set**)
+* `broker_private_key` (default: `""`): Private key for signing transactions (**must be set**)
 
 ## Dependencies
 
@@ -121,7 +121,7 @@ None
 
 3. **Database**: Broker only supports SQLite. The database file is stored at the location specified in `broker_db_url`.
 
-4. **Performance Tuning**: Adjust `broker_peak_prove_khz`, `broker_max_concurrent_preflights`, and `broker_max_concurrent_proofs` based on your hardware capabilities and benchmarking results. `broker_max_concurrent_preflights` is automatically calculated from CPU count if not set.
+4. **Performance Tuning**: Adjust `broker_peak_prove_khz`, `broker_max_concurrent_preflights`, and `broker_max_concurrent_proofs` based on your hardware capabilities and benchmarking results.
 
 5. **Shared Directory**: Broker uses `/etc/boundless/broker/` for its configuration and database files, while sharing the parent `/etc/boundless/` directory with Bento services. The parent directory must have `0755` permissions and be owned by `root:root` to allow both services to access it. The Bento role automatically sets these permissions to prevent conflicts.
 

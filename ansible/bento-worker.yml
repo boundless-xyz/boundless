@@ -3,11 +3,11 @@
 # Use this when deploying to worker nodes that connect to remote PostgreSQL, Valkey, and S3 services
 #
 # Usage:
-#   # Deploy only bento (no dependencies) to worker nodes
-#   ansible-playbook -i inventory.yml bento-worker.yml -e bento_task=prove
+#   # Deploy bento (no dependencies) to worker nodes
+#   ansible-playbook -i inventory.yml bento-worker.yml
 #
 #   # Deploy only bento service configuration (skip installation)
-#   ansible-playbook -i inventory.yml bento-worker.yml --tags bento-config,bento-service -e bento_task=prove
+#   ansible-playbook -i inventory.yml bento-worker.yml --tags bento-config,bento-service
 
 - name: Deploy Bento Worker (without dependencies)
   hosts: all
@@ -23,7 +23,7 @@
       ansible.builtin.include_role:
         name: bento
       vars:
-        # bento_task is set via -e flag or uses role default ("prove")
+        # bento_task only affects the include tag name; it does not change launcher behavior
         bento_install_dependencies: false
         bento_count: 2
       tags:

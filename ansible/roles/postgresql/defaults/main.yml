@@ -7,9 +7,7 @@ postgresql_service_enabled: true
 postgresql_service_state: started
 
 # Database configuration
-# Secrets can be set via environment variables (preferred) or overridden in playbooks
-# Environment variables: POSTGRESQL_USER, POSTGRESQL_PASSWORD, POSTGRESQL_HOST, POSTGRESQL_PORT, POSTGRESQL_DATABASE
-# Note: default(..., true) handles empty strings from env vars
+# Set via inventory, group_vars, or host_vars (use Ansible Vault for secrets)
 postgresql_user: "bento"
 postgresql_password: "CHANGE_ME"
 postgresql_host: "127.0.0.1"
@@ -21,8 +19,7 @@ postgresql_create_db: true
 postgresql_create_user: true
 
 # Network configuration
-# Set to '*' or '0.0.0.0' to listen on all interfaces, or specific IP address
-# Can be set via POSTGRESQL_LISTEN_ADDRESSES environment variable
+# Set to '*' or '0.0.0.0' to listen on all interfaces, or a specific IP address
 postgresql_listen_addresses: "localhost"
 
 # PostgreSQL host-based authentication (pg_hba.conf) entries

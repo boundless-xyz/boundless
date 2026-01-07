@@ -13,7 +13,7 @@ This Ansible role installs and configures the Boundless Miner service, which con
 
 ### Installation
 
-* `miner_version` (default: `"v1.1.1"`): Version of Bento bundle to install (contains bento\_cli)
+* `miner_version` (default: `{{ bento_version | default('v1.1.1') }}`): Version reference (not used for installation)
 
 ### Service Configuration
 
@@ -42,15 +42,9 @@ This Ansible role installs and configures the Boundless Miner service, which con
 
 ### Environment Configuration
 
-The miner service uses the same environment variables as Bento services:
-
-* Database URL (PostgreSQL)
-* Redis/Valkey URL
-* S3 configuration (MinIO)
-* RISC0 home directory
-* Rust logging level
-
-These are automatically configured from Bento role variables.
+The miner role does not create an environment file. If `bento-cli` requires
+custom environment variables, add them via a systemd drop-in or an
+`EnvironmentFile` you manage yourself.
 
 ## Dependencies
 
@@ -72,15 +66,13 @@ These are automatically configured from Bento role variables.
 
 ## What This Role Does
 
-1. **Downloads Bento bundle** containing `bento_cli` binary
-2. **Installs bento\_cli** to `/usr/local/bin/bento_cli`
-3. **Creates environment file** with database, Redis, and S3 configuration
-4. **Creates systemd service** that runs miner in a continuous loop
-5. **Starts and enables** the miner service
+1. **Checks for bento-cli** in `miner_install_dir`
+2. **Creates systemd service** that runs miner in a continuous loop
+3. **Starts and enables** the miner service
 
 ## Service Behavior
 
-The miner service runs `bento_cli --iter-count <count>` in a continuous loop with a configurable sleep interval between cycles. If the mining process exits, systemd will automatically restart it.
+The miner service runs `bento-cli --iter-count <count>` in a continuous loop with a configurable sleep interval between cycles. If the mining process exits, systemd will automatically restart it.
 
 ## Tags
 

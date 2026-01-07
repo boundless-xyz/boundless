@@ -21,8 +21,7 @@ vector_cloudwatch_stream_name: "%Y-%m-%d"
 # Vector will use credentials in this order:
 # 1. IAM instance profile (if running on EC2) - preferred method
 # 2. AWS credentials file (~/.aws/credentials) - if vector_aws_credentials_file is set
-# 3. Environment variables - if vector_aws_access_key_id and vector_aws_secret_access_key are set
-# 4. Explicit credentials in Vector config - if vector_aws_access_key_id and vector_aws_secret_access_key are set
+# 3. Environment variables in /etc/default/vector - if vector_aws_access_key_id and vector_aws_secret_access_key are set
 vector_aws_use_instance_profile: true  # Use IAM instance profile (preferred for EC2)
 vector_aws_credentials_file: null  # Path to AWS credentials file (e.g., "/root/.aws/credentials")
 vector_aws_access_key_id: null  # AWS access key ID (not recommended, use IAM roles instead)

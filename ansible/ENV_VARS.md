@@ -19,11 +19,11 @@ Create host-specific configuration files:
 
 ```bash
 # Non-sensitive configuration
-nano ansible/host_vars/prover-01/main.yml
+nano ansible/host_vars/example/main.yml
 ```
 
 ```yaml
-# host_vars/prover-01/main.yml
+# host_vars/example/main.yml
 postgresql_host: "10.0.1.10"
 valkey_host: "10.0.1.10"
 minio_host: "10.0.1.10"
@@ -34,11 +34,11 @@ For sensitive values, use Ansible Vault:
 
 ```bash
 # Create encrypted vault file
-ansible-vault create ansible/host_vars/prover-01/vault.yml
+ansible-vault create ansible/host_vars/example/vault.yml
 ```
 
 ```yaml
-# host_vars/prover-01/vault.yml (encrypted)
+# host_vars/example/vault.yml (encrypted)
 postgresql_password: "secure_password"
 minio_root_user: "s3_access_key"
 minio_root_password: "s3_secret_key"
@@ -95,8 +95,8 @@ Set in `host_vars` or via `-e`:
 Set in `host_vars` or via `-e`:
 
 * `broker_bento_api_url` (default: `"http://localhost:8081"`)
-* `broker_rpc_url` (default: `"https://rpc.boundless.network"` - **should be overridden**)
-* `broker_private_key` (default: zero key - **must be set**)
+* `broker_rpc_url` (default: `""` - **must be set**)
+* `broker_private_key` (default: `""` - **must be set**)
 * `broker_min_mcycle_price` (default: `"0.00000001"`)
 * `broker_min_mcycle_price_collateral_token` (default: `"0.00005"`)
 * `broker_peak_prove_khz` (default: `100`)
@@ -111,14 +111,22 @@ Set in `host_vars` or via `-e`:
 
 Set in `host_vars` or via `-e`:
 
-* `bento_task` (default: `"prove"`): Service type (prove, exec, aux, api, snark, join, union, coproc)
-* `bento_count` (default: `1`): Number of instances
+* `bento_task` (default: `"prove"`): Legacy tag label (not used by the launcher)
+* `bento_count` (default: `1`): Legacy instance count (not used by the launcher)
 * `bento_segment_po2` (default: `20`)
 * `bento_keccak_po2` (default: `17`)
 * `bento_rewards_address` (default: `""`)
 * `bento_povw_log_id` (default: `""`)
 * `bento_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`): Base Prometheus metrics address (ports vary by service: api=9090, prove=9190, exec=9290, aux=9390, snark=9490, join=9490)
 * `bento_version` (default: `"v1.2.0"`): Version of Bento to install (tracked in `/etc/boundless/.bento_version`)
+* `bento_gpu_count` (default: `null`): Number of GPU prove workers (null = auto-detect, 0 = disable)
+* `bento_exec_count` (default: `4`): Number of exec workers
+* `bento_aux_count` (default: `2`): Number of aux workers
+* `bento_snark_count` (default: `1`): Number of snark workers (when `bento_snark_workers` is true)
+* `bento_join_count` (default: `1`): Number of join workers (when `bento_join_workers` is true)
+* `bento_snark_workers` (default: `false`): Enable snark workers
+* `bento_join_workers` (default: `false`): Enable join workers
+* `bento_enable_api` (default: `true`): Enable the API service
 
 ## Remote Worker Node Configuration
 
@@ -146,11 +154,13 @@ minio_port: 9000
 # minio_root_password: Set in vault.yml
 
 # Bento service configuration
-bento_task: "prove"
-bento_count: 1
+bento_enable_api: false
+bento_gpu_count: 1
+bento_exec_count: 0
+bento_aux_count: 0
 ```
 
-See `host_vars/prover-01/main.yml` for a complete example.
+See `host_vars/example/main.yml` for a complete example.
 
 ## Ansible Vault
 
@@ -158,13 +168,13 @@ For sensitive values, use Ansible Vault:
 
 ```bash
 # Create encrypted vault file
-ansible-vault create host_vars/prover-01/vault.yml
+ansible-vault create host_vars/example/vault.yml
 
 # Edit existing vault file
-ansible-vault edit host_vars/prover-01/vault.yml
+ansible-vault edit host_vars/example/vault.yml
 
 # View vault file
-ansible-vault view host_vars/prover-01/vault.yml
+ansible-vault view host_vars/example/vault.yml
 ```
 
 When running playbooks with vault files:

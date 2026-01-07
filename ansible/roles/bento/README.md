@@ -19,8 +19,8 @@ None - all variables have defaults, but you should override them based on your e
 
 #### Installation Configuration
 
-* `bento_version` (default: `"v1.1.2"`): Version of Bento to install
-* `bento_task` (default: `"prove"`): Task type for the agent (prove, execute, aux, etc.)
+* `bento_version` (default: `"v1.2.0"`): Version of Bento to install
+* `bento_task` (default: `"prove"`): Legacy task label used by playbooks for tags (not used by the role)
 * `bento_user` (default: `"bento"`): User to run the service as (dedicated service user)
 * `bento_group` (default: `"bento"`): Group for the bento user
 * `bento_home` (default: `"/var/lib/bento"`): Home directory for the bento user
@@ -28,7 +28,7 @@ None - all variables have defaults, but you should override them based on your e
 * `bento_install_dir` (default: `"/usr/local/bin"`): Directory to install binaries
 * `bento_config_dir` (default: `"/etc/boundless"`): Directory for configuration files (root-owned, readable by bento group)
 * `bento_work_dir` (default: `"/var/lib/bento"`): Working directory for the service
-* `bento_count` (default: `1`): Number of service instances to deploy (when > 1, launcher script starts multiple instances in parallel)
+* `bento_count` (default: `1`): Legacy instance count (not used by the unified launcher)
 * `bento_install_dependencies` (default: `true`): Whether to install PostgreSQL, Valkey, and MinIO on this host
 
 #### Service Configuration
@@ -85,9 +85,14 @@ See the `valkey` role documentation for the actual variables to set.
 * `bento_rewards_address` (default: `""`): Rewards address
 * `bento_povw_log_id` (default: `""`): POVW log ID
 * `bento_risc0_home_service`: RISC0\_HOME directory for the service (defaults to `{{ bento_home }}/.risc0`, automatically set by rzup role)
-* `bento_gpu_count` (default: `1`): Number of GPU prove workers
+* `bento_gpu_count` (default: `null`): Number of GPU prove workers (null = auto-detect, 0 = disable)
 * `bento_exec_count` (default: `4`): Number of exec workers
 * `bento_aux_count` (default: `2`): Number of aux workers
+* `bento_snark_count` (default: `1`): Number of snark workers (when `bento_snark_workers` is true)
+* `bento_join_count` (default: `1`): Number of join workers (when `bento_join_workers` is true)
+* `bento_snark_workers` (default: `false`): Enable snark workers
+* `bento_join_workers` (default: `false`): Enable join workers
+* `bento_enable_api` (default: `true`): Enable the API service
 
 ## Dependencies
 
@@ -116,7 +121,6 @@ These roles are automatically included when deploying Bento. Make sure all requi
     - role: bento
       vars:
         bento_version: "v1.2.0"
-        bento_task: "prove"
         # PostgreSQL configuration - these credentials are shared with bento
         postgresql_user: "bento"
         postgresql_password: "secure_password"
@@ -143,7 +147,6 @@ These roles are automatically included when deploying Bento. Make sure all requi
     - role: bento
       vars:
         bento_version: "v1.2.0"
-        bento_task: "prove"
         bento_install_dependencies: false  # Skip local service installation
         # Configure external service endpoints
         postgresql_install: false
@@ -161,7 +164,7 @@ These roles are automatically included when deploying Bento. Make sure all requi
 **Better approach**: Set these in `host_vars/HOSTNAME/main.yml` for persistent configuration:
 
 ```yaml
-# host_vars/prover-01/main.yml
+# host_vars/example/main.yml
 postgresql_install: false
 postgresql_host: "db.example.com"
 valkey_install: false
@@ -175,8 +178,8 @@ bento_install_dependencies: false
 
 * **Idempotent**: Safe to run multiple times
 * **Version Tracking**: Tracks installed Bento version in `/etc/boundless/.bento_version` and only reinstalls when version changes or binaries are missing
-* **Launcher Script Architecture**: Uses launcher scripts to start multiple instances per service type, simplifying systemd configuration
-* **Service Management**: Properly manages systemd service with handlers, supports multiple instances via launcher scripts
+* **Launcher Script Architecture**: Uses a unified launcher script to start API and worker types in parallel
+* **Service Management**: Properly manages the single systemd service with handlers
 * **Smart Restart Logic**: Services restart only when binaries or configuration files change, not on cleanup tasks or version file updates
 * **Configuration Management**: Creates environment file, launcher scripts, and service file from templates
 * **Directory Management**: Creates necessary directories with proper permissions (shared `/etc/boundless/` directory)
@@ -196,7 +199,7 @@ bento_install_dependencies: false
 ## Handlers
 
 * `Reload systemd`: Reloads systemd daemon after service file changes
-* `Restart Bento service`: Restarts the specific Bento service (e.g., `bento-prove`, `bento-api`)
+* `Restart Bento service`: Restarts the `bento` service
 * `Start Bento service`: Starts the Bento service
 * `Stop Bento service`: Stops the Bento service
 * `Restart all Bento services`: Restarts all Bento services (legacy handler, not used in current implementation)
@@ -211,33 +214,17 @@ bento_install_dependencies: false
 
 ### Launcher Script Approach
 
-Each Bento service type uses a launcher script that:
+The role installs a single launcher script that starts the API (if enabled) and
+all configured worker types in parallel. Worker counts and enablement are
+controlled by `bento_*_count` and `bento_*_workers` variables.
 
-1. Starts multiple instances in parallel (when `bento_count > 1`)
-2. Handles GPU assignment for prove workers (`CUDA_VISIBLE_DEVICES`)
-3. Waits for all processes to complete
+**Launcher Script**:
 
-**Launcher Scripts**:
+* `/etc/boundless/bento-launcher.sh` - Starts API and worker processes
 
-* `/etc/boundless/bento-prove-launcher.sh` - Starts GPU prove workers
-* `/etc/boundless/bento-api-launcher.sh` - Starts REST API
-* `/etc/boundless/bento-exec-launcher.sh` - Starts exec workers
-* `/etc/boundless/bento-aux-launcher.sh` - Starts aux workers
-* `/etc/boundless/bento-snark-launcher.sh` - Starts SNARK compression workers
-* `/etc/boundless/bento-join-launcher.sh` - Starts join task workers
-* `/etc/boundless/bento-union-launcher.sh` - Starts union task workers
-* `/etc/boundless/bento-coproc-launcher.sh` - Starts coprocessor workers
+**Systemd Unit**:
 
-**Systemd Units**:
-
-* `/etc/systemd/system/bento-prove.service`
-* `/etc/systemd/system/bento-api.service`
-* `/etc/systemd/system/bento-exec.service`
-* `/etc/systemd/system/bento-aux.service`
-* `/etc/systemd/system/bento-snark.service`
-* `/etc/systemd/system/bento-join.service`
-* `/etc/systemd/system/bento-union.service`
-* `/etc/systemd/system/bento-coproc.service`
+* `/etc/systemd/system/bento.service`
 
 ### Directory Permissions
 
@@ -246,7 +233,7 @@ Each Bento service type uses a launcher script that:
 **File Permissions**:
 
 * Config directory (`/etc/boundless/`): `0755`, owned by `root:root` (shared with broker)
-* Launcher scripts: `0755`, owned by `bento:bento`
+* Launcher script (`/etc/boundless/bento-launcher.sh`): `0755`, owned by `bento:bento`
 * Environment file (`bento.env`): `0640`, owned by `root:bento`
 * Version file (`.bento_version`): `0644`, owned by `root:root` (metadata only, no restart on change)
 
@@ -265,19 +252,19 @@ If services fail with "Permission denied" (exit code 126/203):
 
 2. **Check script permissions**:
    ```bash
-   ls -l /etc/boundless/bento-*-launcher.sh
+   ls -l /etc/boundless/bento-launcher.sh
    # Should show: -rwxr-xr-x bento bento
-   # Fix: sudo chmod +x /etc/boundless/bento-*-launcher.sh
+   # Fix: sudo chmod +x /etc/boundless/bento-launcher.sh
    ```
 
 3. **Test script manually**:
    ```bash
-   sudo -u bento /etc/boundless/bento-aux-launcher.sh
+   sudo -u bento /etc/boundless/bento-launcher.sh
    ```
 
 4. **Reset systemd state**:
    ```bash
-   sudo systemctl reset-failed bento-{task}
+   sudo systemctl reset-failed bento
    sudo systemctl daemon-reload
    ```
 
@@ -286,7 +273,7 @@ If services fail with "Permission denied" (exit code 126/203):
 Check logs for errors:
 
 ```bash
-journalctl -u bento-{task} -n 50
+journalctl -u bento -n 50
 ```
 
 Common causes:
@@ -303,8 +290,8 @@ Verify launcher script uses `for` loop with `&` to background processes and `wai
 ### Check Service Status
 
 ```bash
-systemctl status bento-prove bento-api bento-exec bento-aux
-journalctl -u bento-prove -f
+systemctl status bento
+journalctl -u bento -f
 ```
 
 ## License
