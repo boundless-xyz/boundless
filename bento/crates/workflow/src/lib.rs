@@ -390,12 +390,7 @@ impl Agent {
                 |tt| matches!(tt, TaskType::Prove(_)),
                 "prove",
             ) {
-                if let Err(err) = self.process_task_batch(
-                    &startup_tasks,
-                    &batch_info,
-                    |tt| if let TaskType::Prove(req) = tt { Some(*req) } else { None },
-                    tasks::prove::batch_prover,
-                ).await {
+                if let Err(err) = self.process_prove_batch_helper(&startup_tasks, &batch_info).await {
                     tracing::error!("[BENTO-WF-108-BATCH-STARTUP] Batch prove failed: {:#}", err);
                 } else {
                     startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -411,12 +406,7 @@ impl Agent {
                 |tt| matches!(tt, TaskType::Join(_)),
                 "join",
             ) {
-                if let Err(err) = self.process_task_batch(
-                    &startup_tasks,
-                    &batch_info,
-                    |tt| if let TaskType::Join(req) = tt { Some(req.clone()) } else { None },
-                    tasks::join::batch_join,
-                ).await {
+                if let Err(err) = self.process_join_batch_helper(&startup_tasks, &batch_info).await {
                     tracing::error!("[BENTO-WF-108-BATCH-JOIN-STARTUP] Batch join failed: {:#}", err);
                 } else {
                     startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -432,12 +422,7 @@ impl Agent {
                 |tt| matches!(tt, TaskType::Keccak(_)),
                 "keccak",
             ) {
-                if let Err(err) = self.process_task_batch(
-                    &startup_tasks,
-                    &batch_info,
-                    |tt| if let TaskType::Keccak(req) = tt { Some(*req) } else { None },
-                    tasks::keccak::batch_keccak,
-                ).await {
+                if let Err(err) = self.process_keccak_batch_helper(&startup_tasks, &batch_info).await {
                     tracing::error!("[BENTO-WF-108-BATCH-KECCAK-STARTUP] Batch keccak failed: {:#}", err);
                 } else {
                     startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -453,12 +438,7 @@ impl Agent {
                 |tt| matches!(tt, TaskType::Union(_)),
                 "union",
             ) {
-                if let Err(err) = self.process_task_batch(
-                    &startup_tasks,
-                    &batch_info,
-                    |tt| if let TaskType::Union(req) = tt { Some(req.clone()) } else { None },
-                    tasks::union::batch_union,
-                ).await {
+                if let Err(err) = self.process_union_batch_helper(&startup_tasks, &batch_info).await {
                     tracing::error!("[BENTO-WF-108-BATCH-UNION-STARTUP] Batch union failed: {:#}", err);
                 } else {
                     startup_tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -551,12 +531,7 @@ impl Agent {
                     |tt| matches!(tt, TaskType::Prove(_)),
                     "prove",
                 ) {
-                    if let Err(err) = self.process_task_batch(
-                        &tasks,
-                        &batch_info,
-                        |tt| if let TaskType::Prove(req) = tt { Some(*req) } else { None },
-                        tasks::prove::batch_prover,
-                    ).await {
+                    if let Err(err) = self.process_prove_batch_helper(&tasks, &batch_info).await {
                         tracing::error!("[BENTO-WF-108-BATCH] Batch prove failed: {:#}", err);
                     } else {
                         tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -572,12 +547,7 @@ impl Agent {
                     |tt| matches!(tt, TaskType::Join(_)),
                     "join",
                 ) {
-                    if let Err(err) = self.process_task_batch(
-                        &tasks,
-                        &batch_info,
-                        |tt| if let TaskType::Join(req) = tt { Some(req.clone()) } else { None },
-                        tasks::join::batch_join,
-                    ).await {
+                    if let Err(err) = self.process_join_batch_helper(&tasks, &batch_info).await {
                         tracing::error!("[BENTO-WF-108-BATCH-JOIN] Batch join failed: {:#}", err);
                     } else {
                         tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -593,12 +563,7 @@ impl Agent {
                     |tt| matches!(tt, TaskType::Keccak(_)),
                     "keccak",
                 ) {
-                    if let Err(err) = self.process_task_batch(
-                        &tasks,
-                        &batch_info,
-                        |tt| if let TaskType::Keccak(req) = tt { Some(*req) } else { None },
-                        tasks::keccak::batch_keccak,
-                    ).await {
+                    if let Err(err) = self.process_keccak_batch_helper(&tasks, &batch_info).await {
                         tracing::error!("[BENTO-WF-108-BATCH-KECCAK] Batch keccak failed: {:#}", err);
                     } else {
                         tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -614,12 +579,7 @@ impl Agent {
                     |tt| matches!(tt, TaskType::Union(_)),
                     "union",
                 ) {
-                    if let Err(err) = self.process_task_batch(
-                        &tasks,
-                        &batch_info,
-                        |tt| if let TaskType::Union(req) = tt { Some(req.clone()) } else { None },
-                        tasks::union::batch_union,
-                    ).await {
+                    if let Err(err) = self.process_union_batch_helper(&tasks, &batch_info).await {
                         tracing::error!("[BENTO-WF-108-BATCH-UNION] Batch union failed: {:#}", err);
                     } else {
                         tasks = taskdb::request_work_batch(&self.db_pool, &self.args.task_stream, self.args.batch_size)
@@ -758,62 +718,119 @@ impl Agent {
         }
     }
 
-    /// Generic batch processor
-    ///
-    /// Extracts tasks, calls the batch processor function, marks tasks as done
-    async fn process_task_batch<T, F, Fut>(
+    /// Process a batch of prove tasks
+    async fn process_prove_batch_helper(
         &self,
         tasks: &[ReadyTask],
         batch_info: &BatchInfo,
-        extractor: impl Fn(&TaskType) -> Option<T>,
-        processor: F,
-    ) -> Result<()>
-    where
-        F: FnOnce(&Agent, &Uuid, &[(String, T)]) -> Fut,
-        Fut: std::future::Future<Output = Result<()>>,
-    {
+    ) -> Result<()> {
         let (job_id, indices, type_name) = batch_info;
 
-        // Extract typed requests with their task IDs
         let mut requests = Vec::new();
         for &i in indices {
             let task = &tasks[i];
-            let task_type: TaskType = serde_json::from_value(task.task_def.clone())
-                .context("Failed to deserialize task_def")?;
-
-            if let Some(req) = extractor(&task_type) {
+            let task_type: TaskType = serde_json::from_value(task.task_def.clone())?;
+            if let TaskType::Prove(req) = task_type {
                 requests.push((task.task_id.clone(), req));
             }
         }
 
-        if requests.is_empty() {
-            return Ok(());
+        if !requests.is_empty() {
+            tracing::info!("Batch processing {} {} tasks for job {}", requests.len(), type_name, job_id);
+            tasks::prove::batch_prover(self, job_id, &requests).await?;
+
+            for &i in indices {
+                let task = &tasks[i];
+                taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, serde_json::json!({})).await?;
+            }
         }
+        Ok(())
+    }
 
-        tracing::info!(
-            "Batch processing {} {} tasks for job {}",
-            requests.len(),
-            type_name,
-            job_id
-        );
+    /// Process a batch of join tasks
+    async fn process_join_batch_helper(
+        &self,
+        tasks: &[ReadyTask],
+        batch_info: &BatchInfo,
+    ) -> Result<()> {
+        let (job_id, indices, type_name) = batch_info;
 
-        // Call the batch processor
-        processor(self, job_id, &requests).await
-            .with_context(|| format!("Batch {} failed", type_name))?;
-
-        // Mark all tasks as done
+        let mut requests = Vec::new();
         for &i in indices {
             let task = &tasks[i];
-            taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, serde_json::json!({}))
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to mark {} task done: {}:{}",
-                        type_name, task.job_id, task.task_id
-                    )
-                })?;
+            let task_type: TaskType = serde_json::from_value(task.task_def.clone())?;
+            if let TaskType::Join(req) = task_type {
+                requests.push((task.task_id.clone(), req));
+            }
         }
 
+        if !requests.is_empty() {
+            tracing::info!("Batch processing {} {} tasks for job {}", requests.len(), type_name, job_id);
+            tasks::join::batch_join(self, job_id, &requests).await?;
+
+            for &i in indices {
+                let task = &tasks[i];
+                taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, serde_json::json!({})).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Process a batch of keccak tasks
+    async fn process_keccak_batch_helper(
+        &self,
+        tasks: &[ReadyTask],
+        batch_info: &BatchInfo,
+    ) -> Result<()> {
+        let (job_id, indices, type_name) = batch_info;
+
+        let mut requests = Vec::new();
+        for &i in indices {
+            let task = &tasks[i];
+            let task_type: TaskType = serde_json::from_value(task.task_def.clone())?;
+            if let TaskType::Keccak(req) = task_type {
+                requests.push((task.task_id.clone(), req));
+            }
+        }
+
+        if !requests.is_empty() {
+            tracing::info!("Batch processing {} {} tasks for job {}", requests.len(), type_name, job_id);
+            tasks::keccak::batch_keccak(self, job_id, &requests).await?;
+
+            for &i in indices {
+                let task = &tasks[i];
+                taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, serde_json::json!({})).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Process a batch of union tasks
+    async fn process_union_batch_helper(
+        &self,
+        tasks: &[ReadyTask],
+        batch_info: &BatchInfo,
+    ) -> Result<()> {
+        let (job_id, indices, type_name) = batch_info;
+
+        let mut requests = Vec::new();
+        for &i in indices {
+            let task = &tasks[i];
+            let task_type: TaskType = serde_json::from_value(task.task_def.clone())?;
+            if let TaskType::Union(req) = task_type {
+                requests.push((task.task_id.clone(), req));
+            }
+        }
+
+        if !requests.is_empty() {
+            tracing::info!("Batch processing {} {} tasks for job {}", requests.len(), type_name, job_id);
+            tasks::union::batch_union(self, job_id, &requests).await?;
+
+            for &i in indices {
+                let task = &tasks[i];
+                taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, serde_json::json!({})).await?;
+            }
+        }
         Ok(())
     }
 
