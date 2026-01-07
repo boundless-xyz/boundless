@@ -167,8 +167,8 @@ pub async fn keccak(
     agent: &Agent,
     job_id: &Uuid,
     task_id: &str,
-    request: &KeccakReq,
+    request: KeccakReq,
 ) -> Result<()> {
     // Just call the batch version with a single item
-    batch_keccak(agent, job_id, &[(task_id.to_string(), request.clone())]).await
+    batch_keccak(agent, job_id, &[(task_id.to_string(), request)]).await
 }

@@ -848,7 +848,7 @@ impl Agent {
             )
             .context("[BENTO-WF-114] Failed to serialize executor response")?,
             TaskType::Prove(req) => serde_json::to_value(
-                tasks::prove::prover(self, &task.job_id, &task.task_id, &req)
+                tasks::prove::prover(self, &task.job_id, &task.task_id, req)
                     .await
                     .context("[BENTO-WF-115] Prove failed")?,
             )
@@ -902,7 +902,7 @@ impl Agent {
             )
             .context("[BENTO-WF-128] failed to serialize snark response")?,
             TaskType::Keccak(req) => serde_json::to_value(
-                tasks::keccak::keccak(self, &task.job_id, &task.task_id, &req)
+                tasks::keccak::keccak(self, &task.job_id, &task.task_id, req)
                     .await
                     .context("[BENTO-WF-129] Keccak failed")?,
             )
