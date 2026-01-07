@@ -226,6 +226,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
         {
             let mut connections = state.connections.write().await;
             for address in clients_to_remove {
+                tracing::debug!("Removing client {address} from connections");
                 connections.remove(&address);
             }
         }

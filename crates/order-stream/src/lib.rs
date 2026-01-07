@@ -421,6 +421,7 @@ impl AppState {
 }
 
 const MAX_ORDER_SIZE: usize = 100 * 1024; // 100 KiB
+const BROADCAST_TASK_RESPAWN_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(OpenApi, Debug, Deserialize)]
 #[openapi(
@@ -483,16 +484,29 @@ pub async fn run_from_parts(
     let app_state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
-            let order_stream = app_state_clone.db.order_stream().await.unwrap();
+            let order_stream = match app_state_clone.db.order_stream().await {
+                Ok(stream) => stream,
+                Err(e) => {
+                    tracing::warn!("Failed to create order stream: {e}. Respawning...");
+                    tokio::time::sleep(BROADCAST_TASK_RESPAWN_DELAY).await;
+                    continue;
+                }
+            };
+
             let broadcast_task = start_broadcast_task(app_state_clone.clone(), order_stream);
 
             match broadcast_task.await {
-                Ok(_) => {
-                    tracing::info!("Broadcast task completed successfully");
-                    break;
+                Ok(Ok(())) => {
+                    tracing::warn!("Broadcast task stream ended unexpectedly. Respawning...");
+                    tokio::time::sleep(BROADCAST_TASK_RESPAWN_DELAY).await;
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("Broadcast task failed: {e}. Respawning...");
+                    tokio::time::sleep(BROADCAST_TASK_RESPAWN_DELAY).await;
                 }
                 Err(e) => {
-                    tracing::warn!("Broadcast task failed with error: {}. Respawning...", e);
+                    tracing::error!("Broadcast task panicked: {e}. Respawning...");
+                    tokio::time::sleep(BROADCAST_TASK_RESPAWN_DELAY).await;
                 }
             }
         }
