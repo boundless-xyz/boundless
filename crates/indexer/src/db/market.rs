@@ -1813,14 +1813,22 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+            best_peak_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+            best_effective_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -1904,14 +1912,22 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+            best_peak_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+            best_effective_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -3865,7 +3881,11 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+                best_peak_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -3875,7 +3895,11 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str_radix(&s, 16).ok()),
-                best_effective_prove_mhz: row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+                best_effective_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
@@ -4041,7 +4065,11 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+                best_peak_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -4051,7 +4079,11 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str(&s).ok()),
-                best_effective_prove_mhz: row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0),
+                best_effective_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()

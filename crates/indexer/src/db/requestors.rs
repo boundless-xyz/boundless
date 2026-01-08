@@ -57,11 +57,13 @@ fn parse_period_requestor_summary_row(
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
-    let best_peak_prove_mhz: f64 = row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
+    let best_peak_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_peak_prove_mhz_prover: Option<String> = row.try_get("best_peak_prove_mhz_prover").ok();
     let best_peak_prove_mhz_request_id_str: Option<String> =
         row.try_get("best_peak_prove_mhz_request_id").ok();
-    let best_effective_prove_mhz: f64 = row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
+    let best_effective_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_effective_prove_mhz_prover: Option<String> =
         row.try_get("best_effective_prove_mhz_prover").ok();
     let best_effective_prove_mhz_request_id_str: Option<String> =
@@ -134,11 +136,13 @@ fn parse_all_time_requestor_summary_row(
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
-    let best_peak_prove_mhz: f64 = row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
+    let best_peak_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_peak_prove_mhz_prover: Option<String> = row.try_get("best_peak_prove_mhz_prover").ok();
     let best_peak_prove_mhz_request_id_str: Option<String> =
         row.try_get("best_peak_prove_mhz_request_id").ok();
-    let best_effective_prove_mhz: f64 = row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
+    let best_effective_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_effective_prove_mhz_prover: Option<String> =
         row.try_get("best_effective_prove_mhz_prover").ok();
     let best_effective_prove_mhz_request_id_str: Option<String> =
