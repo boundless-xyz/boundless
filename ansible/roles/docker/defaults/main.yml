@@ -1,0 +1,15 @@
+---
+# Docker installation configuration
+
+# Ubuntu version mapping for Docker repository
+# Automatically detected, but can be overridden
+docker_ubuntu_version: null  # null = auto-detect
+
+# Docker architecture (default: amd64)
+docker_architecture: "amd64"
+
+# List of users to add to docker group (empty list = no users added)
+docker_users: []  # Example: ["ubuntu", "deploy"]
+
+# Enable NVIDIA Container Toolkit installation (requires NVIDIA GPU)
+docker_nvidia_enabled: true

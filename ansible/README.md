@@ -30,7 +30,8 @@ The playbook sets up a Boundless prover system by:
 ```
 ansible/
 ├── cluster.yml            # Full cluster deployment (bento + broker + dependencies)
-├── bento-worker.yml       # Bento worker deployment (no dependencies)
+├── bento-worker.yml      # Bento worker deployment (no dependencies)
+├── bento-standalone.yml  # Standalone Bento deployment with Docker Compose
 ├── broker.yml             # Broker deployment
 ├── inventory.yml          # Inventory file
 ├── ansible.cfg            # Ansible configuration
@@ -39,6 +40,7 @@ ansible/
 └── roles/
     ├── awscli/             # AWS CLI v2 installation
     ├── bento/              # Bento agent service (uses launcher scripts)
+    ├── bento/              # Bento Docker Compose deployment
     ├── broker/             # Broker service
     ├── grafana/            # Grafana monitoring
     ├── miner/              # Miner service
@@ -69,6 +71,9 @@ ansible-playbook -i inventory.yml cluster.yml
 
 # Bento worker deployment (no dependencies)
 ansible-playbook -i inventory.yml bento-worker.yml
+
+# Standalone Bento deployment with Docker Compose
+ansible-playbook -i inventory.yml bento-standalone.yml
 ```
 
 ## Configuration Management
@@ -291,6 +296,68 @@ If Bento services fail with "Permission denied" errors:
    ```
 
 See the role-specific README files for more detailed troubleshooting.
+
+## GitHub Actions Deployment
+
+The repository includes a GitHub Actions workflow (`.github/workflows/ansible-deploy.yml`) for automated Ansible deployments.
+
+### Setup
+
+1. **Configure GitHub Secrets**:
+   * `ANSIBLE_SSH_PRIVATE_KEY`: Private SSH key for connecting to target hosts
+   * `ANSIBLE_SSH_HOST`: Target host IP address or hostname
+   * `ANSIBLE_SSH_USER`: SSH username (default: `ubuntu`)
+   * `ANSIBLE_DEPLOY_HOST`: Ansible inventory hostname (default: `deploy-target`)
+
+2. **Configure GitHub Environments** (optional):
+   * Create environments in GitHub repository settings (Settings → Environments)
+   * Add environment-specific secrets if needed
+   * Environments can have protection rules and approval requirements
+
+### Usage
+
+#### Manual Deployment
+
+1. Go to Actions → Ansible Deployment
+2. Click "Run workflow"
+3. Select:
+   * **Playbook**: Which playbook to run (e.g., `bento-standalone.yml`)
+   * **Environment**: Target environment (staging/production)
+   * **Hosts**: Comma-separated host list or "all"
+   * **Skip Tags**: Optional tags to skip
+   * **Extra Vars**: Optional JSON variables
+
+#### Automatic Deployment
+
+Push to `main` or `release-*` branches with commit message containing `[deploy]` or `[deploy:staging]` or `[deploy:production]`:
+
+```bash
+git commit -m "Update configuration [deploy:staging]"
+git push origin main
+```
+
+### Example Deployments
+
+```bash
+# Deploy bento-standalone to staging
+# Via workflow_dispatch with:
+# - Playbook: bento-standalone.yml
+# - Environment: staging
+# - Hosts: all
+
+# Deploy with custom variables
+# - Extra Vars: {"bento_version": "v1.3.0", "bento_dir": "/opt/bento-prod"}
+
+# Skip specific tags
+# - Skip Tags: nvidia,rust
+```
+
+### Security Notes
+
+* SSH keys are stored as GitHub secrets and never logged
+* Inventory files are created temporarily and cleaned up after deployment
+* Use GitHub Environments for environment-specific secrets and approvals
+* Consider requiring approvals for production deployments
 
 ### Connection issues
 

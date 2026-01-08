@@ -1,29 +1,14 @@
 [Unit]
-Description=Boundless Bento Service
-
-{% if bento_install_dependencies | default(true) | bool %}
-After=network.target postgresql.service valkey-server.service
-Wants=postgresql.service valkey-server.service
-{% else %}
+Description=Bento Docker Service
 After=network.target
-{% endif %}
 
 [Service]
 Type=simple
-User={{ bento_user }}
-Group={{ bento_group }}
-EnvironmentFile={{ bento_config_dir }}/bento.env
-Environment="RISC0_HOME={{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}"
-Environment="PATH=/usr/local/bin:{{ bento_risc0_home_service | default(bento_home ~ '/.risc0') }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-Environment="BLAKE3_GROTH16_SETUP_DIR={{ bento_blake3_groth16_setup_dir | default(bento_home ~ '/.risc0/extensions/blake3_groth16_artifacts') }}"
-WorkingDirectory={{ bento_work_dir }}
-ExecStart={{ bento_config_dir }}/bento-launcher.sh
-SyslogIdentifier=bento
-
+User=root
+WorkingDirectory={{ bento_dir }}
+EnvironmentFile={{ bento_env_file }}
+ExecStart=/usr/local/bin/docker compose up -d
 Restart=always
 RestartSec=10
-TimeoutStartSec={{ bento_agent_timeout_start_sec }}
-TimeoutStopSec={{ bento_agent_timeout_stop_sec }}
-
-[Install]
-WantedBy=multi-user.target
+TimeoutStartSec=1800
+TimeoutStopSec=300

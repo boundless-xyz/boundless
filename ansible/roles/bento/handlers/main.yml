@@ -1,24 +1,7 @@
 ---
-- name: Reload systemd
-  ansible.builtin.systemd:
-    daemon_reload: true
+# Handlers for bento role
 
-- name: Restart Bento service
+- name: Restart Bento
   ansible.builtin.systemd:
-    name: "bento"
+    name: bento
     state: restarted
-    enabled: "{{ bento_service_enabled | bool }}"
-  failed_when: false
-
-- name: Start Bento service
-  ansible.builtin.systemd:
-    name: "bento"
-    state: started
-    enabled: "{{ bento_service_enabled | bool }}"
-  failed_when: false
-
-- name: Stop Bento service
-  ansible.builtin.systemd:
-    name: "bento"
-    state: stopped
-  failed_when: false
