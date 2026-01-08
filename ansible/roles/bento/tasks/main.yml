@@ -33,4 +33,13 @@
     owner: root
     group: root
     mode: '0644'
-  notify: Restart Bento
+  notify:
+    - Reload systemd
+    - Restart Bento
+
+- name: Ensure Bento service is enabled and started
+  ansible.builtin.systemd:
+    name: bento
+    enabled: true
+    state: started
+    daemon_reload: true
