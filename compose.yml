@@ -1,4 +1,11 @@
 name: bento
+# GPU Configuration:
+# The gpu_prove_agent service automatically detects all available GPUs using nvidia-smi
+# and spawns a prove agent process for each GPU. No manual configuration needed.
+#
+# To check available GPUs:
+#   nvidia-smi --list-gpus
+
 # Anchors:
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
@@ -58,12 +65,29 @@ x-broker-environment: &broker-environment
   POSTGRES_USER:
   POSTGRES_PASS:
 
+x-gpu-prove-agent: &gpu-prove-agent
+  <<: *agent-common
+  # Memory and CPU per GPU (will be multiplied by number of GPUs)
+  mem_limit: 4G
+  cpus: 4
+  # Entrypoint script automatically detects and uses all available GPUs
+  entrypoint: /bin/bash /scripts/gpu-prove-entrypoint.sh
+  volumes:
+    - ./scripts/gpu-prove-entrypoint.sh:/scripts/gpu-prove-entrypoint.sh:ro
+  # # Uncomment to mount local BLAKE3 Groth16 setup files instead of downloading and set USE_LOCAL_BLAKE3_GROTH16_SETUP to 1, yes, or true.
+  #   - type: bind
+  #     source: ${BLAKE3_GROTH16_SETUP_DIR}
+  #     target: /.blake3_groth16_artifacts/
+  #     read_only: true
+  # comment-out if running in CPU proving mode
+  # Note: All GPUs are accessible via nvidia runtime, device_ids restriction not needed
+
 x-broker-common: &broker-common
   restart: always
   depends_on:
     rest_api:
       condition: service_healthy
-    gpu_prove_agent0:
+    gpu_prove_agent:
       condition: service_started
     exec_agent:
       condition: service_started
@@ -191,25 +215,17 @@ services:
 
     entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
 
-  gpu_prove_agent0:
-    <<: *agent-common
-    mem_limit: 4G
-    cpus: 4
-    entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
-    # # Uncomment to mount local BLAKE3 Groth16 setup files instead of downloading and set USE_LOCAL_BLAKE3_GROTH16_SETUP to 1, yes, or true.
-    # volumes:
-      # - type: bind
-      #   source: ${BLAKE3_GROTH16_SETUP_DIR}
-      #   target: /.blake3_groth16_artifacts/
-      #   read_only: true
-    # comment-out if running in CPU proving mode
+  # GPU Prover Agent - automatically detects and uses all available GPUs
+  # Uses nvidia-smi to detect GPUs and spawns one agent process per GPU
+  gpu_prove_agent:
+    <<: *gpu-prove-agent
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              # TODO: how to scale this with N gpus?
-              device_ids: ["0"]
+              # No device_ids restriction - all GPUs are accessible
+              # The entrypoint script will detect and use all available GPUs
               capabilities: [gpu]
 
   rest_api:
