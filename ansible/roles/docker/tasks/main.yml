@@ -107,82 +107,75 @@
       {{ docker_version_output.stdout }}
       Docker Compose plugin is available via 'docker compose' command.
 
-- name: Install NVIDIA Container Toolkit (if GPU enabled)
-  when:
-    - docker_nvidia_enabled | bool
-    - >-
-      ansible_facts['devices']['nvidia'] is defined or
-      ansible_facts['pci_devices'] | selectattr('class', 'equalto', 'VGA') |
-      selectattr('vendor', 'equalto', 'NVIDIA Corporation') | list | length > 0
-  block:
-    - name: Add NVIDIA Container Toolkit GPG key
-      ansible.builtin.get_url:
-        url: https://nvidia.github.io/libnvidia-container/gpgkey
-        dest: /tmp/nvidia-container-toolkit.gpg
-        mode: '0644'
 
-    - name: Add NVIDIA Container Toolkit GPG key to keyring
-      ansible.builtin.shell: |
-        set -o pipefail
-        install -m 0755 -d /usr/share/keyrings
-        cat /tmp/nvidia-container-toolkit.gpg | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-        chmod a+r /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-      args:
-        creates: /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+- name: Add NVIDIA Container Toolkit GPG key
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/gpgkey
+    dest: /tmp/nvidia-container-toolkit.gpg
+    mode: '0644'
 
-    - name: Add NVIDIA Container Toolkit repository
-      ansible.builtin.get_url:
-        url: https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list
-        dest: /tmp/nvidia-container-toolkit.list
-        mode: '0644'
+- name: Add NVIDIA Container Toolkit GPG key to keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    install -m 0755 -d /usr/share/keyrings
+    cat /tmp/nvidia-container-toolkit.gpg | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    chmod a+r /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  args:
+    creates: /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 
-    - name: Check if NVIDIA Container Toolkit repository file exists
-      ansible.builtin.stat:
-        path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
-      register: docker_nvidia_repo_file_stat
+- name: Add NVIDIA Container Toolkit repository
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list
+    dest: /tmp/nvidia-container-toolkit.list
+    mode: '0644'
 
-    - name: Configure NVIDIA Container Toolkit repository with GPG key
-      ansible.builtin.replace:
-        path: /tmp/nvidia-container-toolkit.list
-        regexp: '^deb https://'
-        replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://'
+- name: Check if NVIDIA Container Toolkit repository file exists
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  register: docker_nvidia_repo_file_stat
 
-    - name: Copy NVIDIA Container Toolkit repository file
-      ansible.builtin.copy:
-        src: /tmp/nvidia-container-toolkit.list
-        dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
-        mode: '0644'
-      when: not docker_nvidia_repo_file_stat.stat.exists
+- name: Configure NVIDIA Container Toolkit repository with GPG key
+  ansible.builtin.replace:
+    path: /tmp/nvidia-container-toolkit.list
+    regexp: '^deb https://'
+    replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://'
 
-    - name: Update apt cache after adding NVIDIA repository
-      ansible.builtin.apt:
-        update_cache: true
+- name: Copy NVIDIA Container Toolkit repository file
+  ansible.builtin.copy:
+    src: /tmp/nvidia-container-toolkit.list
+    dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    mode: '0644'
+  when: not docker_nvidia_repo_file_stat.stat.exists
 
-    - name: Install NVIDIA Container Toolkit
-      ansible.builtin.apt:
-        name: nvidia-container-toolkit
-        state: present
-        update_cache: true
-      tags:
-        - docker
-        - docker-nvidia
+- name: Update apt cache after adding NVIDIA repository
+  ansible.builtin.apt:
+    update_cache: true
 
-    - name: Configure NVIDIA Container Toolkit
-      ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
-      args:
-        creates: /etc/docker/daemon.json
-      notify: Restart docker
-      tags:
-        - docker
-        - docker-nvidia
+- name: Install NVIDIA Container Toolkit
+  ansible.builtin.apt:
+    name: nvidia-container-toolkit
+    state: present
+    update_cache: true
+  tags:
+    - docker
+    - docker-nvidia
 
-    - name: Clean up NVIDIA Container Toolkit temporary files
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /tmp/nvidia-container-toolkit.gpg
-        - /tmp/nvidia-container-toolkit.list
-      tags:
-        - docker
-        - docker-nvidia
+- name: Configure NVIDIA Container Toolkit
+  ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
+  args:
+    creates: /etc/docker/daemon.json
+  notify: Restart docker
+  tags:
+    - docker
+    - docker-nvidia
+
+- name: Clean up NVIDIA Container Toolkit temporary files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/nvidia-container-toolkit.gpg
+    - /tmp/nvidia-container-toolkit.list
+  tags:
+    - docker
+    - docker-nvidia
