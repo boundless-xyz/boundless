@@ -1,0 +1,43 @@
+---
+# Standalone Bento Deployment with Docker Compose
+#
+# This playbook deploys Bento services using Docker Compose, suitable for:
+# - Development environments
+# - Single-node deployments
+# - Quick testing and evaluation
+#
+# Unlike cluster.yml which deploys services as systemd units, this playbook
+# uses Docker Compose to manage all services in containers.
+#
+# Usage:
+#   ansible-playbook -i inventory.yml bento-standalone.yml
+#
+# Required Variables:
+#   See group_vars/all/bento.yml for configuration options.
+#   Sensitive values should be set in vault files or via -e flags.
+#
+- name: Deploy Bento Standalone with Docker Compose
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Install Nvidia drivers
+      ansible.builtin.include_role:
+        name: nvidia
+      tags:
+        - nvidia
+        - nvidia-install
+    - name: Install Docker
+      ansible.builtin.include_role:
+        name: docker
+      tags:
+        - docker
+        - docker-install
+    # Deploy Bento with Docker Compose
+    - name: Deploy Bento Docker Compose Stack
+      ansible.builtin.include_role:
+        name: bento
+      tags:
+        - bento
+        - docker

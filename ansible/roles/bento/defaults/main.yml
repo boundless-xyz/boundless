@@ -1,113 +1,53 @@
 ---
-# Bento version to install
-bento_version: "v1.2.0"
+# Deployment directory
+bento_dir: "/opt/bento"
+# Version of Bento to install
+bento_version: v1.2.0
+# File location
+bento_compose_file: "{{ bento_dir }}/compose.yml"
 
-# Legacy task label (used for tagging, not by the launcher)
-bento_task: "prove"
+# Environment file location
+bento_env_file: "{{ bento_dir }}/.env"
 
-# Service user
-bento_user: "bento"
-bento_group: "bento"
-bento_home: "/var/lib/bento"
-bento_shell: "/usr/sbin/nologin"
+# Docker Compose project name
+bento_compose_project_name: "bento"
 
-# Service timeouts
-bento_agent_timeout_start_sec: 1800
-bento_agent_timeout_stop_sec: 300
+# Service state: started, stopped, restarted, absent
+bento_state: started
+
+# User to run Docker Compose commands
+bento_user: "{{ ansible_user | default('ubuntu') }}"
+
+# Database
+bento_postgres_host: "postgres"
+bento_postgres_port: "5432"
+bento_postgres_db: taskdb
+bento_postgres_user: worker
+bento_postgres_password: password
+
+# Redis/Valkey
+bento_redis_host: "redis"
+
+# MinIO
+bento_minio_host: "minio"
+bento_minio_bucket: workflow
+bento_minio_root_user: admin
+bento_minio_root_pass: password
 
 # Bento configuration
-bento_segment_po2: 20
-bento_keccak_po2: 17
-bento_rust_log: "info"
+bento_rust_log: info
+bento_risc0_home: "/usr/local/risc0"
+bento_segment_size: 20
+bento_risc0_keccak_po2: 17
+bento_redis_ttl: 57600
+bento_snark_timeout: "180"
 
-# Database configuration
-# These reference group_vars/all/postgresql.yml variables
-# Can be overridden in host_vars for remote connections
-bento_postgresql_user: "{{ postgresql_user }}"
-bento_postgresql_password: "{{ postgresql_password }}"
-bento_postgresql_host: "{{ postgresql_host }}"
-bento_postgresql_port: "{{ postgresql_port }}"
-bento_postgresql_database: "{{ postgresql_database }}"
+# Bento binary URL
+bento_binary_url: "https://github.com/boundless-xyz/boundless/releases/download/bento-{{ bento_version }}/bento-bundle-linux-amd64.tar.gz"
 
-# Valkey (Redis) configuration
-# These reference group_vars/all/valkey.yml variables
-# Can be overridden in host_vars for remote connections
-bento_valkey_host: "{{ valkey_host }}"
-bento_valkey_port: "{{ valkey_port }}"
+# Broker configuration (if enabled)
+bento_prover_private_key: "{{ prover_private_key | default('') }}"
+bento_prover_rpc_url: "{{ prover_rpc_url | default('') }}"
 
-# S3 configuration
-# These reference group_vars/all/bento.yml or can be overridden in host_vars
-# S3 credentials match MinIO root credentials by default
-bento_s3_bucket: "bento"
-bento_s3_url: "http://{{ minio_host | default('localhost') }}:{{ minio_port | default(9000) }}"
-bento_s3_access_key: "{{ minio_root_user | default('minioadmin') }}"
-bento_s3_secret_key: "{{ minio_root_password | default('minioadmin') }}"
-bento_s3_region: "auto"
-
-# Other configuration
-bento_rewards_address: ""
-bento_povw_log_id: ""
-
-# Prometheus metrics configuration
-# Different ports for each service type to allow Vector to scrape them separately
-# Ports: api=9090, prove=9190, exec=9290, aux=9390, snark=9490, join=9490
-bento_prometheus_metrics_addr: "127.0.0.1:9090"  # Default, will be overridden per task
-bento_prometheus_metrics_ports:
-  api: 9090
-  prove: 9190
-  exec: 9290
-  aux: 9390
-  snark: 9490
-  join: 9490
-
-# Installation paths
-bento_install_dir: "/usr/local/bin"
-bento_config_dir: "/etc/boundless"
-bento_work_dir: "/var/lib/bento"
-
-
-# GPU configuration
-# If bento_cuda_visible_devices is not set, GPUs will be auto-detected using nvidia-smi
-# Set this manually to override auto-detection (e.g., ["0", "1"] for specific GPUs)
-bento_cuda_visible_devices: null  # null = auto-detect, otherwise list of GPU indices as strings
-
-# Service management
-bento_service_enabled: true
-bento_service_state: started
-
-# Legacy instance count (not used by the unified launcher)
-bento_count: 1
-
-# Dependency installation control
-# Set to false to skip installing PostgreSQL, Valkey, and MinIO on this host
-# Useful when deploying to worker nodes that connect to remote services
-bento_install_dependencies: true
-
-# Join workers to the Bento cluster
-# Set to true to join the worker to the Bento cluster
-# Set to false to skip join workers in the Bento cluster
-bento_join_workers: false
-
-# Snark workers to the Bento cluster
-# Set to true to join the snark worker to the Bento cluster
-# Set to false to skip joining snark workers in the Bento cluster
-bento_snark_workers: false
-
-# Stream routing configuration (set on executor/manager node, not worker nodes)
-# These control which streams the executor uses for routing tasks
-# Set to true on the executor/manager node (typically exec service) to enable stream routing
-bento_enable_snark_stream: false
-bento_enable_join_stream: false
-bento_enable_union_stream: false
-bento_enable_coproc_stream: false
-
-# Service enablement flags
-bento_enable_api: true  # Enable API service in unified launcher
-
-# Service instance counts (used by unified launcher)
-# bento_gpu_count: null = auto-detect using nvidia-smi, 0 = no GPUs, >0 = explicit count
-bento_gpu_count: null
-bento_exec_count: 4
-bento_aux_count: 2
-bento_snark_count: 1
-bento_join_count: 1
+# Broker configuration URL
+bento_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
