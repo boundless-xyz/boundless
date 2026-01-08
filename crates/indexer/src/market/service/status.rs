@@ -103,7 +103,8 @@ where
             (None, None)
         };
 
-        // Compute effective_prove_mhz: total_cycles / (proof_delivery_time * 1_000_000)
+        // Compute effective_prove_mhz: total_cycles / proof_delivery_time / 1_000_000
+        // Equivalent to: total_cycles / (proof_delivery_time * 1_000_000)
         // proof_delivery_time = fulfilled_at - created_at (in seconds)
         let effective_prove_mhz = req
             .fulfilled_at
@@ -113,15 +114,10 @@ where
             })
             .and_then(|(fulfilled_at, total_cycles)| {
                 let proof_delivery_time = fulfilled_at - req.created_at;
-                // Calculate: total_cycles / (proof_delivery_time * 1_000_000)
-                if proof_delivery_time > 0 {
-                    // Convert U256 to f64 by converting to string first, then parsing
-                    let total_cycles_f64 = total_cycles.to_string().parse::<f64>().unwrap_or(0.0);
-                    let mhz = total_cycles_f64 / (proof_delivery_time as f64 * 1_000_000.0);
-                    Some(mhz)
-                } else {
-                    None
-                }
+                U256::from(proof_delivery_time)
+                    .checked_mul(U256::from(1_000_000u64))
+                    .map(|divisor| total_cycles / divisor)
+                    .map(|mhz_u256| mhz_u256.to::<u64>())
             });
 
         RequestStatus {

@@ -1,4 +1,4 @@
-// Copyright 2026 Boundless Foundation, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -1542,9 +1542,9 @@ pub struct RequestStatusResponse {
     /// Total cycles (program + overhead)
     pub total_cycles: Option<String>,
     /// Peak prove MHz
-    pub peak_prove_mhz: Option<f64>,
+    pub peak_prove_mhz: Option<i64>,
     /// Effective prove MHz
-    pub effective_prove_mhz: Option<f64>,
+    pub effective_prove_mhz: Option<i64>,
     /// Submit transaction hash
     pub submit_tx_hash: Option<String>,
     /// Lock transaction hash
@@ -1646,8 +1646,8 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         slash_burned_amount_formatted: status.slash_burned_amount.as_ref().map(|a| format_zkc(a)),
         program_cycles: status.program_cycles.as_ref().map(|c| c.to_string()),
         total_cycles: status.total_cycles.as_ref().map(|c| c.to_string()),
-        peak_prove_mhz: status.peak_prove_mhz,
-        effective_prove_mhz: status.effective_prove_mhz,
+        peak_prove_mhz: status.peak_prove_mhz.map(|m| m as i64),
+        effective_prove_mhz: status.effective_prove_mhz.map(|m| m as i64),
         submit_tx_hash: status.submit_tx_hash.map(|h| format!("{:#x}", h)),
         lock_tx_hash: status.lock_tx_hash.map(|h| format!("{:#x}", h)),
         fulfill_tx_hash: status.fulfill_tx_hash.map(|h| format!("{:#x}", h)),

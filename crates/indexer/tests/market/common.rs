@@ -826,12 +826,12 @@ pub async fn get_all_time_summaries(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
+            best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
-            best_effective_prove_mhz_request_id,
-            best_peak_prove_mhz_v2,
-            best_effective_prove_mhz_v2
+            best_effective_prove_mhz_request_id
         FROM all_time_market_summary
         ORDER BY period_timestamp ASC",
     )
@@ -869,14 +869,14 @@ pub async fn get_all_time_summaries(
                 as f32,
             total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
             total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),
-            best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
+            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<f64, _>("best_effective_prove_mhz_v2"),
+            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")

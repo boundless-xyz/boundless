@@ -1,4 +1,4 @@
-// Copyright 2026 Boundless Foundation, Inc.
+// Copyright 2025 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -520,10 +520,10 @@ where
                                     locked_orders_fulfillment_rate: 0.0,
                                     total_program_cycles: alloy::primitives::U256::ZERO,
                                     total_cycles: alloy::primitives::U256::ZERO,
-                                    best_peak_prove_mhz: 0.0,
+                                    best_peak_prove_mhz: 0,
                                     best_peak_prove_mhz_prover: None,
                                     best_peak_prove_mhz_request_id: None,
-                                    best_effective_prove_mhz: 0.0,
+                                    best_effective_prove_mhz: 0,
                                     best_effective_prove_mhz_prover: None,
                                     best_effective_prove_mhz_request_id: None,
                                 }
@@ -792,10 +792,10 @@ where
             vec![alloy::primitives::U256::ZERO; 7]
         };
 
-        let best_peak_prove_mhz = 0.0;
+        let best_peak_prove_mhz = 0;
         let best_peak_prove_mhz_prover = None;
         let best_peak_prove_mhz_request_id = None;
-        let best_effective_prove_mhz = 0.0;
+        let best_effective_prove_mhz = 0;
         let best_effective_prove_mhz_prover = None;
         let best_effective_prove_mhz_request_id = None;
 
