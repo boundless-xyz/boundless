@@ -27,10 +27,7 @@ pub struct Monitor {
 impl Monitor {
     /// Creates a new instance of the Monitor.
     pub async fn new(conn: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(conn)
-            .await?;
+        let pool = PgPoolOptions::new().max_connections(5).connect(conn).await?;
 
         Ok(Self { db: pool })
     }

@@ -571,9 +571,12 @@ async fn test_execute_requests_handles_image_check_error(pool: PgPool) {
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_image_download_error(pool: PgPool) {
     // The Bento API will return that the image doesn't exist, forcing a download
-    let (test_db, digests, mock_server) =
-        setup_test_fixture(pool, Some(BentoMockConfig { image_exists: false, ..Default::default() }), 2)
-            .await;
+    let (test_db, digests, mock_server) = setup_test_fixture(
+        pool,
+        Some(BentoMockConfig { image_exists: false, ..Default::default() }),
+        2,
+    )
+    .await;
 
     // Patch image_url to a non-existent file, causing fetch_url to fail
     patch_request_field(

@@ -170,8 +170,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                         .as_nanos()
                 );
 
-                let mut parsed = Url::parse(&base_db_url)
-                    .map_err(|e| anyhow!("Invalid DATABASE_URL: {}", e))?;
+                let mut parsed =
+                    Url::parse(&base_db_url).map_err(|e| anyhow!("Invalid DATABASE_URL: {}", e))?;
                 parsed.set_path(&format!("/{test_db_name}"));
                 let db_url = parsed.to_string();
 
