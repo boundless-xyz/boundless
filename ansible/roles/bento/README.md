@@ -2,25 +2,25 @@
 
 This Ansible role deploys Bento services using Docker Compose, providing a standalone deployment option that's ideal for:
 
-* Development environments
-* Single-node deployments
-* Quick testing and evaluation
-* Local development setups
+- Development environments
+- Single-node deployments
+- Quick testing and evaluation
+- Local development setups
 
 ## Differences from Cluster Deployment
 
 Unlike the `bento` role used in `cluster.yml`, which deploys services as systemd units, this role:
 
-* Uses Docker Compose to manage all services
-* Runs services in containers instead of native systemd services
-* Simplifies dependency management (all services containerized)
-* Easier to tear down and recreate
+- Uses Docker Compose to manage all services
+- Runs services in containers instead of native systemd services
+- Simplifies dependency management (all services containerized)
+- Easier to tear down and recreate
 
 ## Requirements
 
-* Docker Engine (installed via the `docker` role)
-* Docker Compose plugin (installed via the `docker` role)
-* Sufficient system resources for containerized services
+- Docker Engine (installed via the `docker` role)
+- Docker Compose plugin (installed via the `docker` role)
+- Sufficient system resources for containerized services
 
 ## Role Variables
 
@@ -118,8 +118,8 @@ docker compose start
 
 ## Notes
 
-* **Docker Installation**: Docker and Docker Compose must be installed separately using the `docker` role before running this role
-* The compose.yml file is templated and generated from the role
-* Environment variables are stored in `.env` file in the deployment directory
-* Services are conditionally included based on `bento_docker_services` configuration
-* Ensure the user specified in `bento_docker_user` is in the docker group (can be configured via the `docker` role's `docker_users` variable)
+- **Docker Installation**: Docker and Docker Compose must be installed separately using the `docker` role before running this role
+- The compose.yml file is templated and generated from the role
+- Environment variables are stored in `.env` file in the deployment directory
+- Services are conditionally included based on `bento_docker_services` configuration
+- Ensure the user specified in `bento_docker_user` is in the docker group (can be configured via the `docker` role's `docker_users` variable)

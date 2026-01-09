@@ -6,24 +6,24 @@ This Ansible playbook replicates the functionality of the repo root `scripts/set
 
 The playbook sets up a Boundless prover system by:
 
-* Updating system packages
-* Installing essential packages (nvtop, build tools, etc.)
-* Installing GCC 12 for Ubuntu 22.04
-* Installing Docker with NVIDIA Container Toolkit support
-* Installing Rust programming language (via `rust` role)
-* Installing RISC Zero rzup toolchain and risc0-groth16 component (via `rzup` role)
-* Installing Just command runner
-* Installing CUDA Toolkit 13.0
-* Installing Protobuf compiler
-* Performing system cleanup
+- Updating system packages
+- Installing essential packages (nvtop, build tools, etc.)
+- Installing GCC 12 for Ubuntu 22.04
+- Installing Docker with NVIDIA Container Toolkit support
+- Installing Rust programming language (via `rust` role)
+- Installing RISC Zero rzup toolchain and risc0-groth16 component (via `rzup` role)
+- Installing Just command runner
+- Installing CUDA Toolkit 13.0
+- Installing Protobuf compiler
+- Performing system cleanup
 
 ## Requirements
 
-* Ansible 2.9 or later
-* Target hosts running Ubuntu 22.04 or 24.04
-* SSH access to target hosts (or run locally)
-* Sudo/root privileges on target hosts
-* Ansible collections (install with `ansible-galaxy collection install community.postgresql`)
+- Ansible 2.9 or later
+- Target hosts running Ubuntu 22.04 or 24.04
+- SSH access to target hosts (or run locally)
+- Sudo/root privileges on target hosts
+- Ansible collections (install with `ansible-galaxy collection install community.postgresql`)
 
 ## Directory Structure
 
@@ -175,30 +175,30 @@ ansible-playbook -i inventory.yml cluster.yml --tags grafana
 
 ### Available Tags
 
-* `bento` - All Bento tasks
-* `bento-deps` - Dependencies (PostgreSQL, Valkey, MinIO)
-* `bento-user` - User/group creation
-* `bento-install` - Binary installation
-* `bento-config` - Configuration files and directories
-* `bento-service` - Systemd service management
-* `bento-prove` - Bento prove task deployment
-* `bento-api` - Bento API deployment
-* `bento-exec` - Bento exec task deployment
-* `bento-aux` - Bento aux task deployment
-* `bento-snark` - Bento snark task deployment
-* `bento-join` - Bento join task deployment
-* `bento-union` - Bento union task deployment
-* `bento-coproc` - Bento coproc task deployment
-* `awscli` - AWS CLI installation
-* `nvidia` - NVIDIA drivers and CUDA Toolkit
-* `postgresql` - PostgreSQL role
-* `valkey` - Valkey role
-* `minio` - MinIO role
-* `broker` - Broker role
-* `miner` - Miner service role
-* `vector` - Vector log shipping role
-* `rust` - Rust programming language role
-* `rzup` - RISC Zero rzup toolchain role
+- `bento` - All Bento tasks
+- `bento-deps` - Dependencies (PostgreSQL, Valkey, MinIO)
+- `bento-user` - User/group creation
+- `bento-install` - Binary installation
+- `bento-config` - Configuration files and directories
+- `bento-service` - Systemd service management
+- `bento-prove` - Bento prove task deployment
+- `bento-api` - Bento API deployment
+- `bento-exec` - Bento exec task deployment
+- `bento-aux` - Bento aux task deployment
+- `bento-snark` - Bento snark task deployment
+- `bento-join` - Bento join task deployment
+- `bento-union` - Bento union task deployment
+- `bento-coproc` - Bento coproc task deployment
+- `awscli` - AWS CLI installation
+- `nvidia` - NVIDIA drivers and CUDA Toolkit
+- `postgresql` - PostgreSQL role
+- `valkey` - Valkey role
+- `minio` - MinIO role
+- `broker` - Broker role
+- `miner` - Miner service role
+- `vector` - Vector log shipping role
+- `rust` - Rust programming language role
+- `rzup` - RISC Zero rzup toolchain role
 
 Note: Bento worker enablement is controlled by `bento_*_count` and `bento_*_workers` variables, not tags.
 
@@ -214,21 +214,21 @@ ansible-playbook -i inventory.yml cluster.yml --limit prover-1
 
 Bento services use a **unified launcher script** managed by a single systemd unit:
 
-* Systemd unit: `/etc/systemd/system/bento.service`
-* Launcher script: `/etc/boundless/bento-launcher.sh`
+- Systemd unit: `/etc/systemd/system/bento.service`
+- Launcher script: `/etc/boundless/bento-launcher.sh`
 
 The launcher starts the API (if enabled) and all configured worker types in parallel based on `bento_*` counts and flags.
 
 **Worker Types**:
 
-* `bento-prove`: GPU proving workers
-* `bento-api`: REST API service
-* `bento-exec`: Execution workers
-* `bento-aux`: Auxiliary workers
-* `bento-snark`: SNARK compression workers (when `SNARK_STREAM=1`)
-* `bento-join`: Join task workers (when `JOIN_STREAM=1`)
-* `bento-union`: Union task workers (when `UNION_STREAM=1`)
-* `bento-coproc`: Coprocessor workers (when `COPROC_STREAM=1`)
+- `bento-prove`: GPU proving workers
+- `bento-api`: REST API service
+- `bento-exec`: Execution workers
+- `bento-aux`: Auxiliary workers
+- `bento-snark`: SNARK compression workers (when `SNARK_STREAM=1`)
+- `bento-join`: Join task workers (when `JOIN_STREAM=1`)
+- `bento-union`: Union task workers (when `UNION_STREAM=1`)
+- `bento-coproc`: Coprocessor workers (when `COPROC_STREAM=1`)
 
 ### Shared Configuration Directory
 
@@ -246,13 +246,13 @@ Both Bento and Broker services use `/etc/boundless/` as a shared configuration d
 
 ## Notes
 
-* The playbook is idempotent - you can run it multiple times safely
-* Some tasks require a reboot to take full effect (especially GPU drivers and Docker group membership)
-* For Ubuntu 22.04 vs 24.04, different installation methods are used for Rust (rustup installer script vs apt package)
-* The `rust` and `rzup` roles are automatically included when deploying Bento to ensure Groth16 proof generation works correctly
-* Docker group membership changes require logging out and back in, or a reboot
-* **Version Tracking**: The Bento role tracks installed versions in `/etc/boundless/.bento_version` and only reinstalls when the version changes or binaries are missing
-* **Service Restart Logic**: Services restart only when binaries or configuration files change, not on cleanup tasks or version file updates
+- The playbook is idempotent - you can run it multiple times safely
+- Some tasks require a reboot to take full effect (especially GPU drivers and Docker group membership)
+- For Ubuntu 22.04 vs 24.04, different installation methods are used for Rust (rustup installer script vs apt package)
+- The `rust` and `rzup` roles are automatically included when deploying Bento to ensure Groth16 proof generation works correctly
+- Docker group membership changes require logging out and back in, or a reboot
+- **Version Tracking**: The Bento role tracks installed versions in `/etc/boundless/.bento_version` and only reinstalls when the version changes or binaries are missing
+- **Service Restart Logic**: Services restart only when binaries or configuration files change, not on cleanup tasks or version file updates
 
 ## Troubleshooting
 
@@ -304,15 +304,15 @@ The repository includes a GitHub Actions workflow (`.github/workflows/ansible-de
 ### Setup
 
 1. **Configure GitHub Secrets**:
-   * `ANSIBLE_SSH_PRIVATE_KEY`: Private SSH key for connecting to target hosts
-   * `ANSIBLE_SSH_HOST`: Target host IP address or hostname
-   * `ANSIBLE_SSH_USER`: SSH username (default: `ubuntu`)
-   * `ANSIBLE_DEPLOY_HOST`: Ansible inventory hostname (default: `deploy-target`)
+   - `ANSIBLE_SSH_PRIVATE_KEY`: Private SSH key for connecting to target hosts
+   - `ANSIBLE_SSH_HOST`: Target host IP address or hostname
+   - `ANSIBLE_SSH_USER`: SSH username (default: `ubuntu`)
+   - `ANSIBLE_DEPLOY_HOST`: Ansible inventory hostname (default: `deploy-target`)
 
 2. **Configure GitHub Environments** (optional):
-   * Create environments in GitHub repository settings (Settings → Environments)
-   * Add environment-specific secrets if needed
-   * Environments can have protection rules and approval requirements
+   - Create environments in GitHub repository settings (Settings → Environments)
+   - Add environment-specific secrets if needed
+   - Environments can have protection rules and approval requirements
 
 ### Usage
 
@@ -321,11 +321,11 @@ The repository includes a GitHub Actions workflow (`.github/workflows/ansible-de
 1. Go to Actions → Ansible Deployment
 2. Click "Run workflow"
 3. Select:
-   * **Playbook**: Which playbook to run (e.g., `bento-standalone.yml`)
-   * **Environment**: Target environment (staging/production)
-   * **Hosts**: Comma-separated host list or "all"
-   * **Skip Tags**: Optional tags to skip
-   * **Extra Vars**: Optional JSON variables
+   - **Playbook**: Which playbook to run (e.g., `bento-standalone.yml`)
+   - **Environment**: Target environment (staging/production)
+   - **Hosts**: Comma-separated host list or "all"
+   - **Skip Tags**: Optional tags to skip
+   - **Extra Vars**: Optional JSON variables
 
 #### Automatic Deployment
 
@@ -354,10 +354,10 @@ git push origin main
 
 ### Security Notes
 
-* SSH keys are stored as GitHub secrets and never logged
-* Inventory files are created temporarily and cleaned up after deployment
-* Use GitHub Environments for environment-specific secrets and approvals
-* Consider requiring approvals for production deployments
+- SSH keys are stored as GitHub secrets and never logged
+- Inventory files are created temporarily and cleaned up after deployment
+- Use GitHub Environments for environment-specific secrets and approvals
+- Consider requiring approvals for production deployments
 
 ### Connection issues
 
@@ -388,7 +388,7 @@ journalctl -u bento -n 100
 
 For detailed troubleshooting, see:
 
-* `roles/awscli/README.md` - AWS CLI installation troubleshooting
-* `roles/bento/README.md` - Bento service troubleshooting
-* `roles/broker/README.md` - Broker service troubleshooting
-* `roles/vector/README.md` - Vector log shipping troubleshooting
+- `roles/awscli/README.md` - AWS CLI installation troubleshooting
+- `roles/bento/README.md` - Bento service troubleshooting
+- `roles/broker/README.md` - Broker service troubleshooting
+- `roles/vector/README.md` - Vector log shipping troubleshooting
