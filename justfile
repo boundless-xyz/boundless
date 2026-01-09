@@ -53,6 +53,14 @@ test-slasher:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-slasher -- --include-ignored
     just test-db clean
 
+# Run order-stream tests (requires database)
+test-order-stream:
+    #!/usr/bin/env bash
+    set -e
+    just test-db clean || true
+    just test-db setup
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
+
 # Run indexer lib tests and all integration tests (requires both RPC URLs)
 test-indexer:
     #!/usr/bin/env bash
@@ -297,19 +305,29 @@ localnet action="up": check-deps
         VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroVerifierRouter") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
         SET_VERIFIER_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "RiscZeroSetVerifier") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
         BOUNDLESS_MARKET_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
-        HIT_POINTS_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json | head -n 1)
+        # Extract collateral token from deployment.toml or fallback to JSON
+        COLLATERAL_TOKEN_ADDRESS=$(grep -A 20 '\[deployment.anvil\]' contracts/deployment.toml | grep '^collateral-token' | sed 's/.*= *"\([^"]*\)".*/\1/' | tr -d ' ')
+        if [ -z "$COLLATERAL_TOKEN_ADDRESS" ] || [ "$COLLATERAL_TOKEN_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
+            # Fallback to JSON if not found in TOML or is zero address
+            COLLATERAL_TOKEN_ADDRESS=$(jq -re '.transactions[] | select(.contractName == "HitPoints") | .contractAddress' ./broadcast/Deploy.s.sol/31337/run-latest.json 2>/dev/null | head -n 1 || echo "")
+        fi
+        if [ -z "$COLLATERAL_TOKEN_ADDRESS" ] || [ "$COLLATERAL_TOKEN_ADDRESS" = "0x0000000000000000000000000000000000000000" ]; then
+            echo "Warning: COLLATERAL_TOKEN_ADDRESS not found. The deposit-collateral step may fail."
+        fi
         echo "Contract deployed at addresses:"
         echo "VERIFIER_ADDRESS=$VERIFIER_ADDRESS"
         echo "SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS"
         echo "BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS"
-        echo "HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS"
+        echo "COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS"
         echo "Updating .env.localnet file..."
         # Update the environment variables in .env.localnet
         sed -i.bak "s/^export VERIFIER_ADDRESS=.*/export VERIFIER_ADDRESS=$VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^export SET_VERIFIER_ADDRESS=.*/export SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS/" .env.localnet
         sed -i.bak "s/^export BOUNDLESS_MARKET_ADDRESS=.*/export BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS/" .env.localnet
-        sed -i.bak "s/^export HIT_POINTS_ADDRESS=.*/export HIT_POINTS_ADDRESS=$HIT_POINTS_ADDRESS/" .env.localnet
-        sed -i.bak "s/^export RPC_URL=.*/export RPC_URL=\"http:\/\/localhost:$ANVIL_PORT\"/" .env.localnet
+        sed -i.bak "s/^export COLLATERAL_TOKEN_ADDRESS=.*/export COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS/" .env.localnet
+        sed -i.bak "s|^export RPC_URL=.*|export RPC_URL=\"http://localhost:$ANVIL_PORT\"|" .env.localnet
+        sed -i.bak "s|^export PROVER_RPC_URL=.*|export PROVER_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" .env.localnet
+        sed -i.bak "s|^export REQUESTOR_RPC_URL=.*|export REQUESTOR_RPC_URL=\"http://localhost:$ANVIL_PORT\"|" .env.localnet
         sed -i.bak "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
@@ -321,7 +339,7 @@ localnet action="up": check-deps
         echo "Minting HP for prover address."
         cast send --private-key $DEPLOYER_PRIVATE_KEY \
             --rpc-url http://localhost:$ANVIL_PORT \
-            $HIT_POINTS_ADDRESS "mint(address, uint256)" $DEFAULT_ADDRESS $DEPOSIT_AMOUNT
+            $COLLATERAL_TOKEN_ADDRESS "mint(address, uint256)" $DEFAULT_ADDRESS $DEPOSIT_AMOUNT
 
         if [ $CI -eq 1 ]; then
             REPO_ROOT_DIR=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
@@ -342,7 +360,7 @@ localnet action="up": check-deps
                 --application-verifier "$VERIFIER_ADDRESS" \
                 --set-verifier "$SET_VERIFIER_ADDRESS" \
                 --boundless-market "$BOUNDLESS_MARKET_ADDRESS" \
-                --collateral-token "$HIT_POINTS_ADDRESS" \
+                --collateral-token "$COLLATERAL_TOKEN_ADDRESS" \
                 --assessor-image-id "$ASSESSOR_ID" \
                 --assessor-guest-url "$ASSESSOR_GUEST_URL"
         else
@@ -356,13 +374,14 @@ localnet action="up": check-deps
                 --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
             
             echo "Depositing collateral using boundless CLI..."
-            RPC_URL=http://localhost:$ANVIL_PORT \
-            PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
+            PROVER_RPC_URL=http://localhost:$ANVIL_PORT \
+            PROVER_PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
             BOUNDLESS_MARKET_ADDRESS=$BOUNDLESS_MARKET_ADDRESS \
             SET_VERIFIER_ADDRESS=$SET_VERIFIER_ADDRESS \
             VERIFIER_ADDRESS=$VERIFIER_ADDRESS \
+            COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS \
             CHAIN_ID=$CHAIN_ID \
-            ./target/debug/boundless account deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
+            ./target/debug/boundless prover deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
             
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
             if [ ! -f broker.toml ]; then
@@ -372,7 +391,7 @@ localnet action="up": check-deps
             fi
             echo "Make sure to run 'source .env.localnet' to load the environment variables before interacting with the network."
             echo "To start the broker manually, run:"
-            echo "source .env.localnet && cargo run --bin broker"
+            echo "source .env.localnet && cp broker-template.toml broker.toml && cargo run --bin broker"
         fi
         
     elif [ "{{action}}" = "down" ]; then

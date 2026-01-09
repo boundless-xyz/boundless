@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -175,10 +175,10 @@ pub struct PeriodMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -210,10 +210,10 @@ pub struct AllTimeMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -246,10 +246,10 @@ pub struct PeriodRequestorSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -302,10 +302,10 @@ pub struct AllTimeRequestorSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -342,8 +342,8 @@ pub struct RequestStatus {
     pub slash_burned_amount: Option<String>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<u64>,
-    pub effective_prove_mhz: Option<u64>,
+    pub peak_prove_mhz: Option<f64>,
+    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
@@ -405,8 +405,8 @@ pub struct RequestComprehensive {
     pub fulfill_tx_hash: Option<B256>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<u64>,
-    pub effective_prove_mhz: Option<u64>,
+    pub peak_prove_mhz: Option<f64>,
+    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub fulfill_journal: Option<String>,
     pub fulfill_seal: Option<String>,
@@ -662,7 +662,7 @@ pub trait IndexerDb {
     /// Update cycle status for executing cycle counts
     async fn set_cycle_counts_executing(
         &self,
-        execution_info: &HashSet<CycleCountExecution>,
+        execution_info: &[CycleCountExecution],
     ) -> Result<(), DbError>;
 
     /// Update cycle status for completed cycle counts
@@ -1672,14 +1672,14 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CAST($24 AS DOUBLE PRECISION), CAST($25 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -1699,12 +1699,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP",
         )
         .bind(summary.period_timestamp as i64)
@@ -1726,12 +1726,12 @@ impl IndexerDb for MarketDb {
         .bind(summary.locked_orders_fulfillment_rate)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
-        .bind(summary.best_peak_prove_mhz as i64)
         .bind(summary.best_peak_prove_mhz_prover)
         .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-        .bind(summary.best_effective_prove_mhz as i64)
         .bind(summary.best_effective_prove_mhz_prover)
         .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+        .bind(summary.best_peak_prove_mhz.to_string())
+        .bind(summary.best_effective_prove_mhz.to_string())
         .execute(&self.pool)
         .await?;
 
@@ -1763,12 +1763,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             WHERE period_timestamp = $1",
         )
@@ -1813,14 +1813,22 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -1854,12 +1862,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             ORDER BY period_timestamp DESC
             LIMIT 1",
@@ -1904,14 +1912,22 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -2009,7 +2025,8 @@ impl IndexerDb for MarketDb {
                     submit_block, lock_block, fulfill_block, slashed_block,
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
-                    program_cycles, total_cycles, peak_prove_mhz, effective_prove_mhz, cycle_status,
+                    program_cycles, total_cycles,
+                    peak_prove_mhz_v2, effective_prove_mhz_v2, cycle_status,
                     lock_price, lock_price_per_cycle,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
@@ -2023,7 +2040,7 @@ impl IndexerDb for MarketDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2059,8 +2076,8 @@ impl IndexerDb for MarketDb {
                     slash_burned_amount = EXCLUDED.slash_burned_amount,
                     program_cycles = EXCLUDED.program_cycles,
                     total_cycles = EXCLUDED.total_cycles,
-                    peak_prove_mhz = EXCLUDED.peak_prove_mhz,
-                    effective_prove_mhz = EXCLUDED.effective_prove_mhz,
+                    peak_prove_mhz_v2 = EXCLUDED.peak_prove_mhz_v2,
+                    effective_prove_mhz_v2 = EXCLUDED.effective_prove_mhz_v2,
                     cycle_status = EXCLUDED.cycle_status,
                     lock_price = EXCLUDED.lock_price,
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
@@ -2101,8 +2118,8 @@ impl IndexerDb for MarketDb {
                     .bind(&status.slash_burned_amount)
                     .bind(status.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
                     .bind(status.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
-                    .bind(status.peak_prove_mhz.map(|m| m as i64))
-                    .bind(status.effective_prove_mhz.map(|m| m as i64))
+                    .bind(status.peak_prove_mhz.map(|v| v.to_string()))
+                    .bind(status.effective_prove_mhz.map(|v| v.to_string()))
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
                     .bind(&status.lock_price_per_cycle)
@@ -2367,17 +2384,7 @@ impl IndexerDb for MarketDb {
                     continue;
                 }
             };
-            let session_uuid: Option<String> = row.try_get("session_uuid")?;
-            let session_uuid = match session_uuid {
-                Some(uuid) => uuid,
-                None => {
-                    tracing::warn!(
-                        "session_uuid is NULL for EXECUTING request_digest '{}', skipping",
-                        digest_str
-                    );
-                    continue;
-                }
-            };
+            let session_uuid: String = row.try_get("session_uuid")?;
             let request_id: Option<U256> = row
                 .try_get::<Option<String>, _>("request_id")?
                 .and_then(|s| U256::from_str_radix(&s, 16).ok());
@@ -2393,16 +2400,26 @@ impl IndexerDb for MarketDb {
 
     async fn set_cycle_counts_executing(
         &self,
-        execution_info: &HashSet<CycleCountExecution>,
+        execution_info: &[CycleCountExecution],
     ) -> Result<(), DbError> {
-        let execution_vec: Vec<&CycleCountExecution> = execution_info.iter().collect();
+        if execution_info.is_empty() {
+            return Ok(());
+        }
 
         let current_timestamp =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
         let mut tx = self.pool.begin().await?;
 
-        for execution_data in execution_vec {
+        for execution_data in execution_info {
+            if execution_data.session_uuid.is_empty() {
+                tracing::error!(
+                    "Empty session UUID for cycle count request to mark as EXECUTING, digest={:x}: skipping",
+                    execution_data.request_digest
+                );
+                continue;
+            }
+
             let query = "UPDATE cycle_counts
                     SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
                     WHERE request_digest = $3";
@@ -2425,6 +2442,10 @@ impl IndexerDb for MarketDb {
         &self,
         update_info: &[CycleCountExecutionUpdate],
     ) -> Result<(), DbError> {
+        if update_info.is_empty() {
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
 
         let current_timestamp =
@@ -3590,14 +3611,14 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, CAST($31 AS DOUBLE PRECISION), CAST($32 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -3624,12 +3645,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP",
             table_name
         );
@@ -3661,12 +3682,12 @@ impl MarketDb {
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
-            .bind(summary.best_peak_prove_mhz as i64)
             .bind(summary.best_peak_prove_mhz_prover)
             .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-            .bind(summary.best_effective_prove_mhz as i64)
             .bind(summary.best_effective_prove_mhz_prover)
             .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+            .bind(summary.best_peak_prove_mhz.to_string())
+            .bind(summary.best_effective_prove_mhz.to_string())
             .execute(&self.pool)
             .await?;
 
@@ -3755,12 +3776,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM {}
             {}
             {}
@@ -3860,7 +3881,11 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -3870,7 +3895,11 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str_radix(&s, 16).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
@@ -3959,12 +3988,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             {}
             {}
@@ -4036,7 +4065,11 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -4046,7 +4079,11 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str(&s).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
@@ -4177,16 +4214,11 @@ impl MarketDb {
                 .ok()
                 .flatten()
                 .and_then(|s| padded_string_to_u256(&s).ok()),
-            peak_prove_mhz: row
-                .try_get::<Option<i64>, _>("peak_prove_mhz")
-                .ok()
-                .flatten()
-                .map(|m| m as u64),
+            peak_prove_mhz: row.try_get::<Option<f64>, _>("peak_prove_mhz_v2").ok().flatten(),
             effective_prove_mhz: row
-                .try_get::<Option<i64>, _>("effective_prove_mhz")
+                .try_get::<Option<f64>, _>("effective_prove_mhz_v2")
                 .ok()
-                .flatten()
-                .map(|m| m as u64),
+                .flatten(),
             cycle_status: row.try_get("cycle_status").ok(),
             lock_price: row.try_get("lock_price").ok(),
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
@@ -4600,10 +4632,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4784,10 +4816,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4841,10 +4873,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4902,10 +4934,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4954,10 +4986,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -5007,10 +5039,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -5075,10 +5107,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -6138,48 +6170,10 @@ mod tests {
     }
 
     // Helper to create test proof requests and cycle counts
-    async fn setup_test_requests_and_cycles(
-        db: &DbObj,
-        digests: &[B256],
-        requests: &[ProofRequest],
-        statuses: &[&str],
-    ) {
-        let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
-        let timestamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
-        db.add_proof_requests(
-            &digests
-                .iter()
-                .zip(requests.iter())
-                .map(|(d, r)| {
-                    (*d, r.clone(), metadata, "onchain".to_string(), metadata.block_timestamp)
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await
-        .unwrap();
-
-        let cycle_counts: Vec<CycleCount> = digests
-            .iter()
-            .zip(statuses.iter())
-            .map(|(d, s)| CycleCount {
-                request_digest: *d,
-                cycle_status: s.to_string(),
-                program_cycles: if *s == "COMPLETED" { Some(U256::from(1000)) } else { None },
-                total_cycles: if *s == "COMPLETED" { Some(U256::from(1015)) } else { None },
-                created_at: timestamp,
-                updated_at: timestamp,
-            })
-            .collect();
-
-        db.add_cycle_counts(&cycle_counts).await.unwrap();
-    }
-
     #[tokio::test]
     async fn test_get_cycle_counts_pending() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests = vec![
             generate_request(1, &Address::ZERO),
@@ -6187,13 +6181,9 @@ mod tests {
             generate_request(3, &Address::ZERO),
         ];
         let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
-        setup_test_requests_and_cycles(
-            &db,
-            &digests,
-            &requests,
-            &["PENDING", "PENDING", "COMPLETED"],
-        )
-        .await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "COMPLETED"])
+            .await;
 
         let pending = db.get_cycle_counts_pending(10).await.unwrap();
         assert_eq!(pending.len(), 2);
@@ -6211,7 +6201,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_cycle_counts_executing() {
         let test_db = TestDb::new().await.unwrap();
-        let db: DbObj = test_db.db;
+        let db: DbObj = test_db.db.clone();
 
         let requests = vec![
             generate_request(10, &Address::ZERO),
@@ -6219,28 +6209,34 @@ mod tests {
             generate_request(30, &Address::ZERO),
         ];
         let digests = vec![B256::from([10; 32]), B256::from([20; 32]), B256::from([30; 32])];
-        setup_test_requests_and_cycles(
-            &db,
-            &digests,
-            &requests,
-            &["PENDING", "PENDING", "PENDING"],
-        )
-        .await;
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
 
-        db.set_cycle_counts_executing(
-            &vec![
-                CycleCountExecution {
-                    request_digest: digests[0],
-                    session_uuid: "session-1".to_string(),
-                },
-                CycleCountExecution {
-                    request_digest: digests[1],
-                    session_uuid: "session-2".to_string(),
-                },
-            ]
-            .into_iter()
-            .collect(),
+        // Update cycle counts to EXECUTING
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
         )
+        .bind("session-1")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-2")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[1]))
+        .execute(&test_db.pool)
         .await
         .unwrap();
 
@@ -6255,5 +6251,343 @@ mod tests {
         assert!(!executing.iter().any(|r| r.request_id == Some(requests[2].id)));
 
         assert_eq!(db.get_cycle_counts_executing(1).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_executing() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db.clone();
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Set them to EXECUTING
+        let execution_info = vec![
+            CycleCountExecution {
+                request_digest: digests[0],
+                session_uuid: "session-1".to_string(),
+            },
+            CycleCountExecution {
+                request_digest: digests[1],
+                session_uuid: "session-2".to_string(),
+            },
+        ];
+
+        db.set_cycle_counts_executing(&execution_info).await.unwrap();
+
+        // Verify the status and session_uuid were updated
+        let result1 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result1.get::<String, _>("session_uuid"), "session-1");
+
+        let result2 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[1]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result2.get::<String, _>("session_uuid"), "session-2");
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_executing(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_executing_empty_session_uuid() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
+
+        // Set them to EXECUTING, but one has an empty session UUID
+        let execution_info = vec![
+            CycleCountExecution {
+                request_digest: digests[0],
+                session_uuid: "session-1".to_string(),
+            },
+            CycleCountExecution {
+                request_digest: digests[1],
+                session_uuid: "".to_string(), // Empty session UUID - should be skipped
+            },
+            CycleCountExecution {
+                request_digest: digests[2],
+                session_uuid: "session-3".to_string(),
+            },
+        ];
+
+        db.set_cycle_counts_executing(&execution_info).await.unwrap();
+
+        // Verify digests[0] was updated to EXECUTING
+        let result1 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result1.get::<String, _>("session_uuid"), "session-1");
+
+        // Verify digests[1] was NOT updated (still PENDING) due to empty session UUID
+        let result2 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[1]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "PENDING");
+        let session_uuid2: Option<String> = result2.get("session_uuid");
+        assert!(session_uuid2.is_none());
+
+        // Verify digests[2] was updated to EXECUTING
+        let result3 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[2]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result3.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result3.get::<String, _>("session_uuid"), "session-3");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_completed() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db.clone();
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Update cycle counts to EXECUTING
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-1")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-2")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        // Set them to COMPLETED with cycle data
+        let updates = vec![
+            CycleCountExecutionUpdate {
+                request_digest: digests[0],
+                program_cycles: U256::from(50_000_000_000u64),
+                total_cycles: U256::from(51_000_000_000u64),
+            },
+            CycleCountExecutionUpdate {
+                request_digest: digests[1],
+                program_cycles: U256::from(100_000_000_000u64),
+                total_cycles: U256::from(102_000_000_000u64),
+            },
+        ];
+
+        db.set_cycle_counts_completed(&updates).await.unwrap();
+
+        // Verify the status and cycle counts were updated
+        let result1 = sqlx::query(
+            "SELECT cycle_status, program_cycles, total_cycles
+                FROM cycle_counts
+                WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "COMPLETED");
+        let program1: Option<String> = result1.get("program_cycles");
+        assert_eq!(program1, Some(u256_to_padded_string(U256::from(50_000_000_000u64))));
+        let total1: Option<String> = result1.get("total_cycles");
+        assert_eq!(total1, Some(u256_to_padded_string(U256::from(51_000_000_000u64))));
+
+        let result2 = sqlx::query("SELECT cycle_status, program_cycles, total_cycles FROM cycle_counts WHERE request_digest = $1")
+            .bind(format!("{:x}", digests[1]))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "COMPLETED");
+        let program2: Option<String> = result2.get("program_cycles");
+        assert_eq!(program2, Some(u256_to_padded_string(U256::from(100_000_000_000u64))));
+        let total2: Option<String> = result2.get("total_cycles");
+        assert_eq!(total2, Some(u256_to_padded_string(U256::from(102_000_000_000u64))));
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_completed(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_set_cycle_counts_failed() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
+
+        // Set some to FAILED
+        db.set_cycle_counts_failed(&[digests[0], digests[1]]).await.unwrap();
+
+        // Verify status was updated
+        let result1 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[0]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "FAILED");
+
+        let result2 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[1]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "FAILED");
+
+        // digests[2] should still be PENDING
+        let result3 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[2]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result3.get::<String, _>("cycle_status"), "PENDING");
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_failed(&[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_count_cycle_counts_by_status() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db.clone();
+
+        // Test with empty DB - should return 0 of each
+        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        assert_eq!(pending, 0);
+        assert_eq!(executing, 0);
+        assert_eq!(failed, 0);
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+            generate_request(4, &Address::ZERO),
+            generate_request(5, &Address::ZERO),
+            generate_request(6, &Address::ZERO),
+        ];
+        let digests = vec![
+            B256::from([1; 32]),
+            B256::from([2; 32]),
+            B256::from([3; 32]),
+            B256::from([4; 32]),
+            B256::from([5; 32]),
+            B256::from([6; 32]),
+        ];
+        test_db
+            .setup_requests_and_cycles(
+                &digests,
+                &requests,
+                &["PENDING", "PENDING", "PENDING", "EXECUTING", "EXECUTING", "FAILED"],
+            )
+            .await;
+
+        // Count cycle count statuses
+        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        assert_eq!(pending, 3);
+        assert_eq!(executing, 2);
+        assert_eq!(failed, 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_get_request_params_for_execution() {
+        let test_db = TestDb::new().await.unwrap();
+        let db: DbObj = test_db.db.clone();
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        let digest_nonexistent = B256::from([3; 32]); // Non-existent
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Query params for execution
+        let results = db
+            .get_request_params_for_execution(&[digests[0], digests[1], digest_nonexistent])
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2); // Only 2 exist
+
+        // Check digests[0]
+        let (d1, input_type1, _input_data1, image_id1, image_url1, max_price1) =
+            results.iter().find(|(d, _, _, _, _, _)| *d == digests[0]).unwrap();
+        assert_eq!(*d1, digests[0]);
+        assert_eq!(input_type1, "Inline");
+        assert!(!image_id1.is_empty());
+        assert!(!image_url1.is_empty());
+        assert!(*max_price1 > 0);
+
+        // Check digests[1]
+        let (d2, input_type2, _input_data2, image_id2, image_url2, max_price2) =
+            results.iter().find(|(d, _, _, _, _, _)| *d == digests[1]).unwrap();
+        assert_eq!(*d2, digests[1]);
+        assert_eq!(input_type2, "Inline");
+        assert!(!image_id2.is_empty());
+        assert!(!image_url2.is_empty());
+        assert!(*max_price2 > 0);
+
+        // Test with empty array
+        let empty_results = db.get_request_params_for_execution(&[]).await.unwrap();
+        assert!(empty_results.is_empty());
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,9 @@ mod status;
 
 // Re-export aggregation helper for use in backfill
 pub use aggregation::sum_hourly_aggregates_into_base;
+
+// Re-export execute_requests for integration tests
+pub use execution::execute_requests;
 
 use std::{collections::HashMap, sync::Arc};
 

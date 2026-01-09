@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,3 +24,6 @@ mod basic;
 
 #[path = "market/basic_backfill.rs"]
 mod basic_backfill;
+
+#[path = "market/execution.rs"]
+mod execution;
