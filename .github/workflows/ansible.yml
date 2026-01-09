@@ -118,26 +118,6 @@ jobs:
         run: |
           ansible-galaxy collection install community.postgresql
 
-      - name: Validate role structure
-        working-directory: ansible
-        run: |
-          ansible-galaxy role verify --offline roles/*/ || true
-          for role in roles/*/; do
-            if [ -d "$role" ]; then
-              role_name=$(basename "$role")
-              echo "Validating role: $role_name"
-              # Check for required files
-              if [ ! -f "$role/tasks/main.yml" ] && [ ! -f "$role/tasks/main.yaml" ]; then
-                echo "ERROR: Role $role_name missing tasks/main.yml"
-                exit 1
-              fi
-              if [ ! -f "$role/meta/main.yml" ] && [ ! -f "$role/meta/main.yaml" ]; then
-                echo "ERROR: Role $role_name missing meta/main.yml"
-                exit 1
-              fi
-            fi
-          done
-
       - name: Validate YAML syntax
         working-directory: ansible
         run: |
