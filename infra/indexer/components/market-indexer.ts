@@ -457,6 +457,43 @@ export class MarketIndexer extends pulumi.ComponentResource {
       alarmActions,
     }, { parent: this });
 
+    const panickedLogMetricName = `${serviceName}-market-log-panicked`;
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-panicked-filter`, {
+      name: `${serviceName}-market-log-panicked-filter`,
+      logGroupName: serviceLogGroupName,
+      metricTransformation: {
+        namespace: serviceMetricsNamespace,
+        name: panickedLogMetricName,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: 'panicked',
+    }, { parent: this, dependsOn: [marketService] });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-panicked-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-market-log-panicked-${Severity.SEV2}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: serviceMetricsNamespace,
+            metricName: panickedLogMetricName,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Market indexer ${name} PANICKED (task panicked) ${Severity.SEV2}`,
+      actionsEnabled: true,
+      alarmActions,
+    }, { parent: this });
+
     this.registerOutputs({});
   }
 }
