@@ -29,12 +29,7 @@ vector_aws_secret_access_key: null  # AWS secret access key (not recommended, us
 
 # Services to monitor (systemd units)
 vector_monitor_services:
-  - bento-api.service
-  - bento-exec.service
-  - bento-aux.service
-  - bento-prove.service
-  - broker.service
-  - miner.service
+  - bento.service
 
 # Vector buffer configuration
 vector_buffer_type: "memory"
