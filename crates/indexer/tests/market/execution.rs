@@ -184,11 +184,7 @@ impl Respond for SessionStatusResponder {
             return ResponseTemplate::new(500);
         }
 
-        let status = if count < self.running_responses {
-            "RUNNING"
-        } else {
-            &self.final_status
-        };
+        let status = if count < self.running_responses { "RUNNING" } else { &self.final_status };
 
         let body = if status == "FAILED" {
             serde_json::json!({
