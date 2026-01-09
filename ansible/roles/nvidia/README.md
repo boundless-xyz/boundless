@@ -4,16 +4,16 @@ This role installs NVIDIA drivers and CUDA Toolkit.
 
 ## Requirements
 
-* Ubuntu 22.04 or 24.04
-* Root/sudo access
-* Internet connectivity to download NVIDIA packages
-* GPU hardware (for verification)
+- Ubuntu 22.04 or 24.04
+- Root/sudo access
+- Internet connectivity to download NVIDIA packages
+- GPU hardware (for verification)
 
 ## Role Variables
 
-* `nvidia_cuda_version` (default: `"13-0"`): CUDA version to install (format: "13-0" for CUDA 13.0)
-* `nvidia_ubuntu_version` (default: `null`): Ubuntu version override (auto-detected if null)
-* `nvidia_reboot_after_install` (default: `false`): Automatically reboot after installation
+- `nvidia_cuda_version` (default: `"13-0"`): CUDA version to install (format: "13-0" for CUDA 13.0)
+- `nvidia_ubuntu_version` (default: `null`): Ubuntu version override (auto-detected if null)
+- `nvidia_reboot_after_install` (default: `false`): Automatically reboot after installation
 
 ## Dependencies
 
@@ -42,14 +42,14 @@ None.
 
 ## Important Notes
 
-* **Reboot Required**: NVIDIA drivers require a system reboot to load. The role can automatically reboot, but manual reboot is recommended for production.
-* **GPU Detection**: After reboot, run `nvidia-smi` to verify GPU detection.
+- **Reboot Required**: NVIDIA drivers require a system reboot to load. The role can automatically reboot, but manual reboot is recommended for production.
+- **GPU Detection**: After reboot, run `nvidia-smi` to verify GPU detection.
 
 ## Tags
 
-* `nvidia` - All NVIDIA-related tasks
-* `nvidia-install` - CUDA Toolkit installation
-* `nvidia-verify` - Verification tasks
+- `nvidia` - All NVIDIA-related tasks
+- `nvidia-install` - CUDA Toolkit installation
+- `nvidia-verify` - Verification tasks
 
 ## License
 
