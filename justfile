@@ -133,7 +133,7 @@ test-db action="setup":
             --name postgres-test \
             -e POSTGRES_PASSWORD=password --shm-size=2gb \
             -p 5433:5432 \
-            postgres:latest
+            postgres:latest -c max_connections=500
         # Wait for PostgreSQL to be ready
         sleep 3
         docker exec -u postgres postgres-test psql -U postgres -c "CREATE DATABASE test_db;"

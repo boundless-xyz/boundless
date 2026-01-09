@@ -20,13 +20,11 @@ use super::market::{
 use super::DbError;
 use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
-use sqlx::Row;
+use sqlx::{postgres::PgRow, PgPool, Row};
 use std::str::FromStr;
 
 // Standalone parsing function for PeriodRequestorSummary
-fn parse_period_requestor_summary_row(
-    row: &sqlx::any::AnyRow,
-) -> Result<PeriodRequestorSummary, DbError> {
+fn parse_period_requestor_summary_row(row: &PgRow) -> Result<PeriodRequestorSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
     let requestor_address_str: String = row.try_get("requestor_address")?;
     let requestor_address = Address::from_str(&requestor_address_str)
@@ -110,9 +108,7 @@ fn parse_period_requestor_summary_row(
 }
 
 // Standalone parsing function for AllTimeRequestorSummary
-fn parse_all_time_requestor_summary_row(
-    row: &sqlx::any::AnyRow,
-) -> Result<AllTimeRequestorSummary, DbError> {
+fn parse_all_time_requestor_summary_row(row: &PgRow) -> Result<AllTimeRequestorSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
     let requestor_address_str: String = row.try_get("requestor_address")?;
     let requestor_address = Address::from_str(&requestor_address_str)
@@ -1117,7 +1113,7 @@ impl<T: IndexerDb + Send + Sync> RequestorDb for T {}
 // === Standalone helper functions for generic operations ===
 
 async fn upsert_requestor_summary_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     summary: PeriodRequestorSummary,
     table_name: &str,
 ) -> Result<(), DbError> {
@@ -1232,7 +1228,7 @@ async fn upsert_requestor_summary_generic(
 }
 
 async fn get_requestor_summaries_by_range_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     requestor_address: Address,
     start_ts: u64,
     end_ts: u64,
@@ -1272,7 +1268,7 @@ async fn get_requestor_summaries_by_range_generic(
 
 #[allow(clippy::too_many_arguments)]
 async fn get_requestor_summaries_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     requestor_address: Address,
     cursor: Option<i64>,
     limit: i64,
@@ -1375,7 +1371,7 @@ async fn get_requestor_summaries_generic(
 }
 
 async fn get_all_time_requestor_summaries_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     requestor_address: Address,
     cursor: Option<i64>,
     limit: i64,
@@ -1527,6 +1523,26 @@ mod tests {
         )
     }
 
+    async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+        let base_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+        let db_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(pool)
+            .await
+            .expect("failed to query current_database()");
+
+        if let Some(last_slash) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..last_slash], db_name)
+        } else {
+            format!("{}/{}", base_url, db_name)
+        }
+    }
+
+    async fn test_db(pool: sqlx::PgPool) -> TestDb {
+        let db_url = get_db_url_from_pool(&pool).await;
+        TestDb::from_pool(db_url, pool).await.unwrap()
+    }
+
     // Helper to setup period query test data
     async fn setup_period_requestor_test_data(db: &MarketDb, requestor: Address, base_ts: u64) {
         let submit_metadata =
@@ -1665,9 +1681,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_hourly_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_hourly_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x42; 20]);
@@ -1732,9 +1748,9 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 10);
     }
 
-    #[tokio::test]
-    async fn test_upsert_all_time_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_all_time_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x42; 20]);
@@ -1809,9 +1825,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_daily_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_daily_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x43; 20]);
@@ -1866,9 +1882,9 @@ mod tests {
         assert_eq!(results[2].total_fulfilled, 30);
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_weekly_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_weekly_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x44; 20]);
@@ -1921,9 +1937,9 @@ mod tests {
         assert_eq!(results[0].requestor_address, requestor);
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_monthly_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_monthly_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x45; 20]);
@@ -1974,9 +1990,9 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 200);
     }
 
-    #[tokio::test]
-    async fn test_get_all_time_requestor_summary_by_timestamp() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_time_requestor_summary_by_timestamp(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x46; 20]);
@@ -2033,9 +2049,9 @@ mod tests {
         assert!(result.is_none());
     }
 
-    #[tokio::test]
-    async fn test_get_all_requestor_addresses() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_requestor_addresses(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let addr1 = Address::from([0x10; 20]);
@@ -2093,9 +2109,9 @@ mod tests {
         assert!(addresses.contains(&addr3));
     }
 
-    #[tokio::test]
-    async fn test_get_active_requestor_addresses_in_period() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_active_requestor_addresses_in_period(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let addr1 = Address::from([0x11; 20]);
@@ -2132,9 +2148,9 @@ mod tests {
         assert!(!addresses.contains(&addr3));
     }
 
-    #[tokio::test]
-    async fn test_get_active_requestor_addresses_in_period_all_activities() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_active_requestor_addresses_in_period_all_activities(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         // Period boundaries: activities should occur between period_start and period_end
@@ -2814,9 +2830,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_list_requests_by_requestor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_list_requests_by_requestor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let addr1 = Address::from([0x12; 20]);
@@ -2958,9 +2974,9 @@ mod tests {
         assert_eq!(results[0].client_address, addr2);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_fulfilled_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_fulfilled_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x50; 20]);
@@ -3063,9 +3079,9 @@ mod tests {
         assert_eq!(count, 3);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_unique_provers() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_unique_provers(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x51; 20]);
@@ -3080,9 +3096,9 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_submitted() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_submitted(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x52; 20]);
@@ -3097,9 +3113,9 @@ mod tests {
         assert_eq!(count, 5);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_submitted_onchain() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_submitted_onchain(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x53; 20]);
@@ -3118,9 +3134,9 @@ mod tests {
         assert_eq!(count, 5);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_locked() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_locked(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x54; 20]);
@@ -3135,9 +3151,9 @@ mod tests {
         assert_eq!(count, 5);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_slashed() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_slashed(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x55; 20]);
@@ -3152,9 +3168,9 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_lock_pricing_data() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_lock_pricing_data(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x56; 20]);
@@ -3174,9 +3190,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_all_lock_collateral() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_all_lock_collateral(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x57; 20]);
@@ -3194,9 +3210,9 @@ mod tests {
         assert_eq!(total, 100 + 200 + 300 + 400 + 500);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_locked_and_expired_collateral() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_expired_collateral(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x58; 20]);
@@ -3211,9 +3227,9 @@ mod tests {
         assert!(collaterals.len() <= 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_expired_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_expired_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x59; 20]);
@@ -3228,9 +3244,9 @@ mod tests {
         assert!(count <= 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_locked_and_expired_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_expired_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5A; 20]);
@@ -3245,9 +3261,9 @@ mod tests {
         assert!(count <= 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_locked_and_fulfilled_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_fulfilled_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5B; 20]);
@@ -3262,9 +3278,9 @@ mod tests {
         assert_eq!(count, 3);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_program_cycles() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_program_cycles(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5C; 20]);
@@ -3279,9 +3295,9 @@ mod tests {
         assert_eq!(total, U256::from(50_000_000 + 100_000_000 + 150_000_000));
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_cycles() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_cycles(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5D; 20]);
@@ -3294,9 +3310,9 @@ mod tests {
         assert_eq!(total, U256::from(50_790_000 + 101_580_000 + 152_370_000));
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_secondary_fulfillments_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_secondary_fulfillments_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5F; 20]);
@@ -3472,9 +3488,9 @@ mod tests {
         assert_eq!(count_none, 0, "Should count 0 secondary fulfillments before lock_end");
     }
 
-    #[tokio::test]
-    async fn test_get_all_time_requestor_unique_provers() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_time_requestor_unique_provers(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5E; 20]);
@@ -3487,9 +3503,9 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    #[tokio::test]
-    async fn test_requestor_methods_with_multiple_requestors() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_requestor_methods_with_multiple_requestors(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor1 = Address::from([0x60; 20]);
@@ -3516,9 +3532,9 @@ mod tests {
         assert!(all_addresses.contains(&requestor2));
     }
 
-    #[tokio::test]
-    async fn test_requestor_summaries_with_empty_results() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_requestor_summaries_with_empty_results(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x62; 20]);
@@ -3540,9 +3556,9 @@ mod tests {
 
     // ==================== Cursor-based Pagination Tests ====================
 
-    #[tokio::test]
-    async fn test_get_hourly_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_hourly_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x70; 20]);
@@ -3687,9 +3703,9 @@ mod tests {
         assert_eq!(results_empty.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_get_daily_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_daily_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x72; 20]);
@@ -3784,9 +3800,9 @@ mod tests {
         assert_eq!(results_after.len(), 3); // Days 2, 3, 4
     }
 
-    #[tokio::test]
-    async fn test_get_weekly_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_weekly_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x73; 20]);
@@ -3871,9 +3887,9 @@ mod tests {
         assert_eq!(results_before.len(), 2); // Weeks 0 and 1
     }
 
-    #[tokio::test]
-    async fn test_get_all_time_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_time_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x74; 20]);

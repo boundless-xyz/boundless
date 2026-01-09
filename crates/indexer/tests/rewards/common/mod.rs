@@ -18,7 +18,7 @@ use boundless_indexer::{
     db::rewards::{RewardsDb, RewardsIndexerDb},
     rewards::{RewardsIndexerService, RewardsIndexerServiceConfig},
 };
-use tempfile::NamedTempFile;
+use sqlx::PgPool;
 use tokio::sync::OnceCell;
 use tracing_subscriber::EnvFilter;
 use url::Url;
@@ -32,11 +32,9 @@ const POVW_ACCOUNTING_ADDRESS: &str = "0x319bd4050b2170a7aE3Ead3E6d5AB8a5c7cFBDF
 const END_EPOCH: u64 = 4;
 const END_BLOCK: u64 = 23395398;
 
-// Store both the database and temp file to keep the file alive
-// The RewardsDb type implements Send + Sync, unlike the trait object
 struct TestDbState {
     db: Arc<RewardsDb>,
-    _temp_file: NamedTempFile, // Kept alive as long as TestDbState exists
+    _db_url: String,
 }
 
 // Static storage for the shared test database. Ensures each test doesn't need to re-index from chain.
@@ -57,12 +55,26 @@ async fn initialize_test_db() -> TestDbState {
     let rpc_url = env::var("ETH_MAINNET_RPC_URL")
         .expect("ETH_MAINNET_RPC_URL environment variable must be set");
 
-    // Create temporary database file
-    let temp_file = NamedTempFile::new().expect("Failed to create temp file");
-    let db_path = temp_file.path().to_str().expect("Invalid temp path");
-    let db_url = format!("sqlite:{}", db_path);
+    let base_db_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
+    let test_db_name = format!(
+        "rewards_indexer_test_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos()
+    );
 
-    tracing::info!("Creating test database at: {}", db_path);
+    let mut parsed = Url::parse(&base_db_url).expect("Invalid DATABASE_URL");
+    parsed.set_path(&format!("/{test_db_name}"));
+    let db_url = parsed.to_string();
+
+    tracing::info!("Creating test database {}", test_db_name);
+    let admin_pool = PgPool::connect(&base_db_url).await.expect("Failed to connect to database");
+    sqlx::query(&format!(r#"CREATE DATABASE "{test_db_name}""#))
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to create test database");
 
     // Create database connection
     let db =
@@ -95,5 +107,5 @@ async fn initialize_test_db() -> TestDbState {
     service.run().await.expect("Failed to run indexer");
     tracing::info!("Indexer completed successfully");
 
-    TestDbState { db, _temp_file: temp_file }
+    TestDbState { db, _db_url: db_url }
 }

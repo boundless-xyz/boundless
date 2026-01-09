@@ -20,7 +20,7 @@ pub mod rewards;
 
 use thiserror::Error;
 
-// Re-export common types from market module for backwards compatibility
+// Re-export common types from market module
 pub use events::EventsDb;
 pub use market::{
     AllTimeRequestorSummary, DailyRequestorSummary, DbObj, HourlyRequestorSummary, IndexerDb,

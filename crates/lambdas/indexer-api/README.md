@@ -6,7 +6,7 @@ AWS Lambda function providing REST API access to Boundless protocol staking, del
 
 ### API Server
 
-- `DB_URL` (required) - PostgreSQL connection string to the indexer database (or SQLite for local testing)
+- `DB_URL` (required) - PostgreSQL connection string to the indexer database
 - `RUST_LOG` (optional) - Tracing log level (default: info)
 
 ### Market Indexer
@@ -56,7 +56,7 @@ For detailed request/response schemas, query parameters, and data models, please
 
 ### Setup
 
-The `manage_local` script provides convenient commands for running the indexer and API locally. It supports both SQLite and PostgreSQL databases.
+The `manage_local` script provides convenient commands for running the indexer and API locally.
 
 ### Available Commands
 
@@ -102,7 +102,7 @@ export BENTO_API_KEY="api-key"
 
 **Parameters:**
 
-- `database`: PostgreSQL URL or SQLite file path
+- `database`: PostgreSQL URL
 - `duration`: Seconds to run (default: 120)
 - `start_block`: Block to start from (optional)
 - `end_block`: Block to stop at (optional)
@@ -156,7 +156,7 @@ export TX_FETCH_STRATEGY="tx-by-hash"  # Optional
 
 **Parameters:**
 
-- `database`: PostgreSQL URL or SQLite file path
+- `database`: PostgreSQL URL
 - `mode`: `"statuses_and_aggregates"` or `"aggregates"`
 - `start_block`: Block to start backfill from (required)
 - `end_block`: Block to end backfill at (optional, default: latest indexed)

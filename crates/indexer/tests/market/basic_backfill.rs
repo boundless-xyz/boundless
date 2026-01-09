@@ -24,8 +24,9 @@ use super::common::*;
 
 /// Common setup: creates a fixture, starts indexer, creates and fulfills a request
 async fn setup_backfill_test(
+    pool: sqlx::PgPool,
 ) -> (MarketTestFixture<impl Provider + WalletProvider + Clone + 'static>, u64) {
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     // Start indexer
     let mut indexer_process = IndexerCliBuilder::new(
@@ -111,10 +112,10 @@ async fn run_backfill_and_verify(
     tracing::info!("Backfill completed successfully");
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_backfill_aggregates() {
-    let (fixture, current_block) = setup_backfill_test().await;
+async fn test_backfill_aggregates(pool: sqlx::PgPool) {
+    let (fixture, current_block) = setup_backfill_test(pool).await;
 
     // Get all aggregate rows and their updated_at timestamps before backfill
     let tables_to_check = vec![
@@ -283,10 +284,10 @@ async fn test_backfill_aggregates() {
     );
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_backfill_statuses() {
-    let (fixture, current_block) = setup_backfill_test().await;
+async fn test_backfill_statuses(pool: sqlx::PgPool) {
+    let (fixture, current_block) = setup_backfill_test(pool).await;
 
     // Get all request_status rows and their updated_at timestamps before backfill
     let before_rows = sqlx::query(

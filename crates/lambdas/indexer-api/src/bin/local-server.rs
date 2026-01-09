@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     // Load configuration from environment or use defaults
     let db_url = env::var("DB_URL")
         .or_else(|_| env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "sqlite:local_indexer.db".to_string());
+        .unwrap_or_else(|_| "postgres://postgres:password@localhost:5433/postgres".to_string());
 
     let chain_id = env::var("CHAIN_ID").ok().and_then(|c| c.parse::<u64>().ok()).unwrap_or(1); // Default to mainnet chain ID
 
