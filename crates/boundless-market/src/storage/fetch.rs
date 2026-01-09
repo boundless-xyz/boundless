@@ -31,7 +31,7 @@ pub async fn fetch_url(url_str: impl AsRef<str>) -> anyhow::Result<Vec<u8>> {
     match url.scheme() {
         "http" | "https" => fetch_http(&url).await,
         "file" => {
-            ensure!(is_dev_mode(), "file fetch is only enabled when RISC0_DEV_MODE is enabled");
+            ensure!(is_dev_mode() || allow_local_file_storage(), "file fetch is only enabled when RISC0_DEV_MODE is enabled");
             fetch_file(&url).await
         }
         _ => bail!("unsupported URL scheme: {}", url.scheme()),
@@ -74,6 +74,15 @@ pub fn override_gateway(url: &str) -> String {
         std::env::var("IPFS_GATEWAY_URL").unwrap_or(BOUNDLESS_IPFS_GATEWAY_URL.to_string());
     let new_url = format!("{gateway_url}/ipfs/{}", parts[1]);
     new_url
+}
+
+/// Returns `true` if the `ALLOW_LOCAL_FILE_STORAGE` environment variable is enabled.
+pub(crate) fn allow_local_file_storage() -> bool {
+    std::env::var("ALLOW_LOCAL_FILE_STORAGE")
+        .ok()
+        .map(|x| x.to_lowercase())
+        .filter(|x| x == "1" || x == "true" || x == "yes")
+        .is_some()
 }
 
 #[cfg(test)]
