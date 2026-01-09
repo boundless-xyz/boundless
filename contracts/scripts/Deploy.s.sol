@@ -124,11 +124,13 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
             console2.log("Using application IRiscZeroVerifier deployed at", address(applicationVerifier));
         }
 
-        if (deploymentConfig.collateralToken == address(0)) {
+        bool deployedNewCollateralToken;
+        if (deploymentConfig.collateralToken == address(0) || deploymentConfig.collateralToken.code.length == 0) {
             // Deploy the HitPoints contract
             stakeToken = address(new HitPoints(boundlessMarketOwner));
             HitPoints(stakeToken).grantMinterRole(boundlessMarketOwner);
             console2.log("Deployed HitPoints collateral token to", stakeToken);
+            deployedNewCollateralToken = true;
         } else {
             stakeToken = deploymentConfig.collateralToken;
             console2.log("Using collateral token deployed at", stakeToken);
@@ -147,7 +149,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         );
         console2.log("Deployed BoundlessMarket (proxy) to", boundlessMarketAddress);
 
-        if (deploymentConfig.collateralToken == address(0)) {
+        if (deployedNewCollateralToken) {
             HitPoints(stakeToken).grantAuthorizedTransferRole(boundlessMarketAddress);
             console2.log(
                 "Granted AUTHORIZED_TRANSFER role to BoundlessMarket on HitPoints collateral token", stakeToken
@@ -173,7 +175,7 @@ contract Deploy is BoundlessScriptBase, RiscZeroCheats {
         console2.log("Updated BoundlessMarket deployment commit: %s", currentCommit);
 
         // Also update collateral token if we deployed it
-        if (deploymentConfig.collateralToken == address(0)) {
+        if (deployedNewCollateralToken) {
             string[] memory tokenArgs = new string[](4);
             tokenArgs[0] = "python3";
             tokenArgs[1] = "contracts/update_deployment_toml.py";
