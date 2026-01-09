@@ -1087,7 +1087,7 @@ where
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
             config.clone(),
-            prover.clone(),
+            aggregation_prover.clone(),
             self.provider.clone(),
             self.deployment().set_verifier_address,
             self.deployment().boundless_market_address,
