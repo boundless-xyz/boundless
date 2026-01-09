@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, fs::File, path::PathBuf, time::Duration};
+use std::{collections::HashSet, env, fs::File, path::PathBuf, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
@@ -40,6 +40,7 @@ use boundless_market::{
 use clap::Parser;
 use futures::future::try_join_all;
 use risc0_zkvm::{compute_image_id, serde::to_vec, sha::Digestible, Journal};
+use sqlx::PgPool;
 use tempfile::NamedTempFile;
 use tokio::{signal, task::JoinHandle, time::Instant};
 use url::Url;
@@ -153,19 +154,36 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         .build_env();
 
     // start the indexer
-    let temp_db = NamedTempFile::new().unwrap();
     let domain = boundless_client.boundless_market.eip712_domain().await?;
-    let db_file_path: PathBuf =
-        args.sqlite_path.as_ref().map_or_else(|| temp_db.path().to_path_buf(), |p| p.clone());
-    if !db_file_path.exists() {
-        std::fs::create_dir_all(db_file_path.parent().unwrap())?;
-    }
-    let db_url = format!("sqlite:{}", db_file_path.display());
     let current_block = boundless_client.provider().get_block_number().await?;
     let (indexer_url, indexer_handle): (String, Option<JoinHandle<Result<()>>>) =
         match args.indexer_url.clone() {
             Some(url) => (url, None),
             None => {
+                let base_db_url = env::var("DATABASE_URL")
+                    .map_err(|_| anyhow!("DATABASE_URL environment variable must be set"))?;
+                let test_db_name = format!(
+                    "bench_test_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system time before unix epoch")
+                        .as_nanos()
+                );
+
+                let mut parsed = Url::parse(&base_db_url)
+                    .map_err(|e| anyhow!("Invalid DATABASE_URL: {}", e))?;
+                parsed.set_path(&format!("/{test_db_name}"));
+                let db_url = parsed.to_string();
+
+                tracing::info!("Creating test database {}", test_db_name);
+                let admin_pool = PgPool::connect(&base_db_url)
+                    .await
+                    .map_err(|e| anyhow!("Failed to connect to database: {}", e))?;
+                sqlx::query(&format!(r#"CREATE DATABASE "{test_db_name}""#))
+                    .execute(&admin_pool)
+                    .await
+                    .map_err(|e| anyhow!("Failed to create test database: {}", e))?;
+
                 let mut indexer = IndexerService::new(
                     args.rpc_url.clone(),
                     args.rpc_url.clone(),

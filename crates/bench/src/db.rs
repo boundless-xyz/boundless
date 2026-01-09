@@ -16,25 +16,23 @@ use std::str::FromStr;
 
 use alloy::primitives::Address;
 use anyhow::Result;
-use sqlx::{
-    any::{AnyConnectOptions, AnyPoolOptions},
-    AnyPool, Row,
-};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 
 /// The `monitoring` struct provides functionality to monitor and query the indexer database.
 pub struct Monitor {
     /// The database connection pool.
-    pub db: AnyPool,
+    pub db: PgPool,
 }
 
 impl Monitor {
     /// Creates a new instance of the Monitor.
     pub async fn new(conn: &str) -> Result<Self> {
-        let opts = AnyConnectOptions::from_str(conn)?;
-        let pool = AnyPoolOptions::new().max_connections(5).connect_with(opts).await?;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(conn)
+            .await?;
 
-        let db = pool;
-        Ok(Self { db })
+        Ok(Self { db: pool })
     }
 
     pub async fn fetch_request_digest(&self, request_digest: &str) -> Result<Option<String>> {
