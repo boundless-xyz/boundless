@@ -173,6 +173,7 @@ pub struct IndexerServiceExecutionConfig {
     pub bento_retry_sleep_ms: u64,
     pub max_concurrent_executing: u32,
     pub max_status_queries: u32,
+    pub max_iterations: u32,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {
