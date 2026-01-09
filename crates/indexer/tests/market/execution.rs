@@ -185,9 +185,9 @@ impl Respond for SessionStatusResponder {
         }
 
         let status = if count < self.running_responses {
-            "RUNNING".to_string()
+            "RUNNING"
         } else {
-            self.final_status.clone()
+            &self.final_status
         };
 
         let body = if status == "FAILED" {
@@ -343,14 +343,13 @@ async fn setup_test_fixture(
     }
 
     // Create test request with PENDING cycle count
-    let mut requests = vec![];
-    let mut digests = vec![];
-    let mut statuses = vec![];
+    let mut requests = Vec::with_capacity(num_requests as usize);
+    let mut digests = Vec::with_capacity(num_requests as usize);
     for i in 0..num_requests {
         requests.push(generate_request(i, &Address::ZERO));
         digests.push(B256::from([i as u8; 32]));
-        statuses.push("PENDING");
     }
+    let statuses = vec!["PENDING"; num_requests as usize];
     test_db.setup_requests_and_cycles(&digests, &requests, &statuses).await;
 
     // Verify initial state
