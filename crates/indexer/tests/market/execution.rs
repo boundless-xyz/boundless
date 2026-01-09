@@ -320,11 +320,8 @@ async fn setup_test_fixture(
     // Set up mock Bento API server
     let mock_server = MockServer::start().await;
     // Only set up the Bento API mock if there's a corresponding config. Some tests don't need it
-    match bento_mock_config {
-        Some(bento_mock_config) => {
-            setup_bento_mocks(&mock_server, bento_mock_config).await;
-        }
-        None => {}
+    if let Some(bento_mock_config) = bento_mock_config {
+        setup_bento_mocks(&mock_server, bento_mock_config).await;
     }
 
     // Create test request with PENDING cycle count
