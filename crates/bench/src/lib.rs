@@ -41,7 +41,6 @@ use clap::Parser;
 use futures::future::try_join_all;
 use risc0_zkvm::{compute_image_id, serde::to_vec, sha::Digestible, Journal};
 use sqlx::PgPool;
-use tempfile::NamedTempFile;
 use tokio::{signal, task::JoinHandle, time::Instant};
 use url::Url;
 
@@ -493,6 +492,7 @@ mod tests {
         config::{Config, ConfigWatcher},
         Args, Broker,
     };
+    use tempfile::NamedTempFile;
     use tracing_test::traced_test;
 
     use super::*;
