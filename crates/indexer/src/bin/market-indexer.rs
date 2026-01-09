@@ -138,6 +138,7 @@ async fn main() -> Result<()> {
             bento_retry_sleep_ms: args.bento_config.bento_retry_sleep_ms,
             max_concurrent_executing: args.bento_config.max_concurrent_executing,
             max_status_queries: args.bento_config.max_status_queries,
+            max_iterations: 0,
         }),
         _ => None,
     };
