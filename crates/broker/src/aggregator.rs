@@ -691,6 +691,7 @@ impl AggregatorService {
         };
 
         if compress {
+            let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
             tracing::debug!(
                 "Starting groth16 compression proof for batch {batch_id} with orders {:?}",
                 batch.orders
