@@ -163,7 +163,7 @@ impl Respond for SessionStatusResponder {
     fn respond(&self, _request: &Request) -> ResponseTemplate {
         let count = self.call_count.fetch_add(1, Ordering::SeqCst);
 
-        // Return failure is requested
+        // Return failure if requested
         if self.fail_status {
             return ResponseTemplate::new(500);
         }
