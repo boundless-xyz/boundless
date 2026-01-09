@@ -45,14 +45,12 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{RequestId, RequestInput},
-    Client,
-    Deployment,
-    StorageProviderConfig, StorageProvider,
+    Client, Deployment, StorageProvider, StorageProviderConfig,
 };
 use clap::Parser;
 use futures::{Stream, StreamExt};
-use std::pin::Pin;
 use guest_util::ECHO_ELF;
+use std::pin::Pin;
 use tokio::time::Duration;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
@@ -142,11 +140,9 @@ async fn create_block_range_stream<P: Provider + Clone + 'static>(
 ) -> Result<Pin<Box<dyn Stream<Item = Result<BlockRangeEvent>> + Send>>> {
     // Get the current block number to start monitoring from
     // This ensures we don't miss any blocks and start from a known point
-    let initial_block = provider
-        .get_block_number()
-        .await
-        .context("failed to get initial block number")?;
-    
+    let initial_block =
+        provider.get_block_number().await.context("failed to get initial block number")?;
+
     tracing::info!("Starting block monitoring from block {}", initial_block);
 
     // Wrap the provider in an Arc so we can share it across async tasks
@@ -159,12 +155,12 @@ async fn create_block_range_stream<P: Provider + Clone + 'static>(
     // We box and pin it so it can be used with StreamExt::next()
     Ok(Box::pin(async_stream::stream! {
         let mut last_processed_block = initial_block;
-        
+
         // Main loop: continuously monitor for new block ranges
         loop {
             // Calculate the target block number (N blocks ahead of last processed)
             let target_block = last_processed_block + blocks_per_request;
-            
+
             // Poll the blockchain until we reach the target block
             // This loop ensures we wait for exactly N new blocks
             loop {
@@ -177,12 +173,12 @@ async fn create_block_range_stream<P: Provider + Clone + 'static>(
                         continue;
                     }
                 };
-                
+
                 // Once we've reached the target block, break out of the polling loop
                 if current_block >= target_block {
                     break;
                 }
-                
+
                 // Sleep for 2 seconds before checking again
                 // This prevents excessive RPC calls while waiting for new blocks
                 tokio::time::sleep(Duration::from_secs(2)).await;
@@ -191,12 +187,12 @@ async fn create_block_range_stream<P: Provider + Clone + 'static>(
             // Now that we've reached the target block, collect all block hashes in the range
             let start_block = last_processed_block + 1;
             let end_block = target_block;
-            
+
             tracing::info!("Collecting block hashes from block {} to {}", start_block, end_block);
-            
+
             let mut block_hashes = Vec::new();
             let mut error_occurred = false;
-            
+
             // Fetch each block in the range and extract its hash
             for block_num in start_block..=end_block {
                 match provider_clone
@@ -320,10 +316,10 @@ async fn run(args: Args) -> Result<()> {
     // - Signing transactions with your private key
     // - Tracking request status and fulfillment
     let client = Client::builder()
-        .with_rpc_url(args.rpc_url)                    // Ethereum RPC endpoint
-        .with_deployment(args.deployment)              // Contract addresses (optional, uses defaults if not provided)
-        .with_storage_provider_config(&args.storage_config)?  // Where to upload programs/inputs
-        .with_private_key(args.private_key.clone())    // Your wallet for signing transactions
+        .with_rpc_url(args.rpc_url) // Ethereum RPC endpoint
+        .with_deployment(args.deployment) // Contract addresses (optional, uses defaults if not provided)
+        .with_storage_provider_config(&args.storage_config)? // Where to upload programs/inputs
+        .with_private_key(args.private_key.clone()) // Your wallet for signing transactions
         .build()
         .await?;
 
@@ -339,10 +335,7 @@ async fn run(args: Args) -> Result<()> {
     // - Use content-addressed storage (hash-based URLs) for caching
     // - Verify the program hash matches what you expect
     let program_url = if let Some(storage_provider) = &client.storage_provider {
-        storage_provider
-            .upload_program(ECHO_ELF)
-            .await
-            .context("failed to upload program")?
+        storage_provider.upload_program(ECHO_ELF).await.context("failed to upload program")?
     } else {
         anyhow::bail!("Storage provider is required to upload the program");
     };
@@ -366,14 +359,14 @@ async fn run(args: Args) -> Result<()> {
     while let Some(event_result) = stream.next().await {
         // Handle any errors from the stream (e.g., RPC failures)
         let event = event_result?;
-        
+
         // ========================================================================
         // Step 4a: Prepare the Request Data
         // ========================================================================
         // Construct the input data that will be provided to the guest program.
         // This is the data the zkVM will process when generating the proof.
         let input = input_function(&event.block_hashes);
-        
+
         // Construct a unique request ID for this block range.
         // The request ID ensures we can track this specific request through its lifecycle.
         let request_id = request_id_function(args.private_key.address(), event.start_block);
@@ -398,9 +391,9 @@ async fn run(args: Args) -> Result<()> {
         // - **Requirements**: Callback address, gas limit, proof type
         let request = client
             .new_request()
-            .with_program_url(program_url.clone())?              // Program location
-            .with_request_input(input)     // Input data (inline, not uploaded)
-            .with_request_id(request_id);                        // Unique request identifier
+            .with_program_url(program_url.clone())? // Program location
+            .with_request_input(input) // Input data (inline, not uploaded)
+            .with_request_id(request_id); // Unique request identifier
 
         // ========================================================================
         // Step 4c: Submit the Request On-Chain
@@ -437,8 +430,8 @@ async fn run(args: Args) -> Result<()> {
         let _fulfillment = client
             .wait_for_request_fulfillment(
                 submitted_request_id,
-                Duration::from_secs(5),  // Poll every 5 seconds
-                expires_at,              // Stop waiting after this timestamp
+                Duration::from_secs(5), // Poll every 5 seconds
+                expires_at,             // Stop waiting after this timestamp
             )
             .await?;
 
@@ -448,7 +441,7 @@ async fn run(args: Args) -> Result<()> {
             event.start_block,
             event.end_block
         );
-        
+
         // The fulfillment object contains the proof result (journal, seal, etc.)
         // In this example, we don't use it, but you could:
         // - Verify the journal contains expected output
@@ -550,10 +543,10 @@ mod tests {
     async fn test_block_range_stream() -> Result<()> {
         // Test the stream creation and that it yields at least one event
         let anvil = Anvil::new().spawn();
-        
+
         // Create a test context which sets up the deployment for chain_id 31337
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        
+
         // Create a client to get a provider (similar to how it's done in run())
         let client = Client::builder()
             .with_rpc_url(anvil.endpoint_url())
@@ -566,7 +559,7 @@ mod tests {
             )?
             .build()
             .await?;
-        
+
         // Clone the provider so it can be moved into the stream
         // The provider is cloneable and doesn't need the client to live
         let provider = client.boundless_market.instance().provider().clone();
