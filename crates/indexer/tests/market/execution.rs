@@ -561,6 +561,14 @@ async fn test_execute_requests_handles_image_download_error() {
     )
     .await;
 
+    patch_request_field(
+        &test_db.pool,
+        &digests[1],
+        "image_url",
+        "file:///nonexistent/path/to/image.elf",
+    )
+    .await;
+
     let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
     execution_handle.await.unwrap();
 
