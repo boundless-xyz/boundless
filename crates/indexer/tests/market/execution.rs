@@ -33,6 +33,22 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
+/// Extract the database connection string from a sqlx::test PgPool.
+/// sqlx::test creates an isolated database per test with a unique name.
+async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+    let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+    let db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await
+        .expect("failed to query current_database()");
+
+    if let Some(last_slash) = base_url.rfind('/') {
+        format!("{}/{}", &base_url[..last_slash], db_name)
+    } else {
+        format!("{}/{}", base_url, db_name)
+    }
+}
+
 /// Helper to create a test config for testing
 fn test_config(uri: String) -> IndexerServiceExecutionConfig {
     IndexerServiceExecutionConfig {
@@ -145,10 +161,12 @@ async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
 }
 
 async fn setup_test_fixture(
+    pool: sqlx::PgPool,
     bento_mock_config: BentoMockConfig,
 ) -> (TestDb, JoinHandle<()>, Vec<FixedBytes<32>>, MockServer) {
     // Set up test database
-    let test_db = TestDb::new().await.unwrap();
+    let db_url = get_db_url_from_pool(&pool).await;
+    let test_db = TestDb::from_pool(db_url, pool).await.unwrap();
 
     // Set up mock Bento API server
     let mock_server = MockServer::start().await;
@@ -176,19 +194,22 @@ async fn setup_test_fixture(
     (test_db, execution_handle, digests, mock_server)
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Slow - run with --ignored"]
-async fn test_execute_requests_processes_pending_cycle_counts() {
+async fn test_execute_requests_processes_pending_cycle_counts(pool: sqlx::PgPool) {
     let expected_cycles = 50_000_000u64;
     let expected_total_cycles = 51_000_000u64;
 
-    let (test_db, execution_handle, _digests, _mock_server) = setup_test_fixture(BentoMockConfig {
-        input_uuid: "test-input-uuid".to_string(),
-        session_uuid: "test-session-uuid".to_string(),
-        expected_cycles,
-        expected_total_cycles,
-        fail_execution: false,
-    })
+    let (test_db, execution_handle, _digests, _mock_server) = setup_test_fixture(
+        pool,
+        BentoMockConfig {
+            input_uuid: "test-input-uuid".to_string(),
+            session_uuid: "test-session-uuid".to_string(),
+            expected_cycles,
+            expected_total_cycles,
+            fail_execution: false,
+        },
+    )
     .await;
 
     // Wait for cycle counts to transition to COMPLETED (with timeout)
@@ -264,16 +285,19 @@ async fn test_execute_requests_processes_pending_cycle_counts() {
     }
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Slow - run with --ignored"]
-async fn test_execute_requests_handles_failed_execution() {
-    let (test_db, execution_handle, digests, _mock_server) = setup_test_fixture(BentoMockConfig {
-        input_uuid: "test-input-uuid".to_string(),
-        session_uuid: "test-session-uuid".to_string(),
-        expected_cycles: 0,
-        expected_total_cycles: 0,
-        fail_execution: true,
-    })
+async fn test_execute_requests_handles_failed_execution(pool: sqlx::PgPool) {
+    let (test_db, execution_handle, digests, _mock_server) = setup_test_fixture(
+        pool,
+        BentoMockConfig {
+            input_uuid: "test-input-uuid".to_string(),
+            session_uuid: "test-session-uuid".to_string(),
+            expected_cycles: 0,
+            expected_total_cycles: 0,
+            fail_execution: true,
+        },
+    )
     .await;
 
     // Wait for cycle count to transition to FAILED
