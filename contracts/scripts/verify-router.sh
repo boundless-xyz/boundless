@@ -26,14 +26,14 @@ cd $CONTRACTS_DIR
 # Run forge build to ensure artifacts are available and built with the right options.
 forge build
 
-CONSTUCTOR_ARGS="$(\
+CONSTRUCTOR_ARGS="$(\
     cast abi-encode 'constructor(address, address)' \
     ${TIMELOCK_CONTROLLER:?} \
     ${PARENT_ROUTER:?} \
 )"
 forge verify-contract --watch \
     --chain-id=${CHAIN_ID:?} \
-    --constructor-args=${CONSTUCTOR_ARGS} \
+    --constructor-args=${CONSTRUCTOR_ARGS} \
     --etherscan-api-key=${ETHERSCAN_API_KEY:?} \
     ${VERIFIER_ROUTER:?} \
     contracts/src/verifier/VerifierLayeredRouter.sol:VerifierLayeredRouter
