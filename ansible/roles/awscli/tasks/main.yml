@@ -1,0 +1,147 @@
+---
+- name: Check if AWS CLI is already installed
+  ansible.builtin.command:
+    cmd: which aws
+  register: awscli_which_check
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+  tags:
+    - awscli
+    - awscli-check
+
+- name: Get AWS CLI version if installed
+  ansible.builtin.command:
+    cmd: aws --version
+  register: awscli_version_check
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+  when: awscli_which_check.rc == 0
+  tags:
+    - awscli
+    - awscli-check
+
+- name: Display current AWS CLI version
+  ansible.builtin.debug:
+    msg: "AWS CLI is already installed: {{ awscli_version_check.stdout | default('version unknown') }}"
+  when: awscli_which_check.rc == 0
+  tags:
+    - awscli
+    - awscli-check
+
+- name: Install unzip if not present (required for AWS CLI installer)
+  ansible.builtin.apt:
+    name: unzip
+    state: present
+    update_cache: true
+  when:
+    - awscli_install_method == "installer"
+    - awscli_which_check.rc != 0 or awscli_update | bool
+  tags:
+    - awscli
+    - awscli-install
+
+- name: Download AWS CLI installer
+  ansible.builtin.get_url:
+    url: "{{ awscli_installer_url }}"
+    dest: /tmp/awscliv2.zip
+    mode: '0644'
+  when:
+    - awscli_install_method == "installer"
+    - awscli_which_check.rc != 0 or awscli_update | bool
+  tags:
+    - awscli
+    - awscli-install
+
+- name: Check if AWS CLI installer is already extracted
+  ansible.builtin.stat:
+    path: /tmp/aws/install
+  register: awscli_extracted_check
+  changed_when: false
+  failed_when: false
+  when:
+    - awscli_install_method == "installer"
+    - awscli_which_check.rc != 0 or awscli_update | bool
+  tags:
+    - awscli
+    - awscli-install
+
+- name: Extract AWS CLI installer
+  ansible.builtin.unarchive:
+    src: /tmp/awscliv2.zip
+    dest: /tmp
+    remote_src: true
+  when:
+    - awscli_install_method == "installer"
+    - (awscli_which_check.rc != 0 or awscli_update | bool)
+    - not awscli_extracted_check.stat.exists | default(false)
+  tags:
+    - awscli
+    - awscli-install
+
+- name: Install AWS CLI using official installer
+  ansible.builtin.command:
+    cmd: >
+      /tmp/aws/install
+      --install-dir {{ awscli_install_dir }}
+      --bin-dir {{ awscli_bin_dir }}
+      {% if awscli_update | bool %}--update{% endif %}
+  args:
+    creates: "{{ awscli_bin_dir }}/aws"
+  when:
+    - awscli_install_method == "installer"
+    - awscli_which_check.rc != 0 or awscli_update | bool
+  tags:
+    - awscli
+    - awscli-install
+
+- name: Install AWS CLI using apt (alternative method)
+  ansible.builtin.apt:
+    name: awscli
+    state: present
+    update_cache: true
+  when:
+    - awscli_install_method == "apt"
+    - awscli_which_check.rc != 0 or awscli_update | bool
+  tags:
+    - awscli
+    - awscli-install
+
+- name: Clean up AWS CLI installer files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/awscliv2.zip
+    - /tmp/aws
+  when:
+    - awscli_install_method == "installer"
+  tags:
+    - awscli
+    - awscli-cleanup
+
+- name: Verify AWS CLI installation
+  ansible.builtin.command:
+    cmd: aws --version
+  register: awscli_verify
+  changed_when: false
+  tags:
+    - awscli
+    - awscli-verify
+
+- name: Display AWS CLI installation success
+  ansible.builtin.debug:
+    msg: "AWS CLI successfully installed: {{ awscli_verify.stdout }}"
+  when: awscli_verify.rc == 0
+  tags:
+    - awscli
+    - awscli-verify
+
+- name: Fail if AWS CLI verification failed
+  ansible.builtin.fail:
+    msg: "AWS CLI installation verification failed. Please check the installation."
+  when: awscli_verify.rc != 0
+  tags:
+    - awscli
+    - awscli-verify

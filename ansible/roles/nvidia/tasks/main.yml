@@ -1,0 +1,98 @@
+---
+- name: Detect Ubuntu version for CUDA repository
+  ansible.builtin.set_fact:
+    nvidia_ubuntu_version_detected: "{{ ansible_distribution_version }}"
+  when: nvidia_ubuntu_version is none
+
+- name: Set Ubuntu version for CUDA repository
+  ansible.builtin.set_fact:
+    nvidia_ubuntu_version: "{{ nvidia_ubuntu_version_detected }}"
+  when: nvidia_ubuntu_version is none
+
+- name: Map Ubuntu version to CUDA repository version
+  ansible.builtin.set_fact:
+    nvidia_cuda_repo_version: >-
+      {%- if nvidia_ubuntu_version == "22.04" -%}ubuntu2204{%- elif nvidia_ubuntu_version == "24.04" -%}ubuntu2404{%- else -%}ubuntu2404{%- endif -%}
+
+- name: Check if CUDA Toolkit is already installed
+  ansible.builtin.command:
+    cmd: dpkg -s cuda-toolkit-{{ nvidia_cuda_version }} nvidia-open
+  register: nvidia_cuda_check
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+
+- name: Download NVIDIA CUDA keyring
+  ansible.builtin.get_url:
+    url: "https://developer.download.nvidia.com/compute/cuda/repos/{{ nvidia_cuda_repo_version }}/x86_64/cuda-keyring_1.1-1_all.deb"
+    dest: /tmp/cuda-keyring_1.1-1_all.deb
+    mode: '0644'
+  when: nvidia_cuda_check.rc != 0
+
+- name: Install NVIDIA CUDA keyring
+  ansible.builtin.apt:
+    deb: /tmp/cuda-keyring_1.1-1_all.deb
+    state: present
+  when: nvidia_cuda_check.rc != 0
+
+- name: Update apt cache after adding CUDA repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: nvidia_cuda_check.rc != 0
+
+- name: Install CUDA Toolkit and NVIDIA drivers
+  ansible.builtin.apt:
+    name:
+      - cuda-toolkit-{{ nvidia_cuda_version }}
+      - nvidia-open
+    state: present
+    update_cache: true
+  when: nvidia_cuda_check.rc != 0
+  tags:
+    - nvidia
+    - nvidia-install
+
+- name: Clean up CUDA keyring package
+  ansible.builtin.file:
+    path: /tmp/cuda-keyring_1.1-1_all.deb
+    state: absent
+
+- name: Verify NVIDIA installation (nvidia-smi)
+  ansible.builtin.command:
+    cmd: nvidia-smi
+  register: nvidia_smi_output
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+  tags:
+    - nvidia
+    - nvidia-verify
+
+- name: Display NVIDIA installation status
+  ansible.builtin.debug:
+    msg: |
+      NVIDIA installation completed.
+      {% if nvidia_smi_output.rc == 0 %}
+      GPU detected successfully:
+      {{ nvidia_smi_output.stdout }}
+      {% else %}
+      Warning: nvidia-smi not available. A reboot may be required for NVIDIA drivers to load.
+      {% endif %}
+  when: nvidia_smi_output is defined
+- name: Warn about reboot requirement
+  ansible.builtin.debug:
+    msg: |
+      NVIDIA drivers have been installed but require a reboot to load.
+      Please reboot the system for NVIDIA support to be fully functional.
+      You can set nvidia_reboot_after_install=true to automatically reboot.
+  when:
+    - nvidia_smi_output.rc != 0
+    - not (nvidia_reboot_after_install | bool)
+
+- name: Reboot system after NVIDIA installation
+  ansible.builtin.reboot:
+    msg: "Rebooting to load NVIDIA drivers"
+    reboot_timeout: 600
+  when:
+    - nvidia_smi_output.rc != 0
+    - nvidia_reboot_after_install | bool

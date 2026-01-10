@@ -1,0 +1,17 @@
+---
+# AWS CLI installation configuration
+
+# Installation method: 'installer' (official AWS installer) or 'apt' (package manager)
+# The official installer is recommended for latest version and better version control
+awscli_install_method: "installer"  # installer or apt
+
+# Installation paths (for installer method)
+awscli_install_dir: "/usr/local/aws-cli"
+awscli_bin_dir: "/usr/local/bin"
+
+# AWS CLI version (for installer method, latest is installed by default)
+# Set to a specific version URL if you need to pin a version
+awscli_installer_url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+
+# Update existing installation (for installer method)
+awscli_update: false  # Set to true to update existing installation

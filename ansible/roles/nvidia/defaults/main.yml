@@ -1,0 +1,12 @@
+---
+# NVIDIA driver and CUDA installation configuration
+
+# CUDA version to install
+nvidia_cuda_version: "13-0"
+
+# Ubuntu version mapping for CUDA repository
+# Automatically detected, but can be overridden
+nvidia_ubuntu_version: null  # null = auto-detect
+
+# Reboot after installation (required for NVIDIA drivers)
+nvidia_reboot_after_install: false  # Set to true to automatically reboot
