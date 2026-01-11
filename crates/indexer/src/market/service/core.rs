@@ -137,6 +137,7 @@ where
                 Err(e) => match e {
                     // Irrecoverable errors
                     ServiceError::DatabaseError(_)
+                    | ServiceError::DatabaseQueryError(_, _)
                     | ServiceError::MaxRetries
                     | ServiceError::RequestNotExpired
                     | ServiceError::Error(_) => {
@@ -258,6 +259,12 @@ where
         // TODO: Debug speed issues.
         // self.aggregate_monthly_requestor_data(to).await?;
         self.aggregate_all_time_requestor_data(to).await?;
+
+        // Aggregate per-prover data.
+        self.aggregate_hourly_prover_data(to).await?;
+        self.aggregate_daily_prover_data(to).await?;
+        self.aggregate_weekly_prover_data(to).await?;
+        self.aggregate_all_time_prover_data(to).await?;
 
         // Update the last processed block.
         self.update_last_processed_block(to).await?;

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod market;
+mod provers;
 mod requestors;
 
 // Re-export the helper function used by backfill service

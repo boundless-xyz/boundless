@@ -103,6 +103,9 @@ pub enum ServiceError {
     #[error("Database error: {0}")]
     DatabaseError(#[from] DbError),
 
+    #[error("Database query error in {1}: {0}")]
+    DatabaseQueryError(DbError, String),
+
     #[error("Boundless market error: {0}")]
     BoundlessMarketError(#[from] MarketError),
 
@@ -120,6 +123,16 @@ pub enum ServiceError {
 
     #[error("Request not expired")]
     RequestNotExpired,
+}
+
+pub trait DbResultExt<T> {
+    fn with_db_context(self, context: &str) -> Result<T, ServiceError>;
+}
+
+impl<T> DbResultExt<T> for Result<T, DbError> {
+    fn with_db_context(self, context: &str) -> Result<T, ServiceError> {
+        self.map_err(|e| ServiceError::DatabaseQueryError(e, context.to_string()))
+    }
 }
 
 #[derive(Clone)]

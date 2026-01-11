@@ -328,6 +328,12 @@ where
         // Recompute per-requestor aggregates
         self.backfill_requestor_aggregates(start_timestamp, end_timestamp).await?;
 
+        // Recompute per-prover aggregates
+        self.backfill_prover_aggregates(start_timestamp, end_timestamp).await?;
+
+        // Recompute per-prover aggregates
+        self.backfill_prover_aggregates(start_timestamp, end_timestamp).await?;
+
         tracing::info!("Aggregate backfill completed in {:?}", start_time.elapsed());
         Ok(())
     }
@@ -894,6 +900,239 @@ where
             );
 
             self.indexer.aggregate_all_time_requestor_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_prover_aggregates(
+        &mut self,
+        start_timestamp: u64,
+        end_timestamp: u64,
+    ) -> Result<(), ServiceError> {
+        let start_ts = get_hour_start(start_timestamp);
+        let end_ts = get_hour_start(end_timestamp);
+
+        self.backfill_hourly_prover_aggregates(start_ts, end_ts).await?;
+
+        let start_day = get_day_start(start_timestamp);
+        let end_day = get_day_start(end_timestamp);
+        self.backfill_daily_prover_aggregates(start_day, end_day).await?;
+
+        let start_week = get_week_start(start_timestamp);
+        let end_week = get_week_start(end_timestamp);
+        self.backfill_weekly_prover_aggregates(start_week, end_week).await?;
+
+        let start_month = get_month_start(start_timestamp);
+        let end_month = get_month_start(end_timestamp);
+        self.backfill_monthly_prover_aggregates(start_month, end_month).await?;
+
+        self.backfill_all_time_prover_aggregates(start_ts, end_ts).await?;
+
+        Ok(())
+    }
+
+    async fn backfill_hourly_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        use crate::market::service::SECONDS_PER_HOUR;
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, HOURLY_CHUNK_SIZE_HOURS).collect();
+
+        let start_hour = get_hour_start(start_ts);
+        let end_hour = get_hour_start(end_ts);
+        let total_chunks = chunks.len();
+
+        tracing::info!(
+            "Processing hourly prover aggregates: {} hours in {} chunks",
+            (end_hour - start_hour) / SECONDS_PER_HOUR + 1,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = if *chunk_start == *chunk_end {
+                1
+            } else {
+                (*chunk_end - chunk_start) / SECONDS_PER_HOUR + 1
+            };
+            tracing::info!(
+                "Processing hourly prover chunk {}/{}: {} to {} ({} hours)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_hourly_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_daily_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let chunks: Vec<_> = chunk_daily_range(start_ts, end_ts, DAILY_CHUNK_SIZE_DAYS).collect();
+
+        let start_day = get_day_start(start_ts);
+        let end_day = get_day_start(end_ts);
+        let total_chunks = chunks.len();
+
+        let total_days = {
+            let mut count = 0;
+            let mut current = start_day;
+            while current <= end_day {
+                count += 1;
+                current = get_next_day(current);
+            }
+            count
+        };
+
+        tracing::info!(
+            "Processing daily prover aggregates: {} days in {} chunks",
+            total_days,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = {
+                let mut count = 0;
+                let mut current = *chunk_start;
+                while current <= *chunk_end {
+                    count += 1;
+                    current = get_next_day(current);
+                }
+                count
+            };
+
+            tracing::info!(
+                "Processing daily prover chunk {}/{}: {} to {} ({} days)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_daily_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_weekly_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        use crate::market::service::SECONDS_PER_WEEK;
+        let chunks: Vec<_> =
+            chunk_weekly_range(start_ts, end_ts, WEEKLY_CHUNK_SIZE_WEEKS).collect();
+
+        let start_week = get_week_start(start_ts);
+        let end_week = get_week_start(end_ts);
+        let total_chunks = chunks.len();
+
+        tracing::info!(
+            "Processing weekly prover aggregates: {} weeks in {} chunks",
+            (end_week - start_week) / SECONDS_PER_WEEK + 1,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = if *chunk_start == *chunk_end {
+                1
+            } else {
+                (*chunk_end - chunk_start) / SECONDS_PER_WEEK + 1
+            };
+            tracing::info!(
+                "Processing weekly prover chunk {}/{}: {} to {} ({} weeks)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_weekly_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_monthly_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let chunks: Vec<_> =
+            chunk_monthly_range(start_ts, end_ts, MONTHLY_CHUNK_SIZE_MONTHS).collect();
+
+        let start_month = get_month_start(start_ts);
+        let end_month = get_month_start(end_ts);
+        let total_chunks = chunks.len();
+
+        tracing::info!(
+            "Processing monthly prover aggregates: {} months in {} chunks",
+            total_chunks,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            tracing::info!(
+                "Processing monthly prover chunk {}/{}: {} to {}",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end
+            );
+
+            self.indexer.aggregate_monthly_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_all_time_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        use crate::market::service::SECONDS_PER_HOUR;
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, HOURLY_CHUNK_SIZE_HOURS).collect();
+
+        let start_hour = get_hour_start(start_ts);
+        let end_hour = get_hour_start(end_ts);
+        let total_chunks = chunks.len();
+
+        tracing::info!(
+            "Processing all-time prover aggregates: {} hours in {} chunks",
+            (end_hour - start_hour) / SECONDS_PER_HOUR + 1,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = if *chunk_start == *chunk_end {
+                1
+            } else {
+                (*chunk_end - chunk_start) / SECONDS_PER_HOUR + 1
+            };
+            tracing::info!(
+                "Processing all-time prover chunk {}/{}: {} to {} ({} hours)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_all_time_prover_data_from(*chunk_start, *chunk_end).await?;
         }
 
         Ok(())

@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use indexer_api::routes::market::{
-    MarketAggregatesResponse, MarketCumulativesResponse, RequestListResponse,
-    RequestStatusResponse, RequestorAggregatesResponse, RequestorCumulativesResponse,
+    MarketAggregatesResponse, MarketCumulativesResponse, ProverAggregatesResponse,
+    ProverCumulativesResponse, RequestListResponse, RequestStatusResponse,
+    RequestorAggregatesResponse, RequestorCumulativesResponse,
 };
 
 use super::TestEnv;
@@ -1209,6 +1210,101 @@ async fn test_requestor_cumulatives() {
                 "Requestor cumulatives should have exactly 1 hour (3600s) gap between consecutive entries. Found gap: {}s between {} and {}",
                 gap, prev_ts, curr_ts
             );
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_prover_aggregates() {
+    let env = TestEnv::market().await;
+
+    let list_response: RequestListResponse = env.get("/v1/market/requests?limit=10").await.unwrap();
+
+    let prover_address = list_response
+        .data
+        .iter()
+        .find_map(|r| r.lock_prover_address.as_ref().or(r.fulfill_prover_address.as_ref()))
+        .expect("Should find a prover address");
+
+    let path =
+        format!("/v1/market/provers/{}/aggregates?aggregation=hourly&limit=10", prover_address);
+    let response: ProverAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "hourly");
+    assert_eq!(response.prover_address, *prover_address);
+    assert!(response.data.len() <= 10);
+
+    if !response.data.is_empty() {
+        let first_entry = &response.data[0];
+        assert_eq!(first_entry.prover_address, *prover_address);
+        assert!(!first_entry.timestamp_iso.is_empty());
+        assert!(!first_entry.total_fees_earned_formatted.is_empty());
+    }
+
+    let path =
+        format!("/v1/market/provers/{}/aggregates?aggregation=daily&limit=5", prover_address);
+    let response: ProverAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "daily");
+    assert_eq!(response.prover_address, *prover_address);
+
+    let path =
+        format!("/v1/market/provers/{}/aggregates?aggregation=weekly&limit=5", prover_address);
+    let response: ProverAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "weekly");
+    assert_eq!(response.prover_address, *prover_address);
+
+    let path =
+        format!("/v1/market/provers/{}/aggregates?aggregation=monthly&limit=5", prover_address);
+    let result: Result<ProverAggregatesResponse, _> = env.get(&path).await;
+    assert!(result.is_err(), "Monthly aggregation should be rejected");
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_prover_cumulatives() {
+    let env = TestEnv::market().await;
+
+    let list_response: RequestListResponse = env.get("/v1/market/requests?limit=10").await.unwrap();
+
+    let prover_address = list_response
+        .data
+        .iter()
+        .find_map(|r| r.lock_prover_address.as_ref().or(r.fulfill_prover_address.as_ref()))
+        .expect("Should find a prover address");
+
+    let path = format!("/v1/market/provers/{}/cumulatives?limit=10", prover_address);
+    let response: ProverCumulativesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.prover_address, *prover_address);
+    assert!(response.data.len() <= 10);
+
+    if !response.data.is_empty() {
+        let first_entry = response.data.first().unwrap();
+        assert_eq!(first_entry.prover_address, *prover_address);
+        assert!(!first_entry.timestamp_iso.is_empty());
+        assert!(!first_entry.total_fees_earned_formatted.is_empty());
+    }
+
+    if response.data.len() >= 2 {
+        let sorted_data: Vec<_> = response.data.iter().collect();
+        for i in 1..sorted_data.len() {
+            let prev = &sorted_data[i - 1];
+            let curr = &sorted_data[i];
+
+            if prev.timestamp > curr.timestamp {
+                assert!(
+                    prev.total_requests_locked >= curr.total_requests_locked,
+                    "Cumulative values should be non-decreasing"
+                );
+            } else {
+                assert!(
+                    curr.total_requests_locked >= prev.total_requests_locked,
+                    "Cumulative values should be non-decreasing"
+                );
+            }
         }
     }
 }
