@@ -550,9 +550,9 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set a custom price provider for fetching market prices.
     ///
     /// If provided, the [OfferLayer] will use market prices (p10 and p99 percentiles)
-    /// when [OfferParams] doesn't explicitly set min_price or max_price.
+    /// when [`OfferParams`](crate::request_builder::OfferParams) doesn't explicitly set min_price or max_price.
     ///
-    /// This method allows you to use any implementation of [PriceProvider], not just [IndexerClient].
+    /// This method allows you to use any implementation of [`PriceProvider`](crate::request_builder::PriceProvider), not just [IndexerClient].
     /// This is useful for testing with mock providers or using alternative price data sources.
     ///
     /// If not set, the indexer URL from the [Deployment] will be used to create an [IndexerClient].
