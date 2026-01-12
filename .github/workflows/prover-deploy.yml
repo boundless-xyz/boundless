@@ -22,9 +22,9 @@ on:
         required: true
         type: choice
         options:
-          - bento.yml
+          - prover.yml
           - monitoring.yml
-        default: 'bento.yml'
+        default: 'prover.yml'
 
 concurrency:
   group: prover-deploy-${{ github.event.inputs.target || 'scheduled' }}
@@ -75,7 +75,7 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: 'False'
           ANSIBLE_FORCE_COLOR: '1'
         run: |
-          ansible-playbook -i inventory.yml bento.yml --limit nightly
+          ansible-playbook -i inventory.yml prover.yml --limit nightly
 
       - name: Cleanup
         if: always()
@@ -129,7 +129,7 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: 'False'
           ANSIBLE_FORCE_COLOR: '1'
         run: |
-          ansible-playbook -i inventory.yml bento.yml --limit release
+          ansible-playbook -i inventory.yml prover.yml --limit release
 
       - name: Cleanup
         if: always()

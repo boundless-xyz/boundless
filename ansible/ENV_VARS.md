@@ -34,7 +34,7 @@ all:
 ### Using Command-Line Variables
 
 ```bash
-ansible-playbook -i inventory.yml bento.yml \
+ansible-playbook -i inventory.yml prover.yml \
   -e prover_postgres_password="secure_password" \
   -e prover_private_key="0x..."
 ```

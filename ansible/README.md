@@ -24,7 +24,7 @@ This setup deploys the Boundless prover stack using Docker Compose, including:
 
 ```
 ansible/
-├── bento.yml              # Main deployment playbook
+├── prover.yml             # Main deployment playbook
 ├── monitoring.yml         # AWS CLI + Vector log shipping
 ├── inventory.yml          # Host inventory (base64 encoded for CI)
 ├── ansible.cfg            # Ansible configuration
@@ -45,11 +45,11 @@ ansible/
 ```bash
 cd ansible
 
-# Deploy Bento stack
-ansible-playbook -i inventory.yml bento.yml
+# Deploy prover stack
+ansible-playbook -i inventory.yml prover.yml
 
 # Deploy to specific host
-ansible-playbook -i inventory.yml bento.yml --limit 127.0.0.1
+ansible-playbook -i inventory.yml prover.yml --limit 127.0.0.1
 
 # Deploy monitoring (Vector + AWS CLI)
 ansible-playbook -i inventory.yml monitoring.yml
@@ -83,7 +83,7 @@ all:
 
 ## Playbooks
 
-### bento.yml
+### prover.yml
 
 Deploys the complete prover stack:
 
@@ -92,7 +92,7 @@ Deploys the complete prover stack:
 3. **prover role** - Deploys prover services via Docker Compose
 
 ```bash
-ansible-playbook -i inventory.yml bento.yml
+ansible-playbook -i inventory.yml prover.yml
 ```
 
 ### monitoring.yml
@@ -141,16 +141,16 @@ Use tags for selective deployment:
 
 ```bash
 # Deploy only NVIDIA drivers
-ansible-playbook -i inventory.yml bento.yml --tags nvidia
+ansible-playbook -i inventory.yml prover.yml --tags nvidia
 
 # Deploy only Docker
-ansible-playbook -i inventory.yml bento.yml --tags docker
+ansible-playbook -i inventory.yml prover.yml --tags docker
 
 # Deploy only prover (skip drivers/docker)
-ansible-playbook -i inventory.yml bento.yml --tags prover
+ansible-playbook -i inventory.yml prover.yml --tags prover
 
 # Skip NVIDIA driver installation
-ansible-playbook -i inventory.yml bento.yml --skip-tags nvidia
+ansible-playbook -i inventory.yml prover.yml --skip-tags nvidia
 ```
 
 ### Available Tags
@@ -166,7 +166,7 @@ ansible-playbook -i inventory.yml bento.yml --skip-tags nvidia
 
 ## GitHub Actions Deployment
 
-The repository includes automated deployment via GitHub Actions (`.github/workflows/prover-release.yml`).
+The repository includes automated deployment via GitHub Actions (`.github/workflows/prover-deploy.yml`).
 
 ### Host Groups
 
@@ -194,7 +194,7 @@ base64 -i inventory.yml | tr -d '\n'
 2. Click "Run workflow"
 3. Select:
    * **Target**: `nightly`, `release`, or `all`
-   * **Playbook**: `bento.yml` or `monitoring.yml`
+   * **Playbook**: `prover.yml` or `monitoring.yml`
 
 ### Scheduled Deployment
 
@@ -260,7 +260,7 @@ ansible all -i inventory.yml -m ping
 Use `--check` for a dry run:
 
 ```bash
-ansible-playbook -i inventory.yml bento.yml --check
+ansible-playbook -i inventory.yml prover.yml --check
 ```
 
 ### NVIDIA Driver Issues

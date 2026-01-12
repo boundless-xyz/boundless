@@ -78,7 +78,7 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 ### Basic Deployment
 
 ```bash
-ansible-playbook -i inventory.yml bento.yml
+ansible-playbook -i inventory.yml prover.yml
 ```
 
 ### With Custom Variables
@@ -101,7 +101,7 @@ all:
 Or pass via command line:
 
 ```bash
-ansible-playbook -i inventory.yml bento.yml \
+ansible-playbook -i inventory.yml prover.yml \
   -e prover_postgres_password="secure_password"
 ```
 
@@ -207,7 +207,7 @@ docker compose up -d
 To force a fresh deployment:
 
 ```bash
-ansible-playbook -i inventory.yml bento.yml --tags prover
+ansible-playbook -i inventory.yml prover.yml --tags prover
 ```
 
 ## Tags
