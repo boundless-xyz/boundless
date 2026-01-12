@@ -24,13 +24,12 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, Deployment, StorageUploaderConfig};
+use boundless_market::{Client, DefaultDownloader, Deployment, StorageUploaderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use risc0_zkvm::sha::Digestible;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
-use boundless_market::storage::default::DefaultDownloader;
 
 /// Timeout for the transaction to be confirmed.
 pub const TX_TIMEOUT: Duration = Duration::from_secs(30);
