@@ -820,16 +820,6 @@ where
         Self { funding_mode, ..self }
     }
 
-    /// Set the indexer URL for the client.
-    pub fn with_indexer_url(self, indexer_url: Url) -> Self {
-        Self {
-            deployment: Deployment {
-                indexer_url: Some(indexer_url.to_string().into()),
-                ..self.deployment
-            },
-            ..self
-        }
-    }
 
     /// Set the signer that will be used for signing [ProofRequest].
     /// ```rust

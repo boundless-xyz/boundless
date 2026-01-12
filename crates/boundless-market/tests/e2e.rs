@@ -681,7 +681,7 @@ async fn test_offer_params_explicit_prices_override_provider() {
 
 #[tokio::test]
 #[traced_test]
-async fn test_client_builder_with_indexer_url() {
+async fn test_client_builder_with_price_provider() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await.unwrap();

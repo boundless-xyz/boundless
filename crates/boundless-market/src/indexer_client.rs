@@ -380,9 +380,7 @@ impl IndexerClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{
-        create_mock_indexer_client, create_test_indexer_client,
-    };
+    use crate::test_helpers::{create_mock_indexer_client, create_test_indexer_client};
     use httpmock::prelude::*;
     use serde_json::json;
 
