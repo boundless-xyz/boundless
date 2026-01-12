@@ -18,7 +18,6 @@ use std::{
     time::SystemTime,
 };
 
-use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, FixedBytes, U256},
@@ -30,7 +29,6 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
-    override_gateway,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
     Deployment,
 };
@@ -44,9 +42,9 @@ use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
+use storage::ConfigurableDownloader;
 use task::{RetryPolicy, Supervisor};
-use tokio::sync::mpsc;
-use tokio::task::JoinSet;
+use tokio::{sync::mpsc, sync::RwLock, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -109,7 +107,8 @@ pub struct Args {
     /// local prover API (Bento)
     ///
     /// Setting this value toggles using Bento for proving and disables Bonsai
-    #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"])]
+    #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"]
+    )]
     pub bento_api_url: Option<Url>,
 
     /// Bonsai API URL
@@ -490,7 +489,8 @@ pub struct Broker<P> {
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
-    gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    gas_priority_mode: Arc<RwLock<PriorityMode>>,
+    downloader: ConfigurableDownloader,
 }
 
 impl<P> Broker<P>
@@ -501,7 +501,7 @@ where
         mut args: Args,
         provider: P,
         config_watcher: ConfigWatcher,
-        gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        gas_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
@@ -524,6 +524,9 @@ where
 
         let priority_requestors =
             requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
+        let downloader = ConfigurableDownloader::new(config_watcher.config.clone())
+            .await
+            .context("Failed to initialize downloader")?;
 
         Ok(Self {
             args,
@@ -532,6 +535,7 @@ where
             config_watcher,
             priority_requestors,
             gas_priority_mode,
+            downloader,
         })
     }
 
@@ -756,12 +760,9 @@ where
     async fn download_image(&self, url: &str, source_name: &str) -> Result<Vec<u8>> {
         tracing::trace!("Attempting to download image from {}: {}", source_name, url);
 
-        let handler = create_uri_handler(url, &self.config_watcher.config, false)
-            .await
-            .with_context(|| format!("Failed to create handler for {} URL", source_name))?;
-
-        let bytes = handler
-            .fetch()
+        let bytes = self
+            .downloader
+            .download(&url)
             .await
             .with_context(|| format!("Failed to download image from {}", source_name))?;
 
@@ -967,6 +968,7 @@ where
             collateral_token_decimals,
             order_state_tx.clone(),
             self.priority_requestors.clone(),
+            self.downloader.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -978,19 +980,16 @@ where
             Ok(())
         });
 
-        let proving_service = Arc::new(
-            proving::ProvingService::new(
-                self.db.clone(),
-                prover.clone(),
-                aggregation_prover.clone(),
-                config.clone(),
-                order_state_tx.clone(),
-                self.priority_requestors.clone(),
-                market.clone(),
-            )
-            .await
-            .context("Failed to initialize proving service")?,
-        );
+        let proving_service = Arc::new(proving::ProvingService::new(
+            self.db.clone(),
+            prover.clone(),
+            aggregation_prover.clone(),
+            config.clone(),
+            order_state_tx.clone(),
+            self.priority_requestors.clone(),
+            market.clone(),
+            self.downloader.clone(),
+        ));
 
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
@@ -1144,12 +1143,12 @@ where
         let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             while non_critical_tasks.join_next().await.is_some() {}
         })
-        .await
-        .map_err(|_| {
-            tracing::warn!(
+            .await
+            .map_err(|_| {
+                tracing::warn!(
                 "Timed out waiting for non-critical tasks to exit; proceeding with critical shutdown"
             );
-        });
+            });
 
         // Phase 2: Wait for committed orders to complete, then cancel critical tasks
         self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
@@ -1215,6 +1214,10 @@ where
     }
 }
 
+fn override_gateway(_: &str) -> String {
+    todo!()
+}
+
 /// A very small utility function to get the current unix timestamp in seconds.
 // TODO(#379): Avoid drift relative to the chain's timestamps.
 pub(crate) fn now_timestamp() -> u64 {
@@ -1265,8 +1268,10 @@ pub(crate) fn allow_local_file_storage() -> bool {
 pub mod test_utils {
     use std::sync::Arc;
 
-    use alloy::network::Ethereum;
-    use alloy::providers::{Provider, WalletProvider};
+    use alloy::{
+        network::Ethereum,
+        providers::{Provider, WalletProvider},
+    };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
     use boundless_test_utils::{
@@ -1276,8 +1281,10 @@ pub mod test_utils {
     use tempfile::NamedTempFile;
     use url::Url;
 
-    use crate::config::ConfigWatcher;
-    use crate::{config::Config, Args, Broker};
+    use crate::{
+        config::{Config, ConfigWatcher},
+        Args, Broker,
+    };
 
     pub struct BrokerBuilder<P> {
         args: Args,

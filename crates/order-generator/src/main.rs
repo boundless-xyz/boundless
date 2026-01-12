@@ -20,16 +20,18 @@ use alloy::{
         utils::{format_units, parse_ether},
         U256,
     },
+    providers::DynProvider,
     signers::local::PrivateKeySigner,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
     client::{Client, FundingMode},
     deployments::Deployment,
     input::GuestEnv,
-    request_builder::OfferParams,
-    storage::{fetch_url, StorageProviderConfig},
+    request_builder::{OfferParams, StandardRequestBuilder},
+    storage::{DefaultDownloader, HttpDownloader, StorageDownloader},
+    StandardUploader, StorageUploaderConfig,
 };
 use clap::Parser;
 use rand::Rng;
@@ -131,7 +133,7 @@ struct MainArgs {
 
     /// Storage provider to use.
     #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    storage_config: StorageUploaderConfig,
 }
 
 #[tokio::main]
@@ -171,7 +173,9 @@ async fn run(args: &MainArgs) -> Result<()> {
     }
 
     let client = client
-        .with_storage_provider_config(&args.storage_config)?
+        .with_storage_provider_config(&args.storage_config)
+        .await?
+        .with_downloader(DefaultDownloader::new().await)
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
@@ -191,23 +195,20 @@ async fn run(args: &MainArgs) -> Result<()> {
         .clone()
         .unwrap_or(Url::parse("https://gateway.pinata.cloud").unwrap());
     // Ensure we have both a program and a program URL.
-    let program = args.program.as_ref().map(std::fs::read).transpose()?;
-    let program_url = match program {
-        Some(ref program) => {
-            let program_url = client.upload_program(program).await?;
+    let (program, program_url) = match args.program.as_ref().map(std::fs::read).transpose()? {
+        Some(program) => {
+            let program_url = client.upload_program(&program).await?;
             tracing::info!("Uploaded program to {}", program_url);
-            program_url
+            (program, program_url)
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            ipfs_gateway
+            let program_url = ipfs_gateway
                 .join("/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi")
-                .unwrap()
+                .unwrap();
+            let program = HttpDownloader::default().download_url(program_url.clone()).await?;
+            (program, program_url)
         }
-    };
-    let program = match program {
-        None => fetch_url(&program_url).await.context("failed to fetch order generator program")?,
-        Some(program) => program,
     };
 
     let mut i = 0u64;
@@ -235,7 +236,13 @@ async fn run(args: &MainArgs) -> Result<()> {
 
 async fn handle_request(
     args: &MainArgs,
-    client: &Client,
+    client: &Client<
+        DynProvider,
+        StandardUploader,
+        DefaultDownloader,
+        StandardRequestBuilder<DynProvider, StandardUploader, DefaultDownloader>,
+        PrivateKeySigner,
+    >,
     program: &[u8],
     program_url: &url::Url,
 ) -> Result<()> {
@@ -387,7 +394,7 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
+    use boundless_market::contracts::IBoundlessMarket;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use tracing_test::traced_test;
 
@@ -402,7 +409,7 @@ mod tests {
         let args = MainArgs {
             rpc_url: Some(anvil.endpoint_url()),
             rpc_urls: Some(Vec::new()),
-            storage_config: StorageProviderConfig::dev_mode(),
+            storage_config: StorageUploaderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             deployment: Some(ctx.deployment.clone()),
             interval: 1,

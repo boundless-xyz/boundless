@@ -30,7 +30,7 @@ use crate::{
     requestor_monitor::PriorityRequestors,
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, OrderRequest, OrderStateChange,
+    utils, ConfigurableDownloader, FulfillmentType, OrderRequest, OrderStateChange,
 };
 use crate::{
     now_timestamp,
@@ -55,8 +55,10 @@ use boundless_market::{
 };
 use moka::future::Cache;
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc, Mutex};
-use tokio::task::JoinSet;
+use tokio::{
+    sync::{broadcast, mpsc, Mutex},
+    task::JoinSet,
+};
 use tokio_util::sync::CancellationToken;
 
 use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
@@ -180,6 +182,7 @@ pub struct OrderPicker<P> {
     preflight_cache: PreflightCache,
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
+    downloader: ConfigurableDownloader,
 }
 
 #[derive(Debug)]
@@ -227,6 +230,7 @@ where
         collateral_token_decimals: u8,
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
+        downloader: ConfigurableDownloader,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -259,6 +263,7 @@ where
             ),
             order_state_tx,
             priority_requestors,
+            downloader,
         }
     }
 
@@ -596,11 +601,11 @@ where
         // Loop while the cached result is skipped and has a lower exec limit than the current order.
         let preflight_result = loop {
             let prover = self.prover.clone();
-            let config = self.config.clone();
             let request = order.request.clone();
             let order_id_clone = order_id.clone();
             let cache_key_clone: PreflightCacheKey = cache_key.clone();
             let priority_requestors = self.priority_requestors.clone();
+            let downloader = self.downloader.clone();
 
             let cache_cloned = self.preflight_cache.clone();
             let result = tokio::task::spawn(async move {
@@ -615,11 +620,11 @@ where
                         );
 
                         // Upload image and input only if not cached
-                        let image_id = upload_image_uri(&prover, &request, &config)
+                        let image_id = upload_image_uri(&prover, &request, &downloader)
                             .await
                             .map_err(|e| OrderPickerErr::FetchImageErr(Arc::new(e)))?;
 
-                        let input_id = upload_input_uri(&prover, &request, &config, &priority_requestors)
+                        let input_id = upload_input_uri(&prover, &request, &downloader, &priority_requestors)
                             .await
                             .map_err(|e| OrderPickerErr::FetchInputErr(Arc::new(e)))?;
 
@@ -650,7 +655,7 @@ where
                             }
                             Err(err) => match err {
                                 ProverError::ProvingFailed(ref err_msg) => {
-                                    if err_msg.contains("Session limit exceeded") 
+                                    if err_msg.contains("Session limit exceeded")
                                         || err_msg.contains("Execution stopped intentionally due to session limit") {
                                         tracing::debug!(
                                             "Skipping order {order_id_clone} due to intentional execution limit of {exec_limit_cycles}",
@@ -1488,6 +1493,7 @@ where
                         }
 
                         // Mark order as being processed immediately to prevent duplicates
+                        tracing::debug!("Caching order {order_id}");
                         picker.order_cache.insert(order_id.clone(), ()).await;
 
                         let picker_clone = picker.clone();
@@ -1561,20 +1567,19 @@ pub(crate) mod tests {
         signers::local::PrivateKeySigner,
     };
     use async_trait::async_trait;
-    use boundless_market::storage::{MockStorageProvider, StorageProvider};
     use boundless_market::{
         contracts::{
             Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         },
         selector::SelectorExt,
+        storage::{MockStorageUploader, StorageUploader},
     };
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
     };
     use risc0_ethereum_contracts::selector::Selector;
-    use risc0_zkvm::sha::Digest;
-    use risc0_zkvm::Receipt;
+    use risc0_zkvm::{sha::Digest, Receipt};
     use tracing_test::traced_test;
 
     /// Reusable context for testing the order picker
@@ -1582,7 +1587,7 @@ pub(crate) mod tests {
         anvil: AnvilInstance,
         pub(crate) picker: OrderPicker<P>,
         boundless_market: BoundlessMarketService<Arc<P>>,
-        storage_provider: MockStorageProvider,
+        storage_provider: MockStorageUploader,
         db: DbObj,
         provider: Arc<P>,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
@@ -1784,7 +1789,7 @@ pub(crate) mod tests {
                 );
             }
 
-            let storage_provider = MockStorageProvider::start();
+            let storage_provider = MockStorageUploader::new();
 
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
@@ -1794,6 +1799,7 @@ pub(crate) mod tests {
 
             let chain_id = provider.get_chain_id().await.unwrap();
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
+            let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1812,6 +1818,7 @@ pub(crate) mod tests {
                 self.collateral_token_decimals.unwrap_or(6),
                 order_state_tx,
                 priority_requestors,
+                downloader,
             );
 
             PickerTestCtx {
@@ -2170,7 +2177,8 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        let order = ctx.generate_next_order(Default::default()).await;
+        let order =
+            ctx.generate_next_order(OrderParams { order_index: 1, ..Default::default() }).await;
         let order_id = order.id();
 
         let _request_id =
@@ -2190,7 +2198,8 @@ pub(crate) mod tests {
         pricing_task.abort();
 
         // Send a new order when picker task is down.
-        let new_order = ctx.generate_next_order(Default::default()).await;
+        let new_order =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
         let new_order_id = new_order.id();
         ctx.new_order_tx.send(new_order).await.unwrap();
 

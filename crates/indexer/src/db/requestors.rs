@@ -1485,11 +1485,15 @@ async fn get_all_time_requestor_summaries_generic(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::events::EventsDb;
-    use crate::db::market::{
-        HourlyRequestorSummary, MarketDb, RequestStatusType, SlashedStatus, TxMetadata,
+    use crate::{
+        db::{
+            events::EventsDb,
+            market::{
+                HourlyRequestorSummary, MarketDb, RequestStatusType, SlashedStatus, TxMetadata,
+            },
+        },
+        test_utils::TestDb,
     };
-    use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,

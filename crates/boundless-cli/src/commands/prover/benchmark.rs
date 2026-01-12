@@ -12,17 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{
+    config::{GlobalConfig, ProverConfig},
+    config_ext::ProverConfigExt,
+    display::{network_name_from_chain_id, DisplayManager},
+};
 use alloy::primitives::U256;
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_market::{contracts::RequestInputType, input::GuestEnv, storage::fetch_url};
+use boundless_market::{
+    contracts::RequestInputType,
+    input::GuestEnv,
+    storage::{DefaultDownloader, StorageDownloader},
+};
 use clap::Args;
 use risc0_zkvm::compute_image_id;
-use sqlx::{postgres::PgPool, postgres::PgPoolOptions};
-
-use crate::config::{GlobalConfig, ProverConfig};
-use crate::config_ext::ProverConfigExt;
-use crate::display::{network_name_from_chain_id, DisplayManager};
+use sqlx::postgres::{PgPool, PgPoolOptions};
 
 /// Benchmark proof requests
 #[derive(Args, Clone, Debug)]
@@ -50,6 +55,7 @@ impl ProverBenchmark {
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
+        let downloader = DefaultDownloader::new().await;
 
         display.header("Benchmarking Proof Requests");
         display.item_colored("Total requests", self.request_ids.len(), "cyan");
@@ -92,7 +98,7 @@ impl ProverBenchmark {
             tracing::debug!("Image URL: {}", request.imageUrl);
 
             display.status("Status", "Fetching program and input", "yellow");
-            let elf = fetch_url(&request.imageUrl).await?;
+            let elf = downloader.download(&request.imageUrl).await?;
 
             tracing::debug!("Processing input");
             let input = match request.input.inputType {
@@ -101,9 +107,9 @@ impl ProverBenchmark {
                     let input_url = std::str::from_utf8(&request.input.data)
                         .context("Input URL is not valid UTF-8")?;
                     tracing::debug!("Fetching input from {}", input_url);
-                    GuestEnv::decode(&fetch_url(input_url).await?)?.stdin
+                    GuestEnv::decode(&downloader.download(&input_url).await?)?.stdin
                 }
-                _ => bail!("Unsupported input type"),
+                _ => bail!("Unsupported input type "),
             };
 
             display.status("Status", "Uploading to prover", "yellow");

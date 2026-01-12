@@ -18,6 +18,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::{errors::CodedError, impl_coded_debug};
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use boundless_market::dynamic_gas_filler::PriorityMode;
@@ -29,8 +30,6 @@ use tokio::{
     task::JoinHandle,
     time::{timeout, Duration},
 };
-
-use crate::{errors::CodedError, impl_coded_debug};
 
 mod defaults {
     use super::PriorityMode;
@@ -89,6 +88,10 @@ mod defaults {
 
     pub const fn max_file_size() -> usize {
         50_000_000
+    }
+
+    pub const fn max_fetch_retries() -> Option<u8> {
+        Some(2)
     }
 
     pub fn assessor_default_image_url() -> String {
@@ -452,7 +455,7 @@ impl Default for MarketConf {
             gas_priority_mode: defaults::priority_mode(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
-            max_fetch_retries: Some(2),
+            max_fetch_retries: defaults::max_fetch_retries(),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),

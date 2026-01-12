@@ -24,12 +24,13 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, Deployment, StorageProviderConfig};
+use boundless_market::{Client, Deployment, StorageUploaderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use risc0_zkvm::sha::Digestible;
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
 use url::Url;
+use boundless_market::storage::default::DefaultDownloader;
 
 /// Timeout for the transaction to be confirmed.
 pub const TX_TIMEOUT: Duration = Duration::from_secs(30);
@@ -59,7 +60,7 @@ struct Args {
     program_url: Option<Url>,
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    storage_config: StorageUploaderConfig,
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
 }
@@ -88,7 +89,9 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config)?
+        .with_storage_provider_config(&args.storage_config)
+        .await?
+        .with_downloader(DefaultDownloader::new().await)
         .with_private_key(args.private_key)
         .build()
         .await
@@ -166,8 +169,9 @@ mod tests {
         node_bindings::{Anvil, AnvilInstance},
         providers::{Provider, ProviderBuilder, WalletProvider},
     };
-    use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageProviderType;
+    use boundless_market::{
+        contracts::hit_points::default_allowance, storage::StorageUploaderType,
+    };
     use boundless_test_utils::market::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
@@ -227,8 +231,8 @@ mod tests {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
             program_url: None,
-            storage_config: StorageProviderConfig::builder()
-                .storage_provider(StorageProviderType::Mock)
+            storage_config: StorageUploaderConfig::builder()
+                .storage_provider(StorageUploaderType::Mock)
                 .build()
                 .unwrap(),
             deployment: Some(ctx.deployment),

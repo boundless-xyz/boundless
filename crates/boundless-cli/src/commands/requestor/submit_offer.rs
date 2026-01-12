@@ -18,13 +18,11 @@ use boundless_market::{
     input::GuestEnvBuilder,
     request_builder::{OfferParams as OfferParamsStruct, RequirementParams},
     selector::{ProofType, SelectorExt},
-    storage::StorageProviderConfig,
+    storage::{DefaultDownloader, StorageUploaderConfig},
 };
 use clap::Args;
 use serde_json;
-use std::borrow::Cow;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{borrow::Cow, path::PathBuf, time::Duration};
 use url::Url;
 
 use crate::config::{GlobalConfig, RequestorConfig};
@@ -65,7 +63,7 @@ pub struct RequestorSubmitOffer {
 
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
-    pub storage_config: StorageProviderConfig,
+    pub storage_config: StorageUploaderConfig,
 
     #[clap(flatten)]
     pub requestor_config: RequestorConfig,
@@ -117,6 +115,7 @@ impl RequestorSubmitOffer {
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
+            .with_downloader(DefaultDownloader::new().await)
             .build()
             .await
             .context("Failed to build Boundless Client with signer")?;

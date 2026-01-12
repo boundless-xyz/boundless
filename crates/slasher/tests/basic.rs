@@ -26,6 +26,7 @@ use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
+use boundless_market::storage::DefaultDownloader;
 use boundless_slasher::db::PgDb;
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::create_test_ctx;
@@ -261,7 +262,8 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     wait_for_slasher_to_process_locked(&pool, request.id).await;
 
     let client =
-        boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+        boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone())
+            .with_downloader(DefaultDownloader::new().await);
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
     let prover = OrderFulfiller::initialize(prover, &client).await.unwrap();
     let (fill, root_receipt, assessor_receipt) =

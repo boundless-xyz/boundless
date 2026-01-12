@@ -22,7 +22,6 @@ chrono = "0.4"
 clap = { workspace = true, features = ["env"] }
 csv = "1.2"
 futures = { version = "0.3" }
-reqwest = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std", "default"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

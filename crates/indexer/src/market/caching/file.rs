@@ -173,12 +173,13 @@ mod tests {
         boundless_market::FulfillmentTx, IBoundlessMarket, Offer, Predicate, ProofRequest,
         RequestInput, Requirements,
     };
+    use boundless_market::storage::DefaultDownloader;
     use boundless_test_utils::{
         guests::{ECHO_ID, ECHO_PATH},
         market::create_test_ctx,
     };
     use broker::provers::DefaultProver;
-    use std::{collections::HashSet, sync::Arc};
+    use std::{collections::HashSet, default::Default, sync::Arc};
 
     async fn create_order(
         ctx: &boundless_test_utils::market::TestCtx<impl Provider + Clone>,
@@ -240,7 +241,8 @@ mod tests {
 
         // Submit, lock, and fulfill the request
         let client =
-            boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
+            boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone())
+                .with_downloader(DefaultDownloader::new().await);
         let prover =
             OrderFulfiller::initialize(Arc::new(DefaultProver::default()), &client).await.unwrap();
 

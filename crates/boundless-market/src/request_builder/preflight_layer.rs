@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use super::{Adapt, Layer, RequestParams};
-use crate::contracts::{RequestInput, RequestInputType};
-use crate::input::GuestEnv;
-use crate::storage::fetch_url;
+use crate::{
+    contracts::{RequestInput, RequestInputType},
+    input::GuestEnv,
+    storage::StorageDownloader,
+};
 use anyhow::{bail, ensure, Context};
 use risc0_zkvm::{default_executor, sha::Digestible, SessionInfo};
 use url::Url;
@@ -30,21 +32,44 @@ use url::Url;
 /// Running the program in advance allows for proper pricing estimation and
 /// verification configuration based on actual execution results.
 ///
-/// Each time this layer is invoked, it created a new [Executor][risc0_zkvm::Executor] with
+/// Each time this layer is invoked, it creates a new [Executor][risc0_zkvm::Executor] with
 /// [default_executor].
 #[non_exhaustive]
-#[derive(Clone, Default)]
-pub struct PreflightLayer {}
+#[derive(Clone, Debug)]
+pub struct PreflightLayer<D> {
+    /// The downloader used to fetch programs and inputs from URLs.
+    pub downloader: Option<D>,
+}
 
-impl PreflightLayer {
+impl<D> PreflightLayer<D> {
+    /// Creates a new [PreflightLayer] with the given downloader.
+    pub fn new(downloader: Option<D>) -> Self {
+        Self { downloader }
+    }
+}
+
+impl<D: Clone> From<Option<D>> for PreflightLayer<D> {
+    fn from(downloader: Option<D>) -> Self {
+        Self { downloader }
+    }
+}
+
+impl<D> PreflightLayer<D>
+where
+    D: StorageDownloader,
+{
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             RequestInputType::Inline => GuestEnv::decode(&input.data)?,
             RequestInputType::Url => {
+                let downloader = self
+                    .downloader
+                    .as_ref()
+                    .context("cannot preflight URL input without downloader")?;
                 let input_url =
                     std::str::from_utf8(&input.data).context("Input URL is not valid UTF-8")?;
                 tracing::info!("Fetching input from {}", input_url);
-                GuestEnv::decode(&fetch_url(&input_url).await?)?
+                GuestEnv::decode(&downloader.download(&input_url).await?)?
             }
             _ => bail!("Unsupported input type"),
         };
@@ -52,7 +77,10 @@ impl PreflightLayer {
     }
 }
 
-impl Layer<(&Url, &RequestInput)> for PreflightLayer {
+impl<D> Layer<(&Url, &RequestInput)> for PreflightLayer<D>
+where
+    D: StorageDownloader,
+{
     type Output = SessionInfo;
     type Error = anyhow::Error;
 
@@ -60,18 +88,23 @@ impl Layer<(&Url, &RequestInput)> for PreflightLayer {
         &self,
         (program_url, input): (&Url, &RequestInput),
     ) -> anyhow::Result<Self::Output> {
-        let program = fetch_url(program_url).await?;
+        let downloader =
+            self.downloader.as_ref().context("cannot preflight program without downloader")?;
+        let program = downloader.download_url(program_url.clone()).await?;
         let env = self.fetch_env(input).await?;
         let session_info = default_executor().execute(env.try_into()?, &program)?;
         Ok(session_info)
     }
 }
 
-impl Adapt<PreflightLayer> for RequestParams {
+impl<D> Adapt<PreflightLayer<D>> for RequestParams
+where
+    D: StorageDownloader,
+{
     type Output = RequestParams;
     type Error = anyhow::Error;
 
-    async fn process_with(self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
+    async fn process_with(self, layer: &PreflightLayer<D>) -> Result<Self::Output, Self::Error> {
         tracing::trace!("Processing {self:?} with PreflightLayer");
 
         if self.cycles.is_some() && self.journal.is_some() {

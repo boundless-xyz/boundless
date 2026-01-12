@@ -207,10 +207,12 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::now_timestamp;
-    use crate::order_monitor::tests::setup_om_test_context;
-    use crate::order_picker::tests::{OrderParams, PickerTestCtxBuilder};
-    use crate::FulfillmentType;
+    use crate::{
+        now_timestamp,
+        order_monitor::tests::setup_om_test_context,
+        order_picker::tests::{OrderParams, PickerTestCtxBuilder},
+        FulfillmentType,
+    };
     use tracing_test::traced_test;
 
     #[tokio::test]

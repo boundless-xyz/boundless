@@ -93,8 +93,10 @@ impl<T: IndexerDb + Send + Sync> ProversDb for T {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::market::{RequestStatusType, SlashedStatus};
-    use crate::test_utils::TestDb;
+    use crate::{
+        db::market::{RequestStatusType, SlashedStatus},
+        test_utils::TestDb,
+    };
     use alloy::primitives::{B256, U256};
 
     #[tokio::test]

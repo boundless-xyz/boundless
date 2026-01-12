@@ -14,10 +14,7 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::RequestInput,
-    input::GuestEnv,
-    storage::{StandardStorageProvider, StorageProvider},
-    util::NotProvided,
+    contracts::RequestInput, input::GuestEnv, storage::StorageUploader, util::NotProvided,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
@@ -44,7 +41,7 @@ pub struct StorageLayerConfig {
 /// inputs directly in the request as inline data.
 #[non_exhaustive]
 #[derive(Clone)]
-pub struct StorageLayer<S = StandardStorageProvider> {
+pub struct StorageLayer<S> {
     /// [StorageProvider] used to upload programs and inputs.
     ///
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
@@ -78,7 +75,7 @@ impl<S: Clone> From<Option<S>> for StorageLayer<S> {
 
 impl<S> From<StorageLayerConfig> for StorageLayer<S>
 where
-    S: StorageProvider + Default,
+    S: StorageUploader + Default,
 {
     fn from(config: StorageLayerConfig) -> Self {
         Self { storage_provider: Some(Default::default()), config }
@@ -87,7 +84,7 @@ where
 
 impl<S> Default for StorageLayer<S>
 where
-    S: StorageProvider + Default,
+    S: StorageUploader + Default,
 {
     fn default() -> Self {
         StorageLayer { storage_provider: Some(Default::default()), config: Default::default() }
@@ -114,8 +111,7 @@ impl Default for StorageLayerConfig {
 
 impl<S> StorageLayer<S>
 where
-    S: StorageProvider,
-    S::Error: std::error::Error + Send + Sync + 'static,
+    S: StorageUploader,
 {
     /// Uploads a program binary and returns its URL.
     ///
@@ -175,8 +171,7 @@ impl<S> StorageLayer<S> {
 
 impl<S> Layer<(&[u8], &GuestEnv)> for StorageLayer<S>
 where
-    S: StorageProvider,
-    S::Error: std::error::Error + Send + Sync + 'static,
+    S: StorageUploader,
 {
     type Error = anyhow::Error;
     type Output = (Url, RequestInput);
@@ -203,8 +198,7 @@ impl Layer<&GuestEnv> for StorageLayer<NotProvided> {
 
 impl<S> Adapt<StorageLayer<S>> for RequestParams
 where
-    S: StorageProvider,
-    S::Error: std::error::Error + Send + Sync + 'static,
+    S: StorageUploader,
 {
     type Output = RequestParams;
     type Error = anyhow::Error;
