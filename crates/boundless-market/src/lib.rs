@@ -36,6 +36,13 @@ pub mod client;
 #[cfg(not(target_os = "zkvm"))]
 pub use client::{Client, StandardClient};
 
+/// Client module for interacting with the Boundless Indexer API.
+#[cfg(not(target_os = "zkvm"))]
+pub mod indexer_client;
+/// Test helpers for testing the Boundless Market.
+#[cfg(not(target_os = "zkvm"))]
+pub mod test_helpers;
+
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
 #[cfg(not(target_os = "zkvm"))]

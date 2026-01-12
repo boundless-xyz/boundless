@@ -15,6 +15,7 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
+    indexer_client::{IndexerClient, PriceRange},
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
 };
@@ -26,9 +27,11 @@ use alloy::{
     },
     providers::Provider,
 };
-use anyhow::{ensure, Context};
+use anyhow::{Context, Result};
 use clap::Args;
 use derive_builder::Builder;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Configuration for the [OfferLayer].
 ///
@@ -88,18 +91,34 @@ pub struct OfferLayerConfig {
 }
 
 #[non_exhaustive]
-#[derive(Clone)]
 /// A layer responsible for configuring the offer part of a proof request.
 ///
 /// This layer uses an Ethereum provider to estimate gas costs and sets appropriate
 /// pricing parameters for the proof request. It combines cycle count estimates with
 /// gas price information to determine minimum and maximum prices for the request.
+///
+/// If a price provider is configured, it will be used to fetch market prices when
+/// `OfferParams` doesn't explicitly set min_price or max_price.
 pub struct OfferLayer<P> {
     /// The Ethereum provider used for gas price estimation.
     pub provider: P,
 
     /// Configuration for offer generation.
     pub config: OfferLayerConfig,
+
+    /// Optional price provider for fetching market-based prices.
+    /// If set, will be used when `OfferParams` doesn't specify prices.
+    pub price_provider: Option<PriceProviderArc>,
+}
+
+impl<P: Clone> Clone for OfferLayer<P> {
+    fn clone(&self) -> Self {
+        Self {
+            provider: self.provider.clone(),
+            config: self.config.clone(),
+            price_provider: self.price_provider.clone(),
+        }
+    }
 }
 
 impl OfferLayerConfig {
@@ -120,7 +139,7 @@ impl Default for OfferLayerConfig {
 
 impl<P: Clone> From<P> for OfferLayer<P> {
     fn from(provider: P) -> Self {
-        OfferLayer { provider, config: Default::default() }
+        OfferLayer { provider, config: Default::default(), price_provider: None }
     }
 }
 
@@ -211,6 +230,40 @@ impl TryFrom<OfferParams> for Offer {
     }
 }
 
+/// Trait for providers that can supply market price ranges.
+///
+/// This trait allows for flexible integration with different price data sources,
+/// making it easy to test or swap implementations.
+pub trait PriceProvider {
+    /// Fetch the current market price range (p10 and p99 percentiles).
+    ///
+    /// # Returns
+    ///
+    /// Returns a boxed future that resolves to a `Result<PriceRange>` containing
+    /// the min (p10) and max (p99) prices. Returns an error if the price data
+    /// cannot be fetched or parsed.
+    ///
+    /// Note: The future does not require Send, which allows implementations
+    /// that may have non-Send internal state.
+    fn price_range(&self) -> Pin<Box<dyn Future<Output = Result<PriceRange>> + '_>>;
+}
+
+/// Type alias for a thread-safe, shareable price provider.
+///
+/// This is the standard type used throughout the codebase for storing and passing
+/// price providers, as it satisfies the `Send + Sync` requirements needed for
+/// use in multi-threaded contexts and `Arc` sharing.
+pub type PriceProviderArc = std::sync::Arc<dyn PriceProvider + Send + Sync>;
+
+impl PriceProvider for IndexerClient {
+    fn price_range(&self) -> Pin<Box<dyn Future<Output = Result<PriceRange>> + '_>> {
+        Box::pin(async {
+            let price_percentiles = self.get_p10_p99_prices().await?;
+            PriceRange::try_from(price_percentiles)
+        })
+    }
+}
+
 impl OfferParams {
     /// Creates a new builder for constructing [OfferParams].
     ///
@@ -230,7 +283,19 @@ where
     /// The provider is used to fetch current gas prices for estimating transaction costs,
     /// which are factored into the offer pricing.
     pub fn new(provider: P, config: OfferLayerConfig) -> Self {
-        Self { provider, config }
+        Self { provider, config, price_provider: None }
+    }
+
+    /// Creates a new [OfferLayer] with the given provider, configuration, and price provider.
+    ///
+    /// The price provider will be used to fetch market prices when `OfferParams` doesn't
+    /// explicitly set min_price or max_price.
+    pub fn with_price_provider(
+        provider: P,
+        config: OfferLayerConfig,
+        price_provider: Option<PriceProviderArc>,
+    ) -> Self {
+        Self { provider, config, price_provider }
     }
 
     /// Estimates the maximum gas usage for a proof request.
@@ -302,15 +367,57 @@ where
             &OfferParams,
         ),
     ) -> Result<Self::Output, Self::Error> {
+        // Try to use market prices from price provider if prices aren't set in params
+        let (market_min_price, market_max_price) = if params.min_price.is_none()
+            || params.max_price.is_none()
+        {
+            if let Some(ref price_provider) = self.price_provider {
+                if let Some(cycle_count) = cycle_count {
+                    match price_provider.price_range().await {
+                        Ok(price_range) => {
+                            let min = price_range.min * U256::from(cycle_count);
+                            let max = price_range.max * U256::from(cycle_count);
+                            tracing::debug!(
+                                "Using market prices from price provider: min={}, max={} (for {} cycles)",
+                                format_units(min, "ether")?,
+                                format_units(max, "ether")?,
+                                cycle_count
+                            );
+                            (Some(min), Some(max))
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to fetch market prices from price provider: {}. Falling back to config-based pricing.",
+                                e
+                            );
+                            (None, None)
+                        }
+                    }
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
         let min_price = if params.min_price.is_none() {
-            match cycle_count {
-                Some(cycle_count) => self.config.min_price_per_cycle * U256::from(cycle_count),
-                None => {
-                    ensure!(
-                        self.config.min_price_per_cycle == U256::ZERO,
-                        "cycle count required to set min price in OfferLayer"
-                    );
-                    U256::ZERO
+            // Use market price if available, otherwise fall back to config
+            if let Some(market_min) = market_min_price {
+                market_min
+            } else {
+                match cycle_count {
+                    Some(cycle_count) => self.config.min_price_per_cycle * U256::from(cycle_count),
+                    None => {
+                        if self.config.min_price_per_cycle != U256::ZERO {
+                            return Err(anyhow::anyhow!(
+                                "cycle count required to set min price in OfferLayer"
+                            ));
+                        }
+                        U256::ZERO
+                    }
                 }
             }
         } else {
@@ -318,26 +425,31 @@ where
         };
 
         let max_price = if params.max_price.is_none() {
-            let cycle_count =
-                cycle_count.context("cycle count required to set max price in OfferLayer")?;
-            let max_price_cycle = self.config.max_price_per_cycle * U256::from(cycle_count);
+            // Use market price if available, otherwise fall back to config + gas
+            if let Some(market_max) = market_max_price {
+                market_max
+            } else {
+                let cycle_count =
+                    cycle_count.context("cycle count required to set max price in OfferLayer")?;
+                let max_price_cycle = self.config.max_price_per_cycle * U256::from(cycle_count);
 
-            let gas_price: u128 = self.provider.get_gas_price().await?;
-            let gas_cost_estimate =
-                self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
+                let gas_price: u128 = self.provider.get_gas_price().await?;
+                let gas_cost_estimate =
+                    self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
 
-            // Add the gas price plus 10% to the max_price.
-            let adjusted_gas_cost_estimate =
-                gas_cost_estimate + (gas_cost_estimate / U256::from(10));
-            let max_price = max_price_cycle + adjusted_gas_cost_estimate;
-            tracing::debug!(
-                "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate (adjusted by 10%) [gas price: {} gwei]",
-                format_units(max_price, "ether")?,
-                format_units(max_price_cycle, "ether")?,
-                format_units(adjusted_gas_cost_estimate, "ether")?,
-                format_units(U256::from(gas_price), "gwei")?,
-            );
-            max_price
+                // Add the gas price plus 10% to the max_price.
+                let adjusted_gas_cost_estimate =
+                    gas_cost_estimate + (gas_cost_estimate / U256::from(10));
+                let max_price = max_price_cycle + adjusted_gas_cost_estimate;
+                tracing::debug!(
+                    "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate (adjusted by 10%) [gas price: {} gwei]",
+                    format_units(max_price, "ether")?,
+                    format_units(max_price_cycle, "ether")?,
+                    format_units(adjusted_gas_cost_estimate, "ether")?,
+                    format_units(U256::from(gas_price), "gwei")?,
+                );
+                max_price
+            }
         } else {
             params.max_price.unwrap()
         };
