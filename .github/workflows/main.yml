@@ -66,6 +66,12 @@ jobs:
           - 5432:5432
         env:
           POSTGRES_PASSWORD: password
+        options: >-
+          --shm-size=2gb
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -73,6 +79,15 @@ jobs:
           # Full history is required by license-check.py
           fetch-depth: 0
           submodules: recursive
+
+      - name: Configure PostgreSQL max_connections
+        run: |
+          POSTGRES_CONTAINER=$(docker ps --filter "ancestor=postgres:latest" --format "{{.ID}}")
+          docker exec $POSTGRES_CONTAINER psql -U postgres -c "ALTER SYSTEM SET max_connections = 500;"
+          docker restart $POSTGRES_CONTAINER
+          until docker exec $POSTGRES_CONTAINER pg_isready; do
+            sleep 1
+          done
 
       - name: install python
         uses: actions/setup-python@v4
