@@ -17,7 +17,7 @@ use boundless_indexer::db::{
     market::{DbObj as MarketDbObj, MarketDb},
     rewards::{RewardsDb, RewardsDbObj},
 };
-use sqlx::any::AnyPoolOptions;
+use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
 
 /// Application state containing database connections
@@ -40,7 +40,7 @@ impl AppState {
 
         // Create market database connection (Lambda-optimized: 3 connections, short timeouts)
         // Skip migrations since we're connecting to a reader endpoint
-        let lambda_pool_options = AnyPoolOptions::new()
+        let lambda_pool_options = PgPoolOptions::new()
             .max_connections(3) // Lambda: 25 lambdas × 3 = 75 max connections
             .acquire_timeout(Duration::from_secs(5)) // Lambda: fail fast for users
             .idle_timeout(Some(Duration::from_secs(300))) // Lambda: match container warm time

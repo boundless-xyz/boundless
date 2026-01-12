@@ -28,8 +28,8 @@ use boundless_market::contracts::{
 };
 use log::LevelFilter;
 use sqlx::{
-    any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
-    AnyPool, ConnectOptions, Row,
+    postgres::{PgConnectOptions, PgPoolOptions, PgRow},
+    ConnectOptions, PgPool, Row,
 };
 
 const SQL_BLOCK_KEY: i64 = 0;
@@ -42,7 +42,7 @@ const U256_PADDING_WIDTH: usize = 78;
 const REQUEST_STATUS_BATCH_SIZE: usize = 150;
 
 // Batch insert chunk sizes for various table inserts
-// Conservative sizes to support both PostgreSQL (32,767 params) and SQLite (999 params)
+// Conservative sizes to avoid large statements and parameter limits
 const TX_BATCH_SIZE: usize = 500; // 5 params per row = 2,500 params max
 const PROOF_REQUEST_BATCH_SIZE: usize = 500; // 23 params per row = 23,000 params max
 
@@ -487,9 +487,9 @@ impl TxMetadata {
 
 #[async_trait]
 pub trait IndexerDb {
-    fn pool(&self) -> &AnyPool;
+    fn pool(&self) -> &PgPool;
 
-    fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError>;
+    fn row_to_request_status(&self, row: &PgRow) -> Result<RequestStatus, DbError>;
 
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -877,24 +877,23 @@ pub type DbObj = Arc<MarketDb>;
 
 #[derive(Debug, Clone)]
 pub struct MarketDb {
-    pub pool: AnyPool,
+    pub pool: PgPool,
 }
 
 impl MarketDb {
     /// Create a new MarketDb instance.
     ///
     /// # Arguments
-    /// * `conn_str` - Database connection string. For SQLite use a `sqlite:file_path` URL; for Postgres `postgres://`.
+    /// * `conn_str` - Database connection string (Postgres `postgres://`).
     /// * `pool_options` - Optional pool configuration. If `None`, uses indexer-optimized defaults
     ///   (20 connections, 10s acquire timeout, 600s idle, 1800s lifetime)
     /// * `skip_migrations` - If `true`, skips running migrations. Useful for read-only connections
     pub async fn new(
         conn_str: &str,
-        pool_options: Option<AnyPoolOptions>,
+        pool_options: Option<PgPoolOptions>,
         skip_migrations: bool,
     ) -> Result<Self, DbError> {
-        install_default_drivers();
-        let mut opts = AnyConnectOptions::from_str(conn_str)?;
+        let mut opts = PgConnectOptions::from_str(conn_str)?;
 
         // Configure slow query logging: only log queries that take over 2 seconds
         opts = opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
@@ -902,9 +901,17 @@ impl MarketDb {
         let pool = if let Some(pool_opts) = pool_options {
             pool_opts.connect_with(opts).await?
         } else {
+            let max_connections: u32 = std::env::var("DB_POOL_SIZE")
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(20);
+            if max_connections != 20 {
+                tracing::info!("Using DB_POOL_SIZE={} for MarketDb pool", max_connections);
+            }
+
             // Indexer-optimized defaults
-            AnyPoolOptions::new()
-                .max_connections(20)
+            PgPoolOptions::new()
+                .max_connections(max_connections)
                 .acquire_timeout(Duration::from_secs(10)) // Indexer: fail fast if pool exhausted
                 .idle_timeout(Some(Duration::from_secs(600))) // Indexer: 10 min, keep connections alive
                 .max_lifetime(Some(Duration::from_secs(1800))) // Indexer: 30 min, rotate periodically
@@ -919,20 +926,20 @@ impl MarketDb {
         Ok(Self { pool })
     }
 
-    pub fn pool(&self) -> &AnyPool {
+    pub fn pool(&self) -> &PgPool {
         &self.pool
     }
 }
 
 /// Throughout this trait we manually construct queries and bind parameters to avoid using the sqlx query builder.
-/// This is because the query builder is not supported for Postgres, when used in MarketDb mode.
+/// This keeps SQL explicit and makes Postgres behavior visible in tests.
 #[async_trait]
 impl IndexerDb for MarketDb {
-    fn pool(&self) -> &AnyPool {
+    fn pool(&self) -> &PgPool {
         &self.pool
     }
 
-    fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError> {
+    fn row_to_request_status(&self, row: &PgRow) -> Result<RequestStatus, DbError> {
         self.row_to_request_status_impl(row)
     }
 
@@ -4099,10 +4106,7 @@ impl MarketDb {
         Ok(summaries)
     }
 
-    pub(crate) fn row_to_request_status_impl(
-        &self,
-        row: &sqlx::any::AnyRow,
-    ) -> Result<RequestStatus, DbError> {
+    pub(crate) fn row_to_request_status_impl(&self, row: &PgRow) -> Result<RequestStatus, DbError> {
         let request_digest_str: String = row.get("request_digest");
         let request_digest = B256::from_str(&request_digest_str)
             .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
@@ -4275,9 +4279,29 @@ mod tests {
         )
     }
 
-    #[tokio::test]
-    async fn set_get_block() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+        let base_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+        let db_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(pool)
+            .await
+            .expect("failed to query current_database()");
+
+        if let Some(last_slash) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..last_slash], db_name)
+        } else {
+            format!("{}/{}", base_url, db_name)
+        }
+    }
+
+    async fn test_db(pool: sqlx::PgPool) -> TestDb {
+        let db_url = get_db_url_from_pool(&pool).await;
+        TestDb::from_pool(db_url, pool).await.unwrap()
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn set_get_block(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let mut block_numb = 20;
@@ -4293,9 +4317,9 @@ mod tests {
         assert_eq!(block_numb, db_block);
     }
 
-    #[tokio::test]
-    async fn test_transactions() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_transactions(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -4311,9 +4335,9 @@ mod tests {
         assert_eq!(result.get::<i64, _>("block_number"), metadata.block_number as i64);
     }
 
-    #[tokio::test]
-    async fn test_proof_requests() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_proof_requests(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let request_digest = B256::ZERO;
@@ -4338,9 +4362,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", request.id));
     }
 
-    #[tokio::test]
-    async fn test_has_proof_requests() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_has_proof_requests(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty array
@@ -4403,9 +4427,9 @@ mod tests {
         assert_eq!(existing.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_assessor_receipts() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_assessor_receipts(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -4428,9 +4452,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("prover_address"), format!("{:x}", receipt.prover));
     }
 
-    #[tokio::test]
-    async fn test_add_proofs() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_add_proofs(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty array
@@ -4514,9 +4538,9 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1200); // Still 1200
     }
 
-    #[tokio::test]
-    async fn test_prover_slashed_event() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_prover_slashed_event(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -4551,9 +4575,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("burn_value"), burn_value.to_string());
     }
 
-    #[tokio::test]
-    async fn test_account_events() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_account_events(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -4645,9 +4669,9 @@ mod tests {
         (base_timestamp, hour_in_seconds)
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_basic_desc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_basic_desc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4660,9 +4684,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (7 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_cursor_desc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_cursor_desc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4683,9 +4707,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_basic_asc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_basic_asc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4698,9 +4722,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (2 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_cursor_asc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_cursor_asc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4721,9 +4745,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_after_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_after_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4742,9 +4766,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_before_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_before_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4760,9 +4784,9 @@ mod tests {
         assert_eq!(results[results.len() - 1].period_timestamp, base_timestamp as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_before_and_after_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_before_and_after_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4779,9 +4803,9 @@ mod tests {
         assert_eq!(results[3].period_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_daily_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_daily_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64; // 2023-11-14
@@ -4836,9 +4860,9 @@ mod tests {
         assert_eq!(results[4].period_timestamp, base_timestamp as u64);
     }
 
-    #[tokio::test]
-    async fn test_weekly_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_weekly_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64; // 2023-11-14
@@ -4893,9 +4917,9 @@ mod tests {
         assert_eq!(results[3].total_fulfilled, 300);
     }
 
-    #[tokio::test]
-    async fn test_monthly_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_monthly_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         // Use actual month boundaries for testing
@@ -4957,9 +4981,9 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 2000); // March (index 2)
     }
 
-    #[tokio::test]
-    async fn test_all_time_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_all_time_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64; // 2023-11-14
@@ -5010,9 +5034,9 @@ mod tests {
         assert_eq!(results[2].total_secondary_fulfillments, 0);
     }
 
-    #[tokio::test]
-    async fn test_all_time_summaries_cursor_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_all_time_summaries_cursor_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64;
@@ -5070,9 +5094,9 @@ mod tests {
         assert_eq!(results[1].total_secondary_fulfillments, 0);
     }
 
-    #[tokio::test]
-    async fn test_daily_summaries_cursor_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_daily_summaries_cursor_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64;
@@ -5134,9 +5158,9 @@ mod tests {
         assert_eq!(second_page[0].period_timestamp, (base_timestamp + (6 * day_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_cursor_with_before_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_cursor_with_before_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -5153,9 +5177,9 @@ mod tests {
         assert!(results.len() <= 5);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_limit() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_limit(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         setup_hourly_summaries(&db).await;
 
@@ -5165,9 +5189,9 @@ mod tests {
         assert_eq!(results.len(), 2);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_no_results() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_no_results(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -5181,9 +5205,9 @@ mod tests {
         assert_eq!(results.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_data_integrity() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_data_integrity(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         setup_hourly_summaries(&db).await;
 
@@ -5249,9 +5273,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_single_insert() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_single_insert(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest = B256::from([1; 32]);
@@ -5270,9 +5294,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("source"), "onchain");
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_update_conflict() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_update_conflict(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest = B256::from([2; 32]);
@@ -5300,9 +5324,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_batch() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_batch(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let mut statuses = Vec::new();
@@ -5321,9 +5345,9 @@ mod tests {
         assert_eq!(count, 100);
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_empty() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_empty(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         db.upsert_request_statuses(&[]).await.unwrap();
@@ -5336,9 +5360,9 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    #[tokio::test]
-    async fn test_get_requests_comprehensive_with_multiple_fulfillments() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requests_comprehensive_with_multiple_fulfillments(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let request_digest = B256::from([1; 32]);
@@ -5455,9 +5479,9 @@ mod tests {
         assert_eq!(comprehensive.fulfill_seal, Some(format!("0x{}", hex::encode(&seal_early))));
     }
 
-    #[tokio::test]
-    async fn test_get_requests_comprehensive_batch() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requests_comprehensive_batch(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Create multiple requests with different states
@@ -5658,9 +5682,9 @@ mod tests {
         assert_eq!(r5.fulfill_seal, None);
     }
 
-    #[tokio::test]
-    async fn test_add_txs() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_add_txs(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty list - should not fail
@@ -5706,9 +5730,9 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 10);
     }
 
-    #[tokio::test]
-    async fn test_add_proof_requests() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_add_proof_requests(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty requests - should not fail
@@ -5834,10 +5858,10 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1500); // Still 1500 unique requests
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_cycle_counts_insert_and_query() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_cycle_counts_insert_and_query(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest1 = B256::from([1; 32]);
@@ -5902,10 +5926,10 @@ mod tests {
         assert_eq!(cc2.total_cycles, None);
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_cycle_counts_idempotency() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_cycle_counts_idempotency(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest = B256::from([1; 32]);
@@ -5950,10 +5974,10 @@ mod tests {
         assert_eq!(total_cycles_str, Some(expected_total));
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_has_cycle_counts() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_has_cycle_counts(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty array
@@ -5999,10 +6023,10 @@ mod tests {
         assert!(!existing.contains(&digest4));
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_get_request_inputs() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_get_request_inputs(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Add some proof requests
@@ -6053,9 +6077,9 @@ mod tests {
         assert_eq!(*client_addr2, addr2);
     }
 
-    #[tokio::test]
-    async fn test_get_all_request_digests_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_request_digests_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Create test statuses with different timestamps
@@ -6125,9 +6149,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_count_request_digests_by_timestamp() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_count_request_digests_by_timestamp(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test: Count with no items
@@ -6170,9 +6194,9 @@ mod tests {
     }
 
     // Helper to create test proof requests and cycle counts
-    #[tokio::test]
-    async fn test_get_cycle_counts_pending() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_cycle_counts_pending(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         let requests = vec![
@@ -6198,9 +6222,9 @@ mod tests {
         assert_eq!(db.get_cycle_counts_pending(1).await.unwrap().len(), 1);
     }
 
-    #[tokio::test]
-    async fn test_get_cycle_counts_executing() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_cycle_counts_executing(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         let requests = vec![
@@ -6253,10 +6277,10 @@ mod tests {
         assert_eq!(db.get_cycle_counts_executing(1).await.unwrap().len(), 1);
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_set_cycle_counts_executing() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_set_cycle_counts_executing(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         let requests =
@@ -6303,10 +6327,10 @@ mod tests {
         db.set_cycle_counts_executing(&[]).await.unwrap();
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_set_cycle_counts_executing_empty_session_uuid() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_set_cycle_counts_executing_empty_session_uuid(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         let requests = vec![
@@ -6372,10 +6396,10 @@ mod tests {
         assert_eq!(result3.get::<String, _>("session_uuid"), "session-3");
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_set_cycle_counts_completed() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_set_cycle_counts_completed(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         let requests =
@@ -6457,10 +6481,10 @@ mod tests {
         db.set_cycle_counts_completed(&[]).await.unwrap();
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_set_cycle_counts_failed() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_set_cycle_counts_failed(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         let requests = vec![
@@ -6506,10 +6530,10 @@ mod tests {
         db.set_cycle_counts_failed(&[]).await.unwrap();
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_count_cycle_counts_by_status() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_count_cycle_counts_by_status(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         // Test with empty DB - should return 0 of each
@@ -6549,10 +6573,10 @@ mod tests {
         assert_eq!(failed, 1);
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_get_request_params_for_execution() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_get_request_params_for_execution(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
         let requests =

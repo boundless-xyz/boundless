@@ -19,7 +19,7 @@ Set up your environment:
 ```bash
 # Example environment for Sepolia
 export RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
-export VERIFIER_ADDRESS=0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187
+export VERIFIER_ADDRESS=0xb121b667dd2cf27f95f9f5107137696f56f188f6
 export PRIVATE_KEY=# ADD YOUR PRIVATE KEY HERE
 ```
 

@@ -58,12 +58,12 @@ admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-application-verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+application-verifier = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 31134603
 boundless-market = "0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
-boundless-market-impl = "0xe57255c10291771a2e14f7eb257555ae82d78302"
-boundless-market-old-impl = "0x8d3d36400d0a8cf7cf217d28d366a0189f0850b6"
+boundless-market-impl = "0xc2127560e3bb6d368124718a17969c90f39fde61"
+boundless-market-old-impl = "0xe57255c10291771a2e14f7eb257555ae82d78302"
 collateral-token = "0xAA61bB7777bD01B684347961918f1E07fBbCe7CF"
 
 # Guests info
@@ -85,12 +85,12 @@ admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
-application-verifier = "0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187"
+application-verifier = "0xB121B667dd2cf27F95f9F5107137696F56f188f6"
 set-verifier = "0xcb9D14347b1e816831ECeE46EC199144F360B55c"
 # deployed at block 8476627
 boundless-market = "0xc211b581cb62e3a6d396a592bab34979e1bbba7d"
-boundless-market-impl = "0x43b4b027e7b8ad3c7d7dbcced910cfeac74a8b52"
-boundless-market-old-impl = "0x13edcf55be5af2bf367e235fd9b60ca5686a79df"
+boundless-market-impl = "0x60f48e413c0e45cfe9754f6d97527ef9f141a723"
+boundless-market-old-impl = "0x43b4b027e7b8ad3c7d7dbcced910cfeac74a8b52"
 boundless-market-deployment-commit = "bda3b118"
 collateral-token = "0xb4FC69A452D09D2662BD8C3B5BB756902260aE28"
 
@@ -132,12 +132,12 @@ admin-2 = "0xb04d1a222789a76e74168a919b43b20f66e24f0b"
 
 # Contracts
 verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
-application-verifier = "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+application-verifier = "0xA326b2eb45A5C3C206dF905A58970DcA57B8719e"
 set-verifier = "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
 # deployed at block 26646012
 boundless-market = "0x56da3786061c82214d18e634d2817e86ad42d7ce"
-boundless-market-impl = "0xe6c1775502166be5919e849da7098bc171b75ec6"
-boundless-market-old-impl = "0x7d4bb6295e56ba3e93f51f44598310539cd783a2"
+boundless-market-impl = "0x006501060056f29f9bf417edf7034bdaed09f817"
+boundless-market-old-impl = "0xe6c1775502166be5919e849da7098bc171b75ec6"
 boundless-market-deployment-commit = "bda3b118"
 collateral-token = "0x8d4dA4b7938471A919B08F941461b2ed1679d7bb"
 
@@ -284,10 +284,10 @@ admin-2 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 verifier = "0x0000000000000000000000000000000000000000"
 application-verifier = "0x0000000000000000000000000000000000000000"
 set-verifier = "0x0000000000000000000000000000000000000000"
-boundless-market = "0x0000000000000000000000000000000000000000"
-boundless-market-impl = "0x0000000000000000000000000000000000000000"
+boundless-market = "0xe281fd0b508e44be0305467469daa57b8f6faf7a"
+boundless-market-impl = "0x5f517bc505cd645ed1424e047b466e40f1788d22"
 boundless-market-old-impl = "0x0000000000000000000000000000000000000000"
-collateral-token = "0x0000000000000000000000000000000000000000"
+collateral-token = "0xa513e6e4b8f2a923d98304ec87f64353c4d5c853"
 
 # Guests info
 deployment-commit = "1353e11c" # v0.14.0 main
@@ -314,3 +314,4 @@ povw-mint-calculator-id = "0x567890123456789012345678901234567890123456789012345
 # ZKC contracts (could be mocks in dev mode)
 zkc = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
 vezkc = "0x0165878A594ca255338adfa4d48449f69242Eb8F"
+boundless-market-deployment-commit = "unknown"

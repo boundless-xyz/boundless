@@ -12,11 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! End-to-end tests for the execute_requests function
+//! End-to-end tests for the `execute_requests` function.
+//!
+//! These tests verify the cycle count execution flow by mocking the Bento API
+//! and observing how requests transition through states (PENDING → EXECUTING → COMPLETED/FAILED).
+//!
+//! # Test Strategy
+//!
+//! - **Happy path tests**: Verify successful execution flow with valid inputs
+//! - **Error handling tests**: Verify correct state transitions when API calls fail
+//! - **Edge case tests**: Verify behavior with malformed responses (empty UUIDs, missing stats)
+//!
+//! # Mock Configuration
+//!
+//! Tests use [`BentoMockConfig`] to control mock behavior. The mock server simulates:
+//! - Input upload (`GET /inputs/upload`, `PUT /put-input`)
+//! - Image existence check (`GET /images/upload/{id}`)
+//! - Session creation (`POST /sessions/create`)
+//! - Status polling (`GET /sessions/status/{uuid}`)
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use alloy::primitives::{Address, Bytes, FixedBytes, B256, U256};
+use boundless_indexer::db::DbObj;
 use boundless_indexer::{
     db::IndexerDb,
     market::service::{execute_requests, IndexerServiceExecutionConfig},
@@ -26,15 +46,32 @@ use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 use wiremock::{
     matchers::{method, path, path_regex},
-    Mock, MockServer, ResponseTemplate,
+    Mock, MockServer, Request, Respond, ResponseTemplate,
 };
 
-/// Helper to create a test config for testing
-fn test_config(uri: String) -> IndexerServiceExecutionConfig {
+/// Extract the database connection string from a sqlx::test PgPool.
+/// sqlx::test creates an isolated database per test with a unique name.
+async fn get_db_url_from_pool(pool: &PgPool) -> String {
+    let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+    let db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await
+        .expect("failed to query current_database()");
+
+    if let Some(last_slash) = base_url.rfind('/') {
+        format!("{}/{}", &base_url[..last_slash], db_name)
+    } else {
+        format!("{}/{}", base_url, db_name)
+    }
+}
+
+/// Creates an [`IndexerServiceExecutionConfig`] with test-appropriate defaults.
+fn test_config(uri: String, max_iterations: u32) -> IndexerServiceExecutionConfig {
     IndexerServiceExecutionConfig {
         execution_interval: Duration::from_millis(100),
         bento_api_url: uri,
@@ -43,6 +80,7 @@ fn test_config(uri: String) -> IndexerServiceExecutionConfig {
         bento_retry_sleep_ms: 10,
         max_concurrent_executing: 10,
         max_status_queries: 10,
+        max_iterations,
     }
 }
 
@@ -65,59 +103,90 @@ fn generate_request(id: u32, client: &Address) -> ProofRequest {
     )
 }
 
+/// Configuration for Bento API mocks.
+///
+/// This struct controls how the mock Bento API responds to requests during testing.
+/// By default, all operations succeed and return valid responses. Set individual
+/// fields to simulate various failure scenarios or edge cases.
 struct BentoMockConfig {
-    input_uuid: String,
-    session_uuid: String,
+    /// Cycle count to return in successful status responses
     expected_cycles: u64,
+    /// Total cycle count to return in successful status responses
     expected_total_cycles: u64,
-    fail_execution: bool,
+    /// If true, image exists check returns 204 (exists); if false, returns 200 (doesn't exist, triggers download)
+    image_exists: bool,
+    /// If true, input upload returns empty UUID (simulates malformed response)
+    no_input_uuid: bool,
+    /// If true, session creation returns empty UUID (simulates malformed response)
+    no_session_uuid: bool,
+    /// If true, successful execution returns no stats (simulates malformed response)
+    no_status_stats: bool,
+    /// If true, input upload endpoint returns 500 error
+    fail_input_upload: bool,
+    /// If true, image exists check endpoint returns 500 error
+    fail_image_check: bool,
+    /// If true, session creation endpoint returns 500 error
+    fail_create_session: bool,
+    /// If true, status check endpoint returns 500 error
+    fail_status: bool,
+    /// Final execution status to return via status API ("SUCCEEDED", "FAILED", or "RUNNING")
+    execution_status: String,
+    /// Number of times to return "RUNNING" before returning the final execution_status
+    running_responses: usize,
 }
 
-/// Setup mock responses for the Bento API
-async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
-    let mock_url = mock_server.uri();
+impl Default for BentoMockConfig {
+    fn default() -> BentoMockConfig {
+        BentoMockConfig {
+            expected_cycles: 0,
+            expected_total_cycles: 0,
+            image_exists: true,
+            no_input_uuid: false,
+            no_session_uuid: false,
+            no_status_stats: false,
+            fail_input_upload: false,
+            fail_image_check: false,
+            fail_create_session: false,
+            fail_status: false,
+            execution_status: "SUCCEEDED".to_string(),
+            running_responses: 0,
+        }
+    }
+}
 
-    // Mock GET /inputs/upload - return URL and uuid
-    Mock::given(method("GET"))
-        .and(path("/inputs/upload"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "url": format!("{}/put-input", mock_url),
-            "uuid": config.input_uuid
-        })))
-        .expect(1..)
-        .mount(mock_server)
-        .await;
+/// Custom responder for session status endpoint.
+///
+/// Returns "RUNNING" for a configurable number of calls, then returns the final status.
+/// This simulates the real Bento API behavior where executions take time to complete.
+struct SessionStatusResponder {
+    /// Tracks how many times this responder has been called
+    call_count: Arc<AtomicUsize>,
+    /// Number of "RUNNING" responses before returning final_status
+    running_responses: usize,
+    /// Status to return after running_responses calls ("SUCCEEDED" or "FAILED")
+    final_status: String,
+    /// Cycle count included in successful responses
+    expected_cycles: u64,
+    /// Total cycle count included in successful responses
+    expected_total_cycles: u64,
+    /// If true, omit stats from successful responses
+    no_status_stats: bool,
+    /// If true, return 500 error instead of status
+    fail_status: bool,
+}
 
-    // Mock PUT to URL for input upload
-    Mock::given(method("PUT"))
-        .and(path("/put-input"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1..)
-        .mount(mock_server)
-        .await;
+impl Respond for SessionStatusResponder {
+    fn respond(&self, _request: &Request) -> ResponseTemplate {
+        let count = self.call_count.fetch_add(1, Ordering::SeqCst);
 
-    // Mock GET /images/upload/{image_id} - return 204 to indicate image exists
-    Mock::given(method("GET"))
-        .and(path_regex(r"/images/upload/.+"))
-        .respond_with(ResponseTemplate::new(204))
-        .expect(1..)
-        .mount(mock_server)
-        .await;
+        // Return failure if requested
+        if self.fail_status {
+            return ResponseTemplate::new(500);
+        }
 
-    // Mock POST /sessions/create - return session uuid
-    Mock::given(method("POST"))
-        .and(path("/sessions/create"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "uuid": config.session_uuid
-        })))
-        .expect(1..)
-        .mount(mock_server)
-        .await;
+        let status = if count < self.running_responses { "RUNNING" } else { &self.final_status };
 
-    // Mock GET /sessions/status/{uuid} - return status with stats
-    Mock::given(method("GET"))
-        .and(path_regex(r"/sessions/status/.+"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(if config.fail_execution {
+        let body = if status == "FAILED" {
             serde_json::json!({
                 "status": "FAILED",
                 "state": null,
@@ -125,110 +194,260 @@ async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
                 "elapsed_time": null,
                 "stats": null
             })
+        } else if status == "SUCCEEDED" {
+            if self.no_status_stats {
+                serde_json::json!({
+                    "status": "SUCCEEDED",
+                    "state": null,
+                    "error_msg": null,
+                    "elapsed_time": null,
+                    "stats": null
+                })
+            } else {
+                serde_json::json!({
+                    "status": "SUCCEEDED",
+                    "state": null,
+                    "error_msg": null,
+                    "elapsed_time": null,
+                    "stats": {
+                        "cycles": self.expected_cycles,
+                        "total_cycles": self.expected_total_cycles,
+                        "user_cycles": self.expected_cycles,
+                        "segments": 1
+                    }
+                })
+            }
         } else {
             serde_json::json!({
-                "status": "SUCCEEDED",
+                "status": "RUNNING",
                 "state": null,
                 "error_msg": null,
                 "elapsed_time": null,
-                "stats": {
-                    "cycles": config.expected_cycles,
-                    "total_cycles": config.expected_total_cycles,
-                    "user_cycles": config.expected_cycles,
-                    "segments": 1
-                }
+                "stats": null
             })
-        }))
-        .expect(1..)
+        };
+
+        ResponseTemplate::new(200).set_body_json(body)
+    }
+}
+
+/// Setup mock responses for the Bento API
+async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
+    let mock_url = mock_server.uri();
+
+    // Mock GET /inputs/upload - return URL and uuid (or no uuid if so instructed)
+    Mock::given(method("GET"))
+        .and(path("/inputs/upload"))
+        .respond_with(if config.fail_input_upload {
+            ResponseTemplate::new(500)
+        } else {
+            ResponseTemplate::new(200).set_body_json(if config.no_input_uuid {
+                serde_json::json!({
+                "url": format!("{}/put-input", mock_url),
+                "uuid": "",
+                    })
+            } else {
+                serde_json::json!({
+                    "url": format!("{}/put-input", mock_url),
+                    "uuid": Uuid::new_v4().to_string(),
+                })
+            })
+        })
+        .mount(mock_server)
+        .await;
+
+    // Mock PUT to URL for input upload
+    // This is generally called after the above GET as part of upload_input, so we shouldn't need
+    // to mock it failing independently for purposes of our testing
+    Mock::given(method("PUT"))
+        .and(path("/put-input"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(mock_server)
+        .await;
+
+    // Mock GET /images/upload/{image_id}
+    // return 204 to indicate image exists, 200 with JSON body to indicate it doesn't, 500 for failure
+    Mock::given(method("GET"))
+        .and(path_regex(r"/images/upload/.+"))
+        .respond_with(if config.fail_image_check {
+            ResponseTemplate::new(500)
+        } else if config.image_exists {
+            ResponseTemplate::new(204)
+        } else {
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "url": format!("{}/images/upload/test-image", mock_url)
+            }))
+        })
+        .mount(mock_server)
+        .await;
+
+    // Mock POST /sessions/create
+    // return session uuid (or no uuid if so instructed)
+    Mock::given(method("POST"))
+        .and(path("/sessions/create"))
+        .respond_with(if config.fail_create_session {
+            ResponseTemplate::new(500)
+        } else {
+            ResponseTemplate::new(200).set_body_json(if config.no_session_uuid {
+                serde_json::json!({
+                "uuid": "",
+                })
+            } else {
+                serde_json::json!({
+                    "uuid": Uuid::new_v4().to_string(),
+                })
+            })
+        })
+        .mount(mock_server)
+        .await;
+
+    // Mock GET /sessions/status/{uuid}
+    // return status with stats
+    // Uses a custom responder to return RUNNING for a configurable number of calls before the final status
+    let status_responder = SessionStatusResponder {
+        call_count: Arc::new(AtomicUsize::new(0)),
+        running_responses: config.running_responses,
+        final_status: config.execution_status.clone(),
+        expected_cycles: config.expected_cycles,
+        expected_total_cycles: config.expected_total_cycles,
+        no_status_stats: config.no_status_stats,
+        fail_status: config.fail_status,
+    };
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"/sessions/status/.+"))
+        .respond_with(status_responder)
         .mount(mock_server)
         .await;
 }
 
+/// Set up a test fixture with test DB, mock Bento server, and a number of proof requests for testing
 async fn setup_test_fixture(
-    bento_mock_config: BentoMockConfig,
-) -> (TestDb, JoinHandle<()>, Vec<FixedBytes<32>>, MockServer) {
+    pool: PgPool,
+    bento_mock_config: Option<BentoMockConfig>,
+    num_requests: u32,
+) -> (TestDb, Vec<FixedBytes<32>>, MockServer) {
     // Set up test database
-    let test_db = TestDb::new().await.unwrap();
+    let db_url = get_db_url_from_pool(&pool).await;
+    let test_db = TestDb::from_pool(db_url, pool).await.unwrap();
 
     // Set up mock Bento API server
     let mock_server = MockServer::start().await;
-    setup_bento_mocks(&mock_server, bento_mock_config).await;
+    // Only set up the Bento API mock if there's a corresponding config. Some tests don't need it
+    if let Some(bento_mock_config) = bento_mock_config {
+        setup_bento_mocks(&mock_server, bento_mock_config).await;
+    }
 
     // Create test request with PENDING cycle count
-    let requests = vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
-    let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
-    test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+    let mut requests = Vec::with_capacity(num_requests as usize);
+    let mut digests = Vec::with_capacity(num_requests as usize);
+    for i in 0..num_requests {
+        requests.push(generate_request(i, &Address::ZERO));
+        digests.push(B256::from([i as u8; 32]));
+    }
+    let statuses = vec!["PENDING"; num_requests as usize];
+    test_db.setup_requests_and_cycles(&digests, &requests, &statuses).await;
 
     // Verify initial state
-    let pending_count = test_db.db.get_cycle_counts_pending(10).await.unwrap().len();
-    assert_eq!(pending_count, 2, "Expected 2 pending cycle counts initially");
+    let pending_count = test_db.db.get_cycle_counts_pending(10).await.unwrap().len() as u32;
+    assert_eq!(
+        pending_count, num_requests,
+        "Expected {} pending cycle counts initially",
+        num_requests
+    );
 
-    // Create execution config
-    let config = test_config(mock_server.uri());
-
-    // Spawn execute_requests as a background task
-    let db_clone = test_db.db.clone();
-    let execution_handle = tokio::spawn(async move {
-        execute_requests(db_clone, config).await;
-    });
-
-    // Return mock_server to keep it alive for the duration of the test
-    (test_db, execution_handle, digests, mock_server)
+    (test_db, digests, mock_server)
 }
 
-#[test_log::test(tokio::test)]
-#[ignore = "Slow - run with --ignored"]
-async fn test_execute_requests_processes_pending_cycle_counts() {
-    let expected_cycles = 50_000_000u64;
-    let expected_total_cycles = 51_000_000u64;
+/// Spawns `execute_requests` in a background task and returns a handle to await completion.
+async fn setup_test_task(db: DbObj, server_uri: String, max_iterations: u32) -> JoinHandle<()> {
+    let config = test_config(server_uri, max_iterations);
+    let execution_handle = tokio::spawn(async move {
+        execute_requests(db, config).await;
+    });
 
-    let (test_db, execution_handle, _digests, _mock_server) = setup_test_fixture(BentoMockConfig {
-        input_uuid: "test-input-uuid".to_string(),
-        session_uuid: "test-session-uuid".to_string(),
-        expected_cycles,
-        expected_total_cycles,
-        fail_execution: false,
-    })
-    .await;
+    execution_handle
+}
 
-    // Wait for cycle counts to transition to COMPLETED (with timeout)
-    let timeout = Duration::from_secs(10);
-    let start = std::time::Instant::now();
-    let poll_interval = Duration::from_millis(100);
-
-    loop {
-        // Check if cycle counts have been completed
+/// Asserts that all requests have the expected cycle_status in the database.
+async fn verify_request_status(test_db: &TestDb, digests: &[B256], expected_status: &str) {
+    for digest in digests {
         let result = sqlx::query(
-            "SELECT COUNT(*) as count
+            "SELECT cycle_status
             FROM cycle_counts
-            WHERE cycle_status = 'COMPLETED'",
+            WHERE request_digest = $1",
         )
+        .bind(format!("{:x}", digest))
         .fetch_one(&test_db.pool)
         .await
         .unwrap();
-        let completed_count: i64 = result.get("count");
 
-        if completed_count >= 2 {
-            tracing::info!("All cycle counts completed");
-            break;
-        }
-
-        if start.elapsed() > timeout {
-            // Get current state for debugging
-            let (pending, executing, failed) =
-                test_db.db.count_cycle_counts_by_status().await.unwrap();
-
-            panic!(
-                "Timeout waiting for cycle counts to complete. Current state: pending={}, executing={}, failed={}, completed={}",
-                pending, executing, failed, completed_count
-            );
-        }
-
-        tokio::time::sleep(poll_interval).await;
+        let status: String = result.get("cycle_status");
+        assert_eq!(status, expected_status, "Expected {} status", expected_status);
     }
+}
 
-    // Abort the background task
-    execution_handle.abort();
+/// Helper to run a single-iteration test and verify final status.
+///
+/// This is the common pattern for most error handling tests:
+/// 1. Set up fixture with given config
+/// 2. Run execute_requests for one iteration
+/// 3. Verify all requests have the expected status
+async fn run_single_iteration_test(
+    pool: PgPool,
+    config: Option<BentoMockConfig>,
+    num_requests: u32,
+    expected_status: &str,
+) {
+    let (test_db, digests, mock_server) = setup_test_fixture(pool, config, num_requests).await;
+    let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
+    execution_handle.await.unwrap();
+    verify_request_status(&test_db, &digests, expected_status).await;
+}
+
+/// Helper to patch a field in proof_requests for a specific digest.
+///
+/// Used to simulate invalid or malformed request data in tests.
+async fn patch_request_field(pool: &PgPool, digest: &B256, field: &str, value: &str) {
+    sqlx::query(&format!("UPDATE proof_requests SET {field} = $1 WHERE request_digest = $2"))
+        .bind(value)
+        .bind(format!("{:x}", digest))
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+// =============================================================================
+// Happy Path Tests
+// =============================================================================
+
+/// Test the happy path of processing pending cycle counts. Over a number of iterations, this
+/// test will verify that cycle count requests are correctly updated from PENDING to COMPLETED
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_processes_pending_cycle_counts(pool: PgPool) {
+    let expected_cycles = 50_000_000u64;
+    let expected_total_cycles = 51_000_000u64;
+
+    let (test_db, _digests, mock_server) = setup_test_fixture(
+        pool,
+        Some(BentoMockConfig {
+            running_responses: 3, // Return RUNNING 3 times, then SUCCEEDED
+            execution_status: "SUCCEEDED".to_string(),
+            expected_cycles,
+            expected_total_cycles,
+            ..Default::default()
+        }),
+        2,
+    )
+    .await;
+
+    // Start the test task for 3 iterations
+    // With 2 requests and running_responses set to 3, this means that the task will find the following:
+    // - on iteration 1, both requests are RUNNING (EXECUTING in the DB)
+    // - on iteration 2, the first request is RUNNING, the second is SUCCEEDED (COMPLETED in the DB)
+    // - on iteration 3, the second request is also SUCCEEDED
+    let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 3).await;
+    execution_handle.await.unwrap();
 
     // Verify final state
     let results = sqlx::query(
@@ -264,59 +483,192 @@ async fn test_execute_requests_processes_pending_cycle_counts() {
     }
 }
 
-#[test_log::test(tokio::test)]
-#[ignore = "Slow - run with --ignored"]
-async fn test_execute_requests_handles_failed_execution() {
-    let (test_db, execution_handle, digests, _mock_server) = setup_test_fixture(BentoMockConfig {
-        input_uuid: "test-input-uuid".to_string(),
-        session_uuid: "test-session-uuid".to_string(),
-        expected_cycles: 0,
-        expected_total_cycles: 0,
-        fail_execution: true,
-    })
+/// Test that still-running requests are correctly marked as EXECUTING
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_processes_executing_cycle_counts(pool: PgPool) {
+    // With running_responses: 2, the mock returns RUNNING on the first call,
+    // so after 1 iteration requests remain in EXECUTING state
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { running_responses: 2, ..Default::default() }),
+        2,
+        "EXECUTING",
+    )
     .await;
+}
 
-    // Wait for cycle count to transition to FAILED
-    let timeout = Duration::from_secs(10);
-    let start = std::time::Instant::now();
-    let poll_interval = Duration::from_millis(100);
+// =============================================================================
+// Error Handling Tests
+// =============================================================================
 
-    loop {
-        // Get current state
-        let (pending, executing, failed_count) =
-            test_db.db.count_cycle_counts_by_status().await.unwrap();
+/// Test that invalid request params result in FAILED requests
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_invalid_request_params(pool: PgPool) {
+    // Create the test fixture with 3 requests, which we'll patch with invalid parameters for testing.
+    // Any of input_type, input_data or image_id if empty should trigger a failed request.
+    // No Bento mocks needed since we fail before API calls
+    let (test_db, digests, mock_server) = setup_test_fixture(pool, None, 3).await;
 
-        if failed_count >= 1 {
-            tracing::info!("Cycle count marked as failed");
-            break;
-        }
+    // Patch each request with a different invalid field
+    patch_request_field(&test_db.pool, &digests[0], "input_type", "").await;
+    patch_request_field(&test_db.pool, &digests[1], "input_data", "").await;
+    patch_request_field(&test_db.pool, &digests[2], "image_id", "").await;
 
-        if start.elapsed() > timeout {
-            panic!(
-                "Timeout waiting for cycle count to fail. Current state: pending={}, executing={}, failed={}",
-                pending, executing, failed_count
-            );
-        }
-
-        tokio::time::sleep(poll_interval).await;
-    }
-
-    // Abort the background task
-    execution_handle.abort();
+    // Start the test task for 1 iteration and wait for it to complete
+    let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
+    execution_handle.await.unwrap();
 
     // Verify final state
-    for digest in digests {
-        let result = sqlx::query(
-            "SELECT cycle_status
-            FROM cycle_counts
-            WHERE request_digest = $1",
-        )
-        .bind(format!("{:x}", digest))
-        .fetch_one(&test_db.pool)
-        .await
-        .unwrap();
+    verify_request_status(&test_db, &digests, "FAILED").await;
+}
 
-        let status: String = result.get("cycle_status");
-        assert_eq!(status, "FAILED", "Expected FAILED status");
-    }
+/// Test that a failed execution results in FAILED requests
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_failed_execution(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { execution_status: "FAILED".to_string(), ..Default::default() }),
+        2,
+        "FAILED",
+    )
+    .await;
+}
+
+/// Test that an input decode error results in FAILED requests
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_input_decode_error(pool: PgPool) {
+    // No Bento mocks needed since we fail before API calls
+    let (test_db, digests, mock_server) = setup_test_fixture(pool, None, 1).await;
+
+    // Patch input_data to invalid hex, causing download_or_decode_input to fail
+    patch_request_field(&test_db.pool, &digests[0], "input_data", "not-valid-hex").await;
+
+    let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
+    execution_handle.await.unwrap();
+
+    verify_request_status(&test_db, &digests, "FAILED").await;
+}
+
+/// Test that an error when checking if an image exists leaves the requests in the PENDING state
+/// (to be retried on the next iteration)
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_image_check_error(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { fail_image_check: true, ..Default::default() }),
+        1,
+        "PENDING",
+    )
+    .await;
+}
+
+/// Test that an image download error results in FAILED requests
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_image_download_error(pool: PgPool) {
+    // The Bento API will return that the image doesn't exist, forcing a download
+    let (test_db, digests, mock_server) = setup_test_fixture(
+        pool,
+        Some(BentoMockConfig { image_exists: false, ..Default::default() }),
+        2,
+    )
+    .await;
+
+    // Patch image_url to a non-existent file, causing fetch_url to fail
+    patch_request_field(
+        &test_db.pool,
+        &digests[0],
+        "image_url",
+        "file:///nonexistent/path/to/image.elf",
+    )
+    .await;
+
+    patch_request_field(
+        &test_db.pool,
+        &digests[1],
+        "image_url",
+        "file:///nonexistent/path/to/image.elf",
+    )
+    .await;
+
+    let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
+    execution_handle.await.unwrap();
+
+    verify_request_status(&test_db, &digests, "FAILED").await;
+}
+
+/// Test that an input upload error leaves the requests PENDING (to be retried on the next iteration)
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_input_upload_error(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { fail_input_upload: true, ..Default::default() }),
+        2,
+        "PENDING",
+    )
+    .await;
+}
+
+/// Test that an error in a create session request leaves the requests PENDING (to be retried on the next iteration)
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_create_session_error(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { fail_create_session: true, ..Default::default() }),
+        2,
+        "PENDING",
+    )
+    .await;
+}
+
+/// Test that an error returned by status calls leaves the requests in the EXECUTING state
+/// (to be retried on the next iteration)
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_status_error(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { fail_status: true, ..Default::default() }),
+        2,
+        "EXECUTING",
+    )
+    .await;
+}
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+/// Test that a successful input upload that returns no UUID leaves the requests PENDING (to be retried on the next iteration)
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_input_upload_no_uuid(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { no_input_uuid: true, ..Default::default() }),
+        2,
+        "PENDING",
+    )
+    .await;
+}
+
+/// Test that a successful create session request that returns no UUID leaves the requests PENDING (to be retried on the next iteration)
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_create_session_no_uuid(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { no_session_uuid: true, ..Default::default() }),
+        2,
+        "PENDING",
+    )
+    .await;
+}
+
+/// Test that a successful execution that returns no stats marks the requests as FAILED
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_no_stats(pool: PgPool) {
+    run_single_iteration_test(
+        pool,
+        Some(BentoMockConfig { no_status_stats: true, ..Default::default() }),
+        2,
+        "FAILED",
+    )
+    .await;
 }
