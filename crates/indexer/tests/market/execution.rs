@@ -46,13 +46,29 @@ use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use wiremock::{
     matchers::{method, path, path_regex},
     Mock, MockServer, Request, Respond, ResponseTemplate,
 };
+
+/// Extract the database connection string from a sqlx::test PgPool.
+/// sqlx::test creates an isolated database per test with a unique name.
+async fn get_db_url_from_pool(pool: &PgPool) -> String {
+    let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+    let db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await
+        .expect("failed to query current_database()");
+
+    if let Some(last_slash) = base_url.rfind('/') {
+        format!("{}/{}", &base_url[..last_slash], db_name)
+    } else {
+        format!("{}/{}", base_url, db_name)
+    }
+}
 
 /// Creates an [`IndexerServiceExecutionConfig`] with test-appropriate defaults.
 fn test_config(uri: String, max_iterations: u32) -> IndexerServiceExecutionConfig {
@@ -168,11 +184,7 @@ impl Respond for SessionStatusResponder {
             return ResponseTemplate::new(500);
         }
 
-        let status = if count < self.running_responses {
-            "RUNNING".to_string()
-        } else {
-            self.final_status.clone()
-        };
+        let status = if count < self.running_responses { "RUNNING" } else { &self.final_status };
 
         let body = if status == "FAILED" {
             serde_json::json!({
@@ -311,11 +323,13 @@ async fn setup_bento_mocks(mock_server: &MockServer, config: BentoMockConfig) {
 
 /// Set up a test fixture with test DB, mock Bento server, and a number of proof requests for testing
 async fn setup_test_fixture(
+    pool: PgPool,
     bento_mock_config: Option<BentoMockConfig>,
     num_requests: u32,
 ) -> (TestDb, Vec<FixedBytes<32>>, MockServer) {
     // Set up test database
-    let test_db = TestDb::new().await.unwrap();
+    let db_url = get_db_url_from_pool(&pool).await;
+    let test_db = TestDb::from_pool(db_url, pool).await.unwrap();
 
     // Set up mock Bento API server
     let mock_server = MockServer::start().await;
@@ -325,14 +339,13 @@ async fn setup_test_fixture(
     }
 
     // Create test request with PENDING cycle count
-    let mut requests = vec![];
-    let mut digests = vec![];
-    let mut statuses = vec![];
+    let mut requests = Vec::with_capacity(num_requests as usize);
+    let mut digests = Vec::with_capacity(num_requests as usize);
     for i in 0..num_requests {
         requests.push(generate_request(i, &Address::ZERO));
         digests.push(B256::from([i as u8; 32]));
-        statuses.push("PENDING");
     }
+    let statuses = vec!["PENDING"; num_requests as usize];
     test_db.setup_requests_and_cycles(&digests, &requests, &statuses).await;
 
     // Verify initial state
@@ -381,11 +394,12 @@ async fn verify_request_status(test_db: &TestDb, digests: &[B256], expected_stat
 /// 2. Run execute_requests for one iteration
 /// 3. Verify all requests have the expected status
 async fn run_single_iteration_test(
+    pool: PgPool,
     config: Option<BentoMockConfig>,
     num_requests: u32,
     expected_status: &str,
 ) {
-    let (test_db, digests, mock_server) = setup_test_fixture(config, num_requests).await;
+    let (test_db, digests, mock_server) = setup_test_fixture(pool, config, num_requests).await;
     let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
     execution_handle.await.unwrap();
     verify_request_status(&test_db, &digests, expected_status).await;
@@ -394,7 +408,7 @@ async fn run_single_iteration_test(
 /// Helper to patch a field in proof_requests for a specific digest.
 ///
 /// Used to simulate invalid or malformed request data in tests.
-async fn patch_request_field(pool: &sqlx::AnyPool, digest: &B256, field: &str, value: &str) {
+async fn patch_request_field(pool: &PgPool, digest: &B256, field: &str, value: &str) {
     sqlx::query(&format!("UPDATE proof_requests SET {field} = $1 WHERE request_digest = $2"))
         .bind(value)
         .bind(format!("{:x}", digest))
@@ -409,12 +423,13 @@ async fn patch_request_field(pool: &sqlx::AnyPool, digest: &B256, field: &str, v
 
 /// Test the happy path of processing pending cycle counts. Over a number of iterations, this
 /// test will verify that cycle count requests are correctly updated from PENDING to COMPLETED
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_processes_pending_cycle_counts() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_processes_pending_cycle_counts(pool: PgPool) {
     let expected_cycles = 50_000_000u64;
     let expected_total_cycles = 51_000_000u64;
 
     let (test_db, _digests, mock_server) = setup_test_fixture(
+        pool,
         Some(BentoMockConfig {
             running_responses: 3, // Return RUNNING 3 times, then SUCCEEDED
             execution_status: "SUCCEEDED".to_string(),
@@ -469,11 +484,12 @@ async fn test_execute_requests_processes_pending_cycle_counts() {
 }
 
 /// Test that still-running requests are correctly marked as EXECUTING
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_processes_executing_cycle_counts() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_processes_executing_cycle_counts(pool: PgPool) {
     // With running_responses: 2, the mock returns RUNNING on the first call,
     // so after 1 iteration requests remain in EXECUTING state
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { running_responses: 2, ..Default::default() }),
         2,
         "EXECUTING",
@@ -486,12 +502,12 @@ async fn test_execute_requests_processes_executing_cycle_counts() {
 // =============================================================================
 
 /// Test that invalid request params result in FAILED requests
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_invalid_request_params() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_invalid_request_params(pool: PgPool) {
     // Create the test fixture with 3 requests, which we'll patch with invalid parameters for testing.
     // Any of input_type, input_data or image_id if empty should trigger a failed request.
     // No Bento mocks needed since we fail before API calls
-    let (test_db, digests, mock_server) = setup_test_fixture(None, 3).await;
+    let (test_db, digests, mock_server) = setup_test_fixture(pool, None, 3).await;
 
     // Patch each request with a different invalid field
     patch_request_field(&test_db.pool, &digests[0], "input_type", "").await;
@@ -507,9 +523,10 @@ async fn test_execute_requests_invalid_request_params() {
 }
 
 /// Test that a failed execution results in FAILED requests
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_failed_execution() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_failed_execution(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { execution_status: "FAILED".to_string(), ..Default::default() }),
         2,
         "FAILED",
@@ -518,10 +535,10 @@ async fn test_execute_requests_handles_failed_execution() {
 }
 
 /// Test that an input decode error results in FAILED requests
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_input_decode_error() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_input_decode_error(pool: PgPool) {
     // No Bento mocks needed since we fail before API calls
-    let (test_db, digests, mock_server) = setup_test_fixture(None, 1).await;
+    let (test_db, digests, mock_server) = setup_test_fixture(pool, None, 1).await;
 
     // Patch input_data to invalid hex, causing download_or_decode_input to fail
     patch_request_field(&test_db.pool, &digests[0], "input_data", "not-valid-hex").await;
@@ -534,9 +551,10 @@ async fn test_execute_requests_handles_input_decode_error() {
 
 /// Test that an error when checking if an image exists leaves the requests in the PENDING state
 /// (to be retried on the next iteration)
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_image_check_error() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_image_check_error(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { fail_image_check: true, ..Default::default() }),
         1,
         "PENDING",
@@ -545,12 +563,15 @@ async fn test_execute_requests_handles_image_check_error() {
 }
 
 /// Test that an image download error results in FAILED requests
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_image_download_error() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_image_download_error(pool: PgPool) {
     // The Bento API will return that the image doesn't exist, forcing a download
-    let (test_db, digests, mock_server) =
-        setup_test_fixture(Some(BentoMockConfig { image_exists: false, ..Default::default() }), 2)
-            .await;
+    let (test_db, digests, mock_server) = setup_test_fixture(
+        pool,
+        Some(BentoMockConfig { image_exists: false, ..Default::default() }),
+        2,
+    )
+    .await;
 
     // Patch image_url to a non-existent file, causing fetch_url to fail
     patch_request_field(
@@ -576,9 +597,10 @@ async fn test_execute_requests_handles_image_download_error() {
 }
 
 /// Test that an input upload error leaves the requests PENDING (to be retried on the next iteration)
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_input_upload_error() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_input_upload_error(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { fail_input_upload: true, ..Default::default() }),
         2,
         "PENDING",
@@ -587,9 +609,10 @@ async fn test_execute_requests_handles_input_upload_error() {
 }
 
 /// Test that an error in a create session request leaves the requests PENDING (to be retried on the next iteration)
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_create_session_error() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_create_session_error(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { fail_create_session: true, ..Default::default() }),
         2,
         "PENDING",
@@ -599,9 +622,10 @@ async fn test_execute_requests_handles_create_session_error() {
 
 /// Test that an error returned by status calls leaves the requests in the EXECUTING state
 /// (to be retried on the next iteration)
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_status_error() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_status_error(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { fail_status: true, ..Default::default() }),
         2,
         "EXECUTING",
@@ -614,9 +638,10 @@ async fn test_execute_requests_handles_status_error() {
 // =============================================================================
 
 /// Test that a successful input upload that returns no UUID leaves the requests PENDING (to be retried on the next iteration)
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_input_upload_no_uuid() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_input_upload_no_uuid(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { no_input_uuid: true, ..Default::default() }),
         2,
         "PENDING",
@@ -625,9 +650,10 @@ async fn test_execute_requests_handles_input_upload_no_uuid() {
 }
 
 /// Test that a successful create session request that returns no UUID leaves the requests PENDING (to be retried on the next iteration)
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_create_session_no_uuid() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_create_session_no_uuid(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { no_session_uuid: true, ..Default::default() }),
         2,
         "PENDING",
@@ -636,9 +662,10 @@ async fn test_execute_requests_handles_create_session_no_uuid() {
 }
 
 /// Test that a successful execution that returns no stats marks the requests as FAILED
-#[test_log::test(tokio::test)]
-async fn test_execute_requests_handles_no_stats() {
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_execute_requests_handles_no_stats(pool: PgPool) {
     run_single_iteration_test(
+        pool,
         Some(BentoMockConfig { no_status_stats: true, ..Default::default() }),
         2,
         "FAILED",

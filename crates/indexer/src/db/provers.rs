@@ -97,9 +97,29 @@ mod tests {
     use crate::test_utils::TestDb;
     use alloy::primitives::{B256, U256};
 
-    #[tokio::test]
-    async fn test_list_requests_by_prover() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+        let base_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+        let db_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(pool)
+            .await
+            .expect("failed to query current_database()");
+
+        if let Some(last_slash) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..last_slash], db_name)
+        } else {
+            format!("{}/{}", base_url, db_name)
+        }
+    }
+
+    async fn test_db(pool: sqlx::PgPool) -> TestDb {
+        let db_url = get_db_url_from_pool(&pool).await;
+        TestDb::from_pool(db_url, pool).await.unwrap()
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_list_requests_by_prover(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let prover1 = Address::from([0xAA; 20]);
