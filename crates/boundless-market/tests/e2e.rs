@@ -22,7 +22,7 @@ use alloy::{
 };
 use alloy_primitives::Bytes;
 use boundless_market::{
-    client::{FundingMode, ClientBuilder},
+    client::{ClientBuilder, FundingMode},
     contracts::{
         boundless_market::{FulfillmentTx, UnlockedRequest},
         hit_points::default_allowance,
@@ -33,7 +33,7 @@ use boundless_market::{
     input::GuestEnv,
     request_builder::{OfferParams, PriceProviderArc, RequestParams},
     storage::MockStorageProvider,
-    test_helpers::create_mock_indexer_client
+    test_helpers::create_mock_indexer_client,
 };
 use boundless_test_utils::{
     guests::{ECHO_ELF, ECHO_ID},
