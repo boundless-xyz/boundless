@@ -6,8 +6,8 @@ Requires=docker.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory={{ bento_dir }}
-EnvironmentFile={{ bento_env_file }}
+WorkingDirectory={{ prover_dir }}
+EnvironmentFile={{ prover_env_file }}
 ExecStart=/usr/bin/docker compose --profile broker --profile miner up
 ExecStop=/usr/bin/docker compose --profile broker --profile miner down
 Restart=always

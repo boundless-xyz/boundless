@@ -1,5 +1,5 @@
 ---
-- name: Deploy Bento Standalone with Docker Compose
+- name: Deploy Prover with Docker Compose
   hosts: all
   become: true
   gather_facts: true
@@ -17,10 +17,9 @@
       tags:
         - docker
         - docker-install
-    # Deploy Bento with Docker Compose
-    - name: Deploy Bento Docker Compose Stack
+    - name: Deploy Prover Docker Compose Stack
       ansible.builtin.include_role:
-        name: bento
+        name: prover
       tags:
-        - bento
+        - prover
         - docker

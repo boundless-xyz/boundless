@@ -1,0 +1,54 @@
+---
+# Deployment directory
+prover_dir: "/opt/bento"
+# Version of Bento to install
+prover_version: v1.2.0
+# File location
+prover_compose_file: "{{ prover_dir }}/compose.yml"
+
+# Environment file location
+prover_env_file: "{{ prover_dir }}/.env"
+
+# Docker Compose project name
+prover_compose_project_name: "bento"
+
+# Service state: started, stopped, restarted, absent
+prover_state: started
+
+# User to run Docker Compose commands
+prover_user: "{{ ansible_user | default('ubuntu') }}"
+
+# Database
+prover_postgres_host: "postgres"
+prover_postgres_port: "5432"
+prover_postgres_db: taskdb
+prover_postgres_user: worker
+prover_postgres_password: password
+
+# Redis/Valkey
+prover_redis_host: "redis"
+
+# MinIO
+prover_minio_host: "minio"
+prover_minio_bucket: workflow
+prover_minio_root_user: admin
+prover_minio_root_pass: password
+
+# Bento configuration
+prover_rust_log: info
+prover_risc0_home: "/usr/local/risc0"
+prover_segment_size: 20
+prover_risc0_keccak_po2: 17
+prover_redis_ttl: 57600
+prover_snark_timeout: "180"
+
+# Bento binary URL
+prover_binary_url: "https://github.com/boundless-xyz/boundless/releases/download/bento-{{ prover_version }}/bento-bundle-linux-amd64.tar.gz"
+
+# Broker configuration (if enabled)
+prover_private_key: ""
+prover_rpc_url: ""
+prover_povw_log_id: ""
+
+# Broker configuration URL
+prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"

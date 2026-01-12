@@ -3,15 +3,15 @@
 - name: Clone the Bento repository
   ansible.builtin.git:
     repo: https://github.com/boundless-xyz/boundless.git
-    dest: "{{ bento_dir }}"
-    version: "{{ bento_version }}"
+    dest: "{{ prover_dir }}"
+    version: "{{ prover_version }}"
     recursive: true
     force: true
 
 - name: Generate Docker Compose environment file
   ansible.builtin.template:
     src: docker-compose.env.j2
-    dest: "{{ bento_env_file }}"
+    dest: "{{ prover_env_file }}"
     owner: root
     group: root
     mode: '0600'
@@ -19,8 +19,8 @@
 
 - name: Download broker configuration file
   ansible.builtin.get_url:
-    url: '{{ bento_broker_toml_url }}'
-    dest: "{{ bento_dir }}/broker.toml"
+    url: '{{ prover_broker_toml_url }}'
+    dest: "{{ prover_dir }}/broker.toml"
     owner: root
     group: root
     mode: '0644'

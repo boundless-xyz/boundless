@@ -1,259 +1,222 @@
 # Configuration Variables
 
-This Ansible setup uses Ansible's built-in variable system for configuration management. Variables can be set at multiple levels with clear precedence.
+This document describes all configuration variables for the Boundless Ansible deployment.
 
 ## Variable Precedence
 
 Ansible variable precedence (highest to lowest):
 
 1. **Command-line variables** (`-e var=value`)
-2. **Host variables** (`host_vars/HOSTNAME/main.yml` or `host_vars/HOSTNAME/vault.yml`)
-3. **Group variables** (`group_vars/all/*.yml`)
-4. **Role defaults** (`roles/*/defaults/main.yml`)
+2. **Inventory host variables** (in `inventory.yml`)
+3. **Role defaults** (`roles/*/defaults/main.yml`)
 
 ## Quick Start
 
-### Using Host Variables (Recommended)
+### Using Inventory Variables
 
-Create host-specific configuration files:
-
-```bash
-# Non-sensitive configuration
-nano ansible/host_vars/example/main.yml
-```
+Set variables directly in your inventory file:
 
 ```yaml
-# host_vars/example/main.yml
-postgresql_host: "10.0.1.10"
-valkey_host: "10.0.1.10"
-minio_host: "10.0.1.10"
-bento_install_dependencies: false
-```
-
-For sensitive values, use Ansible Vault:
-
-```bash
-# Create encrypted vault file
-ansible-vault create ansible/host_vars/example/vault.yml
-```
-
-```yaml
-# host_vars/example/vault.yml (encrypted)
-postgresql_password: "secure_password"
-minio_root_user: "s3_access_key"
-minio_root_password: "s3_secret_key"
-broker_private_key: "0x..."
+all:
+  children:
+    nightly:
+      hosts:
+        127.0.0.1:
+          ansible_user: ubuntu
+          prover_version: main
+          prover_postgres_password: "secure_password"
+          prover_minio_root_pass: "secure_password"
+          prover_private_key: "0x..."
+          prover_povw_log_id: "0x..."
+          prover_rpc_url: "https://..."
 ```
 
 ### Using Command-Line Variables
 
 ```bash
-ansible-playbook -i inventory.yml broker.yml \
-  -e postgresql_password="secure_password" \
-  -e broker_private_key="0x..."
+ansible-playbook -i inventory.yml bento.yml \
+  -e prover_postgres_password="secure_password" \
+  -e prover_private_key="0x..."
 ```
 
-## Configuration Variables
+## Prover Role Variables
 
-### PostgreSQL
+### Deployment Configuration
 
-Set in `host_vars` or via `-e`:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_dir` | `/opt/bento` | Directory where prover is deployed |
+| `prover_version` | `v1.2.0` | Git tag or branch to deploy |
+| `prover_state` | `started` | Service state (started, stopped) |
+| `prover_user` | `ubuntu` | User for Docker commands |
 
-- `postgresql_user` (default: `"bento"`)
-- `postgresql_password` (default: `"CHANGE_ME"` - **must be set**)
-- `postgresql_host` (default: `"localhost"`)
-- `postgresql_port` (default: `5432`)
-- `postgresql_database` (default: `"bento"`)
+### Database Configuration (PostgreSQL)
 
-### MinIO/S3
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_postgres_host` | `postgres` | PostgreSQL hostname (Docker service name) |
+| `prover_postgres_port` | `5432` | PostgreSQL port |
+| `prover_postgres_db` | `taskdb` | Database name |
+| `prover_postgres_user` | `worker` | Database user |
+| `prover_postgres_password` | `password` | Database password (**change in production**) |
 
-Set in `host_vars` or via `-e`:
+### Redis/Valkey Configuration
 
-- `minio_host` (default: `"localhost"`)
-- `minio_port` (default: `9000`)
-- `minio_root_user` (default: `"minioadmin"`)
-- `minio_root_password` (default: `"minioadmin"` - **should be changed**)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_redis_host` | `redis` | Redis hostname (Docker service name) |
 
-Bento S3 configuration automatically uses MinIO credentials:
+### MinIO/S3 Configuration
 
-- `bento_s3_bucket` (default: `"bento"`)
-- `bento_s3_url` (default: `http://{{ minio_host }}:{{ minio_port }}`)
-- `bento_s3_access_key` (default: `{{ minio_root_user }}`)
-- `bento_s3_secret_key` (default: `{{ minio_root_password }}`)
-- `bento_s3_region` (default: `"auto"`)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_minio_host` | `minio` | MinIO hostname (Docker service name) |
+| `prover_minio_bucket` | `workflow` | S3 bucket name |
+| `prover_minio_root_user` | `admin` | MinIO root user |
+| `prover_minio_root_pass` | `password` | MinIO root password (**change in production**) |
 
-### Valkey (Redis)
+### Prover Agent Configuration
 
-Set in `host_vars` or via `-e`:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_rust_log` | `info` | Rust log level |
+| `prover_risc0_home` | `/usr/local/risc0` | RISC0 home directory |
+| `prover_segment_size` | `20` | Segment size for proving |
+| `prover_risc0_keccak_po2` | `17` | Keccak power of 2 |
+| `prover_redis_ttl` | `57600` | Redis TTL in seconds (16 hours) |
+| `prover_snark_timeout` | `180` | SNARK timeout in seconds |
 
-- `valkey_host` (default: `"localhost"`)
-- `valkey_port` (default: `6379`)
-- `valkey_maxmemory` (default: `"12gb"`)
+### Binary Configuration
 
-### Broker
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_binary_url` | GitHub release URL | URL to download prover binaries |
 
-Set in `host_vars` or via `-e`:
+### Broker Configuration
 
-- `broker_bento_api_url` (default: `"http://localhost:8081"`)
-- `broker_rpc_url` (default: `""` - **must be set**)
-- `broker_private_key` (default: `""` - **must be set**)
-- `broker_min_mcycle_price` (default: `"0.00000001"`)
-- `broker_min_mcycle_price_collateral_token` (default: `"0.00005"`)
-- `broker_peak_prove_khz` (default: `100`)
-- `broker_max_collateral` (default: `"200"`)
-- `broker_max_concurrent_preflights` (default: `2`)
-- `broker_max_concurrent_proofs` (default: `1`)
-- `broker_prometheus_metrics_addr` (default: `"127.0.0.1:9590"`)
-- `broker_user` (default: `"{{ bento_user | default('bento') }}"`): Service user (defaults to `bento` user)
-- `broker_group` (default: `"{{ bento_group | default('bento') }}"`): Service group (defaults to `bento` group)
+These variables enable the broker service:
 
-### Bento
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_private_key` | `""` | Prover wallet private key |
+| `prover_rpc_url` | `""` | Blockchain RPC URL |
+| `prover_povw_log_id` | `""` | POVW log contract address |
+| `prover_broker_toml_url` | GitHub raw URL | URL to broker.toml template |
 
-Set in `host_vars` or via `-e`:
+## Docker Role Variables
 
-- `bento_task` (default: `"prove"`): Legacy tag label (not used by the launcher)
-- `bento_count` (default: `1`): Legacy instance count (not used by the launcher)
-- `bento_segment_po2` (default: `20`)
-- `bento_keccak_po2` (default: `17`)
-- `bento_rewards_address` (default: `""`)
-- `bento_povw_log_id` (default: `""`)
-- `bento_prometheus_metrics_addr` (default: `"127.0.0.1:9090"`): Base Prometheus metrics address (ports vary by service: api=9090, prove=9190, exec=9290, aux=9390, snark=9490, join=9490)
-- `bento_version` (default: `"v1.2.0"`): Version of Bento to install (tracked in `/etc/boundless/.bento_version`)
-- `bento_gpu_count` (default: `null`): Number of GPU prove workers (null = auto-detect, 0 = disable)
-- `bento_exec_count` (default: `4`): Number of exec workers
-- `bento_aux_count` (default: `2`): Number of aux workers
-- `bento_snark_count` (default: `1`): Number of snark workers (when `bento_snark_workers` is true)
-- `bento_join_count` (default: `1`): Number of join workers (when `bento_join_workers` is true)
-- `bento_snark_workers` (default: `false`): Enable snark workers
-- `bento_join_workers` (default: `false`): Enable join workers
-- `bento_enable_api` (default: `true`): Enable the API service
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `docker_ubuntu_version` | (auto-detected) | Ubuntu version override |
+| `docker_architecture` | `amd64` | CPU architecture |
+| `docker_users` | `[]` | Users to add to docker group |
+| `docker_nvidia_enabled` | `false` | Enable NVIDIA Container Toolkit |
 
-## Remote Worker Node Configuration
+## NVIDIA Role Variables
 
-For worker nodes connecting to remote services, create `host_vars/HOSTNAME/main.yml`:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `nvidia_cuda_version` | `13-0` | CUDA version to install |
+| `nvidia_ubuntu_version` | (auto-detected) | Ubuntu version override |
+| `nvidia_reboot_after_install` | `false` | Reboot after installation |
+
+## Vector Role Variables
+
+### Service Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `vector_install` | `true` | Install Vector |
+| `vector_service_enabled` | `false` | Enable at boot |
+| `vector_service_state` | `stopped` | Service state |
+
+### CloudWatch Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `vector_cloudwatch_log_group` | `/boundless/bento/hostname` | Log group name |
+| `vector_cloudwatch_region` | `us-west-2` | AWS region |
+| `vector_cloudwatch_stream_name` | `%Y-%m-%d` | Stream name pattern |
+
+### AWS Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `vector_aws_use_instance_profile` | `true` | Use IAM instance profile |
+| `vector_aws_credentials_file` | `null` | Path to AWS credentials file |
+| `vector_aws_access_key_id` | `null` | AWS access key ID |
+| `vector_aws_secret_access_key` | `null` | AWS secret access key |
+
+## AWS CLI Role Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `awscli_install_method` | `installer` | Installation method (installer or apt) |
+| `awscli_install_dir` | `/usr/local/aws-cli` | Installation directory |
+| `awscli_bin_dir` | `/usr/local/bin` | Binary directory |
+| `awscli_update` | `false` | Update existing installation |
+
+## Example Configurations
+
+### Minimal Production Setup
 
 ```yaml
-# Disable local service installation
-postgresql_install: false
-valkey_install: false
-minio_install: false
-bento_install_dependencies: false
-
-# Point to remote services
-postgresql_host: "10.0.1.10"  # Manager node IP
-postgresql_port: 5432
-postgresql_user: "bento"
-# postgresql_password: Set in vault.yml
-
-valkey_host: "10.0.1.10"
-valkey_port: 6379
-
-minio_host: "10.0.1.10"
-minio_port: 9000
-# minio_root_user: Set in vault.yml
-# minio_root_password: Set in vault.yml
-
-# Bento service configuration
-bento_enable_api: false
-bento_gpu_count: 1
-bento_exec_count: 0
-bento_aux_count: 0
+all:
+  hosts:
+    prover-1:
+      ansible_user: ubuntu
+      prover_version: v1.2.0
+      prover_postgres_password: "{{ vault_postgres_password }}"
+      prover_minio_root_pass: "{{ vault_minio_password }}"
+      prover_private_key: "{{ vault_prover_key }}"
+      prover_povw_log_id: "0x..."
+      prover_rpc_url: "https://mainnet.infura.io/v3/..."
 ```
 
-See `host_vars/example/main.yml` for a complete example.
-
-## Ansible Vault
-
-For sensitive values, use Ansible Vault:
-
-```bash
-# Create encrypted vault file
-ansible-vault create host_vars/example/vault.yml
-
-# Edit existing vault file
-ansible-vault edit host_vars/example/vault.yml
-
-# View vault file
-ansible-vault view host_vars/example/vault.yml
-```
-
-When running playbooks with vault files:
-
-```bash
-# Prompt for vault password
-ansible-playbook -i inventory.yml cluster.yml --ask-vault-pass
-
-# Or use vault password file
-ansible-playbook -i inventory.yml cluster.yml --vault-password-file ~/.vault_pass
-```
-
-## CI/CD Integration
-
-### GitHub Actions
+### Nightly Build Setup
 
 ```yaml
-- name: Run Ansible playbook
-  env:
-    ANSIBLE_VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
-  run: |
-    echo "$ANSIBLE_VAULT_PASSWORD" > .vault_pass
-    ansible-playbook -i inventory.yml cluster.yml \
-      --vault-password-file .vault_pass \
-      -e postgresql_password="${{ secrets.POSTGRESQL_PASSWORD }}" \
-      -e broker_private_key="${{ secrets.BROKER_PRIVATE_KEY }}"
+all:
+  children:
+    nightly:
+      hosts:
+        dev-prover:
+          ansible_user: ubuntu
+          prover_version: main
+          prover_postgres_password: "dev_password"
+          prover_minio_root_pass: "dev_password"
 ```
 
-### GitLab CI
+### With Vector Logging
 
 ```yaml
-deploy:
-  script:
-    - echo "$VAULT_PASSWORD" > .vault_pass
-    - ansible-playbook -i inventory.yml cluster.yml \
-        --vault-password-file .vault_pass \
-        -e postgresql_password="$POSTGRESQL_PASSWORD" \
-        -e broker_private_key="$BROKER_PRIVATE_KEY"
-  variables:
-    POSTGRESQL_PASSWORD: $POSTGRESQL_PASSWORD
-    BROKER_PRIVATE_KEY: $BROKER_PRIVATE_KEY
+all:
+  hosts:
+    prover-1:
+      ansible_user: ubuntu
+      prover_version: v1.2.0
+      # Vector configuration
+      vector_service_enabled: true
+      vector_service_state: started
+      vector_cloudwatch_log_group: "/boundless/production"
+      vector_aws_access_key_id: "AKIA..."
+      vector_aws_secret_access_key: "..."
 ```
 
 ## Security Best Practices
 
-1. **Never commit unencrypted vault files** to git
-   - Add `*.vault.yml` to `.gitignore` if not using ansible-vault
-   - Use `ansible-vault encrypt` for sensitive files
+1. **Never commit plain-text secrets** to git
+   * Use base64-encoded inventory in CI/CD secrets
+   * Use Ansible Vault for local development
 
-2. **Use secure secret management**
-   - Ansible Vault (built-in)
-   - AWS Secrets Manager (fetch and pass via `-e`)
-   - HashiCorp Vault (fetch and pass via `-e`)
-   - CI/CD secret stores
+2. **Use strong passwords** for all services
+   * `prover_postgres_password`
+   * `prover_minio_root_pass`
 
-3. **Separate environments**
-   - Different `host_vars` for different environments
-   - Use inventory groups for environment separation
+3. **Protect private keys**
+   * `prover_private_key` should be stored securely
+   * Consider using hardware wallets or key management systems
 
-4. **Rotate secrets regularly**
-   - Update vault files when rotating secrets
-   - Re-encrypt vault files after updates
-
-## Troubleshooting
-
-### "Variable is undefined"
-
-- Check variable name spelling (case-sensitive)
-- Verify variable is set in the correct precedence level
-- Check if variable is defined in role defaults
-
-### "Default value used instead of custom value"
-
-- Check variable precedence (command-line vars override host\_vars)
-- Verify variable name matches exactly
-- Check for typos in variable names
-
-### "Vault password required"
-
-- Use `--ask-vault-pass` to prompt for password
-- Or use `--vault-password-file` with a password file
-- Ensure vault password file has correct permissions (`chmod 600`)
+4. **Use IAM roles** for AWS credentials when possible
+   * Avoid storing AWS credentials in inventory files
+   * Use EC2 instance profiles instead

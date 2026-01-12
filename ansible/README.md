@@ -1,365 +1,253 @@
 # Boundless Ansible Setup
 
-This Ansible playbook replicates the functionality of the repo root `scripts/setup.sh` for automated system provisioning.
+Ansible playbooks for deploying Boundless prover infrastructure using Docker Compose.
 
 ## Overview
 
-The playbook sets up a Boundless prover system by:
+This setup deploys the Boundless prover stack using Docker Compose, including:
 
-- Updating system packages
-- Installing essential packages (nvtop, build tools, etc.)
-- Installing GCC 12 for Ubuntu 22.04
-- Installing Docker with NVIDIA Container Toolkit support
-- Installing Rust programming language (via `rust` role)
-- Installing RISC Zero rzup toolchain and risc0-groth16 component (via `rzup` role)
-- Installing Just command runner
-- Installing CUDA Toolkit 13.0
-- Installing Protobuf compiler
-- Performing system cleanup
+* NVIDIA drivers and CUDA Toolkit
+* Docker Engine with NVIDIA Container Toolkit
+* Prover services (PostgreSQL, Redis, MinIO, agents, REST API)
+* Optional broker and miner services
+* Vector log shipping to AWS CloudWatch (optional)
 
 ## Requirements
 
-- Ansible 2.9 or later
-- Target hosts running Ubuntu 22.04 or 24.04
-- SSH access to target hosts (or run locally)
-- Sudo/root privileges on target hosts
-- Ansible collections (install with `ansible-galaxy collection install community.postgresql`)
+* Ansible 2.9 or later
+* Target hosts running Ubuntu 22.04 or 24.04
+* SSH access to target hosts
+* Sudo/root privileges on target hosts
+* NVIDIA GPU hardware (for GPU proving)
 
 ## Directory Structure
 
 ```
 ansible/
-├── cluster.yml            # Full cluster deployment (bento + broker + dependencies)
-├── bento-worker.yml      # Bento worker deployment (no dependencies)
-├── bento-standalone.yml  # Standalone Bento deployment with Docker Compose
-├── broker.yml             # Broker deployment
-├── inventory.yml          # Inventory file
+├── bento.yml              # Main deployment playbook
+├── monitoring.yml         # AWS CLI + Vector log shipping
+├── inventory.yml          # Host inventory (base64 encoded for CI)
 ├── ansible.cfg            # Ansible configuration
 ├── README.md              # This file
 ├── ENV_VARS.md            # Environment variable documentation
 └── roles/
-    ├── awscli/             # AWS CLI v2 installation
-    ├── bento/              # Bento agent service (uses launcher scripts)
-    ├── bento/              # Bento Docker Compose deployment
-    ├── broker/             # Broker service
-    ├── grafana/            # Grafana monitoring
-    ├── miner/              # Miner service
-    ├── minio/              # MinIO S3-compatible storage
-    ├── nvidia/             # NVIDIA drivers and CUDA Toolkit
-    ├── postgresql/         # PostgreSQL database
-    ├── rust/               # Rust programming language
-    ├── rzup/               # RISC Zero rzup toolchain
-    ├── valkey/             # Valkey (Redis) server
-    └── vector/             # Vector log shipping to CloudWatch
+    ├── awscli/            # AWS CLI v2 installation
+    ├── docker/            # Docker Engine + NVIDIA Container Toolkit
+    ├── nvidia/            # NVIDIA drivers and CUDA Toolkit
+    ├── prover/            # Prover Docker Compose deployment
+    └── vector/            # Vector log shipping to CloudWatch
 ```
 
-## Installation
+## Quick Start
 
-Before running playbooks, install required Ansible collections:
+### Local Deployment
 
 ```bash
-ansible-galaxy collection install community.postgresql
+cd ansible
+
+# Deploy Bento stack
+ansible-playbook -i inventory.yml bento.yml
+
+# Deploy to specific host
+ansible-playbook -i inventory.yml bento.yml --limit 127.0.0.1
+
+# Deploy monitoring (Vector + AWS CLI)
+ansible-playbook -i inventory.yml monitoring.yml
 ```
 
-## Quick Deployment
+### Inventory Setup
 
-From this directory, run:
-
-```bash
-# Full cluster deployment (bento + broker + dependencies)
-ansible-playbook -i inventory.yml cluster.yml
-
-# Bento worker deployment (no dependencies)
-ansible-playbook -i inventory.yml bento-worker.yml
-
-# Standalone Bento deployment with Docker Compose
-ansible-playbook -i inventory.yml bento-standalone.yml
-```
-
-## Configuration Management
-
-Configuration is managed using Ansible's built-in variable system. Variables can be set at multiple levels with the following precedence (highest to lowest):
-
-1. **Command-line variables** (`-e var=value`)
-2. **Host variables** (`host_vars/HOSTNAME/main.yml` or `host_vars/HOSTNAME/vault.yml`)
-3. **Group variables** (`group_vars/all/*.yml`)
-4. **Role defaults** (`roles/*/defaults/main.yml`)
-
-### Quick Start with Host Variables
-
-1. **Create host-specific configuration:**
-   ```bash
-   # Edit host_vars/example/main.yml for non-sensitive config
-   nano ansible/host_vars/example/main.yml
-   ```
-
-2. **Set sensitive values in vault:**
-   ```bash
-   # Create encrypted vault file
-   ansible-vault create ansible/host_vars/example/vault.yml
-   ```
-
-3. **Or use command-line variables:**
-   ```bash
-   ansible-playbook -i inventory.yml broker.yml \
-     -e postgresql_password="secure_password" \
-     -e broker_private_key="0x..."
-   ```
-
-### Remote Worker Node Configuration
-
-For worker nodes connecting to remote services, set these in `host_vars/HOSTNAME/main.yml`:
+The inventory file defines hosts and their configuration:
 
 ```yaml
-# Disable local service installation
-postgresql_install: false
-valkey_install: false
-minio_install: false
-bento_install_dependencies: false
-
-# Point to remote services
-postgresql_host: "10.0.1.10"  # Manager node
-valkey_host: "10.0.1.10"
-minio_host: "10.0.1.10"
+---
+all:
+  children:
+    nightly:
+      hosts:
+        127.0.0.1:
+          ansible_user: ubuntu
+          prover_version: main
+          prover_private_key: "0x..."
+          prover_povw_log_id: "0x..."
+          prover_rpc_url: "https://..."
+          prover_postgres_password: "secure_password"
+          prover_minio_root_pass: "secure_password"
+    release:
+      hosts:
+        10.0.0.2:
+          ansible_user: ubuntu
+          prover_version: v1.2.0
+          # ... other variables
 ```
 
-Sensitive values (passwords, keys) should be set in `host_vars/HOSTNAME/vault.yml` or passed via `-e` flags.
+## Playbooks
 
-See `host_vars/example/main.yml` for a complete example.
+### bento.yml
 
-## Usage
+Deploys the complete prover stack:
 
-### Full Cluster Deployment
-
-Deploy the complete prover stack (Bento + Broker + Dependencies):
+1. **nvidia role** - Installs NVIDIA drivers and CUDA Toolkit
+2. **docker role** - Installs Docker with NVIDIA Container Toolkit
+3. **prover role** - Deploys prover services via Docker Compose
 
 ```bash
-ansible-playbook -i inventory.yml cluster.yml
+ansible-playbook -i inventory.yml bento.yml
 ```
 
-### Worker Node Deployment (No Dependencies)
+### monitoring.yml
 
-Deploy Bento to worker nodes that connect to remote services:
+Deploys log shipping to AWS CloudWatch:
+
+1. **awscli role** - Installs AWS CLI v2
+2. **vector role** - Installs and configures Vector
 
 ```bash
-# Deploy Bento to worker nodes (skips PostgreSQL, Valkey, MinIO)
-ansible-playbook -i inventory.yml bento-worker.yml
-
-# Deploy specific Bento task without dependencies
-ansible-playbook -i inventory.yml cluster.yml --tags bento-prove --skip-tags bento-deps
+ansible-playbook -i inventory.yml monitoring.yml
 ```
 
-### Using Tags
+## Configuration Variables
 
-The Bento role supports tags for selective deployment:
+### Prover Configuration
+
+Key variables (set in inventory or via `-e`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `prover_version` | `v1.2.0` | Git tag/branch to deploy |
+| `prover_dir` | `/opt/bento` | Deployment directory |
+| `prover_postgres_password` | `password` | PostgreSQL password |
+| `prover_minio_root_pass` | `password` | MinIO root password |
+| `prover_private_key` | `""` | Broker private key |
+| `prover_povw_log_id` | `""` | POVW log contract address |
+| `prover_rpc_url` | `""` | RPC URL for broker |
+
+### Vector Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `vector_service_enabled` | `false` | Enable Vector at boot |
+| `vector_service_state` | `stopped` | Service state |
+| `vector_cloudwatch_log_group` | `/boundless/bento/hostname` | CloudWatch log group |
+| `vector_cloudwatch_region` | `us-west-2` | AWS region |
+| `vector_aws_access_key_id` | `null` | AWS access key (if not using IAM role) |
+| `vector_aws_secret_access_key` | `null` | AWS secret key (if not using IAM role) |
+
+See `ENV_VARS.md` for complete variable documentation.
+
+## Tags
+
+Use tags for selective deployment:
 
 ```bash
-# Deploy only Bento (skip dependencies)
-ansible-playbook -i inventory.yml cluster.yml --skip-tags bento-deps
+# Deploy only NVIDIA drivers
+ansible-playbook -i inventory.yml bento.yml --tags nvidia
 
-# Deploy only dependencies (skip Bento)
-ansible-playbook -i inventory.yml cluster.yml --tags bento-deps
+# Deploy only Docker
+ansible-playbook -i inventory.yml bento.yml --tags docker
 
-# Deploy only Bento installation (skip config/service)
-ansible-playbook -i inventory.yml cluster.yml --tags bento-install
+# Deploy only prover (skip drivers/docker)
+ansible-playbook -i inventory.yml bento.yml --tags prover
 
-# Deploy only Bento configuration (skip installation)
-ansible-playbook -i inventory.yml cluster.yml --tags bento-config,bento-service
-
-# Deploy specific Bento task
-ansible-playbook -i inventory.yml cluster.yml --tags bento-prove
-
-# Deploy Grafana monitoring
-ansible-playbook -i inventory.yml cluster.yml --tags grafana
+# Skip NVIDIA driver installation
+ansible-playbook -i inventory.yml bento.yml --skip-tags nvidia
 ```
 
 ### Available Tags
 
-- `bento` - All Bento tasks
-- `bento-deps` - Dependencies (PostgreSQL, Valkey, MinIO)
-- `bento-user` - User/group creation
-- `bento-install` - Binary installation
-- `bento-config` - Configuration files and directories
-- `bento-service` - Systemd service management
-- `bento-prove` - Bento prove task deployment
-- `bento-api` - Bento API deployment
-- `bento-exec` - Bento exec task deployment
-- `bento-aux` - Bento aux task deployment
-- `bento-snark` - Bento snark task deployment
-- `bento-join` - Bento join task deployment
-- `bento-union` - Bento union task deployment
-- `bento-coproc` - Bento coproc task deployment
-- `awscli` - AWS CLI installation
-- `nvidia` - NVIDIA drivers and CUDA Toolkit
-- `postgresql` - PostgreSQL role
-- `valkey` - Valkey role
-- `minio` - MinIO role
-- `broker` - Broker role
-- `miner` - Miner service role
-- `vector` - Vector log shipping role
-- `rust` - Rust programming language role
-- `rzup` - RISC Zero rzup toolchain role
-
-Note: Bento worker enablement is controlled by `bento_*_count` and `bento_*_workers` variables, not tags.
-
-### Running on specific hosts
-
-```bash
-ansible-playbook -i inventory.yml cluster.yml --limit prover-1
-```
-
-## Service Architecture
-
-### Bento Services
-
-Bento services use a **unified launcher script** managed by a single systemd unit:
-
-- Systemd unit: `/etc/systemd/system/bento.service`
-- Launcher script: `/etc/boundless/bento-launcher.sh`
-
-The launcher starts the API (if enabled) and all configured worker types in parallel based on `bento_*` counts and flags.
-
-**Worker Types**:
-
-- `bento-prove`: GPU proving workers
-- `bento-api`: REST API service
-- `bento-exec`: Execution workers
-- `bento-aux`: Auxiliary workers
-- `bento-snark`: SNARK compression workers (when `SNARK_STREAM=1`)
-- `bento-join`: Join task workers (when `JOIN_STREAM=1`)
-- `bento-union`: Union task workers (when `UNION_STREAM=1`)
-- `bento-coproc`: Coprocessor workers (when `COPROC_STREAM=1`)
-
-### Shared Configuration Directory
-
-Both Bento and Broker services use `/etc/boundless/` as a shared configuration directory. This directory must have `0755` permissions and be owned by `root:root` to allow both services to access it.
-
-**Important**: The Bento role manages this directory and sets it to `root:root` with `0755` permissions. The Broker role also ensures this directory exists with the same permissions to prevent conflicts.
-
-## Differences from setup.sh
-
-1. **Git submodules**: The Ansible playbook attempts to initialize git submodules, but this is best done manually or in a separate task since it requires the repository to be present.
-
-2. **Interactive reboot**: The bash script prompts for reboot, but Ansible doesn't handle interactive prompts. You can reboot manually or add a separate task.
-
-3. **Logging**: The bash script logs to `/var/log/setup.log`. Ansible has its own logging mechanisms.
-
-## Notes
-
-- The playbook is idempotent - you can run it multiple times safely
-- Some tasks require a reboot to take full effect (especially GPU drivers and Docker group membership)
-- For Ubuntu 22.04 vs 24.04, different installation methods are used for Rust (rustup installer script vs apt package)
-- The `rust` and `rzup` roles are automatically included when deploying Bento to ensure Groth16 proof generation works correctly
-- Docker group membership changes require logging out and back in, or a reboot
-- **Version Tracking**: The Bento role tracks installed versions in `/etc/boundless/.bento_version` and only reinstalls when the version changes or binaries are missing
-- **Service Restart Logic**: Services restart only when binaries or configuration files change, not on cleanup tasks or version file updates
-
-## Troubleshooting
-
-### Permission issues
-
-Ensure your user has sudo privileges. If sudo requires a password, use `-K` or `--ask-become-pass`:
-
-```bash
-# Prompt for sudo password
-ansible-playbook playbook.yml -K
-
-# Or if you also need SSH password
-ansible-playbook playbook.yml -k -K
-```
-
-**Note**: `-k` is for SSH password, `-K` is for sudo/become password.
-
-### Service Permission Denied Errors
-
-If Bento services fail with "Permission denied" errors:
-
-1. **Check directory permissions**:
-   ```bash
-   ls -ld /etc/boundless/
-   # Should be: drwxr-xr-x root root
-   # Fix if needed: sudo chmod 0755 /etc/boundless && sudo chown root:root /etc/boundless
-   ```
-
-2. **Check launcher script permissions**:
-   ```bash
-   ls -l /etc/boundless/bento-launcher.sh
-   # Should be: -rwxr-xr-x bento bento
-   # Fix if needed: sudo chmod +x /etc/boundless/bento-launcher.sh
-   ```
-
-3. **Reset systemd state**:
-   ```bash
-   sudo systemctl reset-failed bento
-   sudo systemctl daemon-reload
-   sudo systemctl restart bento
-   ```
-
-See the role-specific README files for more detailed troubleshooting.
+| Tag | Description |
+|-----|-------------|
+| `nvidia` | NVIDIA drivers and CUDA Toolkit |
+| `docker` | Docker Engine and Compose |
+| `docker-nvidia` | NVIDIA Container Toolkit |
+| `prover` | Prover Docker Compose stack |
+| `awscli` | AWS CLI installation |
+| `vector` | Vector log shipping |
 
 ## GitHub Actions Deployment
 
-The repository includes a GitHub Actions workflow (`.github/workflows/ansible-deploy.yml`) for automated Ansible deployments.
+The repository includes automated deployment via GitHub Actions (`.github/workflows/prover-release.yml`).
 
-### Setup
+### Host Groups
 
-1. **Configure GitHub Secrets**:
-   - `ANSIBLE_SSH_PRIVATE_KEY`: Private SSH key for connecting to target hosts
-   - `ANSIBLE_SSH_HOST`: Target host IP address or hostname
-   - `ANSIBLE_SSH_USER`: SSH username (default: `ubuntu`)
-   - `ANSIBLE_DEPLOY_HOST`: Ansible inventory hostname (default: `deploy-target`)
+* **nightly**: Deployed daily at 1am UTC from `main` branch
+* **release**: Deployed manually using official release tags
 
-2. **Configure GitHub Environments** (optional):
-   - Create environments in GitHub repository settings (Settings → Environments)
-   - Add environment-specific secrets if needed
-   - Environments can have protection rules and approval requirements
+### Required Secrets
 
-### Usage
+| Secret | Description |
+|--------|-------------|
+| `ANSIBLE_SSH_PRIVATE_KEY` | SSH private key (ed25519) |
+| `ANSIBLE_INVENTORY` | Base64-encoded inventory.yml |
 
-#### Manual Deployment
+### Creating the Inventory Secret
 
-1. Go to Actions → Ansible Deployment
+```bash
+cd ansible
+base64 -i inventory.yml | tr -d '\n'
+# Copy output to GitHub secret: ANSIBLE_INVENTORY
+```
+
+### Manual Deployment
+
+1. Go to Actions → Prover Deployment
 2. Click "Run workflow"
 3. Select:
-   - **Playbook**: Which playbook to run (e.g., `bento-standalone.yml`)
-   - **Environment**: Target environment (staging/production)
-   - **Hosts**: Comma-separated host list or "all"
-   - **Skip Tags**: Optional tags to skip
-   - **Extra Vars**: Optional JSON variables
+   * **Target**: `nightly`, `release`, or `all`
+   * **Playbook**: `bento.yml` or `monitoring.yml`
 
-#### Automatic Deployment
+### Scheduled Deployment
 
-Push to `main` or `release-*` branches with commit message containing `[deploy]` or `[deploy:staging]` or `[deploy:production]`:
+The nightly host is automatically deployed at 1am UTC from the `main` branch.
 
-```bash
-git commit -m "Update configuration [deploy:staging]"
-git push origin main
-```
+## Service Management
 
-### Example Deployments
+After deployment, manage services on the target host:
 
 ```bash
-# Deploy bento-standalone to staging
-# Via workflow_dispatch with:
-# - Playbook: bento-standalone.yml
-# - Environment: staging
-# - Hosts: all
+# SSH to host
+ssh ubuntu@<host>
 
-# Deploy with custom variables
-# - Extra Vars: {"bento_version": "v1.3.0", "bento_dir": "/opt/bento-prod"}
+# Navigate to deployment directory
+cd /opt/bento
 
-# Skip specific tags
-# - Skip Tags: nvidia,rust
+# View service status
+docker compose ps
+
+# View logs
+docker compose logs -f
+
+# View specific service logs
+docker compose logs -f gpu_prove_agent
+
+# Restart all services
+sudo systemctl restart bento
+
+# Stop services
+sudo systemctl stop bento
+
+# Start services
+sudo systemctl start bento
 ```
 
-### Security Notes
+### Systemd Service
 
-- SSH keys are stored as GitHub secrets and never logged
-- Inventory files are created temporarily and cleaned up after deployment
-- Use GitHub Environments for environment-specific secrets and approvals
-- Consider requiring approvals for production deployments
+Bento runs as a systemd service (`bento.service`):
 
-### Connection issues
+```bash
+# Check status
+systemctl status bento
+
+# View logs via journalctl
+journalctl -u bento -f
+
+# Restart
+sudo systemctl restart bento
+```
+
+## Troubleshooting
+
+### SSH Connection Issues
 
 Test connectivity first:
 
@@ -367,28 +255,70 @@ Test connectivity first:
 ansible all -i inventory.yml -m ping
 ```
 
-### Check what would change
+### Check What Would Change
 
 Use `--check` for a dry run:
 
 ```bash
-ansible-playbook playbook.yml --check
+ansible-playbook -i inventory.yml bento.yml --check
 ```
 
-### Service Debugging
+### NVIDIA Driver Issues
 
-Check service status and logs:
+After deployment, verify GPU detection:
 
 ```bash
-# On the target host
-systemctl status bento
-journalctl -u bento -f
-journalctl -u bento -n 100
+ssh ubuntu@<host> "nvidia-smi"
 ```
 
-For detailed troubleshooting, see:
+If GPUs aren't detected, a reboot may be required:
 
-- `roles/awscli/README.md` - AWS CLI installation troubleshooting
-- `roles/bento/README.md` - Bento service troubleshooting
-- `roles/broker/README.md` - Broker service troubleshooting
-- `roles/vector/README.md` - Vector log shipping troubleshooting
+```bash
+ssh ubuntu@<host> "sudo reboot"
+```
+
+### Docker Permission Issues
+
+If docker commands fail with permission errors:
+
+```bash
+# Add user to docker group
+sudo usermod -aG docker ubuntu
+
+# Log out and back in, or reboot
+```
+
+### Service Logs
+
+Check service logs for errors:
+
+```bash
+# Systemd service logs
+journalctl -u bento -n 100
+
+# Docker Compose logs
+cd /opt/bento && docker compose logs --tail=100
+```
+
+### Common Errors
+
+**"password authentication failed for user"**
+
+* Check `prover_postgres_password` matches what's in the running PostgreSQL container
+* May need to recreate PostgreSQL volume: `docker compose down -v && docker compose up -d`
+
+**"No GPUs detected"**
+
+* Ensure NVIDIA drivers are installed: `nvidia-smi`
+* Reboot if drivers were just installed
+* Check Docker has GPU access: `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`
+
+## Role Documentation
+
+See individual role READMEs for detailed documentation:
+
+* `roles/awscli/README.md` - AWS CLI installation
+* `roles/docker/README.md` - Docker installation
+* `roles/nvidia/README.md` - NVIDIA drivers
+* `roles/prover/README.md` - Prover Docker Compose deployment
+* `roles/vector/README.md` - Vector log shipping
