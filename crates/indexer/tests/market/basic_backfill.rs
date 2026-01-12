@@ -167,8 +167,10 @@ async fn test_backfill_aggregates(pool: sqlx::PgPool) {
     }
 
     // Get prover aggregate rows and their updated_at timestamps before backfill
-    let mut before_prover_timestamps: std::collections::HashMap<String, Vec<(i64, Option<String>)>> =
-        std::collections::HashMap::new();
+    let mut before_prover_timestamps: std::collections::HashMap<
+        String,
+        Vec<(i64, Option<String>)>,
+    > = std::collections::HashMap::new();
 
     for table in &prover_tables_to_check {
         let rows = sqlx::query(&format!(
