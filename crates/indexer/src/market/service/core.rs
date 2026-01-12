@@ -425,7 +425,7 @@ where
     let elapsed = std::time::Instant::now();
 
     let to_timestamp = service.block_timestamp(to_block).await?;
-    
+
     service.aggregate_hourly_market_data(to_block).await?;
     service.aggregate_daily_market_data(to_block).await?;
     service.aggregate_weekly_market_data(to_block).await?;

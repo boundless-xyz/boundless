@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::market::{
-    u256_to_padded_string, AllTimeProverSummary, DailyProverSummary, IndexerDb, LockPricingData,
-    HourlyProverSummary, MonthlyProverSummary, PeriodProverSummary, RequestCursor, RequestSortField, RequestStatus,
-    SortDirection, WeeklyProverSummary,
+    u256_to_padded_string, AllTimeProverSummary, DailyProverSummary, HourlyProverSummary,
+    IndexerDb, LockPricingData, MonthlyProverSummary, PeriodProverSummary, RequestCursor,
+    RequestSortField, RequestStatus, SortDirection, WeeklyProverSummary,
 };
 use super::{market::padded_string_to_u256, DbError};
 use alloy::primitives::{Address, U256};
