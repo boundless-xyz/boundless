@@ -213,7 +213,11 @@ impl S3StorageUploader {
             .map_err(|e| StorageError::s3(e))?;
 
         if !self.use_presigned {
-            return Ok(Url::parse(&format!("s3://{}/{}", self.bucket, key)).unwrap());
+            let base = format!("s3://{}/", self.bucket);
+            let mut url = Url::parse(&base)
+                .map_err(|_| StorageError::InvalidUrl("invalid bucket name for S3 URL"))?;
+            url.set_path(key);
+            return Ok(url);
         }
 
         // Generate presigned URL

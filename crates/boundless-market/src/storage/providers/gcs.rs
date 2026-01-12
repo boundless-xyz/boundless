@@ -139,7 +139,10 @@ impl GcsStorageUploader {
         let bucket_path = format!("projects/_/buckets/{}", self.bucket);
         self.client.write_object(&bucket_path, key, data).send_unbuffered().await?;
 
-        let url = Url::parse(&format!("gs://{}/{}", self.bucket, key))?;
+        let base = format!("gs://{}/", self.bucket);
+        let mut url = Url::parse(&base)
+            .map_err(|_| StorageError::InvalidUrl("invalid bucket name for GCS URL"))?;
+        url.set_path(key);
         tracing::debug!(?url, "uploaded to GCS");
         Ok(url)
     }
