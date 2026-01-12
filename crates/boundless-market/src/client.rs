@@ -820,7 +820,6 @@ where
         Self { funding_mode, ..self }
     }
 
-
     /// Set the signer that will be used for signing [ProofRequest].
     /// ```rust
     /// # use boundless_market::Client;
