@@ -115,6 +115,8 @@ test-indexer-api:
     if [ -z "$ETH_MAINNET_RPC_URL" ]; then
         WARNINGS="${WARNINGS}Warning: ETH_MAINNET_RPC_URL environment variable is not set\n"
     fi
+    # Ensure indexer binaries are built with latest changes, API tests depend on them.
+    RISC0_DEV_MODE=1 cargo build -p boundless-indexer --bin rewards-indexer --bin market-indexer
     RISC0_DEV_MODE=1 cargo test -p indexer-api -- --ignored
     if [ -n "$WARNINGS" ]; then
         echo ""

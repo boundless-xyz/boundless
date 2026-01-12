@@ -74,6 +74,7 @@ where
 
         // Spawn the aggregation task supervisor
         let service_clone = self.clone();
+        // TODO: Currently we assume running the aggregation task supervisor itself won't panic, so don't keep the handle.
         tokio::spawn(run_aggregation_task_supervisor(service_clone));
 
         let mut attempt = 0;
@@ -109,6 +110,8 @@ where
                 // If we've reached the end_block and processed everything, exit
                 if let Some(end) = end_block {
                     if from_block > end {
+                        tracing::info!("Reached end block {}, waiting for aggregation to catch up before exiting", end);
+                        self.wait_for_aggregation_to_catch_up().await?;
                         tracing::info!("Reached end block {}, exiting", end);
                         return Ok(());
                     }
@@ -133,6 +136,8 @@ where
                     // If we've reached or passed the end_block, exit
                     if let Some(end) = end_block {
                         if from_block > end {
+                            tracing::info!("Reached end block {}, waiting for aggregation to catch up before exiting", end);
+                            self.wait_for_aggregation_to_catch_up().await?;
                             tracing::info!("Reached end block {}, exiting", end);
                             return Ok(());
                         }
@@ -248,21 +253,6 @@ where
         // Update request statuses for touched requests
         self.update_request_statuses(touched_requests, to).await?;
 
-        // Note: Aggregations are now handled by a separate concurrent task.
-        // Aggregations use the result of update_request_statuses, so they run after status updates.
-
-        // Aggregate per-prover data.
-        self.aggregate_hourly_prover_data(to).await?;
-        self.aggregate_daily_prover_data(to).await?;
-        self.aggregate_weekly_prover_data(to).await?;
-        self.aggregate_all_time_prover_data(to).await?;
-
-        // Aggregate per-prover data.
-        self.aggregate_hourly_prover_data(to).await?;
-        self.aggregate_daily_prover_data(to).await?;
-        self.aggregate_weekly_prover_data(to).await?;
-        self.aggregate_all_time_prover_data(to).await?;
-
         // Update the last processed block.
         self.update_last_processed_block(to).await?;
 
@@ -325,6 +315,41 @@ where
         let current_block = self.current_block().await?;
         Ok(find_starting_block(starting_block, last_processed, current_block))
     }
+
+    // Wait for aggregation task to catch up to the last processed block before exiting.
+    // This is only called when end_block is specified and we're about to exit.
+    async fn wait_for_aggregation_to_catch_up(&self) -> Result<(), ServiceError> {
+        tracing::info!("Waiting for aggregation to catch up before exiting...");
+
+        let poll_interval = self.config.aggregation_interval;
+
+        loop {
+            let main_last_block = self.db.get_last_block().await?;
+            let aggregation_last_block = self.db.get_last_aggregation_block().await?;
+
+            match (main_last_block, aggregation_last_block) {
+                (Some(main_block), Some(agg_block)) => {
+                    if agg_block >= main_block {
+                        tracing::info!(
+                            "Aggregation caught up (main: {}, aggregation: {}), proceeding to exit",
+                            main_block,
+                            agg_block
+                        );
+                        return Ok(());
+                    }
+                }
+                (Some(_), None) => {
+                    tracing::info!("Aggregation hasn't started yet, continuing to wait");
+                }
+                (None, _) => {
+                    tracing::warn!("No main processing block found, skipping aggregation wait");
+                    return Ok(());
+                }
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
 }
 
 fn find_starting_block(
@@ -357,7 +382,7 @@ fn find_starting_block(
 
 /// Aggregation task that runs concurrently with event processing.
 /// Processes aggregations up to the last processed block from the main event processing task.
-async fn run_aggregation_task<P, ANP>(service: IndexerService<P, ANP>) -> Result<(), ServiceError>
+async fn compute_aggregates<P, ANP>(service: IndexerService<P, ANP>)
 where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
@@ -367,7 +392,7 @@ where
     loop {
         interval.tick().await;
 
-        process_aggregations(&service).await?;
+        process_aggregations(&service).await.unwrap();
     }
 }
 
@@ -396,11 +421,11 @@ where
         );
         return Ok(());
     }
-
-    tracing::info!("Processing aggregations from block {} to {}", from_block, to_block);
+    tracing::info!("=== Aggregating blocks from {} to {} ===", from_block, to_block);
+    let elapsed = std::time::Instant::now();
 
     let to_timestamp = service.block_timestamp(to_block).await?;
-
+    
     service.aggregate_hourly_market_data(to_block).await?;
     service.aggregate_daily_market_data(to_block).await?;
     service.aggregate_weekly_market_data(to_block).await?;
@@ -419,6 +444,11 @@ where
 
     service.db.set_last_aggregation_block(to_block).await?;
     tracing::info!("Aggregation completed up to block {} (timestamp: {})", to_block, to_timestamp);
+    tracing::info!(
+        "process_aggregations completed in {:?} [num_blocks={}]",
+        elapsed.elapsed(),
+        to_block - from_block + 1
+    );
 
     Ok(())
 }
@@ -436,7 +466,7 @@ where
         let service_clone = service.clone();
 
         let handle = tokio::spawn(async move {
-            let _ = run_aggregation_task(service_clone).await;
+            compute_aggregates(service_clone).await;
         });
 
         match handle.await {
