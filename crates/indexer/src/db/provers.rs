@@ -21,7 +21,7 @@ use super::{market::padded_string_to_u256, DbError};
 use alloy::primitives::{Address, U256};
 use anyhow;
 use async_trait::async_trait;
-use sqlx::Row;
+use sqlx::{postgres::PgRow, PgPool, Row};
 use std::str::FromStr;
 
 /// Trait for prover-related database operations.
@@ -804,9 +804,7 @@ impl<T: IndexerDb + Send + Sync> ProversDb for T {}
 
 // === Standalone helper functions for generic operations ===
 
-fn parse_period_prover_summary_row(
-    row: &sqlx::any::AnyRow,
-) -> Result<PeriodProverSummary, DbError> {
+fn parse_period_prover_summary_row(row: &PgRow) -> Result<PeriodProverSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
     let prover_address_str: String = row.try_get("prover_address")?;
     let prover_address = Address::from_str(&prover_address_str)
@@ -872,9 +870,7 @@ fn parse_period_prover_summary_row(
     })
 }
 
-fn parse_all_time_prover_summary_row(
-    row: &sqlx::any::AnyRow,
-) -> Result<AllTimeProverSummary, DbError> {
+fn parse_all_time_prover_summary_row(row: &PgRow) -> Result<AllTimeProverSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
     let prover_address_str: String = row.try_get("prover_address")?;
     let prover_address = Address::from_str(&prover_address_str)
@@ -927,7 +923,7 @@ fn parse_all_time_prover_summary_row(
 }
 
 async fn upsert_prover_summary_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     summary: PeriodProverSummary,
     table_name: &str,
 ) -> Result<(), DbError> {
@@ -1022,7 +1018,7 @@ async fn upsert_prover_summary_generic(
 
 #[allow(clippy::too_many_arguments)]
 async fn get_prover_summaries_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     prover_address: Address,
     cursor: Option<i64>,
     limit: i64,
@@ -1117,7 +1113,7 @@ async fn get_prover_summaries_generic(
 }
 
 async fn get_all_time_prover_summaries_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     prover_address: Address,
     cursor: Option<i64>,
     limit: i64,
@@ -1209,7 +1205,7 @@ async fn get_all_time_prover_summaries_generic(
 }
 
 async fn get_prover_summaries_by_range_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     prover_address: Address,
     start_ts: u64,
     end_ts: u64,

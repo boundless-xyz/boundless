@@ -2264,10 +2264,10 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps(pool: sqlx::PgPool)
     cli_process.kill().unwrap();
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_prover_aggregation() {
-    let fixture = new_market_test_fixture().await.unwrap();
+async fn test_prover_aggregation(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),

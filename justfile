@@ -104,27 +104,23 @@ test-indexer-rewards:
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test rewards -- --ignored
 
-# Run indexer-api integration tests (warns if RPC URLs are missing but still runs)
+# Run indexer-api integration tests (requires both RPC URLs)
 test-indexer-api:
     #!/usr/bin/env bash
     set -e
-    WARNINGS=""
-    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
-        WARNINGS="${WARNINGS}Warning: BASE_MAINNET_RPC_URL environment variable is not set\n"
-    fi
     if [ -z "$ETH_MAINNET_RPC_URL" ]; then
-        WARNINGS="${WARNINGS}Warning: ETH_MAINNET_RPC_URL environment variable is not set\n"
+        echo "Error: ETH_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
     fi
+    if [ -z "$BASE_MAINNET_RPC_URL" ]; then
+        echo "Error: BASE_MAINNET_RPC_URL environment variable must be set to a mainnet archive node that supports event querying"
+        exit 1
+    fi
+    just test-db clean || true
+    just test-db setup
     # Ensure indexer binaries are built with latest changes, API tests depend on them.
     RISC0_DEV_MODE=1 cargo build -p boundless-indexer --bin rewards-indexer --bin market-indexer
-    RISC0_DEV_MODE=1 cargo test -p indexer-api -- --ignored
-    if [ -n "$WARNINGS" ]; then
-        echo ""
-        echo "=========================================="
-        echo "WARNINGS:"
-        echo -e "$WARNINGS"
-        echo "=========================================="
-    fi
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p indexer-api -- --ignored
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":
