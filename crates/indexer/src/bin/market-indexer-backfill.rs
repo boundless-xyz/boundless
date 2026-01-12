@@ -101,6 +101,7 @@ async fn main() -> Result<()> {
 
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(3),
+        aggregation_interval: Duration::from_secs(2),
         retries: 10,
         batch_size: 500,
         cache_uri: args.cache_uri.clone(),

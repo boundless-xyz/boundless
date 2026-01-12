@@ -170,6 +170,7 @@ pub enum TransactionFetchStrategy {
 #[derive(Clone)]
 pub struct IndexerServiceConfig {
     pub interval: Duration,
+    pub aggregation_interval: Duration,
     pub retries: u32,
     pub batch_size: u64,
     pub cache_uri: Option<String>,

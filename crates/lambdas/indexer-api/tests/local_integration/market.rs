@@ -1219,13 +1219,43 @@ async fn test_requestor_cumulatives() {
 async fn test_prover_aggregates() {
     let env = TestEnv::market().await;
 
-    let list_response: RequestListResponse = env.get("/v1/market/requests?limit=10").await.unwrap();
+    // Paginate through all requests to find one with a prover address
+    let mut prover_address: Option<String> = None;
+    let mut cursor: Option<String> = None;
+    let mut total_requests = 0;
+    let mut requests_with_prover = 0;
 
-    let prover_address = list_response
-        .data
-        .iter()
-        .find_map(|r| r.lock_prover_address.as_ref().or(r.fulfill_prover_address.as_ref()))
-        .expect("Should find a prover address");
+    loop {
+        let url = match &cursor {
+            Some(c) => format!("/v1/market/requests?limit=100&cursor={}", c),
+            None => "/v1/market/requests?limit=100".to_string(),
+        };
+        let list_response: RequestListResponse = env.get(&url).await.unwrap();
+        total_requests += list_response.data.len();
+
+        for r in &list_response.data {
+            if r.lock_prover_address.is_some() || r.fulfill_prover_address.is_some() {
+                requests_with_prover += 1;
+                if prover_address.is_none() {
+                    prover_address =
+                        r.lock_prover_address.clone().or_else(|| r.fulfill_prover_address.clone());
+                }
+            }
+        }
+
+        if !list_response.has_more {
+            break;
+        }
+        cursor = list_response.next_cursor;
+    }
+
+    tracing::info!(
+        "Scanned {} total requests, found {} with prover addresses",
+        total_requests,
+        requests_with_prover
+    );
+
+    let prover_address = prover_address.expect("Should find a prover address in indexed data");
 
     let path =
         format!("/v1/market/provers/{}/aggregates?aggregation=hourly&limit=10", prover_address);
@@ -1267,13 +1297,43 @@ async fn test_prover_aggregates() {
 async fn test_prover_cumulatives() {
     let env = TestEnv::market().await;
 
-    let list_response: RequestListResponse = env.get("/v1/market/requests?limit=10").await.unwrap();
+    // Paginate through all requests to find one with a prover address
+    let mut prover_address: Option<String> = None;
+    let mut cursor: Option<String> = None;
+    let mut total_requests = 0;
+    let mut requests_with_prover = 0;
 
-    let prover_address = list_response
-        .data
-        .iter()
-        .find_map(|r| r.lock_prover_address.as_ref().or(r.fulfill_prover_address.as_ref()))
-        .expect("Should find a prover address");
+    loop {
+        let url = match &cursor {
+            Some(c) => format!("/v1/market/requests?limit=100&cursor={}", c),
+            None => "/v1/market/requests?limit=100".to_string(),
+        };
+        let list_response: RequestListResponse = env.get(&url).await.unwrap();
+        total_requests += list_response.data.len();
+
+        for r in &list_response.data {
+            if r.lock_prover_address.is_some() || r.fulfill_prover_address.is_some() {
+                requests_with_prover += 1;
+                if prover_address.is_none() {
+                    prover_address =
+                        r.lock_prover_address.clone().or_else(|| r.fulfill_prover_address.clone());
+                }
+            }
+        }
+
+        if !list_response.has_more {
+            break;
+        }
+        cursor = list_response.next_cursor;
+    }
+
+    tracing::info!(
+        "Scanned {} total requests, found {} with prover addresses",
+        total_requests,
+        requests_with_prover
+    );
+
+    let prover_address = prover_address.expect("Should find a prover address in indexed data");
 
     let path = format!("/v1/market/provers/{}/cumulatives?limit=10", prover_address);
     let response: ProverCumulativesResponse = env.get(&path).await.unwrap();

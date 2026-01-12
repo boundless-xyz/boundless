@@ -27,7 +27,6 @@ use crate::market::{
     },
     ServiceError,
 };
-use ::boundless_market::contracts::pricing::price_at_time;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::{Address, U256};
 use alloy::providers::Provider;
@@ -275,6 +274,7 @@ where
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn aggregate_monthly_prover_data(
         &self,
         to_block: u64,

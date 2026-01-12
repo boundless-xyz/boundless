@@ -33,6 +33,7 @@ use sqlx::{
 };
 
 const SQL_BLOCK_KEY: i64 = 0;
+const SQL_AGGREGATION_BLOCK_KEY: i64 = 1;
 
 // Padding width for U256 (78 digits for 2^256-1)
 const U256_PADDING_WIDTH: usize = 78;
@@ -565,6 +566,9 @@ pub trait IndexerDb {
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
 
+    async fn get_last_aggregation_block(&self) -> Result<Option<u64>, DbError>;
+    async fn set_last_aggregation_block(&self, block_numb: u64) -> Result<(), DbError>;
+
     async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
 
@@ -1035,6 +1039,38 @@ impl IndexerDb for MarketDb {
          ON CONFLICT (id) DO UPDATE SET block = EXCLUDED.block",
         )
         .bind(SQL_BLOCK_KEY)
+        .bind(block_numb.to_string())
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::SetBlockFail);
+        }
+
+        Ok(())
+    }
+
+    async fn get_last_aggregation_block(&self) -> Result<Option<u64>, DbError> {
+        let res = sqlx::query("SELECT block FROM last_block WHERE id = $1")
+            .bind(SQL_AGGREGATION_BLOCK_KEY)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(row) = res else {
+            return Ok(None);
+        };
+
+        let block_str: String = row.try_get("block")?;
+
+        Ok(Some(block_str.parse().map_err(|_err| DbError::BadBlockNumb(block_str))?))
+    }
+
+    async fn set_last_aggregation_block(&self, block_numb: u64) -> Result<(), DbError> {
+        let res = sqlx::query(
+            "INSERT INTO last_block (id, block) VALUES ($1, $2)
+         ON CONFLICT (id) DO UPDATE SET block = EXCLUDED.block",
+        )
+        .bind(SQL_AGGREGATION_BLOCK_KEY)
         .bind(block_numb.to_string())
         .execute(&self.pool)
         .await?;

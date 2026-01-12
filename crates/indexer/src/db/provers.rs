@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::market::{
-    u256_to_padded_string, AllTimeProverSummary, DailyProverSummary, HourlyProverSummary,
-    IndexerDb, LockPricingData, MonthlyProverSummary, PeriodProverSummary, RequestCursor,
-    RequestSortField, RequestStatus, SortDirection, WeeklyProverSummary,
+    u256_to_padded_string, AllTimeProverSummary, DailyProverSummary, IndexerDb, LockPricingData,
+    HourlyProverSummary, MonthlyProverSummary, PeriodProverSummary, RequestCursor, RequestSortField, RequestStatus,
+    SortDirection, WeeklyProverSummary,
 };
 use super::{market::padded_string_to_u256, DbError};
 use alloy::primitives::{Address, U256};
@@ -550,7 +550,7 @@ pub trait ProversDb: IndexerDb {
 
     async fn upsert_hourly_prover_summary(
         &self,
-        summary: PeriodProverSummary,
+        summary: HourlyProverSummary,
     ) -> Result<(), DbError> {
         upsert_prover_summary_generic(self.pool(), summary, "hourly_prover_summary").await
     }
@@ -1020,6 +1020,7 @@ async fn upsert_prover_summary_generic(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn get_prover_summaries_generic(
     pool: &sqlx::AnyPool,
     prover_address: Address,

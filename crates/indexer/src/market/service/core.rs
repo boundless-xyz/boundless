@@ -72,6 +72,10 @@ where
             tracing::info!("Execution configuration not found, not starting executor task");
         }
 
+        // Spawn the aggregation task supervisor
+        let service_clone = self.clone();
+        tokio::spawn(run_aggregation_task_supervisor(service_clone));
+
         let mut attempt = 0;
         loop {
             interval.tick().await;
@@ -244,21 +248,14 @@ where
         // Update request statuses for touched requests
         self.update_request_statuses(touched_requests, to).await?;
 
-        // Aggregate market data.
-        // Note: Aggregations use the result of update_request_statuses, so we need to run them after.
-        self.aggregate_hourly_market_data(to).await?;
-        self.aggregate_daily_market_data(to).await?;
-        self.aggregate_weekly_market_data(to).await?;
-        self.aggregate_monthly_market_data(to).await?;
-        self.aggregate_all_time_market_data(to).await?;
+        // Note: Aggregations are now handled by a separate concurrent task.
+        // Aggregations use the result of update_request_statuses, so they run after status updates.
 
-        // Aggregate per-requestor data.
-        self.aggregate_hourly_requestor_data(to).await?;
-        self.aggregate_daily_requestor_data(to).await?;
-        self.aggregate_weekly_requestor_data(to).await?;
-        // TODO: Debug speed issues.
-        // self.aggregate_monthly_requestor_data(to).await?;
-        self.aggregate_all_time_requestor_data(to).await?;
+        // Aggregate per-prover data.
+        self.aggregate_hourly_prover_data(to).await?;
+        self.aggregate_daily_prover_data(to).await?;
+        self.aggregate_weekly_prover_data(to).await?;
+        self.aggregate_all_time_prover_data(to).await?;
 
         // Aggregate per-prover data.
         self.aggregate_hourly_prover_data(to).await?;
@@ -355,6 +352,115 @@ fn find_starting_block(
     } else {
         tracing::info!("Using {} as starting block", from);
         from
+    }
+}
+
+/// Aggregation task that runs concurrently with event processing.
+/// Processes aggregations up to the last processed block from the main event processing task.
+async fn run_aggregation_task<P, ANP>(service: IndexerService<P, ANP>) -> Result<(), ServiceError>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
+{
+    let mut interval = tokio::time::interval(service.config.aggregation_interval);
+
+    loop {
+        interval.tick().await;
+
+        process_aggregations(&service).await?;
+    }
+}
+
+async fn process_aggregations<P, ANP>(service: &IndexerService<P, ANP>) -> Result<(), ServiceError>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
+{
+    let main_last_block = service.db.get_last_block().await?;
+    let aggregation_last_block = service.db.get_last_aggregation_block().await?;
+
+    let from_block = aggregation_last_block.map(|b| b + 1).unwrap_or(0);
+    let to_block = match main_last_block {
+        Some(block) => block,
+        None => {
+            tracing::debug!("No main processing block yet, skipping aggregation");
+            return Ok(());
+        }
+    };
+
+    if from_block > to_block {
+        tracing::debug!(
+            "Aggregation is up to date (aggregation: {}, main: {})",
+            aggregation_last_block.unwrap_or(0),
+            to_block
+        );
+        return Ok(());
+    }
+
+    tracing::info!("Processing aggregations from block {} to {}", from_block, to_block);
+
+    let to_timestamp = service.block_timestamp(to_block).await?;
+
+    service.aggregate_hourly_market_data(to_block).await?;
+    service.aggregate_daily_market_data(to_block).await?;
+    service.aggregate_weekly_market_data(to_block).await?;
+    service.aggregate_monthly_market_data(to_block).await?;
+    service.aggregate_all_time_market_data(to_block).await?;
+
+    service.aggregate_hourly_requestor_data(to_block).await?;
+    service.aggregate_daily_requestor_data(to_block).await?;
+    service.aggregate_weekly_requestor_data(to_block).await?;
+    service.aggregate_all_time_requestor_data(to_block).await?;
+
+    service.aggregate_hourly_prover_data(to_block).await?;
+    service.aggregate_daily_prover_data(to_block).await?;
+    service.aggregate_weekly_prover_data(to_block).await?;
+    service.aggregate_all_time_prover_data(to_block).await?;
+
+    service.db.set_last_aggregation_block(to_block).await?;
+    tracing::info!("Aggregation completed up to block {} (timestamp: {})", to_block, to_timestamp);
+
+    Ok(())
+}
+
+/// Simple supervisor that runs the aggregation task and restarts it on failure.
+async fn run_aggregation_task_supervisor<P, ANP>(service: IndexerService<P, ANP>)
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
+{
+    const RESTART_DELAY_SECS: u64 = 5;
+
+    loop {
+        tracing::info!("Starting aggregation task");
+        let service_clone = service.clone();
+
+        let handle = tokio::spawn(async move {
+            let _ = run_aggregation_task(service_clone).await;
+        });
+
+        match handle.await {
+            Ok(()) => {
+                tracing::error!(
+                    "Aggregation task returned unexpectedly, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) if e.is_panic() => {
+                tracing::error!(
+                    "Aggregation task panicked, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Aggregation task cancelled ({e}), restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(RESTART_DELAY_SECS)).await;
     }
 }
 
