@@ -12,66 +12,66 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 
 ## Requirements
 
-* Docker Engine (installed via the `docker` role)
-* Docker Compose plugin (installed via the `docker` role)
-* NVIDIA Container Toolkit (installed via the `docker` role with `docker_nvidia_enabled: true`)
-* NVIDIA GPU drivers (installed via the `nvidia` role)
+- Docker Engine (installed via the `docker` role)
+- Docker Compose plugin (installed via the `docker` role)
+- NVIDIA Container Toolkit (installed via the `docker` role with `docker_nvidia_enabled: true`)
+- NVIDIA GPU drivers (installed via the `nvidia` role)
 
 ## Role Variables
 
 ### Deployment Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `prover_dir` | `/opt/bento` | Deployment directory |
-| `prover_version` | `v1.2.0` | Git tag/branch to deploy |
-| `prover_state` | `started` | Service state |
-| `prover_user` | `ubuntu` | User for Docker commands |
+| Variable         | Default      | Description              |
+| ---------------- | ------------ | ------------------------ |
+| `prover_dir`     | `/opt/bento` | Deployment directory     |
+| `prover_version` | `v1.2.0`     | Git tag/branch to deploy |
+| `prover_state`   | `started`    | Service state            |
+| `prover_user`    | `ubuntu`     | User for Docker commands |
 
 ### Database Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `prover_postgres_host` | `postgres` | PostgreSQL hostname |
-| `prover_postgres_port` | `5432` | PostgreSQL port |
-| `prover_postgres_db` | `taskdb` | Database name |
-| `prover_postgres_user` | `worker` | Database user |
-| `prover_postgres_password` | `password` | Database password |
+| Variable                   | Default    | Description         |
+| -------------------------- | ---------- | ------------------- |
+| `prover_postgres_host`     | `postgres` | PostgreSQL hostname |
+| `prover_postgres_port`     | `5432`     | PostgreSQL port     |
+| `prover_postgres_db`       | `taskdb`   | Database name       |
+| `prover_postgres_user`     | `worker`   | Database user       |
+| `prover_postgres_password` | `password` | Database password   |
 
 ### Redis Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
+| Variable            | Default | Description           |
+| ------------------- | ------- | --------------------- |
 | `prover_redis_host` | `redis` | Redis/Valkey hostname |
 
 ### MinIO Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `prover_minio_host` | `minio` | MinIO hostname |
-| `prover_minio_bucket` | `workflow` | S3 bucket name |
-| `prover_minio_root_user` | `admin` | MinIO root user |
+| Variable                 | Default    | Description         |
+| ------------------------ | ---------- | ------------------- |
+| `prover_minio_host`      | `minio`    | MinIO hostname      |
+| `prover_minio_bucket`    | `workflow` | S3 bucket name      |
+| `prover_minio_root_user` | `admin`    | MinIO root user     |
 | `prover_minio_root_pass` | `password` | MinIO root password |
 
 ### Prover Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `prover_rust_log` | `info` | Rust log level |
-| `prover_risc0_home` | `/usr/local/risc0` | RISC0 home directory |
-| `prover_segment_size` | `20` | Segment size for proving |
-| `prover_risc0_keccak_po2` | `17` | Keccak power of 2 |
-| `prover_redis_ttl` | `57600` | Redis TTL in seconds |
-| `prover_snark_timeout` | `180` | SNARK timeout in seconds |
+| Variable                  | Default            | Description              |
+| ------------------------- | ------------------ | ------------------------ |
+| `prover_rust_log`         | `info`             | Rust log level           |
+| `prover_risc0_home`       | `/usr/local/risc0` | RISC0 home directory     |
+| `prover_segment_size`     | `20`               | Segment size for proving |
+| `prover_risc0_keccak_po2` | `17`               | Keccak power of 2        |
+| `prover_redis_ttl`        | `57600`            | Redis TTL in seconds     |
+| `prover_snark_timeout`    | `180`              | SNARK timeout in seconds |
 
 ### Broker Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `prover_prover_private_key` | `""` | Prover wallet private key |
-| `prover_prover_rpc_url` | `""` | RPC URL for blockchain |
-| `prover_povw_log_id` | `""` | POVW log contract address |
-| `prover_broker_toml_url` | (GitHub URL) | URL to broker.toml template |
+| Variable                    | Default      | Description                 |
+| --------------------------- | ------------ | --------------------------- |
+| `prover_prover_private_key` | `""`         | Prover wallet private key   |
+| `prover_prover_rpc_url`     | `""`         | RPC URL for blockchain      |
+| `prover_povw_log_id`        | `""`         | POVW log contract address   |
+| `prover_broker_toml_url`    | (GitHub URL) | URL to broker.toml template |
 
 ## Usage
 
@@ -145,20 +145,20 @@ docker compose restart gpu_prove_agent
 
 ## Files Created
 
-| Path | Description |
-|------|-------------|
-| `/opt/bento/` | Cloned repository |
-| `/opt/bento/.env` | Environment configuration |
-| `/opt/bento/broker.toml` | Broker configuration |
-| `/etc/systemd/system/bento.service` | Systemd service unit |
+| Path                                | Description               |
+| ----------------------------------- | ------------------------- |
+| `/opt/bento/`                       | Cloned repository         |
+| `/opt/bento/.env`                   | Environment configuration |
+| `/opt/bento/broker.toml`            | Broker configuration      |
+| `/etc/systemd/system/bento.service` | Systemd service unit      |
 
 ## Docker Compose Profiles
 
 The service uses Docker Compose profiles:
 
-* **Default**: Core services (postgres, redis, minio, agents, rest\_api)
-* **broker**: Adds broker service
-* **miner**: Adds miner service
+- **Default**: Core services (postgres, redis, minio, agents, rest\_api)
+- **broker**: Adds broker service
+- **miner**: Adds miner service
 
 The systemd service runs with `--profile broker --profile miner` by default.
 
@@ -212,8 +212,8 @@ ansible-playbook -i inventory.yml prover.yml --tags prover
 
 ## Tags
 
-* `prover` - All prover tasks
-* `docker` - Also triggers prover deployment
+- `prover` - All prover tasks
+- `docker` - Also triggers prover deployment
 
 ## Dependencies
 

@@ -6,19 +6,19 @@ Ansible playbooks for deploying Boundless prover infrastructure using Docker Com
 
 This setup deploys the Boundless prover stack using Docker Compose, including:
 
-* NVIDIA drivers and CUDA Toolkit
-* Docker Engine with NVIDIA Container Toolkit
-* Prover services (PostgreSQL, Redis, MinIO, agents, REST API)
-* Optional broker and miner services
-* Vector log shipping to AWS CloudWatch (optional)
+- NVIDIA drivers and CUDA Toolkit
+- Docker Engine with NVIDIA Container Toolkit
+- Prover services (PostgreSQL, Redis, MinIO, agents, REST API)
+- Optional broker and miner services
+- Vector log shipping to AWS CloudWatch (optional)
 
 ## Requirements
 
-* Ansible 2.9 or later
-* Target hosts running Ubuntu 22.04 or 24.04
-* SSH access to target hosts
-* Sudo/root privileges on target hosts
-* NVIDIA GPU hardware (for GPU proving)
+- Ansible 2.9 or later
+- Target hosts running Ubuntu 22.04 or 24.04
+- SSH access to target hosts
+- Sudo/root privileges on target hosts
+- NVIDIA GPU hardware (for GPU proving)
 
 ## Directory Structure
 
@@ -112,26 +112,26 @@ ansible-playbook -i inventory.yml monitoring.yml
 
 Key variables (set in inventory or via `-e`):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `prover_version` | `v1.2.0` | Git tag/branch to deploy |
-| `prover_dir` | `/opt/bento` | Deployment directory |
-| `prover_postgres_password` | `password` | PostgreSQL password |
-| `prover_minio_root_pass` | `password` | MinIO root password |
-| `prover_private_key` | `""` | Broker private key |
-| `prover_povw_log_id` | `""` | POVW log contract address |
-| `prover_rpc_url` | `""` | RPC URL for broker |
+| Variable                   | Default      | Description               |
+| -------------------------- | ------------ | ------------------------- |
+| `prover_version`           | `v1.2.0`     | Git tag/branch to deploy  |
+| `prover_dir`               | `/opt/bento` | Deployment directory      |
+| `prover_postgres_password` | `password`   | PostgreSQL password       |
+| `prover_minio_root_pass`   | `password`   | MinIO root password       |
+| `prover_private_key`       | `""`         | Broker private key        |
+| `prover_povw_log_id`       | `""`         | POVW log contract address |
+| `prover_rpc_url`           | `""`         | RPC URL for broker        |
 
 ### Vector Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `vector_service_enabled` | `false` | Enable Vector at boot |
-| `vector_service_state` | `stopped` | Service state |
-| `vector_cloudwatch_log_group` | `/boundless/bento/hostname` | CloudWatch log group |
-| `vector_cloudwatch_region` | `us-west-2` | AWS region |
-| `vector_aws_access_key_id` | `null` | AWS access key (if not using IAM role) |
-| `vector_aws_secret_access_key` | `null` | AWS secret key (if not using IAM role) |
+| Variable                       | Default                     | Description                            |
+| ------------------------------ | --------------------------- | -------------------------------------- |
+| `vector_service_enabled`       | `false`                     | Enable Vector at boot                  |
+| `vector_service_state`         | `stopped`                   | Service state                          |
+| `vector_cloudwatch_log_group`  | `/boundless/bento/hostname` | CloudWatch log group                   |
+| `vector_cloudwatch_region`     | `us-west-2`                 | AWS region                             |
+| `vector_aws_access_key_id`     | `null`                      | AWS access key (if not using IAM role) |
+| `vector_aws_secret_access_key` | `null`                      | AWS secret key (if not using IAM role) |
 
 See `ENV_VARS.md` for complete variable documentation.
 
@@ -155,14 +155,14 @@ ansible-playbook -i inventory.yml prover.yml --skip-tags nvidia
 
 ### Available Tags
 
-| Tag | Description |
-|-----|-------------|
-| `nvidia` | NVIDIA drivers and CUDA Toolkit |
-| `docker` | Docker Engine and Compose |
-| `docker-nvidia` | NVIDIA Container Toolkit |
-| `prover` | Prover Docker Compose stack |
-| `awscli` | AWS CLI installation |
-| `vector` | Vector log shipping |
+| Tag             | Description                     |
+| --------------- | ------------------------------- |
+| `nvidia`        | NVIDIA drivers and CUDA Toolkit |
+| `docker`        | Docker Engine and Compose       |
+| `docker-nvidia` | NVIDIA Container Toolkit        |
+| `prover`        | Prover Docker Compose stack     |
+| `awscli`        | AWS CLI installation            |
+| `vector`        | Vector log shipping             |
 
 ## GitHub Actions Deployment
 
@@ -170,15 +170,15 @@ The repository includes automated deployment via GitHub Actions (`.github/workfl
 
 ### Host Groups
 
-* **nightly**: Deployed daily at 1am UTC from `main` branch
-* **release**: Deployed manually using official release tags
+- **nightly**: Deployed daily at 1am UTC from `main` branch
+- **release**: Deployed manually using official release tags
 
 ### Required Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `ANSIBLE_SSH_PRIVATE_KEY` | SSH private key (ed25519) |
-| `ANSIBLE_INVENTORY` | Base64-encoded inventory.yml |
+| Secret                    | Description                  |
+| ------------------------- | ---------------------------- |
+| `ANSIBLE_SSH_PRIVATE_KEY` | SSH private key (ed25519)    |
+| `ANSIBLE_INVENTORY`       | Base64-encoded inventory.yml |
 
 ### Creating the Inventory Secret
 
@@ -193,8 +193,8 @@ base64 -i inventory.yml | tr -d '\n'
 1. Go to Actions → Prover Deployment
 2. Click "Run workflow"
 3. Select:
-   * **Target**: `nightly`, `release`, or `all`
-   * **Playbook**: `prover.yml` or `monitoring.yml`
+   - **Target**: `nightly`, `release`, or `all`
+   - **Playbook**: `prover.yml` or `monitoring.yml`
 
 ### Scheduled Deployment
 
@@ -304,21 +304,21 @@ cd /opt/bento && docker compose logs --tail=100
 
 **"password authentication failed for user"**
 
-* Check `prover_postgres_password` matches what's in the running PostgreSQL container
-* May need to recreate PostgreSQL volume: `docker compose down -v && docker compose up -d`
+- Check `prover_postgres_password` matches what's in the running PostgreSQL container
+- May need to recreate PostgreSQL volume: `docker compose down -v && docker compose up -d`
 
 **"No GPUs detected"**
 
-* Ensure NVIDIA drivers are installed: `nvidia-smi`
-* Reboot if drivers were just installed
-* Check Docker has GPU access: `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`
+- Ensure NVIDIA drivers are installed: `nvidia-smi`
+- Reboot if drivers were just installed
+- Check Docker has GPU access: `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`
 
 ## Role Documentation
 
 See individual role READMEs for detailed documentation:
 
-* `roles/awscli/README.md` - AWS CLI installation
-* `roles/docker/README.md` - Docker installation
-* `roles/nvidia/README.md` - NVIDIA drivers
-* `roles/prover/README.md` - Prover Docker Compose deployment
-* `roles/vector/README.md` - Vector log shipping
+- `roles/awscli/README.md` - AWS CLI installation
+- `roles/docker/README.md` - Docker installation
+- `roles/nvidia/README.md` - NVIDIA drivers
+- `roles/prover/README.md` - Prover Docker Compose deployment
+- `roles/vector/README.md` - Vector log shipping
