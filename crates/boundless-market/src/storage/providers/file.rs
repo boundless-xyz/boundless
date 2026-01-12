@@ -87,7 +87,7 @@ impl StorageUploader for FileStorageUploader {
 pub struct FileStorageDownloader {}
 
 impl FileStorageDownloader {
-    /// TODO
+    /// Creates a new file downloader.
     pub fn new() -> Self {
         Self {}
     }

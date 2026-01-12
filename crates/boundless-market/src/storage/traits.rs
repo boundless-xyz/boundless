@@ -56,24 +56,24 @@ pub trait StorageUploader: Send + Sync {
 #[async_trait]
 #[auto_impl(Arc)]
 pub trait StorageDownloader: Send + Sync {
-    /// TODO
+    /// Downloads data from the given URL, returning at most `limit` bytes.
     async fn download_url_with_limit(
         &self,
         url: Url,
         limit: usize,
     ) -> Result<Vec<u8>, StorageError>;
 
-    /// TODO
+    /// Parses `url` and downloads data, returning at most `limit` bytes.
     async fn download_with_limit(&self, url: &str, limit: usize) -> Result<Vec<u8>, StorageError> {
         self.download_url_with_limit(Url::parse(url)?, limit).await
     }
 
-    /// TODO
+    /// Downloads the full content from the given URL.
     async fn download_url(&self, url: Url) -> Result<Vec<u8>, StorageError> {
         self.download_url_with_limit(url, usize::MAX).await
     }
 
-    /// TODO
+    /// Parses `url` and downloads the full content.
     async fn download(&self, url: &str) -> Result<Vec<u8>, StorageError> {
         self.download_url(Url::parse(url)?).await
     }

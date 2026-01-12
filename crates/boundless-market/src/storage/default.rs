@@ -70,7 +70,7 @@ impl DefaultDownloader {
         }
     }
 
-    /// TODO
+    /// Returns the downloader configuration.
     pub fn config(&self) -> &StorageDownloaderConfig {
         &self.config
     }

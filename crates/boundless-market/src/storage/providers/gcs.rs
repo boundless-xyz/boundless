@@ -130,9 +130,7 @@ impl GcsStorageUploader {
         Ok(Self { bucket, client })
     }
 
-    /// Upload data to GCS and return a `gs://` URL.
-    ///
-    /// TODO: Return presigned HTTPS URLs once the SDK supports them.
+    /// Uploads data to GCS and returns a `gs://` URL.
     async fn upload(&self, data: bytes::Bytes, key: &str) -> Result<Url, StorageError> {
         tracing::debug!(?key, bucket = %self.bucket, "uploading to GCS");
 
@@ -179,7 +177,7 @@ pub struct GcsStorageDownloader {
 }
 
 impl GcsStorageDownloader {
-    /// TODO
+    /// Creates a new GCS downloader with optional retry configuration.
     pub async fn new(max_retries: Option<u8>) -> Self {
         let endpoint_url = env::var("GCS_URL").ok();
 

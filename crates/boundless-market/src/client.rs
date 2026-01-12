@@ -513,7 +513,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         }
     }
 
-    /// TODO:
+    /// Sets the storage downloader for fetching data from URLs.
     pub fn with_downloader<Z: StorageDownloader>(self, downloader: Z) -> ClientBuilder<U, Z, S> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
@@ -630,7 +630,7 @@ pub struct Client<
     /// If not provided, this client will not be able to upload programs or inputs.
     pub storage_provider: Option<U>,
 
-    /// TODO:
+    /// Storage downloader for fetching data from URLs.
     pub downloader: Option<D>,
 
     /// [OrderStreamClient] to submit requests off-chain.
@@ -765,7 +765,7 @@ where
         }
     }
 
-    /// TODO:
+    /// Sets the storage downloader for fetching data from URLs.
     pub fn with_downloader<Z>(self, downloader: Z) -> Client<P, St, Z, R, Si>
     where
         Z: StorageDownloader,
@@ -864,7 +864,7 @@ where
             .context("Failed to upload input")?)
     }
 
-    /// TODO
+    /// Downloads the content at the given URL using the configured downloader.
     pub async fn download_url(&self, url: &Url) -> Result<Vec<u8>, ClientError>
     where
         D: StorageDownloader,

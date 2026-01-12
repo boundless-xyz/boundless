@@ -44,7 +44,7 @@ impl Default for HttpDownloader {
 }
 
 impl HttpDownloader {
-    /// TODO
+    /// Creates a new HTTP downloader with optional retry configuration.
     pub fn new(max_retries: Option<u8>) -> Self {
         let mut builder = ClientBuilder::new(reqwest::Client::new());
 

@@ -256,7 +256,7 @@ pub struct S3StorageDownloader {
 }
 
 impl S3StorageDownloader {
-    /// TODO
+    /// Creates a new S3 downloader with optional retry configuration.
     pub async fn new(max_retries: Option<u8>) -> Self {
         let endpoint_url = env::var("S3_URL").ok();
         let client = Self::build_client(endpoint_url, max_retries).await;
