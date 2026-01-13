@@ -39,7 +39,7 @@ use boundless_test_utils::{
     guests::{ECHO_ID, ECHO_PATH},
     market::{create_test_ctx, TestCtx},
 };
-use sqlx::{AnyPool, Row};
+use sqlx::{PgPool, Row};
 
 /// Test fixture containing all common test setup
 pub struct MarketTestFixture<P: Provider + WalletProvider + Clone + 'static> {
@@ -54,11 +54,14 @@ impl<P: Provider + WalletProvider + Clone + 'static> MarketTestFixture<P> {
 }
 
 /// Create a new test fixture with all setup
-pub async fn new_market_test_fixture() -> Result<
+pub async fn new_market_test_fixture(
+    pool: PgPool,
+) -> Result<
     MarketTestFixture<impl Provider + WalletProvider + Clone + 'static>,
     Box<dyn std::error::Error>,
 > {
-    let test_db = TestDb::new().await?;
+    let db_url = get_db_url_from_pool(&pool).await;
+    let test_db = TestDb::from_pool(db_url, pool).await?;
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await?;
 
@@ -69,6 +72,52 @@ pub async fn new_market_test_fixture() -> Result<
         .unwrap();
 
     Ok(MarketTestFixture { test_db, anvil, ctx, prover })
+}
+
+pub async fn create_isolated_db_pool(base_name: &str) -> (String, PgPool) {
+    use std::time::SystemTime;
+    use url::Url;
+
+    let base_db_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+    let test_db_name = format!(
+        "{}_{}",
+        base_name,
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos()
+    );
+
+    let mut parsed = Url::parse(&base_db_url).expect("Invalid DATABASE_URL");
+    parsed.set_path(&format!("/{test_db_name}"));
+    let db_url = parsed.to_string();
+
+    let admin_pool = PgPool::connect(&base_db_url).await.expect("Failed to connect to database");
+    sqlx::query(&format!(r#"CREATE DATABASE "{test_db_name}""#))
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to create test database");
+
+    let pool = PgPool::connect(&db_url).await.expect("Failed to connect to database");
+
+    (db_url, pool)
+}
+
+/// Extract the database connection string from a sqlx::test PgPool.
+/// sqlx::test creates an isolated database per test with a unique name.
+async fn get_db_url_from_pool(pool: &PgPool) -> String {
+    let base_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+    let db_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await
+        .expect("failed to query current_database()");
+
+    if let Some(last_slash) = base_url.rfind('/') {
+        format!("{}/{}", &base_url[..last_slash], db_name)
+    } else {
+        format!("{}/{}", base_url, db_name)
+    }
 }
 
 /// Builder for spawning indexer CLI with various configurations
@@ -187,7 +236,7 @@ impl IndexerCliBuilder {
         println!("{} {:?}", exe_path, args);
 
         #[allow(clippy::zombie_processes)]
-        Command::new(exe_path).args(args).spawn()
+        Command::new(exe_path).env("DB_POOL_SIZE", "5").args(args).spawn()
     }
 }
 
@@ -268,7 +317,7 @@ impl BackfillCliBuilder {
         println!("{} {:?}", exe_path, args);
 
         #[allow(clippy::zombie_processes)]
-        Command::new(exe_path).args(args).spawn()
+        Command::new(exe_path).env("DB_POOL_SIZE", "5").args(args).spawn()
     }
 }
 
@@ -578,12 +627,13 @@ pub async fn fulfill_request<P: Provider + WalletProvider + Clone + 'static>(
     Ok(())
 }
 
-/// Helper to insert cycle counts with automatic overhead calculation
+/// Helper to insert cycle counts with automatic overhead calculation.
+/// Returns the updated_at timestamp that was set, so callers can ensure mining happens beyond it.
 pub async fn insert_cycle_counts_with_overhead(
     test_db: &TestDb,
     request_digest: alloy::primitives::B256,
     program_cycles: u64,
-) -> Result<(), boundless_indexer::db::DbError> {
+) -> Result<u64, boundless_indexer::db::DbError> {
     let total_cycles = (program_cycles as f64 * 1.0158) as u64;
     test_db
         .insert_test_cycle_counts(
@@ -618,9 +668,13 @@ pub async fn advance_time_to_and_mine<P: Provider + WalletProvider + Clone + 'st
 }
 
 /// Wait for indexer to process up to the current block number
-pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
+pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &PgPool) {
     // Get current block number from the chain
     let current_block = provider.get_block_number().await.unwrap();
+    // Get block timestamp from the chain
+    let block =
+        provider.get_block_by_number(BlockNumberOrTag::Number(current_block)).await.unwrap();
+    let block_timestamp = block.unwrap().header.timestamp;
 
     // Wait for indexer to process up to current block with timeout
     let timeout = Duration::from_secs(30);
@@ -635,7 +689,11 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
         if let Ok((ref last_block_str,)) = result {
             if let Ok(last_block) = last_block_str.parse::<u64>() {
                 if last_block >= current_block {
-                    tracing::info!("Indexer caught up to block {} ", current_block);
+                    tracing::info!(
+                        "Indexer caught up to block {} at timestamp {}",
+                        current_block,
+                        block_timestamp
+                    );
                     return;
                 }
             }
@@ -658,14 +716,14 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &AnyPool) {
 }
 
 /// Count rows in any table
-pub async fn count_table_rows(pool: &AnyPool, table_name: &str) -> i64 {
+pub async fn count_table_rows(pool: &PgPool, table_name: &str) -> i64 {
     let query = format!("SELECT COUNT(*) as count FROM {}", table_name);
     let result = sqlx::query(&query).fetch_one(pool).await.unwrap();
     result.get("count")
 }
 
 /// Verify a request exists in a specific table
-pub async fn verify_request_in_table(pool: &AnyPool, request_id: &str, table_name: &str) -> String {
+pub async fn verify_request_in_table(pool: &PgPool, request_id: &str, table_name: &str) -> String {
     let query = format!("SELECT * FROM {} WHERE request_id = $1", table_name);
     let result = sqlx::query(&query).bind(request_id).fetch_one(pool).await.unwrap();
     result.get::<String, _>("request_id")
@@ -673,7 +731,7 @@ pub async fn verify_request_in_table(pool: &AnyPool, request_id: &str, table_nam
 
 /// Get lock collateral for a request
 #[allow(dead_code)]
-pub async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
+pub async fn get_lock_collateral(pool: &PgPool, request_id: &str) -> String {
     let row = sqlx::query("SELECT lock_collateral FROM request_status WHERE request_id = $1")
         .bind(request_id)
         .fetch_one(pool)
@@ -786,7 +844,7 @@ pub async fn get_hourly_summaries(
 
 /// Get all-time summaries from database using direct SQL query
 pub async fn get_all_time_summaries(
-    pool: &AnyPool,
+    pool: &PgPool,
 ) -> Vec<boundless_indexer::db::market::AllTimeMarketSummary> {
     use boundless_indexer::db::market::AllTimeMarketSummary;
     use std::str::FromStr;
@@ -819,12 +877,12 @@ pub async fn get_all_time_summaries(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
-            best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
-            best_effective_prove_mhz_request_id
+            best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2,
+            best_effective_prove_mhz_v2
         FROM all_time_market_summary
         ORDER BY period_timestamp ASC",
     )
@@ -862,14 +920,14 @@ pub async fn get_all_time_summaries(
                 as f32,
             total_program_cycles: parse_u256(&row.get::<String, _>("total_program_cycles")),
             total_cycles: parse_u256(&row.get::<String, _>("total_cycles")),
-            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz: row.get::<f64, _>("best_peak_prove_mhz_v2"),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz: row.get::<f64, _>("best_effective_prove_mhz_v2"),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")

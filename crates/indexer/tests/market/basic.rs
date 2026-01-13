@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 use std::str::FromStr;
 
 use alloy::{
-    primitives::{utils::parse_ether, Bytes, U256},
+    primitives::{utils::parse_ether, Bytes, B256, U256},
     providers::{ext::AnvilApi, Provider},
     rpc::types::BlockNumberOrTag,
 };
@@ -31,14 +31,14 @@ use boundless_market::contracts::{
     Requirements,
 };
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
-use sqlx::{AnyPool, Row};
+use sqlx::{PgPool, Row};
 
 use super::common::*;
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_e2e() {
-    let fixture = new_market_test_fixture().await.unwrap();
+async fn test_e2e(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -219,10 +219,10 @@ async fn test_e2e() {
     cli_process.kill().unwrap();
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_monitoring() {
-    let fixture = new_market_test_fixture().await.unwrap();
+async fn test_monitoring(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -373,10 +373,10 @@ async fn test_monitoring() {
     cli_process.kill().unwrap();
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_aggregation_across_hours() {
-    let fixture = new_market_test_fixture().await.unwrap();
+async fn test_aggregation_across_hours(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -676,14 +676,14 @@ async fn test_aggregation_across_hours() {
     cli_process.kill().unwrap();
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Slow without RISC0_DEV_MODE=1"]
-async fn test_aggregation_percentiles() {
+async fn test_aggregation_percentiles(pool: sqlx::PgPool) {
     // Test multiple requests with different prices to validate percentile calculations
     // Creates 10 requests with prices from 0.1 ETH to 1.0 ETH
     // All requests use 100M cycles for simplicity
 
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -843,13 +843,14 @@ async fn test_aggregation_percentiles() {
     cli_process.kill().unwrap();
 }
 
-#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool.clone()).await.unwrap();
 
+    let (_order_stream_db_url, order_stream_pool) = create_isolated_db_pool("order_stream").await;
     let (order_stream_url, order_stream_client, order_stream_handle) =
-        setup_order_stream(&fixture.anvil, &fixture.ctx, pool.clone()).await;
+        setup_order_stream(&fixture.anvil, &fixture.ctx, order_stream_pool.clone()).await;
 
     let (block_timestamp, _) = get_block_info(&fixture.ctx.customer_provider).await;
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
@@ -888,7 +889,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     .await;
     order_stream_client.submit_request(&req3, &fixture.ctx.customer_signer).await.unwrap();
 
-    update_order_timestamps(&pool, block_timestamp).await;
+    update_order_timestamps(&order_stream_pool, block_timestamp).await;
 
     let orders = order_stream_client.list_orders_v2(None, None, None, None, None).await.unwrap();
     assert_eq!(orders.orders.len(), 3, "Expected 3 orders to be indexed");
@@ -985,13 +986,14 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     order_stream_handle.abort();
 }
 
-#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool.clone()).await.unwrap();
 
+    let (_order_stream_db_url, order_stream_pool) = create_isolated_db_pool("order_stream").await;
     let (order_stream_url, order_stream_client, order_stream_handle) =
-        setup_order_stream(&fixture.anvil, &fixture.ctx, pool.clone()).await;
+        setup_order_stream(&fixture.anvil, &fixture.ctx, order_stream_pool.clone()).await;
 
     let (block_timestamp, start_block) = get_block_info(&fixture.ctx.customer_provider).await;
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
@@ -1035,7 +1037,7 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
-    update_order_timestamps(&pool, block_timestamp).await;
+    update_order_timestamps(&order_stream_pool, block_timestamp).await;
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -1090,13 +1092,14 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     order_stream_handle.abort();
 }
 
-#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool.clone()).await.unwrap();
 
+    let (_order_stream_db_url, order_stream_pool) = create_isolated_db_pool("order_stream").await;
     let (order_stream_url, order_stream_client, order_stream_handle) =
-        setup_order_stream(&fixture.anvil, &fixture.ctx, pool.clone()).await;
+        setup_order_stream(&fixture.anvil, &fixture.ctx, order_stream_pool.clone()).await;
 
     let (block_timestamp, start_block) = get_block_info(&fixture.ctx.customer_provider).await;
     let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
@@ -1133,7 +1136,7 @@ async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     .await;
     order_stream_client.submit_request(&req_offchain, &fixture.ctx.customer_signer).await.unwrap();
 
-    update_order_timestamps(&pool, block_timestamp).await;
+    update_order_timestamps(&order_stream_pool, block_timestamp).await;
 
     let mut cli_process = IndexerCliBuilder::new(
         fixture.test_db.db_url.clone(),
@@ -1363,9 +1366,11 @@ struct RequestStatusRow {
     slash_recipient: Option<String>,
     slash_transferred_amount: Option<String>,
     slash_burned_amount: Option<String>,
+    total_cycles: Option<String>,
+    effective_prove_mhz: Option<f64>,
 }
 
-async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
+async fn get_lock_collateral(pool: &PgPool, request_id: &str) -> String {
     let row = sqlx::query("SELECT lock_collateral FROM request_status WHERE request_id = $1")
         .bind(request_id)
         .fetch_one(pool)
@@ -1374,11 +1379,11 @@ async fn get_lock_collateral(pool: &AnyPool, request_id: &str) -> String {
     row.get("lock_collateral")
 }
 
-async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRow {
+async fn get_request_status(pool: &PgPool, request_id: &str) -> RequestStatusRow {
     let row = sqlx::query(
         "SELECT request_digest, request_id, request_status, slashed_status, source, created_at, updated_at,
                 locked_at, fulfilled_at, slashed_at, lock_end, slash_recipient,
-                slash_transferred_amount, slash_burned_amount
+                slash_transferred_amount, slash_burned_amount, total_cycles, effective_prove_mhz_v2 as effective_prove_mhz
          FROM request_status
          WHERE request_id = $1",
     )
@@ -1402,13 +1407,15 @@ async fn get_request_status(pool: &AnyPool, request_id: &str) -> RequestStatusRo
         slash_recipient: row.get("slash_recipient"),
         slash_transferred_amount: row.get("slash_transferred_amount"),
         slash_burned_amount: row.get("slash_burned_amount"),
+        total_cycles: row.try_get("total_cycles").ok(),
+        effective_prove_mhz: row.try_get("effective_prove_mhz").ok(),
     }
 }
 
-#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
-    let fixture = new_market_test_fixture().await.unwrap();
+async fn test_request_status_happy_path(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let block = fixture
         .ctx
@@ -1477,10 +1484,137 @@ async fn test_request_status_happy_path(_pool: sqlx::PgPool) {
     indexer_process.kill().unwrap();
 }
 
-#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
-    let fixture = new_market_test_fixture().await.unwrap();
+async fn test_effective_prove_mhz_calculation(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
+
+    let block = fixture
+        .ctx
+        .customer_provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    let start_block = block.header.number.saturating_sub(1);
+
+    let mut indexer_process = IndexerCliBuilder::new(
+        fixture.test_db.db_url.clone(),
+        fixture.anvil.endpoint_url().to_string(),
+        fixture.ctx.deployment.boundless_market_address.to_string(),
+    )
+    .retries("1")
+    .start_block(&start_block.to_string())
+    .spawn()
+    .unwrap();
+
+    let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+
+    // Create and submit request
+    let (req, sig) = create_order_with_timeouts(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+        1000000,
+        1000000,
+    )
+    .await;
+
+    fixture.ctx.customer_market.deposit(U256::from(10)).await.unwrap();
+    fixture.ctx.customer_market.submit_request_with_signature(&req, sig.clone()).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Get the request digest and created_at
+    let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
+    let request_digest = B256::from_str(&format!("0x{}", status.request_digest)).unwrap();
+    let created_at = status.created_at as u64;
+
+    // Lock request
+    fixture.ctx.prover_market.lock_request(&req, sig.clone()).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Fulfill request WITHOUT cycle counts first
+    fulfill_request(&fixture.ctx, &fixture.prover, &req, sig.clone()).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Verify fulfilled status but effective_prove_mhz should be None without cycle counts
+    let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
+    assert!(status.fulfilled_at.is_some());
+    assert!(
+        status.effective_prove_mhz.is_none(),
+        "effective_prove_mhz should be None without cycle counts"
+    );
+
+    // Now manually insert cycle counts AFTER fulfillment
+    // Manually insert as we don't run the cycle count executor in these tests.
+    let program_cycles = 100_000_000u64; // 100M cycles
+    let total_cycles = (program_cycles as f64 * 1.0158) as u64; // ~101.58M cycles with overhead
+    let cycle_count_updated_at =
+        insert_cycle_counts_with_overhead(&fixture.test_db, request_digest, program_cycles)
+            .await
+            .unwrap();
+
+    // Advance time and mine a block to trigger indexer to process cycle count updates
+    // Ensure we mine beyond the cycle count updated_at timestamp
+    let current_timestamp = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let advance_seconds = if current_timestamp >= cycle_count_updated_at {
+        1
+    } else {
+        cycle_count_updated_at - current_timestamp + 1
+    };
+    advance_time_and_mine(&fixture.ctx.customer_provider, advance_seconds, 1).await.unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Verify effective_prove_mhz is now populated
+    let status = get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
+    assert_eq!(status.request_status, RequestStatusType::Fulfilled.to_string());
+    assert!(status.fulfilled_at.is_some());
+    assert!(
+        status.total_cycles.is_some(),
+        "total_cycles should be populated after inserting cycle counts"
+    );
+
+    // Calculate expected effective_prove_mhz
+    let fulfilled_at = status.fulfilled_at.unwrap() as u64;
+    let proof_delivery_time = fulfilled_at - created_at;
+    let expected_mhz = total_cycles.to_string().parse::<f64>().unwrap_or(0.0)
+        / (proof_delivery_time as f64 * 1_000_000.0);
+    let actual_mhz: f64 = status.effective_prove_mhz.unwrap();
+
+    // Use floating point comparison with epsilon
+    const EPSILON: f64 = 0.00000001; // 8 decimal places precision
+    assert!(
+        (actual_mhz - expected_mhz).abs() < EPSILON,
+        "effective_prove_mhz should equal total_cycles / (proof_delivery_time * 1_000_000). \
+         Expected: {}, Actual: {}, total_cycles: {}, proof_delivery_time: {}",
+        expected_mhz,
+        actual_mhz,
+        total_cycles,
+        proof_delivery_time
+    );
+
+    // Verify it's a positive number
+    assert!(actual_mhz > 0.0, "effective_prove_mhz should be positive, got {}", actual_mhz);
+
+    // Verify it has decimal precision
+    let fractional_part = actual_mhz - actual_mhz.floor();
+    assert!(
+        fractional_part > EPSILON,
+        "effective_prove_mhz should have decimal precision, but got whole number: {}",
+        actual_mhz
+    );
+
+    indexer_process.kill().unwrap();
+}
+
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_request_status_locked_then_expired(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let block = fixture
         .ctx
@@ -1546,10 +1680,10 @@ async fn test_request_status_locked_then_expired(_pool: sqlx::PgPool) {
     indexer_process.kill().unwrap();
 }
 
-#[test_log::test(sqlx::test(migrations = "../order-stream/migrations"))]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
-    let fixture = new_market_test_fixture().await.unwrap();
+async fn test_request_status_lock_expired_then_slashed(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     let block = fixture
         .ctx
@@ -1733,15 +1867,15 @@ async fn test_request_status_lock_expired_then_slashed(_pool: sqlx::PgPool) {
     indexer_process.kill().unwrap();
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_cumulative_carry_forward_with_no_activity_gaps() {
+async fn test_cumulative_carry_forward_with_no_activity_gaps(pool: sqlx::PgPool) {
     // This test verifies that:
     // 1. All-time cumulatives properly carry forward during hours with no activity
     // 2. There are no gaps in hour entries (every hour gets an entry)
     // 3. Cumulative values never decrease
 
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     tracing::info!(
         "Starting test, block number: {}",

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
 
 /// Re-export of [alloy], provided to ensure that the correct version of the types used in the

@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,6 +57,17 @@ struct CachedEntry {
 /// Tracks priority requestors from both static config and remote lists
 #[derive(Clone, Debug)]
 pub struct PriorityRequestors {
+    /// Map of requestor addresses to their cached entries (from remote lists)
+    requestors: Arc<RwLock<HashMap<Address, CachedEntry>>>,
+    /// Config lock for reading latest static addresses
+    config: ConfigLock,
+    /// Chain ID for this broker instance
+    chain_id: u64,
+}
+
+/// Tracks allowed requestors from both static config and remote lists
+#[derive(Clone, Debug)]
+pub struct AllowRequestors {
     /// Map of requestor addresses to their cached entries (from remote lists)
     requestors: Arc<RwLock<HashMap<Address, CachedEntry>>>,
     /// Config lock for reading latest static addresses
@@ -147,55 +158,178 @@ impl PriorityRequestors {
     }
 }
 
-/// Service for periodically monitoring and refreshing requestor priority lists
+impl AllowRequestors {
+    pub fn new(config: ConfigLock, chain_id: u64) -> Self {
+        Self { requestors: Arc::new(RwLock::new(HashMap::new())), config, chain_id }
+    }
+
+    /// Get requestor entry for an address, checking both remote lists and static config
+    pub fn get_requestor_entry(&self, address: &Address) -> Option<RequestorEntry> {
+        // First check cached remote list entries
+        if let Ok(requestors) = self.requestors.read() {
+            if let Some(cached) = requestors.get(address) {
+                return Some(cached.entry.clone());
+            }
+        }
+
+        // Then check static config addresses
+        if let Ok(config) = self.config.lock_all() {
+            if let Some(static_addresses) = &config.market.allow_client_addresses {
+                if static_addresses.contains(address) {
+                    // Create a default entry for static config addresses (no extensions)
+                    return Some(RequestorEntry {
+                        address: *address,
+                        chain_id: self.chain_id,
+                        name: "Static Config Requestor".to_string(),
+                        description: None,
+                        tags: vec!["static".to_string()],
+                        extensions: Extensions::default(),
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if an address is an allowed requestor
+    pub fn is_allow_requestor(&self, address: &Address) -> bool {
+        self.get_requestor_entry(address).is_some()
+    }
+
+    /// Update the allow requestors from a list
+    fn update_from_list(&self, list: &RequestorList, source_url: &str) {
+        let mut requestors = match self.requestors.write() {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Failed to lock requestors for writing: {e:?}");
+                return;
+            }
+        };
+
+        let mut added_count = 0;
+        for entry in &list.requestors {
+            // Only add requestors for the chain we're operating on
+            if entry.chain_id == self.chain_id {
+                requestors.insert(
+                    entry.address,
+                    CachedEntry { entry: entry.clone(), source_url: source_url.to_string() },
+                );
+                added_count += 1;
+            }
+        }
+
+        tracing::info!(
+            "Updated allowed requestors from list '{}' (v{}.{}, schema v{}.{}): {} entries added (chain_id={}, {} total in list)",
+            list.name,
+            list.version.major,
+            list.version.minor,
+            list.schema_version.major,
+            list.schema_version.minor,
+            added_count,
+            self.chain_id,
+            list.requestors.len()
+        );
+    }
+
+    /// Clear cached allowed requestors from a specific URL
+    fn clear_from_url(&self, url: &str) {
+        if let Ok(mut requestors) = self.requestors.write() {
+            requestors.retain(|_, cached| cached.source_url != url);
+        }
+    }
+}
+
+/// Service for periodically monitoring and refreshing requestor priority and allowed lists
 pub struct RequestorMonitor {
     priority_requestors: PriorityRequestors,
+    allow_requestors: AllowRequestors,
 }
 
 impl RequestorMonitor {
-    pub fn new(priority_requestors: PriorityRequestors) -> Self {
-        Self { priority_requestors }
+    pub fn new(priority_requestors: PriorityRequestors, allow_requestors: AllowRequestors) -> Self {
+        Self { priority_requestors, allow_requestors }
     }
 
-    /// Refresh all configured requestor lists
+    /// Refresh all configured requestor lists (both priority and allowed)
     async fn refresh_lists(&self) -> Result<()> {
-        let urls = {
+        let (priority_urls, allowed_urls) = {
             let config =
                 self.priority_requestors.config.lock_all().map_err(|_| MonitorError::LockFailed)?;
-            config.market.priority_requestor_lists.clone()
+            (
+                config.market.priority_requestor_lists.clone(),
+                config.market.allow_requestor_lists.clone(),
+            )
         };
 
-        let Some(urls) = urls else {
-            return Ok(());
-        };
+        // Refresh priority lists
+        if let Some(urls) = priority_urls {
+            if !urls.is_empty() {
+                tracing::debug!("Refreshing {} requestor priority lists", urls.len());
 
-        if urls.is_empty() {
-            return Ok(());
+                // Iterate in reverse order so the first list takes precedence
+                // (last URL processed overwrites entries from earlier URLs)
+                for url in urls.iter().rev() {
+                    match RequestorList::fetch_from_url(url).await {
+                        Ok(list) => {
+                            tracing::info!(
+                                "Fetched priority requestor list '{}' (v{}.{}, schema v{}.{}) from {}",
+                                list.name,
+                                list.version.major,
+                                list.version.minor,
+                                list.schema_version.major,
+                                list.schema_version.minor,
+                                url
+                            );
+                            // Clear entries from this URL before adding new ones
+                            self.priority_requestors.clear_from_url(url);
+                            self.priority_requestors.update_from_list(&list, url);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to fetch priority requestor list from {}: {}",
+                                url,
+                                e
+                            );
+                            // Keep existing cached entries from this URL on failure
+                        }
+                    }
+                }
+            }
         }
 
-        tracing::debug!("Refreshing {} requestor priority lists", urls.len());
+        // Refresh allowed lists
+        if let Some(urls) = allowed_urls {
+            if !urls.is_empty() {
+                tracing::debug!("Refreshing {} requestor allowed lists", urls.len());
 
-        // Iterate in reverse order so the first list takes precedence
-        // (last URL processed overwrites entries from earlier URLs)
-        for url in urls.iter().rev() {
-            match RequestorList::fetch_from_url(url).await {
-                Ok(list) => {
-                    tracing::info!(
-                        "Fetched requestor list '{}' (v{}.{}, schema v{}.{}) from {}",
-                        list.name,
-                        list.version.major,
-                        list.version.minor,
-                        list.schema_version.major,
-                        list.schema_version.minor,
-                        url
-                    );
-                    // Clear entries from this URL before adding new ones
-                    self.priority_requestors.clear_from_url(url);
-                    self.priority_requestors.update_from_list(&list, url);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to fetch requestor list from {}: {}", url, e);
-                    // Keep existing cached entries from this URL on failure
+                // Process all lists - order doesn't matter for whitelist (union operation)
+                // All addresses from all lists will be allowed
+                for url in urls.iter() {
+                    match RequestorList::fetch_from_url(url).await {
+                        Ok(list) => {
+                            tracing::info!(
+                                "Fetched allowed requestor list '{}' (v{}.{}, schema v{}.{}) from {}",
+                                list.name,
+                                list.version.major,
+                                list.version.minor,
+                                list.schema_version.major,
+                                list.schema_version.minor,
+                                url
+                            );
+                            // Clear entries from this URL before adding new ones
+                            // (allows updating a list by re-fetching from the same URL)
+                            self.allow_requestors.clear_from_url(url);
+                            self.allow_requestors.update_from_list(&list, url);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to fetch allowed requestor list from {}: {}",
+                                url,
+                                e
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -236,7 +370,8 @@ impl RetryTask for RequestorMonitor {
 
     fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
         let priority_requestors = self.priority_requestors.clone();
-        let monitor = Self { priority_requestors };
+        let allow_requestors = self.allow_requestors.clone();
+        let monitor = Self { priority_requestors, allow_requestors };
 
         Box::pin(async move {
             monitor.monitor_loop(cancel_token).await;
@@ -479,5 +614,273 @@ mod tests {
         let entry = priority_requestors.get_requestor_entry(&addr).unwrap();
         assert_eq!(entry.name, "First Entry (High Priority)");
         assert_eq!(entry.extensions.priority.unwrap().level, 90);
+    }
+
+    // Tests for AllowedRequestors (whitelist functionality)
+
+    #[test]
+    fn test_allowed_chain_id_filtering() {
+        let config = create_test_config();
+        let allow_requestors = AllowRequestors::new(config, 1); // Chain ID 1 (mainnet)
+
+        let list = RequestorList::new(
+            "Multi-Chain List".to_string(),
+            "Test list with multiple chains".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![
+                create_test_entry(
+                    "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+                    1,
+                    "Mainnet Requestor",
+                    None, // No priority needed for allowed list
+                ),
+                create_test_entry(
+                    "0x734df7809c4ef94da037449c287166d114503198",
+                    8453,
+                    "Base Requestor",
+                    None,
+                ),
+                create_test_entry(
+                    "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
+                    1,
+                    "Another Mainnet Requestor",
+                    None,
+                ),
+            ],
+        );
+
+        allow_requestors.update_from_list(&list, "https://test.example.com/list.json");
+
+        // Should only have entries from chain_id 1
+        let mainnet_addr1: alloy::primitives::Address =
+            "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
+        let base_addr: alloy::primitives::Address =
+            "0x734df7809c4ef94da037449c287166d114503198".parse().unwrap();
+        let mainnet_addr2: alloy::primitives::Address =
+            "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e".parse().unwrap();
+
+        assert!(allow_requestors.is_allow_requestor(&mainnet_addr1));
+        assert!(!allow_requestors.is_allow_requestor(&base_addr)); // Different chain
+        assert!(allow_requestors.is_allow_requestor(&mainnet_addr2));
+    }
+
+    #[test]
+    fn test_get_allowed_requestor_entry() {
+        let config = create_test_config();
+        let allow_requestors = AllowRequestors::new(config, 1);
+
+        let addr: alloy::primitives::Address =
+            "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
+
+        let list = RequestorList::new(
+            "Test List".to_string(),
+            "Test list".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![create_test_entry(
+                "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+                1,
+                "Test Requestor",
+                None, // No priority needed for allowed list
+            )],
+        );
+
+        allow_requestors.update_from_list(&list, "https://test.example.com/list.json");
+
+        let entry = allow_requestors.get_requestor_entry(&addr);
+        assert!(entry.is_some());
+
+        let entry = entry.unwrap();
+        assert_eq!(entry.name, "Test Requestor");
+        assert_eq!(entry.chain_id, 1);
+        // Allowed list entries don't need priority extensions
+    }
+
+    #[test]
+    fn test_get_allowed_requestor_entry_from_static_config() {
+        let config = create_test_config();
+        let static_addr: alloy::primitives::Address =
+            "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
+
+        // Set up static config
+        {
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.allow_client_addresses = Some(vec![static_addr]);
+        }
+
+        let allow_requestors = AllowRequestors::new(config, 1);
+
+        let entry = allow_requestors.get_requestor_entry(&static_addr);
+        assert!(entry.is_some());
+
+        let entry = entry.unwrap();
+        assert_eq!(entry.name, "Static Config Requestor");
+        assert_eq!(entry.chain_id, 1);
+        assert_eq!(entry.tags, vec!["static"]);
+        // Static config entries have no extensions
+        assert!(entry.extensions.priority.is_none());
+        assert!(entry.extensions.request_estimates.is_none());
+    }
+
+    #[test]
+    fn test_allowed_multiple_lists_union() {
+        let config = create_test_config();
+        let allow_requestors = AllowRequestors::new(config, 1);
+
+        let addr1: alloy::primitives::Address =
+            "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
+        let addr2: alloy::primitives::Address =
+            "0x734df7809c4ef94da037449c287166d114503198".parse().unwrap();
+        let addr3: alloy::primitives::Address =
+            "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e".parse().unwrap();
+
+        // First list with addresses 1 and 2
+        let list1 = RequestorList::new(
+            "First List".to_string(),
+            "First list".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![
+                create_test_entry(
+                    "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+                    1,
+                    "First Entry",
+                    None,
+                ),
+                create_test_entry(
+                    "0x734df7809c4ef94da037449c287166d114503198",
+                    1,
+                    "Second Entry",
+                    None,
+                ),
+            ],
+        );
+
+        // Second list with addresses 2 and 3 (address 2 overlaps)
+        let list2 = RequestorList::new(
+            "Second List".to_string(),
+            "Second list".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![
+                create_test_entry(
+                    "0x734df7809c4ef94da037449c287166d114503198",
+                    1,
+                    "Second Entry (Updated)",
+                    None,
+                ),
+                create_test_entry(
+                    "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
+                    1,
+                    "Third Entry",
+                    None,
+                ),
+            ],
+        );
+
+        // Process first list
+        allow_requestors.update_from_list(&list1, "https://test.example.com/list1.json");
+        assert!(allow_requestors.is_allow_requestor(&addr1));
+        assert!(allow_requestors.is_allow_requestor(&addr2));
+        assert!(!allow_requestors.is_allow_requestor(&addr3));
+
+        // Process second list - should create union (all addresses from both lists allowed)
+        allow_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
+
+        // All addresses from both lists should be allowed (union behavior)
+        assert!(allow_requestors.is_allow_requestor(&addr1), "addr1 from list1 should be allowed");
+        assert!(
+            allow_requestors.is_allow_requestor(&addr2),
+            "addr2 from both lists should be allowed"
+        );
+        assert!(allow_requestors.is_allow_requestor(&addr3), "addr3 from list2 should be allowed");
+
+        // Address 2 appears in both lists - metadata from last processed list should be used
+        let entry = allow_requestors.get_requestor_entry(&addr2).unwrap();
+        assert_eq!(entry.name, "Second Entry (Updated)");
+    }
+
+    #[test]
+    fn test_allowed_multiple_lists_order_independent() {
+        let config = create_test_config();
+        let allow_requestors = AllowRequestors::new(config.clone(), 1);
+
+        let addr1: alloy::primitives::Address =
+            "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
+        let addr2: alloy::primitives::Address =
+            "0x734df7809c4ef94da037449c287166d114503198".parse().unwrap();
+
+        let list1 = RequestorList::new(
+            "List 1".to_string(),
+            "First list".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![create_test_entry(
+                "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+                1,
+                "Entry 1",
+                None,
+            )],
+        );
+
+        let list2 = RequestorList::new(
+            "List 2".to_string(),
+            "Second list".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![create_test_entry(
+                "0x734df7809c4ef94da037449c287166d114503198",
+                1,
+                "Entry 2",
+                None,
+            )],
+        );
+
+        // Process lists in one order
+        allow_requestors.update_from_list(&list1, "https://test.example.com/list1.json");
+        allow_requestors.update_from_list(&list2, "https://test.example.com/list2.json");
+
+        assert!(allow_requestors.is_allow_requestor(&addr1));
+        assert!(allow_requestors.is_allow_requestor(&addr2));
+
+        // Clear and process in reverse order - result should be the same (union)
+        let allow_requestors2 = AllowRequestors::new(config, 1);
+        allow_requestors2.update_from_list(&list2, "https://test.example.com/list2.json");
+        allow_requestors2.update_from_list(&list1, "https://test.example.com/list1.json");
+
+        assert!(
+            allow_requestors2.is_allow_requestor(&addr1),
+            "Order should not matter - addr1 should be allowed"
+        );
+        assert!(
+            allow_requestors2.is_allow_requestor(&addr2),
+            "Order should not matter - addr2 should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_allowed_list_whitelist_behavior() {
+        let config = create_test_config();
+        let allow_requestors = AllowRequestors::new(config, 1);
+
+        let allowed_addr: alloy::primitives::Address =
+            "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab".parse().unwrap();
+        let not_allowed_addr: alloy::primitives::Address =
+            "0x734df7809c4ef94da037449c287166d114503198".parse().unwrap();
+
+        let list = RequestorList::new(
+            "Allowed List".to_string(),
+            "Test allowed list".to_string(),
+            Version { major: 1, minor: 0 },
+            vec![create_test_entry(
+                "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+                1,
+                "Allowed Requestor",
+                None,
+            )],
+        );
+
+        allow_requestors.update_from_list(&list, "https://test.example.com/list.json");
+
+        // Address in list should be allowed
+        assert!(allow_requestors.is_allow_requestor(&allowed_addr));
+
+        // Address not in list should not be allowed
+        assert!(!allow_requestors.is_allow_requestor(&not_allowed_addr));
     }
 }

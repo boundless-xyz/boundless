@@ -489,6 +489,7 @@ pub struct Broker<P> {
     db: DbObj,
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
+    allow_requestors: requestor_monitor::AllowRequestors,
     gas_priority_mode: Arc<RwLock<PriorityMode>>,
     downloader: ConfigurableDownloader,
 }
@@ -524,6 +525,8 @@ where
 
         let priority_requestors =
             requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
+        let allow_requestors =
+            requestor_monitor::AllowRequestors::new(config_watcher.config.clone(), chain_id);
         let downloader = ConfigurableDownloader::new(config_watcher.config.clone())
             .await
             .context("Failed to initialize downloader")?;
@@ -534,6 +537,7 @@ where
             provider: Arc::new(provider),
             config_watcher,
             priority_requestors,
+            allow_requestors,
             gas_priority_mode,
             downloader,
         })
@@ -968,6 +972,7 @@ where
             collateral_token_decimals,
             order_state_tx.clone(),
             self.priority_requestors.clone(),
+            self.allow_requestors.clone(),
             self.downloader.clone(),
         ));
         let cloned_config = config.clone();
@@ -1070,9 +1075,11 @@ where
             Ok(())
         });
 
-        // Start the RequestorMonitor to periodically fetch priority lists
-        let requestor_monitor =
-            Arc::new(requestor_monitor::RequestorMonitor::new(self.priority_requestors.clone()));
+        // Start the RequestorMonitor to periodically fetch priority and allow lists
+        let requestor_monitor = Arc::new(requestor_monitor::RequestorMonitor::new(
+            self.priority_requestors.clone(),
+            self.allow_requestors.clone(),
+        ));
         let config_clone = config.clone();
         let non_critical_cancel_token_clone = non_critical_cancel_token.clone();
         non_critical_tasks.spawn(async move {
@@ -1086,7 +1093,7 @@ where
         let submitter = Arc::new(submitter::Submitter::new(
             self.db.clone(),
             config.clone(),
-            prover.clone(),
+            aggregation_prover.clone(),
             self.provider.clone(),
             self.deployment().set_verifier_address,
             self.deployment().boundless_market_address,

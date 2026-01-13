@@ -2544,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "blake3_groth16"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2624,9 +2624,9 @@ dependencies = [
 
 [[package]]
 name = "bon"
-version = "3.8.1"
+version = "3.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebeb9aaf9329dff6ceb65c689ca3db33dbf15f324909c60e4e5eef5701ce31b1"
+checksum = "234655ec178edd82b891e262ea7cf71f6584bcd09eff94db786be23f1821825c"
 dependencies = [
  "bon-macros",
  "rustversion",
@@ -2634,9 +2634,9 @@ dependencies = [
 
 [[package]]
 name = "bon-macros"
-version = "3.8.1"
+version = "3.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77e9d642a7e3a318e37c2c9427b5a6a48aa1ad55dcd986f3034ab2239045a645"
+checksum = "89ec27229c38ed0eb3c0feee3d2c1d6a4379ae44f418a29a658890e062d8f365"
 dependencies = [
  "darling 0.21.3",
  "ident_case",
@@ -2658,6 +2658,7 @@ dependencies = [
  "reqwest",
  "serde",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]
@@ -2698,7 +2699,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-assessor"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.1",
@@ -2716,7 +2717,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-bench"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2743,7 +2744,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-cli"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
@@ -2798,7 +2799,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-distributor"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2814,7 +2815,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-indexer"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2822,6 +2823,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
+ "bonsai-sdk 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "boundless-cli",
  "boundless-market",
  "boundless-povw",
@@ -2830,6 +2832,7 @@ dependencies = [
  "boundless-zkc",
  "broker",
  "bytemuck",
+ "bytes",
  "chrono",
  "clap",
  "futures-util",
@@ -2851,11 +2854,13 @@ dependencies = [
  "tracing-subscriber 0.3.20",
  "tracing-test",
  "url",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]
 name = "boundless-market"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2912,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-order-generator"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2930,7 +2935,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-povw"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -2963,7 +2968,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-rewards"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2976,7 +2981,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-slasher"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -3000,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-test-utils"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "alloy-primitives 1.4.1",
@@ -3033,7 +3038,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-zkc"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3048,7 +3053,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "alloy-chains",
@@ -3102,7 +3107,7 @@ dependencies = [
 
 [[package]]
 name = "broker-stress"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5149,8 +5154,8 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "percent-encoding",
  "pin-project",
- "prost 0.14.1",
- "prost-types 0.14.1",
+ "prost 0.14.3",
+ "prost-types 0.14.3",
  "reqwest",
  "rustc_version 0.4.1",
  "serde",
@@ -5259,8 +5264,8 @@ dependencies = [
  "mime",
  "percent-encoding",
  "pin-project",
- "prost 0.14.1",
- "prost-types 0.14.1",
+ "prost 0.14.3",
+ "prost-types 0.14.3",
  "reqwest",
  "serde",
  "serde_json",
@@ -5327,7 +5332,7 @@ dependencies = [
 
 [[package]]
 name = "guest-assessor"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -5345,7 +5350,7 @@ dependencies = [
 
 [[package]]
 name = "guest-util"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "hex",
  "risc0-build",
@@ -6048,7 +6053,7 @@ checksum = "4ee796ad498c8d9a1d68e477df8f754ed784ef875de1414ebdaf169f70a6a784"
 
 [[package]]
 name = "indexer-api"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -6081,7 +6086,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-monitor"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7525,7 +7530,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "order-stream"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -8109,12 +8114,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.1"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7231bd9b3d3d33c86b58adbac74b5ec0ad9f496b19d22801d773636feaa95f3d"
+checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
 dependencies = [
  "bytes",
- "prost-derive 0.14.1",
+ "prost-derive 0.14.3",
 ]
 
 [[package]]
@@ -8152,9 +8157,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.1"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
+checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -8174,11 +8179,11 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.14.1"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
+checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
 dependencies = [
- "prost 0.14.1",
+ "prost 0.14.3",
 ]
 
 [[package]]
@@ -8491,7 +8496,7 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "requestor-lists"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "alloy",
  "reqwest",
@@ -11114,7 +11119,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66bd50ad6ce1252d87ef024b3d64fe4c3cf54a86fb9ef4c631fdd0ded7aeaa67"
 dependencies = [
  "bytes",
- "prost 0.14.1",
+ "prost 0.14.3",
  "tonic",
 ]
 
@@ -11186,6 +11191,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

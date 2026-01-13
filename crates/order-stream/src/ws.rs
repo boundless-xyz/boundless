@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ use boundless_market::{
 };
 use futures_util::{SinkExt, StreamExt};
 use rand::{seq::SliceRandom, Rng};
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -115,18 +115,20 @@ pub(crate) async fn websocket_handler(
     // Rotate the customer nonce
     state.db.set_nonce(client_addr).await.context("Failed to update customer nonce")?;
 
-    // Check if the address is already connected
+    // Check server capacity (only if this would be a new connection, not a replacement)
     {
         let connections = state.connections.read().await;
-        if connections.contains_key(&client_addr) {
-            return Ok((StatusCode::CONFLICT, "Max connections hit (1)").into_response());
-        }
-        if connections.len() >= state.config.max_connections {
+        // Only check max_connections if this address doesn't already have a connection
+        // (replacing an existing connection doesn't increase the total count)
+        if !connections.contains_key(&client_addr)
+            && connections.len() >= state.config.max_connections
+        {
             return Ok((StatusCode::SERVICE_UNAVAILABLE, "Server at capacity").into_response());
         }
     }
 
-    // Connection does not exist, add to pending connections.
+    // We have capacity, so add to pending connections.
+    // Note this pending connection could be a reconnect attempt.
     // Note: This is done without holding the lock to state.connections to minimize lock
     // contention. At worst, the server will upgrade the connection and immediately drop it.
     if !state.set_pending_connection(client_addr).await {
@@ -200,6 +202,7 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
     };
 
     let mut clients_to_remove = Vec::new();
+    let num_clients = connections_list.len();
     for (address, sender) in connections_list {
         match sender.try_send(order_json.clone()) {
             Ok(_) => {}
@@ -213,11 +216,17 @@ async fn broadcast_order(db_order: &DbOrder, state: Arc<AppState>) {
             }
         }
     }
+    tracing::debug!(
+        "Broadcasted order 0x{:x} to {} clients",
+        db_order.order.request.id,
+        num_clients
+    );
     // Remove the clients that have closed their connections
     if !clients_to_remove.is_empty() {
         {
             let mut connections = state.connections.write().await;
             for address in clients_to_remove {
+                tracing::debug!("Removing client {address} from connections");
                 connections.remove(&address);
             }
         }
@@ -231,29 +240,24 @@ async fn websocket_connection(socket: WebSocket, address: Address, state: Arc<Ap
 
     let (sender_channel, mut receiver_channel) = mpsc::channel::<String>(state.config.queue_size);
 
-    let is_connected;
-    // Add sender to the list of connections
+    // Add sender to the list of connections, replacing any existing connection
+    // This handles the case where a client reconnects - we replace the old connection with the new one
     {
         let mut connections = state.connections.write().await;
-        match connections.entry(address) {
-            Entry::Occupied(_) => {
-                is_connected = true;
-                tracing::warn!("Client {address} already connected");
-            }
-            Entry::Vacant(entry) => {
-                is_connected = false;
-                entry.insert(ClientConnection { sender: sender_channel.clone() });
-            }
+        if let Some(old_connection) =
+            connections.insert(address, ClientConnection { sender: sender_channel.clone() })
+        {
+            // An old connection existed - drop its sender channel to close it
+            // This will cause the old connection's receiver to return None, breaking its loop
+            drop(old_connection.sender);
+            tracing::debug!(
+                "Replaced existing connection for client {address} with new connection"
+            );
         }
     }
 
     // Clean up the pending connection entry before upgrading
     state.remove_pending_connection(&address).await;
-
-    if is_connected {
-        // Address is already connected, drop additional connection.
-        return;
-    }
 
     let mut errors_counter = 0usize;
 

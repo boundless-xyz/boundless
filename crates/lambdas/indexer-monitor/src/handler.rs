@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ use crate::monitor::Monitor;
 // We apply a lag to the metrics to avoid race conditions with the indexer,
 // where the indexer might not have finished processing and publishing the events
 // for time "now" before this lambda runs on time "now".
-const METRIC_LAG_SECONDS: i64 = 60;
+const METRIC_LAG_SECONDS: i64 = 300;
 
 const MAX_BACKFILL_HOURS: i64 = 6;
 const SECONDS_PER_HOUR: i64 = 3600;

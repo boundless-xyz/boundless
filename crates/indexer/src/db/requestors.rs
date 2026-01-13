@@ -20,13 +20,11 @@ use super::market::{
 use super::DbError;
 use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
-use sqlx::Row;
+use sqlx::{postgres::PgRow, PgPool, Row};
 use std::str::FromStr;
 
 // Standalone parsing function for PeriodRequestorSummary
-fn parse_period_requestor_summary_row(
-    row: &sqlx::any::AnyRow,
-) -> Result<PeriodRequestorSummary, DbError> {
+fn parse_period_requestor_summary_row(row: &PgRow) -> Result<PeriodRequestorSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
     let requestor_address_str: String = row.try_get("requestor_address")?;
     let requestor_address = Address::from_str(&requestor_address_str)
@@ -57,11 +55,13 @@ fn parse_period_requestor_summary_row(
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
-    let best_peak_prove_mhz: i64 = row.try_get("best_peak_prove_mhz")?;
+    let best_peak_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_peak_prove_mhz_prover: Option<String> = row.try_get("best_peak_prove_mhz_prover").ok();
     let best_peak_prove_mhz_request_id_str: Option<String> =
         row.try_get("best_peak_prove_mhz_request_id").ok();
-    let best_effective_prove_mhz: i64 = row.try_get("best_effective_prove_mhz")?;
+    let best_effective_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_effective_prove_mhz_prover: Option<String> =
         row.try_get("best_effective_prove_mhz_prover").ok();
     let best_effective_prove_mhz_request_id_str: Option<String> =
@@ -96,11 +96,11 @@ fn parse_period_requestor_summary_row(
         locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
         total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
         total_cycles: padded_string_to_u256(&total_cycles_str)?,
-        best_peak_prove_mhz: best_peak_prove_mhz as u64,
+        best_peak_prove_mhz,
         best_peak_prove_mhz_prover,
         best_peak_prove_mhz_request_id: best_peak_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
-        best_effective_prove_mhz: best_effective_prove_mhz as u64,
+        best_effective_prove_mhz,
         best_effective_prove_mhz_prover,
         best_effective_prove_mhz_request_id: best_effective_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
@@ -108,9 +108,7 @@ fn parse_period_requestor_summary_row(
 }
 
 // Standalone parsing function for AllTimeRequestorSummary
-fn parse_all_time_requestor_summary_row(
-    row: &sqlx::any::AnyRow,
-) -> Result<AllTimeRequestorSummary, DbError> {
+fn parse_all_time_requestor_summary_row(row: &PgRow) -> Result<AllTimeRequestorSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
     let requestor_address_str: String = row.try_get("requestor_address")?;
     let requestor_address = Address::from_str(&requestor_address_str)
@@ -134,11 +132,13 @@ fn parse_all_time_requestor_summary_row(
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
-    let best_peak_prove_mhz: i64 = row.try_get("best_peak_prove_mhz")?;
+    let best_peak_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_peak_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_peak_prove_mhz_prover: Option<String> = row.try_get("best_peak_prove_mhz_prover").ok();
     let best_peak_prove_mhz_request_id_str: Option<String> =
         row.try_get("best_peak_prove_mhz_request_id").ok();
-    let best_effective_prove_mhz: i64 = row.try_get("best_effective_prove_mhz")?;
+    let best_effective_prove_mhz: f64 =
+        row.try_get::<Option<f64>, _>("best_effective_prove_mhz_v2").ok().flatten().unwrap_or(0.0);
     let best_effective_prove_mhz_prover: Option<String> =
         row.try_get("best_effective_prove_mhz_prover").ok();
     let best_effective_prove_mhz_request_id_str: Option<String> =
@@ -166,11 +166,11 @@ fn parse_all_time_requestor_summary_row(
         locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
         total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
         total_cycles: padded_string_to_u256(&total_cycles_str)?,
-        best_peak_prove_mhz: best_peak_prove_mhz as u64,
+        best_peak_prove_mhz,
         best_peak_prove_mhz_prover,
         best_peak_prove_mhz_request_id: best_peak_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
-        best_effective_prove_mhz: best_effective_prove_mhz as u64,
+        best_effective_prove_mhz,
         best_effective_prove_mhz_prover,
         best_effective_prove_mhz_request_id: best_effective_prove_mhz_request_id_str
             .and_then(|s| U256::from_str(&s).ok()),
@@ -301,14 +301,14 @@ pub trait RequestorDb: IndexerDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CAST($24 AS DOUBLE PRECISION), CAST($25 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -327,12 +327,12 @@ pub trait RequestorDb: IndexerDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP";
 
         sqlx::query(query_str)
@@ -355,12 +355,12 @@ pub trait RequestorDb: IndexerDb {
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
-            .bind(summary.best_peak_prove_mhz as i64)
             .bind(summary.best_peak_prove_mhz_prover)
             .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-            .bind(summary.best_effective_prove_mhz as i64)
             .bind(summary.best_effective_prove_mhz_prover)
             .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+            .bind(summary.best_peak_prove_mhz.to_string())
+            .bind(summary.best_effective_prove_mhz.to_string())
             .execute(self.pool())
             .await?;
 
@@ -529,8 +529,9 @@ pub trait RequestorDb: IndexerDb {
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
                 total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
-                best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+                best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
             FROM all_time_requestor_summary 
             WHERE requestor_address = $1 
             ORDER BY period_timestamp DESC 
@@ -559,8 +560,9 @@ pub trait RequestorDb: IndexerDb {
                 total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
                 total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
                 total_program_cycles, total_cycles,
-                best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+                best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
             FROM all_time_requestor_summary 
             WHERE requestor_address = $1 AND period_timestamp = $2";
 
@@ -1111,7 +1113,7 @@ impl<T: IndexerDb + Send + Sync> RequestorDb for T {}
 // === Standalone helper functions for generic operations ===
 
 async fn upsert_requestor_summary_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     summary: PeriodRequestorSummary,
     table_name: &str,
 ) -> Result<(), DbError> {
@@ -1143,14 +1145,14 @@ async fn upsert_requestor_summary_generic(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
-            best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
             best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2,
+            best_effective_prove_mhz_v2,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, CURRENT_TIMESTAMP)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, CAST($31 AS DOUBLE PRECISION), CAST($32 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
         ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
             total_fulfilled = EXCLUDED.total_fulfilled,
             unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -1174,15 +1176,15 @@ async fn upsert_requestor_summary_generic(
             total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
             total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
             locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
-            total_program_cycles = EXCLUDED.total_program_cycles,
-            total_cycles = EXCLUDED.total_cycles,
-            best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
-            best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
-            best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
-            best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
-            best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
-            updated_at = CURRENT_TIMESTAMP",
+                total_program_cycles = EXCLUDED.total_program_cycles,
+                total_cycles = EXCLUDED.total_cycles,
+                best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
+                best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
+                best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
+                best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
+                updated_at = CURRENT_TIMESTAMP",
         table_name
     );
 
@@ -1213,12 +1215,12 @@ async fn upsert_requestor_summary_generic(
         .bind(summary.locked_orders_fulfillment_rate)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
-        .bind(summary.best_peak_prove_mhz as i64)
         .bind(summary.best_peak_prove_mhz_prover)
         .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-        .bind(summary.best_effective_prove_mhz as i64)
         .bind(summary.best_effective_prove_mhz_prover)
         .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+        .bind(summary.best_peak_prove_mhz.to_string())
+        .bind(summary.best_effective_prove_mhz.to_string())
         .execute(pool)
         .await?;
 
@@ -1226,7 +1228,7 @@ async fn upsert_requestor_summary_generic(
 }
 
 async fn get_requestor_summaries_by_range_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     requestor_address: Address,
     start_ts: u64,
     end_ts: u64,
@@ -1242,8 +1244,9 @@ async fn get_requestor_summaries_by_range_generic(
             total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
             total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
             total_program_cycles, total_cycles,
-            best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+            best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
         FROM {} WHERE requestor_address = $1 AND period_timestamp >= $2 AND period_timestamp < $3 ORDER BY period_timestamp ASC",
         table_name
     );
@@ -1265,7 +1268,7 @@ async fn get_requestor_summaries_by_range_generic(
 
 #[allow(clippy::too_many_arguments)]
 async fn get_requestor_summaries_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     requestor_address: Address,
     cursor: Option<i64>,
     limit: i64,
@@ -1328,8 +1331,9 @@ async fn get_requestor_summaries_generic(
             total_requests_locked, total_requests_slashed, total_expired, total_locked_and_expired,
             total_locked_and_fulfilled, total_secondary_fulfillments, locked_orders_fulfillment_rate,
             total_program_cycles, total_cycles,
-            best_peak_prove_mhz, best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz, best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id
+            best_peak_prove_mhz_prover, best_peak_prove_mhz_request_id,
+            best_effective_prove_mhz_prover, best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2, best_effective_prove_mhz_v2
         FROM {}
         {}
         {}
@@ -1367,7 +1371,7 @@ async fn get_requestor_summaries_generic(
 }
 
 async fn get_all_time_requestor_summaries_generic(
-    pool: &sqlx::AnyPool,
+    pool: &PgPool,
     requestor_address: Address,
     cursor: Option<i64>,
     limit: i64,
@@ -1440,12 +1444,12 @@ async fn get_all_time_requestor_summaries_generic(
             locked_orders_fulfillment_rate,
             total_program_cycles,
             total_cycles,
-            best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,
-            best_effective_prove_mhz,
             best_effective_prove_mhz_prover,
-            best_effective_prove_mhz_request_id
+            best_effective_prove_mhz_request_id,
+            best_peak_prove_mhz_v2,
+            best_effective_prove_mhz_v2
         FROM all_time_requestor_summary
         {}
         {}
@@ -1523,6 +1527,26 @@ mod tests {
         )
     }
 
+    async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+        let base_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+        let db_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(pool)
+            .await
+            .expect("failed to query current_database()");
+
+        if let Some(last_slash) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..last_slash], db_name)
+        } else {
+            format!("{}/{}", base_url, db_name)
+        }
+    }
+
+    async fn test_db(pool: sqlx::PgPool) -> TestDb {
+        let db_url = get_db_url_from_pool(&pool).await;
+        TestDb::from_pool(db_url, pool).await.unwrap()
+    }
+
     // Helper to setup period query test data
     async fn setup_period_requestor_test_data(db: &MarketDb, requestor: Address, base_ts: u64) {
         let submit_metadata =
@@ -1594,8 +1618,8 @@ mod tests {
                 slash_burned_amount: if i == 4 { Some("50".to_string()) } else { None },
                 program_cycles: if i < 3 { Some(U256::from(50_000_000 * (i + 1))) } else { None },
                 total_cycles: if i < 3 { Some(U256::from(50_790_000 * (i + 1))) } else { None },
-                peak_prove_mhz: if i < 3 { Some(1000 + (i * 100)) } else { None },
-                effective_prove_mhz: if i < 3 { Some(900 + (i * 100)) } else { None },
+                peak_prove_mhz: if i < 3 { Some((1000 + (i * 100)) as f64) } else { None },
+                effective_prove_mhz: if i < 3 { Some((900 + (i * 100)) as f64) } else { None },
                 cycle_status: if i < 3 { Some("resolved".to_string()) } else { None },
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("30".to_string()),
@@ -1661,9 +1685,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_hourly_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_hourly_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x42; 20]);
@@ -1696,10 +1720,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.625,
             total_program_cycles: U256::from(50_000_000_000u64),
             total_cycles: U256::from(50_790_000_000u64),
-            best_peak_prove_mhz: 1500,
+            best_peak_prove_mhz: 1500.0,
             best_peak_prove_mhz_prover: Some("0x1234".to_string()),
             best_peak_prove_mhz_request_id: Some(U256::from(123)),
-            best_effective_prove_mhz: 1400,
+            best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: Some("0x5678".to_string()),
             best_effective_prove_mhz_request_id: Some(U256::from(456)),
         };
@@ -1728,9 +1752,9 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 10);
     }
 
-    #[tokio::test]
-    async fn test_upsert_all_time_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_all_time_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x42; 20]);
@@ -1756,10 +1780,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.909,
             total_program_cycles: U256::from(500_000_000_000u64),
             total_cycles: U256::from(507_900_000_000u64),
-            best_peak_prove_mhz: 2000,
+            best_peak_prove_mhz: 2000.0,
             best_peak_prove_mhz_prover: Some("0xaaa".to_string()),
             best_peak_prove_mhz_request_id: Some(U256::from(999)),
-            best_effective_prove_mhz: 1900,
+            best_effective_prove_mhz: 1900.0,
             best_effective_prove_mhz_prover: Some("0xbbb".to_string()),
             best_effective_prove_mhz_request_id: Some(U256::from(888)),
         };
@@ -1805,9 +1829,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_daily_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_daily_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x43; 20]);
@@ -1842,10 +1866,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.8,
                 total_program_cycles: U256::from(100_000_000 * (i + 1)),
                 total_cycles: U256::from(101_580_000 * (i + 1)),
-                best_peak_prove_mhz: 1000,
+                best_peak_prove_mhz: 1000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 900,
+                best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -1862,9 +1886,9 @@ mod tests {
         assert_eq!(results[2].total_fulfilled, 30);
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_weekly_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_weekly_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x44; 20]);
@@ -1898,10 +1922,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.833,
             total_program_cycles: U256::from(1_000_000_000),
             total_cycles: U256::from(1_015_800_000),
-            best_peak_prove_mhz: 1200,
+            best_peak_prove_mhz: 1200.0,
             best_peak_prove_mhz_prover: None,
             best_peak_prove_mhz_request_id: None,
-            best_effective_prove_mhz: 1100,
+            best_effective_prove_mhz: 1100.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
         };
@@ -1917,9 +1941,9 @@ mod tests {
         assert_eq!(results[0].requestor_address, requestor);
     }
 
-    #[tokio::test]
-    async fn test_upsert_and_get_monthly_requestor_summary() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_and_get_monthly_requestor_summary(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x45; 20]);
@@ -1952,10 +1976,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.909,
             total_program_cycles: U256::from(5_000_000_000u64),
             total_cycles: U256::from(5_079_000_000u64),
-            best_peak_prove_mhz: 1500,
+            best_peak_prove_mhz: 1500.0,
             best_peak_prove_mhz_prover: None,
             best_peak_prove_mhz_request_id: None,
-            best_effective_prove_mhz: 1400,
+            best_effective_prove_mhz: 1400.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
         };
@@ -1970,9 +1994,9 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 200);
     }
 
-    #[tokio::test]
-    async fn test_get_all_time_requestor_summary_by_timestamp() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_time_requestor_summary_by_timestamp(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x46; 20]);
@@ -1999,10 +2023,10 @@ mod tests {
             locked_orders_fulfillment_rate: 0.909,
             total_program_cycles: U256::from(1_000_000_000),
             total_cycles: U256::from(1_015_800_000),
-            best_peak_prove_mhz: 1000,
+            best_peak_prove_mhz: 1000.0,
             best_peak_prove_mhz_prover: None,
             best_peak_prove_mhz_request_id: None,
-            best_effective_prove_mhz: 900,
+            best_effective_prove_mhz: 900.0,
             best_effective_prove_mhz_prover: None,
             best_effective_prove_mhz_request_id: None,
         };
@@ -2029,9 +2053,9 @@ mod tests {
         assert!(result.is_none());
     }
 
-    #[tokio::test]
-    async fn test_get_all_requestor_addresses() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_requestor_addresses(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let addr1 = Address::from([0x10; 20]);
@@ -2089,9 +2113,9 @@ mod tests {
         assert!(addresses.contains(&addr3));
     }
 
-    #[tokio::test]
-    async fn test_get_active_requestor_addresses_in_period() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_active_requestor_addresses_in_period(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let addr1 = Address::from([0x11; 20]);
@@ -2128,9 +2152,9 @@ mod tests {
         assert!(!addresses.contains(&addr3));
     }
 
-    #[tokio::test]
-    async fn test_get_active_requestor_addresses_in_period_all_activities() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_active_requestor_addresses_in_period_all_activities(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         // Period boundaries: activities should occur between period_start and period_end
@@ -2310,8 +2334,8 @@ mod tests {
             slash_burned_amount: None,
             program_cycles: Some(U256::from(50_000_000)),
             total_cycles: Some(U256::from(50_790_000)),
-            peak_prove_mhz: Some(1000),
-            effective_prove_mhz: Some(900),
+            peak_prove_mhz: Some(1000.0),
+            effective_prove_mhz: Some(900.0),
             cycle_status: Some("resolved".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -2687,8 +2711,8 @@ mod tests {
             slash_burned_amount: None,
             program_cycles: Some(U256::from(50_000_000)),
             total_cycles: Some(U256::from(50_790_000)),
-            peak_prove_mhz: Some(1000),
-            effective_prove_mhz: Some(900),
+            peak_prove_mhz: Some(1000.0),
+            effective_prove_mhz: Some(900.0),
             cycle_status: Some("resolved".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -2810,9 +2834,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_list_requests_by_requestor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_list_requests_by_requestor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let addr1 = Address::from([0x12; 20]);
@@ -2954,9 +2978,9 @@ mod tests {
         assert_eq!(results[0].client_address, addr2);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_fulfilled_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_fulfilled_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x50; 20]);
@@ -3030,8 +3054,8 @@ mod tests {
                 slash_burned_amount: None,
                 program_cycles: Some(U256::from(50_000_000)),
                 total_cycles: Some(U256::from(50_790_000)),
-                peak_prove_mhz: Some(1000),
-                effective_prove_mhz: Some(900),
+                peak_prove_mhz: Some(1000.0),
+                effective_prove_mhz: Some(900.0),
                 cycle_status: Some("resolved".to_string()),
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("30".to_string()),
@@ -3059,9 +3083,9 @@ mod tests {
         assert_eq!(count, 3);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_unique_provers() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_unique_provers(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x51; 20]);
@@ -3076,9 +3100,9 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_submitted() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_submitted(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x52; 20]);
@@ -3093,9 +3117,9 @@ mod tests {
         assert_eq!(count, 5);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_submitted_onchain() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_submitted_onchain(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x53; 20]);
@@ -3114,9 +3138,9 @@ mod tests {
         assert_eq!(count, 5);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_locked() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_locked(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x54; 20]);
@@ -3131,9 +3155,9 @@ mod tests {
         assert_eq!(count, 5);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_requests_slashed() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_requests_slashed(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x55; 20]);
@@ -3148,9 +3172,9 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_lock_pricing_data() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_lock_pricing_data(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x56; 20]);
@@ -3170,9 +3194,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_all_lock_collateral() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_all_lock_collateral(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x57; 20]);
@@ -3190,9 +3214,9 @@ mod tests {
         assert_eq!(total, 100 + 200 + 300 + 400 + 500);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_locked_and_expired_collateral() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_expired_collateral(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x58; 20]);
@@ -3207,9 +3231,9 @@ mod tests {
         assert!(collaterals.len() <= 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_expired_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_expired_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x59; 20]);
@@ -3224,9 +3248,9 @@ mod tests {
         assert!(count <= 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_locked_and_expired_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_expired_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5A; 20]);
@@ -3241,9 +3265,9 @@ mod tests {
         assert!(count <= 1);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_locked_and_fulfilled_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_fulfilled_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5B; 20]);
@@ -3258,9 +3282,9 @@ mod tests {
         assert_eq!(count, 3);
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_program_cycles() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_program_cycles(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5C; 20]);
@@ -3275,9 +3299,9 @@ mod tests {
         assert_eq!(total, U256::from(50_000_000 + 100_000_000 + 150_000_000));
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_total_cycles() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_total_cycles(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5D; 20]);
@@ -3290,9 +3314,9 @@ mod tests {
         assert_eq!(total, U256::from(50_790_000 + 101_580_000 + 152_370_000));
     }
 
-    #[tokio::test]
-    async fn test_get_period_requestor_secondary_fulfillments_count() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_secondary_fulfillments_count(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5F; 20]);
@@ -3408,8 +3432,8 @@ mod tests {
                 } else {
                     None
                 },
-                peak_prove_mhz: if fulfilled_at.is_some() { Some(1000) } else { None },
-                effective_prove_mhz: if fulfilled_at.is_some() { Some(900) } else { None },
+                peak_prove_mhz: if fulfilled_at.is_some() { Some(1000.0) } else { None },
+                effective_prove_mhz: if fulfilled_at.is_some() { Some(900.0) } else { None },
                 cycle_status: if fulfilled_at.is_some() {
                     Some("resolved".to_string())
                 } else {
@@ -3468,9 +3492,9 @@ mod tests {
         assert_eq!(count_none, 0, "Should count 0 secondary fulfillments before lock_end");
     }
 
-    #[tokio::test]
-    async fn test_get_all_time_requestor_unique_provers() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_time_requestor_unique_provers(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x5E; 20]);
@@ -3483,9 +3507,9 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    #[tokio::test]
-    async fn test_requestor_methods_with_multiple_requestors() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_requestor_methods_with_multiple_requestors(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor1 = Address::from([0x60; 20]);
@@ -3512,9 +3536,9 @@ mod tests {
         assert!(all_addresses.contains(&requestor2));
     }
 
-    #[tokio::test]
-    async fn test_requestor_summaries_with_empty_results() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_requestor_summaries_with_empty_results(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x62; 20]);
@@ -3536,9 +3560,9 @@ mod tests {
 
     // ==================== Cursor-based Pagination Tests ====================
 
-    #[tokio::test]
-    async fn test_get_hourly_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_hourly_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x70; 20]);
@@ -3574,10 +3598,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.5,
                 total_program_cycles: U256::from(50_000_000),
                 total_cycles: U256::from(50_790_000),
-                best_peak_prove_mhz: 1000,
+                best_peak_prove_mhz: 1000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 900,
+                best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -3683,9 +3707,9 @@ mod tests {
         assert_eq!(results_empty.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_get_daily_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_daily_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x72; 20]);
@@ -3721,10 +3745,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.8,
                 total_program_cycles: U256::from(100_000_000),
                 total_cycles: U256::from(101_580_000),
-                best_peak_prove_mhz: 1000,
+                best_peak_prove_mhz: 1000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 900,
+                best_effective_prove_mhz: 900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -3780,9 +3804,9 @@ mod tests {
         assert_eq!(results_after.len(), 3); // Days 2, 3, 4
     }
 
-    #[tokio::test]
-    async fn test_get_weekly_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_weekly_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x73; 20]);
@@ -3818,10 +3842,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.83,
                 total_program_cycles: U256::from(500_000_000),
                 total_cycles: U256::from(507_900_000),
-                best_peak_prove_mhz: 1200,
+                best_peak_prove_mhz: 1200.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 1100,
+                best_effective_prove_mhz: 1100.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -3867,9 +3891,9 @@ mod tests {
         assert_eq!(results_before.len(), 2); // Weeks 0 and 1
     }
 
-    #[tokio::test]
-    async fn test_get_all_time_requestor_summaries_with_cursor() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_time_requestor_summaries_with_cursor(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let requestor = Address::from([0x74; 20]);
@@ -3898,10 +3922,10 @@ mod tests {
                 locked_orders_fulfillment_rate: 0.9,
                 total_program_cycles: U256::from(1_000_000_000u64 * (i + 1)),
                 total_cycles: U256::from(1_015_800_000u64 * (i + 1)),
-                best_peak_prove_mhz: 2000,
+                best_peak_prove_mhz: 2000.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 1900,
+                best_effective_prove_mhz: 1900.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };

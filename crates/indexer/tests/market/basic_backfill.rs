@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,8 +24,9 @@ use super::common::*;
 
 /// Common setup: creates a fixture, starts indexer, creates and fulfills a request
 async fn setup_backfill_test(
+    pool: sqlx::PgPool,
 ) -> (MarketTestFixture<impl Provider + WalletProvider + Clone + 'static>, u64) {
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     // Start indexer
     let mut indexer_process = IndexerCliBuilder::new(
@@ -64,18 +65,23 @@ async fn setup_backfill_test(
     .await
     .unwrap();
 
+    // Wait for request to be indexed
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    advance_time_and_mine(&fixture.ctx.customer_provider, 10, 1).await.unwrap();
+
     // Wait for indexer to finish processing
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
-
-    // Get current block number for backfill end_block
-    let current_block = fixture.ctx.customer_provider.get_block_number().await.unwrap();
 
     // Kill the indexer process
     indexer_process.kill().unwrap();
     let _ = indexer_process.wait();
 
-    // Wait at least 2 seconds to ensure we're in a different second when backfill runs
+    // Advance time and mine a block to ensure we're in a different second when backfill runs
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    advance_time_and_mine(&fixture.ctx.customer_provider, 10, 1).await.unwrap();
+
+    // Get current block number for backfill end_block
+    let current_block = fixture.ctx.customer_provider.get_block_number().await.unwrap();
 
     (fixture, current_block)
 }
@@ -106,10 +112,10 @@ async fn run_backfill_and_verify(
     tracing::info!("Backfill completed successfully");
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_backfill_aggregates() {
-    let (fixture, current_block) = setup_backfill_test().await;
+async fn test_backfill_aggregates(pool: sqlx::PgPool) {
+    let (fixture, current_block) = setup_backfill_test(pool).await;
 
     // Get all aggregate rows and their updated_at timestamps before backfill
     let tables_to_check = vec![
@@ -278,10 +284,10 @@ async fn test_backfill_aggregates() {
     );
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_backfill_statuses() {
-    let (fixture, current_block) = setup_backfill_test().await;
+async fn test_backfill_statuses(pool: sqlx::PgPool) {
+    let (fixture, current_block) = setup_backfill_test(pool).await;
 
     // Get all request_status rows and their updated_at timestamps before backfill
     let before_rows = sqlx::query(

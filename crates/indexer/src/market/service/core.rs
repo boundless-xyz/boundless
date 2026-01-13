@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,12 +14,16 @@
 
 use super::IndexerService;
 use crate::db::market::IndexerDb;
+use crate::db::DbObj;
+use crate::market::service::execution::execute_requests;
+use crate::market::service::IndexerServiceExecutionConfig;
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::B256;
 use alloy::providers::Provider;
 use std::cmp::min;
 use std::collections::HashSet;
+use std::time::Duration;
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -55,6 +59,17 @@ where
             tracing::info!("Starting indexer at block {} (will stop at block {})", from_block, end);
         } else {
             tracing::info!("Starting indexer at block {}", from_block);
+        }
+
+        // Spawn a supervisor task for the cycle count executor
+        // if the corresponding configuration is present
+        let db_clone = self.db.clone();
+        let config_clone = self.config.clone();
+        if let Some(execution_config) = config_clone.execution_config {
+            // TODO: Currently we assume running the execution task supervisor itself won't panic, so don't keep the handle.
+            tokio::spawn(run_execution_task_supervisor(db_clone, execution_config));
+        } else {
+            tracing::info!("Execution configuration not found, not starting executor task");
         }
 
         let mut attempt = 0;
@@ -103,7 +118,11 @@ where
             let start = std::time::Instant::now();
             match self.process_blocks(from_block, batch_end).await {
                 Ok(_) => {
-                    tracing::info!("process_blocks completed in {:?}", start.elapsed());
+                    tracing::info!(
+                        "process_blocks completed in {:?} [num_blocks={}]",
+                        start.elapsed(),
+                        batch_end - from_block + 1
+                    );
                     attempt = 0;
                     from_block = batch_end + 1;
 
@@ -192,7 +211,7 @@ where
         self.request_cycle_counts(cycle_count_requests).await?;
 
         // Collect request digests that have been updated in the current block range with cycle count data.
-        let cycle_count_updated_digests = self.process_cycle_counts(from, to).await?;
+        let cycle_count_updated_digests = self.process_cycle_counts(to).await?;
 
         // Process deposit/withdrawal events. These don't cause request statuses to be updated, so we don't
         // need to track them as touched requests.
@@ -268,15 +287,29 @@ where
         self.block_num_to_timestamp.clear();
     }
 
-    async fn process_cycle_counts(
-        &mut self,
-        from_block: u64,
-        to_block: u64,
-    ) -> Result<HashSet<B256>, ServiceError> {
-        let from_timestamp = self.block_timestamp(from_block).await?;
+    /// Process cycle count updates that occurred between the last processed block and the current block timestamp.
+    /// Note, we fetch last processed block from the DB, rather than using the "from" block. This is because cycle
+    /// counts may have been updated between the last processed block's timestamp and the from block timestamp, that could be missed.
+    async fn process_cycle_counts(&mut self, to_block: u64) -> Result<HashSet<B256>, ServiceError> {
+        // Get the last processed block to determine the lower bound for cycle count queries.
+        // We use last_processed_block's timestamp + 1 as the lower bound to ensure we don't miss
+        // cycle counts updated between block timestamps when processing blocks individually.
+        let from_timestamp = match self.get_last_processed_block().await? {
+            Some(last_block) => {
+                // Use last processed block's timestamp + 1 as lower bound
+                // This ensures we don't miss cycle counts updated between the last processed block
+                // and the current block range
+                self.block_timestamp(last_block).await? + 1
+            }
+            None => {
+                // No previous block processed, start from timestamp 0
+                0
+            }
+        };
         let to_timestamp = self.block_timestamp(to_block).await?;
         let request_digests =
             self.db.get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp).await?;
+        tracing::debug!("Found {} cycle counts that were updated in the timestamp range [{}, {}]. Will recompute statuses for these requests.", request_digests.len(), from_timestamp, to_timestamp);
         Ok(request_digests)
     }
 
@@ -315,6 +348,44 @@ fn find_starting_block(
     } else {
         tracing::info!("Using {} as starting block", from);
         from
+    }
+}
+
+/// Simple supervisor that runs the execution task and restarts it on failure.
+async fn run_execution_task_supervisor(db: DbObj, config: IndexerServiceExecutionConfig) {
+    const RESTART_DELAY_SECS: u64 = 5;
+
+    loop {
+        tracing::info!("Starting cycle count execution task");
+        let db_clone = db.clone();
+        let config_clone = config.clone();
+
+        let handle = tokio::spawn(async move {
+            execute_requests(db_clone, config_clone).await;
+        });
+
+        match handle.await {
+            Ok(()) => {
+                tracing::error!(
+                    "Cycle count execution task returned unexpectedly, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) if e.is_panic() => {
+                tracing::error!(
+                    "Cycle count execution task panicked, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Cycle count execution task cancelled ({e}), restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(RESTART_DELAY_SECS)).await;
     }
 }
 

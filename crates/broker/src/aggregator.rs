@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -691,6 +691,7 @@ impl AggregatorService {
         };
 
         if compress {
+            let batch = self.db.get_batch(batch_id).await.context("Failed to get batch")?;
             tracing::debug!(
                 "Starting groth16 compression proof for batch {batch_id} with orders {:?}",
                 batch.orders

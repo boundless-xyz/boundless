@@ -99,9 +99,29 @@ mod tests {
     };
     use alloy::primitives::{B256, U256};
 
-    #[tokio::test]
-    async fn test_list_requests_by_prover() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+        let base_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+        let db_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(pool)
+            .await
+            .expect("failed to query current_database()");
+
+        if let Some(last_slash) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..last_slash], db_name)
+        } else {
+            format!("{}/{}", base_url, db_name)
+        }
+    }
+
+    async fn test_db(pool: sqlx::PgPool) -> TestDb {
+        let db_url = get_db_url_from_pool(&pool).await;
+        TestDb::from_pool(db_url, pool).await.unwrap()
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_list_requests_by_prover(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = &test_db.db;
 
         let prover1 = Address::from([0xAA; 20]);
@@ -198,8 +218,8 @@ mod tests {
                 slash_burned_amount: None,
                 program_cycles: Some(U256::from(1000000)),
                 total_cycles: Some(U256::from(1015800)),
-                peak_prove_mhz: Some(1000),
-                effective_prove_mhz: Some(950),
+                peak_prove_mhz: Some(1000.0),
+                effective_prove_mhz: Some(950.0),
                 cycle_status: Some("COMPLETED".to_string()),
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("100".to_string()),
@@ -252,8 +272,8 @@ mod tests {
             slash_burned_amount: None,
             program_cycles: Some(U256::from(2000000)),
             total_cycles: Some(U256::from(2031600)),
-            peak_prove_mhz: Some(2000),
-            effective_prove_mhz: Some(1900),
+            peak_prove_mhz: Some(2000.0),
+            effective_prove_mhz: Some(1900.0),
             cycle_status: Some("COMPLETED".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("100".to_string()),
@@ -305,8 +325,8 @@ mod tests {
             slash_burned_amount: None,
             program_cycles: Some(U256::from(3000000)),
             total_cycles: Some(U256::from(3047400)),
-            peak_prove_mhz: Some(3000),
-            effective_prove_mhz: Some(2800),
+            peak_prove_mhz: Some(3000.0),
+            effective_prove_mhz: Some(2800.0),
             cycle_status: Some("COMPLETED".to_string()),
             lock_price: None,
             lock_price_per_cycle: None,

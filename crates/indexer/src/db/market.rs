@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,8 +28,8 @@ use boundless_market::contracts::{
 };
 use log::LevelFilter;
 use sqlx::{
-    any::{install_default_drivers, AnyConnectOptions, AnyPoolOptions},
-    AnyPool, ConnectOptions, Row,
+    postgres::{PgConnectOptions, PgPoolOptions, PgRow},
+    ConnectOptions, PgPool, Row,
 };
 
 const SQL_BLOCK_KEY: i64 = 0;
@@ -42,7 +42,7 @@ const U256_PADDING_WIDTH: usize = 78;
 const REQUEST_STATUS_BATCH_SIZE: usize = 150;
 
 // Batch insert chunk sizes for various table inserts
-// Conservative sizes to support both PostgreSQL (32,767 params) and SQLite (999 params)
+// Conservative sizes to avoid large statements and parameter limits
 const TX_BATCH_SIZE: usize = 500; // 5 params per row = 2,500 params max
 const PROOF_REQUEST_BATCH_SIZE: usize = 500; // 23 params per row = 23,000 params max
 
@@ -175,10 +175,10 @@ pub struct PeriodMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -210,10 +210,10 @@ pub struct AllTimeMarketSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -246,10 +246,10 @@ pub struct PeriodRequestorSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -302,10 +302,10 @@ pub struct AllTimeRequestorSummary {
     pub locked_orders_fulfillment_rate: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
-    pub best_peak_prove_mhz: u64,
+    pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
-    pub best_effective_prove_mhz: u64,
+    pub best_effective_prove_mhz: f64,
     pub best_effective_prove_mhz_prover: Option<String>,
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
@@ -342,8 +342,8 @@ pub struct RequestStatus {
     pub slash_burned_amount: Option<String>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<u64>,
-    pub effective_prove_mhz: Option<u64>,
+    pub peak_prove_mhz: Option<f64>,
+    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
@@ -405,8 +405,8 @@ pub struct RequestComprehensive {
     pub fulfill_tx_hash: Option<B256>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<u64>,
-    pub effective_prove_mhz: Option<u64>,
+    pub peak_prove_mhz: Option<f64>,
+    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub fulfill_journal: Option<String>,
     pub fulfill_seal: Option<String>,
@@ -441,6 +441,38 @@ pub struct CycleCount {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CycleCountExecution {
+    pub request_digest: B256,
+    pub session_uuid: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RequestWithId {
+    /// Some requests may not have a corresponding entry in the proof_requests table.
+    /// This is because we only populate the proof_request table if we see request submitted event, or
+    /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
+    pub request_id: Option<U256>,
+    pub request_digest: B256,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExecutionWithId {
+    /// Some requests may not have a corresponding entry in the proof_requests table.
+    /// This is because we only populate the proof_request table if we see request submitted event, or
+    /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
+    pub request_id: Option<U256>,
+    pub request_digest: B256,
+    pub session_uuid: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CycleCountExecutionUpdate {
+    pub request_digest: B256,
+    pub program_cycles: U256,
+    pub total_cycles: U256,
+}
+
 impl TxMetadata {
     pub fn new(
         tx_hash: B256,
@@ -455,9 +487,9 @@ impl TxMetadata {
 
 #[async_trait]
 pub trait IndexerDb {
-    fn pool(&self) -> &AnyPool;
+    fn pool(&self) -> &PgPool;
 
-    fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError>;
+    fn row_to_request_status(&self, row: &PgRow) -> Result<RequestStatus, DbError>;
 
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
@@ -617,11 +649,45 @@ pub trait IndexerDb {
         to_timestamp: u64,
     ) -> Result<HashSet<B256>, DbError>;
 
+    /// Get request digests with request IDs for cycle counts in status PENDING
+    async fn get_cycle_counts_pending(&self, limit: u32)
+        -> Result<HashSet<RequestWithId>, DbError>;
+
+    /// Get request digests with request IDs and session UUID for cycle counts in status EXECUTING
+    async fn get_cycle_counts_executing(
+        &self,
+        limit: u32,
+    ) -> Result<HashSet<ExecutionWithId>, DbError>;
+
+    /// Update cycle status for executing cycle counts
+    async fn set_cycle_counts_executing(
+        &self,
+        execution_info: &[CycleCountExecution],
+    ) -> Result<(), DbError>;
+
+    /// Update cycle status for completed cycle counts
+    async fn set_cycle_counts_completed(
+        &self,
+        execution_info: &[CycleCountExecutionUpdate],
+    ) -> Result<(), DbError>;
+
+    /// Update cycle status for failed cycle counts
+    async fn set_cycle_counts_failed(&self, request_digests: &[B256]) -> Result<(), DbError>;
+
+    /// Return counts of cycle_counts rows in status 'PENDING', 'EXECUTING', and 'FAILED'
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError>;
+
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
     async fn get_request_inputs(
         &self,
         request_digests: &[B256],
     ) -> Result<Vec<(B256, String, String, Address)>, DbError>;
+
+    /// Get input_type, input_data, image_id, image_url, and max_price from proof_requests for the given request digests
+    async fn get_request_params_for_execution(
+        &self,
+        request_digests: &[B256],
+    ) -> Result<Vec<(B256, String, String, String, String, u64)>, DbError>;
 
     // Joins multiple tables to get a comprehensive view of a request.
     async fn get_requests_comprehensive(
@@ -811,24 +877,23 @@ pub type DbObj = Arc<MarketDb>;
 
 #[derive(Debug, Clone)]
 pub struct MarketDb {
-    pub pool: AnyPool,
+    pub pool: PgPool,
 }
 
 impl MarketDb {
     /// Create a new MarketDb instance.
     ///
     /// # Arguments
-    /// * `conn_str` - Database connection string. For SQLite use a `sqlite:file_path` URL; for Postgres `postgres://`.
+    /// * `conn_str` - Database connection string (Postgres `postgres://`).
     /// * `pool_options` - Optional pool configuration. If `None`, uses indexer-optimized defaults
     ///   (20 connections, 10s acquire timeout, 600s idle, 1800s lifetime)
     /// * `skip_migrations` - If `true`, skips running migrations. Useful for read-only connections
     pub async fn new(
         conn_str: &str,
-        pool_options: Option<AnyPoolOptions>,
+        pool_options: Option<PgPoolOptions>,
         skip_migrations: bool,
     ) -> Result<Self, DbError> {
-        install_default_drivers();
-        let mut opts = AnyConnectOptions::from_str(conn_str)?;
+        let mut opts = PgConnectOptions::from_str(conn_str)?;
 
         // Configure slow query logging: only log queries that take over 2 seconds
         opts = opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
@@ -836,9 +901,17 @@ impl MarketDb {
         let pool = if let Some(pool_opts) = pool_options {
             pool_opts.connect_with(opts).await?
         } else {
+            let max_connections: u32 = std::env::var("DB_POOL_SIZE")
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(20);
+            if max_connections != 20 {
+                tracing::info!("Using DB_POOL_SIZE={} for MarketDb pool", max_connections);
+            }
+
             // Indexer-optimized defaults
-            AnyPoolOptions::new()
-                .max_connections(20)
+            PgPoolOptions::new()
+                .max_connections(max_connections)
                 .acquire_timeout(Duration::from_secs(10)) // Indexer: fail fast if pool exhausted
                 .idle_timeout(Some(Duration::from_secs(600))) // Indexer: 10 min, keep connections alive
                 .max_lifetime(Some(Duration::from_secs(1800))) // Indexer: 30 min, rotate periodically
@@ -853,20 +926,20 @@ impl MarketDb {
         Ok(Self { pool })
     }
 
-    pub fn pool(&self) -> &AnyPool {
+    pub fn pool(&self) -> &PgPool {
         &self.pool
     }
 }
 
 /// Throughout this trait we manually construct queries and bind parameters to avoid using the sqlx query builder.
-/// This is because the query builder is not supported for Postgres, when used in MarketDb mode.
+/// This keeps SQL explicit and makes Postgres behavior visible in tests.
 #[async_trait]
 impl IndexerDb for MarketDb {
-    fn pool(&self) -> &AnyPool {
+    fn pool(&self) -> &PgPool {
         &self.pool
     }
 
-    fn row_to_request_status(&self, row: &sqlx::any::AnyRow) -> Result<RequestStatus, DbError> {
+    fn row_to_request_status(&self, row: &PgRow) -> Result<RequestStatus, DbError> {
         self.row_to_request_status_impl(row)
     }
 
@@ -1606,14 +1679,14 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CAST($24 AS DOUBLE PRECISION), CAST($25 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -1633,12 +1706,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP",
         )
         .bind(summary.period_timestamp as i64)
@@ -1660,12 +1733,12 @@ impl IndexerDb for MarketDb {
         .bind(summary.locked_orders_fulfillment_rate)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
-        .bind(summary.best_peak_prove_mhz as i64)
         .bind(summary.best_peak_prove_mhz_prover)
         .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-        .bind(summary.best_effective_prove_mhz as i64)
         .bind(summary.best_effective_prove_mhz_prover)
         .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+        .bind(summary.best_peak_prove_mhz.to_string())
+        .bind(summary.best_effective_prove_mhz.to_string())
         .execute(&self.pool)
         .await?;
 
@@ -1697,12 +1770,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             WHERE period_timestamp = $1",
         )
@@ -1747,14 +1820,22 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -1788,12 +1869,12 @@ impl IndexerDb for MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             ORDER BY period_timestamp DESC
             LIMIT 1",
@@ -1838,14 +1919,22 @@ impl IndexerDb for MarketDb {
                 &row.get::<String, _>("total_program_cycles"),
             )?,
             total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))?,
-            best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+            best_peak_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_peak_prove_mhz_prover: row.try_get("best_peak_prove_mhz_prover").ok(),
             best_peak_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_peak_prove_mhz_request_id")
                 .ok()
                 .flatten()
                 .and_then(|s| U256::from_str(&s).ok()),
-            best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+            best_effective_prove_mhz: row
+                .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                .ok()
+                .flatten()
+                .unwrap_or(0.0),
             best_effective_prove_mhz_prover: row.try_get("best_effective_prove_mhz_prover").ok(),
             best_effective_prove_mhz_request_id: row
                 .try_get::<Option<String>, _>("best_effective_prove_mhz_request_id")
@@ -1943,7 +2032,8 @@ impl IndexerDb for MarketDb {
                     submit_block, lock_block, fulfill_block, slashed_block,
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
-                    program_cycles, total_cycles, peak_prove_mhz, effective_prove_mhz, cycle_status,
+                    program_cycles, total_cycles,
+                    peak_prove_mhz_v2, effective_prove_mhz_v2, cycle_status,
                     lock_price, lock_price_per_cycle,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
@@ -1957,7 +2047,7 @@ impl IndexerDb for MarketDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -1993,8 +2083,8 @@ impl IndexerDb for MarketDb {
                     slash_burned_amount = EXCLUDED.slash_burned_amount,
                     program_cycles = EXCLUDED.program_cycles,
                     total_cycles = EXCLUDED.total_cycles,
-                    peak_prove_mhz = EXCLUDED.peak_prove_mhz,
-                    effective_prove_mhz = EXCLUDED.effective_prove_mhz,
+                    peak_prove_mhz_v2 = EXCLUDED.peak_prove_mhz_v2,
+                    effective_prove_mhz_v2 = EXCLUDED.effective_prove_mhz_v2,
                     cycle_status = EXCLUDED.cycle_status,
                     lock_price = EXCLUDED.lock_price,
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
@@ -2035,8 +2125,8 @@ impl IndexerDb for MarketDb {
                     .bind(&status.slash_burned_amount)
                     .bind(status.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
                     .bind(status.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
-                    .bind(status.peak_prove_mhz.map(|m| m as i64))
-                    .bind(status.effective_prove_mhz.map(|m| m as i64))
+                    .bind(status.peak_prove_mhz.map(|v| v.to_string()))
+                    .bind(status.effective_prove_mhz.map(|v| v.to_string()))
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
                     .bind(&status.lock_price_per_cycle)
@@ -2246,6 +2336,198 @@ impl IndexerDb for MarketDb {
         Ok(request_digests)
     }
 
+    async fn get_cycle_counts_pending(
+        &self,
+        limit: u32,
+    ) -> Result<HashSet<RequestWithId>, DbError> {
+        let query = "SELECT cc.request_digest, pr.request_id
+                     FROM cycle_counts cc
+                     LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
+                     WHERE cc.cycle_status = 'PENDING'
+                     ORDER BY cc.updated_at DESC
+                     LIMIT $1";
+
+        let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
+
+        let mut requests = HashSet::new();
+        for row in rows {
+            let digest_str: String = row.try_get("request_digest")?;
+            let digest = match B256::from_str(&digest_str) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                    continue;
+                }
+            };
+            let request_id: Option<U256> = row
+                .try_get::<Option<String>, _>("request_id")?
+                .and_then(|s| U256::from_str_radix(&s, 16).ok());
+            requests.insert(RequestWithId { request_id, request_digest: digest });
+        }
+
+        Ok(requests)
+    }
+
+    async fn get_cycle_counts_executing(
+        &self,
+        limit: u32,
+    ) -> Result<HashSet<ExecutionWithId>, DbError> {
+        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id
+                     FROM cycle_counts cc
+                     LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
+                     WHERE cc.cycle_status = 'EXECUTING'
+                     ORDER BY cc.updated_at DESC
+                     LIMIT $1";
+
+        let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
+
+        let mut execution_info = HashSet::new();
+        for row in rows {
+            let digest_str: String = row.try_get("request_digest")?;
+            let digest = match B256::from_str(&digest_str) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                    continue;
+                }
+            };
+            let session_uuid: String = row.try_get("session_uuid")?;
+            let request_id: Option<U256> = row
+                .try_get::<Option<String>, _>("request_id")?
+                .and_then(|s| U256::from_str_radix(&s, 16).ok());
+            execution_info.insert(ExecutionWithId {
+                request_id,
+                request_digest: digest,
+                session_uuid,
+            });
+        }
+
+        Ok(execution_info)
+    }
+
+    async fn set_cycle_counts_executing(
+        &self,
+        execution_info: &[CycleCountExecution],
+    ) -> Result<(), DbError> {
+        if execution_info.is_empty() {
+            return Ok(());
+        }
+
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        let mut tx = self.pool.begin().await?;
+
+        for execution_data in execution_info {
+            if execution_data.session_uuid.is_empty() {
+                tracing::error!(
+                    "Empty session UUID for cycle count request to mark as EXECUTING, digest={:x}: skipping",
+                    execution_data.request_digest
+                );
+                continue;
+            }
+
+            let query = "UPDATE cycle_counts
+                    SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                    WHERE request_digest = $3";
+
+            let mut query_builder = sqlx::query(query);
+
+            query_builder = query_builder
+                .bind(&execution_data.session_uuid)
+                .bind(current_timestamp as i64)
+                .bind(format!("{:x}", execution_data.request_digest));
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
+    async fn set_cycle_counts_completed(
+        &self,
+        update_info: &[CycleCountExecutionUpdate],
+    ) -> Result<(), DbError> {
+        if update_info.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        for update_data in update_info {
+            // Update cycle_counts table
+            let query = "UPDATE cycle_counts
+                    SET cycle_status = 'COMPLETED', program_cycles = $1, total_cycles = $2, updated_at = $3
+                    WHERE request_digest = $4";
+            sqlx::query(query)
+                .bind(u256_to_padded_string(update_data.program_cycles))
+                .bind(u256_to_padded_string(update_data.total_cycles))
+                .bind(current_timestamp as i64)
+                .bind(format!("{:x}", update_data.request_digest))
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
+    async fn set_cycle_counts_failed(&self, request_digests: &[B256]) -> Result<(), DbError> {
+        if request_digests.is_empty() {
+            return Ok(());
+        }
+
+        const BATCH_SIZE: usize = 500;
+
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        let mut tx = self.pool.begin().await?;
+
+        for chunk in request_digests.chunks(BATCH_SIZE) {
+            let placeholders =
+                (1..=chunk.len()).map(|i| format!("${}", i + 1)).collect::<Vec<_>>().join(", ");
+
+            let query = format!(
+                "UPDATE cycle_counts
+                 SET cycle_status = 'FAILED', updated_at = $1
+                 WHERE request_digest IN ({})",
+                placeholders
+            );
+
+            let mut query_builder = sqlx::query(&query).bind(current_timestamp as i64);
+            for digest in chunk {
+                query_builder = query_builder.bind(format!("{:x}", digest));
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError> {
+        let query = "SELECT
+                     COUNT(*) FILTER (WHERE cycle_status = 'PENDING') AS pending_count,
+                     COUNT(*) FILTER (WHERE cycle_status = 'EXECUTING') AS executing_count,
+                     COUNT(*) FILTER (WHERE cycle_status = 'FAILED') AS failed_count
+                     FROM cycle_counts";
+
+        let query_builder = sqlx::query(query);
+        let row = query_builder.fetch_one(self.pool()).await?;
+        let pending_count: i64 = row.get("pending_count");
+        let executing_count: i64 = row.get("executing_count");
+        let failed_count: i64 = row.get("failed_count");
+
+        Ok((pending_count as u32, executing_count as u32, failed_count as u32))
+    }
+
     async fn get_request_inputs(
         &self,
         request_digests: &[B256],
@@ -2301,6 +2583,72 @@ impl IndexerDb for MarketDb {
                 };
 
                 results.push((digest, input_type, input_data, client_address));
+            }
+        }
+
+        Ok(results)
+    }
+
+    async fn get_request_params_for_execution(
+        &self,
+        request_digests: &[B256],
+    ) -> Result<Vec<(B256, String, String, String, String, u64)>, DbError> {
+        if request_digests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut results = Vec::new();
+        const BATCH_SIZE: usize = 500;
+
+        for chunk in request_digests.chunks(BATCH_SIZE) {
+            let placeholders =
+                (1..=chunk.len()).map(|i| format!("${}", i)).collect::<Vec<_>>().join(", ");
+
+            let query = format!(
+                "SELECT request_digest, input_type, input_data, image_id, image_url, max_price
+                 FROM proof_requests
+                 WHERE request_digest IN ({})",
+                placeholders
+            );
+
+            let mut query_builder = sqlx::query(&query);
+            for digest in chunk {
+                query_builder = query_builder.bind(format!("{:x}", digest));
+            }
+
+            let rows = query_builder.fetch_all(self.pool()).await?;
+            for row in rows {
+                let digest_str: String = row.try_get("request_digest")?;
+                let input_type: String = row.try_get("input_type")?;
+                let input_data: String = row.try_get("input_data")?;
+                let image_id: String = row.try_get("image_id")?;
+                let image_url: String = row.try_get("image_url")?;
+                let max_price: String = row.try_get("max_price")?;
+
+                let digest = match B256::from_str(&digest_str) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request_digest '{}': {}", digest_str, e);
+                        continue;
+                    }
+                };
+
+                let max_price_parsed = match max_price.parse::<u64>() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("Failed to parse max_price '{}': {}", digest_str, e);
+                        continue;
+                    }
+                };
+
+                results.push((
+                    digest,
+                    input_type,
+                    input_data,
+                    image_id,
+                    image_url,
+                    max_price_parsed,
+                ));
             }
         }
 
@@ -3270,14 +3618,14 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, CAST($31 AS DOUBLE PRECISION), CAST($32 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -3304,12 +3652,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
-                best_peak_prove_mhz = EXCLUDED.best_peak_prove_mhz,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id = EXCLUDED.best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz = EXCLUDED.best_effective_prove_mhz,
                 best_effective_prove_mhz_prover = EXCLUDED.best_effective_prove_mhz_prover,
                 best_effective_prove_mhz_request_id = EXCLUDED.best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2 = EXCLUDED.best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2 = EXCLUDED.best_effective_prove_mhz_v2,
                 updated_at = CURRENT_TIMESTAMP",
             table_name
         );
@@ -3341,12 +3689,12 @@ impl MarketDb {
             .bind(summary.locked_orders_fulfillment_rate)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
-            .bind(summary.best_peak_prove_mhz as i64)
             .bind(summary.best_peak_prove_mhz_prover)
             .bind(summary.best_peak_prove_mhz_request_id.map(|id| format!("{:x}", id)))
-            .bind(summary.best_effective_prove_mhz as i64)
             .bind(summary.best_effective_prove_mhz_prover)
             .bind(summary.best_effective_prove_mhz_request_id.map(|id| format!("{:x}", id)))
+            .bind(summary.best_peak_prove_mhz.to_string())
+            .bind(summary.best_effective_prove_mhz.to_string())
             .execute(&self.pool)
             .await?;
 
@@ -3435,12 +3783,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM {}
             {}
             {}
@@ -3540,7 +3888,11 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -3550,7 +3902,11 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str_radix(&s, 16).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
@@ -3639,12 +3995,12 @@ impl MarketDb {
                 locked_orders_fulfillment_rate,
                 total_program_cycles,
                 total_cycles,
-                best_peak_prove_mhz,
                 best_peak_prove_mhz_prover,
                 best_peak_prove_mhz_request_id,
-                best_effective_prove_mhz,
                 best_effective_prove_mhz_prover,
-                best_effective_prove_mhz_request_id
+                best_effective_prove_mhz_request_id,
+                best_peak_prove_mhz_v2,
+                best_effective_prove_mhz_v2
             FROM all_time_market_summary
             {}
             {}
@@ -3716,7 +4072,11 @@ impl MarketDb {
                 .unwrap_or(U256::ZERO),
                 total_cycles: padded_string_to_u256(&row.get::<String, _>("total_cycles"))
                     .unwrap_or(U256::ZERO),
-                best_peak_prove_mhz: row.get::<i64, _>("best_peak_prove_mhz") as u64,
+                best_peak_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_peak_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_peak_prove_mhz_prover: row
                     .try_get("best_peak_prove_mhz_prover")
                     .ok()
@@ -3726,7 +4086,11 @@ impl MarketDb {
                     .ok()
                     .flatten()
                     .and_then(|s| U256::from_str(&s).ok()),
-                best_effective_prove_mhz: row.get::<i64, _>("best_effective_prove_mhz") as u64,
+                best_effective_prove_mhz: row
+                    .try_get::<Option<f64>, _>("best_effective_prove_mhz_v2")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0.0),
                 best_effective_prove_mhz_prover: row
                     .try_get("best_effective_prove_mhz_prover")
                     .ok()
@@ -3742,10 +4106,7 @@ impl MarketDb {
         Ok(summaries)
     }
 
-    pub(crate) fn row_to_request_status_impl(
-        &self,
-        row: &sqlx::any::AnyRow,
-    ) -> Result<RequestStatus, DbError> {
+    pub(crate) fn row_to_request_status_impl(&self, row: &PgRow) -> Result<RequestStatus, DbError> {
         let request_digest_str: String = row.get("request_digest");
         let request_digest = B256::from_str(&request_digest_str)
             .map_err(|e| DbError::BadTransaction(format!("Invalid request_digest: {}", e)))?;
@@ -3857,16 +4218,11 @@ impl MarketDb {
                 .ok()
                 .flatten()
                 .and_then(|s| padded_string_to_u256(&s).ok()),
-            peak_prove_mhz: row
-                .try_get::<Option<i64>, _>("peak_prove_mhz")
-                .ok()
-                .flatten()
-                .map(|m| m as u64),
+            peak_prove_mhz: row.try_get::<Option<f64>, _>("peak_prove_mhz_v2").ok().flatten(),
             effective_prove_mhz: row
-                .try_get::<Option<i64>, _>("effective_prove_mhz")
+                .try_get::<Option<f64>, _>("effective_prove_mhz_v2")
                 .ok()
-                .flatten()
-                .map(|m| m as u64),
+                .flatten(),
             cycle_status: row.try_get("cycle_status").ok(),
             lock_price: row.try_get("lock_price").ok(),
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
@@ -3923,9 +4279,29 @@ mod tests {
         )
     }
 
-    #[tokio::test]
-    async fn set_get_block() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {
+        let base_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for sqlx::test");
+        let db_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(pool)
+            .await
+            .expect("failed to query current_database()");
+
+        if let Some(last_slash) = base_url.rfind('/') {
+            format!("{}/{}", &base_url[..last_slash], db_name)
+        } else {
+            format!("{}/{}", base_url, db_name)
+        }
+    }
+
+    async fn test_db(pool: sqlx::PgPool) -> TestDb {
+        let db_url = get_db_url_from_pool(&pool).await;
+        TestDb::from_pool(db_url, pool).await.unwrap()
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn set_get_block(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let mut block_numb = 20;
@@ -3941,9 +4317,9 @@ mod tests {
         assert_eq!(block_numb, db_block);
     }
 
-    #[tokio::test]
-    async fn test_transactions() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_transactions(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -3959,9 +4335,9 @@ mod tests {
         assert_eq!(result.get::<i64, _>("block_number"), metadata.block_number as i64);
     }
 
-    #[tokio::test]
-    async fn test_proof_requests() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_proof_requests(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let request_digest = B256::ZERO;
@@ -3986,9 +4362,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", request.id));
     }
 
-    #[tokio::test]
-    async fn test_has_proof_requests() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_has_proof_requests(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty array
@@ -4051,9 +4427,9 @@ mod tests {
         assert_eq!(existing.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_assessor_receipts() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_assessor_receipts(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -4076,9 +4452,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("prover_address"), format!("{:x}", receipt.prover));
     }
 
-    #[tokio::test]
-    async fn test_add_proofs() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_add_proofs(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty array
@@ -4162,9 +4538,9 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1200); // Still 1200
     }
 
-    #[tokio::test]
-    async fn test_prover_slashed_event() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_prover_slashed_event(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -4199,9 +4575,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("burn_value"), burn_value.to_string());
     }
 
-    #[tokio::test]
-    async fn test_account_events() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_account_events(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let metadata = TxMetadata::new(B256::ZERO, Address::ZERO, 100, 1234567890, 0);
@@ -4280,10 +4656,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4293,9 +4669,9 @@ mod tests {
         (base_timestamp, hour_in_seconds)
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_basic_desc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_basic_desc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4308,9 +4684,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (7 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_cursor_desc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_cursor_desc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4331,9 +4707,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (4 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_basic_asc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_basic_asc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4346,9 +4722,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (2 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_cursor_asc_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_cursor_asc_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4369,9 +4745,9 @@ mod tests {
         assert_eq!(results[2].period_timestamp, (base_timestamp + (5 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_after_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_after_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4390,9 +4766,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_before_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_before_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4408,9 +4784,9 @@ mod tests {
         assert_eq!(results[results.len() - 1].period_timestamp, base_timestamp as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_before_and_after_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_before_and_after_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4427,9 +4803,9 @@ mod tests {
         assert_eq!(results[3].period_timestamp, (base_timestamp + (3 * hour_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_daily_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_daily_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64; // 2023-11-14
@@ -4464,10 +4840,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4484,9 +4860,9 @@ mod tests {
         assert_eq!(results[4].period_timestamp, base_timestamp as u64);
     }
 
-    #[tokio::test]
-    async fn test_weekly_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_weekly_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64; // 2023-11-14
@@ -4521,10 +4897,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4541,9 +4917,9 @@ mod tests {
         assert_eq!(results[3].total_fulfilled, 300);
     }
 
-    #[tokio::test]
-    async fn test_monthly_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_monthly_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         // Use actual month boundaries for testing
@@ -4582,10 +4958,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4605,9 +4981,9 @@ mod tests {
         assert_eq!(results[0].total_fulfilled, 2000); // March (index 2)
     }
 
-    #[tokio::test]
-    async fn test_all_time_summaries_basic() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_all_time_summaries_basic(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64; // 2023-11-14
@@ -4634,10 +5010,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4658,9 +5034,9 @@ mod tests {
         assert_eq!(results[2].total_secondary_fulfillments, 0);
     }
 
-    #[tokio::test]
-    async fn test_all_time_summaries_cursor_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_all_time_summaries_cursor_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64;
@@ -4687,10 +5063,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_program_cycles: U256::ZERO,
                 total_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4718,9 +5094,9 @@ mod tests {
         assert_eq!(results[1].total_secondary_fulfillments, 0);
     }
 
-    #[tokio::test]
-    async fn test_daily_summaries_cursor_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_daily_summaries_cursor_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db = test_db.get_db();
 
         let base_timestamp = 1700000000i64;
@@ -4755,10 +5131,10 @@ mod tests {
                 locked_orders_fulfillment_rate: if i > 0 { 100.0 } else { 0.0 },
                 total_cycles: U256::ZERO,
                 total_program_cycles: U256::ZERO,
-                best_peak_prove_mhz: 0,
+                best_peak_prove_mhz: 0.0,
                 best_peak_prove_mhz_prover: None,
                 best_peak_prove_mhz_request_id: None,
-                best_effective_prove_mhz: 0,
+                best_effective_prove_mhz: 0.0,
                 best_effective_prove_mhz_prover: None,
                 best_effective_prove_mhz_request_id: None,
             };
@@ -4782,9 +5158,9 @@ mod tests {
         assert_eq!(second_page[0].period_timestamp, (base_timestamp + (6 * day_in_seconds)) as u64);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_cursor_with_before_filter() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_cursor_with_before_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4801,9 +5177,9 @@ mod tests {
         assert!(results.len() <= 5);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_limit() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_limit(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         setup_hourly_summaries(&db).await;
 
@@ -4813,9 +5189,9 @@ mod tests {
         assert_eq!(results.len(), 2);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_no_results() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_no_results(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         let (base_timestamp, hour_in_seconds) = setup_hourly_summaries(&db).await;
 
@@ -4829,9 +5205,9 @@ mod tests {
         assert_eq!(results.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_hourly_summaries_data_integrity() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_hourly_summaries_data_integrity(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
         setup_hourly_summaries(&db).await;
 
@@ -4897,9 +5273,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_single_insert() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_single_insert(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest = B256::from([1; 32]);
@@ -4918,9 +5294,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("source"), "onchain");
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_update_conflict() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_update_conflict(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest = B256::from([2; 32]);
@@ -4948,9 +5324,9 @@ mod tests {
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_batch() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_batch(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let mut statuses = Vec::new();
@@ -4969,9 +5345,9 @@ mod tests {
         assert_eq!(count, 100);
     }
 
-    #[tokio::test]
-    async fn test_upsert_request_statuses_empty() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_upsert_request_statuses_empty(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         db.upsert_request_statuses(&[]).await.unwrap();
@@ -4984,9 +5360,9 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    #[tokio::test]
-    async fn test_get_requests_comprehensive_with_multiple_fulfillments() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requests_comprehensive_with_multiple_fulfillments(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let request_digest = B256::from([1; 32]);
@@ -5103,9 +5479,9 @@ mod tests {
         assert_eq!(comprehensive.fulfill_seal, Some(format!("0x{}", hex::encode(&seal_early))));
     }
 
-    #[tokio::test]
-    async fn test_get_requests_comprehensive_batch() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requests_comprehensive_batch(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Create multiple requests with different states
@@ -5306,9 +5682,9 @@ mod tests {
         assert_eq!(r5.fulfill_seal, None);
     }
 
-    #[tokio::test]
-    async fn test_add_txs() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_add_txs(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty list - should not fail
@@ -5354,9 +5730,9 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 10);
     }
 
-    #[tokio::test]
-    async fn test_add_proof_requests() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_add_proof_requests(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty requests - should not fail
@@ -5482,10 +5858,10 @@ mod tests {
         assert_eq!(count_result.get::<i64, _>("count"), 1500); // Still 1500 unique requests
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_cycle_counts_insert_and_query() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_cycle_counts_insert_and_query(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest1 = B256::from([1; 32]);
@@ -5550,10 +5926,10 @@ mod tests {
         assert_eq!(cc2.total_cycles, None);
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_cycle_counts_idempotency() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_cycle_counts_idempotency(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         let digest = B256::from([1; 32]);
@@ -5598,10 +5974,10 @@ mod tests {
         assert_eq!(total_cycles_str, Some(expected_total));
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_has_cycle_counts() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_has_cycle_counts(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test with empty array
@@ -5647,10 +6023,10 @@ mod tests {
         assert!(!existing.contains(&digest4));
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "./migrations")]
     #[traced_test]
-    async fn test_get_request_inputs() {
-        let test_db = TestDb::new().await.unwrap();
+    async fn test_get_request_inputs(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Add some proof requests
@@ -5701,9 +6077,9 @@ mod tests {
         assert_eq!(*client_addr2, addr2);
     }
 
-    #[tokio::test]
-    async fn test_get_all_request_digests_pagination() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_all_request_digests_pagination(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Create test statuses with different timestamps
@@ -5773,9 +6149,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_count_request_digests_by_timestamp() {
-        let test_db = TestDb::new().await.unwrap();
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_count_request_digests_by_timestamp(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
         let db: DbObj = test_db.db;
 
         // Test: Count with no items
@@ -5815,5 +6191,427 @@ mod tests {
             count,
             "Count should match number of digests returned by get_all_request_digests"
         );
+    }
+
+    // Helper to create test proof requests and cycle counts
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_cycle_counts_pending(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "COMPLETED"])
+            .await;
+
+        let pending = db.get_cycle_counts_pending(10).await.unwrap();
+        assert_eq!(pending.len(), 2);
+        assert!(pending
+            .iter()
+            .any(|r| r.request_id == Some(requests[0].id) && r.request_digest == digests[0]));
+        assert!(pending
+            .iter()
+            .any(|r| r.request_id == Some(requests[1].id) && r.request_digest == digests[1]));
+        assert!(!pending.iter().any(|r| r.request_id == Some(requests[2].id)));
+
+        assert_eq!(db.get_cycle_counts_pending(1).await.unwrap().len(), 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_cycle_counts_executing(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(10, &Address::ZERO),
+            generate_request(20, &Address::ZERO),
+            generate_request(30, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([10; 32]), B256::from([20; 32]), B256::from([30; 32])];
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
+
+        // Update cycle counts to EXECUTING
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-1")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-2")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[1]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        let executing = db.get_cycle_counts_executing(10).await.unwrap();
+        assert_eq!(executing.len(), 2);
+        assert!(executing
+            .iter()
+            .any(|r| r.request_id == Some(requests[0].id) && r.session_uuid == "session-1"));
+        assert!(executing
+            .iter()
+            .any(|r| r.request_id == Some(requests[1].id) && r.session_uuid == "session-2"));
+        assert!(!executing.iter().any(|r| r.request_id == Some(requests[2].id)));
+
+        assert_eq!(db.get_cycle_counts_executing(1).await.unwrap().len(), 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_set_cycle_counts_executing(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Set them to EXECUTING
+        let execution_info = vec![
+            CycleCountExecution {
+                request_digest: digests[0],
+                session_uuid: "session-1".to_string(),
+            },
+            CycleCountExecution {
+                request_digest: digests[1],
+                session_uuid: "session-2".to_string(),
+            },
+        ];
+
+        db.set_cycle_counts_executing(&execution_info).await.unwrap();
+
+        // Verify the status and session_uuid were updated
+        let result1 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result1.get::<String, _>("session_uuid"), "session-1");
+
+        let result2 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[1]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result2.get::<String, _>("session_uuid"), "session-2");
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_executing(&[]).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_set_cycle_counts_executing_empty_session_uuid(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
+
+        // Set them to EXECUTING, but one has an empty session UUID
+        let execution_info = vec![
+            CycleCountExecution {
+                request_digest: digests[0],
+                session_uuid: "session-1".to_string(),
+            },
+            CycleCountExecution {
+                request_digest: digests[1],
+                session_uuid: "".to_string(), // Empty session UUID - should be skipped
+            },
+            CycleCountExecution {
+                request_digest: digests[2],
+                session_uuid: "session-3".to_string(),
+            },
+        ];
+
+        db.set_cycle_counts_executing(&execution_info).await.unwrap();
+
+        // Verify digests[0] was updated to EXECUTING
+        let result1 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result1.get::<String, _>("session_uuid"), "session-1");
+
+        // Verify digests[1] was NOT updated (still PENDING) due to empty session UUID
+        let result2 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[1]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "PENDING");
+        let session_uuid2: Option<String> = result2.get("session_uuid");
+        assert!(session_uuid2.is_none());
+
+        // Verify digests[2] was updated to EXECUTING
+        let result3 = sqlx::query(
+            "SELECT cycle_status, session_uuid FROM cycle_counts WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[2]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result3.get::<String, _>("cycle_status"), "EXECUTING");
+        assert_eq!(result3.get::<String, _>("session_uuid"), "session-3");
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_set_cycle_counts_completed(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Update cycle counts to EXECUTING
+        let timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-1")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "UPDATE cycle_counts
+                SET cycle_status = 'EXECUTING', session_uuid = $1, updated_at = $2
+                WHERE request_digest = $3",
+        )
+        .bind("session-2")
+        .bind(timestamp as i64)
+        .bind(format!("{:x}", digests[0]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        // Set them to COMPLETED with cycle data
+        let updates = vec![
+            CycleCountExecutionUpdate {
+                request_digest: digests[0],
+                program_cycles: U256::from(50_000_000_000u64),
+                total_cycles: U256::from(51_000_000_000u64),
+            },
+            CycleCountExecutionUpdate {
+                request_digest: digests[1],
+                program_cycles: U256::from(100_000_000_000u64),
+                total_cycles: U256::from(102_000_000_000u64),
+            },
+        ];
+
+        db.set_cycle_counts_completed(&updates).await.unwrap();
+
+        // Verify the status and cycle counts were updated
+        let result1 = sqlx::query(
+            "SELECT cycle_status, program_cycles, total_cycles
+                FROM cycle_counts
+                WHERE request_digest = $1",
+        )
+        .bind(format!("{:x}", digests[0]))
+        .fetch_one(&test_db.pool)
+        .await
+        .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "COMPLETED");
+        let program1: Option<String> = result1.get("program_cycles");
+        assert_eq!(program1, Some(u256_to_padded_string(U256::from(50_000_000_000u64))));
+        let total1: Option<String> = result1.get("total_cycles");
+        assert_eq!(total1, Some(u256_to_padded_string(U256::from(51_000_000_000u64))));
+
+        let result2 = sqlx::query("SELECT cycle_status, program_cycles, total_cycles FROM cycle_counts WHERE request_digest = $1")
+            .bind(format!("{:x}", digests[1]))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "COMPLETED");
+        let program2: Option<String> = result2.get("program_cycles");
+        assert_eq!(program2, Some(u256_to_padded_string(U256::from(100_000_000_000u64))));
+        let total2: Option<String> = result2.get("total_cycles");
+        assert_eq!(total2, Some(u256_to_padded_string(U256::from(102_000_000_000u64))));
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_completed(&[]).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_set_cycle_counts_failed(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        test_db
+            .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "PENDING"])
+            .await;
+
+        // Set some to FAILED
+        db.set_cycle_counts_failed(&[digests[0], digests[1]]).await.unwrap();
+
+        // Verify status was updated
+        let result1 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[0]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result1.get::<String, _>("cycle_status"), "FAILED");
+
+        let result2 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[1]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result2.get::<String, _>("cycle_status"), "FAILED");
+
+        // digests[2] should still be PENDING
+        let result3 =
+            sqlx::query("SELECT cycle_status FROM cycle_counts WHERE request_digest = $1")
+                .bind(format!("{:x}", digests[2]))
+                .fetch_one(&test_db.pool)
+                .await
+                .unwrap();
+        assert_eq!(result3.get::<String, _>("cycle_status"), "PENDING");
+
+        // Test with empty array - should not error
+        db.set_cycle_counts_failed(&[]).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_count_cycle_counts_by_status(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        // Test with empty DB - should return 0 of each
+        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        assert_eq!(pending, 0);
+        assert_eq!(executing, 0);
+        assert_eq!(failed, 0);
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+            generate_request(4, &Address::ZERO),
+            generate_request(5, &Address::ZERO),
+            generate_request(6, &Address::ZERO),
+        ];
+        let digests = vec![
+            B256::from([1; 32]),
+            B256::from([2; 32]),
+            B256::from([3; 32]),
+            B256::from([4; 32]),
+            B256::from([5; 32]),
+            B256::from([6; 32]),
+        ];
+        test_db
+            .setup_requests_and_cycles(
+                &digests,
+                &requests,
+                &["PENDING", "PENDING", "PENDING", "EXECUTING", "EXECUTING", "FAILED"],
+            )
+            .await;
+
+        // Count cycle count statuses
+        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        assert_eq!(pending, 3);
+        assert_eq!(executing, 2);
+        assert_eq!(failed, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_get_request_params_for_execution(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests =
+            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
+        let digest_nonexistent = B256::from([3; 32]); // Non-existent
+        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+
+        // Query params for execution
+        let results = db
+            .get_request_params_for_execution(&[digests[0], digests[1], digest_nonexistent])
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2); // Only 2 exist
+
+        // Check digests[0]
+        let (d1, input_type1, _input_data1, image_id1, image_url1, max_price1) =
+            results.iter().find(|(d, _, _, _, _, _)| *d == digests[0]).unwrap();
+        assert_eq!(*d1, digests[0]);
+        assert_eq!(input_type1, "Inline");
+        assert!(!image_id1.is_empty());
+        assert!(!image_url1.is_empty());
+        assert!(*max_price1 > 0);
+
+        // Check digests[1]
+        let (d2, input_type2, _input_data2, image_id2, image_url2, max_price2) =
+            results.iter().find(|(d, _, _, _, _, _)| *d == digests[1]).unwrap();
+        assert_eq!(*d2, digests[1]);
+        assert_eq!(input_type2, "Inline");
+        assert!(!image_id2.is_empty());
+        assert!(!image_url2.is_empty());
+        assert!(*max_price2 > 0);
+
+        // Test with empty array
+        let empty_results = db.get_request_params_for_execution(&[]).await.unwrap();
+        assert!(empty_results.is_empty());
     }
 }

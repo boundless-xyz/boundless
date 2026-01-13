@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,11 +16,15 @@ mod aggregation;
 mod chain_data;
 mod core;
 mod cycle_counts;
+mod execution;
 mod log_processors;
 mod status;
 
 // Re-export aggregation helper for use in backfill
 pub use aggregation::sum_hourly_aggregates_into_base;
+
+// Re-export execute_requests for integration tests
+pub use execution::execute_requests;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -53,7 +57,7 @@ pub const SECONDS_PER_HOUR: u64 = 3600;
 pub const SECONDS_PER_DAY: u64 = 86400;
 pub const SECONDS_PER_WEEK: u64 = 604800;
 // TODO: Debug why all times don't work with hourly aggregation recompute hours of 2.
-const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 12;
+const HOURLY_AGGREGATION_RECOMPUTE_HOURS: u64 = 6;
 const DAILY_AGGREGATION_RECOMPUTE_DAYS: u64 = 2;
 const WEEKLY_AGGREGATION_RECOMPUTE_WEEKS: u64 = 2;
 const MONTHLY_AGGREGATION_RECOMPUTE_MONTHS: u64 = 2;
@@ -157,6 +161,19 @@ pub struct IndexerServiceConfig {
     pub batch_size: u64,
     pub cache_uri: Option<String>,
     pub tx_fetch_strategy: TransactionFetchStrategy,
+    pub execution_config: Option<IndexerServiceExecutionConfig>,
+}
+
+#[derive(Clone)]
+pub struct IndexerServiceExecutionConfig {
+    pub execution_interval: Duration,
+    pub bento_api_url: String,
+    pub bento_api_key: String,
+    pub bento_retry_count: u64,
+    pub bento_retry_sleep_ms: u64,
+    pub max_concurrent_executing: u32,
+    pub max_status_queries: u32,
+    pub max_iterations: u32,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {

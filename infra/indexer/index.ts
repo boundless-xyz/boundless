@@ -13,7 +13,7 @@ export = () => {
   const stackName = pulumi.getStack();
   const isDev = stackName === "dev";
   const dockerRemoteBuilder = isDev ? process.env.DOCKER_REMOTE_BUILDER : undefined;
-  const chainId = config.require('CHAIN_ID');``
+  const chainId = config.require('CHAIN_ID');
 
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : config.requireSecret('ETH_RPC_URL');
   const rdsPassword = isDev ? pulumi.output(getEnvVar("RDS_PASSWORD")) : config.requireSecret('RDS_PASSWORD');
@@ -26,7 +26,13 @@ export = () => {
   const boundlessAlertsTopicArn = config.get('SLACK_ALERTS_TOPIC_ARN');
   const boundlessPagerdutyTopicArn = config.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
-  const rustLogLevel = config.get('RUST_LOG') || 'info';
+
+  const rustLogApi = config.get('RUST_LOG_API') || 'info';
+  const rustLogMonitor = config.get('RUST_LOG_MONITOR') || 'info';
+  const rustLogIndexer = config.get('RUST_LOG_INDEXER') || 'info';
+
+  // Proxy-authenticated client-IP rate limiting (CloudFront WAF)
+  const proxySecret = isDev ? pulumi.output(process.env.PROXY_SECRET ?? "none") : config.requireSecret('PROXY_SECRET');
 
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
@@ -68,6 +74,8 @@ export = () => {
     const logsEthRpcUrl = isDev ? pulumi.output(getEnvVar("LOGS_ETH_RPC_URL")) : config.requireSecret('LOGS_ETH_RPC_URL');
     const orderStreamApiKey = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_API_KEY")) : config.requireSecret('ORDER_STREAM_API_KEY');
     const orderStreamUrl = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) : config.getSecret('ORDER_STREAM_URL');
+    const bentoApiUrl = isDev ? pulumi.output(process.env.BENTO_API_URL || '') : config.getSecret('BENTO_API_URL');
+    const bentoApiKey = isDev ? pulumi.output(process.env.BENTO_API_KEY || '') : config.getSecret('BENTO_API_KEY');
 
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
@@ -85,6 +93,9 @@ export = () => {
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
+      bentoApiUrl,
+      bentoApiKey,
+      rustLogLevel: rustLogIndexer,
     }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
@@ -122,8 +133,9 @@ export = () => {
       intervalMinutes: '1',
       dbUrlSecret: infra.dbUrlSecret,
       rdsSgId: infra.rdsSecurityGroupId,
+      indexerSgId: infra.indexerSecurityGroup.id,
       chainId: chainId,
-      rustLogLevel: rustLogLevel,
+      rustLogLevel: rustLogMonitor,
       boundlessAlertsTopicArns: alertsTopicArns,
       serviceMetricsNamespace,
       marketMetricsNamespace,
@@ -139,11 +151,12 @@ export = () => {
       secretHash: infra.secretHash,
       rdsSgId: infra.rdsSecurityGroupId,
       indexerSgId: infra.indexerSecurityGroup.id,
-      rustLogLevel: rustLogLevel,
+      rustLogLevel: rustLogApi,
       chainId: chainId,
       domain: indexerApiDomain,
       boundlessAlertsTopicArns: alertsTopicArns,
       databaseVersion: infra.databaseVersion,
+      proxySecret,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 

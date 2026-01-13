@@ -22,6 +22,9 @@ export interface MarketIndexerArgs {
   dockerRemoteBuilder?: string;
   orderStreamUrl?: pulumi.Output<string>;
   orderStreamApiKey?: pulumi.Output<string>;
+  bentoApiUrl?: pulumi.Output<string>;
+  bentoApiKey?: pulumi.Output<string>;
+  rustLogLevel: string;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -46,6 +49,9 @@ export class MarketIndexer extends pulumi.ComponentResource {
       dockerRemoteBuilder,
       orderStreamUrl,
       orderStreamApiKey,
+      bentoApiUrl,
+      bentoApiKey,
+      rustLogLevel,
     } = args;
 
     const serviceName = name;
@@ -169,6 +175,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
             pulumi.interpolate`s3://${infra.cacheBucket.bucket}`,
             ...(orderStreamUrl ? ['--order-stream-url', orderStreamUrl] : []),
             ...(orderStreamApiKey ? ['--order-stream-api-key', orderStreamApiKey] : []),
+            ...(bentoApiUrl ? ['--bento-api-url', bentoApiUrl] : []),
+            ...(bentoApiKey ? ['--bento-api-key', bentoApiKey] : []),
           ],
           secrets: [
             {
@@ -179,7 +187,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
           environment: [
             {
               name: 'RUST_LOG',
-              value: 'boundless_indexer=debug,info',
+              value: rustLogLevel,
             },
             {
               name: 'NO_COLOR',
@@ -301,8 +309,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     // Create Lambda function
-    const backfillLambda = new aws.lambda.Function(`${serviceName}-backfill-trigger`, {
-      name: `${serviceName}-backfill-trigger`,
+    const backfillLambda = new aws.lambda.Function(`${serviceName}-backfill-start`, {
+      name: `${serviceName}-backfill-start`,
       role: lambdaRole.arn,
       runtime: 'nodejs20.x',
       handler: 'index.handler',
@@ -332,16 +340,18 @@ export class MarketIndexer extends pulumi.ComponentResource {
     this.backfillLambdaName = backfillLambda.name;
 
     // Create EventBridge rule for daily scheduled backfill
-    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-schedule`, {
-      name: `${serviceName}-backfill-daily`,
+    const backfillScheduleRule = new aws.cloudwatch.EventRule(`${serviceName}-backfill-rule`, {
+      name: `${serviceName}-backfill-rule`,
       description: `Daily scheduled backfill for ${serviceName}`,
       scheduleExpression: 'cron(0 2 * * ? *)', // Run daily at 2 AM UTC
       state: 'ENABLED',
-    }, { parent: this });
+    }, {
+      parent: this,
+    });
 
     // Grant EventBridge permission to invoke Lambda
-    new aws.lambda.Permission(`${serviceName}-backfill-schedule-permission`, {
-      statementId: 'AllowExecutionFromEventBridge',
+    new aws.lambda.Permission(`${serviceName}-backfill-lmbd-perm`, {
+      statementId: `AllowEventBridge-${serviceName}`,
       action: 'lambda:InvokeFunction',
       function: backfillLambda.name,
       principal: 'events.amazonaws.com',
@@ -349,7 +359,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     // Add Lambda as target for EventBridge rule
-    new aws.cloudwatch.EventTarget(`${serviceName}-backfill-schedule-target`, {
+    new aws.cloudwatch.EventTarget(`${serviceName}-backfill-targ`, {
       rule: backfillScheduleRule.name,
       arn: backfillLambda.arn,
     }, { parent: this });
@@ -443,6 +453,43 @@ export class MarketIndexer extends pulumi.ComponentResource {
       datapointsToAlarm: 1,
       treatMissingData: 'notBreaching',
       alarmDescription: `Market indexer ${name} FATAL (task exited) ${Severity.SEV2}`,
+      actionsEnabled: true,
+      alarmActions,
+    }, { parent: this });
+
+    const panickedLogMetricName = `${serviceName}-market-log-panicked`;
+    new aws.cloudwatch.LogMetricFilter(`${serviceName}-market-log-panicked-filter`, {
+      name: `${serviceName}-market-log-panicked-filter`,
+      logGroupName: serviceLogGroupName,
+      metricTransformation: {
+        namespace: serviceMetricsNamespace,
+        name: panickedLogMetricName,
+        value: '1',
+        defaultValue: '0',
+      },
+      pattern: 'panicked',
+    }, { parent: this, dependsOn: [marketService] });
+
+    new aws.cloudwatch.MetricAlarm(`${serviceName}-market-panicked-alarm-${Severity.SEV2}`, {
+      name: `${serviceName}-market-log-panicked-${Severity.SEV2}`,
+      metricQueries: [
+        {
+          id: 'm1',
+          metric: {
+            namespace: serviceMetricsNamespace,
+            metricName: panickedLogMetricName,
+            period: 60,
+            stat: 'Sum',
+          },
+          returnData: true,
+        },
+      ],
+      threshold: 1,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: 'notBreaching',
+      alarmDescription: `Market indexer ${name} PANICKED (task panicked) ${Severity.SEV2}`,
       actionsEnabled: true,
       alarmActions,
     }, { parent: this });

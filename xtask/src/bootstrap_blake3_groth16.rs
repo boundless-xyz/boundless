@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ pub struct BootstrapBlake3Groth16 {
     blake3_groth16_setup_dir: String,
 }
 
-const SOL_HEADER: &str = r#"// Copyright 2025 Boundless Foundation, Inc.
+const SOL_HEADER: &str = r#"// Copyright 2026 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
