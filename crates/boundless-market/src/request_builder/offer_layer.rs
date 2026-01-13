@@ -360,7 +360,7 @@ where
 fn default_lock_collateral(chain_id: u64) -> U256 {
     match chain_id {
         8453 => U256::from(20) * Unit::ETHER.wei_const(), // Base mainnet - 20 ZKC
-        84532 => U256::from(5) * Unit::ETHER.wei_const(),  // Base Sepolia - 5 ZKC
+        84532 => U256::from(5) * Unit::ETHER.wei_const(), // Base Sepolia - 5 ZKC
         11155111 => U256::from(5) * Unit::ETHER.wei_const(), // Sepolia - 5 ZKC
         _ => U256::ZERO, // No default lock collateral for other chains
     }
