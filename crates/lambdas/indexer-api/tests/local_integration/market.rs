@@ -1410,7 +1410,8 @@ async fn test_requestor_leaderboard() {
             first.acceptance_rate
         );
         assert!(
-            first.locked_order_fulfillment_rate >= 0.0 && first.locked_order_fulfillment_rate <= 100.0,
+            first.locked_order_fulfillment_rate >= 0.0
+                && first.locked_order_fulfillment_rate <= 100.0,
             "locked_order_fulfillment_rate should be 0-100: {}",
             first.locked_order_fulfillment_rate
         );
@@ -1632,7 +1633,8 @@ async fn test_requestor_leaderboard_periods() {
             entry.acceptance_rate
         );
         assert!(
-            entry.locked_order_fulfillment_rate >= 0.0 && entry.locked_order_fulfillment_rate <= 100.0,
+            entry.locked_order_fulfillment_rate >= 0.0
+                && entry.locked_order_fulfillment_rate <= 100.0,
             "locked_order_fulfillment_rate should be 0-100: {}",
             entry.locked_order_fulfillment_rate
         );
@@ -1686,7 +1688,8 @@ async fn test_prover_leaderboard() {
         // Numeric fields should be non-negative
         assert!(first.orders_locked > 0, "orders_locked should be positive for active provers");
         assert!(
-            first.locked_order_fulfillment_rate >= 0.0 && first.locked_order_fulfillment_rate <= 100.0,
+            first.locked_order_fulfillment_rate >= 0.0
+                && first.locked_order_fulfillment_rate <= 100.0,
             "locked_order_fulfillment_rate should be 0-100: {}",
             first.locked_order_fulfillment_rate
         );
@@ -1866,7 +1869,8 @@ async fn test_prover_leaderboard_periods() {
 
         // Rates should be valid percentages
         assert!(
-            entry.locked_order_fulfillment_rate >= 0.0 && entry.locked_order_fulfillment_rate <= 100.0,
+            entry.locked_order_fulfillment_rate >= 0.0
+                && entry.locked_order_fulfillment_rate <= 100.0,
             "locked_order_fulfillment_rate should be 0-100: {}",
             entry.locked_order_fulfillment_rate
         );
