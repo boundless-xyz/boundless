@@ -490,7 +490,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
 
     /// Set the storage provider.
     ///
-    /// The returned [ClientBuilder] will be generic over the provider [StorageProvider] type.
+    /// The returned [ClientBuilder] will be generic over the provider [StorageUploader] type.
     pub fn with_storage_provider<Z: StorageUploader>(
         self,
         storage_provider: Option<Z>,
@@ -625,7 +625,7 @@ pub struct Client<
     pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
     pub set_verifier: SetVerifierService<P>,
-    /// [StorageProvider] to upload programs and inputs.
+    /// [StandardUploader] to upload programs and inputs.
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
     pub storage_provider: Option<U>,

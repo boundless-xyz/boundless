@@ -15,6 +15,7 @@
 use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::RequestInput, input::GuestEnv, storage::StorageUploader, util::NotProvided,
+    StandardUploader,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
@@ -41,12 +42,12 @@ pub struct StorageLayerConfig {
 /// inputs directly in the request as inline data.
 #[non_exhaustive]
 #[derive(Clone)]
-pub struct StorageLayer<S> {
-    /// [StorageProvider] used to upload programs and inputs.
+pub struct StorageLayer<U> {
+    /// [StandardUploader] used to upload programs and inputs.
     ///
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
     /// [StorageLayerConfig::inline_input_max_bytes].
-    pub storage_provider: Option<S>,
+    pub storage_provider: Option<U>,
 
     /// Configuration controlling storage behavior.
     pub config: StorageLayerConfig,
@@ -63,7 +64,7 @@ impl StorageLayerConfig {
 }
 
 impl<S: Clone> From<Option<S>> for StorageLayer<S> {
-    /// Creates a [StorageLayer] from the given [StorageProvider], using default values for all
+    /// Creates a [StorageLayer] from the given [StandardUploader], using default values for all
     /// other fields.
     ///
     /// Provided value is an [Option] such that whether the storage provider is available can be

@@ -141,7 +141,7 @@ pub struct StorageUploaderConfig {
 }
 
 impl StorageUploaderConfig {
-    /// Create a new [`StorageUploaderConfigBuilder`].
+    /// Create a new builder to construct a config.
     pub fn builder() -> StorageUploaderConfigBuilder {
         Default::default()
     }

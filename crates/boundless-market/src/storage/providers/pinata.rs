@@ -55,8 +55,8 @@ impl PinataStorageUploader {
     /// - `PINATA_JWT`: Pinata API JWT token
     ///
     /// Optional environment variables:
-    /// - `PINATA_API_URL`: Pinata API URL (default: https://uploads.pinata.cloud)
-    /// - `IPFS_GATEWAY_URL`: IPFS gateway URL (default: https://gateway.pinata.cloud)
+    /// - `PINATA_API_URL`: Pinata API URL (default: <https://uploads.pinata.cloud>)
+    /// - `IPFS_GATEWAY_URL`: IPFS gateway URL (default: <https://gateway.pinata.cloud>)
     pub fn from_env() -> Result<Self, StorageError> {
         let jwt = env::var("PINATA_JWT")?;
         if jwt.is_empty() {
