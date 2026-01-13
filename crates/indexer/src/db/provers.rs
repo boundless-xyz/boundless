@@ -1419,7 +1419,7 @@ async fn get_prover_median_lock_prices_impl(
         "SELECT 
             lock_prover_address,
             LPAD(
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC))::TEXT,
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC)))::TEXT,
                 78, '0'
             ) as median_price
         FROM request_status
@@ -2093,9 +2093,9 @@ mod tests {
         let base_ts = 1700000000u64;
 
         // Insert request_status entries with lock prices for prover1
-        // Prices: 100, 200, 300, 400, 500 -> median = 300
+        // Prices: 100, 200 -> median = 150.0 (interpolated, will round to 150)
         let mut statuses = Vec::new();
-        for i in 0..5u8 {
+        for i in 0..2u8 {
             let digest = B256::from([i + 1; 32]);
             let lock_price = U256::from(100 * (i as u64 + 1));
             statuses.push(create_locked_request_status_for_prover(
@@ -2108,12 +2108,12 @@ mod tests {
         }
 
         // Add requests for prover2 with different prices
-        // Prices: 1000, 2000, 3000 -> median = 2000
-        for i in 0..3u8 {
+        // Prices: 100, 200, 300, 400 -> median = 250.0 (interpolated, will round to 250)
+        for i in 0..4u8 {
             let mut digest_bytes = [0u8; 32];
             digest_bytes[0] = 0x10 + i;
             let digest = B256::from(digest_bytes);
-            let lock_price = U256::from(1000 * (i as u64 + 1));
+            let lock_price = U256::from(100 * (i as u64 + 1));
             statuses.push(create_locked_request_status_for_prover(
                 digest,
                 client,
@@ -2133,11 +2133,11 @@ mod tests {
 
         assert_eq!(medians.len(), 2);
 
-        // Prover1 has prices [100, 200, 300, 400, 500], median = 300
-        assert_eq!(medians.get(&prover1), Some(&U256::from(300)));
+        // Prover1 has prices [100, 200], median = 150.0 (interpolated, rounded to 150)
+        assert_eq!(medians.get(&prover1), Some(&U256::from(150)));
 
-        // Prover2 has prices [1000, 2000, 3000], median = 2000
-        assert_eq!(medians.get(&prover2), Some(&U256::from(2000)));
+        // Prover2 has prices [100, 200, 300, 400], median = 250.0 (interpolated, rounded to 250)
+        assert_eq!(medians.get(&prover2), Some(&U256::from(250)));
     }
 
     #[sqlx::test(migrations = "./migrations")]

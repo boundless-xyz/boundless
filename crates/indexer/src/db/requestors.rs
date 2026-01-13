@@ -1554,6 +1554,7 @@ async fn get_requestor_leaderboard_impl(
                 SUM(total_requests_locked)::BIGINT as orders_locked,
                 SUM(total_locked_and_fulfilled)::BIGINT as fulfilled,
                 SUM(total_locked_and_expired)::BIGINT as expired,
+                SUM(total_expired)::BIGINT as total_expired,
                 LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles
             FROM {}
             WHERE period_timestamp >= $1 AND period_timestamp < $2
@@ -1574,6 +1575,7 @@ async fn get_requestor_leaderboard_impl(
                 SUM(total_requests_locked)::BIGINT as orders_locked,
                 SUM(total_locked_and_fulfilled)::BIGINT as fulfilled,
                 SUM(total_locked_and_expired)::BIGINT as expired,
+                SUM(total_expired)::BIGINT as total_expired,
                 LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles
             FROM {}
             WHERE period_timestamp >= $1 AND period_timestamp < $2
@@ -1611,11 +1613,12 @@ async fn get_requestor_leaderboard_impl(
         let orders_locked: i64 = row.try_get("orders_locked")?;
         let fulfilled: i64 = row.try_get("fulfilled")?;
         let expired: i64 = row.try_get("expired")?;
+        let total_expired_all: i64 = row.try_get("total_expired")?;
         let cycles_str: String = row.try_get("cycles")?;
         let cycles_requested = padded_string_to_u256(&cycles_str)?;
 
-        let acceptance_rate = if orders_requested > 0 {
-            (orders_locked as f32 / orders_requested as f32) * 100.0
+        let acceptance_rate = if (orders_locked + total_expired_all) > 0 {
+            (orders_locked as f32 / (orders_locked + total_expired_all) as f32) * 100.0
         } else {
             0.0
         };
@@ -1662,7 +1665,7 @@ async fn get_requestor_median_lock_prices_impl(
         "SELECT 
             client_address,
             LPAD(
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC))::TEXT,
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC)))::TEXT,
                 78, '0'
             ) as median_price
         FROM request_status
@@ -4528,9 +4531,9 @@ mod tests {
         let base_ts = 1700000000u64;
 
         // Insert request_status entries with lock prices for requestor1
-        // Prices: 100, 200, 300, 400, 500 -> median = 300
+        // Prices: 100, 200 -> median = 150.0 (interpolated, will round to 150)
         let mut statuses = Vec::new();
-        for i in 0..5u8 {
+        for i in 0..2u8 {
             let digest = B256::from([i + 1; 32]);
             let lock_price = U256::from(100 * (i as u64 + 1));
             statuses.push(create_locked_request_status(
@@ -4543,12 +4546,12 @@ mod tests {
         }
 
         // Add requests for requestor2 with different prices
-        // Prices: 1000, 2000, 3000 -> median = 2000
-        for i in 0..3u8 {
+        // Prices: 100, 200, 300, 400 -> median = 250.0 (interpolated, will round to 250)
+        for i in 0..4u8 {
             let mut digest_bytes = [0u8; 32];
             digest_bytes[0] = 0x10 + i;
             let digest = B256::from(digest_bytes);
-            let lock_price = U256::from(1000 * (i as u64 + 1));
+            let lock_price = U256::from(100 * (i as u64 + 1));
             statuses.push(create_locked_request_status(
                 digest,
                 requestor2,
@@ -4568,11 +4571,11 @@ mod tests {
 
         assert_eq!(medians.len(), 2);
 
-        // Requestor1 has prices [100, 200, 300, 400, 500], median = 300
-        assert_eq!(medians.get(&requestor1), Some(&U256::from(300)));
+        // Requestor1 has prices [100, 200], median = 150.0 (interpolated, rounded to 150)
+        assert_eq!(medians.get(&requestor1), Some(&U256::from(150)));
 
-        // Requestor2 has prices [1000, 2000, 3000], median = 2000
-        assert_eq!(medians.get(&requestor2), Some(&U256::from(2000)));
+        // Requestor2 has prices [100, 200, 300, 400], median = 250.0 (interpolated, rounded to 250)
+        assert_eq!(medians.get(&requestor2), Some(&U256::from(250)));
     }
 
     fn create_submitted_request_status(
