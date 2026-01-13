@@ -210,7 +210,7 @@ impl S3StorageUploader {
             .body(byte_stream)
             .send()
             .await
-            .map_err(|e| StorageError::s3(e))?;
+            .map_err(StorageError::s3)?;
 
         if !self.use_presigned {
             let base = format!("s3://{}/", self.bucket);
@@ -228,7 +228,7 @@ impl S3StorageUploader {
             .key(key)
             .presigned(PresigningConfig::expires_in(Duration::from_secs(3600))?)
             .await
-            .map_err(|e| StorageError::s3(e))?;
+            .map_err(StorageError::s3)?;
 
         Ok(Url::parse(presigned_request.uri())?)
     }
@@ -335,7 +335,7 @@ impl StorageDownloader for S3StorageDownloader {
         let mut stream = resp.body;
 
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| StorageError::s3(e))?;
+            let chunk = chunk.map_err(StorageError::s3)?;
             buffer.extend_from_slice(chunk.chunk());
             if buffer.len() > limit {
                 return Err(StorageError::SizeLimitExceeded { size: buffer.len(), limit });

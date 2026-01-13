@@ -41,13 +41,6 @@ pub struct PreflightLayer<D> {
     pub downloader: Option<D>,
 }
 
-impl<D> PreflightLayer<D> {
-    /// Creates a new [PreflightLayer] with the given downloader.
-    pub fn new(downloader: Option<D>) -> Self {
-        Self { downloader }
-    }
-}
-
 impl<D: Clone> From<Option<D>> for PreflightLayer<D> {
     fn from(downloader: Option<D>) -> Self {
         Self { downloader }
@@ -58,6 +51,11 @@ impl<D> PreflightLayer<D>
 where
     D: StorageDownloader,
 {
+    /// Creates a new [PreflightLayer] with the given downloader.
+    pub fn new(downloader: Option<D>) -> Self {
+        Self { downloader }
+    }
+
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             RequestInputType::Inline => GuestEnv::decode(&input.data)?,
@@ -69,7 +67,7 @@ where
                 let input_url =
                     std::str::from_utf8(&input.data).context("Input URL is not valid UTF-8")?;
                 tracing::info!("Fetching input from {}", input_url);
-                GuestEnv::decode(&downloader.download(&input_url).await?)?
+                GuestEnv::decode(&downloader.download(input_url).await?)?
             }
             _ => bail!("Unsupported input type"),
         };

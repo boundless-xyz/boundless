@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::max, future::Future, str::FromStr, time::Duration};
-
 use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
     primitives::{Address, Bytes, U256},
@@ -30,6 +28,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use risc0_aggregation::SetInclusionReceipt;
 use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::{sha::Digest, ReceiptClaim};
+use std::{cmp::max, future::Future, str::FromStr, time::Duration};
 use tower::ServiceBuilder;
 use url::Url;
 
@@ -271,7 +270,7 @@ where
     }
 }
 
-impl<S> ClientProviderBuilder for ClientBuilder<S, NotProvided, NotProvided> {
+impl<U, D> ClientProviderBuilder for ClientBuilder<U, D, NotProvided> {
     type Error = anyhow::Error;
 
     async fn build_provider(&self, rpc_urls: Vec<Url>) -> Result<DynProvider, Self::Error> {
@@ -297,7 +296,7 @@ impl<S> ClientProviderBuilder for ClientBuilder<S, NotProvided, NotProvided> {
 }
 
 impl<U, S> ClientBuilder<U, NotProvided, S> {
-    /// Build the client with a [DefaultDownloader].
+    /// Build the client with the [DefaultDownloader].
     pub async fn build(
         self,
     ) -> Result<
@@ -311,18 +310,14 @@ impl<U, S> ClientBuilder<U, NotProvided, S> {
     >
     where
         U: Clone,
-        S: TxSigner<Signature> + Send + Sync + Clone + 'static,
-        Self: ClientProviderBuilder<Error = anyhow::Error>,
+        ClientBuilder<U, DefaultDownloader, S>: ClientProviderBuilder<Error = anyhow::Error>,
     {
         self.with_downloader(DefaultDownloader::new().await).build().await
     }
 }
 
-impl<U, D, S> ClientBuilder<U, D, S>
-where
-    D: StorageDownloader,
-{
-    /// Build the client
+impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
+    /// Build the client.
     pub async fn build(
         self,
     ) -> Result<Client<DynProvider, U, D, StandardRequestBuilder<DynProvider, U, D>, S>>
@@ -359,6 +354,9 @@ where
             self.signer_address().unwrap_or(Address::ZERO),
         );
 
+        // Safe unwrap: Since D is not NotProvided a downloader must be set
+        let downloader = self.downloader.unwrap();
+
         // Build the order stream client, if a URL was provided.
         let offchain_client = deployment
             .order_stream_url
@@ -380,7 +378,7 @@ where
                 self.storage_provider.clone(),
                 self.storage_layer_config.build()?,
             ))
-            .preflight_layer(PreflightLayer::new(self.downloader.clone()))
+            .preflight_layer(PreflightLayer::new(Some(downloader.clone())))
             .offer_layer(OfferLayer::new(provider.clone(), self.offer_layer_config.build()?))
             .request_id_layer(RequestIdLayer::new(
                 boundless_market.clone(),
@@ -393,7 +391,7 @@ where
             boundless_market,
             set_verifier,
             storage_provider: self.storage_provider,
-            downloader: self.downloader,
+            downloader,
             offchain_client,
             signer: self.signer,
             request_builder: Some(request_builder),
@@ -656,10 +654,8 @@ pub struct Client<
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
     pub storage_provider: Option<U>,
-
-    /// Storage downloader for fetching data from URLs.
-    pub downloader: Option<D>,
-
+    /// Downloader for fetching data from storage.
+    pub downloader: D,
     /// [OrderStreamClient] to submit requests off-chain.
     ///
     /// If not provided, requests not only be sent onchain via a transaction.
@@ -721,14 +717,16 @@ impl Client<NotProvided, NotProvided, NotProvided, NotProvided, NotProvided> {
     }
 }
 
-impl<P> Client<P, NotProvided, NotProvided, NotProvided, NotProvided>
+impl<P, D> Client<P, NotProvided, D, NotProvided, NotProvided>
 where
     P: Provider<Ethereum> + 'static + Clone,
+    D: StorageDownloader,
 {
     /// Create a new client
     pub fn new(
         boundless_market: BoundlessMarketService<P>,
         set_verifier: SetVerifierService<P>,
+        downloader: D,
     ) -> Self {
         let boundless_market = boundless_market.clone();
         let set_verifier = set_verifier.clone();
@@ -745,7 +743,7 @@ where
             boundless_market,
             set_verifier,
             storage_provider: None,
-            downloader: None,
+            downloader,
             offchain_client: None,
             signer: None,
             request_builder: None,
@@ -789,24 +787,6 @@ where
             },
             set_verifier,
             ..self
-        }
-    }
-
-    /// Sets the storage downloader for fetching data from URLs.
-    pub fn with_downloader<Z>(self, downloader: Z) -> Client<P, St, Z, R, Si>
-    where
-        Z: StorageDownloader,
-    {
-        Client {
-            boundless_market: self.boundless_market,
-            set_verifier: self.set_verifier,
-            storage_provider: self.storage_provider,
-            downloader: Some(downloader),
-            offchain_client: self.offchain_client,
-            signer: self.signer,
-            request_builder: self.request_builder,
-            deployment: self.deployment,
-            funding_mode: self.funding_mode,
         }
     }
 
@@ -892,15 +872,13 @@ where
     }
 
     /// Downloads the content at the given URL using the configured downloader.
-    pub async fn download_url(&self, url: &Url) -> Result<Vec<u8>, ClientError>
+    pub async fn download(&self, url: &str) -> Result<Vec<u8>, ClientError>
     where
         D: StorageDownloader,
     {
         Ok(self
             .downloader
-            .as_ref()
-            .context("Storage downloader not set")?
-            .download_url(url.clone())
+            .download(url)
             .await
             .with_context(|| format!("Failed to download {}", url))?)
     }

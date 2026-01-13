@@ -65,8 +65,11 @@ pub async fn new_market_test_fixture(
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await?;
 
-    let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone())
-        .with_downloader(DefaultDownloader::new().await);
+    let client = boundless_market::Client::new(
+        ctx.prover_market.clone(),
+        ctx.set_verifier.clone(),
+        DefaultDownloader::new().await,
+    );
     let prover = OrderFulfiller::initialize(Arc::new(BrokerDefaultProver::default()), &client)
         .await
         .unwrap();

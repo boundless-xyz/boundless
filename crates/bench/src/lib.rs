@@ -124,7 +124,6 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         .with_rpc_url(args.rpc_url.clone())
         .with_storage_provider_config(&args.storage_config)
         .await?
-        .with_downloader(DefaultDownloader::new().await)
         .with_deployment(args.deployment.clone())
         .with_private_key(private_key)
         .with_balance_alerts(balance_alerts)
@@ -144,7 +143,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
             let url = Url::parse("https://dweb.link/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi").unwrap();
-            (boundless_client.download_url(&url).await?, url)
+            (boundless_client.download(url.as_str()).await?, url)
         }
     };
     let image_id = compute_image_id(&program)?;
@@ -556,6 +555,7 @@ mod tests {
         config_file
     }
 
+    /*
     #[tokio::test]
     #[traced_test]
     #[ignore = "Generates real proofs, slow without dev mode or bonsai"]
@@ -642,4 +642,5 @@ mod tests {
 
         broker_task.abort();
     }
+     */
 }

@@ -298,7 +298,7 @@ impl OrderFulfiller {
         P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
         D: StorageDownloader + Clone + 'static,
     {
-        let downloader = Arc::new(client.downloader.clone().unwrap());
+        let downloader = Arc::new(client.downloader.clone());
         let domain = client.boundless_market.eip712_domain().await?;
 
         let (assessor_image_id_bytes, assessor_url) = client.boundless_market.image_info().await?;
@@ -315,7 +315,7 @@ impl OrderFulfiller {
             assessor_image_id,
             ASSESSOR_DEFAULT_IMAGE_URL,
             &assessor_url,
-            downloader.as_ref(),
+            &downloader,
         )
         .await?;
 
@@ -684,9 +684,11 @@ mod tests {
     async fn test_fulfill_with_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        let client =
-            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone())
-                .with_downloader(DefaultDownloader::new().await);
+        let client = boundless_market::Client::new(
+            ctx.customer_market.clone(),
+            ctx.set_verifier.clone(),
+            DefaultDownloader::new().await,
+        );
 
         let signer = PrivateKeySigner::random();
         let (request, signature) =
@@ -703,9 +705,11 @@ mod tests {
     async fn test_fulfill() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        let client =
-            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone())
-                .with_downloader(DefaultDownloader::new().await);
+        let client = boundless_market::Client::new(
+            ctx.customer_market.clone(),
+            ctx.set_verifier.clone(),
+            DefaultDownloader::new().await,
+        );
 
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
@@ -721,9 +725,11 @@ mod tests {
     async fn test_fulfill_blake3_groth16_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        let client =
-            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone())
-                .with_downloader(DefaultDownloader::new().await);
+        let client = boundless_market::Client::new(
+            ctx.customer_market.clone(),
+            ctx.set_verifier.clone(),
+            DefaultDownloader::new().await,
+        );
 
         let input = [255u8; 32].to_vec(); // Example output data
         let blake3_claim_digest =

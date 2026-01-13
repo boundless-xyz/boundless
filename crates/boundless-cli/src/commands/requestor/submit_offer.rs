@@ -115,7 +115,6 @@ impl RequestorSubmitOffer {
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
-            .with_downloader(DefaultDownloader::new().await)
             .build()
             .await
             .context("Failed to build Boundless Client with signer")?;

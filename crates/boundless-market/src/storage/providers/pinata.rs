@@ -134,7 +134,7 @@ impl PinataStorageUploader {
                 "file",
                 Part::bytes(data.to_vec())
                     .mime_str("application/octet-stream")
-                    .map_err(|e| StorageError::http(e))?
+                    .map_err(StorageError::http)?
                     .file_name(filename.to_string()),
             )
             .part("network", Part::text("public"));
@@ -145,18 +145,17 @@ impl PinataStorageUploader {
             .header("Authorization", format!("Bearer {}", self.pinata_jwt))
             .multipart(form)
             .build()
-            .map_err(|e| StorageError::http(e))?;
+            .map_err(StorageError::http)?;
 
         tracing::debug!("Sending Pinata upload request: {}", request.url());
 
-        let response = self.client.execute(request).await.map_err(|e| StorageError::http(e))?;
+        let response = self.client.execute(request).await.map_err(StorageError::http)?;
 
         tracing::debug!("Pinata response status: {}", response.status());
 
-        let response = response.error_for_status().map_err(|e| StorageError::http(e))?;
+        let response = response.error_for_status().map_err(StorageError::http)?;
 
-        let json_value: serde_json::Value =
-            response.json().await.map_err(|e| StorageError::http(e))?;
+        let json_value: serde_json::Value = response.json().await.map_err(StorageError::http)?;
 
         let ipfs_hash = json_value
             .as_object()

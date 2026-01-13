@@ -83,13 +83,13 @@ impl StorageUploader for FileStorageUploader {
 }
 
 /// Downloader for `file://` URLs.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct FileStorageDownloader {}
 
 impl FileStorageDownloader {
     /// Creates a new file downloader.
     pub fn new() -> Self {
-        Self {}
+        Self::default()
     }
 }
 

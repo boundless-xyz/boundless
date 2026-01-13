@@ -76,7 +76,6 @@ impl RequestorSubmit {
             .client_builder_with_signer(global_config.tx_timeout)?
             .with_storage_provider_config(&self.storage_config)
             .await?
-            .with_downloader(DefaultDownloader::new().await)
             .build()
             .await
             .context("Failed to build Boundless Client")?;
@@ -109,8 +108,7 @@ impl RequestorSubmit {
         // Run preflight check if enabled
         if !self.no_preflight {
             display.info("Running request preflight check");
-            let (image_id, session_info) =
-                execute(&request, client.downloader.as_ref().unwrap()).await?;
+            let (image_id, session_info) = execute(&request, &client.downloader).await?;
             let journal = &session_info.journal.bytes;
 
             // Verify image ID

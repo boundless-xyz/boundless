@@ -90,7 +90,6 @@ async fn run(args: Args) -> Result<()> {
         .with_deployment(args.deployment)
         .with_storage_provider_config(&args.storage_config)
         .await?
-        .with_downloader(DefaultDownloader::new().await)
         .with_private_key(args.private_key)
         .build()
         .await

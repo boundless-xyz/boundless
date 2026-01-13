@@ -261,9 +261,11 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     // Wait for slasher to process the locked event before fulfilling
     wait_for_slasher_to_process_locked(&pool, request.id).await;
 
-    let client =
-        boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone())
-            .with_downloader(DefaultDownloader::new().await);
+    let client = boundless_market::Client::new(
+        ctx.customer_market.clone(),
+        ctx.set_verifier.clone(),
+        DefaultDownloader::new().await,
+    );
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
     let prover = OrderFulfiller::initialize(prover, &client).await.unwrap();
     let (fill, root_receipt, assessor_receipt) =

@@ -20,11 +20,7 @@ use crate::{
 use alloy::primitives::U256;
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_market::{
-    contracts::RequestInputType,
-    input::GuestEnv,
-    storage::{DefaultDownloader, StorageDownloader},
-};
+use boundless_market::{contracts::RequestInputType, input::GuestEnv};
 use clap::Args;
 use risc0_zkvm::compute_image_id;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -55,7 +51,6 @@ impl ProverBenchmark {
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
-        let downloader = DefaultDownloader::new().await;
 
         display.header("Benchmarking Proof Requests");
         display.item_colored("Total requests", self.request_ids.len(), "cyan");
@@ -98,7 +93,7 @@ impl ProverBenchmark {
             tracing::debug!("Image URL: {}", request.imageUrl);
 
             display.status("Status", "Fetching program and input", "yellow");
-            let elf = downloader.download(&request.imageUrl).await?;
+            let elf = client.download(&request.imageUrl).await?;
 
             tracing::debug!("Processing input");
             let input = match request.input.inputType {
@@ -107,9 +102,9 @@ impl ProverBenchmark {
                     let input_url = std::str::from_utf8(&request.input.data)
                         .context("Input URL is not valid UTF-8")?;
                     tracing::debug!("Fetching input from {}", input_url);
-                    GuestEnv::decode(&downloader.download(&input_url).await?)?.stdin
+                    GuestEnv::decode(&client.download(input_url).await?)?.stdin
                 }
-                _ => bail!("Unsupported input type "),
+                _ => bail!("Unsupported input type"),
             };
 
             display.status("Status", "Uploading to prover", "yellow");

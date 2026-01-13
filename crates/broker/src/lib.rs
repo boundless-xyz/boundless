@@ -766,7 +766,7 @@ where
 
         let bytes = self
             .downloader
-            .download(&url)
+            .download(url)
             .await
             .with_context(|| format!("Failed to download image from {}", source_name))?;
 

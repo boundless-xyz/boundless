@@ -175,7 +175,6 @@ async fn run(args: &MainArgs) -> Result<()> {
     let client = client
         .with_storage_provider_config(&args.storage_config)
         .await?
-        .with_downloader(DefaultDownloader::new().await)
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
