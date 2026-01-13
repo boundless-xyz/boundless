@@ -66,7 +66,8 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config).await?
+        .with_storage_provider_config(&args.storage_config)
+        .await?
         .with_private_key(args.private_key)
         .build()
         .await
