@@ -57,15 +57,23 @@ fn check_primary_performance_warning(cycle_count: u64, primary_performance: f64)
 /// Check if secondary performance exceeds threshold and log a warning with recommended timeout.
 ///
 /// Returns `true` if a warning was logged.
-fn check_secondary_performance_warning(cycle_count: u64, secondary_performance: f64) -> bool {
+fn check_secondary_performance_warning(
+    cycle_count: u64,
+    secondary_performance: f64,
+    lock_timeout: u32,
+) -> bool {
     if secondary_performance > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
-        let recommended_timeout =
+        // Secondary prover has (timeout - lockTimeout) time available
+        // Minimum time needed for secondary window: cycle_count / XL_threshold
+        let min_secondary_window =
             cycle_count.div_ceil(XL_REQUESTOR_LIST_THRESHOLD_KHZ as u64) as u32;
+        // Recommended total timeout = lockTimeout + minimum secondary window
+        let recommended_timeout = lock_timeout.saturating_add(min_secondary_window);
         tracing::warn!(
             "Warning: your request requires a proving Khz of {secondary_performance} to be \
              fulfilled before the timeout. This limits the number of provers in the network \
              that will be able to fulfill your order. Consider setting a longer timeout of \
-             at most {recommended_timeout} seconds."
+             at least {recommended_timeout} seconds."
         );
         true
     } else {
@@ -431,7 +439,11 @@ where
                 offer.required_khz_performance_secondary_prover(cycle_count);
 
             check_primary_performance_warning(cycle_count, primary_performance);
-            check_secondary_performance_warning(cycle_count, secondary_performance);
+            check_secondary_performance_warning(
+                cycle_count,
+                secondary_performance,
+                offer.lockTimeout,
+            );
 
             // Check if the collateral requirement is low and raise a warning if it is.
             if let Some(collateral) =
@@ -514,8 +526,10 @@ mod tests {
     fn test_check_secondary_performance_warning_below_threshold() {
         let cycle_count = 1000;
         let secondary_performance = 5000.0; // Below XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+        let lock_timeout = 600;
 
-        let result = check_secondary_performance_warning(cycle_count, secondary_performance);
+        let result =
+            check_secondary_performance_warning(cycle_count, secondary_performance, lock_timeout);
         assert!(!result, "Should not warn when performance is below threshold");
     }
 
@@ -524,8 +538,10 @@ mod tests {
     fn test_check_secondary_performance_warning_above_threshold() {
         let cycle_count = 20000;
         let secondary_performance = 15000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+        let lock_timeout = 600;
 
-        let result = check_secondary_performance_warning(cycle_count, secondary_performance);
+        let result =
+            check_secondary_performance_warning(cycle_count, secondary_performance, lock_timeout);
         assert!(result, "Should warn when performance is above threshold");
         assert!(
             logs_contain("Warning: your request requires a proving Khz"),
@@ -538,8 +554,10 @@ mod tests {
     fn test_check_secondary_performance_warning_exactly_at_threshold() {
         let cycle_count = 1000;
         let secondary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ;
+        let lock_timeout = 600;
 
-        let result = check_secondary_performance_warning(cycle_count, secondary_performance);
+        let result =
+            check_secondary_performance_warning(cycle_count, secondary_performance, lock_timeout);
         assert!(!result, "Should not warn when performance is exactly at threshold");
     }
 
