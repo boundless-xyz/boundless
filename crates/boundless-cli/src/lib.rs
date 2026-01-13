@@ -326,7 +326,7 @@ impl OrderFulfiller {
             set_builder_image_id,
             SET_BUILDER_DEFAULT_IMAGE_URL,
             &set_builder_url,
-            downloader.as_ref(),
+            &downloader,
         )
         .await?;
 

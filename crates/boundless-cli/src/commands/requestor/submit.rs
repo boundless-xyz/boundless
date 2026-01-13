@@ -29,7 +29,7 @@ use alloy::primitives::U256;
 use anyhow::{ensure, Context, Result};
 use boundless_market::{
     contracts::{FulfillmentData, Offer, Predicate, ProofRequest},
-    storage::{DefaultDownloader, StorageDownloader},
+    storage::StorageDownloader,
     StorageUploaderConfig,
 };
 use clap::Args;

@@ -35,7 +35,7 @@ use boundless_market::{
     deployments::Deployment,
     input::GuestEnv,
     request_builder::OfferParams,
-    storage::{DefaultDownloader, StorageUploaderConfig},
+    storage::StorageUploaderConfig,
 };
 use clap::Parser;
 use futures::future::try_join_all;

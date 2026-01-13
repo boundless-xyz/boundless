@@ -16,7 +16,6 @@ use crate::{OrderFulfilled, OrderFulfiller};
 use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
 use boundless_market::contracts::boundless_market::{FulfillmentTx, UnlockedRequest};
-use boundless_market::storage::DefaultDownloader;
 use clap::Args;
 
 use crate::config::{GlobalConfig, ProverConfig};

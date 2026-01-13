@@ -18,7 +18,7 @@ use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     contracts::{FulfillmentData, Predicate, ProofRequest},
-    storage::{DefaultDownloader, StorageDownloader},
+    storage::StorageDownloader,
 };
 use clap::Args;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, SessionInfo};
@@ -57,7 +57,6 @@ impl ProverExecute {
         let prover_config = self.prover_config.clone().load_and_validate()?;
         let client = prover_config.client_builder(global_config.tx_timeout)?.build().await?;
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
-        let downloader = DefaultDownloader::new().await;
         let display = DisplayManager::with_network(network_name);
 
         display.header("Executing Proof Request");
@@ -80,7 +79,7 @@ impl ProverExecute {
         };
 
         display.status("Status", "Starting execution", "yellow");
-        let (image_id, session_info) = execute(&request, &downloader, &display).await?;
+        let (image_id, session_info) = execute(&request, &client.downloader, &display).await?;
         let journal = session_info.journal.bytes;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 

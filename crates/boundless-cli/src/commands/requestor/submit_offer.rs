@@ -18,7 +18,7 @@ use boundless_market::{
     input::GuestEnvBuilder,
     request_builder::{OfferParams as OfferParamsStruct, RequirementParams},
     selector::{ProofType, SelectorExt},
-    storage::{DefaultDownloader, StorageUploaderConfig},
+    storage::StorageUploaderConfig,
 };
 use clap::Args;
 use serde_json;
