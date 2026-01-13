@@ -527,257 +527,150 @@ mod tests {
     use alloy::primitives::utils::parse_ether;
     use tracing_test::traced_test;
 
-    #[test]
-    fn test_check_primary_performance_warning_below_threshold() {
-        let cycle_count = 1000;
-        let primary_performance = 5000.0; // Below XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
-
-        let result = check_primary_performance_warning(cycle_count, primary_performance);
-        assert!(!result, "Should not warn when performance is below threshold");
+    fn default_collaterals() -> CollateralRecommendation {
+        CollateralRecommendation::new(
+            parse_ether("20").unwrap(),
+            parse_ether("50").unwrap(),
+            parse_ether("100").unwrap(),
+        )
     }
 
-    #[test]
-    #[traced_test]
-    fn test_check_primary_performance_warning_above_threshold() {
-        let cycle_count = 20000;
-        let primary_performance = 15000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+    mod performance_warnings {
+        use super::*;
 
-        let result = check_primary_performance_warning(cycle_count, primary_performance);
-        assert!(result, "Should warn when performance is above threshold");
-        assert!(
-            logs_contain("Warning: your request requires a proving Khz"),
-            "Should log warning message"
-        );
-        assert!(logs_contain("lock timeout"), "Should mention lock timeout in warning");
+        #[test]
+        fn primary_below_threshold() {
+            assert!(!check_primary_performance_warning(1000, 5000.0));
+        }
+
+        #[test]
+        #[traced_test]
+        fn primary_above_threshold() {
+            assert!(check_primary_performance_warning(20000, 15000.0));
+            assert!(logs_contain("Warning: your request requires a proving Khz"));
+            assert!(logs_contain("lock timeout"));
+        }
+
+        #[test]
+        fn primary_at_threshold() {
+            assert!(!check_primary_performance_warning(1000, XL_REQUESTOR_LIST_THRESHOLD_KHZ));
+        }
+
+        #[test]
+        fn secondary_below_threshold() {
+            assert!(!check_secondary_performance_warning(1000, 5000.0, 600));
+        }
+
+        #[test]
+        #[traced_test]
+        fn secondary_above_threshold() {
+            assert!(check_secondary_performance_warning(20000, 15000.0, 600));
+            assert!(logs_contain("Warning: your request requires a proving Khz"));
+            assert!(logs_contain("timeout"));
+        }
+
+        #[test]
+        fn secondary_at_threshold() {
+            assert!(!check_secondary_performance_warning(
+                1000,
+                XL_REQUESTOR_LIST_THRESHOLD_KHZ,
+                600
+            ));
+        }
     }
 
-    #[test]
-    fn test_check_primary_performance_warning_exactly_at_threshold() {
-        let cycle_count = 1000;
-        let primary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ;
+    mod collateral_recommendations {
+        use super::*;
 
-        let result = check_primary_performance_warning(cycle_count, primary_performance);
-        assert!(!result, "Should not warn when performance is exactly at threshold");
-    }
+        #[test]
+        fn low_performance_low_collateral() {
+            let result = default_collaterals()
+                .recommend_collateral(2000.0, parse_ether("10").unwrap())
+                .unwrap();
+            assert_eq!(result, Some(parse_ether("20").unwrap()));
+        }
 
-    #[test]
-    fn test_check_secondary_performance_warning_below_threshold() {
-        let cycle_count = 1000;
-        let secondary_performance = 5000.0; // Below XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
-        let lock_timeout = 600;
+        #[test]
+        fn low_performance_sufficient_collateral() {
+            let result = default_collaterals()
+                .recommend_collateral(2000.0, parse_ether("25").unwrap())
+                .unwrap();
+            assert_eq!(result, None);
+        }
 
-        let result =
-            check_secondary_performance_warning(cycle_count, secondary_performance, lock_timeout);
-        assert!(!result, "Should not warn when performance is below threshold");
-    }
+        #[test]
+        fn medium_performance_low_collateral() {
+            let result = default_collaterals()
+                .recommend_collateral(5000.0, parse_ether("30").unwrap())
+                .unwrap();
+            assert_eq!(result, Some(parse_ether("50").unwrap()));
+        }
 
-    #[test]
-    #[traced_test]
-    fn test_check_secondary_performance_warning_above_threshold() {
-        let cycle_count = 20000;
-        let secondary_performance = 15000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
-        let lock_timeout = 600;
+        #[test]
+        fn medium_performance_sufficient_collateral() {
+            let result = default_collaterals()
+                .recommend_collateral(5000.0, parse_ether("60").unwrap())
+                .unwrap();
+            assert_eq!(result, None);
+        }
 
-        let result =
-            check_secondary_performance_warning(cycle_count, secondary_performance, lock_timeout);
-        assert!(result, "Should warn when performance is above threshold");
-        assert!(
-            logs_contain("Warning: your request requires a proving Khz"),
-            "Should log warning message"
-        );
-        assert!(logs_contain("timeout"), "Should mention timeout in warning");
-    }
+        #[test]
+        fn high_performance_low_collateral() {
+            let result = default_collaterals()
+                .recommend_collateral(12000.0, parse_ether("80").unwrap())
+                .unwrap();
+            assert_eq!(result, Some(parse_ether("100").unwrap()));
+        }
 
-    #[test]
-    fn test_check_secondary_performance_warning_exactly_at_threshold() {
-        let cycle_count = 1000;
-        let secondary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ;
-        let lock_timeout = 600;
+        #[test]
+        fn high_performance_sufficient_collateral() {
+            let result = default_collaterals()
+                .recommend_collateral(12000.0, parse_ether("120").unwrap())
+                .unwrap();
+            assert_eq!(result, None);
+        }
 
-        let result =
-            check_secondary_performance_warning(cycle_count, secondary_performance, lock_timeout);
-        assert!(!result, "Should not warn when performance is exactly at threshold");
-    }
+        #[test]
+        fn at_large_threshold() {
+            let result = default_collaterals()
+                .recommend_collateral(
+                    LARGE_REQUESTOR_LIST_THRESHOLD_KHZ,
+                    parse_ether("10").unwrap(),
+                )
+                .unwrap();
+            assert_eq!(result, Some(parse_ether("50").unwrap()));
+        }
 
-    #[test]
-    fn test_recommend_collateral_low_performance_low_collateral() {
-        let secondary_performance = 2000.0; // Below LARGE_REQUESTOR_LIST_THRESHOLD_KHZ (4000.0)
-        let lock_collateral = parse_ether("10").unwrap(); // Below 20
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
+        #[test]
+        fn at_xl_threshold() {
+            let result = default_collaterals()
+                .recommend_collateral(XL_REQUESTOR_LIST_THRESHOLD_KHZ, parse_ether("80").unwrap())
+                .unwrap();
+            assert_eq!(result, Some(parse_ether("100").unwrap()));
+        }
 
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(
-            result,
-            Some(U256::from(20) * Unit::ETHER.wei_const()),
-            "Should recommend 20 for low performance and low collateral"
-        );
-    }
+        #[test]
+        fn exact_threshold_low() {
+            let result = default_collaterals()
+                .recommend_collateral(2000.0, parse_ether("20").unwrap())
+                .unwrap();
+            assert_eq!(result, None);
+        }
 
-    #[test]
-    fn test_recommend_collateral_low_performance_sufficient_collateral() {
-        let secondary_performance = 2000.0; // Below LARGE_REQUESTOR_LIST_THRESHOLD_KHZ (4000.0)
-        let lock_collateral = parse_ether("25").unwrap(); // Above 20
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
+        #[test]
+        fn exact_threshold_medium() {
+            let result = default_collaterals()
+                .recommend_collateral(5000.0, parse_ether("50").unwrap())
+                .unwrap();
+            assert_eq!(result, None);
+        }
 
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(result, None, "Should not recommend when collateral is sufficient");
-    }
-
-    #[test]
-    fn test_recommend_collateral_medium_performance_low_collateral() {
-        let secondary_performance = 5000.0; // Between LARGE and XL thresholds
-        let lock_collateral = parse_ether("30").unwrap(); // Below 50
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(
-            result,
-            Some(U256::from(50) * Unit::ETHER.wei_const()),
-            "Should recommend 50 for medium performance and low collateral"
-        );
-    }
-
-    #[test]
-    fn test_recommend_collateral_medium_performance_sufficient_collateral() {
-        let secondary_performance = 5000.0; // Between LARGE and XL thresholds
-        let lock_collateral = parse_ether("60").unwrap(); // Above 50
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(result, None, "Should not recommend when collateral is sufficient");
-    }
-
-    #[test]
-    fn test_recommend_collateral_high_performance_low_collateral() {
-        let secondary_performance = 12000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
-        let lock_collateral = parse_ether("80").unwrap(); // Below 100
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(
-            result,
-            Some(U256::from(100) * Unit::ETHER.wei_const()),
-            "Should recommend 100 for high performance and low collateral"
-        );
-    }
-
-    #[test]
-    fn test_recommend_collateral_high_performance_sufficient_collateral() {
-        let secondary_performance = 12000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
-        let lock_collateral = parse_ether("120").unwrap(); // Above 100
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(result, None, "Should not recommend when collateral is sufficient");
-    }
-
-    #[test]
-    fn test_recommend_collateral_at_large_threshold() {
-        let secondary_performance = LARGE_REQUESTOR_LIST_THRESHOLD_KHZ; // Exactly at threshold
-        let lock_collateral = parse_ether("10").unwrap();
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        // At exactly LARGE threshold, should not match first condition, should match second
-        assert_eq!(
-            result,
-            Some(U256::from(50) * Unit::ETHER.wei_const()),
-            "Should recommend 50 when at LARGE threshold"
-        );
-    }
-
-    #[test]
-    fn test_recommend_collateral_at_xl_threshold() {
-        let secondary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ; // Exactly at threshold
-        let lock_collateral = parse_ether("80").unwrap();
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(
-            result,
-            Some(U256::from(100) * Unit::ETHER.wei_const()),
-            "Should recommend 100 when at XL threshold"
-        );
-    }
-
-    #[test]
-    fn test_recommend_collateral_exact_thresholds() {
-        // Test with collateral exactly at the thresholds
-        let secondary_performance = 2000.0;
-        let lock_collateral = parse_ether("20").unwrap(); // Exactly at threshold
-        let default_collaterals = CollateralRecommendation::new(
-            U256::from(20) * Unit::ETHER.wei_const(),
-            U256::from(50) * Unit::ETHER.wei_const(),
-            U256::from(100) * Unit::ETHER.wei_const(),
-        );
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
-
-        let secondary_performance = 5000.0;
-        let lock_collateral = parse_ether("50").unwrap(); // Exactly at threshold
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
-
-        let secondary_performance = 12000.0;
-        let lock_collateral = parse_ether("100").unwrap(); // Exactly at threshold
-
-        let result = default_collaterals
-            .recommend_collateral(secondary_performance, lock_collateral)
-            .unwrap();
-        assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
+        #[test]
+        fn exact_threshold_high() {
+            let result = default_collaterals()
+                .recommend_collateral(12000.0, parse_ether("100").unwrap())
+                .unwrap();
+            assert_eq!(result, None);
+        }
     }
 }
