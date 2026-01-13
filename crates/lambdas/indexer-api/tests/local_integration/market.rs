@@ -1507,14 +1507,14 @@ async fn test_requestor_leaderboard_periods() {
         match period {
             "1h" => {
                 assert!(
-                    duration >= 3500 && duration <= 3700,
+                    (3500..=3700).contains(&duration),
                     "1h period should be ~3600s, got {}",
                     duration
                 );
             }
             "1d" => {
                 assert!(
-                    duration >= 86000 && duration <= 87000,
+                    (86000..=87000).contains(&duration),
                     "1d period should be ~86400s, got {}",
                     duration
                 );
@@ -1784,14 +1784,14 @@ async fn test_prover_leaderboard_periods() {
         match period {
             "1h" => {
                 assert!(
-                    duration >= 3500 && duration <= 3700,
+                    (3500..=3700).contains(&duration),
                     "1h period should be ~3600s, got {}",
                     duration
                 );
             }
             "1d" => {
                 assert!(
-                    duration >= 86000 && duration <= 87000,
+                    (86000..=87000).contains(&duration),
                     "1d period should be ~86400s, got {}",
                     duration
                 );
