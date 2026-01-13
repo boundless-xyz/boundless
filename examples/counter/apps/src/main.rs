@@ -24,7 +24,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, Deployment, DeliverySpeed, StorageProviderConfig};
+use boundless_market::{Client, DeliverySpeed, Deployment, StorageProviderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use risc0_zkvm::sha::Digestible;
