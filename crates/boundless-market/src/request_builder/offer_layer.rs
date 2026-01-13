@@ -57,16 +57,16 @@ pub struct OfferLayerConfig {
     pub bidding_start_delay: u64,
 
     /// Duration in seconds for the price to ramp up from min to max.
-    #[builder(default = "60")]
-    pub ramp_up_period: u32,
+    #[builder(setter(strip_option), default)]
+    pub ramp_up_period: Option<u32>,
 
     /// Time in seconds that a prover has to fulfill a locked request.
-    #[builder(default = "600")]
-    pub lock_timeout: u32,
+    #[builder(setter(strip_option), default)]
+    pub lock_timeout: Option<u32>,
 
     /// Maximum time in seconds that a request can remain active.
-    #[builder(default = "1200")]
-    pub timeout: u32,
+    #[builder(setter(strip_option), default)]
+    pub timeout: Option<u32>,
 
     /// Amount of the stake token that the prover must stake when locking a request.
     // TODO(BM-1233): Change this to be based on the Deployment configuration.
@@ -353,19 +353,21 @@ where
             .bidding_start
             .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
-        let (lock_timeout, timeout) = if let Some(cycle_count) = cycle_count {
-            let lock_timeout = self.config.delivery_speed.recommended_timeout(cycle_count);
-            let timeout = lock_timeout.saturating_mul(2);
-            (lock_timeout, timeout)
-        } else {
-            (self.config.lock_timeout, self.config.timeout)
-        };
+        let mut lock_timeout = self.config.lock_timeout.unwrap_or(0);
+        let mut timeout = self.config.timeout.unwrap_or(0);
+        let mut ramp_up_period = self.config.ramp_up_period.unwrap_or(0);
 
-        let ramp_up_period = if let Some(cycle_count) = cycle_count {
-            self.config.delivery_speed.recommended_ramp_up_period(cycle_count)
-        } else {
-            self.config.ramp_up_period
-        };
+        if lock_timeout == 0 {
+            lock_timeout = self.config.delivery_speed.recommended_timeout(cycle_count);
+        }
+
+        if timeout == 0 {
+            timeout = self.config.delivery_speed.recommended_timeout(cycle_count) * 2;
+        }
+
+        if ramp_up_period == 0 {
+            ramp_up_period = self.config.delivery_speed.recommended_ramp_up_period(cycle_count);
+        }
 
         let offer = Offer {
             minPrice: min_price,

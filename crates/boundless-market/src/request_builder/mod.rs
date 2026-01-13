@@ -707,19 +707,33 @@ impl DeliverySpeed {
     ///
     /// # Notes
     /// The timeout is guaranteed to be at least [self.min_timeout] seconds.
-    pub fn recommended_timeout(&self, cycle_count: u64) -> u32 {
-        let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
-        let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
-        let timeout = required_proving_time.saturating_add(required_executor_time) as u32;
-        timeout.max(self.min_timeout)
+    pub fn recommended_timeout(&self, cycle_count: Option<u64>) -> u32 {
+        if let Some(cycle_count) = cycle_count {
+            if cycle_count == 0 {
+                return 600;
+            }
+            let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
+            let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+            let timeout = required_proving_time.saturating_add(required_executor_time) as u32;
+            timeout.max(self.min_timeout)
+        } else {
+            600
+        }
     }
 
     /// Calculates the recommended ramp up period based on the cycle count and speeds.
     ///
     /// The ramp up period is calculated as the required executor time multiplied by the ramp up period multiplier.
-    pub fn recommended_ramp_up_period(&self, cycle_count: u64) -> u32 {
-        let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
-        required_executor_time as u32 * self.ramp_up_period_multiplier
+    pub fn recommended_ramp_up_period(&self, cycle_count: Option<u64>) -> u32 {
+        if let Some(cycle_count) = cycle_count {
+            if cycle_count == 0 {
+                return 60;
+            }
+            let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+            required_executor_time as u32 * self.ramp_up_period_multiplier
+        } else {
+            60
+        }
     }
 }
 
@@ -772,7 +786,7 @@ mod delivery_speed_tests {
 
         // Test with a small cycle count
         let cycle_count = 1_000_000; // 1M cycles
-        let timeout = speed.recommended_timeout(cycle_count);
+        let timeout = speed.recommended_timeout(Some(cycle_count));
 
         // Expected: (1_000_000 / (750 * 1000)) + (1_000_000 / (30000 * 1000))
         // = (1_000_000 / 750_000) + (1_000_000 / 30_000_000)
@@ -781,7 +795,7 @@ mod delivery_speed_tests {
 
         // Test with a larger cycle count that exceeds MIN_TIMEOUT
         let cycle_count = 50_000_000; // 50M cycles
-        let timeout = speed.recommended_timeout(cycle_count);
+        let timeout = speed.recommended_timeout(Some(cycle_count));
 
         // Expected: (50_000_000 / 750_000) + (50_000_000 / 30_000_000)
         // = 67 + 2 = 69 seconds
@@ -794,7 +808,7 @@ mod delivery_speed_tests {
 
         // Test with a small cycle count
         let cycle_count = 1_000_000; // 1M cycles
-        let timeout = speed.recommended_timeout(cycle_count);
+        let timeout = speed.recommended_timeout(Some(cycle_count as u64));
 
         // Expected: (1_000_000 / (3000 * 1000)) + (1_000_000 / (50000 * 1000))
         // = (1_000_000 / 3_000_000) + (1_000_000 / 50_000_000)
@@ -803,7 +817,7 @@ mod delivery_speed_tests {
 
         // Test with a larger cycle count
         let cycle_count = 50_000_000; // 50M cycles
-        let timeout = speed.recommended_timeout(cycle_count);
+        let timeout = speed.recommended_timeout(Some(cycle_count as u64));
 
         // Expected: (50_000_000 / 3_000_000) + (50_000_000 / 50_000_000)
         // = 17 + 1 = 18 seconds, but should be at least MIN_TIMEOUT (30)
@@ -811,7 +825,7 @@ mod delivery_speed_tests {
 
         // Test with a very large cycle count that exceeds MIN_TIMEOUT
         let cycle_count = 200_000_000; // 200M cycles
-        let timeout = speed.recommended_timeout(cycle_count);
+        let timeout = speed.recommended_timeout(Some(cycle_count as u64));
 
         // Expected: (200_000_000 / 3_000_000) + (200_000_000 / 50_000_000)
         // = 67 + 4 = 71 seconds
@@ -823,11 +837,11 @@ mod delivery_speed_tests {
         let speed = DeliverySpeed::default();
 
         // Test with zero cycles - should return MIN_TIMEOUT
-        let timeout = speed.recommended_timeout(0);
+        let timeout = speed.recommended_timeout(Some(0));
         assert_eq!(timeout, speed.min_timeout);
 
         // Test with very small cycle count - should return MIN_TIMEOUT
-        let timeout = speed.recommended_timeout(100);
+        let timeout = speed.recommended_timeout(Some(100));
         assert_eq!(timeout, speed.min_timeout);
     }
 
@@ -837,7 +851,7 @@ mod delivery_speed_tests {
 
         // Test with 1M cycles
         let cycle_count = 1_000_000;
-        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+        let ramp_up = speed.recommended_ramp_up_period(Some(cycle_count as u64));
 
         // Expected: (1_000_000 / (30000 * 1000)) * 10
         // = (1_000_000 / 30_000_000) * 10
@@ -846,7 +860,7 @@ mod delivery_speed_tests {
 
         // Test with 50M cycles
         let cycle_count = 50_000_000;
-        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+        let ramp_up = speed.recommended_ramp_up_period(Some(cycle_count as u64));
 
         // Expected: (50_000_000 / 30_000_000) * 10
         // = 2 * 10 = 20 seconds
@@ -859,7 +873,7 @@ mod delivery_speed_tests {
 
         // Test with 1M cycles
         let cycle_count = 1_000_000;
-        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+        let ramp_up = speed.recommended_ramp_up_period(Some(cycle_count as u64));
 
         // Expected: (1_000_000 / (50000 * 1000)) * 5
         // = (1_000_000 / 50_000_000) * 5
@@ -868,7 +882,7 @@ mod delivery_speed_tests {
 
         // Test with 50M cycles
         let cycle_count = 50_000_000;
-        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+        let ramp_up = speed.recommended_ramp_up_period(Some(cycle_count as u64));
 
         // Expected: (50_000_000 / 50_000_000) * 5
         // = 1 * 5 = 5 seconds
@@ -880,7 +894,7 @@ mod delivery_speed_tests {
         let speed = DeliverySpeed::default();
 
         // Test with zero cycles
-        let ramp_up = speed.recommended_ramp_up_period(0);
+        let ramp_up = speed.recommended_ramp_up_period(Some(0));
         assert_eq!(ramp_up, 0);
     }
 
@@ -891,8 +905,8 @@ mod delivery_speed_tests {
 
         let cycle_count = 100_000_000; // 100M cycles
 
-        let default_timeout = default_speed.recommended_timeout(cycle_count);
-        let fast_timeout = fast_speed.recommended_timeout(cycle_count);
+        let default_timeout = default_speed.recommended_timeout(Some(cycle_count as u64));
+        let fast_timeout = fast_speed.recommended_timeout(Some(cycle_count as u64));
 
         // Fast speed should generally result in shorter timeouts (when above MIN_TIMEOUT)
         // For this cycle count, both should be above MIN_TIMEOUT
@@ -1226,14 +1240,20 @@ mod tests {
         // Check that overrides are respected.
         let min_price = U256::from(1u64);
         let max_price = U256::from(5u64);
-        let offer_params = OfferParams::builder().max_price(max_price).min_price(min_price).into();
+        let offer_params = OfferParams::builder()
+            .max_price(max_price)
+            .min_price(min_price)
+            .ramp_up_period(20)
+            .lock_timeout(50)
+            .timeout(80)
+            .into();
         let offer_zero_mcycles =
             layer.process((&requirements, &request_id, Some(0u64), &offer_params)).await?;
         assert_eq!(offer_zero_mcycles.maxPrice, max_price);
         assert_eq!(offer_zero_mcycles.minPrice, min_price);
-        assert_eq!(offer_zero_mcycles.rampUpPeriod, 60);
-        assert_eq!(offer_zero_mcycles.lockTimeout, 600);
-        assert_eq!(offer_zero_mcycles.timeout, 1200);
+        assert_eq!(offer_zero_mcycles.rampUpPeriod, 20);
+        assert_eq!(offer_zero_mcycles.lockTimeout, 50);
+        assert_eq!(offer_zero_mcycles.timeout, 80);
         Ok(())
     }
 
