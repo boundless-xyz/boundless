@@ -680,32 +680,43 @@ pub async fn wait_for_indexer<P: Provider>(provider: &P, pool: &PgPool) {
     let poll_interval = Duration::from_millis(200);
 
     loop {
-        // Query last processed block from indexer (block is stored as TEXT)
-        let result: Result<(String,), _> =
+        // Query last processed block from main indexer (id=0) and aggregation indexer (id=1)
+        let main_result: Result<(String,), _> =
             sqlx::query_as("SELECT block FROM last_block WHERE id = 0").fetch_one(pool).await;
+        let aggregation_result: Result<(String,), _> =
+            sqlx::query_as("SELECT block FROM last_block WHERE id = 1").fetch_one(pool).await;
 
-        if let Ok((ref last_block_str,)) = result {
-            if let Ok(last_block) = last_block_str.parse::<u64>() {
-                if last_block >= current_block {
-                    tracing::info!(
-                        "Indexer caught up to block {} at timestamp {}",
-                        current_block,
-                        block_timestamp
-                    );
-                    return;
-                }
+        if let (Ok(main_res), Ok(agg_res)) = (&main_result, &aggregation_result) {
+            let main_block: u64 = main_res.0.parse::<u64>().unwrap_or(0);
+            let agg_block: u64 = agg_res.0.parse::<u64>().unwrap_or(0);
+
+            let main_caught_up = main_block >= current_block;
+            let aggregation_caught_up = agg_block >= current_block;
+
+            if main_caught_up && aggregation_caught_up {
+                tracing::info!(
+                    "Indexer caught up to block {} at timestamp {}",
+                    current_block,
+                    block_timestamp
+                );
+                return;
             }
         }
 
         if start.elapsed() > timeout {
-            let last_block_info = result
+            let main_block_info = main_result
+                .as_ref()
                 .ok()
-                .and_then(|(s,)| s.parse::<u64>().ok())
-                .map(|b| format!("{}", b))
-                .unwrap_or_else(|| "None".to_string());
+                .and_then(|r| r.0.parse::<u64>().ok())
+                .map_or("NO_BLOCK".to_string(), |b| b.to_string());
+            let aggregation_block_info = aggregation_result
+                .as_ref()
+                .ok()
+                .and_then(|r| r.0.parse::<u64>().ok())
+                .map_or("NO_BLOCK".to_string(), |b| b.to_string());
             panic!(
-                "Timeout waiting for indexer to reach block {}. Last known block: {}",
-                current_block, last_block_info
+                "Timeout waiting for indexers to reach block {}. Main indexer: {}, Aggregation indexer: {}",
+                current_block, main_block_info, aggregation_block_info
             );
         }
 

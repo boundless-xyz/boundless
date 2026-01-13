@@ -33,6 +33,7 @@ use sqlx::{
 };
 
 const SQL_BLOCK_KEY: i64 = 0;
+const SQL_AGGREGATION_BLOCK_KEY: i64 = 1;
 
 // Padding width for U256 (78 digits for 2^256-1)
 const U256_PADDING_WIDTH: usize = 78;
@@ -311,6 +312,77 @@ pub struct AllTimeRequestorSummary {
 }
 
 #[derive(Debug, Clone)]
+pub struct PeriodProverSummary {
+    pub period_timestamp: u64,
+    pub prover_address: Address,
+    pub total_requests_locked: u64,
+    pub total_requests_fulfilled: u64,
+    pub total_unique_requestors: u64,
+    pub total_fees_earned: U256,
+    pub total_collateral_locked: U256,
+    pub total_collateral_slashed: U256,
+    pub total_collateral_earned: U256,
+    pub total_requests_locked_and_expired: u64,
+    pub total_requests_locked_and_fulfilled: u64,
+    pub locked_orders_fulfillment_rate: f32,
+    pub p10_lock_price_per_cycle: U256,
+    pub p25_lock_price_per_cycle: U256,
+    pub p50_lock_price_per_cycle: U256,
+    pub p75_lock_price_per_cycle: U256,
+    pub p90_lock_price_per_cycle: U256,
+    pub p95_lock_price_per_cycle: U256,
+    pub p99_lock_price_per_cycle: U256,
+    pub total_program_cycles: U256,
+    pub total_cycles: U256,
+    pub best_peak_prove_mhz: f64,
+    pub best_peak_prove_mhz_request_id: Option<U256>,
+    pub best_effective_prove_mhz: f64,
+    pub best_effective_prove_mhz_request_id: Option<U256>,
+}
+
+impl PeriodProverSummary {
+    pub fn has_activity(&self) -> bool {
+        self.total_requests_locked != 0
+            || self.total_requests_fulfilled != 0
+            || self.total_fees_earned != U256::ZERO
+            || self.total_collateral_locked != U256::ZERO
+            || self.total_collateral_slashed != U256::ZERO
+            || self.total_collateral_earned != U256::ZERO
+            || self.total_requests_locked_and_expired != 0
+            || self.total_requests_locked_and_fulfilled != 0
+            || self.total_program_cycles != U256::ZERO
+            || self.total_cycles != U256::ZERO
+    }
+}
+
+pub type HourlyProverSummary = PeriodProverSummary;
+pub type DailyProverSummary = PeriodProverSummary;
+pub type WeeklyProverSummary = PeriodProverSummary;
+pub type MonthlyProverSummary = PeriodProverSummary;
+
+#[derive(Debug, Clone)]
+pub struct AllTimeProverSummary {
+    pub period_timestamp: u64,
+    pub prover_address: Address,
+    pub total_requests_locked: u64,
+    pub total_requests_fulfilled: u64,
+    pub total_unique_requestors: u64,
+    pub total_fees_earned: U256,
+    pub total_collateral_locked: U256,
+    pub total_collateral_slashed: U256,
+    pub total_collateral_earned: U256,
+    pub total_requests_locked_and_expired: u64,
+    pub total_requests_locked_and_fulfilled: u64,
+    pub locked_orders_fulfillment_rate: f32,
+    pub total_program_cycles: U256,
+    pub total_cycles: U256,
+    pub best_peak_prove_mhz: f64,
+    pub best_peak_prove_mhz_request_id: Option<U256>,
+    pub best_effective_prove_mhz: f64,
+    pub best_effective_prove_mhz_request_id: Option<U256>,
+}
+
+#[derive(Debug, Clone)]
 pub struct RequestStatus {
     pub request_digest: B256,
     pub request_id: U256,
@@ -493,6 +565,9 @@ pub trait IndexerDb {
 
     async fn get_last_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_block(&self, block_numb: u64) -> Result<(), DbError>;
+
+    async fn get_last_aggregation_block(&self) -> Result<Option<u64>, DbError>;
+    async fn set_last_aggregation_block(&self, block_numb: u64) -> Result<(), DbError>;
 
     async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
@@ -964,6 +1039,38 @@ impl IndexerDb for MarketDb {
          ON CONFLICT (id) DO UPDATE SET block = EXCLUDED.block",
         )
         .bind(SQL_BLOCK_KEY)
+        .bind(block_numb.to_string())
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::SetBlockFail);
+        }
+
+        Ok(())
+    }
+
+    async fn get_last_aggregation_block(&self) -> Result<Option<u64>, DbError> {
+        let res = sqlx::query("SELECT block FROM last_block WHERE id = $1")
+            .bind(SQL_AGGREGATION_BLOCK_KEY)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(row) = res else {
+            return Ok(None);
+        };
+
+        let block_str: String = row.try_get("block")?;
+
+        Ok(Some(block_str.parse().map_err(|_err| DbError::BadBlockNumb(block_str))?))
+    }
+
+    async fn set_last_aggregation_block(&self, block_numb: u64) -> Result<(), DbError> {
+        let res = sqlx::query(
+            "INSERT INTO last_block (id, block) VALUES ($1, $2)
+         ON CONFLICT (id) DO UPDATE SET block = EXCLUDED.block",
+        )
+        .bind(SQL_AGGREGATION_BLOCK_KEY)
         .bind(block_numb.to_string())
         .execute(&self.pool)
         .await?;

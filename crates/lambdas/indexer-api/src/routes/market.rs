@@ -53,6 +53,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/requestors/:address/aggregates", get(get_requestor_aggregates))
         .route("/requestors/:address/cumulatives", get(get_requestor_cumulatives))
         .route("/provers/:address/requests", get(list_requests_by_prover))
+        .route("/provers/:address/aggregates", get(get_prover_aggregates))
+        .route("/provers/:address/cumulatives", get(get_prover_cumulatives))
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -670,6 +672,126 @@ pub struct RequestorCumulativesResponse {
     /// Requestor address
     pub requestor_address: String,
     pub data: Vec<RequestorCumulativeEntry>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams, Clone)]
+pub struct ProverAggregatesParams {
+    #[serde(default)]
+    aggregation: AggregationGranularity,
+
+    #[serde(default)]
+    cursor: Option<String>,
+
+    #[serde(default)]
+    limit: Option<u64>,
+
+    #[serde(default)]
+    sort: Option<String>,
+
+    #[serde(default)]
+    before: Option<i64>,
+
+    #[serde(default)]
+    after: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProverAggregateEntry {
+    pub chain_id: u64,
+    pub prover_address: String,
+    pub timestamp: i64,
+    pub timestamp_iso: String,
+    pub total_requests_locked: i64,
+    pub total_requests_fulfilled: i64,
+    pub total_unique_requestors: i64,
+    pub total_fees_earned: String,
+    pub total_fees_earned_formatted: String,
+    pub total_collateral_locked: String,
+    pub total_collateral_locked_formatted: String,
+    pub total_collateral_slashed: String,
+    pub total_collateral_slashed_formatted: String,
+    pub total_collateral_earned: String,
+    pub total_collateral_earned_formatted: String,
+    pub total_requests_locked_and_expired: i64,
+    pub total_requests_locked_and_fulfilled: i64,
+    pub locked_orders_fulfillment_rate: f32,
+    pub p10_lock_price_per_cycle: String,
+    pub p10_lock_price_per_cycle_formatted: String,
+    pub p25_lock_price_per_cycle: String,
+    pub p25_lock_price_per_cycle_formatted: String,
+    pub p50_lock_price_per_cycle: String,
+    pub p50_lock_price_per_cycle_formatted: String,
+    pub p75_lock_price_per_cycle: String,
+    pub p75_lock_price_per_cycle_formatted: String,
+    pub p90_lock_price_per_cycle: String,
+    pub p90_lock_price_per_cycle_formatted: String,
+    pub p95_lock_price_per_cycle: String,
+    pub p95_lock_price_per_cycle_formatted: String,
+    pub p99_lock_price_per_cycle: String,
+    pub p99_lock_price_per_cycle_formatted: String,
+    pub total_program_cycles: String,
+    pub total_cycles: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProverAggregatesResponse {
+    pub chain_id: u64,
+    pub prover_address: String,
+    pub aggregation: AggregationGranularity,
+    pub data: Vec<ProverAggregateEntry>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams, Clone)]
+pub struct ProverCumulativesParams {
+    #[serde(default)]
+    cursor: Option<String>,
+
+    #[serde(default)]
+    limit: Option<u64>,
+
+    #[serde(default)]
+    sort: Option<String>,
+
+    #[serde(default)]
+    before: Option<i64>,
+
+    #[serde(default)]
+    after: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProverCumulativeEntry {
+    pub chain_id: u64,
+    pub prover_address: String,
+    pub timestamp: i64,
+    pub timestamp_iso: String,
+    pub total_requests_locked: i64,
+    pub total_requests_fulfilled: i64,
+    pub total_unique_requestors: i64,
+    pub total_fees_earned: String,
+    pub total_fees_earned_formatted: String,
+    pub total_collateral_locked: String,
+    pub total_collateral_locked_formatted: String,
+    pub total_collateral_slashed: String,
+    pub total_collateral_slashed_formatted: String,
+    pub total_collateral_earned: String,
+    pub total_collateral_earned_formatted: String,
+    pub total_requests_locked_and_expired: i64,
+    pub total_requests_locked_and_fulfilled: i64,
+    pub locked_orders_fulfillment_rate: f32,
+    pub total_program_cycles: String,
+    pub total_cycles: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProverCumulativesResponse {
+    pub chain_id: u64,
+    pub prover_address: String,
+    pub data: Vec<ProverCumulativeEntry>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }
@@ -1404,6 +1526,346 @@ async fn get_requestor_cumulatives_impl(
     Ok(RequestorCumulativesResponse {
         chain_id: state.chain_id,
         requestor_address: format!("{:#x}", requestor_address),
+        data,
+        next_cursor,
+        has_more,
+    })
+}
+
+/// GET /v1/market/provers/:address/aggregates
+/// Returns aggregated prover data for the specified time period
+#[utoipa::path(
+    get,
+    path = "/v1/market/provers/{address}/aggregates",
+    tag = "Market",
+    params(
+        ("address" = String, Path, description = "Prover address"),
+        ProverAggregatesParams
+    ),
+    responses(
+        (status = 200, description = "Prover aggregates", body = ProverAggregatesResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_prover_aggregates(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+    Query(params): Query<ProverAggregatesParams>,
+) -> Response {
+    let params_clone = params.clone();
+    match get_prover_aggregates_impl(state, address, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let is_recent = params_clone.before.is_none_or(|before| before > now - 86400);
+            let cache_duration =
+                if is_recent { "public, max-age=60" } else { "public, max-age=300" };
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_prover_aggregates_impl(
+    state: Arc<AppState>,
+    address: String,
+    params: ProverAggregatesParams,
+) -> anyhow::Result<ProverAggregatesResponse> {
+    let prover_address = Address::from_str(&address)?;
+
+    if matches!(params.aggregation, AggregationGranularity::Monthly) {
+        anyhow::bail!("Monthly aggregation is not supported for prover aggregates");
+    }
+
+    tracing::debug!(
+        "Fetching prover aggregates: address={}, aggregation={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
+        address,
+        params.aggregation,
+        params.cursor,
+        params.limit,
+        params.sort,
+        params.before,
+        params.after
+    );
+
+    let cursor =
+        if let Some(cursor_str) = &params.cursor { Some(decode_cursor(cursor_str)?) } else { None };
+
+    let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
+    let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
+    let limit_i64 = i64::try_from(limit)?;
+
+    let sort = match params.sort.as_deref() {
+        Some("asc") => SortDirection::Asc,
+        Some("desc") | None => SortDirection::Desc,
+        _ => anyhow::bail!("Invalid sort direction. Must be 'asc' or 'desc'"),
+    };
+
+    let limit_plus_one = limit_i64 + 1;
+
+    let mut summaries = match params.aggregation {
+        AggregationGranularity::Hourly => {
+            state
+                .market_db
+                .get_hourly_prover_summaries(
+                    prover_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Daily => {
+            state
+                .market_db
+                .get_daily_prover_summaries(
+                    prover_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Weekly => {
+            state
+                .market_db
+                .get_weekly_prover_summaries(
+                    prover_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
+        AggregationGranularity::Monthly => {
+            anyhow::bail!("Monthly aggregation is not supported");
+        }
+    };
+
+    let has_more = summaries.len() > limit as usize;
+    if has_more {
+        summaries.pop();
+    }
+
+    let next_cursor = if has_more && !summaries.is_empty() {
+        let last_summary = summaries.last().unwrap();
+        Some(encode_cursor(last_summary.period_timestamp as i64)?)
+    } else {
+        None
+    };
+
+    let data = summaries
+        .into_iter()
+        .map(|summary| {
+            let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
+
+            let total_fees_earned = summary.total_fees_earned.to_string();
+            let total_collateral_locked = summary.total_collateral_locked.to_string();
+            let total_collateral_slashed = summary.total_collateral_slashed.to_string();
+            let total_collateral_earned = summary.total_collateral_earned.to_string();
+            let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
+            let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
+            let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
+            let p75_lock_price_per_cycle = summary.p75_lock_price_per_cycle.to_string();
+            let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
+            let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
+            let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            ProverAggregateEntry {
+                chain_id: state.chain_id,
+                prover_address: format!("{:#x}", summary.prover_address),
+                timestamp: summary.period_timestamp as i64,
+                timestamp_iso,
+                total_requests_locked: summary.total_requests_locked as i64,
+                total_requests_fulfilled: summary.total_requests_fulfilled as i64,
+                total_unique_requestors: summary.total_unique_requestors as i64,
+                total_fees_earned: total_fees_earned.clone(),
+                total_fees_earned_formatted: format_eth(&total_fees_earned),
+                total_collateral_locked: total_collateral_locked.clone(),
+                total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                total_collateral_slashed: total_collateral_slashed.clone(),
+                total_collateral_slashed_formatted: format_zkc(&total_collateral_slashed),
+                total_collateral_earned: total_collateral_earned.clone(),
+                total_collateral_earned_formatted: format_zkc(&total_collateral_earned),
+                total_requests_locked_and_expired: summary.total_requests_locked_and_expired as i64,
+                total_requests_locked_and_fulfilled: summary.total_requests_locked_and_fulfilled
+                    as i64,
+                locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
+                p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
+                p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
+                p25_lock_price_per_cycle_formatted: format_eth(&p25_lock_price_per_cycle),
+                p50_lock_price_per_cycle: p50_lock_price_per_cycle.clone(),
+                p50_lock_price_per_cycle_formatted: format_eth(&p50_lock_price_per_cycle),
+                p75_lock_price_per_cycle: p75_lock_price_per_cycle.clone(),
+                p75_lock_price_per_cycle_formatted: format_eth(&p75_lock_price_per_cycle),
+                p90_lock_price_per_cycle: p90_lock_price_per_cycle.clone(),
+                p90_lock_price_per_cycle_formatted: format_eth(&p90_lock_price_per_cycle),
+                p95_lock_price_per_cycle: p95_lock_price_per_cycle.clone(),
+                p95_lock_price_per_cycle_formatted: format_eth(&p95_lock_price_per_cycle),
+                p99_lock_price_per_cycle: p99_lock_price_per_cycle.clone(),
+                p99_lock_price_per_cycle_formatted: format_eth(&p99_lock_price_per_cycle),
+                total_program_cycles: summary.total_program_cycles.to_string(),
+                total_cycles: summary.total_cycles.to_string(),
+            }
+        })
+        .collect();
+
+    Ok(ProverAggregatesResponse {
+        chain_id: state.chain_id,
+        prover_address: format!("{:#x}", prover_address),
+        aggregation: params.aggregation,
+        data,
+        next_cursor,
+        has_more,
+    })
+}
+
+/// GET /v1/market/provers/:address/cumulatives
+/// Returns all-time prover statistics over time with pagination
+#[utoipa::path(
+    get,
+    path = "/v1/market/provers/{address}/cumulatives",
+    tag = "Market",
+    params(
+        ("address" = String, Path, description = "Prover address"),
+        ProverCumulativesParams
+    ),
+    responses(
+        (status = 200, description = "Prover cumulatives", body = ProverCumulativesResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_prover_cumulatives(
+    State(state): State<Arc<AppState>>,
+    Path(address): Path<String>,
+    Query(params): Query<ProverCumulativesParams>,
+) -> Response {
+    let params_clone = params.clone();
+    match get_prover_cumulatives_impl(state, address, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let is_recent = params_clone.before.is_none_or(|before| before > now - 86400);
+            let cache_duration =
+                if is_recent { "public, max-age=60" } else { "public, max-age=300" };
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn get_prover_cumulatives_impl(
+    state: Arc<AppState>,
+    address: String,
+    params: ProverCumulativesParams,
+) -> anyhow::Result<ProverCumulativesResponse> {
+    let prover_address = Address::from_str(&address)?;
+
+    tracing::debug!(
+        "Fetching prover cumulatives: address={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
+        address,
+        params.cursor,
+        params.limit,
+        params.sort,
+        params.before,
+        params.after
+    );
+
+    let cursor =
+        if let Some(cursor_str) = &params.cursor { Some(decode_cursor(cursor_str)?) } else { None };
+
+    let limit = params.limit.unwrap_or(DEFAULT_AGGREGATES_LIMIT);
+    let limit = if limit > MAX_AGGREGATES { MAX_AGGREGATES } else { limit };
+    let limit_i64 = i64::try_from(limit)?;
+
+    let sort = match params.sort.as_deref() {
+        Some("asc") => SortDirection::Asc,
+        Some("desc") | None => SortDirection::Desc,
+        _ => anyhow::bail!("Invalid sort direction. Must be 'asc' or 'desc'"),
+    };
+
+    let limit_plus_one = limit_i64 + 1;
+
+    let mut summaries = state
+        .market_db
+        .get_all_time_prover_summaries(
+            prover_address,
+            cursor,
+            limit_plus_one,
+            sort,
+            params.before,
+            params.after,
+        )
+        .await?;
+
+    let has_more = summaries.len() > limit as usize;
+    if has_more {
+        summaries.pop();
+    }
+
+    let next_cursor = if has_more && !summaries.is_empty() {
+        let last_summary = summaries.last().unwrap();
+        Some(encode_cursor(last_summary.period_timestamp as i64)?)
+    } else {
+        None
+    };
+
+    let data = summaries
+        .into_iter()
+        .map(|summary| {
+            let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
+
+            let total_fees_earned = summary.total_fees_earned.to_string();
+            let total_collateral_locked = summary.total_collateral_locked.to_string();
+            let total_collateral_slashed = summary.total_collateral_slashed.to_string();
+            let total_collateral_earned = summary.total_collateral_earned.to_string();
+
+            ProverCumulativeEntry {
+                chain_id: state.chain_id,
+                prover_address: format!("{:#x}", summary.prover_address),
+                timestamp: summary.period_timestamp as i64,
+                timestamp_iso,
+                total_requests_locked: summary.total_requests_locked as i64,
+                total_requests_fulfilled: summary.total_requests_fulfilled as i64,
+                total_unique_requestors: summary.total_unique_requestors as i64,
+                total_fees_earned: total_fees_earned.clone(),
+                total_fees_earned_formatted: format_eth(&total_fees_earned),
+                total_collateral_locked: total_collateral_locked.clone(),
+                total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                total_collateral_slashed: total_collateral_slashed.clone(),
+                total_collateral_slashed_formatted: format_zkc(&total_collateral_slashed),
+                total_collateral_earned: total_collateral_earned.clone(),
+                total_collateral_earned_formatted: format_zkc(&total_collateral_earned),
+                total_requests_locked_and_expired: summary.total_requests_locked_and_expired as i64,
+                total_requests_locked_and_fulfilled: summary.total_requests_locked_and_fulfilled
+                    as i64,
+                locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                total_program_cycles: summary.total_program_cycles.to_string(),
+                total_cycles: summary.total_cycles.to_string(),
+            }
+        })
+        .collect();
+
+    Ok(ProverCumulativesResponse {
+        chain_id: state.chain_id,
+        prover_address: format!("{:#x}", prover_address),
         data,
         next_cursor,
         has_more,
