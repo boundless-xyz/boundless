@@ -311,6 +311,33 @@ pub struct AllTimeRequestorSummary {
     pub best_effective_prove_mhz_request_id: Option<U256>,
 }
 
+// Leaderboard entry for requestor aggregation across time periods
+#[derive(Debug, Clone)]
+pub struct RequestorLeaderboardEntry {
+    pub requestor_address: Address,
+    pub orders_requested: u64,
+    pub orders_locked: u64,
+    pub cycles_requested: U256,
+    pub median_lock_price_per_cycle: Option<U256>,
+    pub acceptance_rate: f32,
+    pub locked_order_fulfillment_rate: f32,
+    pub last_activity_time: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProverLeaderboardEntry {
+    pub prover_address: Address,
+    pub orders_locked: u64,
+    pub orders_fulfilled: u64,
+    pub cycles: U256,
+    pub fees_earned: U256,
+    pub collateral_earned: U256,
+    pub median_lock_price_per_cycle: Option<U256>,
+    pub peak_prove_mhz: f64,
+    pub locked_order_fulfillment_rate: f32,
+    pub last_activity_time: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct PeriodProverSummary {
     pub period_timestamp: u64,

@@ -68,6 +68,8 @@ use utoipa::OpenApi;
         crate::routes::market::get_market_cumulatives,
         crate::routes::market::list_requests,
         crate::routes::market::get_requests_by_request_id,
+        crate::routes::market::list_requestors,
+        crate::routes::market::list_provers,
         crate::routes::market::list_requests_by_requestor,
         crate::routes::market::get_requestor_aggregates,
         crate::routes::market::get_requestor_cumulatives,
@@ -124,6 +126,14 @@ use utoipa::OpenApi;
         crate::routes::market::RequestStatusResponse,
         crate::routes::market::RequestListResponse,
         crate::routes::market::AggregationGranularity,
+        crate::routes::market::LeaderboardPeriod,
+        crate::routes::market::RequestorLeaderboardParams,
+        crate::routes::market::RequestorLeaderboardEntry,
+        crate::routes::market::RequestorLeaderboardResponse,
+        crate::routes::market::RequestorLeaderboardCursor,
+        crate::routes::market::ProverLeaderboardEntry,
+        crate::routes::market::ProverLeaderboardResponse,
+        crate::routes::market::ProverLeaderboardCursor,
     ))
 )]
 pub struct ApiDoc;
