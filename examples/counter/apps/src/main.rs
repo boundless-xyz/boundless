@@ -24,7 +24,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, Deployment, StorageProviderConfig};
+use boundless_market::{Client, Deployment, DeliverySpeed, StorageProviderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use risc0_zkvm::sha::Digestible;
@@ -90,6 +90,7 @@ async fn run(args: Args) -> Result<()> {
         .with_deployment(args.deployment)
         .with_storage_provider_config(&args.storage_config)?
         .with_private_key(args.private_key)
+        .with_delivery_speed(DeliverySpeed::default()) // Or use DeliverySpeed::fast() for faster delivery
         .build()
         .await
         .context("failed to build boundless client")?;

@@ -15,6 +15,7 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
+    request_builder::DeliverySpeed,
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
 };
@@ -37,6 +38,12 @@ use derive_builder::Builder;
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct OfferLayerConfig {
+    /// Delivery speed.
+    ///
+    /// Overrides the default lock timeout and timeout.
+    #[builder(setter(into), default = "DeliverySpeed::default()")]
+    pub delivery_speed: DeliverySpeed,
+
     /// Minimum price per RISC Zero execution cycle, in wei.
     #[builder(setter(into), default = "U256::ZERO")]
     pub min_price_per_cycle: U256,
@@ -346,15 +353,33 @@ where
             .bidding_start
             .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
-        Ok(Offer {
+        let (lock_timeout, timeout) = if let Some(cycle_count) = cycle_count {
+            let lock_timeout = self.config.delivery_speed.recommended_timeout(cycle_count);
+            let timeout = lock_timeout.saturating_mul(2);
+            (lock_timeout, timeout)
+        } else {
+            (self.config.lock_timeout, self.config.timeout)
+        };
+
+        let ramp_up_period = if let Some(cycle_count) = cycle_count {
+            self.config.delivery_speed.recommended_ramp_up_period(cycle_count)
+        } else {
+            self.config.ramp_up_period
+        };
+
+        let offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
             rampUpStart: bidding_start,
-            rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
-            lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
-            timeout: params.timeout.unwrap_or(self.config.timeout),
+            rampUpPeriod: params.ramp_up_period.unwrap_or(ramp_up_period),
+            lockTimeout: params.lock_timeout.unwrap_or(lock_timeout),
+            timeout: params.timeout.unwrap_or(timeout),
             lockCollateral: params.lock_collateral.unwrap_or(self.config.lock_collateral),
-        })
+        };
+
+        tracing::info!("Offer: {:?}", offer);
+
+        Ok(offer)
     }
 }
 

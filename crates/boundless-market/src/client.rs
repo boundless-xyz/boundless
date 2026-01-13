@@ -53,6 +53,7 @@ use crate::{
         StorageProviderConfig,
     },
     util::NotProvided,
+    DeliverySpeed
 };
 
 /// Funding mode for requests submission.
@@ -393,6 +394,28 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the funding mode for onchain requests.
     pub fn with_funding_mode(self, funding_mode: FundingMode) -> Self {
         Self { funding_mode, ..self }
+    }
+
+    /// Set the delivery speed for the offer layer.
+    ///
+    /// The delivery speed is used to calculate the recommended timeout and ramp up period for the offer layer.
+    /// The default delivery speed is [DeliverySpeed::default()].
+    /// The fast delivery speed is [DeliverySpeed::fast()].
+    ///
+    /// # Notes
+    /// A faster delivery speed will result in a shorter timeout and ramp up period,
+    /// which may result in a higher price and a lower fulfillment guarantee.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use boundless_market::Client;
+    /// use boundless_market::DeliverySpeed;
+    ///
+    /// Client::builder().with_delivery_speed(DeliverySpeed::fast());
+    /// ```
+    ///
+    pub fn with_delivery_speed(self, delivery_speed: DeliverySpeed) -> Self {
+        self.config_offer_layer(|config| config.delivery_speed(delivery_speed))
     }
 
     /// Set additional RPC URLs for automatic failover.

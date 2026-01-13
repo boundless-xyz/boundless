@@ -70,6 +70,8 @@ pub use order_stream_client::OrderStreamClient;
 /// Module providing functionality to build requests.
 #[cfg(not(target_os = "zkvm"))]
 pub mod request_builder;
+#[cfg(not(target_os = "zkvm"))]
+pub use request_builder::DeliverySpeed;
 
 /// Module providing blake3-groth16 related integrations.
 #[cfg(all(feature = "blake3-groth16", not(target_os = "zkvm")))]

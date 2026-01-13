@@ -635,6 +635,79 @@ impl MissingFieldError {
     }
 }
 
+/// Delivery speed configuration.
+///
+/// Defines the proving and executor speeds used to calculate recommended timeouts.
+/// Note: setting faster speeds may result in fewer provers being able to fulfill the request,
+/// higher prices, and lower fulfillment guarantees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DeliverySpeed {
+    /// Proving speed in kHz.
+    pub proving_speed: f64,
+    /// Executor speed in kHz.
+    pub executor_speed: f64,
+}
+
+impl DeliverySpeed {
+    /// Default proving speed in kHz.
+    pub const DEFAULT_PROVING_SPEED: f64 = 750.0;
+
+    /// Default executor speed in kHz.
+    pub const DEFAULT_EXECUTOR_SPEED: f64 = 30000.0;
+
+    /// Fast proving speed in kHz.
+    pub const FAST_PROVING_SPEED: f64 = 3000.0;
+
+    /// Fast executor speed in kHz.
+    pub const FAST_EXECUTOR_SPEED: f64 = 50000.0;
+
+    /// Multiplier for the ramp up period.
+    ///
+    /// This is used to ensure that the ramp up period is long enough
+    /// to allow provers to execute and evaluate the request.
+    pub const RAMP_UP_PERIOD_MULTIPLIER: u32 = 10; // 10x the executor time
+
+    /// Minimum timeout in seconds.
+    ///
+    /// This is to prevent the timeout from being too short and causing the request
+    /// to expire before the prover can execute and evaluate the request.
+    pub const MIN_TIMEOUT: u32 = 30;
+
+    /// Creates a delivery speed with fast speeds.
+    pub fn fast() -> Self {
+        Self { proving_speed: Self::FAST_PROVING_SPEED, executor_speed: Self::FAST_EXECUTOR_SPEED }
+    }
+
+    /// Calculates the recommended timeout based on the cycle count and speeds.
+    ///
+    /// The timeout is calculated as the sum of:
+    /// - Time required for proving: `cycle_count / proving_speed`
+    /// - Time required for execution: `cycle_count / executor_speed`
+    pub fn recommended_timeout(&self, cycle_count: u64) -> u32 {
+        let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
+        let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+        let timeout = required_proving_time.saturating_add(required_executor_time) as u32;
+        timeout.max(Self::MIN_TIMEOUT)
+    }
+
+    /// Calculates the recommended ramp up period based on the cycle count and speeds.
+    ///
+    /// The ramp up period is calculated as the required executor time multiplied by the ramp up period multiplier.
+    pub fn recommended_ramp_up_period(&self, cycle_count: u64) -> u32 {
+        let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+        required_executor_time as u32 * Self::RAMP_UP_PERIOD_MULTIPLIER
+    }
+}
+
+impl Default for DeliverySpeed {
+    fn default() -> Self {
+        Self {
+            proving_speed: Self::DEFAULT_PROVING_SPEED,
+            executor_speed: Self::DEFAULT_EXECUTOR_SPEED,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
