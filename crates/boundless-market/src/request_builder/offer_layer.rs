@@ -26,7 +26,6 @@ use alloy::{
     },
     providers::Provider,
 };
-use alloy_primitives::utils::parse_ether;
 use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
@@ -35,6 +34,44 @@ use derive_builder::Builder;
 const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
 const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
 
+struct CollateralRecommendation {
+    default: U256,
+    large: U256,
+    xl: U256,
+}
+
+impl CollateralRecommendation {
+    fn new(default: U256, large: U256, xl: U256) -> Self {
+        Self { default, large, xl }
+    }
+
+    /// Determine the recommended minimum collateral based on secondary performance and current collateral.
+    ///
+    /// Returns `Some(recommended_amount)` if the current collateral is too low, `None` otherwise.
+    fn recommend_collateral(
+        &self,
+        secondary_performance: f64,
+        lock_collateral: U256,
+    ) -> anyhow::Result<Option<U256>> {
+        let recommended = if secondary_performance < LARGE_REQUESTOR_LIST_THRESHOLD_KHZ
+            && lock_collateral < self.default
+        {
+            Some(self.default)
+        } else if (LARGE_REQUESTOR_LIST_THRESHOLD_KHZ..XL_REQUESTOR_LIST_THRESHOLD_KHZ)
+            .contains(&secondary_performance)
+            && lock_collateral < self.large
+        {
+            Some(self.large)
+        } else if secondary_performance >= XL_REQUESTOR_LIST_THRESHOLD_KHZ
+            && lock_collateral < self.xl
+        {
+            Some(self.xl)
+        } else {
+            None
+        };
+        Ok(recommended)
+    }
+}
 /// Check if primary performance exceeds threshold and log a warning with recommended lock timeout.
 ///
 /// Returns `true` if a warning was logged.
@@ -81,32 +118,6 @@ fn check_secondary_performance_warning(
     }
 }
 
-/// Determine the recommended minimum collateral based on secondary performance and current collateral.
-///
-/// Returns `Some(recommended_amount)` if the current collateral is too low, `None` otherwise.
-fn recommend_collateral(
-    secondary_performance: f64,
-    lock_collateral: U256,
-) -> anyhow::Result<Option<&'static str>> {
-    let recommended = if secondary_performance < LARGE_REQUESTOR_LIST_THRESHOLD_KHZ
-        && lock_collateral < parse_ether("20")?
-    {
-        Some("20")
-    } else if (LARGE_REQUESTOR_LIST_THRESHOLD_KHZ..XL_REQUESTOR_LIST_THRESHOLD_KHZ)
-        .contains(&secondary_performance)
-        && lock_collateral < parse_ether("50")?
-    {
-        Some("50")
-    } else if secondary_performance >= XL_REQUESTOR_LIST_THRESHOLD_KHZ
-        && lock_collateral < parse_ether("100")?
-    {
-        Some("100")
-    } else {
-        None
-    };
-    Ok(recommended)
-}
-
 /// Configuration for the [OfferLayer].
 ///
 /// Defines the default pricing parameters, timeouts, gas estimates, and other
@@ -138,10 +149,9 @@ pub struct OfferLayerConfig {
     #[builder(default = "1200")]
     pub timeout: u32,
 
-    /// Amount of the stake token that the prover must stake when locking a request.
-    // TODO(BM-1233): Change this to be based on the Deployment configuration.
-    #[builder(setter(into), default = "U256::from(5) * Unit::MWEI.wei_const()")] // 5 USDC
-    pub lock_collateral: U256,
+    /// Lock collateral
+    #[builder(setter(strip_option, into), default)]
+    pub lock_collateral: Option<U256>,
 
     /// Estimated gas used when locking a request.
     #[builder(default = "200_000")]
@@ -423,14 +433,18 @@ where
             .bidding_start
             .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
-        let offer = Offer {
+        let chain_id = self.provider.get_chain_id().await?;
+        let default_collaterals = default_lock_collateral(chain_id);
+        let lock_collateral = self.config.lock_collateral.unwrap_or(default_collaterals.default);
+
+        let mut offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
             rampUpStart: bidding_start,
             rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
             lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
             timeout: params.timeout.unwrap_or(self.config.timeout),
-            lockCollateral: params.lock_collateral.unwrap_or(self.config.lock_collateral),
+            lockCollateral: params.lock_collateral.unwrap_or(lock_collateral),
         };
 
         if let Some(cycle_count) = cycle_count {
@@ -446,18 +460,42 @@ where
             );
 
             // Check if the collateral requirement is low and raise a warning if it is.
-            if let Some(collateral) =
-                recommend_collateral(secondary_performance, offer.lockCollateral)?
+            if let Some(collateral) = default_collaterals
+                .recommend_collateral(secondary_performance, offer.lockCollateral)?
             {
                 tracing::warn!(
                     "Warning: the collateral requirement of your request is low. This means the \
                      incentives for secondary provers to fulfill the order if the primary prover \
-                     is slashed may be too low. Consider raising your lock collateral to {collateral} ZKC."
+                     is slashed may be too low. Overriding your lock collateral to {} ZKC.",
+                    format_units(collateral, "ether")?
                 );
+                offer.lockCollateral = collateral;
             }
         }
 
         Ok(offer)
+    }
+}
+
+/// Returns the default lock collateral for the given chain ID.
+fn default_lock_collateral(chain_id: u64) -> CollateralRecommendation {
+    match chain_id {
+        8453 => CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        ), // Base mainnet - 20 ZKC
+        84532 => CollateralRecommendation::new(
+            U256::from(5) * Unit::ETHER.wei_const(),
+            U256::from(10) * Unit::ETHER.wei_const(),
+            U256::from(20) * Unit::ETHER.wei_const(),
+        ), // Base Sepolia - 5 ZKC
+        11155111 => CollateralRecommendation::new(
+            U256::from(5) * Unit::ETHER.wei_const(),
+            U256::from(10) * Unit::ETHER.wei_const(),
+            U256::from(20) * Unit::ETHER.wei_const(),
+        ), // Sepolia - 5 ZKC
+        _ => CollateralRecommendation::new(U256::ZERO, U256::ZERO, U256::ZERO), // No default lock collateral for other chains
     }
 }
 
@@ -565,11 +603,18 @@ mod tests {
     fn test_recommend_collateral_low_performance_low_collateral() {
         let secondary_performance = 2000.0; // Below LARGE_REQUESTOR_LIST_THRESHOLD_KHZ (4000.0)
         let lock_collateral = parse_ether("10").unwrap(); // Below 20
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(
             result,
-            Some("20"),
+            Some(U256::from(20) * Unit::ETHER.wei_const()),
             "Should recommend 20 for low performance and low collateral"
         );
     }
@@ -578,8 +623,15 @@ mod tests {
     fn test_recommend_collateral_low_performance_sufficient_collateral() {
         let secondary_performance = 2000.0; // Below LARGE_REQUESTOR_LIST_THRESHOLD_KHZ (4000.0)
         let lock_collateral = parse_ether("25").unwrap(); // Above 20
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(result, None, "Should not recommend when collateral is sufficient");
     }
 
@@ -587,11 +639,18 @@ mod tests {
     fn test_recommend_collateral_medium_performance_low_collateral() {
         let secondary_performance = 5000.0; // Between LARGE and XL thresholds
         let lock_collateral = parse_ether("30").unwrap(); // Below 50
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(
             result,
-            Some("50"),
+            Some(U256::from(50) * Unit::ETHER.wei_const()),
             "Should recommend 50 for medium performance and low collateral"
         );
     }
@@ -600,8 +659,15 @@ mod tests {
     fn test_recommend_collateral_medium_performance_sufficient_collateral() {
         let secondary_performance = 5000.0; // Between LARGE and XL thresholds
         let lock_collateral = parse_ether("60").unwrap(); // Above 50
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(result, None, "Should not recommend when collateral is sufficient");
     }
 
@@ -609,11 +675,18 @@ mod tests {
     fn test_recommend_collateral_high_performance_low_collateral() {
         let secondary_performance = 12000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
         let lock_collateral = parse_ether("80").unwrap(); // Below 100
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(
             result,
-            Some("100"),
+            Some(U256::from(100) * Unit::ETHER.wei_const()),
             "Should recommend 100 for high performance and low collateral"
         );
     }
@@ -622,8 +695,15 @@ mod tests {
     fn test_recommend_collateral_high_performance_sufficient_collateral() {
         let secondary_performance = 12000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
         let lock_collateral = parse_ether("120").unwrap(); // Above 100
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(result, None, "Should not recommend when collateral is sufficient");
     }
 
@@ -631,19 +711,41 @@ mod tests {
     fn test_recommend_collateral_at_large_threshold() {
         let secondary_performance = LARGE_REQUESTOR_LIST_THRESHOLD_KHZ; // Exactly at threshold
         let lock_collateral = parse_ether("10").unwrap();
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         // At exactly LARGE threshold, should not match first condition, should match second
-        assert_eq!(result, Some("50"), "Should recommend 50 when at LARGE threshold");
+        assert_eq!(
+            result,
+            Some(U256::from(50) * Unit::ETHER.wei_const()),
+            "Should recommend 50 when at LARGE threshold"
+        );
     }
 
     #[test]
     fn test_recommend_collateral_at_xl_threshold() {
         let secondary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ; // Exactly at threshold
         let lock_collateral = parse_ether("80").unwrap();
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
-        assert_eq!(result, Some("100"), "Should recommend 100 when at XL threshold");
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
+        assert_eq!(
+            result,
+            Some(U256::from(100) * Unit::ETHER.wei_const()),
+            "Should recommend 100 when at XL threshold"
+        );
     }
 
     #[test]
@@ -651,20 +753,31 @@ mod tests {
         // Test with collateral exactly at the thresholds
         let secondary_performance = 2000.0;
         let lock_collateral = parse_ether("20").unwrap(); // Exactly at threshold
+        let default_collaterals = CollateralRecommendation::new(
+            U256::from(20) * Unit::ETHER.wei_const(),
+            U256::from(50) * Unit::ETHER.wei_const(),
+            U256::from(100) * Unit::ETHER.wei_const(),
+        );
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
 
         let secondary_performance = 5000.0;
         let lock_collateral = parse_ether("50").unwrap(); // Exactly at threshold
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
 
         let secondary_performance = 12000.0;
         let lock_collateral = parse_ether("100").unwrap(); // Exactly at threshold
 
-        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        let result = default_collaterals
+            .recommend_collateral(secondary_performance, lock_collateral)
+            .unwrap();
         assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
     }
 }
