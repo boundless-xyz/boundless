@@ -14,8 +14,9 @@
 
 use indexer_api::routes::market::{
     MarketAggregatesResponse, MarketCumulativesResponse, ProverAggregatesResponse,
-    ProverCumulativesResponse, RequestListResponse, RequestStatusResponse,
-    RequestorAggregatesResponse, RequestorCumulativesResponse,
+    ProverCumulativesResponse, ProverLeaderboardResponse, RequestListResponse,
+    RequestStatusResponse, RequestorAggregatesResponse, RequestorCumulativesResponse,
+    RequestorLeaderboardResponse,
 };
 
 use super::TestEnv;
@@ -1366,5 +1367,525 @@ async fn test_prover_cumulatives() {
                 );
             }
         }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_requestor_leaderboard() {
+    let env = TestEnv::market().await;
+
+    // Test default (all time) leaderboard
+    let response: RequestorLeaderboardResponse =
+        env.get("/v1/market/requestors?limit=10").await.unwrap();
+
+    assert_eq!(response.period, "all");
+    assert!(response.data.len() <= 10);
+
+    // Verify response structure
+    if !response.data.is_empty() {
+        let first = &response.data[0];
+
+        // Address format
+        assert!(
+            first.requestor_address.starts_with("0x"),
+            "requestor_address should start with 0x: {}",
+            first.requestor_address
+        );
+        assert_eq!(
+            first.requestor_address.len(),
+            42,
+            "requestor_address should be 42 chars: {}",
+            first.requestor_address
+        );
+
+        // Numeric fields should be non-negative
+        assert!(
+            first.orders_requested > 0,
+            "orders_requested should be positive for active requestors"
+        );
+        assert!(
+            first.acceptance_rate >= 0.0 && first.acceptance_rate <= 100.0,
+            "acceptance_rate should be 0-100: {}",
+            first.acceptance_rate
+        );
+        assert!(
+            first.fulfillment_rate >= 0.0 && first.fulfillment_rate <= 100.0,
+            "fulfillment_rate should be 0-100: {}",
+            first.fulfillment_rate
+        );
+
+        // Cycles should be parseable
+        assert!(!first.cycles_requested.is_empty(), "cycles_requested should not be empty");
+        assert!(
+            !first.cycles_requested_formatted.is_empty(),
+            "cycles_requested_formatted should not be empty"
+        );
+
+        // Timestamps
+        assert!(first.last_activity_time > 0, "last_activity_time should be positive");
+        assert!(
+            !first.last_activity_time_iso.is_empty(),
+            "last_activity_time_iso should not be empty"
+        );
+    }
+
+    // Verify sorting: should be sorted by orders_requested DESC
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev = &response.data[i - 1];
+            let curr = &response.data[i];
+            assert!(
+                prev.orders_requested >= curr.orders_requested,
+                "Leaderboard should be sorted by orders_requested DESC: {} >= {}",
+                prev.orders_requested,
+                curr.orders_requested
+            );
+        }
+    }
+
+    // Test with specific period
+    let response_7d: RequestorLeaderboardResponse =
+        env.get("/v1/market/requestors?period=7d&limit=5").await.unwrap();
+    assert_eq!(response_7d.period, "7d");
+    assert!(response_7d.data.len() <= 5);
+    assert!(response_7d.period_start > 0);
+    assert!(response_7d.period_end > response_7d.period_start);
+
+    // Test pagination
+    if response.data.len() > 2 {
+        let page1: RequestorLeaderboardResponse =
+            env.get("/v1/market/requestors?limit=2").await.unwrap();
+        assert_eq!(page1.data.len(), 2);
+
+        if let Some(ref cursor) = page1.next_cursor {
+            let path = format!("/v1/market/requestors?limit=2&cursor={}", cursor);
+            let page2: RequestorLeaderboardResponse = env.get(&path).await.unwrap();
+
+            // Page 2 should have different addresses than page 1
+            if !page2.data.is_empty() {
+                let page1_addrs: Vec<_> = page1.data.iter().map(|e| &e.requestor_address).collect();
+                for entry in &page2.data {
+                    assert!(
+                        !page1_addrs.contains(&&entry.requestor_address),
+                        "Page 2 should not contain addresses from page 1"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_requestor_leaderboard_periods() {
+    let env = TestEnv::market().await;
+
+    // Test all period variants
+    let periods = ["1h", "1d", "3d", "7d", "all"];
+
+    for period in periods {
+        let path = format!("/v1/market/requestors?period={}&limit=5", period);
+        let response: RequestorLeaderboardResponse = env.get(&path).await.unwrap();
+
+        assert_eq!(response.period, period, "Response period should match request: {}", period);
+        assert!(response.data.len() <= 5, "Response should respect limit for period {}", period);
+        assert!(response.period_end > 0, "period_end should be set for {}", period);
+        assert!(
+            response.period_end >= response.period_start,
+            "period_end >= period_start for {}",
+            period
+        );
+
+        // For bounded periods, period_start should be positive; for "all" it can be 0
+        if period != "all" {
+            assert!(response.period_start > 0, "period_start should be set for {}", period);
+        }
+
+        // For time-bounded periods, verify the time window is approximately correct
+        let duration = response.period_end - response.period_start;
+        match period {
+            "1h" => {
+                assert!(
+                    duration >= 3500 && duration <= 3700,
+                    "1h period should be ~3600s, got {}",
+                    duration
+                );
+            }
+            "1d" => {
+                assert!(
+                    duration >= 86000 && duration <= 87000,
+                    "1d period should be ~86400s, got {}",
+                    duration
+                );
+            }
+            "3d" => {
+                let expected = 3 * 86400;
+                assert!(
+                    duration >= expected - 1000 && duration <= expected + 1000,
+                    "3d period should be ~{}s, got {}",
+                    expected,
+                    duration
+                );
+            }
+            "7d" => {
+                let expected = 7 * 86400;
+                assert!(
+                    duration >= expected - 1000 && duration <= expected + 1000,
+                    "7d period should be ~{}s, got {}",
+                    expected,
+                    duration
+                );
+            }
+            "all" => {
+                // All time should have a large duration
+                assert!(
+                    duration > 86400,
+                    "all period should span more than 1 day, got {}",
+                    duration
+                );
+            }
+            _ => unreachable!(),
+        }
+
+        // For "all" period, we should definitely have data with reasonable values
+        if period == "all" && !response.data.is_empty() {
+            let first = &response.data[0];
+
+            // Top requestor should have meaningful activity
+            assert!(
+                first.orders_requested >= 10,
+                "Top requestor should have at least 10 orders for 'all' period, got {}",
+                first.orders_requested
+            );
+
+            // Cycles should be parseable and non-zero
+            let cycles: u128 = first.cycles_requested.parse().expect("cycles should be numeric");
+            assert!(cycles > 0, "Top requestor should have non-zero cycles");
+
+            // Rates should be reasonable percentages (not all 0 or all 100)
+            assert!(
+                first.acceptance_rate > 0.0,
+                "acceptance_rate should be > 0 for active requestor: {}",
+                first.acceptance_rate
+            );
+
+            // Last activity should be reasonably recent (within the test window)
+            assert!(
+                first.last_activity_time > response.period_start,
+                "last_activity should be within period"
+            );
+
+            tracing::info!(
+                "Top requestor for 'all': addr={}, orders={}, cycles={}, acceptance={}%, fulfillment={}%",
+                first.requestor_address,
+                first.orders_requested,
+                first.cycles_requested_formatted,
+                first.acceptance_rate,
+                first.fulfillment_rate
+            );
+        }
+
+        tracing::info!(
+            "Period {} OK: {} entries, start={}, end={}, duration={}s",
+            period,
+            response.data.len(),
+            response.period_start,
+            response.period_end,
+            duration
+        );
+    }
+
+    // Verify the all-time leaderboard returns data with reasonable values
+    let response: RequestorLeaderboardResponse =
+        env.get("/v1/market/requestors?period=all&limit=100").await.unwrap();
+
+    assert!(!response.data.is_empty(), "All-time leaderboard should have at least one requestor");
+
+    tracing::info!("Got {} requestors in all-time leaderboard", response.data.len());
+    for entry in &response.data {
+        // Each entry should have valid data
+        assert!(
+            entry.requestor_address.starts_with("0x"),
+            "Address should be valid: {}",
+            entry.requestor_address
+        );
+        assert_eq!(
+            entry.requestor_address.len(),
+            42,
+            "Address should be 42 chars: {}",
+            entry.requestor_address
+        );
+        assert!(
+            entry.orders_requested > 0,
+            "Requestor {} should have orders",
+            entry.requestor_address
+        );
+
+        // Cycles may be zero locally, but should be parseable
+        let _cycles: u128 = entry.cycles_requested.parse().expect("cycles should be numeric");
+
+        // Rates should be valid percentages
+        assert!(
+            entry.acceptance_rate >= 0.0 && entry.acceptance_rate <= 100.0,
+            "acceptance_rate should be 0-100: {}",
+            entry.acceptance_rate
+        );
+        assert!(
+            entry.fulfillment_rate >= 0.0 && entry.fulfillment_rate <= 100.0,
+            "fulfillment_rate should be 0-100: {}",
+            entry.fulfillment_rate
+        );
+
+        // Last activity should be set
+        assert!(
+            entry.last_activity_time > 0,
+            "last_activity_time should be positive for {}",
+            entry.requestor_address
+        );
+
+        tracing::info!(
+            "Requestor {}: orders={}, cycles={}, acceptance={}%, fulfillment={}%",
+            entry.requestor_address,
+            entry.orders_requested,
+            entry.cycles_requested_formatted,
+            entry.acceptance_rate,
+            entry.fulfillment_rate
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_prover_leaderboard() {
+    let env = TestEnv::market().await;
+
+    // Test default (all time) leaderboard
+    let response: ProverLeaderboardResponse = env.get("/v1/market/provers?limit=10").await.unwrap();
+
+    assert_eq!(response.period, "all");
+    assert!(response.data.len() <= 10);
+
+    // Verify response structure
+    if !response.data.is_empty() {
+        let first = &response.data[0];
+
+        // Address format
+        assert!(
+            first.prover_address.starts_with("0x"),
+            "prover_address should start with 0x: {}",
+            first.prover_address
+        );
+        assert_eq!(
+            first.prover_address.len(),
+            42,
+            "prover_address should be 42 chars: {}",
+            first.prover_address
+        );
+
+        // Numeric fields should be non-negative
+        assert!(first.orders_locked > 0, "orders_locked should be positive for active provers");
+        assert!(
+            first.fulfillment_rate >= 0.0 && first.fulfillment_rate <= 100.0,
+            "fulfillment_rate should be 0-100: {}",
+            first.fulfillment_rate
+        );
+
+        // Fees should be parseable
+        assert!(!first.fees_earned.is_empty(), "fees_earned should not be empty");
+        assert!(
+            !first.fees_earned_formatted.is_empty(),
+            "fees_earned_formatted should not be empty"
+        );
+
+        // Timestamps
+        assert!(first.last_activity_time > 0, "last_activity_time should be positive");
+        assert!(
+            !first.last_activity_time_iso.is_empty(),
+            "last_activity_time_iso should not be empty"
+        );
+    }
+
+    // Verify sorting: should be sorted by fees_earned DESC
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev = &response.data[i - 1];
+            let curr = &response.data[i];
+            let prev_fees: u128 = prev.fees_earned.parse().unwrap_or(0);
+            let curr_fees: u128 = curr.fees_earned.parse().unwrap_or(0);
+            assert!(
+                prev_fees >= curr_fees,
+                "Leaderboard should be sorted by fees_earned DESC: {} >= {}",
+                prev_fees,
+                curr_fees
+            );
+        }
+    }
+
+    // Test with specific period
+    let response_7d: ProverLeaderboardResponse =
+        env.get("/v1/market/provers?period=7d&limit=5").await.unwrap();
+    assert_eq!(response_7d.period, "7d");
+    assert!(response_7d.data.len() <= 5);
+    assert!(response_7d.period_start > 0);
+    assert!(response_7d.period_end > response_7d.period_start);
+
+    // Test pagination
+    if response.data.len() > 2 {
+        let page1: ProverLeaderboardResponse = env.get("/v1/market/provers?limit=2").await.unwrap();
+        assert_eq!(page1.data.len(), 2);
+
+        if let Some(ref cursor) = page1.next_cursor {
+            let path = format!("/v1/market/provers?limit=2&cursor={}", cursor);
+            let page2: ProverLeaderboardResponse = env.get(&path).await.unwrap();
+
+            // Page 2 should have different addresses than page 1
+            if !page2.data.is_empty() {
+                let page1_addrs: Vec<_> = page1.data.iter().map(|e| &e.prover_address).collect();
+                for entry in &page2.data {
+                    assert!(
+                        !page1_addrs.contains(&&entry.prover_address),
+                        "Page 2 should not contain addresses from page 1"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+async fn test_prover_leaderboard_periods() {
+    let env = TestEnv::market().await;
+
+    // Test all period variants
+    let periods = ["1h", "1d", "3d", "7d", "all"];
+
+    for period in periods {
+        let path = format!("/v1/market/provers?period={}&limit=5", period);
+        let response: ProverLeaderboardResponse = env.get(&path).await.unwrap();
+
+        assert_eq!(response.period, period, "Response period should match request: {}", period);
+        assert!(response.data.len() <= 5, "Response should respect limit for period {}", period);
+        assert!(response.period_end > 0, "period_end should be set for {}", period);
+        assert!(
+            response.period_end >= response.period_start,
+            "period_end >= period_start for {}",
+            period
+        );
+
+        // For bounded periods, period_start should be positive; for "all" it can be 0
+        if period != "all" {
+            assert!(response.period_start > 0, "period_start should be set for {}", period);
+        }
+
+        // For time-bounded periods, verify the time window is approximately correct
+        let duration = response.period_end - response.period_start;
+        match period {
+            "1h" => {
+                assert!(
+                    duration >= 3500 && duration <= 3700,
+                    "1h period should be ~3600s, got {}",
+                    duration
+                );
+            }
+            "1d" => {
+                assert!(
+                    duration >= 86000 && duration <= 87000,
+                    "1d period should be ~86400s, got {}",
+                    duration
+                );
+            }
+            "3d" => {
+                let expected = 3 * 86400;
+                assert!(
+                    duration >= expected - 1000 && duration <= expected + 1000,
+                    "3d period should be ~{}s, got {}",
+                    expected,
+                    duration
+                );
+            }
+            "7d" => {
+                let expected = 7 * 86400;
+                assert!(
+                    duration >= expected - 1000 && duration <= expected + 1000,
+                    "7d period should be ~{}s, got {}",
+                    expected,
+                    duration
+                );
+            }
+            "all" => {
+                assert!(
+                    duration > 86400,
+                    "all period should span more than 1 day, got {}",
+                    duration
+                );
+            }
+            _ => unreachable!(),
+        }
+
+        tracing::info!(
+            "Period {} OK: {} entries, start={}, end={}, duration={}s",
+            period,
+            response.data.len(),
+            response.period_start,
+            response.period_end,
+            duration
+        );
+    }
+
+    // Verify the all-time leaderboard returns data with reasonable values
+    let response: ProverLeaderboardResponse =
+        env.get("/v1/market/provers?period=all&limit=100").await.unwrap();
+
+    assert!(!response.data.is_empty(), "All-time leaderboard should have at least one prover");
+
+    tracing::info!("Got {} provers in all-time leaderboard", response.data.len());
+    for entry in &response.data {
+        // Each entry should have valid data
+        assert!(
+            entry.prover_address.starts_with("0x"),
+            "Address should be valid: {}",
+            entry.prover_address
+        );
+        assert_eq!(
+            entry.prover_address.len(),
+            42,
+            "Address should be 42 chars: {}",
+            entry.prover_address
+        );
+        // Prover should have some activity (locked or fulfilled)
+        assert!(
+            entry.orders_locked > 0 || entry.orders_fulfilled > 0,
+            "Prover {} should have orders locked or fulfilled",
+            entry.prover_address
+        );
+
+        // Fees may be zero locally, but should be parseable
+        let _fees: u128 = entry.fees_earned.parse().expect("fees should be numeric");
+
+        // Rates should be valid percentages
+        assert!(
+            entry.fulfillment_rate >= 0.0 && entry.fulfillment_rate <= 100.0,
+            "fulfillment_rate should be 0-100: {}",
+            entry.fulfillment_rate
+        );
+
+        // Last activity may be 0 if prover data comes from aggregates only
+        assert!(
+            entry.last_activity_time >= 0,
+            "last_activity_time should be non-negative for {}",
+            entry.prover_address
+        );
+
+        tracing::info!(
+            "Prover {}: locked={}, fulfilled={}, fees={}, fulfillment={}%, last_activity={}",
+            entry.prover_address,
+            entry.orders_locked,
+            entry.orders_fulfilled,
+            entry.fees_earned_formatted,
+            entry.fulfillment_rate,
+            entry.last_activity_time
+        );
     }
 }

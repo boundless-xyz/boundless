@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use super::market::{
-    u256_to_padded_string, AllTimeProverSummary, DailyProverSummary, HourlyProverSummary,
-    IndexerDb, LockPricingData, MonthlyProverSummary, PeriodProverSummary, RequestCursor,
-    RequestSortField, RequestStatus, SortDirection, WeeklyProverSummary,
+    padded_string_to_u256, u256_to_padded_string, AllTimeProverSummary, DailyProverSummary,
+    HourlyProverSummary, IndexerDb, LockPricingData, MonthlyProverSummary, PeriodProverSummary,
+    ProverLeaderboardEntry, RequestCursor, RequestSortField, RequestStatus, SortDirection,
+    WeeklyProverSummary,
 };
-use super::{market::padded_string_to_u256, DbError};
+use super::DbError;
 use alloy::primitives::{Address, U256};
 use anyhow;
 use async_trait::async_trait;
@@ -797,6 +798,43 @@ pub trait ProversDb: IndexerDb {
         )
         .await
     }
+
+    async fn get_prover_leaderboard(
+        &self,
+        start_ts: u64,
+        end_ts: u64,
+        use_hourly_table: bool,
+        cursor_fees: Option<U256>,
+        cursor_address: Option<Address>,
+        limit: i64,
+    ) -> Result<Vec<ProverLeaderboardEntry>, DbError> {
+        get_prover_leaderboard_impl(
+            self.pool(),
+            start_ts,
+            end_ts,
+            use_hourly_table,
+            cursor_fees,
+            cursor_address,
+            limit,
+        )
+        .await
+    }
+
+    async fn get_prover_median_lock_prices(
+        &self,
+        prover_addresses: &[Address],
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+        get_prover_median_lock_prices_impl(self.pool(), prover_addresses, start_ts, end_ts).await
+    }
+
+    async fn get_prover_last_activity_times(
+        &self,
+        prover_addresses: &[Address],
+    ) -> Result<std::collections::HashMap<Address, u64>, DbError> {
+        get_prover_last_activity_times_impl(self.pool(), prover_addresses).await
+    }
 }
 
 // Blanket implementation for anything that implements IndexerDb
@@ -1240,6 +1278,250 @@ async fn get_prover_summaries_by_range_generic(
     Ok(results)
 }
 
+// Prover leaderboard query: aggregates stats for all provers in a time period
+// Sorted by fees_earned DESC
+async fn get_prover_leaderboard_impl(
+    pool: &PgPool,
+    start_ts: u64,
+    end_ts: u64,
+    use_hourly_table: bool,
+    cursor_fees: Option<U256>,
+    cursor_address: Option<Address>,
+    limit: i64,
+) -> Result<Vec<ProverLeaderboardEntry>, DbError> {
+    let table_name =
+        if use_hourly_table { "hourly_prover_summary" } else { "daily_prover_summary" };
+
+    // Build the query with cursor-based pagination on (fees_earned, address)
+    // Sorted by fees_earned DESC, address DESC
+    let query_str = if cursor_fees.is_some() && cursor_address.is_some() {
+        format!(
+            "SELECT 
+                prover_address,
+                SUM(total_requests_locked)::BIGINT as orders_locked,
+                SUM(total_requests_fulfilled)::BIGINT as orders_fulfilled,
+                SUM(total_requests_locked_and_fulfilled)::BIGINT as fulfilled,
+                SUM(total_requests_locked_and_expired)::BIGINT as expired,
+                LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles,
+                LPAD(SUM(CAST(total_fees_earned AS NUMERIC))::TEXT, 78, '0') as fees_earned,
+                LPAD(SUM(CAST(total_collateral_earned AS NUMERIC))::TEXT, 78, '0') as collateral_earned,
+                MAX(best_peak_prove_mhz) as peak_prove_mhz
+            FROM {}
+            WHERE period_timestamp >= $1 AND period_timestamp < $2
+            GROUP BY prover_address
+            HAVING (
+                SUM(CAST(total_fees_earned AS NUMERIC)) < CAST($3 AS NUMERIC)
+                OR (SUM(CAST(total_fees_earned AS NUMERIC)) = CAST($3 AS NUMERIC) AND prover_address < $4)
+            )
+            ORDER BY fees_earned DESC, prover_address DESC
+            LIMIT $5",
+            table_name
+        )
+    } else {
+        format!(
+            "SELECT 
+                prover_address,
+                SUM(total_requests_locked)::BIGINT as orders_locked,
+                SUM(total_requests_fulfilled)::BIGINT as orders_fulfilled,
+                SUM(total_requests_locked_and_fulfilled)::BIGINT as fulfilled,
+                SUM(total_requests_locked_and_expired)::BIGINT as expired,
+                LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles,
+                LPAD(SUM(CAST(total_fees_earned AS NUMERIC))::TEXT, 78, '0') as fees_earned,
+                LPAD(SUM(CAST(total_collateral_earned AS NUMERIC))::TEXT, 78, '0') as collateral_earned,
+                MAX(best_peak_prove_mhz) as peak_prove_mhz
+            FROM {}
+            WHERE period_timestamp >= $1 AND period_timestamp < $2
+            GROUP BY prover_address
+            ORDER BY fees_earned DESC, prover_address DESC
+            LIMIT $3",
+            table_name
+        )
+    };
+
+    let rows = if let (Some(cursor_f), Some(cursor_a)) = (cursor_fees, cursor_address) {
+        let cursor_fees_str = u256_to_padded_string(cursor_f);
+        sqlx::query(&query_str)
+            .bind(start_ts as i64)
+            .bind(end_ts as i64)
+            .bind(&cursor_fees_str)
+            .bind(format!("{:x}", cursor_a))
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+    } else {
+        sqlx::query(&query_str)
+            .bind(start_ts as i64)
+            .bind(end_ts as i64)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+    };
+
+    let mut results = Vec::new();
+    for row in rows {
+        let prover_address_str: String = row.try_get("prover_address")?;
+        let prover_address = Address::from_str(&prover_address_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        let orders_locked: i64 = row.try_get("orders_locked")?;
+        let orders_fulfilled: i64 = row.try_get("orders_fulfilled")?;
+        let fulfilled: i64 = row.try_get("fulfilled")?;
+        let expired: i64 = row.try_get("expired")?;
+        let cycles_str: String = row.try_get("cycles")?;
+        let fees_str: String = row.try_get("fees_earned")?;
+        let collateral_str: String = row.try_get("collateral_earned")?;
+        let peak_prove_mhz: f64 = row.try_get("peak_prove_mhz")?;
+
+        let cycles = padded_string_to_u256(&cycles_str)?;
+        let fees_earned = padded_string_to_u256(&fees_str)?;
+        let collateral_earned = padded_string_to_u256(&collateral_str)?;
+
+        let total_outcomes = fulfilled + expired;
+        let fulfillment_rate = if total_outcomes > 0 {
+            (fulfilled as f32 / total_outcomes as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        results.push(ProverLeaderboardEntry {
+            prover_address,
+            orders_locked: orders_locked as u64,
+            orders_fulfilled: orders_fulfilled as u64,
+            cycles,
+            fees_earned,
+            collateral_earned,
+            median_lock_price_per_cycle: None,
+            peak_prove_mhz,
+            fulfillment_rate,
+            last_activity_time: 0,
+        });
+    }
+
+    Ok(results)
+}
+
+// Get median lock price per cycle for a list of provers in a time period
+async fn get_prover_median_lock_prices_impl(
+    pool: &PgPool,
+    prover_addresses: &[Address],
+    start_ts: u64,
+    end_ts: u64,
+) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+    if prover_addresses.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Build placeholders for IN clause
+    let placeholders: Vec<String> =
+        (3..=prover_addresses.len() + 2).map(|i| format!("${}", i)).collect();
+    let placeholders_str = placeholders.join(", ");
+
+    let query_str = format!(
+        "SELECT 
+            lock_prover_address,
+            LPAD(
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC))::TEXT,
+                78, '0'
+            ) as median_price
+        FROM request_status
+        WHERE locked_at >= $1 AND locked_at < $2
+          AND lock_prover_address IN ({})
+          AND lock_price_per_cycle IS NOT NULL
+        GROUP BY lock_prover_address",
+        placeholders_str
+    );
+
+    let mut query = sqlx::query(&query_str).bind(start_ts as i64).bind(end_ts as i64);
+
+    for addr in prover_addresses {
+        query = query.bind(format!("{:x}", addr));
+    }
+
+    let rows = query.fetch_all(pool).await?;
+
+    let mut result = std::collections::HashMap::new();
+    for row in rows {
+        let addr_str: String = row.try_get("lock_prover_address")?;
+        let median_str: String = row.try_get("median_price")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        let median = padded_string_to_u256(&median_str)?;
+        result.insert(addr, median);
+    }
+
+    Ok(result)
+}
+
+// Get last activity time for a list of provers
+async fn get_prover_last_activity_times_impl(
+    pool: &PgPool,
+    prover_addresses: &[Address],
+) -> Result<std::collections::HashMap<Address, u64>, DbError> {
+    if prover_addresses.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Build placeholders for IN clause
+    let placeholders: Vec<String> =
+        (1..=prover_addresses.len()).map(|i| format!("${}", i)).collect();
+    let placeholders_str = placeholders.join(", ");
+
+    // Query for lock activity
+    let lock_query = format!(
+        "SELECT lock_prover_address as prover_address, MAX(updated_at) as last_activity
+        FROM request_status
+        WHERE lock_prover_address IN ({})
+        GROUP BY lock_prover_address",
+        placeholders_str
+    );
+
+    // Query for fulfill activity
+    let fulfill_query = format!(
+        "SELECT fulfill_prover_address as prover_address, MAX(updated_at) as last_activity
+        FROM request_status
+        WHERE fulfill_prover_address IN ({})
+        GROUP BY fulfill_prover_address",
+        placeholders_str
+    );
+
+    let mut lock_query_builder = sqlx::query(&lock_query);
+    for addr in prover_addresses {
+        lock_query_builder = lock_query_builder.bind(format!("{:x}", addr));
+    }
+    let lock_rows = lock_query_builder.fetch_all(pool).await?;
+
+    let mut fulfill_query_builder = sqlx::query(&fulfill_query);
+    for addr in prover_addresses {
+        fulfill_query_builder = fulfill_query_builder.bind(format!("{:x}", addr));
+    }
+    let fulfill_rows = fulfill_query_builder.fetch_all(pool).await?;
+
+    let mut result: std::collections::HashMap<Address, u64> = std::collections::HashMap::new();
+
+    for row in lock_rows {
+        let addr_str: String = row.try_get("prover_address")?;
+        let last_activity: i64 = row.try_get("last_activity")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        result
+            .entry(addr)
+            .and_modify(|e| *e = (*e).max(last_activity as u64))
+            .or_insert(last_activity as u64);
+    }
+
+    for row in fulfill_rows {
+        let addr_str: String = row.try_get("prover_address")?;
+        let last_activity: i64 = row.try_get("last_activity")?;
+        let addr = Address::from_str(&addr_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        result
+            .entry(addr)
+            .and_modify(|e| *e = (*e).max(last_activity as u64))
+            .or_insert(last_activity as u64);
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1569,5 +1851,351 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_leaderboard(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover1 = Address::from([0x01; 20]);
+        let prover2 = Address::from([0x02; 20]);
+        let prover3 = Address::from([0x03; 20]);
+        let period_ts = 1700000000u64;
+
+        // Create hourly summaries for 3 provers with different fees earned
+        let summary1 = HourlyProverSummary {
+            period_timestamp: period_ts,
+            prover_address: prover1,
+            total_requests_locked: 50,
+            total_requests_fulfilled: 45,
+            total_unique_requestors: 10,
+            total_fees_earned: U256::from(10000), // Most fees
+            total_collateral_locked: U256::from(5000),
+            total_collateral_slashed: U256::ZERO,
+            total_collateral_earned: U256::from(100),
+            total_requests_locked_and_expired: 2,
+            total_requests_locked_and_fulfilled: 40,
+            locked_orders_fulfillment_rate: 95.2,
+            p10_lock_price_per_cycle: U256::from(10),
+            p25_lock_price_per_cycle: U256::from(25),
+            p50_lock_price_per_cycle: U256::from(50),
+            p75_lock_price_per_cycle: U256::from(75),
+            p90_lock_price_per_cycle: U256::from(90),
+            p95_lock_price_per_cycle: U256::from(95),
+            p99_lock_price_per_cycle: U256::from(99),
+            total_program_cycles: U256::from(1_000_000_000u64),
+            total_cycles: U256::from(1_100_000_000u64),
+            best_peak_prove_mhz: 1500.0,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 1400.0,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        let mut summary2 = summary1.clone();
+        summary2.prover_address = prover2;
+        summary2.total_fees_earned = U256::from(5000); // Second most
+
+        let mut summary3 = summary1.clone();
+        summary3.prover_address = prover3;
+        summary3.total_fees_earned = U256::from(1000); // Least fees
+
+        db.upsert_hourly_prover_summary(summary1).await.unwrap();
+        db.upsert_hourly_prover_summary(summary2).await.unwrap();
+        db.upsert_hourly_prover_summary(summary3).await.unwrap();
+
+        // Test leaderboard query - should be sorted by fees_earned DESC
+        let results = db
+            .get_prover_leaderboard(
+                period_ts,
+                period_ts + 3600,
+                true, // use hourly table
+                None,
+                None,
+                10,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].prover_address, prover1);
+        assert_eq!(results[0].fees_earned, U256::from(10000));
+        assert_eq!(results[1].prover_address, prover2);
+        assert_eq!(results[1].fees_earned, U256::from(5000));
+        assert_eq!(results[2].prover_address, prover3);
+        assert_eq!(results[2].fees_earned, U256::from(1000));
+
+        // Test pagination with cursor
+        let results_page1 = db
+            .get_prover_leaderboard(period_ts, period_ts + 3600, true, None, None, 2)
+            .await
+            .unwrap();
+        assert_eq!(results_page1.len(), 2);
+        assert_eq!(results_page1[0].fees_earned, U256::from(10000));
+        assert_eq!(results_page1[1].fees_earned, U256::from(5000));
+
+        // Get page 2 using cursor from last item of page 1
+        let last = &results_page1[1];
+        let results_page2 = db
+            .get_prover_leaderboard(
+                period_ts,
+                period_ts + 3600,
+                true,
+                Some(last.fees_earned),
+                Some(last.prover_address),
+                2,
+            )
+            .await
+            .unwrap();
+        assert_eq!(results_page2.len(), 1);
+        assert_eq!(results_page2[0].fees_earned, U256::from(1000));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_leaderboard_aggregation(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let prover = Address::from([0x01; 20]);
+        let hour1 = 1700000000u64;
+        let hour2 = hour1 + 3600;
+
+        // Create summaries for two hours
+        let summary1 = HourlyProverSummary {
+            period_timestamp: hour1,
+            prover_address: prover,
+            total_requests_locked: 10,
+            total_requests_fulfilled: 8,
+            total_unique_requestors: 5,
+            total_fees_earned: U256::from(1000),
+            total_collateral_locked: U256::from(500),
+            total_collateral_slashed: U256::ZERO,
+            total_collateral_earned: U256::from(50),
+            total_requests_locked_and_expired: 1,
+            total_requests_locked_and_fulfilled: 7,
+            locked_orders_fulfillment_rate: 87.5,
+            p10_lock_price_per_cycle: U256::from(10),
+            p25_lock_price_per_cycle: U256::from(25),
+            p50_lock_price_per_cycle: U256::from(50),
+            p75_lock_price_per_cycle: U256::from(75),
+            p90_lock_price_per_cycle: U256::from(90),
+            p95_lock_price_per_cycle: U256::from(95),
+            p99_lock_price_per_cycle: U256::from(99),
+            total_program_cycles: U256::from(100_000_000u64),
+            total_cycles: U256::from(110_000_000u64),
+            best_peak_prove_mhz: 1500.0,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 1400.0,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        let mut summary2 = summary1.clone();
+        summary2.period_timestamp = hour2;
+        summary2.total_fees_earned = U256::from(2000);
+        summary2.total_collateral_earned = U256::from(100);
+        summary2.total_requests_locked = 20;
+        summary2.total_requests_fulfilled = 18;
+        summary2.total_cycles = U256::from(220_000_000u64);
+
+        db.upsert_hourly_prover_summary(summary1).await.unwrap();
+        db.upsert_hourly_prover_summary(summary2).await.unwrap();
+
+        // Query across both hours - values should be aggregated
+        let results = db
+            .get_prover_leaderboard(
+                hour1,
+                hour2 + 3600, // Include both hours
+                true,
+                None,
+                None,
+                10,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        let entry = &results[0];
+        assert_eq!(entry.prover_address, prover);
+        assert_eq!(entry.fees_earned, U256::from(3000)); // 1000 + 2000
+        assert_eq!(entry.collateral_earned, U256::from(150)); // 50 + 100
+        assert_eq!(entry.orders_locked, 30); // 10 + 20
+        assert_eq!(entry.orders_fulfilled, 26); // 8 + 18
+        assert_eq!(entry.cycles, U256::from(330_000_000u64)); // 110M + 220M
+    }
+
+    fn create_locked_request_status_for_prover(
+        digest: B256,
+        client: Address,
+        prover: Address,
+        locked_at: u64,
+        lock_price_per_cycle: U256,
+    ) -> RequestStatus {
+        RequestStatus {
+            request_digest: digest,
+            request_id: U256::from(12345),
+            request_status: RequestStatusType::Locked,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: client,
+            lock_prover_address: Some(prover),
+            fulfill_prover_address: None,
+            created_at: locked_at - 100,
+            updated_at: locked_at,
+            locked_at: Some(locked_at),
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: Some(110),
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: 0,
+            ramp_up_period: 10,
+            expires_at: 9999999999,
+            lock_end: 9999999999,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: Some(U256::from(1000000)),
+            total_cycles: Some(U256::from(1100000)),
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: Some(u256_to_padded_string(lock_price_per_cycle)),
+            lock_price_per_cycle: Some(u256_to_padded_string(lock_price_per_cycle)),
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: Some(B256::ZERO),
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test_image".to_string(),
+            image_url: Some("https://test.com".to_string()),
+            selector: "test_selector".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_median_lock_prices(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let client = Address::from([0x01; 20]);
+        let prover1 = Address::from([0xAA; 20]);
+        let prover2 = Address::from([0xBB; 20]);
+        let base_ts = 1700000000u64;
+
+        // Insert request_status entries with lock prices for prover1
+        // Prices: 100, 200, 300, 400, 500 -> median = 300
+        let mut statuses = Vec::new();
+        for i in 0..5u8 {
+            let digest = B256::from([i + 1; 32]);
+            let lock_price = U256::from(100 * (i as u64 + 1));
+            statuses.push(create_locked_request_status_for_prover(
+                digest,
+                client,
+                prover1,
+                base_ts + 100,
+                lock_price,
+            ));
+        }
+
+        // Add requests for prover2 with different prices
+        // Prices: 1000, 2000, 3000 -> median = 2000
+        for i in 0..3u8 {
+            let mut digest_bytes = [0u8; 32];
+            digest_bytes[0] = 0x10 + i;
+            let digest = B256::from(digest_bytes);
+            let lock_price = U256::from(1000 * (i as u64 + 1));
+            statuses.push(create_locked_request_status_for_prover(
+                digest,
+                client,
+                prover2,
+                base_ts + 100,
+                lock_price,
+            ));
+        }
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        // Query median prices
+        let medians = db
+            .get_prover_median_lock_prices(&[prover1, prover2], base_ts, base_ts + 200)
+            .await
+            .unwrap();
+
+        assert_eq!(medians.len(), 2);
+
+        // Prover1 has prices [100, 200, 300, 400, 500], median = 300
+        assert_eq!(medians.get(&prover1), Some(&U256::from(300)));
+
+        // Prover2 has prices [1000, 2000, 3000], median = 2000
+        assert_eq!(medians.get(&prover2), Some(&U256::from(2000)));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_last_activity_times(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let client = Address::from([0x01; 20]);
+        let prover1 = Address::from([0xAA; 20]);
+        let prover2 = Address::from([0xBB; 20]);
+        let base_ts = 1700000000u64;
+
+        let mut statuses = Vec::new();
+
+        // Create requests for prover1 with different timestamps (as lock_prover)
+        for i in 0..3u8 {
+            let digest = B256::from([i + 1; 32]);
+            let ts = base_ts + (i as u64 * 1000);
+            statuses.push(create_locked_request_status_for_prover(
+                digest,
+                client,
+                prover1,
+                ts,
+                U256::from(100),
+            ));
+        }
+
+        // Create request for prover2
+        let digest = B256::from([0x10; 32]);
+        let ts2 = base_ts + 5000;
+        statuses.push(create_locked_request_status_for_prover(
+            digest,
+            client,
+            prover2,
+            ts2,
+            U256::from(100),
+        ));
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        let activities = db.get_prover_last_activity_times(&[prover1, prover2]).await.unwrap();
+
+        assert_eq!(activities.len(), 2);
+        // Prover1's last activity is at base_ts + 2000 (the third request)
+        assert_eq!(activities.get(&prover1), Some(&(base_ts + 2000)));
+        // Prover2's last activity is at base_ts + 5000
+        assert_eq!(activities.get(&prover2), Some(&(base_ts + 5000)));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_prover_leaderboard_empty(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        // Query leaderboard with no data
+        let results =
+            db.get_prover_leaderboard(1700000000, 1700003600, true, None, None, 10).await.unwrap();
+
+        assert!(results.is_empty());
     }
 }

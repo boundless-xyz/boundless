@@ -49,9 +49,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/cumulatives", get(get_market_cumulatives))
         .route("/requests", get(list_requests))
         .route("/requests/:request_id", get(get_requests_by_request_id))
+        .route("/requestors", get(list_requestors))
         .route("/requestors/:address/requests", get(list_requests_by_requestor))
         .route("/requestors/:address/aggregates", get(get_requestor_aggregates))
         .route("/requestors/:address/cumulatives", get(get_requestor_cumulatives))
+        .route("/provers", get(list_provers))
         .route("/provers/:address/requests", get(list_requests_by_prover))
         .route("/provers/:address/aggregates", get(get_prover_aggregates))
         .route("/provers/:address/cumulatives", get(get_prover_cumulatives))
@@ -243,6 +245,163 @@ pub struct RequestorCumulativesParams {
     after: Option<i64>,
 }
 
+// Leaderboard period enum for filtering by time range
+#[derive(Debug, Clone, Copy, Default, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaderboardPeriod {
+    /// Last 1 hour
+    #[serde(rename = "1h")]
+    OneHour,
+    /// Last 1 day (24 hours)
+    #[serde(rename = "1d")]
+    OneDay,
+    /// Last 3 days
+    #[serde(rename = "3d")]
+    ThreeDays,
+    /// Last 7 days
+    #[serde(rename = "7d")]
+    SevenDays,
+    /// All time
+    #[default]
+    #[serde(rename = "all")]
+    AllTime,
+}
+
+impl std::fmt::Display for LeaderboardPeriod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OneHour => write!(f, "1h"),
+            Self::OneDay => write!(f, "1d"),
+            Self::ThreeDays => write!(f, "3d"),
+            Self::SevenDays => write!(f, "7d"),
+            Self::AllTime => write!(f, "all"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
+pub struct RequestorLeaderboardParams {
+    /// Time period: 1h, 1d, 3d, 7d, or all (default: all)
+    #[serde(default)]
+    period: LeaderboardPeriod,
+
+    /// Base64-encoded cursor from previous response for pagination
+    #[serde(default)]
+    cursor: Option<String>,
+
+    /// Limit of results returned, max 100 (default 50)
+    #[serde(default)]
+    limit: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RequestorLeaderboardCursor {
+    pub orders_requested: u64,
+    pub address: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RequestorLeaderboardEntry {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Requestor address (checksummed)
+    pub requestor_address: String,
+    /// Total orders requested in the period
+    pub orders_requested: u64,
+    /// Total orders locked in the period
+    pub orders_locked: u64,
+    /// Total cycles requested (as string)
+    pub cycles_requested: String,
+    /// Total cycles requested (formatted for display)
+    pub cycles_requested_formatted: String,
+    /// Median lock price per cycle (as string, null if no locked orders)
+    pub median_lock_price_per_cycle: Option<String>,
+    /// Median lock price per cycle (formatted for display)
+    pub median_lock_price_per_cycle_formatted: Option<String>,
+    /// Acceptance rate (locked / submitted) as percentage
+    pub acceptance_rate: f32,
+    /// Fulfillment rate (fulfilled / (fulfilled + expired)) as percentage
+    pub fulfillment_rate: f32,
+    /// Last activity timestamp (Unix)
+    pub last_activity_time: i64,
+    /// Last activity timestamp (ISO 8601)
+    pub last_activity_time_iso: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RequestorLeaderboardResponse {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Time period for the leaderboard
+    pub period: String,
+    /// Start timestamp of the query period (Unix)
+    pub period_start: i64,
+    /// End timestamp of the query period (Unix)
+    pub period_end: i64,
+    /// Leaderboard entries sorted by cycles
+    pub data: Vec<RequestorLeaderboardEntry>,
+    /// Cursor for next page, null if no more results
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProverLeaderboardCursor {
+    pub fees_earned: String,
+    pub address: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProverLeaderboardEntry {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Prover address (checksummed)
+    pub prover_address: String,
+    /// Total orders locked in the period
+    pub orders_locked: u64,
+    /// Total orders fulfilled in the period
+    pub orders_fulfilled: u64,
+    /// Total cycles proven (as string)
+    pub cycles: String,
+    /// Total cycles proven (formatted for display)
+    pub cycles_formatted: String,
+    /// Total fees earned (as string)
+    pub fees_earned: String,
+    /// Total fees earned (formatted for display)
+    pub fees_earned_formatted: String,
+    /// Total collateral earned from slashing (as string)
+    pub collateral_earned: String,
+    /// Total collateral earned (formatted for display)
+    pub collateral_earned_formatted: String,
+    /// Median lock price per cycle (as string, null if no locked orders)
+    pub median_lock_price_per_cycle: Option<String>,
+    /// Median lock price per cycle (formatted for display)
+    pub median_lock_price_per_cycle_formatted: Option<String>,
+    /// Peak proving speed in MHz
+    pub peak_prove_mhz: f64,
+    /// Fulfillment rate as percentage (0-100)
+    pub fulfillment_rate: f32,
+    /// Last activity timestamp (Unix)
+    pub last_activity_time: i64,
+    /// Last activity timestamp (ISO 8601)
+    pub last_activity_time_iso: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ProverLeaderboardResponse {
+    /// Chain ID
+    pub chain_id: u64,
+    /// Time period for the leaderboard
+    pub period: String,
+    /// Start timestamp of the query period (Unix)
+    pub period_start: i64,
+    /// End timestamp of the query period (Unix)
+    pub period_end: i64,
+    /// Leaderboard entries sorted by fees earned
+    pub data: Vec<ProverLeaderboardEntry>,
+    /// Cursor for next page, null if no more results
+    pub next_cursor: Option<String>,
+}
+
 fn encode_cursor(timestamp: i64) -> Result<String, anyhow::Error> {
     let json = serde_json::to_string(&timestamp)?;
     Ok(BASE64.encode(json))
@@ -252,6 +411,36 @@ fn decode_cursor(cursor_str: &str) -> Result<i64, anyhow::Error> {
     let json = BASE64.decode(cursor_str)?;
     let timestamp: i64 = serde_json::from_slice(&json)?;
     Ok(timestamp)
+}
+
+fn encode_requestor_leaderboard_cursor(
+    cursor: &RequestorLeaderboardCursor,
+) -> Result<String, anyhow::Error> {
+    let json = serde_json::to_string(cursor)?;
+    Ok(BASE64.encode(json))
+}
+
+fn decode_requestor_leaderboard_cursor(
+    cursor_str: &str,
+) -> Result<RequestorLeaderboardCursor, anyhow::Error> {
+    let json = BASE64.decode(cursor_str)?;
+    let cursor: RequestorLeaderboardCursor = serde_json::from_slice(&json)?;
+    Ok(cursor)
+}
+
+fn encode_prover_leaderboard_cursor(
+    cursor: &ProverLeaderboardCursor,
+) -> Result<String, anyhow::Error> {
+    let json = serde_json::to_string(cursor)?;
+    Ok(BASE64.encode(json))
+}
+
+fn decode_prover_leaderboard_cursor(
+    cursor_str: &str,
+) -> Result<ProverLeaderboardCursor, anyhow::Error> {
+    let json = BASE64.decode(cursor_str)?;
+    let cursor: ProverLeaderboardCursor = serde_json::from_slice(&json)?;
+    Ok(cursor)
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -2367,4 +2556,359 @@ async fn get_requests_by_request_id_impl(
     let data =
         statuses.into_iter().map(|s| convert_request_status(s, state.chain_id)).collect::<Vec<_>>();
     Ok(data)
+}
+
+const MAX_LEADERBOARD: u64 = 100;
+const DEFAULT_LEADERBOARD_LIMIT: u64 = 50;
+
+/// GET /v1/market/requestors
+/// Returns a paginated leaderboard of requestors with aggregated stats for the specified time period
+#[utoipa::path(
+    get,
+    path = "/v1/market/requestors",
+    tag = "Market",
+    params(RequestorLeaderboardParams),
+    responses(
+        (status = 200, description = "Requestor leaderboard", body = RequestorLeaderboardResponse),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn list_requestors(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RequestorLeaderboardParams>,
+) -> Response {
+    let period = params.period;
+    match list_requestors_impl(state, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            // Use shorter cache for recent periods, longer for all-time
+            let cache_duration = match period {
+                LeaderboardPeriod::OneHour => "public, max-age=60",
+                LeaderboardPeriod::OneDay => "public, max-age=120",
+                _ => "public, max-age=300",
+            };
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn list_requestors_impl(
+    state: Arc<AppState>,
+    params: RequestorLeaderboardParams,
+) -> anyhow::Result<RequestorLeaderboardResponse> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Calculate time range based on period
+    let (start_ts, end_ts, use_hourly_table) = match params.period {
+        LeaderboardPeriod::OneHour => {
+            let hour_start = (now / 3600) * 3600;
+            (hour_start, hour_start + 3600, true)
+        }
+        LeaderboardPeriod::OneDay => {
+            let day_start = (now / 86400) * 86400;
+            (day_start, day_start + 86400, true)
+        }
+        LeaderboardPeriod::ThreeDays => {
+            let day_start = (now / 86400) * 86400;
+            (day_start - 2 * 86400, day_start + 86400, false)
+        }
+        LeaderboardPeriod::SevenDays => {
+            let day_start = (now / 86400) * 86400;
+            (day_start - 6 * 86400, day_start + 86400, false)
+        }
+        LeaderboardPeriod::AllTime => (0, now + 86400, false),
+    };
+
+    // Parse cursor if provided
+    let (cursor_orders, cursor_address) = if let Some(cursor_str) = &params.cursor {
+        let cursor = decode_requestor_leaderboard_cursor(cursor_str)?;
+        let address = Address::from_str(&cursor.address)
+            .map_err(|e| anyhow::anyhow!("Invalid cursor address: {}", e))?;
+        (Some(cursor.orders_requested), Some(address))
+    } else {
+        (None, None)
+    };
+
+    // Apply limit with max and default
+    let limit = params.limit.unwrap_or(DEFAULT_LEADERBOARD_LIMIT);
+    let limit = if limit > MAX_LEADERBOARD { MAX_LEADERBOARD } else { limit };
+    let limit_i64 = i64::try_from(limit)?;
+
+    // Request one extra item to determine if more pages exist
+    let limit_plus_one = limit_i64 + 1;
+
+    // Fetch leaderboard from DB (sorted by orders_requested DESC)
+    let mut entries = state
+        .market_db
+        .get_requestor_leaderboard(
+            start_ts,
+            end_ts,
+            use_hourly_table,
+            cursor_orders,
+            cursor_address,
+            limit_plus_one,
+        )
+        .await?;
+
+    let has_more = entries.len() > limit as usize;
+    if has_more {
+        entries.pop();
+    }
+
+    // Get addresses for batch queries
+    let addresses: Vec<Address> = entries.iter().map(|e| e.requestor_address).collect();
+
+    // Fetch median lock prices and last activity times in batch
+    let median_prices =
+        state.market_db.get_requestor_median_lock_prices(&addresses, start_ts, end_ts).await?;
+    let last_activities = state.market_db.get_requestor_last_activity_times(&addresses).await?;
+
+    // Build response entries
+    let data: Vec<RequestorLeaderboardEntry> = entries
+        .into_iter()
+        .map(|entry| {
+            let median = median_prices.get(&entry.requestor_address).cloned();
+            let last_activity = last_activities
+                .get(&entry.requestor_address)
+                .cloned()
+                .unwrap_or(entry.last_activity_time);
+
+            let last_activity_iso = DateTime::<Utc>::from_timestamp(last_activity as i64, 0)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .unwrap_or_default();
+
+            RequestorLeaderboardEntry {
+                chain_id: state.chain_id,
+                requestor_address: alloy::primitives::Address::to_checksum(
+                    &entry.requestor_address,
+                    None,
+                ),
+                orders_requested: entry.orders_requested,
+                orders_locked: entry.orders_locked,
+                cycles_requested: entry.cycles_requested.to_string(),
+                cycles_requested_formatted: format_cycles(entry.cycles_requested),
+                median_lock_price_per_cycle: median.map(|m| m.to_string()),
+                median_lock_price_per_cycle_formatted: median.map(|m| format_zkc(&m.to_string())),
+                acceptance_rate: entry.acceptance_rate,
+                fulfillment_rate: entry.fulfillment_rate,
+                last_activity_time: last_activity as i64,
+                last_activity_time_iso: last_activity_iso,
+            }
+        })
+        .collect();
+
+    // Generate next cursor if there are more results
+    let next_cursor = if has_more && !data.is_empty() {
+        let last = data.last().unwrap();
+        Some(encode_requestor_leaderboard_cursor(&RequestorLeaderboardCursor {
+            orders_requested: last.orders_requested,
+            address: last.requestor_address.clone(),
+        })?)
+    } else {
+        None
+    };
+
+    Ok(RequestorLeaderboardResponse {
+        chain_id: state.chain_id,
+        period: params.period.to_string(),
+        period_start: start_ts as i64,
+        period_end: end_ts as i64,
+        data,
+        next_cursor,
+    })
+}
+
+fn format_cycles(cycles: U256) -> String {
+    // Format as billions/millions/thousands with appropriate suffix
+    let value = cycles.to_string();
+    if let Ok(num) = value.parse::<u128>() {
+        if num >= 1_000_000_000_000 {
+            format!("{:.2}T", num as f64 / 1_000_000_000_000.0)
+        } else if num >= 1_000_000_000 {
+            format!("{:.2}B", num as f64 / 1_000_000_000.0)
+        } else if num >= 1_000_000 {
+            format!("{:.2}M", num as f64 / 1_000_000.0)
+        } else if num >= 1_000 {
+            format!("{:.2}K", num as f64 / 1_000.0)
+        } else {
+            value
+        }
+    } else {
+        value
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/market/provers",
+    params(
+        ("period" = Option<LeaderboardPeriod>, Query, description = "Time period for leaderboard"),
+        ("cursor" = Option<String>, Query, description = "Pagination cursor"),
+        ("limit" = Option<u64>, Query, description = "Max results per page (max 100)")
+    ),
+    responses(
+        (status = 200, description = "Prover leaderboard", body = ProverLeaderboardResponse),
+        (status = 500, description = "Internal Server Error")
+    ),
+    tag = "market"
+)]
+pub async fn list_provers(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RequestorLeaderboardParams>,
+) -> Response {
+    let period = params.period;
+    match list_provers_impl(state, params).await {
+        Ok(response) => {
+            let mut res = Json(response).into_response();
+            let cache_duration = match period {
+                LeaderboardPeriod::OneHour => "public, max-age=60",
+                LeaderboardPeriod::OneDay => "public, max-age=120",
+                _ => "public, max-age=300",
+            };
+            res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
+            res
+        }
+        Err(err) => handle_error(err).into_response(),
+    }
+}
+
+async fn list_provers_impl(
+    state: Arc<AppState>,
+    params: RequestorLeaderboardParams,
+) -> anyhow::Result<ProverLeaderboardResponse> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Calculate time range based on period
+    let (start_ts, end_ts, use_hourly_table) = match params.period {
+        LeaderboardPeriod::OneHour => {
+            let hour_start = (now / 3600) * 3600;
+            (hour_start, hour_start + 3600, true)
+        }
+        LeaderboardPeriod::OneDay => {
+            let day_start = (now / 86400) * 86400;
+            (day_start, day_start + 86400, true)
+        }
+        LeaderboardPeriod::ThreeDays => {
+            let day_start = (now / 86400) * 86400;
+            (day_start - 2 * 86400, day_start + 86400, false)
+        }
+        LeaderboardPeriod::SevenDays => {
+            let day_start = (now / 86400) * 86400;
+            (day_start - 6 * 86400, day_start + 86400, false)
+        }
+        LeaderboardPeriod::AllTime => (0, now + 86400, false),
+    };
+
+    // Parse cursor if provided
+    let (cursor_fees, cursor_address) = if let Some(cursor_str) = &params.cursor {
+        let cursor = decode_prover_leaderboard_cursor(cursor_str)?;
+        let address = Address::from_str(&cursor.address)
+            .map_err(|e| anyhow::anyhow!("Invalid cursor address: {}", e))?;
+        let fees = U256::from_str(&cursor.fees_earned)
+            .map_err(|e| anyhow::anyhow!("Invalid cursor fees: {}", e))?;
+        (Some(fees), Some(address))
+    } else {
+        (None, None)
+    };
+
+    // Apply limit with max and default
+    let limit = params.limit.unwrap_or(DEFAULT_LEADERBOARD_LIMIT);
+    let limit = if limit > MAX_LEADERBOARD { MAX_LEADERBOARD } else { limit };
+    let limit_i64 = i64::try_from(limit)?;
+
+    // Request one extra item to determine if more pages exist
+    let limit_plus_one = limit_i64 + 1;
+
+    // Fetch leaderboard from DB (sorted by fees_earned DESC)
+    let mut entries = state
+        .market_db
+        .get_prover_leaderboard(
+            start_ts,
+            end_ts,
+            use_hourly_table,
+            cursor_fees,
+            cursor_address,
+            limit_plus_one,
+        )
+        .await?;
+
+    let has_more = entries.len() > limit as usize;
+    if has_more {
+        entries.pop();
+    }
+
+    // Get addresses for batch queries
+    let addresses: Vec<Address> = entries.iter().map(|e| e.prover_address).collect();
+
+    // Fetch median lock prices and last activity times in batch
+    let median_prices =
+        state.market_db.get_prover_median_lock_prices(&addresses, start_ts, end_ts).await?;
+    let last_activities = state.market_db.get_prover_last_activity_times(&addresses).await?;
+
+    // Build response entries
+    let data: Vec<ProverLeaderboardEntry> = entries
+        .into_iter()
+        .map(|entry| {
+            let median = median_prices.get(&entry.prover_address).cloned();
+            let last_activity = last_activities
+                .get(&entry.prover_address)
+                .cloned()
+                .unwrap_or(entry.last_activity_time);
+
+            let last_activity_iso = DateTime::<Utc>::from_timestamp(last_activity as i64, 0)
+                .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .unwrap_or_default();
+
+            ProverLeaderboardEntry {
+                chain_id: state.chain_id,
+                prover_address: alloy::primitives::Address::to_checksum(
+                    &entry.prover_address,
+                    None,
+                ),
+                orders_locked: entry.orders_locked,
+                orders_fulfilled: entry.orders_fulfilled,
+                cycles: entry.cycles.to_string(),
+                cycles_formatted: format_cycles(entry.cycles),
+                fees_earned: entry.fees_earned.to_string(),
+                fees_earned_formatted: format_zkc(&entry.fees_earned.to_string()),
+                collateral_earned: entry.collateral_earned.to_string(),
+                collateral_earned_formatted: format_zkc(&entry.collateral_earned.to_string()),
+                median_lock_price_per_cycle: median.map(|m| m.to_string()),
+                median_lock_price_per_cycle_formatted: median.map(|m| format_zkc(&m.to_string())),
+                peak_prove_mhz: entry.peak_prove_mhz,
+                fulfillment_rate: entry.fulfillment_rate,
+                last_activity_time: last_activity as i64,
+                last_activity_time_iso: last_activity_iso,
+            }
+        })
+        .collect();
+
+    // Generate next cursor if there are more results
+    let next_cursor = if has_more && !data.is_empty() {
+        let last = data.last().unwrap();
+        Some(encode_prover_leaderboard_cursor(&ProverLeaderboardCursor {
+            fees_earned: last.fees_earned.clone(),
+            address: last.prover_address.clone(),
+        })?)
+    } else {
+        None
+    };
+
+    Ok(ProverLeaderboardResponse {
+        chain_id: state.chain_id,
+        period: params.period.to_string(),
+        period_start: start_ts as i64,
+        period_end: end_ts as i64,
+        data,
+        next_cursor,
+    })
 }
