@@ -1376,7 +1376,7 @@ async fn get_prover_leaderboard_impl(
         let collateral_earned = padded_string_to_u256(&collateral_str)?;
 
         let total_outcomes = fulfilled + expired;
-        let fulfillment_rate = if total_outcomes > 0 {
+        let locked_order_fulfillment_rate = if total_outcomes > 0 {
             (fulfilled as f32 / total_outcomes as f32) * 100.0
         } else {
             0.0
@@ -1391,7 +1391,7 @@ async fn get_prover_leaderboard_impl(
             collateral_earned,
             median_lock_price_per_cycle: None,
             peak_prove_mhz,
-            fulfillment_rate,
+            locked_order_fulfillment_rate,
             last_activity_time: 0,
         });
     }

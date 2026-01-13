@@ -318,10 +318,10 @@ pub struct RequestorLeaderboardEntry {
     pub median_lock_price_per_cycle: Option<String>,
     /// Median lock price per cycle (formatted for display)
     pub median_lock_price_per_cycle_formatted: Option<String>,
-    /// Acceptance rate (locked / submitted) as percentage
+    /// Acceptance rate (locked / (locked + not_locked_and_expired)) as percentage
     pub acceptance_rate: f32,
-    /// Fulfillment rate (fulfilled / (fulfilled + expired)) as percentage
-    pub fulfillment_rate: f32,
+    /// Locked order fulfillment rate (locked and fulfilled / (locked and fulfilled + locked and expired)) as percentage
+    pub locked_order_fulfillment_rate: f32,
     /// Last activity timestamp (Unix)
     pub last_activity_time: i64,
     /// Last activity timestamp (ISO 8601)
@@ -378,8 +378,8 @@ pub struct ProverLeaderboardEntry {
     pub median_lock_price_per_cycle_formatted: Option<String>,
     /// Peak proving speed in MHz
     pub peak_prove_mhz: f64,
-    /// Fulfillment rate as percentage (0-100)
-    pub fulfillment_rate: f32,
+    /// Locked order fulfillment rate as percentage (0-100)
+    pub locked_order_fulfillment_rate: f32,
     /// Last activity timestamp (Unix)
     pub last_activity_time: i64,
     /// Last activity timestamp (ISO 8601)
@@ -2696,7 +2696,7 @@ async fn list_requestors_impl(
                 median_lock_price_per_cycle: median.map(|m| m.to_string()),
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
                 acceptance_rate: entry.acceptance_rate,
-                fulfillment_rate: entry.fulfillment_rate,
+                locked_order_fulfillment_rate: entry.locked_order_fulfillment_rate,
                 last_activity_time: last_activity as i64,
                 last_activity_time_iso: last_activity_iso,
             }
@@ -2756,7 +2756,7 @@ fn format_cycles(cycles: U256) -> String {
         (status = 200, description = "Prover leaderboard", body = ProverLeaderboardResponse),
         (status = 500, description = "Internal Server Error")
     ),
-    tag = "market"
+    tag = "Market"
 )]
 pub async fn list_provers(
     State(state): State<Arc<AppState>>,
@@ -2885,7 +2885,7 @@ async fn list_provers_impl(
                 median_lock_price_per_cycle: median.map(|m| m.to_string()),
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
                 peak_prove_mhz: entry.peak_prove_mhz,
-                fulfillment_rate: entry.fulfillment_rate,
+                locked_order_fulfillment_rate: entry.locked_order_fulfillment_rate,
                 last_activity_time: last_activity as i64,
                 last_activity_time_iso: last_activity_iso,
             }

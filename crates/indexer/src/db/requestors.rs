@@ -1617,14 +1617,15 @@ async fn get_requestor_leaderboard_impl(
         let cycles_str: String = row.try_get("cycles")?;
         let cycles_requested = padded_string_to_u256(&cycles_str)?;
 
-        let acceptance_rate = if (orders_locked + total_expired_all) > 0 {
-            (orders_locked as f32 / (orders_locked + total_expired_all) as f32) * 100.0
+        let not_locked_and_expired = total_expired_all - expired;
+        let acceptance_rate = if (orders_locked + not_locked_and_expired) > 0 {
+            (orders_locked as f32 / (orders_locked + not_locked_and_expired) as f32) * 100.0
         } else {
             0.0
         };
 
         let total_outcomes = fulfilled + expired;
-        let fulfillment_rate = if total_outcomes > 0 {
+        let locked_order_fulfillment_rate = if total_outcomes > 0 {
             (fulfilled as f32 / total_outcomes as f32) * 100.0
         } else {
             0.0
@@ -1637,7 +1638,7 @@ async fn get_requestor_leaderboard_impl(
             cycles_requested,
             median_lock_price_per_cycle: None,
             acceptance_rate,
-            fulfillment_rate,
+            locked_order_fulfillment_rate,
             last_activity_time: 0,
         });
     }
@@ -4456,9 +4457,9 @@ mod tests {
         assert_eq!(results[0].orders_locked, 40); // 25 + 15
         assert_eq!(results[0].cycles_requested, U256::from(850_000_000u64)); // 550M + 300M
 
-        // Fulfillment rate: (20+10) / ((20+10) + (1+2)) = 30/33 = 90.9%
+        // Locked order fulfillment rate: (20+10) / ((20+10) + (1+2)) = 30/33 = 90.9%
         let expected_rate = (30.0 / 33.0) * 100.0;
-        assert!((results[0].fulfillment_rate - expected_rate).abs() < 0.1);
+        assert!((results[0].locked_order_fulfillment_rate - expected_rate).abs() < 0.1);
     }
 
     fn create_locked_request_status(

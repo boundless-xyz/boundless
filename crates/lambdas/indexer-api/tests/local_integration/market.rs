@@ -1410,9 +1410,9 @@ async fn test_requestor_leaderboard() {
             first.acceptance_rate
         );
         assert!(
-            first.fulfillment_rate >= 0.0 && first.fulfillment_rate <= 100.0,
-            "fulfillment_rate should be 0-100: {}",
-            first.fulfillment_rate
+            first.locked_order_fulfillment_rate >= 0.0 && first.locked_order_fulfillment_rate <= 100.0,
+            "locked_order_fulfillment_rate should be 0-100: {}",
+            first.locked_order_fulfillment_rate
         );
 
         // Cycles should be parseable
@@ -1582,7 +1582,7 @@ async fn test_requestor_leaderboard_periods() {
                 first.orders_requested,
                 first.cycles_requested_formatted,
                 first.acceptance_rate,
-                first.fulfillment_rate
+                first.locked_order_fulfillment_rate
             );
         }
 
@@ -1632,9 +1632,9 @@ async fn test_requestor_leaderboard_periods() {
             entry.acceptance_rate
         );
         assert!(
-            entry.fulfillment_rate >= 0.0 && entry.fulfillment_rate <= 100.0,
-            "fulfillment_rate should be 0-100: {}",
-            entry.fulfillment_rate
+            entry.locked_order_fulfillment_rate >= 0.0 && entry.locked_order_fulfillment_rate <= 100.0,
+            "locked_order_fulfillment_rate should be 0-100: {}",
+            entry.locked_order_fulfillment_rate
         );
 
         // Last activity should be set
@@ -1650,7 +1650,7 @@ async fn test_requestor_leaderboard_periods() {
             entry.orders_requested,
             entry.cycles_requested_formatted,
             entry.acceptance_rate,
-            entry.fulfillment_rate
+            entry.locked_order_fulfillment_rate
         );
     }
 }
@@ -1686,9 +1686,9 @@ async fn test_prover_leaderboard() {
         // Numeric fields should be non-negative
         assert!(first.orders_locked > 0, "orders_locked should be positive for active provers");
         assert!(
-            first.fulfillment_rate >= 0.0 && first.fulfillment_rate <= 100.0,
-            "fulfillment_rate should be 0-100: {}",
-            first.fulfillment_rate
+            first.locked_order_fulfillment_rate >= 0.0 && first.locked_order_fulfillment_rate <= 100.0,
+            "locked_order_fulfillment_rate should be 0-100: {}",
+            first.locked_order_fulfillment_rate
         );
 
         // Fees should be parseable
@@ -1866,9 +1866,9 @@ async fn test_prover_leaderboard_periods() {
 
         // Rates should be valid percentages
         assert!(
-            entry.fulfillment_rate >= 0.0 && entry.fulfillment_rate <= 100.0,
-            "fulfillment_rate should be 0-100: {}",
-            entry.fulfillment_rate
+            entry.locked_order_fulfillment_rate >= 0.0 && entry.locked_order_fulfillment_rate <= 100.0,
+            "locked_order_fulfillment_rate should be 0-100: {}",
+            entry.locked_order_fulfillment_rate
         );
 
         // Last activity may be 0 if prover data comes from aggregates only
@@ -1884,7 +1884,7 @@ async fn test_prover_leaderboard_periods() {
             entry.orders_locked,
             entry.orders_fulfilled,
             entry.fees_earned_formatted,
-            entry.fulfillment_rate,
+            entry.locked_order_fulfillment_rate,
             entry.last_activity_time
         );
     }

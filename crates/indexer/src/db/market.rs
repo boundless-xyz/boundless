@@ -320,7 +320,7 @@ pub struct RequestorLeaderboardEntry {
     pub cycles_requested: U256,
     pub median_lock_price_per_cycle: Option<U256>,
     pub acceptance_rate: f32,
-    pub fulfillment_rate: f32,
+    pub locked_order_fulfillment_rate: f32,
     pub last_activity_time: u64,
 }
 
@@ -334,7 +334,7 @@ pub struct ProverLeaderboardEntry {
     pub collateral_earned: U256,
     pub median_lock_price_per_cycle: Option<U256>,
     pub peak_prove_mhz: f64,
-    pub fulfillment_rate: f32,
+    pub locked_order_fulfillment_rate: f32,
     pub last_activity_time: u64,
 }
 
