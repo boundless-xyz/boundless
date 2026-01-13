@@ -26,9 +26,78 @@ use alloy::{
     },
     providers::Provider,
 };
+use alloy_primitives::utils::parse_ether;
 use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
+
+// Peak performance thresholds for enabling requestor lists (kHz)
+const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
+const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
+
+/// Check if primary performance exceeds threshold and log a warning with recommended lock timeout.
+///
+/// Returns `true` if a warning was logged.
+fn check_primary_performance_warning(cycle_count: u64, primary_performance: f64) -> bool {
+    if primary_performance > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
+        let recommended_lock_timeout =
+            cycle_count.div_ceil(XL_REQUESTOR_LIST_THRESHOLD_KHZ as u64) as u32;
+        tracing::warn!(
+            "Warning: your request requires a proving Khz of {primary_performance} to be \
+             fulfilled before the lock timeout. This limits the number of provers in the \
+             network that will be able to fulfill your order. Consider setting a longer \
+             lock timeout of at most {recommended_lock_timeout} seconds."
+        );
+        true
+    } else {
+        false
+    }
+}
+
+/// Check if secondary performance exceeds threshold and log a warning with recommended timeout.
+///
+/// Returns `true` if a warning was logged.
+fn check_secondary_performance_warning(cycle_count: u64, secondary_performance: f64) -> bool {
+    if secondary_performance > XL_REQUESTOR_LIST_THRESHOLD_KHZ {
+        let recommended_timeout =
+            cycle_count.div_ceil(XL_REQUESTOR_LIST_THRESHOLD_KHZ as u64) as u32;
+        tracing::warn!(
+            "Warning: your request requires a proving Khz of {secondary_performance} to be \
+             fulfilled before the timeout. This limits the number of provers in the network \
+             that will be able to fulfill your order. Consider setting a longer timeout of \
+             at most {recommended_timeout} seconds."
+        );
+        true
+    } else {
+        false
+    }
+}
+
+/// Determine the recommended minimum collateral based on secondary performance and current collateral.
+///
+/// Returns `Some(recommended_amount)` if the current collateral is too low, `None` otherwise.
+fn recommend_collateral(
+    secondary_performance: f64,
+    lock_collateral: U256,
+) -> anyhow::Result<Option<&'static str>> {
+    let recommended = if secondary_performance < LARGE_REQUESTOR_LIST_THRESHOLD_KHZ
+        && lock_collateral < parse_ether("20")?
+    {
+        Some("20")
+    } else if (LARGE_REQUESTOR_LIST_THRESHOLD_KHZ..XL_REQUESTOR_LIST_THRESHOLD_KHZ)
+        .contains(&secondary_performance)
+        && lock_collateral < parse_ether("50")?
+    {
+        Some("50")
+    } else if secondary_performance >= XL_REQUESTOR_LIST_THRESHOLD_KHZ
+        && lock_collateral < parse_ether("100")?
+    {
+        Some("100")
+    } else {
+        None
+    };
+    Ok(recommended)
+}
 
 /// Configuration for the [OfferLayer].
 ///
@@ -346,7 +415,7 @@ where
             .bidding_start
             .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
-        Ok(Offer {
+        let offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
             rampUpStart: bidding_start,
@@ -354,7 +423,29 @@ where
             lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
             timeout: params.timeout.unwrap_or(self.config.timeout),
             lockCollateral: params.lock_collateral.unwrap_or(self.config.lock_collateral),
-        })
+        };
+
+        if let Some(cycle_count) = cycle_count {
+            let primary_performance = offer.required_khz_performance(cycle_count);
+            let secondary_performance =
+                offer.required_khz_performance_secondary_prover(cycle_count);
+
+            check_primary_performance_warning(cycle_count, primary_performance);
+            check_secondary_performance_warning(cycle_count, secondary_performance);
+
+            // Check if the collateral requirement is low and raise a warning if it is.
+            if let Some(collateral) =
+                recommend_collateral(secondary_performance, offer.lockCollateral)?
+            {
+                tracing::warn!(
+                    "Warning: the collateral requirement of your request is low. This means the \
+                     incentives for secondary provers to fulfill the order if the primary prover \
+                     is slashed may be too low. Consider raising your lock collateral to {collateral} ZKC."
+                );
+            }
+        }
+
+        Ok(offer)
     }
 }
 
@@ -377,5 +468,185 @@ where
 
         let offer = layer.process((&requirements, request_id, self.cycles, &self.offer)).await?;
         Ok(self.with_offer(offer))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::utils::parse_ether;
+    use tracing_test::traced_test;
+
+    #[test]
+    fn test_check_primary_performance_warning_below_threshold() {
+        let cycle_count = 1000;
+        let primary_performance = 5000.0; // Below XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+
+        let result = check_primary_performance_warning(cycle_count, primary_performance);
+        assert!(!result, "Should not warn when performance is below threshold");
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_check_primary_performance_warning_above_threshold() {
+        let cycle_count = 20000;
+        let primary_performance = 15000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+
+        let result = check_primary_performance_warning(cycle_count, primary_performance);
+        assert!(result, "Should warn when performance is above threshold");
+        assert!(
+            logs_contain("Warning: your request requires a proving Khz"),
+            "Should log warning message"
+        );
+        assert!(logs_contain("lock timeout"), "Should mention lock timeout in warning");
+    }
+
+    #[test]
+    fn test_check_primary_performance_warning_exactly_at_threshold() {
+        let cycle_count = 1000;
+        let primary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ;
+
+        let result = check_primary_performance_warning(cycle_count, primary_performance);
+        assert!(!result, "Should not warn when performance is exactly at threshold");
+    }
+
+    #[test]
+    fn test_check_secondary_performance_warning_below_threshold() {
+        let cycle_count = 1000;
+        let secondary_performance = 5000.0; // Below XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+
+        let result = check_secondary_performance_warning(cycle_count, secondary_performance);
+        assert!(!result, "Should not warn when performance is below threshold");
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_check_secondary_performance_warning_above_threshold() {
+        let cycle_count = 20000;
+        let secondary_performance = 15000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+
+        let result = check_secondary_performance_warning(cycle_count, secondary_performance);
+        assert!(result, "Should warn when performance is above threshold");
+        assert!(
+            logs_contain("Warning: your request requires a proving Khz"),
+            "Should log warning message"
+        );
+        assert!(logs_contain("timeout"), "Should mention timeout in warning");
+    }
+
+    #[test]
+    fn test_check_secondary_performance_warning_exactly_at_threshold() {
+        let cycle_count = 1000;
+        let secondary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ;
+
+        let result = check_secondary_performance_warning(cycle_count, secondary_performance);
+        assert!(!result, "Should not warn when performance is exactly at threshold");
+    }
+
+    #[test]
+    fn test_recommend_collateral_low_performance_low_collateral() {
+        let secondary_performance = 2000.0; // Below LARGE_REQUESTOR_LIST_THRESHOLD_KHZ (4000.0)
+        let lock_collateral = parse_ether("10").unwrap(); // Below 20
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(
+            result,
+            Some("20"),
+            "Should recommend 20 for low performance and low collateral"
+        );
+    }
+
+    #[test]
+    fn test_recommend_collateral_low_performance_sufficient_collateral() {
+        let secondary_performance = 2000.0; // Below LARGE_REQUESTOR_LIST_THRESHOLD_KHZ (4000.0)
+        let lock_collateral = parse_ether("25").unwrap(); // Above 20
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(result, None, "Should not recommend when collateral is sufficient");
+    }
+
+    #[test]
+    fn test_recommend_collateral_medium_performance_low_collateral() {
+        let secondary_performance = 5000.0; // Between LARGE and XL thresholds
+        let lock_collateral = parse_ether("30").unwrap(); // Below 50
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(
+            result,
+            Some("50"),
+            "Should recommend 50 for medium performance and low collateral"
+        );
+    }
+
+    #[test]
+    fn test_recommend_collateral_medium_performance_sufficient_collateral() {
+        let secondary_performance = 5000.0; // Between LARGE and XL thresholds
+        let lock_collateral = parse_ether("60").unwrap(); // Above 50
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(result, None, "Should not recommend when collateral is sufficient");
+    }
+
+    #[test]
+    fn test_recommend_collateral_high_performance_low_collateral() {
+        let secondary_performance = 12000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+        let lock_collateral = parse_ether("80").unwrap(); // Below 100
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(
+            result,
+            Some("100"),
+            "Should recommend 100 for high performance and low collateral"
+        );
+    }
+
+    #[test]
+    fn test_recommend_collateral_high_performance_sufficient_collateral() {
+        let secondary_performance = 12000.0; // Above XL_REQUESTOR_LIST_THRESHOLD_KHZ (10000.0)
+        let lock_collateral = parse_ether("120").unwrap(); // Above 100
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(result, None, "Should not recommend when collateral is sufficient");
+    }
+
+    #[test]
+    fn test_recommend_collateral_at_large_threshold() {
+        let secondary_performance = LARGE_REQUESTOR_LIST_THRESHOLD_KHZ; // Exactly at threshold
+        let lock_collateral = parse_ether("10").unwrap();
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        // At exactly LARGE threshold, should not match first condition, should match second
+        assert_eq!(result, Some("50"), "Should recommend 50 when at LARGE threshold");
+    }
+
+    #[test]
+    fn test_recommend_collateral_at_xl_threshold() {
+        let secondary_performance = XL_REQUESTOR_LIST_THRESHOLD_KHZ; // Exactly at threshold
+        let lock_collateral = parse_ether("80").unwrap();
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(result, Some("100"), "Should recommend 100 when at XL threshold");
+    }
+
+    #[test]
+    fn test_recommend_collateral_exact_thresholds() {
+        // Test with collateral exactly at the thresholds
+        let secondary_performance = 2000.0;
+        let lock_collateral = parse_ether("20").unwrap(); // Exactly at threshold
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
+
+        let secondary_performance = 5000.0;
+        let lock_collateral = parse_ether("50").unwrap(); // Exactly at threshold
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
+
+        let secondary_performance = 12000.0;
+        let lock_collateral = parse_ether("100").unwrap(); // Exactly at threshold
+
+        let result = recommend_collateral(secondary_performance, lock_collateral).unwrap();
+        assert_eq!(result, None, "Should not recommend when collateral is exactly at threshold");
     }
 }

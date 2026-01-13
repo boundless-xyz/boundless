@@ -982,6 +982,22 @@ impl Offer {
         let lock_collateral = mcycle_price * U256::from(mcycle);
         Self { lockCollateral: lock_collateral, ..self }
     }
+
+    /// Calculates the required performance (kHz) for the offer.
+    ///
+    /// The result is computed over the time period defined by the lock timeout.
+    pub fn required_khz_performance(&self, cycle_count: u64) -> f64 {
+        let frequency = cycle_count as f64 / (self.lockTimeout as f64);
+        frequency * 1_000.0
+    }
+
+    /// Calculates the required performance (kHz) for the secondary prover.
+    ///
+    /// The result is computed over the time period defined by the timeout minus the lock timeout.
+    pub fn required_khz_performance_secondary_prover(&self, cycle_count: u64) -> f64 {
+        let frequency = cycle_count as f64 / (self.timeout.saturating_sub(self.lockTimeout) as f64);
+        frequency * 1000.0
+    }
 }
 
 #[cfg(not(target_os = "zkvm"))]
