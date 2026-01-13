@@ -212,7 +212,8 @@ services:
   aux_agent:
     <<: *agent-common
     mem_limit: 256M
-    replicas: ${BENTO_AUX_WORKER_COUNT:-2}
+    deploy:
+      replicas: ${BENTO_AUX_WORKER_COUNT:-2}
     cpus: 1
     environment:
       <<: *base-environment
