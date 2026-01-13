@@ -646,6 +646,10 @@ pub struct DeliverySpeed {
     pub proving_speed: f64,
     /// Executor speed in kHz.
     pub executor_speed: f64,
+    /// Minimum timeout in seconds.
+    pub min_timeout: u32,
+    /// Ramp up period multiplier.
+    pub ramp_up_period_multiplier: u32,
 }
 
 impl DeliverySpeed {
@@ -655,27 +659,44 @@ impl DeliverySpeed {
     /// Default executor speed in kHz.
     pub const DEFAULT_EXECUTOR_SPEED: f64 = 30000.0;
 
+    /// Minimum default timeout in seconds.
+    ///
+    /// This is to prevent the timeout from being too short and causing the request
+    /// to expire before the prover can execute and evaluate the request.
+    pub const DEFAULT_MIN_TIMEOUT: u32 = 60;
+
     /// Fast proving speed in kHz.
     pub const FAST_PROVING_SPEED: f64 = 3000.0;
 
     /// Fast executor speed in kHz.
     pub const FAST_EXECUTOR_SPEED: f64 = 50000.0;
 
-    /// Multiplier for the ramp up period.
-    ///
-    /// This is used to ensure that the ramp up period is long enough
-    /// to allow provers to execute and evaluate the request.
-    pub const RAMP_UP_PERIOD_MULTIPLIER: u32 = 10; // 10x the executor time
-
-    /// Minimum timeout in seconds.
+    /// Minimum fast timeout in seconds.
     ///
     /// This is to prevent the timeout from being too short and causing the request
     /// to expire before the prover can execute and evaluate the request.
-    pub const MIN_TIMEOUT: u32 = 30;
+    pub const FAST_MIN_TIMEOUT: u32 = 30;
+
+    /// Default multiplier for the ramp up period.
+    ///
+    /// This is used to ensure that the ramp up period is long enough
+    /// to allow provers to execute and evaluate the request.
+    pub const DEFAULT_RAMP_UP_PERIOD_MULTIPLIER: u32 = 10; // 10x the executor time
+
+    /// Fast multiplier for the ramp up period.
+    ///
+    /// This is used to ensure that the ramp up period is long enough
+    /// to allow provers to execute and evaluate the request.
+    pub const FAST_RAMP_UP_PERIOD_MULTIPLIER: u32 = 5; // 5x the executor time
 
     /// Creates a delivery speed with fast speeds.
     pub fn fast() -> Self {
-        Self { proving_speed: Self::FAST_PROVING_SPEED, executor_speed: Self::FAST_EXECUTOR_SPEED }
+        Self {
+            proving_speed: Self::FAST_PROVING_SPEED,
+            executor_speed: Self::FAST_EXECUTOR_SPEED,
+            min_timeout: Self::FAST_MIN_TIMEOUT,
+            ramp_up_period_multiplier: Self::FAST_RAMP_UP_PERIOD_MULTIPLIER,
+        }
     }
 
     /// Calculates the recommended timeout based on the cycle count and speeds.
@@ -690,7 +711,7 @@ impl DeliverySpeed {
         let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
         let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
         let timeout = required_proving_time.saturating_add(required_executor_time) as u32;
-        timeout.max(Self::MIN_TIMEOUT)
+        timeout.max(self.min_timeout)
     }
 
     /// Calculates the recommended ramp up period based on the cycle count and speeds.
@@ -698,7 +719,7 @@ impl DeliverySpeed {
     /// The ramp up period is calculated as the required executor time multiplied by the ramp up period multiplier.
     pub fn recommended_ramp_up_period(&self, cycle_count: u64) -> u32 {
         let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
-        required_executor_time as u32 * Self::RAMP_UP_PERIOD_MULTIPLIER
+        required_executor_time as u32 * self.ramp_up_period_multiplier
     }
 }
 
@@ -707,6 +728,8 @@ impl Default for DeliverySpeed {
         Self {
             proving_speed: Self::DEFAULT_PROVING_SPEED,
             executor_speed: Self::DEFAULT_EXECUTOR_SPEED,
+            min_timeout: Self::DEFAULT_MIN_TIMEOUT,
+            ramp_up_period_multiplier: Self::DEFAULT_RAMP_UP_PERIOD_MULTIPLIER,
         }
     }
 }
@@ -731,9 +754,16 @@ mod delivery_speed_tests {
 
     #[test]
     fn test_custom_creation() {
-        let speed = DeliverySpeed { proving_speed: 1000.0, executor_speed: 40000.0 };
+        let speed = DeliverySpeed {
+            proving_speed: 1000.0,
+            executor_speed: 40000.0,
+            min_timeout: 30,
+            ramp_up_period_multiplier: 10,
+        };
         assert_eq!(speed.proving_speed, 1000.0);
         assert_eq!(speed.executor_speed, 40000.0);
+        assert_eq!(speed.min_timeout, 30);
+        assert_eq!(speed.ramp_up_period_multiplier, 10);
     }
 
     #[test]
@@ -747,7 +777,7 @@ mod delivery_speed_tests {
         // Expected: (1_000_000 / (750 * 1000)) + (1_000_000 / (30000 * 1000))
         // = (1_000_000 / 750_000) + (1_000_000 / 30_000_000)
         // = 2 + 1 = 3 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+        assert_eq!(timeout, speed.min_timeout);
 
         // Test with a larger cycle count that exceeds MIN_TIMEOUT
         let cycle_count = 50_000_000; // 50M cycles
@@ -769,7 +799,7 @@ mod delivery_speed_tests {
         // Expected: (1_000_000 / (3000 * 1000)) + (1_000_000 / (50000 * 1000))
         // = (1_000_000 / 3_000_000) + (1_000_000 / 50_000_000)
         // = 1 + 1 = 2 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+        assert_eq!(timeout, speed.min_timeout);
 
         // Test with a larger cycle count
         let cycle_count = 50_000_000; // 50M cycles
@@ -777,7 +807,7 @@ mod delivery_speed_tests {
 
         // Expected: (50_000_000 / 3_000_000) + (50_000_000 / 50_000_000)
         // = 17 + 1 = 18 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+        assert_eq!(timeout, speed.min_timeout);
 
         // Test with a very large cycle count that exceeds MIN_TIMEOUT
         let cycle_count = 200_000_000; // 200M cycles
@@ -794,11 +824,11 @@ mod delivery_speed_tests {
 
         // Test with zero cycles - should return MIN_TIMEOUT
         let timeout = speed.recommended_timeout(0);
-        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+        assert_eq!(timeout, speed.min_timeout);
 
         // Test with very small cycle count - should return MIN_TIMEOUT
         let timeout = speed.recommended_timeout(100);
-        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+        assert_eq!(timeout, speed.min_timeout);
     }
 
     #[test]
@@ -831,18 +861,18 @@ mod delivery_speed_tests {
         let cycle_count = 1_000_000;
         let ramp_up = speed.recommended_ramp_up_period(cycle_count);
 
-        // Expected: (1_000_000 / (50000 * 1000)) * 10
-        // = (1_000_000 / 50_000_000) * 10
-        // = 1 * 10 = 10 seconds
-        assert_eq!(ramp_up, 10);
+        // Expected: (1_000_000 / (50000 * 1000)) * 5
+        // = (1_000_000 / 50_000_000) * 5
+        // = 1 * 5 = 5 seconds
+        assert_eq!(ramp_up, 5);
 
         // Test with 50M cycles
         let cycle_count = 50_000_000;
         let ramp_up = speed.recommended_ramp_up_period(cycle_count);
 
-        // Expected: (50_000_000 / 50_000_000) * 10
-        // = 1 * 10 = 10 seconds
-        assert_eq!(ramp_up, 10);
+        // Expected: (50_000_000 / 50_000_000) * 5
+        // = 1 * 5 = 5 seconds
+        assert_eq!(ramp_up, 5);
     }
 
     #[test]
@@ -866,8 +896,7 @@ mod delivery_speed_tests {
 
         // Fast speed should generally result in shorter timeouts (when above MIN_TIMEOUT)
         // For this cycle count, both should be above MIN_TIMEOUT
-        if default_timeout > DeliverySpeed::MIN_TIMEOUT && fast_timeout > DeliverySpeed::MIN_TIMEOUT
-        {
+        if default_timeout > default_speed.min_timeout && fast_timeout > fast_speed.min_timeout {
             assert!(
                 fast_timeout < default_timeout,
                 "Fast speed should have shorter timeout: fast={}, default={}",
