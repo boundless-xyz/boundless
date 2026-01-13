@@ -712,6 +712,173 @@ impl Default for DeliverySpeed {
 }
 
 #[cfg(test)]
+mod delivery_speed_tests {
+    use super::DeliverySpeed;
+
+    #[test]
+    fn test_default_creation() {
+        let speed = DeliverySpeed::default();
+        assert_eq!(speed.proving_speed, DeliverySpeed::DEFAULT_PROVING_SPEED);
+        assert_eq!(speed.executor_speed, DeliverySpeed::DEFAULT_EXECUTOR_SPEED);
+    }
+
+    #[test]
+    fn test_fast_creation() {
+        let speed = DeliverySpeed::fast();
+        assert_eq!(speed.proving_speed, DeliverySpeed::FAST_PROVING_SPEED);
+        assert_eq!(speed.executor_speed, DeliverySpeed::FAST_EXECUTOR_SPEED);
+    }
+
+    #[test]
+    fn test_custom_creation() {
+        let speed = DeliverySpeed { proving_speed: 1000.0, executor_speed: 40000.0 };
+        assert_eq!(speed.proving_speed, 1000.0);
+        assert_eq!(speed.executor_speed, 40000.0);
+    }
+
+    #[test]
+    fn test_recommended_timeout_default() {
+        let speed = DeliverySpeed::default();
+
+        // Test with a small cycle count
+        let cycle_count = 1_000_000; // 1M cycles
+        let timeout = speed.recommended_timeout(cycle_count);
+
+        // Expected: (1_000_000 / (750 * 1000)) + (1_000_000 / (30000 * 1000))
+        // = (1_000_000 / 750_000) + (1_000_000 / 30_000_000)
+        // = 2 + 1 = 3 seconds, but should be at least MIN_TIMEOUT (30)
+        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+
+        // Test with a larger cycle count that exceeds MIN_TIMEOUT
+        let cycle_count = 50_000_000; // 50M cycles
+        let timeout = speed.recommended_timeout(cycle_count);
+
+        // Expected: (50_000_000 / 750_000) + (50_000_000 / 30_000_000)
+        // = 67 + 2 = 69 seconds
+        assert_eq!(timeout, 69);
+    }
+
+    #[test]
+    fn test_recommended_timeout_fast() {
+        let speed = DeliverySpeed::fast();
+
+        // Test with a small cycle count
+        let cycle_count = 1_000_000; // 1M cycles
+        let timeout = speed.recommended_timeout(cycle_count);
+
+        // Expected: (1_000_000 / (3000 * 1000)) + (1_000_000 / (50000 * 1000))
+        // = (1_000_000 / 3_000_000) + (1_000_000 / 50_000_000)
+        // = 1 + 1 = 2 seconds, but should be at least MIN_TIMEOUT (30)
+        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+
+        // Test with a larger cycle count
+        let cycle_count = 50_000_000; // 50M cycles
+        let timeout = speed.recommended_timeout(cycle_count);
+
+        // Expected: (50_000_000 / 3_000_000) + (50_000_000 / 50_000_000)
+        // = 17 + 1 = 18 seconds, but should be at least MIN_TIMEOUT (30)
+        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+
+        // Test with a very large cycle count that exceeds MIN_TIMEOUT
+        let cycle_count = 200_000_000; // 200M cycles
+        let timeout = speed.recommended_timeout(cycle_count);
+
+        // Expected: (200_000_000 / 3_000_000) + (200_000_000 / 50_000_000)
+        // = 67 + 4 = 71 seconds
+        assert_eq!(timeout, 71);
+    }
+
+    #[test]
+    fn test_recommended_timeout_minimum() {
+        let speed = DeliverySpeed::default();
+
+        // Test with zero cycles - should return MIN_TIMEOUT
+        let timeout = speed.recommended_timeout(0);
+        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+
+        // Test with very small cycle count - should return MIN_TIMEOUT
+        let timeout = speed.recommended_timeout(100);
+        assert_eq!(timeout, DeliverySpeed::MIN_TIMEOUT);
+    }
+
+    #[test]
+    fn test_recommended_ramp_up_period_default() {
+        let speed = DeliverySpeed::default();
+
+        // Test with 1M cycles
+        let cycle_count = 1_000_000;
+        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+
+        // Expected: (1_000_000 / (30000 * 1000)) * 10
+        // = (1_000_000 / 30_000_000) * 10
+        // = 1 * 10 = 10 seconds
+        assert_eq!(ramp_up, 10);
+
+        // Test with 50M cycles
+        let cycle_count = 50_000_000;
+        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+
+        // Expected: (50_000_000 / 30_000_000) * 10
+        // = 2 * 10 = 20 seconds
+        assert_eq!(ramp_up, 20);
+    }
+
+    #[test]
+    fn test_recommended_ramp_up_period_fast() {
+        let speed = DeliverySpeed::fast();
+
+        // Test with 1M cycles
+        let cycle_count = 1_000_000;
+        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+
+        // Expected: (1_000_000 / (50000 * 1000)) * 10
+        // = (1_000_000 / 50_000_000) * 10
+        // = 1 * 10 = 10 seconds
+        assert_eq!(ramp_up, 10);
+
+        // Test with 50M cycles
+        let cycle_count = 50_000_000;
+        let ramp_up = speed.recommended_ramp_up_period(cycle_count);
+
+        // Expected: (50_000_000 / 50_000_000) * 10
+        // = 1 * 10 = 10 seconds
+        assert_eq!(ramp_up, 10);
+    }
+
+    #[test]
+    fn test_recommended_ramp_up_period_zero_cycles() {
+        let speed = DeliverySpeed::default();
+
+        // Test with zero cycles
+        let ramp_up = speed.recommended_ramp_up_period(0);
+        assert_eq!(ramp_up, 0);
+    }
+
+    #[test]
+    fn test_fast_vs_default_timeout_comparison() {
+        let default_speed = DeliverySpeed::default();
+        let fast_speed = DeliverySpeed::fast();
+
+        let cycle_count = 100_000_000; // 100M cycles
+
+        let default_timeout = default_speed.recommended_timeout(cycle_count);
+        let fast_timeout = fast_speed.recommended_timeout(cycle_count);
+
+        // Fast speed should generally result in shorter timeouts (when above MIN_TIMEOUT)
+        // For this cycle count, both should be above MIN_TIMEOUT
+        if default_timeout > DeliverySpeed::MIN_TIMEOUT && fast_timeout > DeliverySpeed::MIN_TIMEOUT
+        {
+            assert!(
+                fast_timeout < default_timeout,
+                "Fast speed should have shorter timeout: fast={}, default={}",
+                fast_timeout,
+                default_timeout
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
