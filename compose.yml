@@ -74,8 +74,6 @@ x-broker-environment: &broker-environment
 
 x-gpu-prove-agent: &gpu-prove-agent
   <<: *agent-common
-  mem_limit: 4G
-  cpus: 4
   environment:
     <<: *base-environment
     REDIS_TTL: ${REDIS_TTL:-57600}
@@ -219,10 +217,6 @@ services:
       <<: *base-environment
       # Default to 4 max client connections if not set (work, poll for requeue, completed cleanup, stuck tasks cleanup)
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-4}
-      CLEANUP_POLL_INTERVAL: ${CLEANUP_POLL_INTERVAL:-}
-      STUCK_TASKS_POLL_INTERVAL: ${STUCK_TASKS_POLL_INTERVAL:-}
-      BENTO_DISABLE_COMPLETED_CLEANUP: ${BENTO_DISABLE_COMPLETED_CLEANUP:-}
-      BENTO_DISABLE_STUCK_TASK_CLEANUP: ${BENTO_DISABLE_STUCK_TASK_CLEANUP:-}
       REDIS_TTL: ${REDIS_TTL:-57600}
     entrypoint:
       [
