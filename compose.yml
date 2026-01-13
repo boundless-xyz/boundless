@@ -207,11 +207,12 @@ services:
   exec_agent:
     <<: *exec-agent-common
     deploy:
-      replicas: 4
+      replicas: ${BENTO_EXECUTOR_COUNT:-4}
 
   aux_agent:
     <<: *agent-common
     mem_limit: 256M
+    replicas: ${BENTO_AUX_WORKER_COUNT:-2}
     cpus: 1
     environment:
       <<: *base-environment
