@@ -20,7 +20,7 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, Deployment, RequestId, StorageProviderConfig};
+use boundless_market::{Client, Deployment, RequestId, StorageUploaderConfig};
 use boundless_test_utils::guests::ECHO_ELF;
 use clap::Parser;
 use risc0_zkvm::serde::from_slice;
@@ -45,7 +45,7 @@ struct Args {
     smart_contract_requestor_address: Address,
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    storage_config: StorageUploaderConfig,
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
 }
@@ -74,7 +74,7 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config)?
+        .with_storage_provider_config(&args.storage_config).await?
         .with_private_key(args.private_key)
         .build()
         .await
@@ -157,7 +157,7 @@ mod tests {
         hit_points::default_allowance,
         IBoundlessMarket::{self},
     };
-    use boundless_market::storage::StorageProviderType;
+    use boundless_market::storage::StorageUploaderType;
     use boundless_test_utils::market::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
@@ -239,8 +239,8 @@ mod tests {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
             smart_contract_requestor_address,
-            storage_config: StorageProviderConfig::builder()
-                .storage_provider(StorageProviderType::Mock)
+            storage_config: StorageUploaderConfig::builder()
+                .storage_provider(StorageUploaderType::Mock)
                 .build()
                 .unwrap(),
             deployment: Some(ctx.deployment),

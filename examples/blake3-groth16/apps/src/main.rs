@@ -18,7 +18,7 @@ use alloy::{primitives::utils::parse_ether, signers::local::PrivateKeySigner};
 use anyhow::{Context, Result};
 use blake3_groth16::Blake3Groth16ReceiptClaim;
 use boundless_market::{
-    request_builder::OfferParamsBuilder, Client, Deployment, StorageProviderConfig,
+    request_builder::OfferParamsBuilder, Client, Deployment, StorageUploaderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
@@ -66,7 +66,7 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config)?
+        .with_storage_provider_config(&args.storage_config).await?
         .with_private_key(args.private_key)
         .build()
         .await
@@ -129,7 +129,7 @@ mod tests {
     use super::*;
     use alloy::node_bindings::Anvil;
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageProviderType;
+    use boundless_market::storage::StorageUploaderType;
     use boundless_test_utils::market::create_test_ctx;
     use broker::test_utils::BrokerBuilder;
     use test_log::test;

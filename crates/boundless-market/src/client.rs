@@ -296,7 +296,32 @@ impl<S> ClientProviderBuilder for ClientBuilder<S, NotProvided, NotProvided> {
     }
 }
 
-impl<U, D, S> ClientBuilder<U, D, S> {
+impl<U, S> ClientBuilder<U, NotProvided, S> {
+    /// Build the client with a [DefaultDownloader].
+    pub async fn build(
+        self,
+    ) -> Result<
+        Client<
+            DynProvider,
+            U,
+            DefaultDownloader,
+            StandardRequestBuilder<DynProvider, U, DefaultDownloader>,
+            S,
+        >,
+    >
+    where
+        U: Clone,
+        S: TxSigner<Signature> + Send + Sync + Clone + 'static,
+        Self: ClientProviderBuilder<Error = anyhow::Error>,
+    {
+        self.with_downloader(DefaultDownloader::new().await).build().await
+    }
+}
+
+impl<U, D, S> ClientBuilder<U, D, S>
+where
+    D: StorageDownloader,
+{
     /// Build the client
     pub async fn build(
         self,
@@ -382,10 +407,12 @@ impl<U, D, S> ClientBuilder<U, D, S> {
 
         Ok(client)
     }
+}
 
+impl<U, D, S> ClientBuilder<U, D, S> {
     /// Set the [Deployment] of the Boundless Market that this client will use.
     ///
-    /// If `None`, the builder will attempty to infer the deployment from the chain ID.
+    /// If `None`, the builder will attempt to infer the deployment from the chain ID.
     pub fn with_deployment(self, deployment: impl Into<Option<Deployment>>) -> Self {
         Self { deployment: deployment.into(), ..self }
     }
