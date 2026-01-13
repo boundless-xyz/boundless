@@ -1262,15 +1262,6 @@ pub(crate) fn is_dev_mode() -> bool {
         .is_some()
 }
 
-/// Returns `true` if the `ALLOW_LOCAL_FILE_STORAGE` environment variable is enabled.
-pub(crate) fn allow_local_file_storage() -> bool {
-    std::env::var("ALLOW_LOCAL_FILE_STORAGE")
-        .ok()
-        .map(|x| x.to_lowercase())
-        .filter(|x| x == "1" || x == "true" || x == "yes")
-        .is_some()
-}
-
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
     use std::sync::Arc;
