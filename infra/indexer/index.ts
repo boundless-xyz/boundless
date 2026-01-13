@@ -31,6 +31,9 @@ export = () => {
   const rustLogMonitor = config.get('RUST_LOG_MONITOR') || 'info';
   const rustLogIndexer = config.get('RUST_LOG_INDEXER') || 'info';
 
+  // Proxy-authenticated client-IP rate limiting (CloudFront WAF)
+  const proxySecret = isDev ? pulumi.output(process.env.PROXY_SECRET ?? "none") : config.requireSecret('PROXY_SECRET');
+
   const baseStack = new pulumi.StackReference(baseStackName);
   const vpcId = baseStack.getOutput('VPC_ID') as pulumi.Output<string>;
   const privSubNetIds = baseStack.getOutput('PRIVATE_SUBNET_IDS') as pulumi.Output<string[]>;
@@ -153,6 +156,7 @@ export = () => {
       domain: indexerApiDomain,
       boundlessAlertsTopicArns: alertsTopicArns,
       databaseVersion: infra.databaseVersion,
+      proxySecret,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 

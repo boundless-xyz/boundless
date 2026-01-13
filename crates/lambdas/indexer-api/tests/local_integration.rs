@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,14 +17,8 @@
 use assert_cmd::Command;
 use reqwest::Client;
 use serde::Deserialize;
-use std::{
-    env,
-    net::TcpListener,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
-use tempfile::NamedTempFile;
+use sqlx::PgPool;
+use std::{env, net::TcpListener, sync::Arc, time::Duration};
 use tokio::{
     process::{Child, Command as TokioCommand},
     sync::OnceCell,
@@ -64,7 +58,7 @@ const MARKET_END_BLOCK: u32 = 37835000;
 /// Shared test environment that persists across all tests
 struct SharedTestEnv {
     api_url: String,
-    _temp_file: NamedTempFile, // Keep the database file alive
+    _db_url: String,
     _api_process: Child,
 }
 
@@ -79,12 +73,34 @@ static SHARED_TEST_ENV: OnceCell<Arc<SharedTestEnv>> = OnceCell::const_new();
 /// Market test environment that persists across all market tests
 struct MarketTestEnv {
     api_url: String,
-    _temp_file: NamedTempFile, // Keep the database file alive
+    _db_url: String,
     _api_process: Child,
 }
 
 // Static storage for the market test environment
 static MARKET_TEST_ENV: OnceCell<Arc<MarketTestEnv>> = OnceCell::const_new();
+
+async fn create_test_db(prefix: &str) -> anyhow::Result<String> {
+    let base_db_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL environment variable must be set");
+    let db_name = format!(
+        "{}_{}",
+        prefix,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos()
+    );
+
+    let admin_pool = PgPool::connect(&base_db_url).await?;
+    sqlx::query(&format!(r#"CREATE DATABASE "{db_name}""#)).execute(&admin_pool).await?;
+
+    if let Some(last_slash) = base_db_url.rfind('/') {
+        Ok(format!("{}/{}", &base_db_url[..last_slash + 1], db_name))
+    } else {
+        Ok(format!("{}/{}", base_db_url, db_name))
+    }
+}
 
 impl TestEnv {
     /// Get the API URL
@@ -152,35 +168,29 @@ impl SharedTestEnv {
         let rpc_url = env::var("ETH_MAINNET_RPC_URL")
             .expect("ETH_MAINNET_RPC_URL environment variable must be set");
 
-        // Create temp file for database
-        let temp_file = NamedTempFile::new()?;
-        let db_path = temp_file.path().to_path_buf();
+        let db_url = create_test_db("indexer_api_shared").await?;
 
         // Run indexer to populate database
         info!("Running indexer to populate database...");
-        Self::run_indexer(&rpc_url, &db_path).await?;
+        Self::run_indexer(&rpc_url, &db_url).await?;
 
         // Find available port
         let api_port = Self::find_available_port()?;
 
         // Start API server
         info!("Starting API server on port {}...", api_port);
-        let api_process = Self::start_api_server(&db_path, api_port).await?;
+        let api_process = Self::start_api_server(&db_url, api_port).await?;
 
         // Wait for API to be ready
         let api_url = format!("http://127.0.0.1:{}", api_port);
         Self::wait_for_api(&api_url).await?;
 
-        Ok(SharedTestEnv { api_url, _temp_file: temp_file, _api_process: api_process })
+        Ok(SharedTestEnv { api_url, _db_url: db_url, _api_process: api_process })
     }
 
     /// Run indexer to populate database
-    async fn run_indexer(rpc_url: &str, db_path: &PathBuf) -> anyhow::Result<()> {
-        // Create empty database file
-        std::fs::File::create(db_path)?;
-
-        let db_url = format!("sqlite:{}", db_path.display());
-        info!("Using database at {}", db_path.display());
+    async fn run_indexer(rpc_url: &str, db_url: &str) -> anyhow::Result<()> {
+        info!("Using database at {}", db_url);
 
         // Use assert_cmd to get the path to the binary
         let cmd = Command::cargo_bin("rewards-indexer")?;
@@ -198,7 +208,7 @@ impl SharedTestEnv {
                 "--povw-accounting-address",
                 POVW_ACCOUNTING_ADDRESS,
                 "--db",
-                &db_url,
+                db_url,
                 "--interval",
                 "600",
                 "--end-epoch",
@@ -208,7 +218,7 @@ impl SharedTestEnv {
                 "--block-chunk-size",
                 "5000",
             ])
-            .env("DATABASE_URL", &db_url)
+            .env("DATABASE_URL", db_url)
             .env("RUST_LOG", "debug,sqlx=warn")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -269,12 +279,7 @@ impl SharedTestEnv {
 
                     // Print progress every 5 seconds
                     if start.elapsed().as_secs() % 5 == 0 {
-                        let size = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
-                        debug!(
-                            "Still indexing... (elapsed: {}s, DB size: {} bytes)",
-                            start.elapsed().as_secs(),
-                            size
-                        );
+                        debug!("Still indexing... (elapsed: {}s)", start.elapsed().as_secs());
                     }
 
                     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -298,9 +303,8 @@ impl SharedTestEnv {
     }
 
     /// Start the API server
-    async fn start_api_server(db_path: &Path, port: u16) -> anyhow::Result<Child> {
-        let db_url = format!("sqlite:{}", db_path.display());
-        info!("Starting API server on port {} with database {}", port, db_path.display());
+    async fn start_api_server(db_url: &str, port: u16) -> anyhow::Result<Child> {
+        info!("Starting API server on port {} with database {}", port, db_url);
 
         // Use assert_cmd to get the path to the binary
         let cmd = Command::cargo_bin("local-server")?;
@@ -308,7 +312,7 @@ impl SharedTestEnv {
 
         // Build command with tokio
         let child = TokioCommand::new(program)
-            .env("DB_URL", &db_url)
+            .env("DB_URL", db_url)
             .env("PORT", port.to_string())
             .env("RUST_LOG", "debug,tower_http=debug,sqlx=warn")
             .stdout(std::process::Stdio::piped())
@@ -352,35 +356,29 @@ impl MarketTestEnv {
         let rpc_url = env::var("BASE_MAINNET_RPC_URL")
             .expect("BASE_MAINNET_RPC_URL environment variable must be set");
 
-        // Create temp file for database
-        let temp_file = NamedTempFile::new()?;
-        let db_path = temp_file.path().to_path_buf();
+        let db_url = create_test_db("indexer_api_market").await?;
 
         // Run market indexer to populate database
         info!("Running market indexer to populate database...");
-        Self::run_market_indexer(&rpc_url, &db_path).await?;
+        Self::run_market_indexer(&rpc_url, &db_url).await?;
 
         // Find available port
         let api_port = Self::find_available_port()?;
 
         // Start API server
         info!("Starting API server on port {}...", api_port);
-        let api_process = Self::start_api_server(&db_path, api_port).await?;
+        let api_process = Self::start_api_server(&db_url, api_port).await?;
 
         // Wait for API to be ready
         let api_url = format!("http://127.0.0.1:{}", api_port);
         Self::wait_for_api(&api_url).await?;
 
-        Ok(MarketTestEnv { api_url, _temp_file: temp_file, _api_process: api_process })
+        Ok(MarketTestEnv { api_url, _db_url: db_url, _api_process: api_process })
     }
 
     /// Run market indexer to populate database
-    async fn run_market_indexer(rpc_url: &str, db_path: &PathBuf) -> anyhow::Result<()> {
-        // Create empty database file
-        std::fs::File::create(db_path)?;
-
-        let db_url = format!("sqlite:{}", db_path.display());
-        info!("Using database at {}", db_path.display());
+    async fn run_market_indexer(rpc_url: &str, db_url: &str) -> anyhow::Result<()> {
+        info!("Using database at {}", db_url);
 
         // Use assert_cmd to get the path to the binary
         let cmd = Command::cargo_bin("market-indexer")?;
@@ -398,13 +396,13 @@ impl MarketTestEnv {
                 "--end-block",
                 &MARKET_END_BLOCK.to_string(),
                 "--db",
-                &db_url,
+                db_url,
                 "--interval",
                 "1",
                 "--batch-size",
                 "10000",
             ])
-            .env("DATABASE_URL", &db_url)
+            .env("DATABASE_URL", db_url)
             .env("RUST_LOG", "info,sqlx=warn")
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -471,12 +469,7 @@ impl MarketTestEnv {
 
                     // Print progress every 5 seconds
                     if start.elapsed().as_secs() % 5 == 0 {
-                        let size = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
-                        debug!(
-                            "Still indexing... (elapsed: {}s, DB size: {} bytes)",
-                            start.elapsed().as_secs(),
-                            size
-                        );
+                        debug!("Still indexing... (elapsed: {}s)", start.elapsed().as_secs());
                     }
 
                     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -500,9 +493,8 @@ impl MarketTestEnv {
     }
 
     /// Start the API server
-    async fn start_api_server(db_path: &Path, port: u16) -> anyhow::Result<Child> {
-        let db_url = format!("sqlite:{}", db_path.display());
-        info!("Starting API server on port {} with database {}", port, db_path.display());
+    async fn start_api_server(db_url: &str, port: u16) -> anyhow::Result<Child> {
+        info!("Starting API server on port {} with database {}", port, db_url);
 
         // Use assert_cmd to get the path to the binary
         let cmd = Command::cargo_bin("local-server")?;
@@ -510,7 +502,7 @@ impl MarketTestEnv {
 
         // Build command with tokio
         let child = TokioCommand::new(program)
-            .env("DB_URL", &db_url)
+            .env("DB_URL", db_url)
             .env("PORT", port.to_string())
             .env("RUST_LOG", "debug,tower_http=debug,sqlx=warn")
             .stdout(std::process::Stdio::piped())

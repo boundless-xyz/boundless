@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -362,14 +362,16 @@ impl OrderDb {
 
     /// Returns a stream of new orders from the DB
     ///
-    /// listens to the new orders and emits them as a async Stream
+    /// Listens to the new orders and emits them as an async Stream.
+    /// Uses recv() which awaits notifications indefinitely until the connection
+    /// is closed or an error occurs.
     pub async fn order_stream(&self) -> Result<OrderStream, OrderDbErr> {
         let mut listener = PgListener::connect_with(&self.pool).await.unwrap();
         listener.listen(ORDER_CHANNEL).await?;
 
         Ok(Box::pin(stream! {
-            while let Some(elm) = listener.try_recv().await? {
-                let order: DbOrder = serde_json::from_str(elm.payload())?;
+            while let Ok(notification) = listener.recv().await {
+                let order: DbOrder = serde_json::from_str(notification.payload())?;
                 yield Ok(order);
             }
         }))

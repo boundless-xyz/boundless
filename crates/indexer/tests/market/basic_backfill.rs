@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,8 +24,9 @@ use super::common::*;
 
 /// Common setup: creates a fixture, starts indexer, creates and fulfills a request
 async fn setup_backfill_test(
+    pool: sqlx::PgPool,
 ) -> (MarketTestFixture<impl Provider + WalletProvider + Clone + 'static>, u64) {
-    let fixture = new_market_test_fixture().await.unwrap();
+    let fixture = new_market_test_fixture(pool).await.unwrap();
 
     // Start indexer
     let mut indexer_process = IndexerCliBuilder::new(
@@ -111,10 +112,14 @@ async fn run_backfill_and_verify(
     tracing::info!("Backfill completed successfully");
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_backfill_aggregates() {
-    let (fixture, current_block) = setup_backfill_test().await;
+async fn test_backfill_aggregates(pool: sqlx::PgPool) {
+    let (fixture, current_block) = setup_backfill_test(pool).await;
+
+    // Extract prover address for prover aggregate queries
+    let prover_address = fixture.ctx.prover_signer.address();
+    let prover_address_str = format!("{:x}", prover_address);
 
     // Get all aggregate rows and their updated_at timestamps before backfill
     let tables_to_check = vec![
@@ -123,6 +128,14 @@ async fn test_backfill_aggregates() {
         "weekly_market_summary",
         "monthly_market_summary",
         "all_time_market_summary",
+    ];
+
+    let prover_tables_to_check = vec![
+        "hourly_prover_summary",
+        "daily_prover_summary",
+        "weekly_prover_summary",
+        "monthly_prover_summary",
+        "all_time_prover_summary",
     ];
 
     let mut before_timestamps: std::collections::HashMap<String, Vec<(i64, Option<String>)>> =
@@ -149,6 +162,38 @@ async fn test_backfill_aggregates() {
 
         if !timestamps.is_empty() {
             before_timestamps.insert(table.to_string(), timestamps.clone());
+            tracing::info!("Found {} rows in {} before backfill", timestamps.len(), table);
+        }
+    }
+
+    // Get prover aggregate rows and their updated_at timestamps before backfill
+    let mut before_prover_timestamps: std::collections::HashMap<
+        String,
+        Vec<(i64, Option<String>)>,
+    > = std::collections::HashMap::new();
+
+    for table in &prover_tables_to_check {
+        let rows = sqlx::query(&format!(
+            "SELECT period_timestamp, CAST(updated_at AS TEXT) as updated_at FROM {} WHERE prover_address = $1 ORDER BY period_timestamp",
+            table
+        ))
+        .bind(&prover_address_str)
+        .fetch_all(&fixture.test_db.pool)
+        .await
+        .unwrap();
+
+        let timestamps: Vec<(i64, Option<String>)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<i64, _>("period_timestamp"),
+                    row.try_get::<Option<String>, _>("updated_at").ok().flatten(),
+                )
+            })
+            .collect();
+
+        if !timestamps.is_empty() {
+            before_prover_timestamps.insert(table.to_string(), timestamps.clone());
             tracing::info!("Found {} rows in {} before backfill", timestamps.len(), table);
         }
     }
@@ -182,6 +227,71 @@ async fn test_backfill_aggregates() {
                 "SELECT period_timestamp, CAST(updated_at AS TEXT) as updated_at FROM {} ORDER BY period_timestamp",
                 table
             ))
+            .fetch_all(&fixture.test_db.pool)
+            .await
+            .unwrap();
+
+            let after_timestamps: std::collections::HashMap<i64, Option<String>> = rows
+                .iter()
+                .map(|row| {
+                    (
+                        row.get::<i64, _>("period_timestamp"),
+                        row.try_get::<Option<String>, _>("updated_at").ok().flatten(),
+                    )
+                })
+                .collect();
+
+            // Verify all periods from before still exist
+            for (period_ts, before_updated_at) in before_ts {
+                let after_updated_at = after_timestamps.get(period_ts).unwrap_or_else(|| {
+                    panic!("Period {} missing from {} after backfill", period_ts, table)
+                });
+
+                // Verify updated_at was refreshed
+                if let (Some(before), Some(after)) = (before_updated_at, after_updated_at) {
+                    if before == after {
+                        tracing::debug!(
+                            "Period {} in {} was updated (updated_at changed from {} to {})",
+                            period_ts,
+                            table,
+                            before,
+                            after
+                        );
+                    }
+                } else if before_updated_at.is_none() && after_updated_at.is_some() {
+                    // Row was created (had no updated_at before, has one now)
+                    tracing::debug!(
+                        "Period {} in {} was created during backfill",
+                        period_ts,
+                        table
+                    );
+                }
+            }
+
+            // Verify no periods were skipped - all periods that existed before still exist
+            assert_eq!(
+                before_ts.len(),
+                after_timestamps.len(),
+                "Row count changed in {}: had {} rows before, {} rows after",
+                table,
+                before_ts.len(),
+                after_timestamps.len()
+            );
+
+            tracing::info!("Verified all {} rows in {} were updated", before_ts.len(), table);
+        } else {
+            tracing::info!("No rows in {} to verify", table);
+        }
+    }
+
+    // Verify prover aggregate rows were updated
+    for table in &prover_tables_to_check {
+        if let Some(before_ts) = before_prover_timestamps.get(*table) {
+            let rows = sqlx::query(&format!(
+                "SELECT period_timestamp, CAST(updated_at AS TEXT) as updated_at FROM {} WHERE prover_address = $1 ORDER BY period_timestamp",
+                table
+            ))
+            .bind(&prover_address_str)
             .fetch_all(&fixture.test_db.pool)
             .await
             .unwrap();
@@ -283,10 +393,10 @@ async fn test_backfill_aggregates() {
     );
 }
 
-#[test_log::test(tokio::test)]
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
 #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
-async fn test_backfill_statuses() {
-    let (fixture, current_block) = setup_backfill_test().await;
+async fn test_backfill_statuses(pool: sqlx::PgPool) {
+    let (fixture, current_block) = setup_backfill_test(pool).await;
 
     // Get all request_status rows and their updated_at timestamps before backfill
     let before_rows = sqlx::query(

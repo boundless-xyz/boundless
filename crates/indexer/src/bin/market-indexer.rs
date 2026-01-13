@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,6 +47,9 @@ struct MainArgs {
     /// Interval in seconds between checking for new events.
     #[clap(long, default_value = "3")]
     interval: u64,
+    /// Interval in seconds between running aggregation tasks.
+    #[clap(long, default_value = "10")]
+    aggregation_interval: u64,
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
@@ -138,12 +141,14 @@ async fn main() -> Result<()> {
             bento_retry_sleep_ms: args.bento_config.bento_retry_sleep_ms,
             max_concurrent_executing: args.bento_config.max_concurrent_executing,
             max_status_queries: args.bento_config.max_status_queries,
+            max_iterations: 0,
         }),
         _ => None,
     };
 
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(args.interval),
+        aggregation_interval: Duration::from_secs(args.aggregation_interval),
         retries: args.retries,
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),

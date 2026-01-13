@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -25,7 +25,8 @@ use taskdb::planner::{
 use tempfile::NamedTempFile;
 use workflow_common::{
     AUX_WORK_TYPE, COPROC_WORK_TYPE, CompressType, ExecutorReq, ExecutorResp, FinalizeReq,
-    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SnarkReq, UnionReq,
+    JOIN_WORK_TYPE, JoinReq, KeccakReq, PROVE_WORK_TYPE, ProveReq, ResolveReq, SNARK_WORK_TYPE,
+    SnarkReq, UnionReq,
     metrics::{
         ASSUMPTION_COUNT, EXECUTION_ERRORS, GUEST_FAULTS, S3_OPERATIONS, SEGMENT_COUNT,
         TASKS_CREATED, TOTAL_CYCLES, USER_CYCLES, helpers,
@@ -36,7 +37,6 @@ use workflow_common::{
     },
 };
 
-// use tempfile::NamedTempFile;
 use tokio::task::{JoinHandle, JoinSet};
 use uuid::Uuid;
 
@@ -51,6 +51,7 @@ async fn process_task(
     pool: &PgPool,
     prove_stream: &Uuid,
     join_stream: &Uuid,
+    snark_stream: &Uuid,
     union_stream: &Uuid,
     aux_stream: &Uuid,
     job_id: &Uuid,
@@ -238,7 +239,7 @@ async fn process_task(
                     pool,
                     job_id,
                     "snark",
-                    prove_stream,
+                    snark_stream,
                     &task_def,
                     &serde_json::json!([finalize_name]),
                     args.snark_retries,
@@ -307,12 +308,12 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
     let elf_data = match agent.s3_client.read_buf_from_s3(&elf_key).await {
         Ok(data) => {
             S3_OPERATIONS.with_label_values(&["read", "success"]).inc();
-            helpers::record_s3_operation("write", "success", s3_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation("read", "success", s3_start.elapsed().as_secs_f64());
             data
         }
         Err(e) => {
             S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
-            helpers::record_s3_operation("write", "success", s3_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation("read", "error", s3_start.elapsed().as_secs_f64());
             return Err(e);
         }
     };
@@ -340,7 +341,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         }
         Err(e) => {
             S3_OPERATIONS.with_label_values(&["read", "error"]).inc();
-            helpers::record_s3_operation("read", "success", input_s3_start.elapsed().as_secs_f64());
+            helpers::record_s3_operation("read", "error", input_s3_start.elapsed().as_secs_f64());
             return Err(e);
         }
     };
@@ -520,6 +521,15 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
         prove_stream
     };
 
+    let snark_stream = if std::env::var("SNARK_STREAM").is_ok() {
+        taskdb::get_stream(&agent.db_pool, &request.user_id, SNARK_WORK_TYPE)
+            .await
+            .context("[BENTO-EXEC-028] Failed to get GPU Snark stream")?
+            .with_context(|| format!("Customer {} missing gpu snark stream", request.user_id))?
+    } else {
+        prove_stream
+    };
+
     let union_stream = if std::env::var("UNION_STREAM").is_ok() {
         taskdb::get_stream(&agent.db_pool, &request.user_id, JOIN_WORK_TYPE)
             .await
@@ -569,6 +579,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &pool_copy,
                             &prove_stream,
                             &join_stream,
+                            &snark_stream,
                             &union_stream,
                             &aux_stream,
                             &job_id_copy,
@@ -620,6 +631,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                             &pool_copy,
                             &coproc_stream,
                             &join_stream,
+                            &snark_stream,
                             &union_stream,
                             &aux_stream,
                             &job_id_copy,
@@ -653,6 +665,7 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
                     &pool_copy,
                     &prove_stream,
                     &join_stream,
+                    &snark_stream,
                     &union_stream,
                     &aux_stream,
                     &job_id_copy,
@@ -676,7 +689,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
     tracing::info!("Starting execution of job: {}", job_id);
 
-    // let file_stderr = NamedTempFile::new()?;
     let log_file = Arc::new(NamedTempFile::new()?);
     let log_file_copy = log_file.clone();
     let guest_log_path = log_file.path().to_path_buf();
@@ -701,7 +713,6 @@ pub async fn executor(agent: &Agent, job_id: &Uuid, request: &ExecutorReq) -> Re
 
             let env = env
                 .stdout(log_file_copy.as_file())
-                // .stderr(file_stderr)
                 .write_slice(&input_data)
                 .session_limit(Some(exec_limit))
                 .coprocessor_callback(coproc)

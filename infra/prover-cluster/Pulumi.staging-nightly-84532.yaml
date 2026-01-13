@@ -26,7 +26,7 @@ config:
     secure: v1:O6JDMkC/1EH2zNkw:+E10g+lhCCkOFPqvHmGQB3jbSjtejeTBKS5omyF10EwPgjUdE+ClvhIoDXC/E0FUy3MHYaiuD53olJrXcvBptHDG7SYpK32eFY8pR7a5Kyb5IkFSUhv560oNINSFt1s5OjpuW2dnTQUTq+NVtOlRiKg6BwwG8ljf6OR5pFyczuRjovPBW5jV39IJj2voRo6bJqNeIocbHIw98OMd+F+pcAquEaS1gT3tp7DGRPof7LMkU4fAyuS39KqJkSQafd294g0DBzlU1C17vSpBJ0oo
   prover-cluster:orderStreamUrl:
     secure: v1:3QDmyPF2C4NGzXmo:+IA03UzH4Z++xITjW03bL9k+YJPyN+afZBsrcXmWQ8PJCXMhqHagiTrzGMqeSLkYzPajLJ+EJ5tKvhYoSJTwIEBFENHa3Suvqw7mIDyOJVHqBKtg63cbuPuDU3c=
-  prover-cluster:verifierAddress: "0x0b144e07a0826182b6b59788c34b32bfa86fb711"
+  prover-cluster:verifierAddress: "0xa326b2eb45a5c3c206df905a58970dca57b8719e"
   prover-cluster:setVerifierAddress: "0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"
   prover-cluster:boundlessMarketAddress: "0x7abb16522f4599481361d318b765af988bfcca8e"
   prover-cluster:collateralTokenAddress: "0xCBA5Fd30105984125395c18B6E6b1bf603408629"

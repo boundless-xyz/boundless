@@ -66,6 +66,12 @@ jobs:
           - 5432:5432
         env:
           POSTGRES_PASSWORD: password
+        options: >-
+          --shm-size=2gb
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -73,6 +79,15 @@ jobs:
           # Full history is required by license-check.py
           fetch-depth: 0
           submodules: recursive
+
+      - name: Configure PostgreSQL max_connections
+        run: |
+          POSTGRES_CONTAINER=$(docker ps --filter "ancestor=postgres:latest" --format "{{.ID}}")
+          docker exec $POSTGRES_CONTAINER psql -U postgres -c "ALTER SYSTEM SET max_connections = 500;"
+          docker restart $POSTGRES_CONTAINER
+          until docker exec $POSTGRES_CONTAINER pg_isready; do
+            sleep 1
+          done
 
       - name: install python
         uses: actions/setup-python@v4
@@ -230,9 +245,10 @@ jobs:
         id: restore-cache
         uses: actions/cache@v4
         with:
-          path: .lycheecache
-          key: cache-lychee-${{ github.sha }}
-          restore-keys: cache-lychee-
+          path: ~/.cache/lychee
+          key: lychee-${{ runner.os }}-v1
+          restore-keys: |
+            lychee-${{ runner.os }}-
 
       - uses: risc0/risc0/.github/actions/rustup@v3.0.3
 
@@ -249,14 +265,24 @@ jobs:
         # lychee does not respect the .gitignore natively
         # https://github.com/lycheeverse/lychee/issues/470#issuecomment-1094690229
         # don't run on `documentation` folder, it has it's own checker for links
-        run: git ls-files '*.md' ':!:documentation/*' | xargs lychee --base . --cache --
+        run: |
+          git ls-files '*.md' ':!:documentation/*' \
+            | xargs lychee \
+                --base . \
+                --cache \
+                --max-concurrency 2 \
+                --max-retries 6 \
+                --retry-wait-time 2 \
+                --timeout 20 \
+                --accept 429 \
+                --
 
       - name: save lychee cache
         uses: actions/cache/save@v4
         if: always()
         with:
-          path: .lycheecache
-          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+          path: ~/.cache/lychee
+          key: lychee-${{ runner.os }}-v1
 
   format:
     runs-on: [self-hosted, prod, "${{ matrix.os }}", "${{ matrix.device }}"]
@@ -373,6 +399,7 @@ jobs:
           - examples/smart-contract-requestor
           - examples/counter-with-callback
           - examples/composition
+          - examples/request-stream
     needs: files-changed
     if: needs.files-changed.outputs.examples == 'true'
     env:
@@ -437,12 +464,12 @@ jobs:
           RISC0_SKIP_BUILD: 1
 
       - name: forge fmt
-        if: matrix.workspace != 'examples/blake3-groth16'
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
         run: forge fmt --check
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: forge test
-        if: matrix.workspace != 'examples/blake3-groth16'
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
 

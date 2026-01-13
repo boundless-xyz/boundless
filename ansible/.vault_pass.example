@@ -1,0 +1,13 @@
+# Vault Password File
+#
+# This file should contain your Ansible Vault password.
+#
+# To use:
+# 1. Copy this file to .vault_pass (without .example)
+# 2. Add your vault password to it (single line, no quotes)
+# 3. Secure it: chmod 600 .vault_pass
+# 4. Add .vault_pass to .gitignore
+#
+# Alternatively, use --vault-password-file when running playbooks:
+# ansible-playbook -i inventory.yml broker.yml --vault-password-file .vault_pass
+

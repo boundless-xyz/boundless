@@ -1,4 +1,11 @@
 name: bento
+# GPU Configuration:
+# The gpu_prove_agent service automatically detects all available GPUs using nvidia-smi
+# and spawns a prove agent process for each GPU. No manual configuration needed.
+#
+# To check available GPUs:
+#   nvidia-smi --list-gpus
+
 # Anchors:
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
@@ -39,7 +46,14 @@ x-exec-agent-common: &exec-agent-common
   environment:
     <<: *base-environment
     RISC0_KECCAK_PO2: ${RISC0_KECCAK_PO2:-17}
-  entrypoint: /app/agent -t exec --segment-po2 ${SEGMENT_SIZE:-21} --redis-ttl ${REDIS_TTL:-57600}
+    SEGMENT_SIZE: ${SEGMENT_SIZE:-21}
+    REDIS_TTL: ${REDIS_TTL:-57600}
+  entrypoint:
+    [
+      "/bin/sh",
+      "-c",
+      "/app/agent -t exec --segment-po2 $SEGMENT_SIZE --redis-ttl $REDIS_TTL",
+    ]
 
 x-broker-environment: &broker-environment
   RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
@@ -58,12 +72,33 @@ x-broker-environment: &broker-environment
   POSTGRES_USER:
   POSTGRES_PASS:
 
+x-gpu-prove-agent: &gpu-prove-agent
+  <<: *agent-common
+  mem_limit: 4G
+  cpus: 4
+  environment:
+    <<: *base-environment
+    REDIS_TTL: ${REDIS_TTL:-57600}
+  # Detect GPUs and spawn one agent per GPU, then wait for all
+  entrypoint:
+    [
+      "/bin/sh",
+      "-c",
+      "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
+    ]
+  # # Uncomment to mount local BLAKE3 Groth16 setup files instead of downloading
+  # volumes:
+  #   - type: bind
+  #     source: ${BLAKE3_GROTH16_SETUP_DIR}
+  #     target: /.blake3_groth16_artifacts/
+  #     read_only: true
+
 x-broker-common: &broker-common
   restart: always
   depends_on:
     rest_api:
       condition: service_healthy
-    gpu_prove_agent0:
+    gpu_prove_agent:
       condition: service_started
     exec_agent:
       condition: service_started
@@ -109,8 +144,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-taskdb}
       POSTGRES_USER: ${POSTGRES_USER:-worker}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-    expose:
-      - "${POSTGRES_PORT:-5432}"
     ports:
       - "${POSTGRES_PORT:-5432}:${POSTGRES_PORT:-5432}"
     volumes:
@@ -138,9 +171,9 @@ services:
       - minio-data:/data
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-admin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASS:-password}
-      - MINIO_DEFAULT_BUCKETS=${MINIO_BUCKET:-workflow}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASS:-password}
+      MINIO_DEFAULT_BUCKETS: ${MINIO_BUCKET:-workflow}
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -174,42 +207,41 @@ services:
   exec_agent:
     <<: *exec-agent-common
     deploy:
-      replicas: 2
+      replicas: ${BENTO_EXECUTOR_COUNT:-4}
 
   aux_agent:
     <<: *agent-common
     mem_limit: 256M
+    deploy:
+      replicas: ${BENTO_AUX_WORKER_COUNT:-2}
     cpus: 1
     environment:
       <<: *base-environment
       # Default to 4 max client connections if not set (work, poll for requeue, completed cleanup, stuck tasks cleanup)
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-4}
-      CLEANUP_POLL_INTERVAL:
-      STUCK_TASKS_POLL_INTERVAL:
-      BENTO_DISABLE_COMPLETED_CLEANUP:
-      BENTO_DISABLE_STUCK_TASK_CLEANUP:
+      CLEANUP_POLL_INTERVAL: ${CLEANUP_POLL_INTERVAL:-}
+      STUCK_TASKS_POLL_INTERVAL: ${STUCK_TASKS_POLL_INTERVAL:-}
+      BENTO_DISABLE_COMPLETED_CLEANUP: ${BENTO_DISABLE_COMPLETED_CLEANUP:-}
+      BENTO_DISABLE_STUCK_TASK_CLEANUP: ${BENTO_DISABLE_STUCK_TASK_CLEANUP:-}
+      REDIS_TTL: ${REDIS_TTL:-57600}
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "/app/agent -t aux --monitor-requeue --redis-ttl $REDIS_TTL",
+      ]
 
-    entrypoint: /app/agent -t aux --monitor-requeue --redis-ttl ${REDIS_TTL:-57600}
-
-  gpu_prove_agent0:
-    <<: *agent-common
-    mem_limit: 4G
-    cpus: 4
-    entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
-    # # Uncomment to mount local BLAKE3 Groth16 setup files instead of downloading and set USE_LOCAL_BLAKE3_GROTH16_SETUP to 1, yes, or true.
-    # volumes:
-      # - type: bind
-      #   source: ${BLAKE3_GROTH16_SETUP_DIR}
-      #   target: /.blake3_groth16_artifacts/
-      #   read_only: true
-    # comment-out if running in CPU proving mode
+  # GPU Prover Agent - automatically detects and uses all available GPUs
+  # Uses nvidia-smi to detect GPUs and spawns one agent process per GPU
+  gpu_prove_agent:
+    <<: *gpu-prove-agent
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              # TODO: how to scale this with N gpus?
-              device_ids: ["0"]
+              # No device_ids restriction - all GPUs are accessible
+              # The entrypoint script will detect and use all available GPUs
               capabilities: [gpu]
 
   rest_api:

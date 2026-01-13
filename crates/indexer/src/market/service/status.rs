@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,6 +103,27 @@ where
             (None, None)
         };
 
+        // Compute effective_prove_mhz: total_cycles / (proof_delivery_time * 1_000_000)
+        // proof_delivery_time = fulfilled_at - created_at (in seconds)
+        let effective_prove_mhz = req
+            .fulfilled_at
+            .zip(req.total_cycles)
+            .filter(|(fulfilled_at, total_cycles)| {
+                *fulfilled_at > req.created_at && *total_cycles > U256::ZERO
+            })
+            .and_then(|(fulfilled_at, total_cycles)| {
+                let proof_delivery_time = fulfilled_at - req.created_at;
+                // Calculate: total_cycles / (proof_delivery_time * 1_000_000)
+                if proof_delivery_time > 0 {
+                    // Convert U256 to f64 by converting to string first, then parsing
+                    let total_cycles_f64 = total_cycles.to_string().parse::<f64>().unwrap_or(0.0);
+                    let mhz = total_cycles_f64 / (proof_delivery_time as f64 * 1_000_000.0);
+                    Some(mhz)
+                } else {
+                    None
+                }
+            });
+
         RequestStatus {
             request_digest: req.request_digest,
             request_id: req.request_id,
@@ -135,7 +156,7 @@ where
             program_cycles: req.program_cycles,
             total_cycles: req.total_cycles,
             peak_prove_mhz: req.peak_prove_mhz,
-            effective_prove_mhz: req.effective_prove_mhz,
+            effective_prove_mhz,
             cycle_status: req.cycle_status,
             lock_price,
             lock_price_per_cycle,

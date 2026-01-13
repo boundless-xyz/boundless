@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -699,8 +699,8 @@ pub fn order_stream(
                                 tracing::warn!("Received unexpected pong from order-stream server");
                             }
                         }
-                        Some(Ok(tungstenite::Message::Close(_))) => {
-                            tracing::debug!("Server closed the connection");
+                        Some(Ok(tungstenite::Message::Close(msg))) => {
+                            tracing::warn!("Server closed the order stream connection with reason: {:?}", msg.map(|m| m.to_string()));
                             break;
                         }
                         Some(Ok(other)) => {
@@ -742,6 +742,11 @@ pub fn order_stream(
 mod tests {
     use super::*;
     use alloy::signers::local::LocalSigner;
+    use std::borrow::Cow;
+    use std::time::Duration;
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::accept_async;
+    use tungstenite::protocol::{frame::coding::CloseCode, CloseFrame};
 
     #[tokio::test]
     async fn auth_msg_verify() {
@@ -776,5 +781,31 @@ mod tests {
         let origin = "http://localhost:8585".parse().unwrap();
         let auth_msg = AuthMsg::new(nonce.clone(), &origin, &signer).await.unwrap();
         auth_msg.verify("localhost:8585", "BAD_NONCE").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn order_stream_ends_on_close_with_reason() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = accept_async(stream).await.unwrap();
+            let close_frame =
+                CloseFrame { code: CloseCode::Normal, reason: Cow::Borrowed("test reason") };
+            ws.send(tungstenite::Message::Close(Some(close_frame))).await.unwrap();
+        });
+
+        let url = format!("ws://{}/ws", addr);
+        let (socket, _) = connect_async(url).await.unwrap();
+        let mut stream = order_stream(socket);
+
+        let next = tokio::time::timeout(Duration::from_secs(2), stream.next()).await.unwrap();
+        assert!(next.is_none());
+        assert!(logs_contain("Server closed the order stream connection with reason:"));
+        assert!(logs_contain("test reason"));
+
+        server_task.await.unwrap();
     }
 }

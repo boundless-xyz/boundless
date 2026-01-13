@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -403,7 +403,7 @@ where
                         }
                     }
 
-                    tracing::debug!(
+                    tracing::trace!(
                         "Processed from block {} to block {} [found {} events]",
                         from_block,
                         to_block,
@@ -496,7 +496,7 @@ where
 
                                         if let Some(order) = order {
                                             if let Err(e) = new_order_tx.send(Box::new(order)).await {
-                                                tracing::error!("Failed to send order locked by another prover, {:x}: {e:?}", event.requestId);
+                                                tracing::error!("Failed to send order locked by another prover, {:x}: {e} {e:?}", event.requestId);
                                             }
                                         } else {
                                             tracing::warn!("Failed to get order from market or order stream for locked request {:x}. Unable to evaluate for fulfillment after lock expires.", event.requestId);

@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,9 @@ mod status;
 
 // Re-export aggregation helper for use in backfill
 pub use aggregation::sum_hourly_aggregates_into_base;
+
+// Re-export execute_requests for integration tests
+pub use execution::execute_requests;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -100,6 +103,9 @@ pub enum ServiceError {
     #[error("Database error: {0}")]
     DatabaseError(#[from] DbError),
 
+    #[error("Database query error in {1}: {0}")]
+    DatabaseQueryError(DbError, String),
+
     #[error("Boundless market error: {0}")]
     BoundlessMarketError(#[from] MarketError),
 
@@ -117,6 +123,16 @@ pub enum ServiceError {
 
     #[error("Request not expired")]
     RequestNotExpired,
+}
+
+pub trait DbResultExt<T> {
+    fn with_db_context(self, context: &str) -> Result<T, ServiceError>;
+}
+
+impl<T> DbResultExt<T> for Result<T, DbError> {
+    fn with_db_context(self, context: &str) -> Result<T, ServiceError> {
+        self.map_err(|e| ServiceError::DatabaseQueryError(e, context.to_string()))
+    }
 }
 
 #[derive(Clone)]
@@ -154,6 +170,7 @@ pub enum TransactionFetchStrategy {
 #[derive(Clone)]
 pub struct IndexerServiceConfig {
     pub interval: Duration,
+    pub aggregation_interval: Duration,
     pub retries: u32,
     pub batch_size: u64,
     pub cache_uri: Option<String>,
@@ -170,6 +187,7 @@ pub struct IndexerServiceExecutionConfig {
     pub bento_retry_sleep_ms: u64,
     pub max_concurrent_executing: u32,
     pub max_status_queries: u32,
+    pub max_iterations: u32,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {

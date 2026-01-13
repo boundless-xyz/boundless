@@ -44,7 +44,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   priorityRequestorAddresses?: string;
   denyRequestorAddresses?: string;
   maxFetchRetries?: number;
-  allowClientAddresses?: string;
+  allowRequestorLists?: string;
   lockinPriorityGas?: string;
   orderCommitmentPriority?: string;
   rustLogLevel?: string;
@@ -157,11 +157,11 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.collateralBalanceWarnThreshold || "50",
       config.collateralBalanceErrorThreshold || "100",
       config.maxFetchRetries || 3,
-      config.allowClientAddresses || "",
+      config.allowRequestorLists || "",
       config.lockinPriorityGas || "0",
       config.orderCommitmentPriority || "cycle_price",
       config.rustLogLevel || "debug",
-    ]).apply(([dbName, dbUser, dbPass, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowClientAddresses, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
+    ]).apply(([dbName, dbUser, dbPass, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowRequestorLists, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
       const brokerRpcUrlsStr = brokerRpcUrls;
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
@@ -187,7 +187,7 @@ balance_error_threshold = "${balanceErrorThreshold}"
 collateral_balance_warn_threshold = "${collateralBalanceWarnThreshold}"
 collateral_balance_error_threshold = "${collateralBalanceErrorThreshold}"
 max_fetch_retries = ${maxFetchRetries}
-${allowClientAddresses ? `allow_client_addresses = ${allowClientAddresses}\n` : ''}
+${allowRequestorLists ? `allowed_requestor_lists = ${allowRequestorLists}\n` : ''}
 ${lockinPriorityGas ? `lockin_priority_gas = ${lockinPriorityGas}\n` : ''}
 order_commitment_priority = "${orderCommitmentPriority}"
 priority_requestor_lists = [

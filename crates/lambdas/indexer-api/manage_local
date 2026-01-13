@@ -29,8 +29,8 @@ usage() {
     echo "Commands:"
     echo "  run-rewards-indexer <database> [duration] [end_epoch] [end_block] [batch_size]"
     echo "                                     Run rewards-indexer to populate database"
-    echo "                                     database: SQLite file path or PostgreSQL URL"
-    echo "                                               (e.g., 'local.db' or 'postgres://user:pass@host:port/db')"
+    echo "                                     database: PostgreSQL URL"
+    echo "                                               (e.g., 'postgres://user:pass@host:port/db')"
     echo "                                     duration: seconds to run (default: 120)"
     echo "                                     end_epoch: stop at this epoch (optional)"
     echo "                                     end_block: stop at this block (optional)"
@@ -38,8 +38,8 @@ usage() {
     echo ""
     echo "  run-market-indexer <database> [duration] [start_block] [end_block] [batch_size] [cache_dir] [bento_api_url] [bento_api_key] [max_concurrent_executing]"
     echo "                                     Run market-indexer to populate database"
-    echo "                                     database: SQLite file path or PostgreSQL URL"
-    echo "                                               (e.g., 'local.db' or 'postgres://user:pass@host:port/db')"
+    echo "                                     database: PostgreSQL URL"
+    echo "                                               (e.g., 'postgres://user:pass@host:port/db')"
     echo "                                     duration: seconds to run (default: 120)"
     echo "                                     start_block: block to start from (optional)"
     echo "                                     end_block: stop at this block (optional)"
@@ -50,12 +50,12 @@ usage() {
     echo "                                     max_concurrent_executing: max concurrent execution requests (default: 20)"
     echo ""
     echo "  run-api <port> <database>         Run API server with debug logging"
-    echo "                                     database: SQLite file path or PostgreSQL URL"
+    echo "                                     database: PostgreSQL URL"
     echo ""
     echo "  run-market-backfill <database> <mode> <start_block> [end_block] [cache_dir] [tx_fetch_strategy]"
     echo "                                     Run market-indexer-backfill to recompute statuses/aggregates"
-    echo "                                     database: SQLite file path or PostgreSQL URL"
-    echo "                                               (e.g., 'local.db' or 'postgres://user:pass@host:port/db')"
+    echo "                                     database: PostgreSQL URL"
+    echo "                                               (e.g., 'postgres://user:pass@host:port/db')"
     echo "                                     mode: 'statuses_and_aggregates' or 'aggregates'"
     echo "                                     start_block: block to start backfill from"
     echo "                                     end_block: block to end backfill at (optional, default: latest indexed)"
@@ -112,25 +112,8 @@ prepare_database() {
         db_url="$db_input"
         echo -e "${GREEN}Detected PostgreSQL database${NC}" >&2
     else
-        # SQLite file path
-        local db_file="$db_input"
-
-        # Convert to absolute path if relative
-        if [[ ! "$db_file" = /* ]]; then
-            db_file="$(pwd)/$db_file"
-        fi
-
-        # Clean up existing database file
-        if [ -f "$db_file" ]; then
-            echo -e "${YELLOW}Removing existing database: $db_file${NC}" >&2
-            rm "$db_file"
-        fi
-
-        # Create empty database file for SQLite
-        echo -e "${GREEN}Creating SQLite database: $db_file${NC}" >&2
-        touch "$db_file"
-
-        db_url="sqlite:$db_file"
+        echo -e "${RED}Error: Expected a PostgreSQL URL (postgres://...)${NC}" >&2
+        exit 1
     fi
 
     echo "$db_url|$is_postgres"
@@ -180,7 +163,7 @@ run_rewards_indexer() {
         usage
     fi
 
-    # Prepare database (handles both SQLite and PostgreSQL)
+    # Prepare database
     local db_result=$(prepare_database "$db_input")
     local db_url=$(echo "$db_result" | cut -d'|' -f1)
     local is_postgres=$(echo "$db_result" | cut -d'|' -f2)
@@ -275,7 +258,7 @@ run_market_indexer() {
         usage
     fi
 
-    # Prepare database (handles both SQLite and PostgreSQL)
+    # Prepare database
     local db_result=$(prepare_database "$db_input")
     local db_url=$(echo "$db_result" | cut -d'|' -f1)
     local is_postgres=$(echo "$db_result" | cut -d'|' -f2)
@@ -432,29 +415,13 @@ run_market_backfill() {
         usage
     fi
 
-    # Detect database type (don't recreate, just use existing)
     local db_url=""
     if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
-        # PostgreSQL URL
         db_url="$db_input"
         echo -e "${GREEN}Using PostgreSQL database${NC}"
     else
-        # SQLite file path
-        local db_file="$db_input"
-
-        # Convert to absolute path if relative
-        if [[ ! "$db_file" = /* ]]; then
-            db_file="$(pwd)/$db_file"
-        fi
-
-        # Check if database file exists
-        if [ ! -f "$db_file" ]; then
-            echo -e "${RED}Error: Database file not found: $db_file${NC}"
-            echo "Run 'manage_local run-market-indexer' first to create and populate the database"
-            exit 1
-        fi
-
-        db_url="sqlite:$db_file"
+        echo -e "${RED}Error: Expected a PostgreSQL URL (postgres://...)${NC}"
+        exit 1
     fi
 
     # Handle cache directory if provided
@@ -534,29 +501,13 @@ run_api() {
         usage
     fi
 
-    # Detect database type
     local db_url=""
     if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
-        # PostgreSQL URL
         db_url="$db_input"
         echo -e "${GREEN}Using PostgreSQL database${NC}"
     else
-        # SQLite file path
-        local db_file="$db_input"
-
-        # Convert to absolute path if relative
-        if [[ ! "$db_file" = /* ]]; then
-            db_file="$(pwd)/$db_file"
-        fi
-
-        # Check if database file exists
-        if [ ! -f "$db_file" ]; then
-            echo -e "${RED}Error: Database file not found: $db_file${NC}"
-            echo "Run 'manage_local run-rewards-indexer' or 'manage_local run-market-indexer' first to create and populate the database"
-            exit 1
-        fi
-
-        db_url="sqlite:$db_file"
+        echo -e "${RED}Error: Expected a PostgreSQL URL (postgres://...)${NC}"
+        exit 1
     fi
 
     # Build the API server

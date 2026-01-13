@@ -5,6 +5,12 @@ import * as crypto from 'crypto';
 import { createRustLambda } from './rust-lambda';
 import { Severity } from '../../util';
 
+// WAF rate-based rules are evaluated per 5-minute window.
+const RATE_LIMIT_PER_5_MINUTES = 200;
+// Header names must be lowercase for WAFv2 `singleHeader` matching.
+const PROXY_SECRET_HEADER_NAME = 'x-boundless-proxy-secret';
+const FORWARDED_IP_HEADER_NAME = 'x-forwarded-for';
+
 export interface IndexerApiArgs {
   /** VPC where RDS lives */
   vpcId: pulumi.Input<string>;
@@ -24,6 +30,8 @@ export interface IndexerApiArgs {
   chainId: pulumi.Input<string>;
   /** Optional custom domain for CloudFront */
   domain?: pulumi.Input<string>;
+  /** Proxy secret value used to decide whether to trust forwarded client IP headers */
+  proxySecret: pulumi.Input<string>;
   /** Boundless alerts topic ARNs */
   boundlessAlertsTopicArns?: string[];
   /** Database version */
@@ -349,29 +357,74 @@ export class IndexerApi extends pulumi.ComponentResource {
           allow: {},
         },
         rules: [
-          // Rate limiting rule
+          // If proxy secret matches, rate limit by forwarded client IP (from X-Forwarded-For)
           {
-            name: 'RateLimitRule',
+            name: 'ProxyForwardedIpRateLimit',
             priority: 1,
             statement: {
               rateBasedStatement: {
-                limit: 200, // 200 requests per 5 minutes per IP
-                aggregateKeyType: 'IP',
+                limit: RATE_LIMIT_PER_5_MINUTES,
+                aggregateKeyType: 'FORWARDED_IP',
+                forwardedIpConfig: {
+                  headerName: FORWARDED_IP_HEADER_NAME,
+                  fallbackBehavior: 'NO_MATCH',
+                },
+                scopeDownStatement: {
+                  byteMatchStatement: {
+                    searchString: args.proxySecret,
+                    fieldToMatch: {
+                      singleHeader: { name: PROXY_SECRET_HEADER_NAME },
+                    },
+                    positionalConstraint: 'EXACTLY',
+                    textTransformations: [{ priority: 0, type: 'NONE' }],
+                  },
+                },
               },
             },
-            action: {
-              block: {},
-            },
+            action: { block: {} },
             visibilityConfig: {
               sampledRequestsEnabled: true,
               cloudwatchMetricsEnabled: true,
-              metricName: 'RateLimitRule',
+              metricName: 'ProxyForwardedIpRateLimit',
+            },
+          },
+          // If proxy secret does NOT match, rate limit by true source IP
+          {
+            name: 'SourceIpRateLimit',
+            priority: 2,
+            statement: {
+              rateBasedStatement: {
+                limit: RATE_LIMIT_PER_5_MINUTES,
+                aggregateKeyType: 'IP',
+                scopeDownStatement: {
+                  notStatement: {
+                    statements: [
+                      {
+                        byteMatchStatement: {
+                          searchString: args.proxySecret,
+                          fieldToMatch: {
+                            singleHeader: { name: PROXY_SECRET_HEADER_NAME },
+                          },
+                          positionalConstraint: 'EXACTLY',
+                          textTransformations: [{ priority: 0, type: 'NONE' }],
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+            action: { block: {} },
+            visibilityConfig: {
+              sampledRequestsEnabled: true,
+              cloudwatchMetricsEnabled: true,
+              metricName: 'SourceIpRateLimit',
             },
           },
           // AWS Managed Core Rule Set
           {
             name: 'AWS-AWSManagedRulesCommonRuleSet',
-            priority: 2,
+            priority: 3,
             overrideAction: {
               none: {},
             },
@@ -390,7 +443,7 @@ export class IndexerApi extends pulumi.ComponentResource {
           // AWS Managed Known Bad Inputs Rule Set
           {
             name: 'AWS-AWSManagedRulesKnownBadInputsRuleSet',
-            priority: 3,
+            priority: 4,
             overrideAction: {
               none: {},
             },
@@ -409,7 +462,7 @@ export class IndexerApi extends pulumi.ComponentResource {
           // SQL Injection Protection
           {
             name: 'AWS-AWSManagedRulesSQLiRuleSet',
-            priority: 4,
+            priority: 5,
             overrideAction: {
               none: {},
             },
