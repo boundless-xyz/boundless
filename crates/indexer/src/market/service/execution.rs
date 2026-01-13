@@ -50,6 +50,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     )
     .unwrap();
 
+    let mut num_iterations: u32 = 1;
+
     loop {
         interval.tick().await;
 
@@ -548,6 +550,15 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 requests_info
             );
         }
+
+        // If we were assigned a max iterations to go through (mainly for test purposes),
+        // keep track of the current number of iterations and exit if we've reached the max
+        if config.max_iterations > 0 {
+            num_iterations += 1;
+            if num_iterations > config.max_iterations {
+                break;
+            }
+        }
     }
 }
 
@@ -630,6 +641,7 @@ mod tests {
             bento_retry_sleep_ms: 100,
             max_concurrent_executing: 5,
             max_status_queries: 20,
+            max_iterations: 1,
         }
     }
 

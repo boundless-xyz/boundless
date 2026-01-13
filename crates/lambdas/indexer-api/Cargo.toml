@@ -41,7 +41,7 @@ serde_json = { workspace = true }
 serde_yaml = "0.9"
 
 # Database
-sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros", "runtime-tokio-rustls"] }
+sqlx = { workspace = true, features = [ "postgres", "runtime-tokio", "json", "migrate", "macros", "runtime-tokio-rustls"] }
 
 # Async runtime
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
