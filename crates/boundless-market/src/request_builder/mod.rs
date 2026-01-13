@@ -30,6 +30,7 @@ use url::Url;
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
+    request_builder::offer_layer::{DEFAULT_RAMP_UP_PERIOD, DEFAULT_TIMEOUT},
     selector::SelectorExt,
     storage::{StandardStorageProvider, StorageProvider},
     util::NotProvided,
@@ -708,32 +709,28 @@ impl DeliverySpeed {
     /// # Notes
     /// The timeout is guaranteed to be at least [self.min_timeout] seconds.
     pub fn recommended_timeout(&self, cycle_count: Option<u64>) -> u32 {
-        if let Some(cycle_count) = cycle_count {
-            if cycle_count == 0 {
-                return 600;
-            }
-            let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
-            let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
-            let timeout = required_proving_time.saturating_add(required_executor_time) as u32;
-            timeout.max(self.min_timeout)
-        } else {
-            600
-        }
+        cycle_count
+            .filter(|&count| count > 0)
+            .map(|cycle_count| {
+                let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
+                let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+                let timeout = required_proving_time.saturating_add(required_executor_time) as u32;
+                timeout.max(self.min_timeout)
+            })
+            .unwrap_or(DEFAULT_TIMEOUT)
     }
 
     /// Calculates the recommended ramp up period based on the cycle count and speeds.
     ///
     /// The ramp up period is calculated as the required executor time multiplied by the ramp up period multiplier.
     pub fn recommended_ramp_up_period(&self, cycle_count: Option<u64>) -> u32 {
-        if let Some(cycle_count) = cycle_count {
-            if cycle_count == 0 {
-                return 60;
-            }
-            let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
-            required_executor_time as u32 * self.ramp_up_period_multiplier
-        } else {
-            60
-        }
+        cycle_count
+            .filter(|&count| count > 0)
+            .map(|cycle_count| {
+                let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+                required_executor_time as u32 * self.ramp_up_period_multiplier
+            })
+            .unwrap_or(DEFAULT_RAMP_UP_PERIOD)
     }
 }
 

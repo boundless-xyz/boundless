@@ -31,6 +31,9 @@ use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
 
+pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
+pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
+
 /// Configuration for the [OfferLayer].
 ///
 /// Defines the default pricing parameters, timeouts, gas estimates, and other
