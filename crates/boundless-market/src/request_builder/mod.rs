@@ -713,7 +713,8 @@ impl DeliverySpeed {
             .filter(|&count| count > 0)
             .map(|cycle_count| {
                 let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
-                let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+                let required_executor_time =
+                    cycle_count.div_ceil(self.executor_speed as u64 * 1000);
                 let timeout = required_proving_time.saturating_add(required_executor_time) as u32;
                 timeout.max(self.min_timeout)
             })
@@ -727,7 +728,8 @@ impl DeliverySpeed {
         cycle_count
             .filter(|&count| count > 0)
             .map(|cycle_count| {
-                let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
+                let required_executor_time =
+                    cycle_count.div_ceil(self.executor_speed as u64 * 1000);
                 required_executor_time as u32 * self.ramp_up_period_multiplier
             })
             .unwrap_or(DEFAULT_RAMP_UP_PERIOD)
