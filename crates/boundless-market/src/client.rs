@@ -53,7 +53,7 @@ use crate::{
         StorageProviderConfig,
     },
     util::NotProvided,
-    DeliverySpeed
+    DeliverySpeed,
 };
 
 /// Funding mode for requests submission.

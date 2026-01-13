@@ -683,6 +683,9 @@ impl DeliverySpeed {
     /// The timeout is calculated as the sum of:
     /// - Time required for proving: `cycle_count / proving_speed`
     /// - Time required for execution: `cycle_count / executor_speed`
+    ///
+    /// # Notes
+    /// The timeout is guaranteed to be at least [Self::MIN_TIMEOUT] seconds.
     pub fn recommended_timeout(&self, cycle_count: u64) -> u32 {
         let required_proving_time = cycle_count.div_ceil(self.proving_speed as u64 * 1000);
         let required_executor_time = cycle_count.div_ceil(self.executor_speed as u64 * 1000);
