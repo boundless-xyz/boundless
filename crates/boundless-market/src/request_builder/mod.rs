@@ -749,6 +749,8 @@ impl Default for DeliverySpeed {
 
 #[cfg(test)]
 mod delivery_speed_tests {
+    use crate::request_builder::offer_layer::{DEFAULT_RAMP_UP_PERIOD, DEFAULT_TIMEOUT};
+
     use super::DeliverySpeed;
 
     #[test]
@@ -835,9 +837,9 @@ mod delivery_speed_tests {
     fn test_recommended_timeout_minimum() {
         let speed = DeliverySpeed::default();
 
-        // Test with zero cycles - should return MIN_TIMEOUT
+        // Test with zero cycles - should return DEFAULT_TIMEOUT
         let timeout = speed.recommended_timeout(Some(0));
-        assert_eq!(timeout, speed.min_timeout);
+        assert_eq!(timeout, DEFAULT_TIMEOUT);
 
         // Test with very small cycle count - should return MIN_TIMEOUT
         let timeout = speed.recommended_timeout(Some(100));
@@ -894,7 +896,7 @@ mod delivery_speed_tests {
 
         // Test with zero cycles
         let ramp_up = speed.recommended_ramp_up_period(Some(0));
-        assert_eq!(ramp_up, 0);
+        assert_eq!(ramp_up, DEFAULT_RAMP_UP_PERIOD);
     }
 
     #[test]
