@@ -399,6 +399,7 @@ jobs:
           - examples/smart-contract-requestor
           - examples/counter-with-callback
           - examples/composition
+          - examples/request-stream
     needs: files-changed
     if: needs.files-changed.outputs.examples == 'true'
     env:
@@ -463,12 +464,12 @@ jobs:
           RISC0_SKIP_BUILD: 1
 
       - name: forge fmt
-        if: matrix.workspace != 'examples/blake3-groth16'
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
         run: forge fmt --check
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: forge test
-        if: matrix.workspace != 'examples/blake3-groth16'
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
 

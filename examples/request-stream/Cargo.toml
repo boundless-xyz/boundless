@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = ["apps"]
+exclude = ["lib"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+# Intra-workspace dependencies
+guest-util = { path = "../../crates/guest/util" }
+boundless-market = { path = "../../crates/boundless-market" }
+boundless-test-utils = { path = "../../crates/test-utils" }
+broker = { path = "../../crates/broker" }
+
+# risc0 monorepo dependencies.
+risc0-zkvm = { version = "3.0.4", default-features = false }
+
+alloy = { version = "1.0" }
+anyhow = { version = "1.0" }
+clap = { version = "4.5", features = ["derive", "env"] }
+test-log = { version = "0.2", features = ["trace"] }
+tokio = { version = "1" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"
+
+# Always optimize; otherwise, local proving takes much longer to run
+[profile.dev]
+opt-level = 3
