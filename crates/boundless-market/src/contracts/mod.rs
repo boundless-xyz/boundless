@@ -987,6 +987,7 @@ impl Offer {
     ///
     /// The result is computed over the time period defined by the lock timeout.
     /// Returns `f64::INFINITY` if `lockTimeout` is zero (invalid offer).
+    #[cfg(not(target_os = "zkvm"))]
     pub fn required_khz_performance(&self, cycle_count: u64) -> f64 {
         if self.lockTimeout == 0 {
             tracing::warn!(
@@ -1004,6 +1005,7 @@ impl Offer {
     /// The result is computed over the time period defined by the timeout minus the lock timeout.
     /// Returns `f64::INFINITY` if there is no secondary window (i.e., `timeout <= lockTimeout`),
     /// indicating that a secondary prover cannot fulfill the request.
+    #[cfg(not(target_os = "zkvm"))]
     pub fn required_khz_performance_secondary_prover(&self, cycle_count: u64) -> f64 {
         let secondary_window = self.timeout.saturating_sub(self.lockTimeout);
         if secondary_window == 0 {
