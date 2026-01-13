@@ -377,8 +377,6 @@ where
             lockCollateral: params.lock_collateral.unwrap_or(self.config.lock_collateral),
         };
 
-        tracing::info!("Offer: {:?}", offer);
-
         Ok(offer)
     }
 }
