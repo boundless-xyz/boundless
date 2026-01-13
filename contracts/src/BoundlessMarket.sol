@@ -648,9 +648,10 @@ contract BoundlessMarket is
     }
 
     function _applyMarketFee(uint96 proverPayment) internal returns (uint96) {
-        uint96 fee = proverPayment * MARKET_FEE_BPS / 10000;
-        accounts[address(this)].balance += fee;
-        return proverPayment - fee;
+        // Convert to uint256 before multiplication to prevent overflow
+        uint256 fee = uint256(proverPayment) * MARKET_FEE_BPS / 10000;
+        accounts[address(this)].balance += fee.toUint96();
+        return (uint256(proverPayment) - fee).toUint96();
     }
 
     /// @notice Execute the callback for a fulfilled request if one is specified
