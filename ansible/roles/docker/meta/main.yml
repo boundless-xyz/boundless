@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Boundless
+  description: Install Docker Engine, Docker CLI, and Docker Compose plugin
+  license: BSD
+  min_ansible_version: '2.9'
+  galaxy_tags:
+    - docker
+    - containers
+    - dockercompose
+dependencies: []
