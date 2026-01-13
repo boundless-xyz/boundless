@@ -555,7 +555,6 @@ mod tests {
         config_file
     }
 
-    /*
     #[tokio::test]
     #[traced_test]
     #[ignore = "Generates real proofs, slow without dev mode or bonsai"]
@@ -642,5 +641,4 @@ mod tests {
 
         broker_task.abort();
     }
-     */
 }
