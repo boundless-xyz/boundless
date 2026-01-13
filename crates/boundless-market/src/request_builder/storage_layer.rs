@@ -15,6 +15,7 @@
 use super::{Adapt, Layer, RequestParams};
 use crate::{
     contracts::RequestInput, input::GuestEnv, storage::StorageUploader, util::NotProvided,
+    StandardUploader,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
@@ -41,8 +42,8 @@ pub struct StorageLayerConfig {
 /// inputs directly in the request as inline data.
 #[non_exhaustive]
 #[derive(Clone)]
-pub struct StorageLayer<U> {
-    /// [StandardUploader] used to upload programs and inputs.
+pub struct StorageLayer<U = StandardUploader> {
+    /// [StorageUploader] used to upload programs and inputs.
     ///
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
     /// [StorageLayerConfig::inline_input_max_bytes].
