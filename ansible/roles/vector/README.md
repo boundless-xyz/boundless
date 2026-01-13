@@ -69,7 +69,7 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
 
 - **AWS CLI**: Required
   - The `awscli` role should be run before the `vector` role if log group creation is needed
-  - AWS CLI is automatically installed by the `cluster.yml` playbook
+  - AWS CLI is automatically installed by the `monitoring.yml` playbook
 
 ## Example Playbook
 
@@ -88,7 +88,6 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
         vector_service_state: started
         # Customize CloudWatch log group
         vector_cloudwatch_log_group: "/boundless/bento/production"
-        # Create log group if it doesn't exist (requires AWS CLI)
 ```
 
 ## What This Role Does
@@ -116,7 +115,7 @@ vector_service_state: started
 Or override when running the playbook:
 
 ```bash
-ansible-playbook -i inventory.yml cluster.yml -e "vector_service_enabled=true" -e "vector_service_state=started"
+ansible-playbook -i inventory.yml monitoring.yml -e "vector_service_enabled=true" -e "vector_service_state=started"
 ```
 
 ## AWS Credentials
