@@ -61,11 +61,6 @@ pub struct OfferLayerConfig {
     #[builder(default = "1200")]
     pub timeout: u32,
 
-    /// Amount of the stake token that the prover must stake when locking a request.
-    // TODO(BM-1233): Change this to be based on the Deployment configuration.
-    #[builder(setter(into), default = "U256::from(5) * Unit::MWEI.wei_const()")] // 5 USDC
-    pub lock_collateral: U256,
-
     /// Estimated gas used when locking a request.
     #[builder(default = "200_000")]
     pub lock_gas_estimate: u64,
@@ -346,6 +341,9 @@ where
             .bidding_start
             .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
+        let chain_id = self.provider.get_chain_id().await?;
+        let lock_collateral = params.lock_collateral.unwrap_or(default_lock_collateral(chain_id));
+
         Ok(Offer {
             minPrice: min_price,
             maxPrice: max_price,
@@ -353,8 +351,18 @@ where
             rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
             lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
             timeout: params.timeout.unwrap_or(self.config.timeout),
-            lockCollateral: params.lock_collateral.unwrap_or(self.config.lock_collateral),
+            lockCollateral: params.lock_collateral.unwrap_or(lock_collateral),
         })
+    }
+}
+
+/// Returns the default lock collateral for the given chain ID.
+fn default_lock_collateral(chain_id: u64) -> U256 {
+    match chain_id {
+        8453 => U256::from(20) * Unit::ETHER.wei_const(), // Base mainnet - 20 ZKC
+        84532 => U256::from(5) * Unit::ETHER.wei_const(),  // Base Sepolia - 5 ZKC
+        11155111 => U256::from(5) * Unit::ETHER.wei_const(), // Sepolia - 5 ZKC
+        _ => U256::ZERO, // No default lock collateral for other chains
     }
 }
 
