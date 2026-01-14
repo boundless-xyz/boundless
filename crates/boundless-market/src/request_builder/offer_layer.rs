@@ -83,7 +83,7 @@ fn check_primary_performance_warning(cycle_count: u64, primary_performance: f64)
             "Warning: your request requires a proving Khz of {primary_performance} to be \
              fulfilled before the lock timeout. This limits the number of provers in the \
              network that will be able to fulfill your order. Consider setting a longer \
-             lock timeout of at most {recommended_lock_timeout} seconds."
+             lock timeout of at least {recommended_lock_timeout} seconds."
         );
         true
     } else {
