@@ -1460,6 +1460,7 @@ async fn test_requestor_leaderboard() {
         assert_eq!(page1.data.len(), 2);
 
         if let Some(ref cursor) = page1.next_cursor {
+            assert!(page1.has_more, "page1 should have has_more=true when next_cursor exists");
             let path = format!("/v1/market/requestors?limit=2&cursor={}", cursor);
             let page2: RequestorLeaderboardResponse = env.get(&path).await.unwrap();
 
@@ -1473,6 +1474,13 @@ async fn test_requestor_leaderboard() {
                     );
                 }
             }
+
+            // Verify has_more is false when there's no next_cursor
+            if page2.next_cursor.is_none() {
+                assert!(!page2.has_more, "page2 should have has_more=false when next_cursor is None");
+            }
+        } else {
+            assert!(!page1.has_more, "page1 should have has_more=false when next_cursor is None");
         }
     }
 }
@@ -1739,6 +1747,7 @@ async fn test_prover_leaderboard() {
         assert_eq!(page1.data.len(), 2);
 
         if let Some(ref cursor) = page1.next_cursor {
+            assert!(page1.has_more, "page1 should have has_more=true when next_cursor exists");
             let path = format!("/v1/market/provers?limit=2&cursor={}", cursor);
             let page2: ProverLeaderboardResponse = env.get(&path).await.unwrap();
 
@@ -1752,6 +1761,13 @@ async fn test_prover_leaderboard() {
                     );
                 }
             }
+
+            // Verify has_more is false when there's no next_cursor
+            if page2.next_cursor.is_none() {
+                assert!(!page2.has_more, "page2 should have has_more=false when next_cursor is None");
+            }
+        } else {
+            assert!(!page1.has_more, "page1 should have has_more=false when next_cursor is None");
         }
     }
 }
