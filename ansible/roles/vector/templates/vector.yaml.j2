@@ -1,0 +1,29 @@
+sources:
+  journald:
+    type: journald
+    include_units:
+{% for service in vector_monitor_services %}
+      - {{ service }}
+{% endfor %}
+
+transforms:
+  extract_message:
+    type: remap
+    inputs: ["journald"]
+    source: |
+      . = .message
+
+sinks:
+  cloudwatch_bento:
+    type: aws_cloudwatch_logs
+    inputs: ["extract_message"]
+    group_name: "{{ vector_cloudwatch_log_group }}"
+    stream_name: "{{ vector_cloudwatch_stream_name }}"
+    region: "{{ vector_cloudwatch_region }}"
+    encoding:
+      codec: json
+    buffer:
+      type: "{{ vector_buffer_type }}"
+      max_size: {{ vector_buffer_max_size }}
+      when_full: "{{ vector_buffer_when_full }}"
+
