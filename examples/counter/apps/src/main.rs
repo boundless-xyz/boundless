@@ -24,7 +24,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, DeliverySpeed, Deployment, StorageProviderConfig};
+use boundless_market::{Client, Deployment, ParameterizationMode, StorageProviderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use risc0_zkvm::sha::Digestible;
@@ -90,23 +90,12 @@ async fn run(args: Args) -> Result<()> {
         .with_deployment(args.deployment)
         .with_storage_provider_config(&args.storage_config)?
         .with_private_key(args.private_key)
-        .with_delivery_speed(DeliverySpeed::default()) // Or use DeliverySpeed::fast() for faster delivery
+        // Use ParameterizationMode::fulfillment() for more conservative offering parameters.
+        // Or use ParameterizationMode::latency() for lower latency but higher price and lower fulfillment guarantees.
+        .with_parameterization_mode(ParameterizationMode::fulfillment())
         .build()
         .await
         .context("failed to build boundless client")?;
-
-    // Use the default ECHO program with timestamp input
-    // We use a timestamp as input to the ECHO guest code as the Counter contract
-    // accepts only unique proofs. Using the same input twice would result in the same proof.
-    let echo_message = format!("{:?}", SystemTime::now());
-
-    // Build the request based on whether program URL is provided
-    let request = if let Some(program_url) = args.program_url {
-        // Use the provided URL
-        client.new_request().with_program_url(program_url)?.with_stdin(echo_message.as_bytes())
-    } else {
-        client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes())
-    };
 
     let (request_id, expires_at) = client.submit_onchain(request).await?;
 

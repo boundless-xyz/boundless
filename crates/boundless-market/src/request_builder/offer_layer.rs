@@ -370,21 +370,26 @@ where
             .bidding_start
             .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
 
-        let mut lock_timeout = self.config.lock_timeout.unwrap_or(0);
-        let mut timeout = self.config.timeout.unwrap_or(0);
-        let mut ramp_up_period = self.config.ramp_up_period.unwrap_or(0);
-
-        if let Some(parameterization_mode) = self.config.parameterization_mode {
-            if lock_timeout == 0 {
-                lock_timeout = parameterization_mode.recommended_timeout(cycle_count);
-            }
-            if timeout == 0 {
-                timeout = parameterization_mode.recommended_timeout(cycle_count) * 2;
-            }
-            if ramp_up_period == 0 {
-                ramp_up_period = parameterization_mode.recommended_ramp_up_period(cycle_count);
-            }
-        }
+        let (lock_timeout, timeout, ramp_up_period) =
+            if let Some(parameterization_mode) = self.config.parameterization_mode {
+                (
+                    self.config
+                        .lock_timeout
+                        .unwrap_or_else(|| parameterization_mode.recommended_timeout(cycle_count)),
+                    self.config.timeout.unwrap_or_else(|| {
+                        parameterization_mode.recommended_timeout(cycle_count) * 2
+                    }),
+                    self.config.ramp_up_period.unwrap_or_else(|| {
+                        parameterization_mode.recommended_ramp_up_period(cycle_count)
+                    }),
+                )
+            } else {
+                (
+                    self.config.lock_timeout.unwrap_or(600),
+                    self.config.timeout.unwrap_or(1200),
+                    self.config.ramp_up_period.unwrap_or(60),
+                )
+            };
 
         let offer = Offer {
             minPrice: min_price,
