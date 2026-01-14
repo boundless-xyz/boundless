@@ -1,0 +1,12 @@
+---
+# Handlers for bento role
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart Bento
+  ansible.builtin.systemd:
+    name: bento
+    state: restarted
+    daemon_reload: true

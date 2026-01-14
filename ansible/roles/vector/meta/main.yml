@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: Boundless
+  description: Install and configure Vector for log shipping to CloudWatch
+  license: BSD
+  min_ansible_version: '2.9'
+  galaxy_tags:
+    - vector
+    - logging
+    - cloudwatch
+dependencies:
+  - role: awscli

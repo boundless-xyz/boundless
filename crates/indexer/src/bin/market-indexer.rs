@@ -47,6 +47,9 @@ struct MainArgs {
     /// Interval in seconds between checking for new events.
     #[clap(long, default_value = "3")]
     interval: u64,
+    /// Interval in seconds between running aggregation tasks.
+    #[clap(long, default_value = "10")]
+    aggregation_interval: u64,
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
@@ -145,6 +148,7 @@ async fn main() -> Result<()> {
 
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(args.interval),
+        aggregation_interval: Duration::from_secs(args.aggregation_interval),
         retries: args.retries,
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),

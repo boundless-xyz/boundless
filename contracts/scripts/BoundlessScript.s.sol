@@ -10,7 +10,6 @@ import {Script, console2} from "forge-std/Script.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {ConfigLoader, DeploymentConfig} from "./Config.s.sol";
 
-/// @notice Shared library for Boundless deployment and management scripts
 library BoundlessScript {
     /// @notice Validates that an address value is not zero, with descriptive error message
     function requireLib(address value, string memory label) internal pure returns (address) {
