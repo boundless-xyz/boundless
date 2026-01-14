@@ -396,17 +396,16 @@ async fn run(args: Args) -> Result<()> {
             .with_request_id(request_id); // Unique request identifier
 
         // ========================================================================
-        // Step 4c: Submit the Request On-Chain
+        // Step 4c: Submit the Request
         // ========================================================================
-        // Submit the request to the Boundless Market smart contract.
-        // This transaction will:
-        // 1. Create a request record on-chain
-        // 2. Make the request visible to provers
-        // 3. Return the request ID and expiration time
+        // Submit the request to the Boundless Market.
+        // This step will:
+        // 1. Make the request visible to provers
+        // 2. Return the request ID and expiration time
         //
         // **Note**: The returned request_id should match what you provided,
         // but it's good practice to use the returned value to ensure consistency.
-        let (submitted_request_id, expires_at) = client.submit_onchain(request).await?;
+        let (submitted_request_id, expires_at) = client.submit(request).await?;
 
         tracing::info!(
             "Submitted request {:x} for blocks {} to {}",

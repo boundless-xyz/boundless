@@ -107,7 +107,7 @@ async fn run(args: Args) -> Result<()> {
         client.new_request().with_program(ECHO_ELF).with_stdin(echo_message.as_bytes())
     };
 
-    let (request_id, expires_at) = client.submit_onchain(request).await?;
+    let (request_id, expires_at) = client.submit(request).await?;
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);
