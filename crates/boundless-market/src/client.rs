@@ -1131,6 +1131,8 @@ where
         request_id: U256,
         tx_hash: Option<B256>,
         request_digest: Option<B256>,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
     ) -> Result<(ProofRequest, Bytes), ClientError> {
         if let Some(ref order_stream_client) = self.offchain_client {
             tracing::debug!("Querying the order stream for request: 0x{request_id:x} using request_digest {request_digest:?}");
@@ -1157,7 +1159,11 @@ where
         tracing::debug!(
             "Querying the blockchain for request: 0x{request_id:x} using tx_hash {tx_hash:?}"
         );
-        match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
+        match self
+            .boundless_market
+            .get_submitted_request(request_id, tx_hash, lower_bound, upper_bound)
+            .await
+        {
             Ok((proof_request, signature)) => Ok((proof_request, signature)),
             Err(err @ MarketError::RequestNotFound(..)) => Err(err.into()),
             err @ Err(_) => err

@@ -1756,6 +1756,8 @@ impl<P: Provider> BoundlessMarketService<P> {
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
     ) -> Result<(ProofRequest, Bytes), MarketError> {
         if let Some(tx_hash) = tx_hash {
             let tx_data = self
@@ -1772,8 +1774,9 @@ impl<P: Provider> BoundlessMarketService<P> {
             return Ok((calldata.request, calldata.clientSignature));
         }
 
-        // TODO: here we need to pass lower and upper bound
-        let data = self.query_request_submitted_event(request_id, None, None).await?;
+        let data = self
+            .query_request_submitted_event(request_id, lower_bound, upper_bound)
+            .await?;
         Ok((data.request, data.client_signature))
     }
 

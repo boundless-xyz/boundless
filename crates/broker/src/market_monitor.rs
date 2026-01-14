@@ -472,7 +472,7 @@ where
                                         // Try to get from market first. If the request was submitted via the order stream, we will be unable to find it there.
                                         // In that case we check the order stream.
                                         let mut order: Option<OrderRequest> = None;
-                                        if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None).await {
+                                        if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None, None, None).await {
                                             order = Some(OrderRequest::new(
                                                 proof_request,
                                                 signature,

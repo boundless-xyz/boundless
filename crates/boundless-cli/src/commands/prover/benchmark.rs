@@ -31,6 +31,14 @@ pub struct ProverBenchmark {
     #[arg(long, value_delimiter = ',', required = true)]
     pub request_ids: Vec<U256>,
 
+    /// Override the starting block for event search (lower bound)
+    #[clap(long)]
+    pub search_start_block: Option<u64>,
+
+    /// Override the ending block for event search (upper bound)
+    #[clap(long)]
+    pub search_end_block: Option<u64>,
+
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
@@ -86,7 +94,15 @@ impl ProverBenchmark {
             display.step(idx + 1, self.request_ids.len(), &format!("Request {:#x}", request_id));
 
             display.status("Status", "Fetching request details", "yellow");
-            let (request, _signature) = client.fetch_proof_request(*request_id, None, None).await?;
+            let (request, _signature) = client
+                .fetch_proof_request(
+                    *request_id,
+                    None,
+                    None,
+                    self.search_start_block,
+                    self.search_end_block,
+                )
+                .await?;
 
             tracing::debug!("Fetched request 0x{:x}", request_id);
             tracing::debug!("Image URL: {}", request.imageUrl);

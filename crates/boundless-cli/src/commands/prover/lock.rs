@@ -34,6 +34,14 @@ pub struct ProverLock {
     #[arg(long)]
     pub tx_hash: Option<B256>,
 
+    /// Override the starting block for event search (lower bound)
+    #[clap(long)]
+    pub search_start_block: Option<u64>,
+
+    /// Override the ending block for event search (upper bound)
+    #[clap(long)]
+    pub search_end_block: Option<u64>,
+
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
@@ -58,8 +66,15 @@ impl ProverLock {
         display.item_colored("Request ID", format!("{:#x}", self.request_id), "cyan");
         display.status("Status", "Fetching request details", "yellow");
 
-        let (request, signature) =
-            client.fetch_proof_request(self.request_id, self.tx_hash, self.request_digest).await?;
+        let (request, signature) = client
+            .fetch_proof_request(
+                self.request_id,
+                self.tx_hash,
+                self.request_digest,
+                self.search_start_block,
+                self.search_end_block,
+            )
+            .await?;
         tracing::debug!("Fetched order details: {request:?}");
 
         // If the request is smart contract signed, the preflight of the lock request

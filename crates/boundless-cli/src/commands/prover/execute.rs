@@ -46,6 +46,14 @@ pub struct ProverExecute {
     #[arg(long, conflicts_with = "request_path", requires = "request_id")]
     pub tx_hash: Option<B256>,
 
+    /// Override the starting block for event search (lower bound)
+    #[clap(long)]
+    pub search_start_block: Option<u64>,
+
+    /// Override the ending block for event search (upper bound)
+    #[clap(long)]
+    pub search_end_block: Option<u64>,
+
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
@@ -71,8 +79,15 @@ impl ProverExecute {
             display.item_colored("Request ID", format!("{:#x}", request_id), "cyan");
             display.status("Status", "Fetching request from blockchain", "yellow");
             tracing::debug!("Loading request from blockchain: 0x{:x}", request_id);
-            let (req, _signature) =
-                client.fetch_proof_request(request_id, self.tx_hash, self.request_digest).await?;
+            let (req, _signature) = client
+                .fetch_proof_request(
+                    request_id,
+                    self.tx_hash,
+                    self.request_digest,
+                    self.search_start_block,
+                    self.search_end_block,
+                )
+                .await?;
             req
         } else {
             bail!("execute requires either a request file path or request ID")

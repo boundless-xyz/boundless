@@ -41,6 +41,14 @@ pub struct ProverFulfill {
     #[arg(long, default_value = "false")]
     pub withdraw: bool,
 
+    /// Override the starting block for event search (lower bound)
+    #[clap(long)]
+    pub search_start_block: Option<u64>,
+
+    /// Override the ending block for event search (upper bound)
+    #[clap(long)]
+    pub search_end_block: Option<u64>,
+
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
@@ -90,6 +98,8 @@ impl ProverFulfill {
                         *request_id,
                         self.tx_hashes.as_ref().map(|tx_hashes| tx_hashes[i]),
                         self.request_digests.as_ref().map(|request_digests| request_digests[i]),
+                        self.search_start_block,
+                        self.search_end_block,
                     )
                     .await?;
                 tracing::debug!("Fetched order details: {req:?}");
