@@ -1477,7 +1477,10 @@ async fn test_requestor_leaderboard() {
 
             // Verify has_more is false when there's no next_cursor
             if page2.next_cursor.is_none() {
-                assert!(!page2.has_more, "page2 should have has_more=false when next_cursor is None");
+                assert!(
+                    !page2.has_more,
+                    "page2 should have has_more=false when next_cursor is None"
+                );
             }
         } else {
             assert!(!page1.has_more, "page1 should have has_more=false when next_cursor is None");
@@ -1764,7 +1767,10 @@ async fn test_prover_leaderboard() {
 
             // Verify has_more is false when there's no next_cursor
             if page2.next_cursor.is_none() {
-                assert!(!page2.has_more, "page2 should have has_more=false when next_cursor is None");
+                assert!(
+                    !page2.has_more,
+                    "page2 should have has_more=false when next_cursor is None"
+                );
             }
         } else {
             assert!(!page1.has_more, "page1 should have has_more=false when next_cursor is None");
