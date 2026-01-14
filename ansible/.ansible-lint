@@ -1,0 +1,28 @@
+---
+# Ansible Lint configuration
+# See https://ansible-lint.readthedocs.io/en/latest/configuring.html
+
+# Use the default profile
+profile: production
+
+# Exclude paths
+exclude_paths:
+  - .cache
+  - .github
+  - molecule
+  - .ansible-lint
+
+# Skip certain rules if needed
+skip_list:
+  # Allow long lines in templates (they're often necessary)
+  - line-length
+  # Allow command/shell tasks (sometimes necessary)
+  # - command-instead-of-module
+  # - no-changed-when
+  # - risky-shell-pipe
+
+# Use strict mode
+strict: true
+
+# Verbosity
+verbosity: 1

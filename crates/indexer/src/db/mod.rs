@@ -23,9 +23,11 @@ use thiserror::Error;
 // Re-export common types from market module
 pub use events::EventsDb;
 pub use market::{
-    AllTimeRequestorSummary, DailyRequestorSummary, DbObj, HourlyRequestorSummary, IndexerDb,
-    LockPricingData, MarketDb, MonthlyRequestorSummary, PeriodRequestorSummary, RequestCursor,
-    RequestSortField, RequestStatus, SortDirection, TxMetadata, WeeklyRequestorSummary,
+    AllTimeProverSummary, AllTimeRequestorSummary, DailyProverSummary, DailyRequestorSummary,
+    DbObj, HourlyProverSummary, HourlyRequestorSummary, IndexerDb, LockPricingData, MarketDb,
+    MonthlyProverSummary, MonthlyRequestorSummary, PeriodProverSummary, PeriodRequestorSummary,
+    RequestCursor, RequestSortField, RequestStatus, SortDirection, TxMetadata, WeeklyProverSummary,
+    WeeklyRequestorSummary,
 };
 pub use provers::ProversDb;
 pub use requestors::RequestorDb;

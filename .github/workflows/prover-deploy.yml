@@ -1,0 +1,143 @@
+name: Prover Deployment
+
+on:
+  # Nightly deployment at 1am UTC
+  schedule:
+    - cron: '0 1 * * *'
+
+  # Manual deployment
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deployment target'
+        required: true
+        type: choice
+        options:
+          - nightly
+          - release
+          - all
+        default: 'all'
+      playbook:
+        description: 'Playbook to deploy'
+        required: true
+        type: choice
+        options:
+          - prover.yml
+          - monitoring.yml
+        default: 'prover.yml'
+
+concurrency:
+  group: prover-deploy-${{ github.event.inputs.target || 'scheduled' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-nightly:
+    name: Deploy Nightly
+    runs-on: ubuntu-latest
+    # Run on schedule OR when manually triggered with nightly/all target
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main  # Always use main for nightly
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible ansible-core
+          ansible-galaxy collection install community.postgresql
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Create inventory file
+        working-directory: ansible
+        run: |
+          echo "${{ secrets.ANSIBLE_INVENTORY }}" | base64 -d > inventory.yml
+
+      - name: Deploy to nightly
+        working-directory: ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+          ANSIBLE_FORCE_COLOR: '1'
+        run: |
+          ansible-playbook -i inventory.yml prover.yml --limit nightly
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_ed25519
+          rm -f ansible/inventory.yml
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "✅ Nightly deployment completed successfully"
+
+  deploy-release:
+    name: Deploy Release
+    runs-on: ubuntu-latest
+    # Only run when manually triggered with release/all target
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.target == 'release' ||
+      github.event.inputs.target == 'all'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # Uses default ref (the branch/tag that triggered the workflow)
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible ansible-core
+          ansible-galaxy collection install community.postgresql
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Create inventory file
+        working-directory: ansible
+        run: |
+          echo "${{ secrets.ANSIBLE_INVENTORY }}" | base64 -d > inventory.yml
+
+      - name: Deploy to release
+        working-directory: ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'
+          ANSIBLE_FORCE_COLOR: '1'
+        run: |
+          ansible-playbook -i inventory.yml prover.yml --limit release
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_ed25519
+          rm -f ansible/inventory.yml
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "✅ Release deployment completed successfully"

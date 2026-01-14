@@ -1,0 +1,171 @@
+name: Ansible Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'ansible/**'
+      - '.github/workflows/ansible.yml'
+  push:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'ansible/**'
+  workflow_dispatch:
+    inputs:
+      playbook:
+        description: 'Playbook to run'
+        required: true
+        type: choice
+        options:
+          - prover.yml
+          - monitoring.yml
+      hosts:
+        description: 'Hosts to deploy to (comma-separated, or "all")'
+        required: true
+        default: 'all'
+      environment:
+        description: 'Environment name (for tracking)'
+        required: false
+        default: 'production'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  ansible-lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install ansible-lint
+        run: |
+          pip install ansible-lint[community]
+
+      - name: Run ansible-lint
+        working-directory: ansible
+        run: |
+          ansible-lint --version
+          ansible-lint .
+
+  ansible-syntax:
+    name: Ansible Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible ansible-core
+
+      - name: Install Ansible collections
+        working-directory: ansible
+        run: |
+          ansible-galaxy collection install community.postgresql
+
+      - name: Check playbook syntax
+        working-directory: ansible
+        run: |
+          # List of playbooks to check (exclude inventory.yml and other non-playbook files)
+          playbooks=("prover.yml" "monitoring.yml")
+          for playbook in "${playbooks[@]}"; do
+            if [ -f "$playbook" ]; then
+              echo "Checking syntax of $playbook..."
+              ansible-playbook --syntax-check "$playbook" -i inventory.yml || exit 1
+            fi
+          done
+
+  ansible-validate:
+    name: Ansible Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible ansible-core
+
+      - name: Install Ansible collections
+        working-directory: ansible
+        run: |
+          ansible-galaxy collection install community.postgresql
+
+      - name: Validate YAML syntax
+        working-directory: ansible
+        run: |
+          python3 -c "
+          import yaml
+          import sys
+          import os
+          from pathlib import Path
+
+          errors = []
+          for yaml_file in Path('.').rglob('*.yml'):
+              if '.git' in str(yaml_file):
+                  continue
+              try:
+                  with open(yaml_file, 'r') as f:
+                      yaml.safe_load(f)
+              except yaml.YAMLError as e:
+                  errors.append(f'{yaml_file}: {e}')
+
+          if errors:
+              print('YAML syntax errors found:')
+              for error in errors:
+                  print(f'  {error}')
+              sys.exit(1)
+          else:
+              print('All YAML files are valid')
+          "
+
+  ansible-summary:
+    name: Ansible Check Summary
+    runs-on: ubuntu-latest
+    needs:
+      - ansible-lint
+      - ansible-syntax
+      - ansible-validate
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          if [ "${{ needs.ansible-lint.result }}" != "success" ] || \
+             [ "${{ needs.ansible-syntax.result }}" != "success" ] || \
+             [ "${{ needs.ansible-validate.result }}" != "success" ]; then
+            echo "One or more Ansible checks failed"
+            exit 1
+          fi
+          echo "All Ansible checks passed"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa
+          rm -f ansible/inventory-deploy.yml

@@ -191,6 +191,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                     &db_url,
                     IndexerServiceConfig {
                         interval: Duration::from_secs(2),
+                        aggregation_interval: Duration::from_secs(2),
                         retries: 5,
                         batch_size: 1000,
                         cache_uri: None,
