@@ -1159,7 +1159,7 @@ where
         );
         match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
             Ok((proof_request, signature)) => Ok((proof_request, signature)),
-            Err(err @ MarketError::RequestNotFound(_)) => Err(err.into()),
+            Err(err @ MarketError::RequestNotFound(..)) => Err(err.into()),
             err @ Err(_) => err
                 .with_context(|| format!("error querying for 0x{request_id:x} onchain"))
                 .map_err(Into::into),
