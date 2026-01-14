@@ -245,6 +245,7 @@ pub struct PeriodRequestorSummary {
     pub total_locked_and_fulfilled: u64,
     pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
+    pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
     pub best_peak_prove_mhz: f64,
@@ -301,6 +302,7 @@ pub struct AllTimeRequestorSummary {
     pub total_locked_and_fulfilled: u64,
     pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
+    pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
     pub best_peak_prove_mhz: f64,
@@ -321,6 +323,7 @@ pub struct RequestorLeaderboardEntry {
     pub median_lock_price_per_cycle: Option<U256>,
     pub acceptance_rate: f32,
     pub locked_order_fulfillment_rate: f32,
+    pub locked_orders_fulfillment_rate_adjusted: f32,
     pub last_activity_time: u64,
 }
 

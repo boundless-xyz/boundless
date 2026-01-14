@@ -867,6 +867,20 @@ async fn test_market_cumulatives() {
         "total_locked_and_expired_collateral_formatted should not be empty"
     );
 
+    // Verify fulfillment rate fields exist and are valid
+    assert!(
+        first.locked_orders_fulfillment_rate >= 0.0
+            && first.locked_orders_fulfillment_rate <= 100.0,
+        "locked_orders_fulfillment_rate should be 0-100: {}",
+        first.locked_orders_fulfillment_rate
+    );
+    assert!(
+        first.locked_orders_fulfillment_rate_adjusted >= 0.0
+            && first.locked_orders_fulfillment_rate_adjusted <= 100.0,
+        "locked_orders_fulfillment_rate_adjusted should be 0-100: {}",
+        first.locked_orders_fulfillment_rate_adjusted
+    );
+
     // Verify cumulative nature: later timestamps should have >= values than earlier ones
     if response.data.len() >= 2 {
         let sorted_data: Vec<_> = response.data.iter().collect();
@@ -1030,6 +1044,19 @@ async fn test_requestor_aggregates() {
         assert!(!first_entry.total_fees_locked_formatted.is_empty());
         // Verify percentile fields exist
         assert!(!first_entry.p50_lock_price_per_cycle_formatted.is_empty());
+        // Verify fulfillment rate fields exist and are valid
+        assert!(
+            first_entry.locked_orders_fulfillment_rate >= 0.0
+                && first_entry.locked_orders_fulfillment_rate <= 100.0,
+            "locked_orders_fulfillment_rate should be 0-100: {}",
+            first_entry.locked_orders_fulfillment_rate
+        );
+        assert!(
+            first_entry.locked_orders_fulfillment_rate_adjusted >= 0.0
+                && first_entry.locked_orders_fulfillment_rate_adjusted <= 100.0,
+            "locked_orders_fulfillment_rate_adjusted should be 0-100: {}",
+            first_entry.locked_orders_fulfillment_rate_adjusted
+        );
     }
 
     // Verify no hour gaps for hourly aggregates
@@ -1141,6 +1168,19 @@ async fn test_requestor_cumulatives() {
     assert_eq!(first_entry.requestor_address, *requestor_address);
     assert!(!first_entry.timestamp_iso.is_empty());
     assert!(!first_entry.total_fees_locked_formatted.is_empty());
+    // Verify fulfillment rate fields exist and are valid
+    assert!(
+        first_entry.locked_orders_fulfillment_rate >= 0.0
+            && first_entry.locked_orders_fulfillment_rate <= 100.0,
+        "locked_orders_fulfillment_rate should be 0-100: {}",
+        first_entry.locked_orders_fulfillment_rate
+    );
+    assert!(
+        first_entry.locked_orders_fulfillment_rate_adjusted >= 0.0
+            && first_entry.locked_orders_fulfillment_rate_adjusted <= 100.0,
+        "locked_orders_fulfillment_rate_adjusted should be 0-100: {}",
+        first_entry.locked_orders_fulfillment_rate_adjusted
+    );
 
     // Verify cumulative nature
     if response.data.len() >= 2 {
@@ -1415,6 +1455,12 @@ async fn test_requestor_leaderboard() {
             "locked_order_fulfillment_rate should be 0-100: {}",
             first.locked_order_fulfillment_rate
         );
+        assert!(
+            first.locked_orders_fulfillment_rate_adjusted >= 0.0
+                && first.locked_orders_fulfillment_rate_adjusted <= 100.0,
+            "locked_orders_fulfillment_rate_adjusted should be 0-100: {}",
+            first.locked_orders_fulfillment_rate_adjusted
+        );
 
         // Cycles should be parseable
         assert!(!first.cycles_requested.is_empty(), "cycles_requested should not be empty");
@@ -1648,6 +1694,12 @@ async fn test_requestor_leaderboard_periods() {
                 && entry.locked_order_fulfillment_rate <= 100.0,
             "locked_order_fulfillment_rate should be 0-100: {}",
             entry.locked_order_fulfillment_rate
+        );
+        assert!(
+            entry.locked_orders_fulfillment_rate_adjusted >= 0.0
+                && entry.locked_orders_fulfillment_rate_adjusted <= 100.0,
+            "locked_orders_fulfillment_rate_adjusted should be 0-100: {}",
+            entry.locked_orders_fulfillment_rate_adjusted
         );
 
         // Last activity should be set

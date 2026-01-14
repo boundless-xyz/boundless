@@ -322,6 +322,8 @@ pub struct RequestorLeaderboardEntry {
     pub acceptance_rate: f32,
     /// Locked order fulfillment rate (locked and fulfilled / (locked and fulfilled + locked and expired)) as percentage
     pub locked_order_fulfillment_rate: f32,
+    /// Locked order fulfillment rate adjusted (deduplicated by input_data and image_url) as percentage
+    pub locked_orders_fulfillment_rate_adjusted: f32,
     /// Last activity timestamp (Unix)
     pub last_activity_time: i64,
     /// Last activity timestamp (ISO 8601)
@@ -556,6 +558,9 @@ pub struct MarketAggregateEntry {
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
 
+    /// Adjusted fulfillment rate for locked orders, deduplicated by (input_data, image_url) (percentage)
+    pub locked_orders_fulfillment_rate_adjusted: f32,
+
     /// Total program cycles computed across all fulfilled requests in this period
     pub total_program_cycles: String,
 
@@ -640,6 +645,9 @@ pub struct MarketCumulativeEntry {
 
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
+
+    /// Adjusted fulfillment rate for locked orders, deduplicated by (input_data, image_url) (percentage)
+    pub locked_orders_fulfillment_rate_adjusted: f32,
 
     /// Total program cycles computed across all fulfilled requests (cumulative)
     pub total_program_cycles: String,
@@ -765,6 +773,9 @@ pub struct RequestorAggregateEntry {
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
 
+    /// Adjusted fulfillment rate for locked orders, deduplicated by (input_data, image_url) (percentage)
+    pub locked_orders_fulfillment_rate_adjusted: f32,
+
     /// Total program cycles computed across all fulfilled requests in this period
     pub total_program_cycles: String,
 
@@ -850,6 +861,9 @@ pub struct RequestorCumulativeEntry {
 
     /// Fulfillment rate for locked orders (percentage)
     pub locked_orders_fulfillment_rate: f32,
+
+    /// Adjusted fulfillment rate for locked orders, deduplicated by (input_data, image_url) (percentage)
+    pub locked_orders_fulfillment_rate_adjusted: f32,
 
     /// Total program cycles computed across all fulfilled requests (cumulative)
     pub total_program_cycles: String,
@@ -1191,6 +1205,7 @@ async fn get_market_aggregates_impl(
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
                 total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted: 0.0,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
             }
@@ -1340,6 +1355,7 @@ async fn get_market_cumulatives_impl(
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
                 total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted: 0.0,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
             }
@@ -1552,6 +1568,7 @@ async fn get_requestor_aggregates_impl(
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
                 total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted: summary.locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
             }
@@ -1710,6 +1727,7 @@ async fn get_requestor_cumulatives_impl(
                 total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
                 total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
                 locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted: summary.locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
             }
@@ -2701,6 +2719,7 @@ async fn list_requestors_impl(
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
                 acceptance_rate: entry.acceptance_rate,
                 locked_order_fulfillment_rate: entry.locked_order_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted: entry.locked_orders_fulfillment_rate_adjusted,
                 last_activity_time: last_activity as i64,
                 last_activity_time_iso: last_activity_iso,
             }
