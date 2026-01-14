@@ -44,8 +44,8 @@ use crate::{
     nonce_layer::NonceProvider,
     order_stream_client::OrderStreamClient,
     request_builder::{
-        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
-        RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
+        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, ParameterizationMode,
+        RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
         StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
     },
     storage::{
@@ -53,7 +53,6 @@ use crate::{
         StorageProviderConfig,
     },
     util::NotProvided,
-    DeliverySpeed,
 };
 
 /// Funding mode for requests submission.
@@ -396,26 +395,22 @@ impl<St, Si> ClientBuilder<St, Si> {
         Self { funding_mode, ..self }
     }
 
-    /// Set the delivery speed for the offer layer.
+    /// Set the parameterization mode for the offer layer.
     ///
-    /// The delivery speed is used to calculate the recommended timeout and ramp up period for the offer layer.
-    /// The default delivery speed is [DeliverySpeed::default()].
-    /// The fast delivery speed is [DeliverySpeed::fast()].
-    ///
-    /// # Notes
-    /// A faster delivery speed will result in a shorter timeout and ramp up period,
-    /// which may result in a higher price and a lower fulfillment guarantee.
+    /// The parameterization mode is used to define the offering parameters for the request.
+    /// The fulfillment parameterization mode is [ParameterizationMode::fulfillment()], which is the default.
+    /// The latency parameterization mode is [ParameterizationMode::latency()], which is faster and allows for faster fulfillment,
+    /// at the cost of higher prices and lower fulfillment guarantees.
     ///
     /// # Example
     /// ```rust
     /// # use boundless_market::Client;
-    /// use boundless_market::DeliverySpeed;
+    /// use boundless_market::request_builder::ParameterizationMode;
     ///
-    /// Client::builder().with_delivery_speed(DeliverySpeed::fast());
+    /// Client::builder().with_parameterization_mode(ParameterizationMode::latency());
     /// ```
-    ///
-    pub fn with_delivery_speed(self, delivery_speed: DeliverySpeed) -> Self {
-        self.config_offer_layer(|config| config.delivery_speed(delivery_speed))
+    pub fn with_parameterization_mode(self, parameterization_mode: ParameterizationMode) -> Self {
+        self.config_offer_layer(|config| config.parameterization_mode(parameterization_mode))
     }
 
     /// Set additional RPC URLs for automatic failover.

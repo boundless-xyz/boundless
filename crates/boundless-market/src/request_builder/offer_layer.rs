@@ -15,7 +15,7 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
-    request_builder::DeliverySpeed,
+    request_builder::ParameterizationMode,
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
 };
@@ -41,11 +41,25 @@ pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct OfferLayerConfig {
-    /// Delivery speed.
+    /// Parameterization mode.
     ///
-    /// Overrides the default lock timeout and timeout.
-    #[builder(setter(into), default = "DeliverySpeed::default()")]
-    pub delivery_speed: DeliverySpeed,
+    /// Defines the offering parameters for the request based on the mode:
+    /// - [ParameterizationMode::fulfillment] is a more conservative mode that ensures more provers can fulfill the request.
+    /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees.
+    ///
+    /// The default is None, which means the parameterization mode is not set and the offer will use the values from the configuration.
+    /// The parameterization mode is used to override the values from the configuration.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
+    /// use boundless_market::request_builder::ParameterizationMode;
+    ///
+    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
+    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
+    /// ```
+    #[builder(setter(into), default = "None")]
+    pub parameterization_mode: Option<ParameterizationMode>,
 
     /// Minimum price per RISC Zero execution cycle, in wei.
     #[builder(setter(into), default = "U256::ZERO")]
@@ -360,16 +374,16 @@ where
         let mut timeout = self.config.timeout.unwrap_or(0);
         let mut ramp_up_period = self.config.ramp_up_period.unwrap_or(0);
 
-        if lock_timeout == 0 {
-            lock_timeout = self.config.delivery_speed.recommended_timeout(cycle_count);
-        }
-
-        if timeout == 0 {
-            timeout = self.config.delivery_speed.recommended_timeout(cycle_count) * 2;
-        }
-
-        if ramp_up_period == 0 {
-            ramp_up_period = self.config.delivery_speed.recommended_ramp_up_period(cycle_count);
+        if let Some(parameterization_mode) = self.config.parameterization_mode {
+            if lock_timeout == 0 {
+                lock_timeout = parameterization_mode.recommended_timeout(cycle_count);
+            }
+            if timeout == 0 {
+                timeout = parameterization_mode.recommended_timeout(cycle_count) * 2;
+            }
+            if ramp_up_period == 0 {
+                ramp_up_period = parameterization_mode.recommended_ramp_up_period(cycle_count);
+            }
         }
 
         let offer = Offer {
