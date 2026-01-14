@@ -48,7 +48,6 @@ pub use request_id_layer::{
 mod offer_layer;
 pub use offer_layer::{
     OfferLayer, OfferLayerConfig, OfferLayerConfigBuilder, OfferParams, OfferParamsBuilder,
-    PriceProvider, PriceProviderArc,
 };
 mod finalizer;
 pub use finalizer::{Finalizer, FinalizerConfig, FinalizerConfigBuilder};

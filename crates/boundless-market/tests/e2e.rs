@@ -31,7 +31,8 @@ use boundless_market::{
     },
     indexer_client::IndexerClient,
     input::GuestEnv,
-    request_builder::{OfferParams, PriceProviderArc, RequestParams},
+    price_provider::{PricePercentiles, PriceProviderArc},
+    request_builder::{OfferParams, RequestParams},
     storage::MockStorageProvider,
     test_helpers::create_mock_indexer_client,
 };
@@ -691,9 +692,16 @@ async fn test_client_builder_with_price_provider() {
 
     // Create a mock IndexerClient that returns specific prices
     // This allows us to test the price provider integration without a real indexer
-    let p10_price = U256::from(1000u64); // 1000 wei per cycle
-    let p99_price = U256::from(5000u64); // 5000 wei per cycle
-    let (mock_server, _mock_indexer_client) = create_mock_indexer_client(p10_price, p99_price);
+    let price_percentiles = PricePercentiles {
+        p10: U256::from(1000u64),
+        p25: U256::from(2000u64),
+        p50: U256::from(3000u64),
+        p75: U256::from(4000u64),
+        p90: U256::from(5000u64),
+        p95: U256::from(6000u64),
+        p99: U256::from(7000u64),
+    };
+    let (mock_server, _mock_indexer_client) = create_mock_indexer_client(&price_percentiles);
 
     // Create an IndexerClient from the mock server URL and use it as a price provider
     let mock_indexer_url = Url::parse(mock_server.base_url().as_str()).unwrap();
@@ -717,6 +725,6 @@ async fn test_client_builder_with_price_provider() {
     // Build the request - price provider should succeed and use mock prices
     let request = client.build_request(request_params).await.unwrap();
     // Verify that prices were set using the mock price provider
-    assert!(request.offer.minPrice > p10_price);
-    assert!(request.offer.maxPrice > p99_price);
+    assert!(request.offer.minPrice > price_percentiles.p10);
+    assert!(request.offer.maxPrice > price_percentiles.p90);
 }

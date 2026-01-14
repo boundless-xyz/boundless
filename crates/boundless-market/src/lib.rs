@@ -82,6 +82,10 @@ pub mod request_builder;
 #[cfg(all(feature = "blake3-groth16", not(target_os = "zkvm")))]
 pub mod blake3_groth16;
 
+/// Module providing market pricing functionality.
+#[cfg(not(target_os = "zkvm"))]
+pub mod price_provider;
+
 /// Selector module implementing utility functions for supported selectors.
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;

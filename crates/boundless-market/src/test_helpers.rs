@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::indexer_client::IndexerClient;
+use crate::{indexer_client::IndexerClient, price_provider::PricePercentiles};
 use alloy::primitives::{utils::format_ether, U256};
 use httpmock::MockServer;
 use url::Url;
@@ -34,23 +34,21 @@ use url::Url;
 /// );
 /// ```
 pub struct MockPriceProvider {
-    min_price: U256,
-    max_price: U256,
+    price_percentiles: PricePercentiles,
     should_fail: bool,
 }
 
 impl MockPriceProvider {
-    /// Creates a new mock price provider with the given min and max prices.
+    /// Creates a new mock price provider with the given price percentiles.
     ///
     /// # Arguments
     ///
-    /// * `min_price` - The minimum price (p10 percentile) to return
-    /// * `max_price` - The maximum price (p99 percentile) to return
-    pub fn new(min_price: U256, max_price: U256) -> Self {
-        Self { min_price, max_price, should_fail: false }
+    /// * `price_percentiles` - The price percentiles to return
+    pub fn new(price_percentiles: PricePercentiles) -> Self {
+        Self { price_percentiles, should_fail: false }
     }
 
-    /// Configures the mock to fail when `price_range()` is called.
+    /// Configures the mock to fail when `price_percentiles()` is called.
     ///
     /// This is useful for testing error handling and fallback behavior.
     pub fn with_failure(mut self) -> Self {
@@ -59,23 +57,22 @@ impl MockPriceProvider {
     }
 }
 
-impl crate::request_builder::PriceProvider for MockPriceProvider {
-    fn price_range(
+impl crate::price_provider::PriceProvider for MockPriceProvider {
+    fn price_percentiles(
         &self,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = anyhow::Result<crate::indexer_client::PriceRange>>
-                + '_,
+            dyn std::future::Future<
+                    Output = anyhow::Result<crate::price_provider::PricePercentiles>,
+                > + '_,
         >,
     > {
-        let min = self.min_price;
-        let max = self.max_price;
         let should_fail = self.should_fail;
         Box::pin(async move {
             if should_fail {
                 anyhow::bail!("Mock price provider failure")
             }
-            Ok(crate::indexer_client::PriceRange { min, max })
+            Ok(self.price_percentiles.clone())
         })
     }
 }
@@ -136,18 +133,42 @@ pub fn create_mock_indexer_client_hourly(
 }
 
 /// Creates a mock IndexerClient that returns the specified price percentiles.
-pub fn create_mock_indexer_client(p10_price: U256, p99_price: U256) -> (MockServer, IndexerClient) {
+pub fn create_mock_indexer_client(
+    price_percentiles: &PricePercentiles,
+) -> (MockServer, IndexerClient) {
     let server = MockServer::start();
 
-    let p10_str = format!("{}", p10_price);
-    let p99_str = format!("{}", p99_price);
-    // Format wei to ETH using alloy's format_ether utility, trimming trailing zeros
-    let p10_formatted = format_eth_trimmed(p10_price);
-    let p99_formatted = format_eth_trimmed(p99_price);
+    let p10_str = format!("{}", price_percentiles.p10);
+    let p25_str = format!("{}", price_percentiles.p25);
+    let p50_str = format!("{}", price_percentiles.p50);
+    let p75_str = format!("{}", price_percentiles.p75);
+    let p90_str = format!("{}", price_percentiles.p90);
+    let p95_str = format!("{}", price_percentiles.p95);
+    let p99_str = format!("{}", price_percentiles.p99);
+    let p10_formatted = format_eth_trimmed(price_percentiles.p10);
+    let p25_formatted = format_eth_trimmed(price_percentiles.p25);
+    let p50_formatted = format_eth_trimmed(price_percentiles.p50);
+    let p75_formatted = format_eth_trimmed(price_percentiles.p75);
+    let p90_formatted = format_eth_trimmed(price_percentiles.p90);
+    let p95_formatted = format_eth_trimmed(price_percentiles.p95);
+    let p99_formatted = format_eth_trimmed(price_percentiles.p99);
 
     let response_json = format!(
-        r#"{{"chain_id":1,"aggregation":"weekly","data":[{{"chain_id":1,"timestamp":1234567890,"timestamp_iso":"2009-02-13T23:31:30Z","total_fulfilled":500,"unique_provers_locking_requests":10,"unique_requesters_submitting_requests":20,"total_fees_locked":"5000000000000000000","total_fees_locked_formatted":"5.0 ETH","total_collateral_locked":"10000000000000000000","total_collateral_locked_formatted":"10.0 ZKC","total_locked_and_expired_collateral":"0","total_locked_and_expired_collateral_formatted":"0.0 ZKC","p10_lock_price_per_cycle":"{}","p10_lock_price_per_cycle_formatted":"{}","p25_lock_price_per_cycle":"3000000000000000","p25_lock_price_per_cycle_formatted":"0.003 ETH","p50_lock_price_per_cycle":"4000000000000000","p50_lock_price_per_cycle_formatted":"0.004 ETH","p75_lock_price_per_cycle":"5000000000000000","p75_lock_price_per_cycle_formatted":"0.005 ETH","p90_lock_price_per_cycle":"6000000000000000","p90_lock_price_per_cycle_formatted":"0.006 ETH","p95_lock_price_per_cycle":"6500000000000000","p95_lock_price_per_cycle_formatted":"0.0065 ETH","p99_lock_price_per_cycle":"{}","p99_lock_price_per_cycle_formatted":"{}","total_requests_submitted":750,"total_requests_submitted_onchain":500,"total_requests_submitted_offchain":250,"total_requests_locked":400,"total_requests_slashed":5,"total_expired":50,"total_locked_and_expired":25,"total_locked_and_fulfilled":375,"total_secondary_fulfillments":10,"locked_orders_fulfillment_rate":93.75,"total_program_cycles":"1000000","total_cycles":"1200000"}}],"next_cursor":null,"has_more":false}}"#,
-        p10_str, p10_formatted, p99_str, p99_formatted
+        r#"{{"chain_id":1,"aggregation":"weekly","data":[{{"chain_id":1,"timestamp":1234567890,"timestamp_iso":"2009-02-13T23:31:30Z","total_fulfilled":500,"unique_provers_locking_requests":10,"unique_requesters_submitting_requests":20,"total_fees_locked":"5000000000000000000","total_fees_locked_formatted":"5.0 ETH","total_collateral_locked":"10000000000000000000","total_collateral_locked_formatted":"10.0 ZKC","total_locked_and_expired_collateral":"0","total_locked_and_expired_collateral_formatted":"0.0 ZKC","p10_lock_price_per_cycle":"{}","p10_lock_price_per_cycle_formatted":"{}","p25_lock_price_per_cycle":{},"p25_lock_price_per_cycle_formatted":"{}","p50_lock_price_per_cycle":{},"p50_lock_price_per_cycle_formatted":"{}","p75_lock_price_per_cycle":{},"p75_lock_price_per_cycle_formatted":"{}","p90_lock_price_per_cycle":{},"p90_lock_price_per_cycle_formatted":"{}","p95_lock_price_per_cycle":{},"p95_lock_price_per_cycle_formatted":"{},"p99_lock_price_per_cycle":"{}","p99_lock_price_per_cycle_formatted":"{}","total_requests_submitted":750,"total_requests_submitted_onchain":500,"total_requests_submitted_offchain":250,"total_requests_locked":400,"total_requests_slashed":5,"total_expired":50,"total_locked_and_expired":25,"total_locked_and_fulfilled":375,"total_secondary_fulfillments":10,"locked_orders_fulfillment_rate":93.75,"total_program_cycles":"1000000","total_cycles":"1200000"}}],"next_cursor":null,"has_more":false}}"#,
+        p10_str,
+        p10_formatted,
+        p25_str,
+        p25_formatted,
+        p50_str,
+        p50_formatted,
+        p75_str,
+        p75_formatted,
+        p90_str,
+        p90_formatted,
+        p95_str,
+        p95_formatted,
+        p99_str,
+        p99_formatted
     );
 
     let _mock = server.mock(|when, then| {

@@ -44,9 +44,12 @@ use crate::{
     indexer_client::IndexerClient,
     nonce_layer::NonceProvider,
     order_stream_client::OrderStreamClient,
+    price_provider::{
+        MarketPricing, MarketPricingConfigBuilder, PriceProviderArc, StandardPriceProvider,
+    },
     request_builder::{
-        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, PriceProviderArc,
-        RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
+        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
+        RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
         StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
     },
     storage::{
@@ -309,6 +312,8 @@ impl<St, Si> ClientBuilder<St, Si> {
         Self: ClientProviderBuilder<Error = anyhow::Error>,
     {
         let all_urls = self.collect_rpc_urls()?;
+        // It's safe to unwrap here because we know there's at least one URL.
+        let first_rpc_url = all_urls.first().cloned().unwrap();
         let provider = self.build_provider(all_urls).await?;
 
         // Resolve the deployment information.
@@ -363,7 +368,18 @@ impl<St, Si> ClientBuilder<St, Si> {
             let indexer_client = IndexerClient::new(url).with_context(|| {
                 format!("Failed to create indexer client from deployment indexer URL: {}", url_str)
             })?;
-            Some(Arc::new(indexer_client))
+            let market_pricing = MarketPricing::new(
+                first_rpc_url,
+                MarketPricingConfigBuilder::default()
+                    .deployment(deployment.clone())
+                    .build()
+                    .with_context(|| {
+                        format!(
+                            "Failed to build MarketPricingConfig for deployment: {deployment:?}",
+                        )
+                    })?,
+            );
+            Some(Arc::new(StandardPriceProvider::new(indexer_client).with_fallback(market_pricing)))
         } else {
             None
         };
@@ -374,11 +390,10 @@ impl<St, Si> ClientBuilder<St, Si> {
                 self.storage_provider.clone(),
                 self.storage_layer_config.build()?,
             ))
-            .offer_layer(OfferLayer::with_price_provider(
-                provider.clone(),
-                self.offer_layer_config.build()?,
-                price_provider,
-            ))
+            .offer_layer(
+                OfferLayer::new(provider.clone(), self.offer_layer_config.build()?)
+                    .with_price_provider(price_provider),
+            )
             .request_id_layer(RequestIdLayer::new(
                 boundless_market.clone(),
                 self.request_id_layer_config.build()?,
@@ -552,7 +567,7 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// If provided, the [OfferLayer] will use market prices (p10 and p99 percentiles)
     /// when [`OfferParams`](crate::request_builder::OfferParams) doesn't explicitly set min_price or max_price.
     ///
-    /// This method allows you to use any implementation of [`PriceProvider`](crate::request_builder::PriceProvider), not just [IndexerClient].
+    /// This method allows you to use any implementation of [`PriceProvider`](crate::price_provider::PriceProvider), not just [IndexerClient].
     /// This is useful for testing with mock providers or using alternative price data sources.
     ///
     /// If not set, the indexer URL from the [Deployment] will be used to create an [IndexerClient].

@@ -15,7 +15,7 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
-    indexer_client::{IndexerClient, PriceRange},
+    price_provider::PriceProviderArc,
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
 };
@@ -30,8 +30,6 @@ use alloy::{
 use anyhow::{Context, Result};
 use clap::Args;
 use derive_builder::Builder;
-use std::future::Future;
-use std::pin::Pin;
 
 /// Configuration for the [OfferLayer].
 ///
@@ -230,40 +228,6 @@ impl TryFrom<OfferParams> for Offer {
     }
 }
 
-/// Trait for providers that can supply market price ranges.
-///
-/// This trait allows for flexible integration with different price data sources,
-/// making it easy to test or swap implementations.
-pub trait PriceProvider {
-    /// Fetch the current market price range (p10 and p99 percentiles).
-    ///
-    /// # Returns
-    ///
-    /// Returns a boxed future that resolves to a `Result<PriceRange>` containing
-    /// the min (p10) and max (p99) prices. Returns an error if the price data
-    /// cannot be fetched or parsed.
-    ///
-    /// Note: The future does not require Send, which allows implementations
-    /// that may have non-Send internal state.
-    fn price_range(&self) -> Pin<Box<dyn Future<Output = Result<PriceRange>> + '_>>;
-}
-
-/// Type alias for a thread-safe, shareable price provider.
-///
-/// This is the standard type used throughout the codebase for storing and passing
-/// price providers, as it satisfies the `Send + Sync` requirements needed for
-/// use in multi-threaded contexts and `Arc` sharing.
-pub type PriceProviderArc = std::sync::Arc<dyn PriceProvider + Send + Sync>;
-
-impl PriceProvider for IndexerClient {
-    fn price_range(&self) -> Pin<Box<dyn Future<Output = Result<PriceRange>> + '_>> {
-        Box::pin(async {
-            let price_percentiles = self.get_p10_p99_prices().await?;
-            PriceRange::try_from(price_percentiles)
-        })
-    }
-}
-
 impl OfferParams {
     /// Creates a new builder for constructing [OfferParams].
     ///
@@ -286,16 +250,20 @@ where
         Self { provider, config, price_provider: None }
     }
 
-    /// Creates a new [OfferLayer] with the given provider, configuration, and price provider.
+    /// Set the price provider for the [OfferLayer].
     ///
     /// The price provider will be used to fetch market prices when `OfferParams` doesn't
     /// explicitly set min_price or max_price.
-    pub fn with_price_provider(
-        provider: P,
-        config: OfferLayerConfig,
-        price_provider: Option<PriceProviderArc>,
-    ) -> Self {
-        Self { provider, config, price_provider }
+    ///
+    /// # Parameters
+    ///
+    /// * `price_provider`: The price provider to use.
+    ///
+    /// # Returns
+    ///
+    /// A new [OfferLayer] with the price provider set.
+    pub fn with_price_provider(self, price_provider: Option<PriceProviderArc>) -> Self {
+        Self { price_provider, ..self }
     }
 
     /// Estimates the maximum gas usage for a proof request.
@@ -373,10 +341,10 @@ where
         {
             if let Some(ref price_provider) = self.price_provider {
                 if let Some(cycle_count) = cycle_count {
-                    match price_provider.price_range().await {
-                        Ok(price_range) => {
-                            let min = price_range.min * U256::from(cycle_count);
-                            let max = price_range.max * U256::from(cycle_count);
+                    match price_provider.price_percentiles().await {
+                        Ok(percentiles) => {
+                            let min = percentiles.p10 * U256::from(cycle_count);
+                            let max = percentiles.p90 * U256::from(cycle_count);
                             tracing::debug!(
                                 "Using market prices from price provider: min={}, max={} (for {} cycles)",
                                 format_units(min, "ether")?,

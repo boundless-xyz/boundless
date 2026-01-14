@@ -14,15 +14,19 @@
 
 //! Client for interacting with the Boundless Indexer API to fetch market price aggregates.
 
-use alloy::primitives::U256;
+use alloy_primitives::U256;
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
+use std::str::FromStr;
 use url::Url;
 
-use crate::deployments::{BASE_MAINNET_INDEXER_URL, BASE_SEPOLIA_INDEXER_URL, SEPOLIA_INDEXER_URL};
+use crate::{
+    deployments::{BASE_MAINNET_INDEXER_URL, BASE_SEPOLIA_INDEXER_URL, SEPOLIA_INDEXER_URL},
+    price_provider::PricePercentiles,
+};
 
+#[derive(Clone, Debug)]
 /// Client for the Boundless Indexer API
 pub struct IndexerClient {
     client: Client,
@@ -179,81 +183,6 @@ pub struct MarketAggregatesResponse {
     pub has_more: bool,
 }
 
-/// Price percentiles (p10 and p99) for lock price per cycle
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PricePercentiles {
-    /// 10th percentile lock price per cycle (as string, in wei)
-    pub p10: String,
-    /// 10th percentile lock price per cycle (formatted for display)
-    pub p10_formatted: String,
-    /// 99th percentile lock price per cycle (as string, in wei)
-    pub p99: String,
-    /// 99th percentile lock price per cycle (formatted for display)
-    pub p99_formatted: String,
-}
-
-/// Price range with minimum and maximum values as U256.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PriceRange {
-    /// Minimum price (p10 percentile) in wei.
-    pub min: U256,
-    /// Maximum price (p99 percentile) in wei.
-    pub max: U256,
-}
-
-impl TryFrom<PricePercentiles> for PriceRange {
-    type Error = anyhow::Error;
-
-    /// Convert `PricePercentiles` to `PriceRange` by parsing the string values to U256.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if parsing fails for either the p10 or p99 values.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use boundless_market::indexer_client::{PricePercentiles, PriceRange};
-    /// use alloy::primitives::U256;
-    /// use std::convert::TryFrom;
-    ///
-    /// let percentiles = PricePercentiles {
-    ///     p10: "1000000000000000".to_string(),
-    ///     p10_formatted: "0.001 ETH".to_string(),
-    ///     p99: "7000000000000000".to_string(),
-    ///     p99_formatted: "0.007 ETH".to_string(),
-    /// };
-    ///
-    /// let range = PriceRange::try_from(percentiles).unwrap();
-    /// assert_eq!(range.min, U256::from(1000000000000000u64));
-    /// assert_eq!(range.max, U256::from(7000000000000000u64));
-    /// ```
-    ///
-    /// Or using `.try_into()`:
-    ///
-    /// ```
-    /// use boundless_market::indexer_client::{PricePercentiles, PriceRange};
-    /// use std::convert::TryInto;
-    ///
-    /// let percentiles = PricePercentiles {
-    ///     p10: "1000000000000000".to_string(),
-    ///     p10_formatted: "0.001 ETH".to_string(),
-    ///     p99: "7000000000000000".to_string(),
-    ///     p99_formatted: "0.007 ETH".to_string(),
-    /// };
-    ///
-    /// let range: PriceRange = percentiles.try_into().unwrap();
-    /// ```
-    fn try_from(percentiles: PricePercentiles) -> Result<Self> {
-        let min = U256::from_str_radix(&percentiles.p10, 10)
-            .with_context(|| format!("Failed to parse p10 price: {}", percentiles.p10))?;
-        let max = U256::from_str_radix(&percentiles.p99, 10)
-            .with_context(|| format!("Failed to parse p99 price: {}", percentiles.p99))?;
-
-        Ok(PriceRange { min, max })
-    }
-}
-
 impl IndexerClient {
     /// Create a new IndexerClient with hardcoded URL based on chain ID
     /// Can be overridden with INDEXER_API_URL environment variable
@@ -341,7 +270,10 @@ impl IndexerClient {
 
     /// Get p10 and p99 lock prices per cycle
     /// Returns the most recent weekly aggregate data from the last 7 days
-    pub async fn get_p10_p99_prices(&self) -> Result<PricePercentiles> {
+    pub async fn get_prices_percentiles(
+        &self,
+        aggregation: AggregationGranularity,
+    ) -> Result<PricePercentiles> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .context("Failed to get current time")?
@@ -349,9 +281,9 @@ impl IndexerClient {
         let one_week_ago = now - 604800; // 7 days in seconds
 
         let params = MarketAggregatesParams {
-            aggregation: AggregationGranularity::Weekly,
+            aggregation,
             cursor: None,
-            limit: Some(1),                 // Get up to 7 days of data
+            limit: Some(1),
             sort: Some("desc".to_string()), // Most recent first
             before: Some(now),
             after: Some(one_week_ago),
@@ -363,12 +295,28 @@ impl IndexerClient {
         for entry in response.data {
             if !entry.p10_lock_price_per_cycle.is_empty()
                 && !entry.p99_lock_price_per_cycle.is_empty()
+                && !entry.p25_lock_price_per_cycle.is_empty()
+                && !entry.p50_lock_price_per_cycle.is_empty()
+                && !entry.p75_lock_price_per_cycle.is_empty()
+                && !entry.p90_lock_price_per_cycle.is_empty()
+                && !entry.p95_lock_price_per_cycle.is_empty()
+                && !entry.p99_lock_price_per_cycle.is_empty()
             {
                 return Ok(PricePercentiles {
-                    p10: entry.p10_lock_price_per_cycle,
-                    p10_formatted: entry.p10_lock_price_per_cycle_formatted,
-                    p99: entry.p99_lock_price_per_cycle,
-                    p99_formatted: entry.p99_lock_price_per_cycle_formatted,
+                    p10: U256::from_str(&entry.p10_lock_price_per_cycle)
+                        .context("Failed to parse p10 lock price per cycle")?,
+                    p25: U256::from_str(&entry.p25_lock_price_per_cycle)
+                        .context("Failed to parse p25 lock price per cycle")?,
+                    p50: U256::from_str(&entry.p50_lock_price_per_cycle)
+                        .context("Failed to parse p50 lock price per cycle")?,
+                    p75: U256::from_str(&entry.p75_lock_price_per_cycle)
+                        .context("Failed to parse p75 lock price per cycle")?,
+                    p90: U256::from_str(&entry.p90_lock_price_per_cycle)
+                        .context("Failed to parse p90 lock price per cycle")?,
+                    p95: U256::from_str(&entry.p95_lock_price_per_cycle)
+                        .context("Failed to parse p95 lock price per cycle")?,
+                    p99: U256::from_str(&entry.p99_lock_price_per_cycle)
+                        .context("Failed to parse p99 lock price per cycle")?,
                 });
             }
         }
@@ -380,7 +328,11 @@ impl IndexerClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{create_mock_indexer_client, create_test_indexer_client};
+    use crate::{
+        price_provider::PricePercentiles,
+        test_helpers::{create_mock_indexer_client, create_test_indexer_client},
+    };
+    use alloy_primitives::U256;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -459,22 +411,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_p10_p99_prices() {
-        use alloy::primitives::U256;
-        let (_server, client) = create_mock_indexer_client(
-            U256::from(2000000000000000u64), // p10: 0.002 ETH
-            U256::from(8000000000000000u64), // p99: 0.008 ETH
-        );
-        let result = client.get_p10_p99_prices().await.unwrap();
+    async fn test_get_prices_percentiles() {
+        let price_percentiles = PricePercentiles {
+            p10: U256::from(2000000000000000u64), // p10: 0.002 ETH
+            p25: U256::from(3000000000000000u64), // p25: 0.003 ETH
+            p50: U256::from(4000000000000000u64), // p50: 0.004 ETH
+            p75: U256::from(5000000000000000u64), // p75: 0.005 ETH
+            p90: U256::from(6000000000000000u64), // p90: 0.006 ETH
+            p95: U256::from(7000000000000000u64), // p95: 0.007 ETH
+            p99: U256::from(8000000000000000u64), // p99: 0.008 ETH
+        };
+        let (_server, client) = create_mock_indexer_client(&price_percentiles);
+        let result = client.get_prices_percentiles(AggregationGranularity::Weekly).await.unwrap();
 
-        assert_eq!(result.p10, "2000000000000000");
-        assert_eq!(result.p10_formatted, "0.002 ETH");
-        assert_eq!(result.p99, "8000000000000000");
-        assert_eq!(result.p99_formatted, "0.008 ETH");
+        assert_eq!(result.p10, price_percentiles.p10);
+        assert_eq!(result.p25, price_percentiles.p25);
+        assert_eq!(result.p50, price_percentiles.p50);
+        assert_eq!(result.p75, price_percentiles.p75);
+        assert_eq!(result.p90, price_percentiles.p90);
+        assert_eq!(result.p95, price_percentiles.p95);
+        assert_eq!(result.p99, price_percentiles.p99);
     }
 
     #[tokio::test]
-    async fn test_get_p10_p99_prices_no_data() {
+    async fn test_get_prices_percentiles_no_data() {
         let (server, client) = create_test_indexer_client();
         let mock = server.mock(|when, then| {
             when.method(GET)
@@ -491,78 +451,10 @@ mod tests {
             }));
         });
 
-        let result = client.get_p10_p99_prices().await;
+        let result = client.get_prices_percentiles(AggregationGranularity::Weekly).await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No price data found"));
         mock.assert();
-    }
-
-    #[test]
-    fn test_price_percentiles_to_price_range() {
-        use std::convert::TryFrom;
-
-        // Test successful conversion
-        let percentiles = PricePercentiles {
-            p10: "1000000000000000".to_string(),
-            p10_formatted: "0.001 ETH".to_string(),
-            p99: "7000000000000000".to_string(),
-            p99_formatted: "0.007 ETH".to_string(),
-        };
-
-        let range = PriceRange::try_from(percentiles).unwrap();
-        assert_eq!(range.min, U256::from(1000000000000000u64));
-        assert_eq!(range.max, U256::from(7000000000000000u64));
-    }
-
-    #[test]
-    fn test_price_percentiles_to_price_range_try_into() {
-        use std::convert::TryInto;
-
-        // Test using try_into
-        let percentiles = PricePercentiles {
-            p10: "500000000000000".to_string(),
-            p10_formatted: "0.0005 ETH".to_string(),
-            p99: "2000000000000000".to_string(),
-            p99_formatted: "0.002 ETH".to_string(),
-        };
-
-        let range: PriceRange = percentiles.try_into().unwrap();
-        assert_eq!(range.min, U256::from(500000000000000u64));
-        assert_eq!(range.max, U256::from(2000000000000000u64));
-    }
-
-    #[test]
-    fn test_price_percentiles_to_price_range_invalid_p10() {
-        use std::convert::TryFrom;
-
-        // Test error handling for invalid p10
-        let percentiles = PricePercentiles {
-            p10: "invalid".to_string(),
-            p10_formatted: "0.001 ETH".to_string(),
-            p99: "7000000000000000".to_string(),
-            p99_formatted: "0.007 ETH".to_string(),
-        };
-
-        let result = PriceRange::try_from(percentiles);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Failed to parse p10 price"));
-    }
-
-    #[test]
-    fn test_price_percentiles_to_price_range_invalid_p99() {
-        use std::convert::TryFrom;
-
-        // Test error handling for invalid p99
-        let percentiles = PricePercentiles {
-            p10: "1000000000000000".to_string(),
-            p10_formatted: "0.001 ETH".to_string(),
-            p99: "not_a_number".to_string(),
-            p99_formatted: "0.007 ETH".to_string(),
-        };
-
-        let result = PriceRange::try_from(percentiles);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Failed to parse p99 price"));
     }
 }
