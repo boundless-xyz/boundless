@@ -231,41 +231,49 @@ impl IndexerClient {
     ) -> Result<MarketAggregatesResponse> {
         let mut url = self.base_url.join("v1/market/aggregates").context("Failed to build URL")?;
 
-        // Build query parameters
-        let mut query_pairs = url.query_pairs_mut();
-        query_pairs.append_pair("aggregation", &params.aggregation.to_string());
-        if let Some(ref cursor) = params.cursor {
-            query_pairs.append_pair("cursor", cursor);
+        // Build query parameters manually to avoid non-Send closures from query_pairs_mut()
+        // Collect all query parameters as owned strings first
+        let mut query_parts = Vec::new();
+        query_parts.push(format!("aggregation={}", params.aggregation));
+        if let Some(cursor) = params.cursor {
+            // URL encode cursor manually
+            let encoded_cursor: String =
+                url::form_urlencoded::byte_serialize(cursor.as_bytes()).collect();
+            query_parts.push(format!("cursor={}", encoded_cursor));
         }
         if let Some(limit) = params.limit {
-            query_pairs.append_pair("limit", &limit.to_string());
+            query_parts.push(format!("limit={}", limit));
         }
-        if let Some(ref sort) = params.sort {
-            query_pairs.append_pair("sort", sort);
+        if let Some(sort) = params.sort {
+            // URL encode sort manually
+            let encoded_sort: String =
+                url::form_urlencoded::byte_serialize(sort.as_bytes()).collect();
+            query_parts.push(format!("sort={}", encoded_sort));
         }
         if let Some(before) = params.before {
-            query_pairs.append_pair("before", &before.to_string());
+            query_parts.push(format!("before={}", before));
         }
         if let Some(after) = params.after {
-            query_pairs.append_pair("after", &after.to_string());
+            query_parts.push(format!("after={}", after));
         }
-        drop(query_pairs);
+        if !query_parts.is_empty() {
+            url.set_query(Some(&query_parts.join("&")));
+        }
 
-        let response = self
-            .client
-            .get(url.clone())
-            .send()
-            .await
-            .with_context(|| format!("Failed to fetch market aggregates from {}", url))?;
+        // Convert URL to string before capturing in closures to avoid Send issues
+        let url_str = url.to_string();
+        let response = self.client.get(url).send().await.with_context(|| {
+            format!("Failed to fetch market aggregates from {}", url_str.clone())
+        })?;
 
         if !response.status().is_success() {
-            bail!("API error from {}: {}", url, response.status());
+            bail!("API error from {}: {}", url_str.clone(), response.status());
         }
 
         response
             .json()
             .await
-            .with_context(|| format!("Failed to parse market aggregates response from {}", url))
+            .with_context(|| format!("Failed to parse market aggregates response from {}", url_str))
     }
 
     /// Get p10 and p99 lock prices per cycle

@@ -64,7 +64,8 @@ impl crate::price_provider::PriceProvider for MockPriceProvider {
         Box<
             dyn std::future::Future<
                     Output = anyhow::Result<crate::price_provider::PricePercentiles>,
-                > + '_,
+                > + Send
+                + '_,
         >,
     > {
         let should_fail = self.should_fail;

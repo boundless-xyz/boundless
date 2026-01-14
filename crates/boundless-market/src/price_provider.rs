@@ -66,9 +66,11 @@ pub trait PriceProvider {
     /// the 10th, 25th, 50th, 75th, 90th, 95th, and 99th percentiles. Returns an error if the price data
     /// cannot be fetched or parsed.
     ///
-    /// Note: The future does not require Send, which allows implementations
-    /// that may have non-Send internal state.
-    fn price_percentiles(&self) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + '_>>;
+    /// Note: The future must be Send to allow use in multi-threaded contexts
+    /// like `tokio::spawn`.
+    fn price_percentiles(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + Send + '_>>;
 }
 
 /// Type alias for a thread-safe, shareable price provider.
@@ -80,14 +82,14 @@ pub type PriceProviderArc = std::sync::Arc<dyn PriceProvider + Send + Sync>;
 
 /// Standard price provider that uses a default and an optional fallback price provider.
 pub struct StandardPriceProvider<
-    D: PriceProvider + Clone + 'static,
-    F: PriceProvider + Clone + 'static,
+    D: PriceProvider + Clone + Send + 'static,
+    F: PriceProvider + Clone + Send + 'static,
 > {
     default: D,
     fallback: Option<F>,
 }
 
-impl<D: PriceProvider + Clone + 'static, F: PriceProvider + Clone + 'static>
+impl<D: PriceProvider + Clone + Send + 'static, F: PriceProvider + Clone + Send + 'static>
     StandardPriceProvider<D, F>
 {
     /// Create a new standard price provider.
@@ -144,16 +146,27 @@ impl<D: PriceProvider + Clone + 'static, F: PriceProvider + Clone + 'static>
     }
 }
 
-impl<D: PriceProvider + Clone + 'static, F: PriceProvider + Clone + 'static> PriceProvider
-    for StandardPriceProvider<D, F>
+impl<D: PriceProvider + Clone + Send + 'static, F: PriceProvider + Clone + Send + 'static>
+    PriceProvider for StandardPriceProvider<D, F>
 {
-    fn price_percentiles(&self) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + '_>> {
-        Box::pin(async {
-            match self.default.price_percentiles().await {
+    fn price_percentiles(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + Send + '_>> {
+        let default = self.default.clone();
+        let fallback = self.fallback.clone();
+        Box::pin(async move {
+            // Await the default future first, moving it into the async block
+            let default_result = {
+                let default_fut = default.price_percentiles();
+                default_fut.await
+            };
+            match default_result {
                 Ok(price_percentiles) => Ok(price_percentiles),
                 Err(e) => {
-                    if let Some(ref fallback) = self.fallback {
-                        fallback.price_percentiles().await
+                    if let Some(fallback_provider) = fallback {
+                        // Await the fallback future, moving it into the async block
+                        let fallback_fut = fallback_provider.price_percentiles();
+                        fallback_fut.await
                     } else {
                         Err(e)
                     }
@@ -164,13 +177,18 @@ impl<D: PriceProvider + Clone + 'static, F: PriceProvider + Clone + 'static> Pri
 }
 
 impl PriceProvider for IndexerClient {
-    fn price_percentiles(&self) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + '_>> {
-        Box::pin(self.get_prices_percentiles(AggregationGranularity::Weekly))
+    fn price_percentiles(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + Send + '_>> {
+        let client = self.clone();
+        Box::pin(async move { client.get_prices_percentiles(AggregationGranularity::Weekly).await })
     }
 }
 
 impl PriceProvider for MarketPricing {
-    fn price_percentiles(&self) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + '_>> {
+    fn price_percentiles(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<PricePercentiles>> + Send + '_>> {
         Box::pin(self.clone().query_market_pricing())
     }
 }
