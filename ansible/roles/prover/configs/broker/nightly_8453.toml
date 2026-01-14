@@ -7,6 +7,6 @@ priority_requestor_lists = [
 ]
 max_collateral = "200"
 max_concurrent_preflights = 4
-max_concurrent_proofs = 1
+max_concurrent_proofs = 2
 max_journal_bytes = 20000
 max_file_size = 500000000000
