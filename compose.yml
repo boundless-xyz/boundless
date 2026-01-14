@@ -52,7 +52,7 @@ x-exec-agent-common: &exec-agent-common
     [
       "/bin/sh",
       "-c",
-      "/app/agent -t exec --segment-po2 $SEGMENT_SIZE --redis-ttl $REDIS_TTL",
+      "/app/agent -t exec --segment-po2 $$SEGMENT_SIZE --redis-ttl $$REDIS_TTL",
     ]
 
 x-broker-environment: &broker-environment
@@ -217,12 +217,16 @@ services:
       <<: *base-environment
       # Default to 4 max client connections if not set (work, poll for requeue, completed cleanup, stuck tasks cleanup)
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-4}
+      CLEANUP_POLL_INTERVAL:
+      STUCK_TASKS_POLL_INTERVAL:
+      BENTO_DISABLE_COMPLETED_CLEANUP:
+      BENTO_DISABLE_STUCK_TASK_CLEANUP:
       REDIS_TTL: ${REDIS_TTL:-57600}
     entrypoint:
       [
         "/bin/sh",
         "-c",
-        "/app/agent -t aux --monitor-requeue --redis-ttl $REDIS_TTL",
+        "/app/agent -t aux --monitor-requeue --redis-ttl $$REDIS_TTL",
       ]
 
   # GPU Prover Agent - automatically detects and uses all available GPUs
