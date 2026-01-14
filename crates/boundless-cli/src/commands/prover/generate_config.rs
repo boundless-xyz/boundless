@@ -33,7 +33,9 @@ use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
 use boundless_market::client::ClientBuilder;
 use boundless_market::contracts::{RequestId, RequestInput, RequestInputType};
-use boundless_market::GuestEnv;
+use boundless_market::{
+    GuestEnv, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
+};
 use risc0_zkvm::serde::from_slice;
 
 // Priority requestor addresses for market pricing analysis
@@ -58,10 +60,6 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.large.json";
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
-
-// Peak performance thresholds for enabling requestor lists (kHz)
-const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
-const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
 
 // Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
 // orders locked by other provers that exceeded their lock timeout

@@ -17,6 +17,7 @@ use crate::{
     contracts::{Offer, RequestId, Requirements},
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
+    LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
 };
 use alloy::{
     network::Ethereum,
@@ -29,10 +30,6 @@ use alloy::{
 use anyhow::{ensure, Context};
 use clap::Args;
 use derive_builder::Builder;
-
-// Peak performance thresholds for enabling requestor lists (kHz)
-const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
-const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
 
 struct CollateralRecommendation {
     default: U256,
