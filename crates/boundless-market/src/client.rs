@@ -1027,17 +1027,6 @@ where
         self.submit_request_with_signer(request, signer).await
     }
 
-    /// Submit a proof request onchain with a signature.
-    ///
-    /// Requires a signature to be provided to sign the request.
-    pub async fn submit_request_with_signature(
-        &self,
-        request: &ProofRequest,
-        signature: impl Into<Bytes>,
-    ) -> Result<(U256, u64), ClientError> {
-        self.submit_request_onchain_with_signature(request, signature).await
-    }
-
     /// Submit a proof request with a provided signer.
     ///
     /// Automatically uses offchain submission via the order stream service if available,
