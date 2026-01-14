@@ -70,6 +70,7 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 | ------------------------ | ------------ | --------------------------- |
 | `prover_private_key`     | `""`         | Prover wallet private key   |
 | `prover_rpc_url`         | `""`         | RPC URL for blockchain      |
+| `prover_rpc_urls`        | `""`         | Comma-separated RPC URLs    |
 | `prover_povw_log_id`     | `""`         | POVW log contract address   |
 | `prover_broker_toml_url` | (GitHub URL) | URL to broker.toml template |
 
