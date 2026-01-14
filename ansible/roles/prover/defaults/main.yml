@@ -50,6 +50,7 @@ prover_binary_url: "https://github.com/boundless-xyz/boundless/releases/download
 # Broker configuration (if enabled)
 prover_private_key: ""
 prover_rpc_url: ""
+prover_rpc_urls: ""
 prover_povw_log_id: ""
 
 # Broker configuration URL

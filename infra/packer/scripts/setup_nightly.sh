@@ -73,11 +73,13 @@ sudo systemctl enable vector
 log "Performing final cleanup..."
 # Clean up source code and build artifacts
 log "Removing source repository and build artifacts..."
-cd ~
-rm -rf boundless/
 # Clean up Rust build cache (optional, but saves space)
 log "Cleaning Rust build cache..."
+# Running cargo clean is redundant here, but forwards compatible for if target dir is outside dir
+cd ~/boundless/bento
 cargo clean
+cd ~
+rm -rf boundless/
 # Clean up apt cache and temporary files
 sudo apt-get autoremove -y
 sudo apt-get autoclean
