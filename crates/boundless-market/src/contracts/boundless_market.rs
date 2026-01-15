@@ -1245,6 +1245,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         filter_builder: impl Fn() -> alloy::contract::Event<&'a P, E, Ethereum>,
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
+        error_fn: impl Fn(U256, u64, u64) -> MarketError,
     ) -> Result<(E, Log), MarketError>
     where
         E: SolEvent + Clone,
@@ -1306,7 +1307,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
 
         // Return error if no logs are found after all iterations
-        Err(MarketError::RequestNotFound(request_id, initial_upper_block, final_block_checked))
+        Err(error_fn(request_id, initial_upper_block, final_block_checked))
     }
 
     /// Query the ProofDelivered event based on request ID and block options.
@@ -1323,62 +1324,26 @@ impl<P: Provider> BoundlessMarketService<P> {
         upper_bound: Option<u64>,
     ) -> Result<ProofDelivered, MarketError> {
         let config = self.event_query_config.clone();
-        self.retry_query(&config, || async {
-            let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
-            let initial_upper_block = upper_block;
-            let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
-                self.event_query_config.block_range * self.event_query_config.max_iterations,
-            ));
+        self.retry_query(
+            &config,
+            || async {
+                let (event, _log_meta) = self
+                    .query_event_backwards(
+                        &config,
+                        "ProofDelivered",
+                        request_id,
+                        || self.instance.ProofDelivered_filter(),
+                        lower_bound,
+                        upper_bound,
+                        MarketError::ProofNotFound,
+                    )
+                    .await?;
 
-            // Loop to progressively search through blocks
-            tracing::debug!(
-                "Querying ProofDelivered event for request ID {:x} in blocks {} to {} [iterations: {}]",
-                request_id,
-                start_block,
-                upper_block,
-                self.event_query_config.max_iterations
-            );
-            let mut final_block_checked = initial_upper_block;
-            for _ in 0..self.event_query_config.max_iterations {
-                // If the current end block is less than or equal to the starting block, stop searching
-                if upper_block <= start_block {
-                    break;
-                }
-
-                // Calculate the block range to query: from [lower_block] to [upper_block]
-                let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
-
-                // Set up the event filter for the specified block range
-                let mut event_filter = self.instance.ProofDelivered_filter();
-                tracing::trace!(
-                    "Querying ProofDelivered event for request ID {:x} in blocks {} to {}",
-                    request_id,
-                    lower_block,
-                    upper_block
-                );
-                event_filter.filter = event_filter
-                    .filter
-                    .topic1(request_id)
-                    .from_block(lower_block)
-                    .to_block(upper_block);
-
-                // Query the logs for the event
-                let logs = event_filter.query().await?;
-
-                if let Some((event, _)) = logs.first() {
-                    return Ok(event.clone());
-                }
-
-                // Track the last block we actually queried (lower_block is the start of the range we queried)
-                final_block_checked = lower_block;
-
-                // Move the upper_block down for the next iteration
-                upper_block = lower_block.saturating_sub(1);
-            }
-
-            // Return error if no logs are found after all iterations
-            Err(MarketError::ProofNotFound(request_id, initial_upper_block, final_block_checked))
-        }, "query_fulfilled_event").await
+                Ok(event)
+            },
+            "query_fulfilled_event",
+        )
+        .await
     }
 
     /// Query the RequestSubmitted event based on request ID and block options.
@@ -1412,6 +1377,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                         || self.instance.RequestSubmitted_filter(),
                         lower_bound,
                         upper_bound,
+                        MarketError::RequestNotFound,
                     )
                     .await?;
 
@@ -1455,6 +1421,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                         || self.instance.RequestLocked_filter(),
                         lower_bound,
                         upper_bound,
+                        MarketError::RequestNotFound,
                     )
                     .await?;
 
@@ -1492,6 +1459,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                         || self.instance.RequestFulfilled_filter(),
                         lower_bound,
                         upper_bound,
+                        MarketError::RequestNotFound,
                     )
                     .await?;
 
@@ -1599,6 +1567,7 @@ impl<P: Provider> BoundlessMarketService<P> {
                         || self.instance.ProverSlashed_filter(),
                         lower_bound,
                         upper_bound,
+                        MarketError::RequestNotFound,
                     )
                     .await?;
 
