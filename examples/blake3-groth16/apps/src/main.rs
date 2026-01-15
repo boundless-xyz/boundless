@@ -88,7 +88,7 @@ async fn run(args: Args) -> Result<()> {
                 .max_price(parse_ether("0.002")?),
         );
 
-    let (request_id, expires_at) = client.submit_onchain(request).await?;
+    let (request_id, expires_at) = client.submit(request).await?;
 
     // Wait for the request to be fulfilled.
     tracing::info!("Waiting for request 0x{:x} to be fulfilled", request_id);

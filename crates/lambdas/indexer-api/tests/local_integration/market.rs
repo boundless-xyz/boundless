@@ -1398,6 +1398,12 @@ async fn test_requestor_leaderboard() {
             "requestor_address should be 42 chars: {}",
             first.requestor_address
         );
+        assert_eq!(
+            first.requestor_address,
+            first.requestor_address.to_lowercase(),
+            "requestor_address should be lowercase: {}",
+            first.requestor_address
+        );
 
         // Numeric fields should be non-negative
         assert!(
@@ -1628,6 +1634,12 @@ async fn test_requestor_leaderboard_periods() {
             "Address should be 42 chars: {}",
             entry.requestor_address
         );
+        assert_eq!(
+            entry.requestor_address,
+            entry.requestor_address.to_lowercase(),
+            "requestor_address should be lowercase: {}",
+            entry.requestor_address
+        );
         assert!(
             entry.orders_requested > 0,
             "Requestor {} should have orders",
@@ -1693,6 +1705,12 @@ async fn test_prover_leaderboard() {
             first.prover_address.len(),
             42,
             "prover_address should be 42 chars: {}",
+            first.prover_address
+        );
+        assert_eq!(
+            first.prover_address,
+            first.prover_address.to_lowercase(),
+            "prover_address should be lowercase: {}",
             first.prover_address
         );
 
@@ -1877,6 +1895,12 @@ async fn test_prover_leaderboard_periods() {
             entry.prover_address.len(),
             42,
             "Address should be 42 chars: {}",
+            entry.prover_address
+        );
+        assert_eq!(
+            entry.prover_address,
+            entry.prover_address.to_lowercase(),
+            "prover_address should be lowercase: {}",
             entry.prover_address
         );
         // Prover should have some activity (locked or fulfilled)
