@@ -3,8 +3,8 @@
 vector_install: true
 
 # Vector service configuration
-vector_service_enabled: false  # Disabled by default
-vector_service_state: stopped  # Stopped by default
+vector_service_enabled: true  # enabled by default
+vector_service_state: started  # started by default
 
 # Vector configuration
 vector_config_dir: "/etc/vector"

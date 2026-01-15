@@ -52,6 +52,10 @@ prover_agent_dockerfile: "dockerfiles/agent.prebuilt.dockerfile"
 # Options: dockerfiles/broker.prebuilt.dockerfile or dockerfiles/broker.dockerfile
 prover_broker_dockerfile: "dockerfiles/broker.prebuilt.dockerfile"
 
+# BLAKE3 Groth16 artifacts URL (required for GPU proving)
+prover_blake3_groth16_url: "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
+# Set to true to use locally mounted artifacts instead of downloading
+prover_use_local_blake3_groth16: true
 # Broker configuration (if enabled)
 prover_private_key: ""
 prover_rpc_url: ""
