@@ -15,7 +15,8 @@
 use super::market::{
     padded_string_to_u256, u256_to_padded_string, AllTimeRequestorSummary, DailyRequestorSummary,
     IndexerDb, LockPricingData, MonthlyRequestorSummary, PeriodRequestorSummary, RequestCursor,
-    RequestSortField, RequestStatus, SortDirection, WeeklyRequestorSummary,
+    RequestSortField, RequestStatus, RequestorLeaderboardEntry, SortDirection,
+    WeeklyRequestorSummary,
 };
 use super::DbError;
 use alloy::primitives::{Address, U256};
@@ -380,7 +381,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "hourly_requestor_summary",
         )
-        .await
+            .await
     }
 
     async fn get_daily_requestor_summaries_by_range(
@@ -396,7 +397,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "daily_requestor_summary",
         )
-        .await
+            .await
     }
 
     async fn get_weekly_requestor_summaries_by_range(
@@ -412,7 +413,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "weekly_requestor_summary",
         )
-        .await
+            .await
     }
 
     async fn get_monthly_requestor_summaries_by_range(
@@ -428,7 +429,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "monthly_requestor_summary",
         )
-        .await
+            .await
     }
 
     async fn get_hourly_requestor_summaries(
@@ -450,7 +451,7 @@ pub trait RequestorDb: IndexerDb {
             after,
             "hourly_requestor_summary",
         )
-        .await
+            .await
     }
 
     async fn get_daily_requestor_summaries(
@@ -472,7 +473,7 @@ pub trait RequestorDb: IndexerDb {
             after,
             "daily_requestor_summary",
         )
-        .await
+            .await
     }
 
     async fn get_weekly_requestor_summaries(
@@ -494,7 +495,7 @@ pub trait RequestorDb: IndexerDb {
             after,
             "weekly_requestor_summary",
         )
-        .await
+            .await
     }
 
     async fn get_all_time_requestor_summaries(
@@ -515,7 +516,7 @@ pub trait RequestorDb: IndexerDb {
             before,
             after,
         )
-        .await
+            .await
     }
 
     async fn get_latest_all_time_requestor_summary(
@@ -1037,11 +1038,11 @@ pub trait RequestorDb: IndexerDb {
              AND fulfilled_at >= $1 AND fulfilled_at < $2
              AND client_address = $3",
         )
-        .bind(period_start as i64)
-        .bind(period_end as i64)
-        .bind(format!("{:x}", requestor_address))
-        .fetch_all(self.pool())
-        .await?;
+            .bind(period_start as i64)
+            .bind(period_end as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_all(self.pool())
+            .await?;
 
         let mut total = U256::ZERO;
         for row in rows {
@@ -1068,11 +1069,11 @@ pub trait RequestorDb: IndexerDb {
              AND fulfilled_at >= $1 AND fulfilled_at < $2
              AND client_address = $3",
         )
-        .bind(period_start as i64)
-        .bind(period_end as i64)
-        .bind(format!("{:x}", requestor_address))
-        .fetch_all(self.pool())
-        .await?;
+            .bind(period_start as i64)
+            .bind(period_end as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_all(self.pool())
+            .await?;
 
         let mut total = U256::ZERO;
         for row in rows {
@@ -1104,6 +1105,48 @@ pub trait RequestorDb: IndexerDb {
 
         let count: i64 = row.try_get("count")?;
         Ok(count as u64)
+    }
+
+    // Leaderboard query: returns aggregated stats for all requestors in a time period
+    // Sorted by orders_requested DESC
+    async fn get_requestor_leaderboard(
+        &self,
+        start_ts: u64,
+        end_ts: u64,
+        use_hourly_table: bool,
+        cursor_orders: Option<u64>,
+        cursor_address: Option<Address>,
+        limit: i64,
+    ) -> Result<Vec<RequestorLeaderboardEntry>, DbError> {
+        get_requestor_leaderboard_impl(
+            self.pool(),
+            start_ts,
+            end_ts,
+            use_hourly_table,
+            cursor_orders,
+            cursor_address,
+            limit,
+        )
+            .await
+    }
+
+    // Get median lock price per cycle for a list of requestors in a time period
+    async fn get_requestor_median_lock_prices(
+        &self,
+        requestor_addresses: &[Address],
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+        get_requestor_median_lock_prices_impl(self.pool(), requestor_addresses, start_ts, end_ts)
+            .await
+    }
+
+    // Get last activity time for a list of requestors
+    async fn get_requestor_last_activity_times(
+        &self,
+        requestor_addresses: &[Address],
+    ) -> Result<std::collections::HashMap<Address, u64>, DbError> {
+        get_requestor_last_activity_times_impl(self.pool(), requestor_addresses).await
     }
 }
 
@@ -1486,6 +1529,219 @@ async fn get_all_time_requestor_summaries_generic(
     Ok(summaries)
 }
 
+// Leaderboard query implementation: aggregates stats for all requestors in a time period
+// Sorted by orders_requested DESC
+async fn get_requestor_leaderboard_impl(
+    pool: &PgPool,
+    start_ts: u64,
+    end_ts: u64,
+    use_hourly_table: bool,
+    cursor_orders: Option<u64>,
+    cursor_address: Option<Address>,
+    limit: i64,
+) -> Result<Vec<RequestorLeaderboardEntry>, DbError> {
+    let table_name =
+        if use_hourly_table { "hourly_requestor_summary" } else { "daily_requestor_summary" };
+
+    // Build the query with cursor-based pagination on (orders_requested, address)
+    // Sorted by orders_requested DESC, address DESC
+    // Cast SUM results to BIGINT to match Rust i64
+    let query_str = if cursor_orders.is_some() && cursor_address.is_some() {
+        format!(
+            "SELECT
+                requestor_address,
+                SUM(total_requests_submitted)::BIGINT as orders_requested,
+                SUM(total_requests_locked)::BIGINT as orders_locked,
+                SUM(total_locked_and_fulfilled)::BIGINT as fulfilled,
+                SUM(total_locked_and_expired)::BIGINT as expired,
+                SUM(total_expired)::BIGINT as total_expired,
+                LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles
+            FROM {}
+            WHERE period_timestamp >= $1 AND period_timestamp < $2
+            GROUP BY requestor_address
+            HAVING (
+                SUM(total_requests_submitted) < $3
+                OR (SUM(total_requests_submitted) = $3 AND requestor_address < $4)
+            )
+            ORDER BY orders_requested DESC, requestor_address DESC
+            LIMIT $5",
+            table_name
+        )
+    } else {
+        format!(
+            "SELECT
+                requestor_address,
+                SUM(total_requests_submitted)::BIGINT as orders_requested,
+                SUM(total_requests_locked)::BIGINT as orders_locked,
+                SUM(total_locked_and_fulfilled)::BIGINT as fulfilled,
+                SUM(total_locked_and_expired)::BIGINT as expired,
+                SUM(total_expired)::BIGINT as total_expired,
+                LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles
+            FROM {}
+            WHERE period_timestamp >= $1 AND period_timestamp < $2
+            GROUP BY requestor_address
+            ORDER BY orders_requested DESC, requestor_address DESC
+            LIMIT $3",
+            table_name
+        )
+    };
+
+    let rows = if let (Some(cursor_o), Some(cursor_a)) = (cursor_orders, cursor_address) {
+        sqlx::query(&query_str)
+            .bind(start_ts as i64)
+            .bind(end_ts as i64)
+            .bind(cursor_o as i64)
+            .bind(format!("{:x}", cursor_a))
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+    } else {
+        sqlx::query(&query_str)
+            .bind(start_ts as i64)
+            .bind(end_ts as i64)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+    };
+
+    let mut results = Vec::new();
+    for row in rows {
+        let requestor_address_str: String = row.try_get("requestor_address")?;
+        let requestor_address = Address::from_str(&requestor_address_str)
+            .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid address: {}", e)))?;
+        let orders_requested: i64 = row.try_get("orders_requested")?;
+        let orders_locked: i64 = row.try_get("orders_locked")?;
+        let fulfilled: i64 = row.try_get("fulfilled")?;
+        let expired: i64 = row.try_get("expired")?;
+        let total_expired_all: i64 = row.try_get("total_expired")?;
+        let cycles_str: String = row.try_get("cycles")?;
+        let cycles_requested = padded_string_to_u256(&cycles_str)?;
+
+        let not_locked_and_expired = total_expired_all - expired;
+        let acceptance_rate = if (orders_locked + not_locked_and_expired) > 0 {
+            (orders_locked as f32 / (orders_locked + not_locked_and_expired) as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        let total_outcomes = fulfilled + expired;
+        let locked_order_fulfillment_rate = if total_outcomes > 0 {
+            (fulfilled as f32 / total_outcomes as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        results.push(RequestorLeaderboardEntry {
+            requestor_address,
+            orders_requested: orders_requested as u64,
+            orders_locked: orders_locked as u64,
+            cycles_requested,
+            median_lock_price_per_cycle: None,
+            acceptance_rate,
+            locked_order_fulfillment_rate,
+            last_activity_time: 0,
+        });
+    }
+
+    Ok(results)
+}
+
+// Get median lock price per cycle for a list of requestors in a time period
+async fn get_requestor_median_lock_prices_impl(
+    pool: &PgPool,
+    requestor_addresses: &[Address],
+    start_ts: u64,
+    end_ts: u64,
+) -> Result<std::collections::HashMap<Address, U256>, DbError> {
+    if requestor_addresses.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Build placeholders for IN clause
+    let placeholders: Vec<String> =
+        (3..=requestor_addresses.len() + 2).map(|i| format!("${}", i)).collect();
+    let placeholders_str = placeholders.join(", ");
+
+    let query_str = format!(
+        "SELECT
+            client_address,
+            LPAD(
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC)))::TEXT,
+                78, '0'
+            ) as median_price
+        FROM request_status
+        WHERE locked_at >= $1 AND locked_at < $2
+          AND client_address IN ({})
+          AND lock_price_per_cycle IS NOT NULL
+        GROUP BY client_address",
+        placeholders_str
+    );
+
+    let mut query = sqlx::query(&query_str).bind(start_ts as i64).bind(end_ts as i64);
+
+    for addr in requestor_addresses {
+        query = query.bind(format!("{:x}", addr));
+    }
+
+    let rows = query.fetch_all(pool).await?;
+
+    let mut result = std::collections::HashMap::new();
+    for row in rows {
+        let addr_str: String = row.try_get("client_address")?;
+        let median_str: String = row.try_get("median_price")?;
+        if let Ok(addr) = Address::from_str(&addr_str) {
+            if let Ok(median) = padded_string_to_u256(&median_str) {
+                result.insert(addr, median);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+// Get last activity time for a list of requestors
+async fn get_requestor_last_activity_times_impl(
+    pool: &PgPool,
+    requestor_addresses: &[Address],
+) -> Result<std::collections::HashMap<Address, u64>, DbError> {
+    if requestor_addresses.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Build placeholders for IN clause
+    let placeholders: Vec<String> =
+        (1..=requestor_addresses.len()).map(|i| format!("${}", i)).collect();
+    let placeholders_str = placeholders.join(", ");
+
+    let query_str = format!(
+        "SELECT
+            client_address,
+            MAX(updated_at) as last_activity
+        FROM request_status
+        WHERE client_address IN ({})
+        GROUP BY client_address",
+        placeholders_str
+    );
+
+    let mut query = sqlx::query(&query_str);
+    for addr in requestor_addresses {
+        query = query.bind(format!("{:x}", addr));
+    }
+
+    let rows = query.fetch_all(pool).await?;
+
+    let mut result = std::collections::HashMap::new();
+    for row in rows {
+        let addr_str: String = row.try_get("client_address")?;
+        let last_activity: i64 = row.try_get("last_activity")?;
+        if let Ok(addr) = Address::from_str(&addr_str) {
+            result.insert(addr, last_activity as u64);
+        }
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1493,7 +1749,8 @@ mod tests {
         db::{
             events::EventsDb,
             market::{
-                HourlyRequestorSummary, MarketDb, RequestStatusType, SlashedStatus, TxMetadata,
+                HourlyRequestorSummary, MarketDb, RequestStatus, RequestStatusType, SlashedStatus,
+                TxMetadata,
             },
         },
         test_utils::TestDb,
@@ -1570,8 +1827,8 @@ mod tests {
                 "onchain".to_string(),
                 submit_metadata.block_timestamp,
             )])
-            .await
-            .unwrap();
+                .await
+                .unwrap();
         }
 
         // Add request statuses
@@ -1655,8 +1912,8 @@ mod tests {
                 Address::from([0xAA; 20]),
                 lock_metadata,
             )])
-            .await
-            .unwrap();
+                .await
+                .unwrap();
 
             if i < 3 {
                 db.add_request_fulfilled_events(&[(
@@ -1665,8 +1922,8 @@ mod tests {
                     Address::from([0xAA; 20]),
                     fulfill_metadata,
                 )])
-                .await
-                .unwrap();
+                    .await
+                    .unwrap();
             }
 
             if i == 4 {
@@ -1679,8 +1936,8 @@ mod tests {
                     Address::from([0xBB; 20]),
                     slash_metadata,
                 )])
-                .await
-                .unwrap();
+                    .await
+                    .unwrap();
             }
         }
     }
@@ -2076,8 +2333,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         db.add_proof_requests(&[(
             B256::from([2; 32]),
             request2,
@@ -2085,8 +2342,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         db.add_proof_requests(&[(
             B256::from([3; 32]),
             request3,
@@ -2094,8 +2351,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         db.add_proof_requests(&[(
             B256::from([4; 32]),
             request4,
@@ -2103,8 +2360,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let addresses = db.get_all_requestor_addresses().await.unwrap();
         assert_eq!(addresses.len(), 3);
@@ -2141,8 +2398,8 @@ mod tests {
             (digest2, request2, metadata2, "onchain".to_string(), base_ts + 500),
             (digest3, request3, metadata3, "onchain".to_string(), base_ts + 1500),
         ])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let addresses =
             db.get_active_requestor_addresses_in_period(base_ts, base_ts + 1000).await.unwrap();
@@ -2181,8 +2438,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // 2. Lock events only: Requestor who submitted before period but had requests locked during period
         let addr_locks = Address::from([0xA2; 20]);
@@ -2202,8 +2459,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // Add request status for lock event
         let status_locks = RequestStatus {
@@ -2279,8 +2536,8 @@ mod tests {
             Address::from([0xBB; 20]),
             lock_meta,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // 3. Fulfillment events only: Requestor who submitted before period but had requests fulfilled during period
         let addr_fulfilled = Address::from([0xA3; 20]);
@@ -2300,8 +2557,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before2.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let status_fulfilled = RequestStatus {
             request_digest: digest_fulfilled,
@@ -2382,8 +2639,8 @@ mod tests {
             Address::from([0xCC; 20]),
             fulfill_meta,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // 4. Slash events only: Requestor who submitted before period but had provers slashed during period
         let addr_slashed = Address::from([0xA4; 20]);
@@ -2403,8 +2660,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before3.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let status_slashed = RequestStatus {
             request_digest: digest_slashed,
@@ -2486,8 +2743,8 @@ mod tests {
             Address::from([0xEE; 20]),
             slash_meta,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // 5. Expiration only: Requestor who submitted before period but had requests expire during period
         let addr_expired = Address::from([0xA5; 20]);
@@ -2507,8 +2764,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before4.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         let status_expired = RequestStatus {
             request_digest: digest_expired,
@@ -2599,8 +2856,8 @@ mod tests {
                 submit_meta_multiple.block_timestamp,
             ),
         ])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // Add lock event for first request
         let status_multiple1 = RequestStatus {
@@ -2676,8 +2933,8 @@ mod tests {
             Address::from([0xFF; 20]),
             lock_meta_multiple,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // Add fulfillment event for second request
         let status_multiple2 = RequestStatus {
@@ -2759,8 +3016,8 @@ mod tests {
             Address::from([0xFF; 20]),
             fulfill_meta_multiple,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // 7. Activities outside period: Requestor with activities outside the period (should NOT be included)
         let addr_outside = Address::from([0xA7; 20]);
@@ -2780,8 +3037,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_outside.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // 8. No activity: Requestor with no activity in period (should NOT be included)
         let addr_no_activity = Address::from([0xA8; 20]);
@@ -2801,8 +3058,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_no_activity.block_timestamp,
         )])
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         // Query active requestors in period
         let addresses =
@@ -3004,8 +3261,8 @@ mod tests {
                 "onchain".to_string(),
                 submit_meta.block_timestamp,
             )])
-            .await
-            .unwrap();
+                .await
+                .unwrap();
 
             let fulfill_meta = TxMetadata::new(
                 B256::from([(i + 50) as u8; 32]),
@@ -3020,8 +3277,8 @@ mod tests {
                 Address::from([0xAA; 20]),
                 fulfill_meta,
             )])
-            .await
-            .unwrap();
+                .await
+                .unwrap();
 
             let status = RequestStatus {
                 request_digest: digest,
@@ -3350,8 +3607,8 @@ mod tests {
                 "onchain".to_string(),
                 submit_meta.block_timestamp,
             )])
-            .await
-            .unwrap();
+                .await
+                .unwrap();
 
             // Determine fulfillment timestamp based on scenario
             let fulfilled_at = match i {
@@ -3377,8 +3634,8 @@ mod tests {
                     Address::from([0xAA; 20]),
                     fulfill_meta,
                 )])
-                .await
-                .unwrap();
+                    .await
+                    .unwrap();
             }
 
             let status = RequestStatus {
@@ -4023,5 +4280,413 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results_empty.len(), 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requestor_leaderboard(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let requestor1 = Address::from([0x01; 20]);
+        let requestor2 = Address::from([0x02; 20]);
+        let requestor3 = Address::from([0x03; 20]);
+        let period_ts = 1700000000u64;
+
+        // Create hourly summaries for 3 requestors with different order counts
+        let summary1 = HourlyRequestorSummary {
+            period_timestamp: period_ts,
+            requestor_address: requestor1,
+            total_fulfilled: 5,
+            unique_provers_locking_requests: 2,
+            total_fees_locked: U256::from(1000),
+            total_collateral_locked: U256::from(5000),
+            total_locked_and_expired_collateral: U256::ZERO,
+            p10_lock_price_per_cycle: U256::from(10),
+            p25_lock_price_per_cycle: U256::from(25),
+            p50_lock_price_per_cycle: U256::from(50),
+            p75_lock_price_per_cycle: U256::from(75),
+            p90_lock_price_per_cycle: U256::from(90),
+            p95_lock_price_per_cycle: U256::from(95),
+            p99_lock_price_per_cycle: U256::from(99),
+            total_requests_submitted: 100, // Most orders
+            total_requests_submitted_onchain: 70,
+            total_requests_submitted_offchain: 30,
+            total_requests_locked: 80,
+            total_requests_slashed: 1,
+            total_expired: 2,
+            total_locked_and_expired: 1,
+            total_locked_and_fulfilled: 5,
+            total_secondary_fulfillments: 0,
+            locked_orders_fulfillment_rate: 83.3,
+            total_program_cycles: U256::from(1_000_000_000u64),
+            total_cycles: U256::from(1_100_000_000u64),
+            best_peak_prove_mhz: 1500.0,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 1400.0,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        let mut summary2 = summary1.clone();
+        summary2.requestor_address = requestor2;
+        summary2.total_requests_submitted = 50; // Second most
+
+        let mut summary3 = summary1.clone();
+        summary3.requestor_address = requestor3;
+        summary3.total_requests_submitted = 25; // Least orders
+
+        db.upsert_hourly_requestor_summary(summary1).await.unwrap();
+        db.upsert_hourly_requestor_summary(summary2).await.unwrap();
+        db.upsert_hourly_requestor_summary(summary3).await.unwrap();
+
+        // Test leaderboard query - should be sorted by orders_requested DESC
+        let results = db
+            .get_requestor_leaderboard(
+                period_ts,
+                period_ts + 3600,
+                true, // use hourly table
+                None,
+                None,
+                10,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].requestor_address, requestor1);
+        assert_eq!(results[0].orders_requested, 100);
+        assert_eq!(results[1].requestor_address, requestor2);
+        assert_eq!(results[1].orders_requested, 50);
+        assert_eq!(results[2].requestor_address, requestor3);
+        assert_eq!(results[2].orders_requested, 25);
+
+        // Test pagination with cursor
+        let results_page1 = db
+            .get_requestor_leaderboard(period_ts, period_ts + 3600, true, None, None, 2)
+            .await
+            .unwrap();
+        assert_eq!(results_page1.len(), 2);
+        assert_eq!(results_page1[0].orders_requested, 100);
+        assert_eq!(results_page1[1].orders_requested, 50);
+
+        // Get page 2 using cursor from last item of page 1
+        let last = &results_page1[1];
+        let results_page2 = db
+            .get_requestor_leaderboard(
+                period_ts,
+                period_ts + 3600,
+                true,
+                Some(last.orders_requested),
+                Some(last.requestor_address),
+                2,
+            )
+            .await
+            .unwrap();
+        assert_eq!(results_page2.len(), 1);
+        assert_eq!(results_page2[0].orders_requested, 25);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requestor_leaderboard_aggregation(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x01; 20]);
+        let hour1 = 1700000000u64;
+        let hour2 = hour1 + 3600;
+
+        // Create summaries for two hours
+        let summary1 = HourlyRequestorSummary {
+            period_timestamp: hour1,
+            requestor_address: requestor,
+            total_fulfilled: 5,
+            unique_provers_locking_requests: 2,
+            total_fees_locked: U256::from(1000),
+            total_collateral_locked: U256::from(5000),
+            total_locked_and_expired_collateral: U256::ZERO,
+            p10_lock_price_per_cycle: U256::from(10),
+            p25_lock_price_per_cycle: U256::from(25),
+            p50_lock_price_per_cycle: U256::from(50),
+            p75_lock_price_per_cycle: U256::from(75),
+            p90_lock_price_per_cycle: U256::from(90),
+            p95_lock_price_per_cycle: U256::from(95),
+            p99_lock_price_per_cycle: U256::from(99),
+            total_requests_submitted: 30,
+            total_requests_submitted_onchain: 20,
+            total_requests_submitted_offchain: 10,
+            total_requests_locked: 25,
+            total_requests_slashed: 0,
+            total_expired: 1,
+            total_locked_and_expired: 1,
+            total_locked_and_fulfilled: 20,
+            total_secondary_fulfillments: 0,
+            locked_orders_fulfillment_rate: 95.0,
+            total_program_cycles: U256::from(500_000_000u64),
+            total_cycles: U256::from(550_000_000u64),
+            best_peak_prove_mhz: 1500.0,
+            best_peak_prove_mhz_prover: None,
+            best_peak_prove_mhz_request_id: None,
+            best_effective_prove_mhz: 1400.0,
+            best_effective_prove_mhz_prover: None,
+            best_effective_prove_mhz_request_id: None,
+        };
+
+        let mut summary2 = summary1.clone();
+        summary2.period_timestamp = hour2;
+        summary2.total_requests_submitted = 20;
+        summary2.total_requests_locked = 15;
+        summary2.total_locked_and_fulfilled = 10;
+        summary2.total_locked_and_expired = 2;
+        summary2.total_cycles = U256::from(300_000_000u64);
+
+        db.upsert_hourly_requestor_summary(summary1).await.unwrap();
+        db.upsert_hourly_requestor_summary(summary2).await.unwrap();
+
+        // Query spanning both hours - should aggregate
+        let results = db
+            .get_requestor_leaderboard(
+                hour1,
+                hour2 + 3600, // Include both hours
+                true,
+                None,
+                None,
+                10,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].orders_requested, 50); // 30 + 20
+        assert_eq!(results[0].orders_locked, 40); // 25 + 15
+        assert_eq!(results[0].cycles_requested, U256::from(850_000_000u64)); // 550M + 300M
+
+        // Locked order fulfillment rate: (20+10) / ((20+10) + (1+2)) = 30/33 = 90.9%
+        let expected_rate = (30.0 / 33.0) * 100.0;
+        assert!((results[0].locked_order_fulfillment_rate - expected_rate).abs() < 0.1);
+    }
+
+    fn create_locked_request_status(
+        digest: B256,
+        client: Address,
+        prover: Address,
+        locked_at: u64,
+        lock_price_per_cycle: U256,
+    ) -> RequestStatus {
+        RequestStatus {
+            request_digest: digest,
+            request_id: U256::from(12345),
+            request_status: RequestStatusType::Locked,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: client,
+            lock_prover_address: Some(prover),
+            fulfill_prover_address: None,
+            created_at: locked_at - 100,
+            updated_at: locked_at,
+            locked_at: Some(locked_at),
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: Some(101),
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: 0,
+            ramp_up_period: 10,
+            expires_at: 9999999999,
+            lock_end: 9999999999,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: Some("1500".to_string()),
+            lock_price_per_cycle: Some(lock_price_per_cycle.to_string()),
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: Some(B256::from([0x02; 32])),
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test_image".to_string(),
+            image_url: Some("https://test.com".to_string()),
+            selector: "test_selector".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requestor_median_lock_prices(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let requestor1 = Address::from([0x01; 20]);
+        let requestor2 = Address::from([0x02; 20]);
+        let prover = Address::from([0xAA; 20]);
+        let base_ts = 1700000000u64;
+
+        // Insert request_status entries with lock prices for requestor1
+        // Prices: 100, 200 -> median = 150.0 (interpolated, will round to 150)
+        let mut statuses = Vec::new();
+        for i in 0..2u8 {
+            let digest = B256::from([i + 1; 32]);
+            let lock_price = U256::from(100 * (i as u64 + 1));
+            statuses.push(create_locked_request_status(
+                digest,
+                requestor1,
+                prover,
+                base_ts + 100,
+                lock_price,
+            ));
+        }
+
+        // Add requests for requestor2 with different prices
+        // Prices: 100, 200, 300, 400 -> median = 250.0 (interpolated, will round to 250)
+        for i in 0..4u8 {
+            let mut digest_bytes = [0u8; 32];
+            digest_bytes[0] = 0x10 + i;
+            let digest = B256::from(digest_bytes);
+            let lock_price = U256::from(100 * (i as u64 + 1));
+            statuses.push(create_locked_request_status(
+                digest,
+                requestor2,
+                prover,
+                base_ts + 100,
+                lock_price,
+            ));
+        }
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        // Query median prices
+        let medians = db
+            .get_requestor_median_lock_prices(&[requestor1, requestor2], base_ts, base_ts + 200)
+            .await
+            .unwrap();
+
+        assert_eq!(medians.len(), 2);
+
+        // Requestor1 has prices [100, 200], median = 150.0 (interpolated, rounded to 150)
+        assert_eq!(medians.get(&requestor1), Some(&U256::from(150)));
+
+        // Requestor2 has prices [100, 200, 300, 400], median = 250.0 (interpolated, rounded to 250)
+        assert_eq!(medians.get(&requestor2), Some(&U256::from(250)));
+    }
+
+    fn create_submitted_request_status(
+        digest: B256,
+        client: Address,
+        created_at: u64,
+        updated_at: u64,
+    ) -> RequestStatus {
+        RequestStatus {
+            request_digest: digest,
+            request_id: U256::from(12345),
+            request_status: RequestStatusType::Submitted,
+            slashed_status: SlashedStatus::NotApplicable,
+            source: "onchain".to_string(),
+            client_address: client,
+            lock_prover_address: None,
+            fulfill_prover_address: None,
+            created_at,
+            updated_at,
+            locked_at: None,
+            fulfilled_at: None,
+            slashed_at: None,
+            lock_prover_delivered_proof_at: None,
+            submit_block: Some(100),
+            lock_block: None,
+            fulfill_block: None,
+            slashed_block: None,
+            min_price: "1000".to_string(),
+            max_price: "2000".to_string(),
+            lock_collateral: "100".to_string(),
+            ramp_up_start: 0,
+            ramp_up_period: 10,
+            expires_at: 9999999999,
+            lock_end: 9999999999,
+            slash_recipient: None,
+            slash_transferred_amount: None,
+            slash_burned_amount: None,
+            program_cycles: None,
+            total_cycles: None,
+            peak_prove_mhz: None,
+            effective_prove_mhz: None,
+            cycle_status: None,
+            lock_price: None,
+            lock_price_per_cycle: None,
+            submit_tx_hash: Some(B256::ZERO),
+            lock_tx_hash: None,
+            fulfill_tx_hash: None,
+            slash_tx_hash: None,
+            image_id: "test_image".to_string(),
+            image_url: Some("https://test.com".to_string()),
+            selector: "test_selector".to_string(),
+            predicate_type: "digest_match".to_string(),
+            predicate_data: "0x00".to_string(),
+            input_type: "inline".to_string(),
+            input_data: "0x00".to_string(),
+            fulfill_journal: None,
+            fulfill_seal: None,
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requestor_last_activity_times(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let requestor1 = Address::from([0x01; 20]);
+        let requestor2 = Address::from([0x02; 20]);
+        let base_ts = 1700000000u64;
+
+        let mut statuses = Vec::new();
+
+        // Create requests for requestor1 with different timestamps
+        for i in 0..3u8 {
+            let digest = B256::from([i + 1; 32]);
+            let ts = base_ts + (i as u64 * 1000);
+            statuses.push(create_submitted_request_status(digest, requestor1, ts, ts));
+        }
+
+        // Create request for requestor2
+        let digest = B256::from([0x10; 32]);
+        let ts2 = base_ts + 5000;
+        statuses.push(create_submitted_request_status(digest, requestor2, ts2, ts2));
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        let activities =
+            db.get_requestor_last_activity_times(&[requestor1, requestor2]).await.unwrap();
+
+        assert_eq!(activities.len(), 2);
+        // Requestor1's last activity is at base_ts + 2000 (the third request)
+        assert_eq!(activities.get(&requestor1), Some(&(base_ts + 2000)));
+        // Requestor2's last activity is at base_ts + 5000
+        assert_eq!(activities.get(&requestor2), Some(&(base_ts + 5000)));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_requestor_leaderboard_empty(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        // Query leaderboard with no data
+        let results = db
+            .get_requestor_leaderboard(1700000000, 1700003600, true, None, None, 10)
+            .await
+            .unwrap();
+
+        assert!(results.is_empty());
     }
 }

@@ -66,6 +66,12 @@ jobs:
           - 5432:5432
         env:
           POSTGRES_PASSWORD: password
+        options: >-
+          --shm-size=2gb
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -73,6 +79,15 @@ jobs:
           # Full history is required by license-check.py
           fetch-depth: 0
           submodules: recursive
+
+      - name: Configure PostgreSQL max_connections
+        run: |
+          POSTGRES_CONTAINER=$(docker ps --filter "ancestor=postgres:latest" --format "{{.ID}}")
+          docker exec $POSTGRES_CONTAINER psql -U postgres -c "ALTER SYSTEM SET max_connections = 500;"
+          docker restart $POSTGRES_CONTAINER
+          until docker exec $POSTGRES_CONTAINER pg_isready; do
+            sleep 1
+          done
 
       - name: install python
         uses: actions/setup-python@v4
@@ -384,6 +399,7 @@ jobs:
           - examples/smart-contract-requestor
           - examples/counter-with-callback
           - examples/composition
+          - examples/request-stream
     needs: files-changed
     if: needs.files-changed.outputs.examples == 'true'
     env:
@@ -448,12 +464,12 @@ jobs:
           RISC0_SKIP_BUILD: 1
 
       - name: forge fmt
-        if: matrix.workspace != 'examples/blake3-groth16'
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
         run: forge fmt --check
         working-directory: ${{ matrix.workspace }}/contracts
 
       - name: forge test
-        if: matrix.workspace != 'examples/blake3-groth16'
+        if: matrix.workspace != 'examples/blake3-groth16' && matrix.workspace != 'examples/request-stream'
         run: forge test -vvv
         working-directory: ${{ matrix.workspace }}/contracts
 

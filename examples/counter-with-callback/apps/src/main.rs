@@ -106,7 +106,7 @@ async fn run(args: Args) -> Result<()> {
         );
 
     // Submit the request to the blockchain
-    let (request_id, expires_at) = client.submit_onchain(request).await?;
+    let (request_id, expires_at) = client.submit(request).await?;
 
     // Wait for the request to be fulfilled. The market will return the journal and seal.
     tracing::info!("Waiting for request {:x} to be fulfilled", request_id);

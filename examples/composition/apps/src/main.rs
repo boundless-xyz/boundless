@@ -103,7 +103,7 @@ async fn run(args: Args) -> Result<()> {
         .with_groth16_proof();
 
     // Submit the request to the Boundless market
-    let (request_id, expires_at) = client.submit_onchain(echo_request).await?;
+    let (request_id, expires_at) = client.submit(echo_request).await?;
     tracing::info!("Request {:x} submitted", request_id);
 
     // Wait for the request to be fulfilled (check periodically)
@@ -141,7 +141,7 @@ async fn run(args: Args) -> Result<()> {
         .with_env(GuestEnv::builder().write_frame(&postcard::to_allocvec(&identity_input)?));
 
     // Submit the request to the Boundless market
-    let (request_id, expires_at) = client.submit_onchain(identity_request).await?;
+    let (request_id, expires_at) = client.submit(identity_request).await?;
     tracing::info!("Request {:x} submitted", request_id);
 
     // Wait for the request to be fulfilled (check periodically)

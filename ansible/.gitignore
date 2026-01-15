@@ -1,0 +1,22 @@
+# Ansible Vault files - DO NOT COMMIT
+.vault_pass
+group_vars/*/vault.yml
+host_vars/
+
+# Environment variable files - DO NOT COMMIT
+.env
+.envrc
+.env.local
+.env.*.local
+
+# Deployment configuration files - DO NOT COMMIT
+.deploy_cluster_config.json
+
+# Ansible retry files
+*.retry
+
+# Temporary files
+*.tmp
+*.swp
+*~
+

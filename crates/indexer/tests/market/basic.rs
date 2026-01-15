@@ -24,7 +24,7 @@ use alloy::{
 use boundless_cli::OrderFulfilled;
 use boundless_indexer::db::{
     market::{RequestStatusType, SlashedStatus, SortDirection},
-    IndexerDb, RequestorDb,
+    IndexerDb, ProversDb, RequestorDb,
 };
 use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
@@ -2260,6 +2260,156 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps(pool: sqlx::PgPool)
         latest_all_time.total_fees_locked > U256::ZERO,
         "Final cumulative fees should be non-zero (2 fulfilled requests with fees)"
     );
+
+    cli_process.kill().unwrap();
+}
+
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_prover_aggregation(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
+
+    let mut cli_process = IndexerCliBuilder::new(
+        fixture.test_db.db_url.clone(),
+        fixture.anvil.endpoint_url().to_string(),
+        fixture.ctx.deployment.boundless_market_address.to_string(),
+    )
+    .start_block("0")
+    .retries("1")
+    .spawn()
+    .unwrap();
+
+    let prover_address = fixture.ctx.prover_signer.address();
+
+    let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let request = ProofRequest::new(
+        RequestId::new(fixture.ctx.customer_signer.address(), 1),
+        Requirements::new(Predicate::prefix_match(ECHO_ID, Bytes::default())),
+        format!("file://{ECHO_PATH}"),
+        RequestInput::builder().build_inline().unwrap(),
+        Offer {
+            minPrice: parse_ether("0.001").unwrap(),
+            maxPrice: parse_ether("0.001").unwrap(),
+            rampUpStart: now - 3,
+            rampUpPeriod: 100,
+            lockTimeout: 1000,
+            timeout: 1000,
+            lockCollateral: U256::ZERO,
+        },
+    );
+
+    let client_sig = request
+        .sign_request(
+            &fixture.ctx.customer_signer,
+            fixture.ctx.deployment.boundless_market_address,
+            fixture.anvil.chain_id(),
+        )
+        .await
+        .unwrap();
+
+    submit_request_with_deposit(&fixture.ctx, &request, Bytes::from(client_sig.as_bytes()))
+        .await
+        .unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    lock_and_fulfill_request_with_collateral(
+        &fixture.ctx,
+        &fixture.prover,
+        &request,
+        Bytes::from(client_sig.as_bytes()),
+    )
+    .await
+    .unwrap();
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    let request_id_str = format!("{:x}", request.id);
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "proof_requests").await;
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_submitted_events")
+        .await;
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_locked_events").await;
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "proof_delivered_events").await;
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "proofs").await;
+    verify_request_in_table(&fixture.test_db.pool, &request_id_str, "request_fulfilled_events")
+        .await;
+
+    let prover_address_str = format!("{:x}", prover_address);
+    let status_row = sqlx::query(
+        "SELECT lock_prover_address, fulfill_prover_address, locked_at, fulfilled_at
+         FROM request_status
+         WHERE request_id = $1",
+    )
+    .bind(&request_id_str)
+    .fetch_one(&fixture.test_db.pool)
+    .await
+    .unwrap();
+    let lock_prover_address: Option<String> = status_row.try_get("lock_prover_address").ok();
+    let fulfill_prover_address: Option<String> = status_row.try_get("fulfill_prover_address").ok();
+    let locked_at: Option<i64> = status_row.try_get("locked_at").ok();
+    let fulfilled_at: Option<i64> = status_row.try_get("fulfilled_at").ok();
+    assert_eq!(
+        lock_prover_address.as_deref(),
+        Some(prover_address_str.as_str()),
+        "request_status lock_prover_address should match prover signer"
+    );
+    assert_eq!(
+        fulfill_prover_address.as_deref(),
+        Some(prover_address_str.as_str()),
+        "request_status fulfill_prover_address should match prover signer"
+    );
+    assert!(locked_at.is_some(), "request_status locked_at should be set");
+    assert!(fulfilled_at.is_some(), "request_status fulfilled_at should be set");
+
+    let current_block_timestamp = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let prover_summaries = fixture
+        .test_db
+        .db
+        .get_hourly_prover_summaries_by_range(
+            prover_address,
+            current_block_timestamp.saturating_sub(7200),
+            current_block_timestamp + 36000,
+        )
+        .await
+        .unwrap();
+
+    assert!(!prover_summaries.is_empty(), "Should have prover summaries");
+    let total_locked: u64 = prover_summaries.iter().map(|s| s.total_requests_locked).sum();
+    let total_fulfilled: u64 = prover_summaries.iter().map(|s| s.total_requests_fulfilled).sum();
+    let total_unique_requestors: u64 =
+        prover_summaries.iter().map(|s| s.total_unique_requestors).sum();
+    let total_fees_earned: U256 = prover_summaries.iter().map(|s| s.total_fees_earned).sum();
+    let activity_summary = prover_summaries
+        .iter()
+        .find(|s| s.total_requests_locked > 0 || s.total_requests_fulfilled > 0);
+    assert!(
+        activity_summary.is_some(),
+        "Expected at least one hourly prover summary with activity"
+    );
+    tracing::info!(
+        "Totals: locked={}, fulfilled={}, unique_requestors={}, fees_earned={}",
+        total_locked,
+        total_fulfilled,
+        total_unique_requestors,
+        total_fees_earned
+    );
+    assert_eq!(total_locked, 1, "Should have 1 locked request");
+    assert_eq!(total_fulfilled, 1, "Should have 1 fulfilled request");
+    assert!(total_fees_earned > U256::ZERO, "Should have earned fees");
+    assert_eq!(total_unique_requestors, 1, "Should have worked with 1 requestor");
+
+    let latest_all_time =
+        fixture.test_db.db.get_latest_all_time_prover_summary(prover_address).await.unwrap();
+
+    assert!(latest_all_time.is_some(), "Should have all-time prover summary");
+    let all_time = latest_all_time.unwrap();
+    assert!(
+        all_time.total_requests_locked >= 1,
+        "All-time should include at least this test's lock"
+    );
+    assert!(
+        all_time.total_requests_fulfilled >= 1,
+        "All-time should include at least this test's fulfillment"
+    );
+    assert!(all_time.total_fees_earned > U256::ZERO, "All-time should show fees earned");
 
     cli_process.kill().unwrap();
 }

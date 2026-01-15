@@ -1,0 +1,45 @@
+---
+# Main tasks for bento role
+- name: Clone the Bento repository
+  ansible.builtin.git:
+    repo: https://github.com/boundless-xyz/boundless.git
+    dest: "{{ prover_dir }}"
+    version: "{{ prover_version }}"
+    recursive: true
+    force: true
+
+- name: Generate Docker Compose environment file
+  ansible.builtin.template:
+    src: docker-compose.env.j2
+    dest: "{{ prover_env_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart Bento
+
+- name: Download broker configuration file
+  ansible.builtin.get_url:
+    url: '{{ prover_broker_toml_url }}'
+    dest: "{{ prover_dir }}/broker.toml"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Bento
+
+- name: Write the system service file
+  ansible.builtin.template:
+    src: bento.service.j2
+    dest: /etc/systemd/system/bento.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart Bento
+
+- name: Ensure Bento service is enabled and started
+  ansible.builtin.systemd:
+    name: bento
+    enabled: true
+    state: started
+    daemon_reload: true

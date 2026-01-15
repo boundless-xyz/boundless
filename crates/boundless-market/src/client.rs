@@ -1055,6 +1055,93 @@ where
         Ok((request_id, request.expires_at()))
     }
 
+    /// Build and submit a proof request.
+    ///
+    /// Automatically uses offchain submission via the order stream service if available,
+    /// otherwise falls back to onchain submission.
+    ///
+    /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
+    /// provided to build the request from the given parameters.
+    pub async fn submit<Params>(
+        &self,
+        params: impl Into<Params>,
+    ) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+        R: RequestBuilder<Params>,
+        R::Error: Into<anyhow::Error>,
+    {
+        let request = self.build_request(params).await?;
+        self.submit_request(&request).await
+    }
+
+    /// Submit a proof request (already built).
+    ///
+    /// Automatically uses offchain submission via the order stream service if available,
+    /// otherwise falls back to onchain submission.
+    ///
+    /// Requires a signer to be set on the [Client] to sign the request.
+    pub async fn submit_request(&self, request: &ProofRequest) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+    {
+        let signer = self.signer.as_ref().context("signer not set")?;
+        self.submit_request_with_signer(request, signer).await
+    }
+
+    /// Submit a proof request with a provided signer.
+    ///
+    /// Automatically uses offchain submission via the order stream service if available,
+    /// otherwise falls back to onchain submission.
+    ///
+    /// Accepts a signer parameter to sign the request.
+    pub async fn submit_request_with_signer(
+        &self,
+        request: &ProofRequest,
+        signer: &impl Signer,
+    ) -> Result<(U256, u64), ClientError>
+    where
+        Si: Signer,
+    {
+        let mut request = request.clone();
+
+        if request.id == U256::ZERO {
+            request.id = self.boundless_market.request_id_from_rand().await?;
+        };
+        let client_address = request.client_address();
+        if client_address != signer.address() {
+            return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
+        };
+        request.validate()?;
+
+        let max_price = U256::from(request.offer.maxPrice);
+        let mut value = self.compute_funding_value(client_address, max_price).await?;
+
+        // Try offchain submission if available
+        if let Some(offchain_client) = &self.offchain_client {
+            // For offchain, deposit the value first if needed
+            if value > 0 {
+                self.boundless_market.deposit(value).await?;
+                value = U256::ZERO; // no need to send value again in case we fallback to onchain submission
+            }
+
+            match offchain_client.submit_request(&request, signer).await {
+                Ok(order) => return Ok((order.request.id, request.expires_at())),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to submit request offchain: {e:?}, falling back to onchain submission"
+                    );
+                    // Fall through to onchain submission
+                }
+            }
+        }
+
+        // Fallback to onchain submission (or use directly if offchain_client is None)
+        let request_id =
+            self.boundless_market.submit_request_with_value(&request, signer, value).await?;
+        Ok((request_id, request.expires_at()))
+    }
+
     /// Build and submit a proof request offchain via the order stream service.
     ///
     /// Requires a [Signer] to be provided to sign the request, and a [RequestBuilder] to be
