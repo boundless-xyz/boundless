@@ -1222,22 +1222,9 @@ impl<P: Provider> BoundlessMarketService<P> {
         Err(last_error.unwrap())
     }
 
-    /// Generic helper to query events backwards through block history.
-    ///
-    /// Searches backwards from `upper_bound` to `lower_bound` (or configured range)
-    /// in chunks of `block_range` size. Returns the first matching event found.
-    ///
-    /// # Parameters
-    /// - `event_name`: Name for error messages (e.g., "RequestSubmitted")
-    /// - `request_id`: The request ID to search for (used for topic1 filtering)
-    /// - `filter_builder`: Function that creates and configures the event filter
-    /// - `lower_bound`: Optional starting block (defaults to configured range)
-    /// - `upper_bound`: Optional ending block (defaults to latest)
-    ///
-    /// # Returns
-    /// - `Ok((event, log_meta))` if event found
-    /// - `Err(MarketError)` with block range context if not found
-    pub(crate) async fn query_event_backwards<'a, E>(
+    /// Core helper for querying events backwards through blocks.
+    /// Returns either first matching event or all matching events depending on `return_first_only`.
+    pub(crate) async fn query_events_backwards<'a, E>(
         &self,
         config: &EventQueryConfig,
         event_name: &str,
@@ -1246,11 +1233,13 @@ impl<P: Provider> BoundlessMarketService<P> {
         lower_bound: Option<u64>,
         upper_bound: Option<u64>,
         error_fn: impl Fn(U256, u64, u64) -> MarketError,
-    ) -> Result<(E, Log), MarketError>
+        return_first_only: bool,
+    ) -> Result<Vec<(E, Log)>, MarketError>
     where
         E: SolEvent + Clone,
         P: 'a,
     {
+        let mut all_events = Vec::new();
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let initial_upper_block = upper_block;
         let start_block = lower_bound
@@ -1263,12 +1252,13 @@ impl<P: Provider> BoundlessMarketService<P> {
         };
 
         tracing::debug!(
-            "Querying {} event for request ID {:x} in blocks {} to {} [iterations: {}]",
+            "Querying {} events for request ID {:x} in blocks {} to {} [iterations: {}, first_only: {}]",
             event_name,
             request_id,
             start_block,
             upper_block,
-            iterations
+            iterations,
+            return_first_only
         );
         let mut final_block_checked = initial_upper_block;
         for _ in 0..iterations {
@@ -1282,7 +1272,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             let mut event_filter = filter_builder();
             tracing::trace!(
-                "Querying {} event for request ID {:x} in blocks {} to {}",
+                "Querying {} events for request ID {:x} in blocks {} to {}",
                 event_name,
                 request_id,
                 lower_block,
@@ -1297,8 +1287,14 @@ impl<P: Provider> BoundlessMarketService<P> {
 
             let logs = event_filter.query().await?;
 
-            if let Some((event, log_meta)) = logs.first() {
-                return Ok((event.clone(), log_meta.clone()));
+            if return_first_only {
+                // Early return for single-event case
+                if let Some((event, log_meta)) = logs.first() {
+                    return Ok(vec![(event.clone(), log_meta.clone())]);
+                }
+            } else {
+                // Collect all events for multi-event case
+                all_events.extend(logs);
             }
 
             final_block_checked = lower_block;
@@ -1306,8 +1302,44 @@ impl<P: Provider> BoundlessMarketService<P> {
             upper_block = lower_block.saturating_sub(1);
         }
 
-        // Return error if no logs are found after all iterations
-        Err(error_fn(request_id, initial_upper_block, final_block_checked))
+        // Return error if no logs are found and we're looking for first only
+        if all_events.is_empty() && return_first_only {
+            Err(error_fn(request_id, initial_upper_block, final_block_checked))
+        } else {
+            Ok(all_events)
+        }
+    }
+
+    /// Thin wrapper around query_events_backwards that returns first event only.
+    pub(crate) async fn query_event_backwards<'a, E>(
+        &self,
+        config: &EventQueryConfig,
+        event_name: &str,
+        request_id: U256,
+        filter_builder: impl Fn() -> alloy::contract::Event<&'a P, E, Ethereum>,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
+        error_fn: impl Fn(U256, u64, u64) -> MarketError,
+    ) -> Result<(E, Log), MarketError>
+    where
+        E: SolEvent + Clone,
+        P: 'a,
+    {
+        let mut events = self
+            .query_events_backwards(
+                config,
+                event_name,
+                request_id,
+                filter_builder,
+                lower_bound,
+                upper_bound,
+                error_fn,
+                true,
+            )
+            .await?;
+
+        // Extract first event (should always exist due to return_first_only flag)
+        events.into_iter().next().ok_or_else(|| MarketError::RequestNotFound(request_id, 0, 0))
     }
 
     /// Query the ProofDelivered event based on request ID and block options.
@@ -1486,64 +1518,34 @@ impl<P: Provider> BoundlessMarketService<P> {
         upper_bound: Option<u64>,
     ) -> Result<Vec<ProofDeliveredEventData>, MarketError> {
         let config = self.event_query_config.clone();
-        self.retry_query(&config, || async {
-            let mut all_events = Vec::new();
-            let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
-            let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
-                self.event_query_config.block_range * self.event_query_config.max_iterations,
-            ));
+        self.retry_query(
+            &config,
+            || async {
+                let events = self
+                    .query_events_backwards(
+                        &config,
+                        "ProofDelivered",
+                        request_id,
+                        || self.instance.ProofDelivered_filter(),
+                        lower_bound,
+                        upper_bound,
+                        |_, _, _| unreachable!(),
+                        false,
+                    )
+                    .await?;
 
-            let iterations = if lower_bound.is_some() && upper_bound.is_some() {
-                ((upper_block - start_block) / self.event_query_config.block_range).saturating_add(1)
-            } else {
-                self.event_query_config.max_iterations
-            };
-
-            // Loop to progressively search through blocks
-            tracing::debug!("Querying all ProofDelivered events for request ID {:x} in blocks {} to {} [iterations: {}]", request_id, start_block, upper_block, iterations);
-            for _ in 0..iterations {
-                // If the current end block is less than or equal to the starting block, stop searching
-                if upper_block <= start_block {
-                    break;
-                }
-
-                // Calculate the block range to query: from [lower_block] to [upper_block]
-                let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
-
-                // Set up the event filter for the specified block range
-                let mut event_filter = self.instance.ProofDelivered_filter();
-                tracing::trace!(
-                    "Querying ProofDelivered event for request ID {:x} in blocks {} to {}",
-                    request_id,
-                    lower_block,
-                    upper_block
-                );
-                event_filter.filter = event_filter
-                    .filter
-                    .topic1(request_id)
-                    .from_block(lower_block)
-                    .to_block(upper_block);
-
-                // Query the logs for the event
-                let logs = event_filter.query().await?;
-
-                // Collect all events with block numbers from this range
-                for (event, log_meta) in logs {
-                    let block_num = log_meta.block_number.unwrap_or(0);
-                    let tx_hash = log_meta.transaction_hash.unwrap_or(B256::ZERO);
-                    all_events.push(ProofDeliveredEventData {
+                Ok(events
+                    .into_iter()
+                    .map(|(event, log_meta)| ProofDeliveredEventData {
                         event,
-                        block_number: block_num,
-                        tx_hash,
-                    });
-                }
-
-                // Move the upper_block down for the next iteration
-                upper_block = lower_block.saturating_sub(1);
-            }
-
-            Ok(all_events)
-        }, "query_all_proof_delivered_events").await
+                        block_number: log_meta.block_number.unwrap_or(0),
+                        tx_hash: log_meta.transaction_hash.unwrap_or(B256::ZERO),
+                    })
+                    .collect())
+            },
+            "query_all_proof_delivered_events",
+        )
+        .await
     }
 
     /// Query ProverSlashed event for a request ID.
