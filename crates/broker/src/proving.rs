@@ -74,6 +74,7 @@ pub struct ProvingService {
 }
 
 impl ProvingService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: DbObj,
         prover: ProverObj,
