@@ -381,7 +381,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "hourly_requestor_summary",
         )
-            .await
+        .await
     }
 
     async fn get_daily_requestor_summaries_by_range(
@@ -397,7 +397,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "daily_requestor_summary",
         )
-            .await
+        .await
     }
 
     async fn get_weekly_requestor_summaries_by_range(
@@ -413,7 +413,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "weekly_requestor_summary",
         )
-            .await
+        .await
     }
 
     async fn get_monthly_requestor_summaries_by_range(
@@ -429,7 +429,7 @@ pub trait RequestorDb: IndexerDb {
             end_ts,
             "monthly_requestor_summary",
         )
-            .await
+        .await
     }
 
     async fn get_hourly_requestor_summaries(
@@ -451,7 +451,7 @@ pub trait RequestorDb: IndexerDb {
             after,
             "hourly_requestor_summary",
         )
-            .await
+        .await
     }
 
     async fn get_daily_requestor_summaries(
@@ -473,7 +473,7 @@ pub trait RequestorDb: IndexerDb {
             after,
             "daily_requestor_summary",
         )
-            .await
+        .await
     }
 
     async fn get_weekly_requestor_summaries(
@@ -495,7 +495,7 @@ pub trait RequestorDb: IndexerDb {
             after,
             "weekly_requestor_summary",
         )
-            .await
+        .await
     }
 
     async fn get_all_time_requestor_summaries(
@@ -516,7 +516,7 @@ pub trait RequestorDb: IndexerDb {
             before,
             after,
         )
-            .await
+        .await
     }
 
     async fn get_latest_all_time_requestor_summary(
@@ -1038,11 +1038,11 @@ pub trait RequestorDb: IndexerDb {
              AND fulfilled_at >= $1 AND fulfilled_at < $2
              AND client_address = $3",
         )
-            .bind(period_start as i64)
-            .bind(period_end as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_all(self.pool())
-            .await?;
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .bind(format!("{:x}", requestor_address))
+        .fetch_all(self.pool())
+        .await?;
 
         let mut total = U256::ZERO;
         for row in rows {
@@ -1069,11 +1069,11 @@ pub trait RequestorDb: IndexerDb {
              AND fulfilled_at >= $1 AND fulfilled_at < $2
              AND client_address = $3",
         )
-            .bind(period_start as i64)
-            .bind(period_end as i64)
-            .bind(format!("{:x}", requestor_address))
-            .fetch_all(self.pool())
-            .await?;
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .bind(format!("{:x}", requestor_address))
+        .fetch_all(self.pool())
+        .await?;
 
         let mut total = U256::ZERO;
         for row in rows {
@@ -1127,7 +1127,7 @@ pub trait RequestorDb: IndexerDb {
             cursor_address,
             limit,
         )
-            .await
+        .await
     }
 
     // Get median lock price per cycle for a list of requestors in a time period
@@ -1827,8 +1827,8 @@ mod tests {
                 "onchain".to_string(),
                 submit_metadata.block_timestamp,
             )])
-                .await
-                .unwrap();
+            .await
+            .unwrap();
         }
 
         // Add request statuses
@@ -1912,8 +1912,8 @@ mod tests {
                 Address::from([0xAA; 20]),
                 lock_metadata,
             )])
-                .await
-                .unwrap();
+            .await
+            .unwrap();
 
             if i < 3 {
                 db.add_request_fulfilled_events(&[(
@@ -1922,8 +1922,8 @@ mod tests {
                     Address::from([0xAA; 20]),
                     fulfill_metadata,
                 )])
-                    .await
-                    .unwrap();
+                .await
+                .unwrap();
             }
 
             if i == 4 {
@@ -1936,8 +1936,8 @@ mod tests {
                     Address::from([0xBB; 20]),
                     slash_metadata,
                 )])
-                    .await
-                    .unwrap();
+                .await
+                .unwrap();
             }
         }
     }
@@ -2333,8 +2333,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         db.add_proof_requests(&[(
             B256::from([2; 32]),
             request2,
@@ -2342,8 +2342,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         db.add_proof_requests(&[(
             B256::from([3; 32]),
             request3,
@@ -2351,8 +2351,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         db.add_proof_requests(&[(
             B256::from([4; 32]),
             request4,
@@ -2360,8 +2360,8 @@ mod tests {
             "onchain".to_string(),
             metadata.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let addresses = db.get_all_requestor_addresses().await.unwrap();
         assert_eq!(addresses.len(), 3);
@@ -2398,8 +2398,8 @@ mod tests {
             (digest2, request2, metadata2, "onchain".to_string(), base_ts + 500),
             (digest3, request3, metadata3, "onchain".to_string(), base_ts + 1500),
         ])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let addresses =
             db.get_active_requestor_addresses_in_period(base_ts, base_ts + 1000).await.unwrap();
@@ -2438,8 +2438,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // 2. Lock events only: Requestor who submitted before period but had requests locked during period
         let addr_locks = Address::from([0xA2; 20]);
@@ -2459,8 +2459,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Add request status for lock event
         let status_locks = RequestStatus {
@@ -2536,8 +2536,8 @@ mod tests {
             Address::from([0xBB; 20]),
             lock_meta,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // 3. Fulfillment events only: Requestor who submitted before period but had requests fulfilled during period
         let addr_fulfilled = Address::from([0xA3; 20]);
@@ -2557,8 +2557,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before2.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let status_fulfilled = RequestStatus {
             request_digest: digest_fulfilled,
@@ -2639,8 +2639,8 @@ mod tests {
             Address::from([0xCC; 20]),
             fulfill_meta,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // 4. Slash events only: Requestor who submitted before period but had provers slashed during period
         let addr_slashed = Address::from([0xA4; 20]);
@@ -2660,8 +2660,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before3.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let status_slashed = RequestStatus {
             request_digest: digest_slashed,
@@ -2743,8 +2743,8 @@ mod tests {
             Address::from([0xEE; 20]),
             slash_meta,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // 5. Expiration only: Requestor who submitted before period but had requests expire during period
         let addr_expired = Address::from([0xA5; 20]);
@@ -2764,8 +2764,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_before4.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let status_expired = RequestStatus {
             request_digest: digest_expired,
@@ -2856,8 +2856,8 @@ mod tests {
                 submit_meta_multiple.block_timestamp,
             ),
         ])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Add lock event for first request
         let status_multiple1 = RequestStatus {
@@ -2933,8 +2933,8 @@ mod tests {
             Address::from([0xFF; 20]),
             lock_meta_multiple,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Add fulfillment event for second request
         let status_multiple2 = RequestStatus {
@@ -3016,8 +3016,8 @@ mod tests {
             Address::from([0xFF; 20]),
             fulfill_meta_multiple,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // 7. Activities outside period: Requestor with activities outside the period (should NOT be included)
         let addr_outside = Address::from([0xA7; 20]);
@@ -3037,8 +3037,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_outside.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // 8. No activity: Requestor with no activity in period (should NOT be included)
         let addr_no_activity = Address::from([0xA8; 20]);
@@ -3058,8 +3058,8 @@ mod tests {
             "onchain".to_string(),
             submit_meta_no_activity.block_timestamp,
         )])
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Query active requestors in period
         let addresses =
@@ -3261,8 +3261,8 @@ mod tests {
                 "onchain".to_string(),
                 submit_meta.block_timestamp,
             )])
-                .await
-                .unwrap();
+            .await
+            .unwrap();
 
             let fulfill_meta = TxMetadata::new(
                 B256::from([(i + 50) as u8; 32]),
@@ -3277,8 +3277,8 @@ mod tests {
                 Address::from([0xAA; 20]),
                 fulfill_meta,
             )])
-                .await
-                .unwrap();
+            .await
+            .unwrap();
 
             let status = RequestStatus {
                 request_digest: digest,
@@ -3607,8 +3607,8 @@ mod tests {
                 "onchain".to_string(),
                 submit_meta.block_timestamp,
             )])
-                .await
-                .unwrap();
+            .await
+            .unwrap();
 
             // Determine fulfillment timestamp based on scenario
             let fulfilled_at = match i {
@@ -3634,8 +3634,8 @@ mod tests {
                     Address::from([0xAA; 20]),
                     fulfill_meta,
                 )])
-                    .await
-                    .unwrap();
+                .await
+                .unwrap();
             }
 
             let status = RequestStatus {

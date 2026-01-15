@@ -159,8 +159,8 @@ mod tests {
         let run_task = run(Args {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
-            storage_config: StorageProviderConfig::builder()
-                .storage_provider(StorageProviderType::Mock)
+            storage_config: StorageUploaderConfig::builder()
+                .storage_provider(StorageUploaderType::Mock)
                 .build()
                 .unwrap(),
             deployment: Some(ctx.deployment),
