@@ -48,9 +48,9 @@ prover_aux_worker_count: 2
 prover_binary_url: "https://github.com/boundless-xyz/boundless/releases/download/bento-{{ prover_version }}/bento-bundle-linux-amd64.tar.gz"
 
 # Options: dockerfiles/agent.prebuilt.dockerfile or dockerfiles/agent.dockerfile
-prover_agent_dockerfile: ""
+prover_agent_dockerfile: "dockerfiles/agent.prebuilt.dockerfile"
 # Options: dockerfiles/broker.prebuilt.dockerfile or dockerfiles/broker.dockerfile
-prover_broker_dockerfile: ""
+prover_broker_dockerfile: "dockerfiles/broker.prebuilt.dockerfile"
 
 # Broker configuration (if enabled)
 prover_private_key: ""
