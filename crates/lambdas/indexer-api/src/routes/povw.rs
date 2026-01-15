@@ -189,7 +189,10 @@ async fn get_povw_all_epochs_summary_impl(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_povw_epoch_summary(State(state): State<Arc<AppState>>, Path(epoch): Path<u64>) -> Response {
+async fn get_povw_epoch_summary(
+    State(state): State<Arc<AppState>>,
+    Path(epoch): Path<u64>,
+) -> Response {
     match get_povw_epoch_summary_impl(state, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
