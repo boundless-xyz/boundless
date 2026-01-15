@@ -1248,13 +1248,12 @@ impl<P: Provider> BoundlessMarketService<P> {
     ) -> Result<(E, Log), MarketError>
     where
         E: SolEvent + Clone,
-        P: 'a
+        P: 'a,
     {
         let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
         let initial_upper_block = upper_block;
-        let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
-            config.block_range * config.max_iterations,
-        ));
+        let start_block = lower_bound
+            .unwrap_or(upper_block.saturating_sub(config.block_range * config.max_iterations));
 
         let iterations = if lower_bound.is_some() && upper_bound.is_some() {
             ((upper_block - start_block) / config.block_range).saturating_add(1)
@@ -1262,7 +1261,14 @@ impl<P: Provider> BoundlessMarketService<P> {
             config.max_iterations
         };
 
-        tracing::debug!("Querying {} event for request ID {:x} in blocks {} to {} [iterations: {}]",event_name,request_id,start_block,upper_block,iterations);
+        tracing::debug!(
+            "Querying {} event for request ID {:x} in blocks {} to {} [iterations: {}]",
+            event_name,
+            request_id,
+            start_block,
+            upper_block,
+            iterations
+        );
         let mut final_block_checked = initial_upper_block;
         for _ in 0..iterations {
             // If the current end block is less than or equal to the starting block, stop searching
@@ -1390,25 +1396,35 @@ impl<P: Provider> BoundlessMarketService<P> {
         upper_bound: Option<u64>,
     ) -> Result<RequestSubmittedEventData, MarketError> {
         let config = self.event_query_config.clone();
-        tracing::info!("block range: {:?}, max iterations: {:?}", config.block_range, config.max_iterations);
-        self.retry_query(&config, || async {
-            let (event, log_meta) = self.query_event_backwards(
-                &config,
-                    "RequestSubmitted",
-                    request_id,
-                    || self.instance.RequestSubmitted_filter(),
-                    lower_bound,
-                    upper_bound,
-                )
-                .await?;
+        tracing::info!(
+            "block range: {:?}, max iterations: {:?}",
+            config.block_range,
+            config.max_iterations
+        );
+        self.retry_query(
+            &config,
+            || async {
+                let (event, log_meta) = self
+                    .query_event_backwards(
+                        &config,
+                        "RequestSubmitted",
+                        request_id,
+                        || self.instance.RequestSubmitted_filter(),
+                        lower_bound,
+                        upper_bound,
+                    )
+                    .await?;
 
-            Ok(RequestSubmittedEventData {
-                request: event.request,
-                client_signature: event.clientSignature,
-                block_number: log_meta.block_number.unwrap_or(0),
-                tx_hash: log_meta.transaction_hash.unwrap_or(B256::ZERO),
-            })
-        }, "query_request_submitted_event").await
+                Ok(RequestSubmittedEventData {
+                    request: event.request,
+                    client_signature: event.clientSignature,
+                    block_number: log_meta.block_number.unwrap_or(0),
+                    tx_hash: log_meta.transaction_hash.unwrap_or(B256::ZERO),
+                })
+            },
+            "query_request_submitted_event",
+        )
+        .await
     }
 
     /// Query the RequestLocked event based on request ID and block options.
@@ -1428,74 +1444,29 @@ impl<P: Provider> BoundlessMarketService<P> {
         upper_bound: Option<u64>,
     ) -> Result<RequestLockedEventData, MarketError> {
         let config = self.event_query_config.clone();
-        self.retry_query(&config, || async {
-            let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
-            let initial_upper_block = upper_block;
-            let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
-                self.event_query_config.block_range * self.event_query_config.max_iterations,
-            ));
+        self.retry_query(
+            &config,
+            || async {
+                let (event, log_meta) = self
+                    .query_event_backwards(
+                        &config,
+                        "RequestLocked",
+                        request_id,
+                        || self.instance.RequestLocked_filter(),
+                        lower_bound,
+                        upper_bound,
+                    )
+                    .await?;
 
-            let iterations = if lower_bound.is_some() && upper_bound.is_some() {
-                ((upper_block - start_block) / self.event_query_config.block_range).saturating_add(1)
-            } else {
-                self.event_query_config.max_iterations
-            };
-
-            tracing::debug!(
-                "Querying RequestLocked event for request ID {:x} in blocks {} to {} [iterations: {}]",
-                request_id,
-                start_block,
-                upper_block,
-                iterations
-            );
-            let mut final_block_checked = initial_upper_block;
-            // Loop to progressively search through blocks
-            for _ in 0..iterations {
-                // If the current end block is less than or equal to the starting block, stop searching
-                if upper_block <= start_block {
-                    break;
-                }
-
-                // Calculate the block range to query: from [lower_block] to [upper_block]
-                let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
-
-                // Set up the event filter for the specified block range
-                let mut event_filter = self.instance.RequestLocked_filter();
-                tracing::trace!(
-                    "Querying RequestLocked event for request ID {:x} in blocks {} to {}",
-                    request_id,
-                    lower_block,
-                    upper_block
-                );
-                event_filter.filter = event_filter
-                    .filter
-                    .topic1(request_id)
-                    .from_block(lower_block)
-                    .to_block(upper_block);
-
-                // Query the logs for the event
-                let logs = event_filter.query().await?;
-
-                if let Some((event, log_meta)) = logs.first() {
-                    let block_num = log_meta.block_number.unwrap_or(0);
-                    let tx_hash = log_meta.transaction_hash.unwrap_or(B256::ZERO);
-                    return Ok(RequestLockedEventData {
-                        event: event.clone(),
-                        block_number: block_num,
-                        tx_hash,
-                    });
-                }
-
-                // Track the last block we actually queried
-                final_block_checked = lower_block;
-
-                // Move the upper_block down for the next iteration
-                upper_block = lower_block.saturating_sub(1);
-            }
-
-            // Return error if no logs are found after all iterations
-            Err(MarketError::RequestNotFound(request_id, initial_upper_block, final_block_checked))
-        }, "query_request_locked_event").await
+                Ok(RequestLockedEventData {
+                    event,
+                    block_number: log_meta.block_number.unwrap_or(0),
+                    tx_hash: log_meta.transaction_hash.unwrap_or(B256::ZERO),
+                })
+            },
+            "query_request_locked_event",
+        )
+        .await
     }
 
     /// Query the RequestFulfilled event based on request ID and block options.
@@ -1510,68 +1481,29 @@ impl<P: Provider> BoundlessMarketService<P> {
         upper_bound: Option<u64>,
     ) -> Result<RequestFulfilledEventData, MarketError> {
         let config = self.event_query_config.clone();
-        self.retry_query(&config, || async {
-            let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
-            let initial_upper_block = upper_block;
-            let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
-                self.event_query_config.block_range * self.event_query_config.max_iterations,
-            ));
+        self.retry_query(
+            &config,
+            || async {
+                let (event, log_meta) = self
+                    .query_event_backwards(
+                        &config,
+                        "RequestFulfilled",
+                        request_id,
+                        || self.instance.RequestFulfilled_filter(),
+                        lower_bound,
+                        upper_bound,
+                    )
+                    .await?;
 
-            let iterations = if lower_bound.is_some() && upper_bound.is_some() {
-                ((upper_block - start_block) / self.event_query_config.block_range).saturating_add(1)
-            } else {
-                self.event_query_config.max_iterations
-            };
-
-            tracing::debug!("Querying RequestFulfilled event for request ID {:x} in blocks {} to {} [iterations: {}]", request_id, start_block, upper_block, iterations);
-            let mut final_block_checked = initial_upper_block;
-            // Loop to progressively search through blocks
-            for _ in 0..iterations {
-                // If the current end block is less than or equal to the starting block, stop searching
-                if upper_block <= start_block {
-                    break;
-                }
-
-                // Calculate the block range to query: from [lower_block] to [upper_block]
-                let lower_block = upper_block.saturating_sub(self.event_query_config.block_range);
-
-                // Set up the event filter for the specified block range
-                let mut event_filter = self.instance.RequestFulfilled_filter();
-                tracing::trace!(
-                    "Querying RequestFulfilled event for request ID {:x} in blocks {} to {}",
-                    request_id,
-                    lower_block,
-                    upper_block
-                );
-                event_filter.filter = event_filter
-                    .filter
-                    .topic1(request_id)
-                    .from_block(lower_block)
-                    .to_block(upper_block);
-
-                // Query the logs for the event
-                let logs = event_filter.query().await?;
-
-                if let Some((event, log_meta)) = logs.first() {
-                    let block_num = log_meta.block_number.unwrap_or(0);
-                    let tx_hash = log_meta.transaction_hash.unwrap_or(B256::ZERO);
-                    return Ok(RequestFulfilledEventData {
-                        event: event.clone(),
-                        block_number: block_num,
-                        tx_hash,
-                    });
-                }
-
-                // Track the last block we actually queried
-                final_block_checked = lower_block;
-
-                // Move the upper_block down for the next iteration
-                upper_block = lower_block.saturating_sub(1);
-            }
-
-            // Return error if no logs are found after all iterations
-            Err(MarketError::RequestNotFound(request_id, initial_upper_block, final_block_checked))
-        }, "query_request_fulfilled_event").await
+                Ok(RequestFulfilledEventData {
+                    event,
+                    block_number: log_meta.block_number.unwrap_or(0),
+                    tx_hash: log_meta.transaction_hash.unwrap_or(B256::ZERO),
+                })
+            },
+            "query_request_fulfilled_event",
+        )
+        .await
     }
 
     /// Query ALL ProofDelivered events for a request ID across block range.
@@ -1659,62 +1591,22 @@ impl<P: Provider> BoundlessMarketService<P> {
         self.retry_query(
             &config,
             || async {
-                let mut upper_block = upper_bound.unwrap_or(self.get_latest_block_number().await?);
-                let initial_upper_block = upper_block;
-                let start_block = lower_bound.unwrap_or(upper_block.saturating_sub(
-                    self.event_query_config.block_range * self.event_query_config.max_iterations,
-                ));
+                let (event, log_meta) = self
+                    .query_event_backwards(
+                        &config,
+                        "ProverSlashed",
+                        request_id,
+                        || self.instance.ProverSlashed_filter(),
+                        lower_bound,
+                        upper_bound,
+                    )
+                    .await?;
 
-                let iterations = if lower_bound.is_some() && upper_bound.is_some() {
-                    ((upper_block - start_block) / self.event_query_config.block_range)
-                        .saturating_add(1)
-                } else {
-                    self.event_query_config.max_iterations
-                };
-
-                let mut final_block_checked = initial_upper_block;
-
-                // Loop to progressively search through blocks
-                for _ in 0..iterations {
-                    // If the current end block is less than or equal to the starting block, stop searching
-                    if upper_block <= start_block {
-                        break;
-                    }
-
-                    // Calculate the block range to query: from [lower_block] to [upper_block]
-                    let lower_block =
-                        upper_block.saturating_sub(self.event_query_config.block_range);
-
-                    // Set up the event filter for the specified block range
-                    let mut event_filter = self.instance.ProverSlashed_filter();
-                    event_filter.filter = event_filter
-                        .filter
-                        .topic1(request_id)
-                        .from_block(lower_block)
-                        .to_block(upper_block);
-
-                    // Query the logs for the event
-                    let logs = event_filter.query().await?;
-
-                    if let Some((event, log_meta)) = logs.first() {
-                        let block_num = log_meta.block_number.unwrap_or(0);
-                        let tx_hash = log_meta.transaction_hash.unwrap_or(B256::ZERO);
-                        return Ok(ProverSlashedEventData {
-                            event: event.clone(),
-                            block_number: block_num,
-                            tx_hash,
-                        });
-                    }
-
-                    // Track the last block we actually queried
-                    final_block_checked = lower_block;
-
-                    // Move the upper_block down for the next iteration
-                    upper_block = lower_block.saturating_sub(1);
-                }
-
-                // Return error if no logs are found after all iterations
-                Err(MarketError::RequestNotFound(request_id, initial_upper_block, final_block_checked))
+                Ok(ProverSlashedEventData {
+                    event,
+                    block_number: log_meta.block_number.unwrap_or(0),
+                    tx_hash: log_meta.transaction_hash.unwrap_or(B256::ZERO),
+                })
             },
             "query_prover_slashed_event",
         )
@@ -1774,9 +1666,7 @@ impl<P: Provider> BoundlessMarketService<P> {
             return Ok((calldata.request, calldata.clientSignature));
         }
 
-        let data = self
-            .query_request_submitted_event(request_id, lower_bound, upper_bound)
-            .await?;
+        let data = self.query_request_submitted_event(request_id, lower_bound, upper_bound).await?;
         Ok((data.request, data.client_signature))
     }
 
