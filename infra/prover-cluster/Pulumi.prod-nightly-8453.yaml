@@ -20,6 +20,7 @@ config:
     secure: v1:bi2qbwEmOoghGwWb:1ww9YtsULpmffCopFmRsuhMQcrI/4noy2XoX40H/IjI=
   prover-cluster:executionCount: "40"
   prover-cluster:rustLogLevel: "info,broker=debug,boundless_market=debug"
+  prover-cluster:maxConcurrentPreflights: "35"
   prover-cluster:auxWorkerCount: "1"
   prover-cluster:proverWorkerCount: "1"
   prover-cluster:privateKey:
