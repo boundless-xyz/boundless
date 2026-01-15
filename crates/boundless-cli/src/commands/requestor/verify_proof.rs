@@ -65,7 +65,10 @@ impl RequestorVerifyProof {
         let seal = fulfillment.seal;
 
         // Fetch original request
-        let (req, _) = client.boundless_market.get_submitted_request(self.request_id, None, None, None).await?;
+        let (req, _) = client
+            .boundless_market
+            .get_submitted_request(self.request_id, None, None, None)
+            .await?;
         let predicate = Predicate::try_from(req.requirements.predicate)?;
 
         // Verify the proof based on fulfillment type

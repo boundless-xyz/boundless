@@ -1224,6 +1224,7 @@ impl<P: Provider> BoundlessMarketService<P> {
 
     /// Core helper for querying events backwards through blocks.
     /// Returns either first matching event or all matching events depending on `return_first_only`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn query_events_backwards<'a, E>(
         &self,
         config: &EventQueryConfig,
@@ -1311,6 +1312,7 @@ impl<P: Provider> BoundlessMarketService<P> {
     }
 
     /// Thin wrapper around query_events_backwards that returns first event only.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn query_event_backwards<'a, E>(
         &self,
         config: &EventQueryConfig,
@@ -1325,7 +1327,7 @@ impl<P: Provider> BoundlessMarketService<P> {
         E: SolEvent + Clone,
         P: 'a,
     {
-        let mut events = self
+        let events = self
             .query_events_backwards(
                 config,
                 event_name,
