@@ -64,3 +64,4 @@ prover_povw_log_id: ""
 
 # Broker configuration URL
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
+prover_docker_compose_invoke: "docker compose --profile broker --profile miner"
