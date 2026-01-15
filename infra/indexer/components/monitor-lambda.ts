@@ -17,6 +17,8 @@ export interface MonitorLambdaArgs {
   dbUrlSecret: aws.secretsmanager.Secret;
   /** RDS sg ID */
   rdsSgId: pulumi.Input<string>;
+  /** Indexer Security Group ID (that has access to RDS) */
+  indexerSgId: pulumi.Input<string>;
   /** Chain ID */
   chainId: string;
   /** RUST_LOG level */
@@ -97,39 +99,14 @@ export class MonitorLambda extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    const lambdaSg = new aws.ec2.SecurityGroup(
-      `${serviceName}-sg`,
-      {
-        vpcId: args.vpcId,
-        description: 'Lambda SG for DB access',
-        egress: [
-          {
-            protocol: '-1',
-            fromPort: 0,
-            toPort: 0,
-            cidrBlocks: ['0.0.0.0/0'],
-          },
-        ],
-      },
-      { parent: this },
-    );
-
-    new aws.ec2.SecurityGroupRule(
-      `${serviceName}-sg-ingress-rds`,
-      {
-        type: 'ingress',
-        fromPort: 5432,
-        toPort: 5432,
-        protocol: 'tcp',
-        securityGroupId: args.rdsSgId,
-        sourceSecurityGroupId: lambdaSg.id,
-      },
-      { parent: this },
-    );
-
-    const dbUrl = aws.secretsmanager.getSecretVersionOutput({
-      secretId: args.dbUrlSecret.id,
-    }).secretString;
+    const dbUrl = pulumi.all([args.dbUrlSecret]).apply(([secret]) => {
+      // Get database URL from secret (writer endpoint for monitor as need to write
+      // timestamp processed to database.
+      const dbUrl = aws.secretsmanager.getSecretVersionOutput({
+        secretId: secret.id,
+      }).secretString;
+      return dbUrl;
+    });
 
     const { marketMetricsNamespace, serviceMetricsNamespace } = args;
 
@@ -147,7 +124,7 @@ export class MonitorLambda extends pulumi.ComponentResource {
       timeout: 30,
       vpcConfig: {
         subnetIds: args.privSubNetIds,
-        securityGroupIds: [lambdaSg.id],
+        securityGroupIds: [args.indexerSgId],
       },
     },
     );

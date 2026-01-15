@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
 use boundless_rewards::{StakingPosition, WorkLogRewardInfo};
 use chrono::Utc;
+use log::LevelFilter;
 use serde_json;
-use sqlx::{any::AnyPoolOptions, AnyPool, Row};
+use sqlx::{
+    postgres::{PgConnectOptions, PgPoolOptions},
+    ConnectOptions, PgPool, Row,
+};
 
 use super::DbError;
 
@@ -468,12 +472,12 @@ pub trait RewardsIndexerDb {
 }
 
 // Batch insert chunk size to avoid parameter limits
-// PostgreSQL: 65535 max params, SQLite: 999-32766 params (configurable)
-// Using conservative chunk size that works safely for both databases
+// PostgreSQL: 65535 max params
+// Using a conservative chunk size that avoids large statements
 const BATCH_INSERT_CHUNK_SIZE: usize = 75;
 
 pub struct RewardsDb {
-    pool: AnyPool,
+    pool: PgPool,
 }
 
 impl RewardsDb {
@@ -485,23 +489,25 @@ impl RewardsDb {
     /// * `skip_migrations` - If `true`, skips running migrations. Useful for read-only connections
     pub async fn new(
         database_url: &str,
-        pool_options: Option<AnyPoolOptions>,
+        pool_options: Option<PgPoolOptions>,
         skip_migrations: bool,
     ) -> Result<Self, DbError> {
-        use std::time::Duration;
+        // Parse connection options to configure slow query logging
+        let mut connect_opts = PgConnectOptions::from_str(database_url)?;
 
-        sqlx::any::install_default_drivers();
+        // Configure slow query logging: only log queries that take over 2 seconds
+        connect_opts = connect_opts.log_slow_statements(LevelFilter::Warn, Duration::from_secs(2)); // Only warn for queries > 2s
 
         let pool = if let Some(opts) = pool_options {
-            opts.connect(database_url).await?
+            opts.connect_with(connect_opts).await?
         } else {
             // Lambda-optimized defaults
-            AnyPoolOptions::new()
+            PgPoolOptions::new()
                 .max_connections(3) // Lambda: 25 lambdas × 3 = 75 max connections
                 .acquire_timeout(Duration::from_secs(5)) // Lambda: fail fast for users
                 .idle_timeout(Some(Duration::from_secs(300))) // Lambda: match container warm time
                 .max_lifetime(Some(Duration::from_secs(300))) // Lambda: 5 min max
-                .connect(database_url)
+                .connect_with(connect_opts)
                 .await?
         };
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
-use boundless_indexer::market::service::TransactionFetchStrategy;
+use boundless_indexer::market::service::{IndexerServiceExecutionConfig, TransactionFetchStrategy};
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
 use url::Url;
@@ -47,6 +47,9 @@ struct MainArgs {
     /// Interval in seconds between checking for new events.
     #[clap(long, default_value = "3")]
     interval: u64,
+    /// Interval in seconds between running aggregation tasks.
+    #[clap(long, default_value = "10")]
+    aggregation_interval: u64,
     /// Number of retries before quitting after an error.
     #[clap(long, default_value = "10")]
     retries: u32,
@@ -70,6 +73,36 @@ struct MainArgs {
     /// Depending on RPC provider, one may be more efficient than the other.
     #[clap(long, env, default_value = "tx-by-hash")]
     tx_fetch_strategy: String,
+    /// Interval in seconds between checking for requests with pending cycle counts, which will need
+    /// to be scheduled for execution.
+    #[clap(long, default_value = "3")]
+    execution_interval: u64,
+    /// Bento API execution configuration. All fields in this group require bento_api_url to be set.
+    #[clap(flatten)]
+    bento_config: BentoExecutionConfig,
+}
+
+/// Bento API execution configuration.
+#[derive(Parser, Debug, Clone)]
+struct BentoExecutionConfig {
+    /// URL to the Bento API (required if any other bento option is provided)
+    #[clap(long, env, requires = "bento_api_key")]
+    bento_api_url: Option<String>,
+    /// An API key to use for Bento API operations (required if bento_api_url is provided)
+    #[clap(long, env, requires = "bento_api_url")]
+    bento_api_key: Option<String>,
+    /// Number of times bento API operations will be retried in case of errors
+    #[clap(long, default_value = "3", requires = "bento_api_url")]
+    bento_retry_count: u64,
+    /// Wait interval between retries of bento API operations in case of errors, in milliseconds
+    #[clap(long, default_value = "1000", requires = "bento_api_url")]
+    bento_retry_sleep_ms: u64,
+    /// Max number of requests submitted for execution to populate cycle counts
+    #[clap(long, default_value = "20", requires = "bento_api_url")]
+    max_concurrent_executing: u32,
+    /// Max number of executing requests queried for status on each iteration of the execution task
+    #[clap(long, default_value = "30", requires = "bento_api_url")]
+    max_status_queries: u32,
 }
 
 #[tokio::main]
@@ -97,12 +130,30 @@ async fn main() -> Result<()> {
         ),
     };
 
+    // Bento execution config is enabled if bento_api_url and bento_api_key are provided
+    let execution_config = match (args.bento_config.bento_api_url, args.bento_config.bento_api_key)
+    {
+        (Some(bento_api_url), Some(bento_api_key)) => Some(IndexerServiceExecutionConfig {
+            execution_interval: Duration::from_secs(args.execution_interval),
+            bento_api_url,
+            bento_api_key,
+            bento_retry_count: args.bento_config.bento_retry_count,
+            bento_retry_sleep_ms: args.bento_config.bento_retry_sleep_ms,
+            max_concurrent_executing: args.bento_config.max_concurrent_executing,
+            max_status_queries: args.bento_config.max_status_queries,
+            max_iterations: 0,
+        }),
+        _ => None,
+    };
+
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(args.interval),
+        aggregation_interval: Duration::from_secs(args.aggregation_interval),
         retries: args.retries,
         batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
+        execution_config,
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());

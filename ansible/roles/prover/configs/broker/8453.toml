@@ -1,0 +1,29 @@
+[market]
+min_mcycle_price = "0.0000003"
+min_mcycle_price_collateral_token = "0"
+peak_prove_khz = 8000
+priority_requestor_lists = [
+    "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+]
+allow_client_addresses = [
+    "0x067D62CBCC72bBb02358cEB85aBE817249AB616b",
+    "0xa6e98d0ba0ca584509ebcbe00bb36f0c5cfcdd1b",
+    "0x418be9167e835ad820df53fd16b8fe02f796ce1c",
+    "0xda824d974d8bac25a0611b7ab5f091d22f63a234",
+    "0x3d089c2f2cb86d4efde153c81cabd4579784430b",
+    "0x323ec32ef13716bfdc3e0b2a96d7bd7cbcb9d57b",
+    "0x2D611BE1e2E49C7b639A88b507b532DaE35e492b",
+    "0xb59bb74fa0c1611eF6A4989a92C0d3ca6942fC0c",
+    "0x1578934C9B006B9568D884C421704d996D402B78",
+    "0x7276fa3c23c1783bdcb97258717f8f32b75919c9",
+    "0xb686f080c2c7045d13d196787c99bc9972480fd3",
+    "0x0d4b7e56a3d78af33a969938724656c886543444",
+    "0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478e",
+    "0x40a86041f44443Ad137B0F89E3F852Ae588fac42",
+    "0x787134c5461170dd0743f97beb4a322b179babc2",
+]
+max_collateral = "200"
+max_concurrent_preflights = 4
+max_concurrent_proofs = 2
+max_journal_bytes = 20000
+max_file_size = 500000000000

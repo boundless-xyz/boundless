@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -101,10 +101,12 @@ async fn main() -> Result<()> {
 
     let config = IndexerServiceConfig {
         interval: Duration::from_secs(3),
+        aggregation_interval: Duration::from_secs(2),
         retries: 10,
         batch_size: 500,
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
+        execution_config: None,
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());

@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -126,7 +126,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = BoundlessMarketService::new(
+        let mut market = BoundlessMarketService::new_for_broker(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -450,15 +450,22 @@ where
             fulfillment_tx =
                 fulfillment_tx.with_submit_root(self.set_verifier_addr, root, batch_seal);
         } else {
+            let request_ids: Vec<_> = fulfillments.iter().map(|f| &f.id).collect();
             let contains_root = match self.set_verifier.contains_root(root).await {
-                Ok(res) => res,
+                Ok(res) => {
+                    tracing::info!("Checked if set-verifier contains the root for batch {batch_id} with requests {:?}: {res:?}", request_ids);
+                    res
+                }
                 Err(err) => {
-                    tracing::warn!("Failed to query if set-verifier contains the new root, trying to submit anyway {err:?}");
+                    tracing::warn!("Failed to query if set-verifier contains the new root for batch {batch_id} with requests {:?}, trying to submit anyway {err:?}", request_ids);
                     false
                 }
             };
             if !contains_root {
-                tracing::info!("Submitting app merkle root: {root}");
+                tracing::info!(
+                    "Submitting app merkle root: {root} for batch {batch_id} with requests {:?}",
+                    request_ids
+                );
                 if let Err(err) =
                     self.set_verifier.submit_merkle_root(root, batch_seal.into()).await
                 {
@@ -488,7 +495,7 @@ where
                     }
                 }
             } else {
-                tracing::info!("Contract already contains root, skipping to fulfillment");
+                tracing::info!("Contract already contains root for batch {batch_id} with requests {:?}, skipping to fulfillment", request_ids);
             }
         };
 
@@ -616,6 +623,24 @@ where
                         format_ether(batch.fees)
                     );
                     return Ok(());
+                }
+                Err(SubmitterErr::MarketError(
+                    MarketError::PaymentRequirementsFailedUnknownError(raw),
+                )) => {
+                    tracing::warn!(
+                        "Payment requirement failed for one or more orders, will not retry (raw error: {raw:?})"
+                    );
+                    errors.push(SubmitterErr::MarketError(
+                        MarketError::PaymentRequirementsFailedUnknownError(raw),
+                    ));
+                    break;
+                }
+                Err(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailed(err))) => {
+                    tracing::warn!("Payment requirement failed for one or more orders: {err:?}, will not retry");
+                    errors.push(SubmitterErr::MarketError(MarketError::PaymentRequirementsFailed(
+                        err,
+                    )));
+                    break;
                 }
                 Err(err) => {
                     tracing::warn!(
@@ -767,11 +792,15 @@ mod tests {
         .await
         .unwrap();
 
-        let market = BoundlessMarketService::new(market_address, provider.clone(), prover_addr);
+        let market =
+            BoundlessMarketService::new_for_broker(market_address, provider.clone(), prover_addr);
         market.deposit_collateral_with_permit(default_allowance(), &signer).await.unwrap();
 
-        let market_customer =
-            BoundlessMarketService::new(market_address, customer_provider.clone(), customer_addr);
+        let market_customer = BoundlessMarketService::new_for_broker(
+            market_address,
+            customer_provider.clone(),
+            customer_addr,
+        );
         market_customer.deposit(U256::from(10000000000u64)).await.unwrap();
 
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());

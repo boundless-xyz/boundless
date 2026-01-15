@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -18,9 +18,6 @@ struct FulfillmentContext {
     uint96 price;
 }
 
-/// @title FulfillmentContextLibrary
-/// @notice Library for packing, unpacking, and storing FulfillmentContext structs
-/// @dev Uses bit manipulation to pack all fields into a single uint256 for transient storage
 library FulfillmentContextLibrary {
     uint256 private constant VALID_MASK = 1 << 127;
     uint256 private constant EXPIRED_MASK = 1 << 126;

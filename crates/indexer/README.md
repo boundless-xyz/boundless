@@ -1,6 +1,6 @@
 # Indexer
 
-The `boundless-indexer` crate contains logic for two separate blockchain indexers that populate a shared PostgreSQL/SQLite database:
+The `boundless-indexer` crate contains logic for two separate blockchain indexers that populate a shared PostgreSQL database:
 
 1. **Market Indexer** - Indexes Boundless Market protocol events (proof requests, fulfillments, etc.) on any chain with Boundless Market deployed
 2. **Rewards Indexer** - Indexes ZKC token staking, PoVW rewards, and delegation data on Ethereum mainnet

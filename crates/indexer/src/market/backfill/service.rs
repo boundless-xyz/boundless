@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ use alloy::providers::Provider;
 use std::collections::HashSet;
 
 const DIGEST_BATCH_SIZE: i64 = 5000;
-const STATUS_BATCH_SIZE: usize = 1000;
+const STATUS_BATCH_SIZE: usize = 2500;
 
 // Chunk sizes for backfill progress reporting
 // Note: All chunk sizes must be > 1 to satisfy from_time < to_time validation
@@ -209,13 +209,18 @@ where
         tracing::info!("Starting status backfill...");
 
         let current_timestamp = self.indexer.block_timestamp(self.end_block).await?;
+        let end_timestamp = current_timestamp;
         tracing::info!(
-            "Using end block {} with timestamp {} as 'current time' for status computation",
+            "Using end block {} with timestamp {} as 'current time' for status computation and filtering",
             self.end_block,
-            current_timestamp
+            end_timestamp
         );
 
-        let mut cursor: Option<B256> = None;
+        // Get total count of digests to process for logging
+        let total_count = self.indexer.db.count_request_digests_by_timestamp(end_timestamp).await?;
+        tracing::info!("Total statuses (digests) to recompute: {}", total_count);
+
+        let mut cursor: Option<(u64, B256)> = None;
         let mut total_processed = 0;
         let mut batch_num = 0;
 
@@ -223,25 +228,35 @@ where
             batch_num += 1;
             let batch_start = std::time::Instant::now();
 
-            // Fetch next batch of digests
-            let digests =
-                self.indexer.db.get_request_digests_paginated(cursor, DIGEST_BATCH_SIZE).await?;
+            // Fetch next batch of digests with timestamp filtering
+            let digest_results = self
+                .indexer
+                .db
+                .get_all_request_digests(cursor, end_timestamp, DIGEST_BATCH_SIZE)
+                .await?;
 
-            if digests.is_empty() {
+            if digest_results.is_empty() {
                 tracing::info!("No more digests to process");
                 break;
             }
 
+            // Extract just the digests (created_at is used for cursor only)
+            let digests: Vec<B256> = digest_results.iter().map(|(digest, _)| *digest).collect();
             let digest_count = digests.len();
+
             tracing::info!(
-                "Batch {}: Fetched {} digests in {:?}",
+                "Batch {}: Fetched {} digests in {:?} (total processed: {})",
                 batch_num,
                 digest_count,
-                batch_start.elapsed()
+                batch_start.elapsed(),
+                total_processed + digest_count
             );
 
-            // Update cursor for next iteration
-            cursor = digests.last().copied();
+            // Update cursor for next iteration (use last item's timestamp and digest)
+            // Note: digest_results is Vec<(B256, u64)> but cursor is (u64, B256)
+            if let Some((last_digest, last_ts)) = digest_results.last() {
+                cursor = Some((*last_ts, *last_digest));
+            }
 
             // Process in smaller sub-batches to avoid overwhelming the DB
             for (chunk_idx, chunk) in digests.chunks(STATUS_BATCH_SIZE).enumerate() {
@@ -262,23 +277,29 @@ where
                 // Upsert statuses
                 self.indexer.db.upsert_request_statuses(&request_statuses).await?;
 
-                total_processed += request_statuses.len();
-
-                tracing::info!(
-                    "Batch {} chunk {}: Processed {} statuses in {:?} (total: {})",
+                tracing::debug!(
+                    "Batch {} chunk {}: Processed {} statuses in {:?}",
                     batch_num,
                     chunk_idx + 1,
                     request_statuses.len(),
-                    chunk_start.elapsed(),
-                    total_processed
+                    chunk_start.elapsed()
                 );
             }
 
-            tracing::info!("Batch {} completed in {:?}", batch_num, batch_start.elapsed());
+            // Count unique digests processed
+            total_processed += digest_count;
+
+            tracing::info!(
+                "Batch {} completed in {:?}. Total unique digests processed: {}/{}",
+                batch_num,
+                batch_start.elapsed(),
+                total_processed,
+                total_count
+            );
         }
 
         tracing::info!(
-            "Status backfill completed: {} statuses updated in {:?}",
+            "Status backfill completed: {} unique digests processed in {:?}",
             total_processed,
             start_time.elapsed()
         );
@@ -306,6 +327,9 @@ where
 
         // Recompute per-requestor aggregates
         self.backfill_requestor_aggregates(start_timestamp, end_timestamp).await?;
+
+        // Recompute per-prover aggregates
+        self.backfill_prover_aggregates(start_timestamp, end_timestamp).await?;
 
         tracing::info!("Aggregate backfill completed in {:?}", start_time.elapsed());
         Ok(())
@@ -873,6 +897,269 @@ where
             );
 
             self.indexer.aggregate_all_time_requestor_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let start_time = std::time::Instant::now();
+        tracing::info!("Starting per-prover aggregate backfill...");
+
+        self.backfill_hourly_prover_aggregates(start_ts, end_ts).await?;
+
+        self.backfill_daily_prover_aggregates(start_ts, end_ts).await?;
+
+        self.backfill_weekly_prover_aggregates(start_ts, end_ts).await?;
+
+        self.backfill_monthly_prover_aggregates(start_ts, end_ts).await?;
+
+        self.backfill_all_time_prover_aggregates(start_ts, end_ts).await?;
+
+        tracing::info!("Per-prover aggregate backfill completed in {:?}", start_time.elapsed());
+        Ok(())
+    }
+
+    async fn backfill_hourly_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        use crate::market::service::SECONDS_PER_HOUR;
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, HOURLY_CHUNK_SIZE_HOURS).collect();
+
+        let start_hour = get_hour_start(start_ts);
+        let end_hour = get_hour_start(end_ts);
+        let total_chunks = chunks.len();
+
+        tracing::info!(
+            "Processing hourly prover aggregates: {} hours in {} chunks",
+            (end_hour - start_hour) / SECONDS_PER_HOUR + 1,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = if *chunk_start == *chunk_end {
+                1
+            } else {
+                (*chunk_end - chunk_start) / SECONDS_PER_HOUR + 1
+            };
+            tracing::info!(
+                "Processing hourly prover chunk {}/{}: {} to {} ({} hours)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_hourly_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_daily_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let chunks: Vec<_> = chunk_daily_range(start_ts, end_ts, DAILY_CHUNK_SIZE_DAYS).collect();
+
+        let start_day = get_day_start(start_ts);
+        let end_day = get_day_start(end_ts);
+        let total_chunks = chunks.len();
+
+        let total_days = {
+            let mut count = 0;
+            let mut current = start_day;
+            while current <= end_day {
+                count += 1;
+                current = get_next_day(current);
+            }
+            count
+        };
+
+        tracing::info!(
+            "Processing daily prover aggregates: {} days in {} chunks",
+            total_days,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = {
+                let mut count = 0;
+                let mut current = *chunk_start;
+                while current <= *chunk_end {
+                    count += 1;
+                    current = get_next_day(current);
+                }
+                count
+            };
+
+            tracing::info!(
+                "Processing daily prover chunk {}/{}: {} to {} ({} days)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_daily_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_weekly_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let chunks: Vec<_> =
+            chunk_weekly_range(start_ts, end_ts, WEEKLY_CHUNK_SIZE_WEEKS).collect();
+
+        let start_week = get_week_start(start_ts);
+        let end_week = get_week_start(end_ts);
+        let total_chunks = chunks.len();
+
+        let total_weeks = {
+            let mut count = 0;
+            let mut current = start_week;
+            while current <= end_week {
+                count += 1;
+                current = get_next_week(current);
+            }
+            count
+        };
+
+        tracing::info!(
+            "Processing weekly prover aggregates: {} weeks in {} chunks",
+            total_weeks,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = {
+                let mut count = 0;
+                let mut current = *chunk_start;
+                while current <= *chunk_end {
+                    count += 1;
+                    current = get_next_week(current);
+                }
+                count
+            };
+
+            tracing::info!(
+                "Processing weekly prover chunk {}/{}: {} to {} ({} weeks)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_weekly_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_monthly_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        let chunks: Vec<_> =
+            chunk_monthly_range(start_ts, end_ts, MONTHLY_CHUNK_SIZE_MONTHS).collect();
+
+        let start_month = get_month_start(start_ts);
+        let end_month = get_month_start(end_ts);
+        let total_chunks = chunks.len();
+
+        let total_months = {
+            let mut count = 0;
+            let mut current = start_month;
+            while current <= end_month {
+                count += 1;
+                current = get_next_month(current);
+            }
+            count
+        };
+
+        tracing::info!(
+            "Processing monthly prover aggregates: {} months in {} chunks",
+            total_months,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = {
+                let mut count = 0;
+                let mut current = *chunk_start;
+                while current <= *chunk_end {
+                    count += 1;
+                    current = get_next_month(current);
+                }
+                count
+            };
+
+            tracing::info!(
+                "Processing monthly prover chunk {}/{}: {} to {} ({} months)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_monthly_prover_data_from(*chunk_start, *chunk_end).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn backfill_all_time_prover_aggregates(
+        &mut self,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<(), ServiceError> {
+        use crate::market::service::SECONDS_PER_HOUR;
+        let chunks: Vec<_> =
+            chunk_hourly_range(start_ts, end_ts, ALL_TIME_CHUNK_SIZE_HOURS).collect();
+
+        let start_hour = get_hour_start(start_ts);
+        let end_hour = get_hour_start(end_ts);
+        let total_chunks = chunks.len();
+
+        tracing::info!(
+            "Processing all-time prover aggregates: {} hours in {} chunks",
+            (end_hour - start_hour) / SECONDS_PER_HOUR + 1,
+            total_chunks
+        );
+
+        for (chunk_idx, (chunk_start, chunk_end)) in chunks.iter().enumerate() {
+            let period_count = if *chunk_start == *chunk_end {
+                1
+            } else {
+                (*chunk_end - chunk_start) / SECONDS_PER_HOUR + 1
+            };
+            tracing::info!(
+                "Processing all-time prover chunk {}/{}: {} to {} ({} hours)",
+                chunk_idx + 1,
+                total_chunks,
+                chunk_start,
+                chunk_end,
+                period_count
+            );
+
+            self.indexer.aggregate_all_time_prover_data_from(*chunk_start, *chunk_end).await?;
         }
 
         Ok(())

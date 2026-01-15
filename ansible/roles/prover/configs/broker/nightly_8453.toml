@@ -1,0 +1,12 @@
+[market]
+min_mcycle_price = "0.0000003"
+min_mcycle_price_collateral_token = "0"
+peak_prove_khz = 8000
+priority_requestor_lists = [
+    "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+]
+max_collateral = "200"
+max_concurrent_preflights = 4
+max_concurrent_proofs = 2
+max_journal_bytes = 20000
+max_file_size = 500000000000

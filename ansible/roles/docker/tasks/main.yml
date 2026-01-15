@@ -1,0 +1,157 @@
+---
+- name: Install prerequisites for Docker
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: true
+
+- name: Check if Docker is already installed
+  ansible.builtin.command:
+    cmd: docker --version
+  register: docker_version_check
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+
+- name: Add Docker's official GPG key
+  ansible.builtin.shell: |
+    set -o pipefail
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+  args:
+    creates: /etc/apt/keyrings/docker.gpg
+    executable: /bin/bash
+  when: docker_version_check.rc != 0
+
+- name: Detect Ubuntu version for Docker repository
+  ansible.builtin.set_fact:
+    docker_ubuntu_version_detected: "{{ ansible_distribution_version }}"
+  when: docker_ubuntu_version is none
+
+- name: Set Ubuntu version for Docker repository
+  ansible.builtin.set_fact:
+    docker_ubuntu_version: "{{ docker_ubuntu_version_detected }}"
+  when: docker_ubuntu_version is none
+
+- name: Map Ubuntu version to Docker repository codename
+  ansible.builtin.set_fact:
+    docker_ubuntu_codename: >-
+      {%- if docker_ubuntu_version == "22.04" -%}jammy{%- elif docker_ubuntu_version == "24.04" -%}noble{%- else -%}noble{%- endif -%}
+
+- name: Add Docker repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ docker_architecture }} signed-by=/etc/apt/keyrings/docker.gpg]
+      https://download.docker.com/linux/ubuntu {{ docker_ubuntu_codename }} stable
+    state: present
+  when: docker_version_check.rc != 0
+
+- name: Update apt cache after adding Docker repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_version_check.rc != 0
+
+- name: Install Docker packages
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+  when: docker_version_check.rc != 0
+  tags:
+    - docker
+    - docker-install
+
+- name: Ensure Docker service is enabled and started
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags:
+    - docker
+    - docker-service
+
+- name: Add users to docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users }}"
+  when: docker_users | length > 0
+  tags:
+    - docker
+    - docker-users
+
+- name: Verify Docker installation
+  ansible.builtin.command:
+    cmd: docker --version
+  register: docker_version_output
+  changed_when: false
+  tags:
+    - docker
+    - docker-verify
+
+- name: Display Docker installation status
+  ansible.builtin.debug:
+    msg: |
+      Docker installation completed successfully.
+      {{ docker_version_output.stdout }}
+      Docker Compose plugin is available via 'docker compose' command.
+
+- name: Add NVIDIA Container Toolkit repository
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list
+    dest: /tmp/nvidia-container-toolkit.list
+    mode: '0644'
+
+- name: Configure NVIDIA Container Toolkit repository with GPG key
+  ansible.builtin.replace:
+    path: /tmp/nvidia-container-toolkit.list
+    regexp: '^deb https://'
+    replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://'
+
+- name: Update apt cache after adding NVIDIA repository
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install NVIDIA Container Toolkit
+  ansible.builtin.apt:
+    name: nvidia-container-toolkit
+    state: present
+    update_cache: true
+  tags:
+    - docker
+    - docker-nvidia
+
+- name: Configure Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart docker
+  tags:
+    - docker
+    - docker-nvidia
+
+- name: Clean up NVIDIA Container Toolkit temporary files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/nvidia-container-toolkit.gpg
+    - /tmp/nvidia-container-toolkit.list
+  tags:
+    - docker
+    - docker-nvidia

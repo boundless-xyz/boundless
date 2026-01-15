@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,20 +38,20 @@ use utoipa::OpenApi;
         crate::handler::health_check,
         // Staking endpoints
         crate::routes::staking::get_staking_summary,
-        crate::routes::staking::get_all_epochs_summary,
-        crate::routes::staking::get_epoch_summary,
-        crate::routes::staking::get_epoch_leaderboard,
-        crate::routes::staking::get_address_at_epoch,
-        crate::routes::staking::get_all_time_leaderboard,
-        crate::routes::staking::get_address_history,
+        crate::routes::staking::get_staking_all_epochs_summary,
+        crate::routes::staking::get_staking_epoch_summary,
+        crate::routes::staking::get_staking_epoch_leaderboard,
+        crate::routes::staking::get_staking_address_at_epoch,
+        crate::routes::staking::get_staking_all_time_leaderboard,
+        crate::routes::staking::get_staking_address_history,
         // PoVW endpoints
         crate::routes::povw::get_povw_summary,
-        crate::routes::povw::get_all_epochs_summary,
-        crate::routes::povw::get_epoch_summary,
-        crate::routes::povw::get_epoch_leaderboard,
-        crate::routes::povw::get_address_at_epoch,
-        crate::routes::povw::get_all_time_leaderboard,
-        crate::routes::povw::get_address_history,
+        crate::routes::povw::get_povw_all_epochs_summary,
+        crate::routes::povw::get_povw_epoch_summary,
+        crate::routes::povw::get_povw_epoch_leaderboard,
+        crate::routes::povw::get_povw_address_at_epoch,
+        crate::routes::povw::get_povw_all_time_leaderboard,
+        crate::routes::povw::get_povw_address_history,
         // Delegation endpoints - Votes
         crate::routes::delegations::get_aggregate_vote_delegations,
         crate::routes::delegations::get_vote_delegations_by_epoch,
@@ -68,6 +68,8 @@ use utoipa::OpenApi;
         crate::routes::market::get_market_cumulatives,
         crate::routes::market::list_requests,
         crate::routes::market::get_requests_by_request_id,
+        crate::routes::market::list_requestors,
+        crate::routes::market::list_provers,
         crate::routes::market::list_requests_by_requestor,
         crate::routes::market::get_requestor_aggregates,
         crate::routes::market::get_requestor_cumulatives,
@@ -124,6 +126,14 @@ use utoipa::OpenApi;
         crate::routes::market::RequestStatusResponse,
         crate::routes::market::RequestListResponse,
         crate::routes::market::AggregationGranularity,
+        crate::routes::market::LeaderboardPeriod,
+        crate::routes::market::RequestorLeaderboardParams,
+        crate::routes::market::RequestorLeaderboardEntry,
+        crate::routes::market::RequestorLeaderboardResponse,
+        crate::routes::market::RequestorLeaderboardCursor,
+        crate::routes::market::ProverLeaderboardEntry,
+        crate::routes::market::ProverLeaderboardResponse,
+        crate::routes::market::ProverLeaderboardCursor,
     ))
 )]
 pub struct ApiDoc;

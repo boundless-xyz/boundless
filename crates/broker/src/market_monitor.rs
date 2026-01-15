@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -179,7 +179,8 @@ where
 
         tracing::info!("Searching for existing open orders: {start_block} - {current_block}");
 
-        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let market =
+            BoundlessMarketService::new_for_broker(market_addr, provider.clone(), Address::ZERO);
         // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(
         //     provider.clone(),
         //     Filter::new().from_block(start_block).address(market_addr),
@@ -335,7 +336,8 @@ where
         order_state_tx: broadcast::Sender<OrderStateChange>,
         cancel_token: CancellationToken,
     ) -> Result<(), MarketMonitorErr> {
-        let market = BoundlessMarketService::new(market_addr, provider.clone(), Address::ZERO);
+        let market =
+            BoundlessMarketService::new_for_broker(market_addr, provider.clone(), Address::ZERO);
         let chain_id = provider.get_chain_id().await.context("Failed to get chain id")?;
 
         let stream = Self::poll_market_events(
@@ -401,7 +403,7 @@ where
                         }
                     }
 
-                    tracing::debug!(
+                    tracing::trace!(
                         "Processed from block {} to block {} [found {} events]",
                         from_block,
                         to_block,
@@ -494,7 +496,7 @@ where
 
                                         if let Some(order) = order {
                                             if let Err(e) = new_order_tx.send(Box::new(order)).await {
-                                                tracing::error!("Failed to send order locked by another prover, {:x}: {e:?}", event.requestId);
+                                                tracing::error!("Failed to send order locked by another prover, {:x}: {e} {e:?}", event.requestId);
                                             }
                                         } else {
                                             tracing::warn!("Failed to get order from market or order stream for locked request {:x}. Unable to evaluate for fulfillment after lock expires.", event.requestId);
@@ -726,7 +728,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let boundless_market = BoundlessMarketService::new(
+        let boundless_market = BoundlessMarketService::new_for_broker(
             market_address,
             provider.clone(),
             provider.default_signer_address(),

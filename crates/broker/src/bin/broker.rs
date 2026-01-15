@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
 
     // TODO: Move this code somewhere else / monitor our balanceOf and top it up as needed
     if let Some(deposit_amount) = args.deposit_amount.as_ref() {
-        let boundless_market = BoundlessMarketService::new(
+        let boundless_market = BoundlessMarketService::new_for_broker(
             broker.deployment().boundless_market_address,
             provider.clone(),
             provider.default_signer_address(),

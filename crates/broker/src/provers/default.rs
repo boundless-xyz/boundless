@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -354,17 +354,27 @@ impl Prover for DefaultProver {
         self.state.proofs.write().await.insert(proof_id.clone(), ProofData::default());
 
         // TODO: remove this workaround when default_prover().compress works for Bonsai
-        let compress_result = if default_prover().get_name() == "bonsai" {
-            let client = bonsai_sdk::non_blocking::Client::from_env(VERSION)?;
-            super::Bonsai::compress(&client, &receipt, &ProverConf::default()).await
-        } else {
-            tokio::task::spawn_blocking(move || {
-                default_prover().compress(&ProverOpts::groth16(), &receipt)
-            })
-            .await
-            .unwrap()
-            .map_err(ProverError::from)
-        };
+        let compress_result: Result<Receipt, ProverError> =
+            if default_prover().get_name() == "bonsai" {
+                let client = bonsai_sdk::non_blocking::Client::from_env(VERSION)?;
+                super::Bonsai::compress(&client, &receipt, &ProverConf::default())
+                    .await
+                    .context(format!("Failed to compress proof {proof_id}"))
+                    .map_err(ProverError::from)
+            } else {
+                tokio::task::spawn_blocking(move || {
+                    default_prover().compress(&ProverOpts::groth16(), &receipt)
+                })
+                .await
+                .map_err(|err| {
+                    ProverError::UnexpectedError(anyhow!(
+                        "Failed to compress proof {proof_id}: {err:?}"
+                    ))
+                })?
+                .map_err(ProverError::from)
+                .context(format!("Failed to compress proof {proof_id}"))
+                .map_err(ProverError::from)
+            };
         let compressed_bytes = compress_result
             .as_ref()
             .map(|receipt| bincode::serialize(receipt).unwrap())

@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -180,7 +180,7 @@ async fn test_funding_mode() {
     let balance_before =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     let request = new_request(1, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == balance_before + request.offer.maxPrice);
@@ -190,7 +190,7 @@ async fn test_funding_mode() {
     let balance_before =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     let request = new_request(2, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == balance_before);
@@ -200,7 +200,7 @@ async fn test_funding_mode() {
     let threshold = request.offer.maxPrice * U256::from(5);
     let client = client.with_funding_mode(FundingMode::BelowThreshold(threshold));
     let request = new_request(3, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == threshold);
@@ -211,7 +211,7 @@ async fn test_funding_mode() {
     // Test Never funding mode: balance after submission should remain the same
     let client = client.with_funding_mode(FundingMode::Never);
     let request = new_request(4, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == U256::ZERO);
@@ -223,7 +223,7 @@ async fn test_funding_mode() {
     let client =
         client.with_funding_mode(FundingMode::MinMaxBalance { min_balance: min, max_balance: max });
     let request = new_request(5, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == max);
@@ -231,7 +231,7 @@ async fn test_funding_mode() {
     // Test MinMaxBalance funding mode: balance after submission should remain equal to max
     // since we are above the min balance
     let request = new_request(6, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == max);
@@ -453,6 +453,7 @@ async fn test_e2e_price_and_fulfill_batch() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn test_e2e_no_payment() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
@@ -513,11 +514,13 @@ async fn test_e2e_no_payment() {
         };
 
         let balance_before = ctx.prover_market.balance_of(some_other_address).await.unwrap();
-        // fulfill the request.
+        // fulfill the request. This call emits a PaymentRequirementsFailed log since the lock
+        // belongs to a different prover, but the request itself still becomes fulfilled on-chain.
         ctx.prover_market
             .fulfill(FulfillmentTx::new(vec![fulfillment.clone()], assessor_fill.clone()))
             .await
-            .unwrap();
+            .expect("fulfillment should succeed even if payment requirements fail");
+        assert!(logs_contain("Payment requirements failed for at least one fulfillment"));
         assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
         let balance_after = ctx.prover_market.balance_of(some_other_address).await.unwrap();
         assert!(balance_before == balance_after);

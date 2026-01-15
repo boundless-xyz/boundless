@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,12 +15,14 @@
 use std::future::Future;
 use tokio::time::Duration;
 
-/// Retry a future with a specified number of retries and sleep duration between attempts.
-pub async fn retry<T, E, F, Fut>(
+/// Internal retry implementation that handles the common retry loop logic.
+async fn retry_impl<T, E, F, Fut>(
     retry_count: u64,
     retry_sleep_ms: u64,
     operation: F,
     function_name: &str,
+    context: &str,
+    should_retry: Option<impl Fn(&E) -> bool>,
 ) -> Result<T, E>
 where
     F: Fn() -> Fut,
@@ -31,15 +33,46 @@ where
         return operation().await;
     }
 
+    let context_prefix =
+        if context.is_empty() { String::new() } else { format!(" (context: {})", context) };
+
     let mut last_error = None;
     for attempt in 0..=retry_count {
         match operation().await {
             Ok(result) => return Ok(result),
             Err(err) => {
+                // Check if we should retry this error
+                if let Some(ref predicate) = should_retry {
+                    if !predicate(&err) {
+                        let err_msg = format!("{err:?}");
+                        let is_expected_error = function_name == "preflight"
+                            && (err_msg
+                                .contains("Execution stopped intentionally due to session limit")
+                                || err_msg.contains("Session limit exceeded"));
+                        if is_expected_error {
+                            tracing::debug!(
+                                "Operation [{}]{} finished with expected non-retryable condition: {}",
+                                function_name,
+                                context_prefix,
+                                err_msg
+                            );
+                        } else {
+                            tracing::warn!(
+                                "Operation [{}]{} failed with non-retryable error: {}, not retrying",
+                                function_name,
+                                context_prefix,
+                                err_msg
+                            );
+                        }
+                        return Err(err);
+                    }
+                }
+
                 if attempt < retry_count {
                     tracing::warn!(
-                        "Operation [{}] failed: {err:?}, starting retry {}/{}",
+                        "Operation [{}]{} failed: {err:?}, starting retry {}/{}",
                         function_name,
+                        context_prefix,
                         attempt + 1,
                         retry_count
                     );
@@ -53,12 +86,54 @@ where
     }
 
     tracing::warn!(
-        "Operation [{}] failed after {} retries, returning last error: {:?}",
+        "Operation [{}]{} failed after {} retries, returning last error: {:?}",
         function_name,
+        context_prefix,
         retry_count,
         last_error
     );
     Err(last_error.unwrap())
+}
+
+/// Retry a future with a specified number of retries and sleep duration between attempts.
+pub async fn retry<T, E, F, Fut>(
+    retry_count: u64,
+    retry_sleep_ms: u64,
+    operation: F,
+    function_name: &str,
+) -> Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    E: std::fmt::Debug,
+{
+    retry_impl(retry_count, retry_sleep_ms, operation, function_name, "", None::<fn(&E) -> bool>)
+        .await
+}
+
+/// Retry a future with a specified number of retries and sleep duration between attempts.
+/// Like [`retry`], but includes `context` in logs when the operation fails.
+pub async fn retry_with_context<T, E, F, Fut>(
+    retry_count: u64,
+    retry_sleep_ms: u64,
+    operation: F,
+    function_name: &str,
+    context: &str,
+) -> Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    E: std::fmt::Debug,
+{
+    retry_impl(
+        retry_count,
+        retry_sleep_ms,
+        operation,
+        function_name,
+        context,
+        None::<fn(&E) -> bool>,
+    )
+    .await
 }
 
 /// Retry a future with a specified number of retries and sleep duration between attempts.
@@ -75,60 +150,27 @@ where
     Fut: Future<Output = Result<T, E>>,
     E: std::fmt::Debug,
 {
-    if retry_count == 0 {
-        return operation().await;
-    }
+    retry_impl(retry_count, retry_sleep_ms, operation, function_name, "", Some(should_retry)).await
+}
 
-    let mut last_error = None;
-    for attempt in 0..=retry_count {
-        match operation().await {
-            Ok(result) => return Ok(result),
-            Err(err) => {
-                if !should_retry(&err) {
-                    let err_msg = format!("{err:?}");
-                    let is_expected_error = function_name == "preflight"
-                        && (err_msg
-                            .contains("Execution stopped intentionally due to session limit")
-                            || err_msg.contains("Session limit exceeded"));
-                    if is_expected_error {
-                        tracing::debug!(
-                            "Operation [{}] finished with expected non-retryable condition: {}",
-                            function_name,
-                            err_msg
-                        );
-                    } else {
-                        tracing::warn!(
-                            "Operation [{}] failed with non-retryable error: {}, not retrying",
-                            function_name,
-                            err_msg
-                        );
-                    }
-                    return Err(err);
-                }
-
-                if attempt < retry_count {
-                    tracing::warn!(
-                        "Operation [{}] failed: {err:?}, starting retry {}/{}",
-                        function_name,
-                        attempt + 1,
-                        retry_count
-                    );
-                    tokio::time::sleep(Duration::from_millis(retry_sleep_ms)).await;
-                    last_error = Some(err);
-                    continue;
-                }
-                last_error = Some(err);
-            }
-        }
-    }
-
-    tracing::warn!(
-        "Operation [{}] failed after {} retries, returning last error: {:?}",
-        function_name,
-        retry_count,
-        last_error
-    );
-    Err(last_error.unwrap())
+/// Retry a future with a specified number of retries and sleep duration between attempts.
+/// Only retries if the error matches the predicate function.
+/// Like [`retry_only`], but includes `context` in logs when the operation fails.
+pub async fn retry_only_with_context<T, E, F, Fut>(
+    retry_count: u64,
+    retry_sleep_ms: u64,
+    operation: F,
+    function_name: &str,
+    context: &str,
+    should_retry: impl Fn(&E) -> bool,
+) -> Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    E: std::fmt::Debug,
+{
+    retry_impl(retry_count, retry_sleep_ms, operation, function_name, context, Some(should_retry))
+        .await
 }
 
 #[cfg(test)]
@@ -240,6 +282,37 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_retry_with_context_logs_context() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result: Result<(), &str> = retry_with_context(
+            1,
+            0,
+            || {
+                let counter = counter_clone.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Err("Always fails")
+                }
+            },
+            "test operation",
+            "order_id=123",
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        assert!(logs_contain(
+            "Operation [test operation] (context: order_id=123) failed: \"Always fails\", starting retry 1/1"
+        ));
+        assert!(logs_contain(
+            "Operation [test operation] (context: order_id=123) failed after 1 retries, returning last error:"
+        ));
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_retry_only_specific_errors() {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
@@ -267,5 +340,37 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 2);
         assert!(logs_contain("Operation [test operation] failed: Retryable, starting retry 1/5"));
         assert!(logs_contain("Operation [test operation] failed with non-retryable error: NonRetryable, not retrying"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_retry_only_with_context_logs_context() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result = retry_only_with_context(
+            5,
+            0,
+            || {
+                let counter = counter_clone.clone();
+                async move {
+                    let current = counter.fetch_add(1, Ordering::SeqCst);
+                    match current {
+                        0 => Err(TestError::Retryable),
+                        1 => Err(TestError::NonRetryable),
+                        _ => Ok(current),
+                    }
+                }
+            },
+            "test operation",
+            "order_id=456",
+            |err| matches!(err, TestError::Retryable),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        assert!(logs_contain("Operation [test operation] (context: order_id=456) failed: Retryable, starting retry 1/5"));
+        assert!(logs_contain("Operation [test operation] (context: order_id=456) failed with non-retryable error: NonRetryable, not retrying"));
     }
 }

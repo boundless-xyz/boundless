@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::{B256, U256};
 use alloy::providers::Provider;
 use boundless_market::contracts::pricing::price_at_time;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 impl<P, ANP> IndexerService<P, ANP>
@@ -103,6 +103,27 @@ where
             (None, None)
         };
 
+        // Compute effective_prove_mhz: total_cycles / (proof_delivery_time * 1_000_000)
+        // proof_delivery_time = fulfilled_at - created_at (in seconds)
+        let effective_prove_mhz = req
+            .fulfilled_at
+            .zip(req.total_cycles)
+            .filter(|(fulfilled_at, total_cycles)| {
+                *fulfilled_at > req.created_at && *total_cycles > U256::ZERO
+            })
+            .and_then(|(fulfilled_at, total_cycles)| {
+                let proof_delivery_time = fulfilled_at - req.created_at;
+                // Calculate: total_cycles / (proof_delivery_time * 1_000_000)
+                if proof_delivery_time > 0 {
+                    // Convert U256 to f64 by converting to string first, then parsing
+                    let total_cycles_f64 = total_cycles.to_string().parse::<f64>().unwrap_or(0.0);
+                    let mhz = total_cycles_f64 / (proof_delivery_time as f64 * 1_000_000.0);
+                    Some(mhz)
+                } else {
+                    None
+                }
+            });
+
         RequestStatus {
             request_digest: req.request_digest,
             request_id: req.request_id,
@@ -135,7 +156,7 @@ where
             program_cycles: req.program_cycles,
             total_cycles: req.total_cycles,
             peak_prove_mhz: req.peak_prove_mhz,
-            effective_prove_mhz: req.effective_prove_mhz,
+            effective_prove_mhz,
             cycle_status: req.cycle_status,
             lock_price,
             lock_price_per_cycle,
@@ -160,7 +181,8 @@ where
         request_digests: HashSet<B256>,
         block_number: u64,
     ) -> Result<(), ServiceError> {
-        tracing::debug!(
+        tracing::debug!("{} request digests to update", request_digests.len());
+        tracing::trace!(
             "Request digests to update: {:?}",
             request_digests.iter().map(|d| format!("0x{:x}", d)).collect::<Vec<_>>()
         );
@@ -189,10 +211,22 @@ where
         tracing::info!("get_requests_comprehensive completed in {:?} [queried with {} digests, {} requests found]", start_get_requests_comprehensive.elapsed(), request_digests.len(), requests_with_events.len());
 
         let start_compute_request_status = std::time::Instant::now();
-        let request_statuses: Vec<_> = requests_with_events
+        let mut request_statuses: Vec<_> = requests_with_events
             .into_iter()
             .map(|req| self.compute_request_status(req, current_timestamp))
             .collect();
+
+        let cycle_counts = self.db.get_cycle_counts(&request_digests).await?;
+        let cycle_counts_map: HashMap<_, _> =
+            cycle_counts.into_iter().map(|cc| (cc.request_digest, cc)).collect();
+
+        for status in request_statuses.iter_mut() {
+            if let Some(cc) = cycle_counts_map.get(&status.request_digest) {
+                status.cycle_status = Some(cc.cycle_status.clone());
+                status.program_cycles = cc.program_cycles;
+                status.total_cycles = cc.total_cycles;
+            }
+        }
 
         tracing::info!(
             "compute_request_status completed in {:?} [{} statuses computed]",

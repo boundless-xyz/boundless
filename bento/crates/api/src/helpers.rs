@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -66,11 +66,11 @@ pub async fn get_or_create_streams(
 
     let gpu_coproc_stream = if let Some(res) = taskdb::get_stream(pool, user_id, COPROC_WORK_TYPE)
         .await
-        .context("Failed to get gpu prove stream")?
+        .context("Failed to get gpu coproc stream")?
     {
         res
     } else {
-        tracing::info!("Creating a new gpu stream for key: {user_id}");
+        tracing::info!("Creating a new gpu coproc stream for key: {user_id}");
         taskdb::create_stream(pool, COPROC_WORK_TYPE, reserved, 1.0, user_id)
             .await
             .context("Failed to create taskdb gpu coproc stream")?

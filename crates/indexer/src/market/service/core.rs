@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,12 +14,16 @@
 
 use super::IndexerService;
 use crate::db::market::IndexerDb;
+use crate::db::DbObj;
+use crate::market::service::execution::execute_requests;
+use crate::market::service::IndexerServiceExecutionConfig;
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::B256;
 use alloy::providers::Provider;
 use std::cmp::min;
 use std::collections::HashSet;
+use std::time::Duration;
 
 impl<P, ANP> IndexerService<P, ANP>
 where
@@ -57,6 +61,22 @@ where
             tracing::info!("Starting indexer at block {}", from_block);
         }
 
+        // Spawn a supervisor task for the cycle count executor
+        // if the corresponding configuration is present
+        let db_clone = self.db.clone();
+        let config_clone = self.config.clone();
+        if let Some(execution_config) = config_clone.execution_config {
+            // TODO: Currently we assume running the execution task supervisor itself won't panic, so don't keep the handle.
+            tokio::spawn(run_execution_task_supervisor(db_clone, execution_config));
+        } else {
+            tracing::info!("Execution configuration not found, not starting executor task");
+        }
+
+        // Spawn the aggregation task supervisor
+        let service_clone = self.clone();
+        // TODO: Currently we assume running the aggregation task supervisor itself won't panic, so don't keep the handle.
+        tokio::spawn(run_aggregation_task_supervisor(service_clone));
+
         let mut attempt = 0;
         loop {
             interval.tick().await;
@@ -90,6 +110,8 @@ where
                 // If we've reached the end_block and processed everything, exit
                 if let Some(end) = end_block {
                     if from_block > end {
+                        tracing::info!("Reached end block {}, waiting for aggregation to catch up before exiting", end);
+                        self.wait_for_aggregation_to_catch_up().await?;
                         tracing::info!("Reached end block {}, exiting", end);
                         return Ok(());
                     }
@@ -103,13 +125,19 @@ where
             let start = std::time::Instant::now();
             match self.process_blocks(from_block, batch_end).await {
                 Ok(_) => {
-                    tracing::info!("process_blocks completed in {:?}", start.elapsed());
+                    tracing::info!(
+                        "process_blocks completed in {:?} [num_blocks={}]",
+                        start.elapsed(),
+                        batch_end - from_block + 1
+                    );
                     attempt = 0;
                     from_block = batch_end + 1;
 
                     // If we've reached or passed the end_block, exit
                     if let Some(end) = end_block {
                         if from_block > end {
+                            tracing::info!("Reached end block {}, waiting for aggregation to catch up before exiting", end);
+                            self.wait_for_aggregation_to_catch_up().await?;
                             tracing::info!("Reached end block {}, exiting", end);
                             return Ok(());
                         }
@@ -118,6 +146,7 @@ where
                 Err(e) => match e {
                     // Irrecoverable errors
                     ServiceError::DatabaseError(_)
+                    | ServiceError::DatabaseQueryError(_, _)
                     | ServiceError::MaxRetries
                     | ServiceError::RequestNotExpired
                     | ServiceError::Error(_) => {
@@ -192,7 +221,7 @@ where
         self.request_cycle_counts(cycle_count_requests).await?;
 
         // Collect request digests that have been updated in the current block range with cycle count data.
-        let cycle_count_updated_digests = self.process_cycle_counts(from, to).await?;
+        let cycle_count_updated_digests = self.process_cycle_counts(to).await?;
 
         // Process deposit/withdrawal events. These don't cause request statuses to be updated, so we don't
         // need to track them as touched requests.
@@ -224,22 +253,6 @@ where
         // Update request statuses for touched requests
         self.update_request_statuses(touched_requests, to).await?;
 
-        // Aggregate market data.
-        // Note: Aggregations use the result of update_request_statuses, so we need to run them after.
-        self.aggregate_hourly_market_data(to).await?;
-        self.aggregate_daily_market_data(to).await?;
-        self.aggregate_weekly_market_data(to).await?;
-        self.aggregate_monthly_market_data(to).await?;
-        self.aggregate_all_time_market_data(to).await?;
-
-        // Aggregate per-requestor data.
-        self.aggregate_hourly_requestor_data(to).await?;
-        self.aggregate_daily_requestor_data(to).await?;
-        self.aggregate_weekly_requestor_data(to).await?;
-        // TODO: Debug speed issues.
-        // self.aggregate_monthly_requestor_data(to).await?;
-        self.aggregate_all_time_requestor_data(to).await?;
-
         // Update the last processed block.
         self.update_last_processed_block(to).await?;
 
@@ -268,15 +281,29 @@ where
         self.block_num_to_timestamp.clear();
     }
 
-    async fn process_cycle_counts(
-        &mut self,
-        from_block: u64,
-        to_block: u64,
-    ) -> Result<HashSet<B256>, ServiceError> {
-        let from_timestamp = self.block_timestamp(from_block).await?;
+    /// Process cycle count updates that occurred between the last processed block and the current block timestamp.
+    /// Note, we fetch last processed block from the DB, rather than using the "from" block. This is because cycle
+    /// counts may have been updated between the last processed block's timestamp and the from block timestamp, that could be missed.
+    async fn process_cycle_counts(&mut self, to_block: u64) -> Result<HashSet<B256>, ServiceError> {
+        // Get the last processed block to determine the lower bound for cycle count queries.
+        // We use last_processed_block's timestamp + 1 as the lower bound to ensure we don't miss
+        // cycle counts updated between block timestamps when processing blocks individually.
+        let from_timestamp = match self.get_last_processed_block().await? {
+            Some(last_block) => {
+                // Use last processed block's timestamp + 1 as lower bound
+                // This ensures we don't miss cycle counts updated between the last processed block
+                // and the current block range
+                self.block_timestamp(last_block).await? + 1
+            }
+            None => {
+                // No previous block processed, start from timestamp 0
+                0
+            }
+        };
         let to_timestamp = self.block_timestamp(to_block).await?;
         let request_digests =
             self.db.get_cycle_counts_by_updated_at_range(from_timestamp, to_timestamp).await?;
+        tracing::debug!("Found {} cycle counts that were updated in the timestamp range [{}, {}]. Will recompute statuses for these requests.", request_digests.len(), from_timestamp, to_timestamp);
         Ok(request_digests)
     }
 
@@ -287,6 +314,41 @@ where
         let last_processed = self.get_last_processed_block().await?;
         let current_block = self.current_block().await?;
         Ok(find_starting_block(starting_block, last_processed, current_block))
+    }
+
+    // Wait for aggregation task to catch up to the last processed block before exiting.
+    // This is only called when end_block is specified and we're about to exit.
+    async fn wait_for_aggregation_to_catch_up(&self) -> Result<(), ServiceError> {
+        tracing::info!("Waiting for aggregation to catch up before exiting...");
+
+        let poll_interval = self.config.aggregation_interval;
+
+        loop {
+            let main_last_block = self.db.get_last_block().await?;
+            let aggregation_last_block = self.db.get_last_aggregation_block().await?;
+
+            match (main_last_block, aggregation_last_block) {
+                (Some(main_block), Some(agg_block)) => {
+                    if agg_block >= main_block {
+                        tracing::info!(
+                            "Aggregation caught up (main: {}, aggregation: {}), proceeding to exit",
+                            main_block,
+                            agg_block
+                        );
+                        return Ok(());
+                    }
+                }
+                (Some(_), None) => {
+                    tracing::info!("Aggregation hasn't started yet, continuing to wait");
+                }
+                (None, _) => {
+                    tracing::warn!("No main processing block found, skipping aggregation wait");
+                    return Ok(());
+                }
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
     }
 }
 
@@ -315,6 +377,158 @@ fn find_starting_block(
     } else {
         tracing::info!("Using {} as starting block", from);
         from
+    }
+}
+
+/// Aggregation task that runs concurrently with event processing.
+/// Processes aggregations up to the last processed block from the main event processing task.
+async fn compute_aggregates<P, ANP>(service: IndexerService<P, ANP>)
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
+{
+    let mut interval = tokio::time::interval(service.config.aggregation_interval);
+
+    loop {
+        interval.tick().await;
+
+        process_aggregations(&service).await.unwrap();
+    }
+}
+
+async fn process_aggregations<P, ANP>(service: &IndexerService<P, ANP>) -> Result<(), ServiceError>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
+{
+    let main_last_block = service.db.get_last_block().await?;
+    let aggregation_last_block = service.db.get_last_aggregation_block().await?;
+
+    let from_block = aggregation_last_block.map(|b| b + 1).unwrap_or(0);
+    let to_block = match main_last_block {
+        Some(block) => block,
+        None => {
+            tracing::debug!("No main processing block yet, skipping aggregation");
+            return Ok(());
+        }
+    };
+
+    if from_block > to_block {
+        tracing::debug!(
+            "Aggregation is up to date (aggregation: {}, main: {})",
+            aggregation_last_block.unwrap_or(0),
+            to_block
+        );
+        return Ok(());
+    }
+    tracing::info!("=== Aggregating blocks from {} to {} ===", from_block, to_block);
+    let elapsed = std::time::Instant::now();
+
+    let to_timestamp = service.block_timestamp(to_block).await?;
+
+    service.aggregate_hourly_market_data(to_block).await?;
+    service.aggregate_daily_market_data(to_block).await?;
+    service.aggregate_weekly_market_data(to_block).await?;
+    service.aggregate_monthly_market_data(to_block).await?;
+    service.aggregate_all_time_market_data(to_block).await?;
+
+    service.aggregate_hourly_requestor_data(to_block).await?;
+    service.aggregate_daily_requestor_data(to_block).await?;
+    service.aggregate_weekly_requestor_data(to_block).await?;
+    service.aggregate_all_time_requestor_data(to_block).await?;
+
+    service.aggregate_hourly_prover_data(to_block).await?;
+    service.aggregate_daily_prover_data(to_block).await?;
+    service.aggregate_weekly_prover_data(to_block).await?;
+    service.aggregate_all_time_prover_data(to_block).await?;
+
+    service.db.set_last_aggregation_block(to_block).await?;
+    tracing::info!("Aggregation completed up to block {} (timestamp: {})", to_block, to_timestamp);
+    tracing::info!(
+        "process_aggregations completed in {:?} [num_blocks={}]",
+        elapsed.elapsed(),
+        to_block - from_block + 1
+    );
+
+    Ok(())
+}
+
+/// Simple supervisor that runs the aggregation task and restarts it on failure.
+async fn run_aggregation_task_supervisor<P, ANP>(service: IndexerService<P, ANP>)
+where
+    P: Provider<Ethereum> + 'static + Clone,
+    ANP: Provider<AnyNetwork> + 'static + Clone,
+{
+    const RESTART_DELAY_SECS: u64 = 5;
+
+    loop {
+        tracing::info!("Starting aggregation task");
+        let service_clone = service.clone();
+
+        let handle = tokio::spawn(async move {
+            compute_aggregates(service_clone).await;
+        });
+
+        match handle.await {
+            Ok(()) => {
+                tracing::error!(
+                    "Aggregation task returned unexpectedly, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) if e.is_panic() => {
+                tracing::error!(
+                    "Aggregation task panicked, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Aggregation task cancelled ({e}), restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(RESTART_DELAY_SECS)).await;
+    }
+}
+
+/// Simple supervisor that runs the execution task and restarts it on failure.
+async fn run_execution_task_supervisor(db: DbObj, config: IndexerServiceExecutionConfig) {
+    const RESTART_DELAY_SECS: u64 = 5;
+
+    loop {
+        tracing::info!("Starting cycle count execution task");
+        let db_clone = db.clone();
+        let config_clone = config.clone();
+
+        let handle = tokio::spawn(async move {
+            execute_requests(db_clone, config_clone).await;
+        });
+
+        match handle.await {
+            Ok(()) => {
+                tracing::error!(
+                    "Cycle count execution task returned unexpectedly, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) if e.is_panic() => {
+                tracing::error!(
+                    "Cycle count execution task panicked, restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Cycle count execution task cancelled ({e}), restarting in {} seconds",
+                    RESTART_DELAY_SECS
+                );
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(RESTART_DELAY_SECS)).await;
     }
 }
 

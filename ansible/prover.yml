@@ -1,0 +1,28 @@
+---
+- name: Deploy Prover with Docker Compose
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: 1
+  tasks:
+    - name: Install Nvidia drivers
+      ansible.builtin.include_role:
+        name: nvidia
+      tags:
+        - nvidia
+        - nvidia-install
+    - name: Install Docker
+      ansible.builtin.include_role:
+        name: docker
+      vars:
+        docker_users:
+          - "{{ ansible_user | default('ubuntu') }}"
+      tags:
+        - docker
+        - docker-install
+    - name: Deploy Prover Docker Compose Stack
+      ansible.builtin.include_role:
+        name: prover
+      tags:
+        - prover
+        - docker

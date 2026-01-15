@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Use of this source code is governed by the Business Source License
 // as found in the LICENSE-BSL file.
@@ -71,8 +71,6 @@ library DeploymentLib {
     }
 }
 
-/// @notice Loader for the deployment config from a given deployment.toml file.
-/// @dev This library uses Forge cheat code and can only be used in Forge script or test environments.
 library ConfigLoader {
     /// Reference the vm address without needing to inherit from Script.
     Vm private constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -117,8 +115,6 @@ library ConfigLoader {
     }
 }
 
-/// @notice Parser for the deployment config given a TOML string.
-/// @dev This library uses Forge cheat code and can only be used in Forge script or test environments.
 library ConfigParser {
     using SafeCast for uint256;
 

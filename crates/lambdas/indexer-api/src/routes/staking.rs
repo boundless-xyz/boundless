@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,13 +39,13 @@ pub fn routes() -> Router<Arc<AppState>> {
         // Aggregate summary endpoint
         .route("/", get(get_staking_summary))
         // Epoch endpoints
-        .route("/epochs", get(get_all_epochs_summary))
-        .route("/epochs/:epoch", get(get_epoch_summary))
-        .route("/epochs/:epoch/addresses", get(get_epoch_leaderboard))
-        .route("/epochs/:epoch/addresses/:address", get(get_address_at_epoch))
+        .route("/epochs", get(get_staking_all_epochs_summary))
+        .route("/epochs/:epoch", get(get_staking_epoch_summary))
+        .route("/epochs/:epoch/addresses", get(get_staking_epoch_leaderboard))
+        .route("/epochs/:epoch/addresses/:address", get(get_staking_address_at_epoch))
         // Address endpoints
-        .route("/addresses", get(get_all_time_leaderboard))
-        .route("/addresses/:address", get(get_address_history))
+        .route("/addresses", get(get_staking_all_time_leaderboard))
+        .route("/addresses/:address", get(get_staking_address_history))
 }
 
 /// GET /v1/staking
@@ -112,13 +112,13 @@ async fn get_staking_summary_impl(state: Arc<AppState>) -> anyhow::Result<Stakin
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_all_epochs_summary(
+async fn get_staking_all_epochs_summary(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
     let params = params.validate();
 
-    match get_all_epochs_summary_impl(state, params).await {
+    match get_staking_all_epochs_summary_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
@@ -128,7 +128,7 @@ async fn get_all_epochs_summary(
     }
 }
 
-async fn get_all_epochs_summary_impl(
+async fn get_staking_all_epochs_summary_impl(
     state: Arc<AppState>,
     params: PaginationParams,
 ) -> anyhow::Result<LeaderboardResponse<EpochStakingSummary>> {
@@ -185,8 +185,11 @@ async fn get_all_epochs_summary_impl(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_epoch_summary(State(state): State<Arc<AppState>>, Path(epoch): Path<u64>) -> Response {
-    match get_epoch_summary_impl(state, epoch).await {
+async fn get_staking_epoch_summary(
+    State(state): State<Arc<AppState>>,
+    Path(epoch): Path<u64>,
+) -> Response {
+    match get_staking_epoch_summary_impl(state, epoch).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
@@ -196,7 +199,7 @@ async fn get_epoch_summary(State(state): State<Arc<AppState>>, Path(epoch): Path
     }
 }
 
-async fn get_epoch_summary_impl(
+async fn get_staking_epoch_summary_impl(
     state: Arc<AppState>,
     epoch: u64,
 ) -> anyhow::Result<EpochStakingSummary> {
@@ -245,14 +248,14 @@ async fn get_epoch_summary_impl(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_epoch_leaderboard(
+async fn get_staking_epoch_leaderboard(
     State(state): State<Arc<AppState>>,
     Path(epoch): Path<u64>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
     let params = params.validate();
 
-    match get_epoch_leaderboard_impl(state, epoch, params).await {
+    match get_staking_epoch_leaderboard_impl(state, epoch, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
@@ -262,7 +265,7 @@ async fn get_epoch_leaderboard(
     }
 }
 
-async fn get_epoch_leaderboard_impl(
+async fn get_staking_epoch_leaderboard_impl(
     state: Arc<AppState>,
     epoch: u64,
     params: PaginationParams,
@@ -321,7 +324,7 @@ async fn get_epoch_leaderboard_impl(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_address_at_epoch(
+async fn get_staking_address_at_epoch(
     State(state): State<Arc<AppState>>,
     Path((epoch, address_str)): Path<(u64, String)>,
 ) -> Response {
@@ -333,7 +336,7 @@ async fn get_address_at_epoch(
         }
     };
 
-    match get_address_at_epoch_impl(state, epoch, address).await {
+    match get_staking_address_at_epoch_impl(state, epoch, address).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
@@ -343,7 +346,7 @@ async fn get_address_at_epoch(
     }
 }
 
-async fn get_address_at_epoch_impl(
+async fn get_staking_address_at_epoch_impl(
     state: Arc<AppState>,
     epoch: u64,
     address: Address,
@@ -387,13 +390,13 @@ async fn get_address_at_epoch_impl(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_all_time_leaderboard(
+async fn get_staking_all_time_leaderboard(
     State(state): State<Arc<AppState>>,
     Query(params): Query<PaginationParams>,
 ) -> Response {
     let params = params.validate();
 
-    match get_all_time_leaderboard_impl(state, params).await {
+    match get_staking_all_time_leaderboard_impl(state, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=60"));
@@ -403,7 +406,7 @@ async fn get_all_time_leaderboard(
     }
 }
 
-async fn get_all_time_leaderboard_impl(
+async fn get_staking_all_time_leaderboard_impl(
     state: Arc<AppState>,
     params: PaginationParams,
 ) -> anyhow::Result<LeaderboardResponse<AggregateStakingEntry>> {
@@ -460,7 +463,7 @@ async fn get_all_time_leaderboard_impl(
         (status = 500, description = "Internal server error")
     )
 )]
-async fn get_address_history(
+async fn get_staking_address_history(
     State(state): State<Arc<AppState>>,
     Path(address_str): Path<String>,
     Query(params): Query<PaginationParams>,
@@ -475,7 +478,7 @@ async fn get_address_history(
 
     let params = params.validate();
 
-    match get_address_history_impl(state, address, params).await {
+    match get_staking_address_history_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control("public, max-age=300"));
@@ -485,7 +488,7 @@ async fn get_address_history(
     }
 }
 
-async fn get_address_history_impl(
+async fn get_staking_address_history_impl(
     state: Arc<AppState>,
     address: Address,
     params: PaginationParams,

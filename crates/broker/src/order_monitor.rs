@@ -1,4 +1,4 @@
-// Copyright 2025 Boundless Foundation, Inc.
+// Copyright 2026 Boundless Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -183,7 +183,7 @@ where
             config.batcher.txn_timeout
         };
 
-        let mut market = BoundlessMarketService::new(
+        let mut market = BoundlessMarketService::new_for_broker(
             market_addr,
             provider.clone(),
             provider.default_signer_address(),
@@ -477,8 +477,16 @@ where
             } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
                 self.skip_order(&order, "expired").await;
             } else if is_target_time_reached(&order, current_block_timestamp) {
-                tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
-                candidate_orders.push(order);
+                if self.market.is_fulfilled(order.request.id).await? {
+                    tracing::debug!(
+                    "Lock expiry timeout occurred, but 0x{:x} was already fulfilled by another prover. Skipping.",
+                    order.request.id
+                );
+                    self.skip_order(&order, "was fulfilled by other").await;
+                } else {
+                    tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
+                    candidate_orders.push(order);
+                }
             }
         }
 
@@ -1134,7 +1142,7 @@ pub(crate) mod tests {
         .unwrap();
 
         // Set up market service
-        let market_service = BoundlessMarketService::new(
+        let market_service = BoundlessMarketService::new_for_broker(
             market_address,
             provider.clone(),
             provider.default_signer_address(),
