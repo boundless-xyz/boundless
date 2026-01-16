@@ -54,7 +54,11 @@ fn parse_period_requestor_summary_row(row: &PgRow) -> Result<PeriodRequestorSumm
     let total_locked_and_fulfilled: i64 = row.try_get("total_locked_and_fulfilled")?;
     let total_secondary_fulfillments: i64 = row.try_get("total_secondary_fulfillments")?;
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
-    let locked_orders_fulfillment_rate_adjusted: f64 = row.try_get::<Option<f64>, _>("locked_orders_fulfillment_rate_adjusted").ok().flatten().unwrap_or(0.0);
+    let locked_orders_fulfillment_rate_adjusted: f64 = row
+        .try_get::<Option<f64>, _>("locked_orders_fulfillment_rate_adjusted")
+        .ok()
+        .flatten()
+        .unwrap_or(0.0);
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
     let best_peak_prove_mhz: f64 =
@@ -133,7 +137,11 @@ fn parse_all_time_requestor_summary_row(row: &PgRow) -> Result<AllTimeRequestorS
     let total_locked_and_fulfilled: i64 = row.try_get("total_locked_and_fulfilled")?;
     let total_secondary_fulfillments: i64 = row.try_get("total_secondary_fulfillments")?;
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
-    let locked_orders_fulfillment_rate_adjusted: f64 = row.try_get::<Option<f64>, _>("locked_orders_fulfillment_rate_adjusted").ok().flatten().unwrap_or(0.0);
+    let locked_orders_fulfillment_rate_adjusted: f64 = row
+        .try_get::<Option<f64>, _>("locked_orders_fulfillment_rate_adjusted")
+        .ok()
+        .flatten()
+        .unwrap_or(0.0);
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
     let best_peak_prove_mhz: f64 =
@@ -1737,7 +1745,8 @@ async fn get_requestor_leaderboard_impl(
             0.0
         };
 
-        let adjusted_fulfilled_query = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+        let adjusted_fulfilled_query =
+            "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
             JOIN proof_requests pr ON rs.request_digest = pr.request_digest
             WHERE rs.fulfilled_at >= $1
@@ -1750,9 +1759,8 @@ async fn get_requestor_leaderboard_impl(
             .bind(format!("{:x}", requestor_address))
             .fetch_optional(pool)
             .await?;
-        let adjusted_fulfilled: i64 = adjusted_fulfilled_row
-            .and_then(|row| row.try_get("count").ok())
-            .unwrap_or(0);
+        let adjusted_fulfilled: i64 =
+            adjusted_fulfilled_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
 
         let adjusted_expired_query = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
             FROM request_status rs
@@ -1768,9 +1776,8 @@ async fn get_requestor_leaderboard_impl(
             .bind(format!("{:x}", requestor_address))
             .fetch_optional(pool)
             .await?;
-        let adjusted_expired: i64 = adjusted_expired_row
-            .and_then(|row| row.try_get("count").ok())
-            .unwrap_or(0);
+        let adjusted_expired: i64 =
+            adjusted_expired_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
 
         let total_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
         let locked_orders_fulfillment_rate_adjusted = if total_outcomes_adjusted > 0 {
@@ -3610,7 +3617,10 @@ mod tests {
                     RequestId::new(requestor, i),
                     Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
                     shared_image_url.to_string(),
-                    RequestInput::builder().write_slice(&[0x41, 0x41, 0x41, 0x41]).build_inline().unwrap(),
+                    RequestInput::builder()
+                        .write_slice(&[0x41, 0x41, 0x41, 0x41])
+                        .build_inline()
+                        .unwrap(),
                     request.offer,
                 );
             }
@@ -3712,7 +3722,11 @@ mod tests {
         assert_eq!(regular_count, 3);
 
         let adjusted_count = db
-            .get_period_requestor_locked_and_fulfilled_count_adjusted(base_ts, base_ts + 1000, requestor)
+            .get_period_requestor_locked_and_fulfilled_count_adjusted(
+                base_ts,
+                base_ts + 1000,
+                requestor,
+            )
             .await
             .unwrap();
         assert_eq!(adjusted_count, 1);
@@ -3740,7 +3754,10 @@ mod tests {
                 RequestId::new(requestor, i),
                 Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
                 shared_image_url.to_string(),
-                RequestInput::builder().write_slice(&[0x42, 0x42, 0x42, 0x42]).build_inline().unwrap(),
+                RequestInput::builder()
+                    .write_slice(&[0x42, 0x42, 0x42, 0x42])
+                    .build_inline()
+                    .unwrap(),
                 Offer {
                     minPrice: U256::from(20000000000000u64),
                     maxPrice: U256::from(40000000000000u64),
@@ -3837,7 +3854,11 @@ mod tests {
         assert_eq!(regular_count, 3);
 
         let adjusted_count = db
-            .get_period_requestor_locked_and_expired_count_adjusted(base_ts, base_ts + 1000, requestor)
+            .get_period_requestor_locked_and_expired_count_adjusted(
+                base_ts,
+                base_ts + 1000,
+                requestor,
+            )
             .await
             .unwrap();
         assert_eq!(adjusted_count, 1);

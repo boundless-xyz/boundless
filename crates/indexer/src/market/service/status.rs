@@ -124,7 +124,8 @@ where
                 }
             });
 
-        RequestStatus {
+        #[allow(deprecated)]
+        let status = RequestStatus {
             request_digest: req.request_digest,
             request_id: req.request_id,
             request_status,
@@ -155,7 +156,7 @@ where
             slash_burned_amount: req.slash_burned_amount,
             program_cycles: req.program_cycles,
             total_cycles: req.total_cycles,
-            peak_prove_mhz: req.peak_prove_mhz,
+            peak_prove_mhz: None,
             effective_prove_mhz,
             cycle_status: req.cycle_status,
             lock_price,
@@ -173,7 +174,8 @@ where
             input_data: req.input_data,
             fulfill_journal: req.fulfill_journal,
             fulfill_seal: req.fulfill_seal,
-        }
+        };
+        status
     }
 
     pub(super) async fn update_request_statuses(

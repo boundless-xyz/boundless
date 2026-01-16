@@ -74,6 +74,8 @@ use utoipa::OpenApi;
         crate::routes::market::get_requestor_aggregates,
         crate::routes::market::get_requestor_cumulatives,
         crate::routes::market::list_requests_by_prover,
+        crate::routes::market::get_prover_aggregates,
+        crate::routes::market::get_prover_cumulatives,
     ),
     components(schemas(
         // Response models
@@ -134,6 +136,12 @@ use utoipa::OpenApi;
         crate::routes::market::ProverLeaderboardEntry,
         crate::routes::market::ProverLeaderboardResponse,
         crate::routes::market::ProverLeaderboardCursor,
+        crate::routes::market::ProverAggregatesParams,
+        crate::routes::market::ProverAggregateEntry,
+        crate::routes::market::ProverAggregatesResponse,
+        crate::routes::market::ProverCumulativesParams,
+        crate::routes::market::ProverCumulativeEntry,
+        crate::routes::market::ProverCumulativesResponse,
     ))
 )]
 pub struct ApiDoc;

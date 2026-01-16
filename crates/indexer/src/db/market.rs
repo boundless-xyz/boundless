@@ -336,7 +336,7 @@ pub struct ProverLeaderboardEntry {
     pub fees_earned: U256,
     pub collateral_earned: U256,
     pub median_lock_price_per_cycle: Option<U256>,
-    pub peak_prove_mhz: f64,
+    pub best_effective_prove_mhz: f64,
     pub locked_order_fulfillment_rate: f32,
     pub last_activity_time: u64,
 }
@@ -444,6 +444,7 @@ pub struct RequestStatus {
     pub slash_burned_amount: Option<String>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
+    #[deprecated(note = "Use effective_prove_mhz instead. This field is always None.")]
     pub peak_prove_mhz: Option<f64>,
     pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
@@ -507,8 +508,6 @@ pub struct RequestComprehensive {
     pub fulfill_tx_hash: Option<B256>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<f64>,
-    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub fulfill_journal: Option<String>,
     pub fulfill_seal: Option<String>,
@@ -2999,8 +2998,6 @@ impl IndexerDb for MarketDb {
                     fulfill_tx_hash,
                     program_cycles,
                     total_cycles,
-                    peak_prove_mhz: None,      // TODO
-                    effective_prove_mhz: None, // TODO
                     cycle_status,
                     fulfill_journal: None, // TODO
                     fulfill_seal: None,    // Will be populated from proofs table below

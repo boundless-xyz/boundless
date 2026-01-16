@@ -750,9 +750,11 @@ where
         };
 
         let locked_orders_fulfillment_rate_adjusted = {
-            let total_locked_outcomes_adjusted = total_locked_and_fulfilled_adjusted + total_locked_and_expired_adjusted;
+            let total_locked_outcomes_adjusted =
+                total_locked_and_fulfilled_adjusted + total_locked_and_expired_adjusted;
             if total_locked_outcomes_adjusted > 0 {
-                (total_locked_and_fulfilled_adjusted as f32 / total_locked_outcomes_adjusted as f32) * 100.0
+                (total_locked_and_fulfilled_adjusted as f32 / total_locked_outcomes_adjusted as f32)
+                    * 100.0
             } else {
                 0.0
             }
