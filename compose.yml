@@ -334,12 +334,10 @@ services:
       rest_api:
         condition: service_healthy
     profiles: [caddy]
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     environment:
       CADDY_DOMAIN: ${CADDY_DOMAIN:-:80}
-      CADDY_API_HOST: ${CADDY_API_HOST:-rest_api}
+      CADDY_API_HOST: ${CADDY_API_HOST:-127.0.0.1}
       CADDY_API_PORT: ${CADDY_API_PORT:-8081}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
       CADDY_AUTH_USER: ${CADDY_AUTH_USER:-}
