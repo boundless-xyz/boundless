@@ -48,8 +48,8 @@ use crate::{
         MarketPricing, MarketPricingConfigBuilder, PriceProviderArc, StandardPriceProvider,
     },
     request_builder::{
-        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, RequestBuilder,
-        RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
+        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, ParameterizationMode,
+        RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
         StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
     },
     storage::{
@@ -434,6 +434,24 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the funding mode for onchain requests.
     pub fn with_funding_mode(self, funding_mode: FundingMode) -> Self {
         Self { funding_mode, ..self }
+    }
+
+    /// Set the parameterization mode for the offer layer.
+    ///
+    /// The parameterization mode is used to define the offering parameters for the request.
+    /// The fulfillment parameterization mode is [ParameterizationMode::fulfillment()], which is the default.
+    /// The latency parameterization mode is [ParameterizationMode::latency()], which is faster and allows for faster fulfillment,
+    /// at the cost of higher prices and lower fulfillment guarantees.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use boundless_market::Client;
+    /// use boundless_market::request_builder::ParameterizationMode;
+    ///
+    /// Client::builder().with_parameterization_mode(ParameterizationMode::latency());
+    /// ```
+    pub fn with_parameterization_mode(self, parameterization_mode: ParameterizationMode) -> Self {
+        self.config_offer_layer(|config| config.parameterization_mode(parameterization_mode))
     }
 
     /// Set additional RPC URLs for automatic failover.

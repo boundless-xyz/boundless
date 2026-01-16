@@ -16,6 +16,7 @@ use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
     price_provider::PriceProviderArc,
+    request_builder::ParameterizationMode,
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
     LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
@@ -31,6 +32,10 @@ use alloy::{
 use anyhow::{Context, Result};
 use clap::Args;
 use derive_builder::Builder;
+
+pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
+pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
+pub(crate) const DEFAULT_MAX_TIMEOUT: u32 = 14400; // 4 hours
 
 struct CollateralRecommendation {
     default: U256,
@@ -123,6 +128,25 @@ fn check_secondary_performance_warning(
 #[non_exhaustive]
 #[derive(Clone, Builder)]
 pub struct OfferLayerConfig {
+    /// Parameterization mode.
+    ///
+    /// Defines the offering parameters for the request based on the mode:
+    /// - [ParameterizationMode::fulfillment] is a more conservative mode that ensures more provers can fulfill the request.
+    /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees.
+    ///
+    /// The default is [ParameterizationMode::fulfillment()], which is the default fulfillment mode.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
+    /// use boundless_market::request_builder::ParameterizationMode;
+    ///
+    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
+    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
+    /// ```
+    #[builder(setter(into), default = "Some(ParameterizationMode::fulfillment())")]
+    pub parameterization_mode: Option<ParameterizationMode>,
+
     /// Minimum price per RISC Zero execution cycle, in wei.
     #[builder(setter(into), default = "U256::ZERO")]
     pub min_price_per_cycle: U256,
@@ -132,20 +156,20 @@ pub struct OfferLayerConfig {
     pub max_price_per_cycle: U256,
 
     /// Time in seconds to delay the start of bidding after request creation.
-    #[builder(default = "15")]
-    pub bidding_start_delay: u64,
+    #[builder(setter(strip_option), default)]
+    pub bidding_start_delay: Option<u64>,
 
     /// Duration in seconds for the price to ramp up from min to max.
-    #[builder(default = "60")]
-    pub ramp_up_period: u32,
+    #[builder(setter(strip_option), default)]
+    pub ramp_up_period: Option<u32>,
 
     /// Time in seconds that a prover has to fulfill a locked request.
-    #[builder(default = "600")]
-    pub lock_timeout: u32,
+    #[builder(setter(strip_option), default)]
+    pub lock_timeout: Option<u32>,
 
     /// Maximum time in seconds that a request can remain active.
-    #[builder(default = "1200")]
-    pub timeout: u32,
+    #[builder(setter(strip_option), default)]
+    pub timeout: Option<u32>,
 
     /// Lock collateral
     #[builder(setter(strip_option, into), default)]
@@ -506,9 +530,38 @@ where
             params.max_price.unwrap()
         };
 
-        let bidding_start = params
-            .bidding_start
-            .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
+        let (lock_timeout, timeout, ramp_up_period, ramp_up_start) =
+            if let Some(parameterization_mode) = self.config.parameterization_mode {
+                let ramp_up_start = self
+                    .config
+                    .bidding_start_delay
+                    .unwrap_or(parameterization_mode.recommended_ramp_up_start(cycle_count));
+                let ramp_up_period = self
+                    .config
+                    .ramp_up_period
+                    .unwrap_or(parameterization_mode.recommended_ramp_up_period(cycle_count));
+                let recommended_timeout =
+                    parameterization_mode.recommended_timeout(cycle_count) + ramp_up_period;
+                let lock_timeout = self
+                    .config
+                    .lock_timeout
+                    .unwrap_or(recommended_timeout.min(DEFAULT_MAX_TIMEOUT));
+                let timeout = self.config.timeout.unwrap_or(
+                    (recommended_timeout * 2 - ramp_up_period).min(DEFAULT_MAX_TIMEOUT * 2),
+                );
+                (lock_timeout, timeout, ramp_up_period, ramp_up_start)
+            } else {
+                let lock_timeout = DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD;
+                let timeout =
+                    ((DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD) * 2) - DEFAULT_RAMP_UP_PERIOD;
+                let ramp_up_period = DEFAULT_RAMP_UP_PERIOD;
+                let ramp_up_start = now_timestamp() + 15;
+                tracing::warn!("Using default ramp up start: {}", ramp_up_start);
+                tracing::warn!("Using default ramp up period: {}", ramp_up_period);
+                tracing::warn!("Using default lock timeout: {}", lock_timeout);
+                tracing::warn!("Using default timeout: {}", timeout);
+                (lock_timeout, timeout, ramp_up_period, ramp_up_start)
+            };
 
         let chain_id = self.provider.get_chain_id().await?;
         let default_collaterals = default_lock_collateral(chain_id);
@@ -517,10 +570,10 @@ where
         let mut offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
-            rampUpStart: bidding_start,
-            rampUpPeriod: params.ramp_up_period.unwrap_or(self.config.ramp_up_period),
-            lockTimeout: params.lock_timeout.unwrap_or(self.config.lock_timeout),
-            timeout: params.timeout.unwrap_or(self.config.timeout),
+            rampUpStart: params.bidding_start.unwrap_or(ramp_up_start),
+            rampUpPeriod: params.ramp_up_period.unwrap_or(ramp_up_period),
+            lockTimeout: params.lock_timeout.unwrap_or(lock_timeout),
+            timeout: params.timeout.unwrap_or(timeout),
             lockCollateral: params.lock_collateral.unwrap_or(lock_collateral),
         };
 
