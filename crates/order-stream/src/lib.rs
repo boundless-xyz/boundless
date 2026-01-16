@@ -16,11 +16,12 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use alloy::providers::fillers::{ChainIdFiller, FillProvider, JoinFill};
-use alloy::providers::Identity;
 use alloy::{
     primitives::{utils::parse_ether, Address, U256},
-    providers::{Provider, ProviderBuilder, RootProvider},
+    providers::{
+        fillers::{ChainIdFiller, FillProvider, JoinFill},
+        Identity, Provider, ProviderBuilder, RootProvider,
+    },
     rpc::client::RpcClient,
     transports::layers::RetryBackoffLayer,
 };

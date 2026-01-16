@@ -2203,8 +2203,7 @@ impl SetupInteractive {
         network: &str,
         address: &str,
     ) -> Result<Option<String>> {
-        use alloy::primitives::Address;
-        use alloy::providers::ProviderBuilder;
+        use alloy::{primitives::Address, providers::ProviderBuilder};
 
         // Determine veZKC address based on network
         let vezkc_address = match network {

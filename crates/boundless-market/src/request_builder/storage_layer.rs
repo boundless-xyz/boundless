@@ -14,10 +14,8 @@
 
 use super::{Adapt, Layer, RequestParams};
 use crate::{
-    contracts::RequestInput,
-    input::GuestEnv,
-    storage::{StandardStorageProvider, StorageProvider},
-    util::NotProvided,
+    contracts::RequestInput, input::GuestEnv, storage::StorageUploader, util::NotProvided,
+    StandardUploader,
 };
 use anyhow::{bail, Context};
 use derive_builder::Builder;
@@ -44,12 +42,12 @@ pub struct StorageLayerConfig {
 /// inputs directly in the request as inline data.
 #[non_exhaustive]
 #[derive(Clone)]
-pub struct StorageLayer<S = StandardStorageProvider> {
-    /// [StorageProvider] used to upload programs and inputs.
+pub struct StorageLayer<U = StandardUploader> {
+    /// [StorageUploader] used to upload programs and inputs.
     ///
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
     /// [StorageLayerConfig::inline_input_max_bytes].
-    pub storage_provider: Option<S>,
+    pub storage_provider: Option<U>,
 
     /// Configuration controlling storage behavior.
     pub config: StorageLayerConfig,
@@ -66,7 +64,7 @@ impl StorageLayerConfig {
 }
 
 impl<S: Clone> From<Option<S>> for StorageLayer<S> {
-    /// Creates a [StorageLayer] from the given [StorageProvider], using default values for all
+    /// Creates a [StorageLayer] from the given [StandardUploader], using default values for all
     /// other fields.
     ///
     /// Provided value is an [Option] such that whether the storage provider is available can be
@@ -78,7 +76,7 @@ impl<S: Clone> From<Option<S>> for StorageLayer<S> {
 
 impl<S> From<StorageLayerConfig> for StorageLayer<S>
 where
-    S: StorageProvider + Default,
+    S: StorageUploader + Default,
 {
     fn from(config: StorageLayerConfig) -> Self {
         Self { storage_provider: Some(Default::default()), config }
@@ -87,7 +85,7 @@ where
 
 impl<S> Default for StorageLayer<S>
 where
-    S: StorageProvider + Default,
+    S: StorageUploader + Default,
 {
     fn default() -> Self {
         StorageLayer { storage_provider: Some(Default::default()), config: Default::default() }
@@ -114,8 +112,7 @@ impl Default for StorageLayerConfig {
 
 impl<S> StorageLayer<S>
 where
-    S: StorageProvider,
-    S::Error: std::error::Error + Send + Sync + 'static,
+    S: StorageUploader,
 {
     /// Uploads a program binary and returns its URL.
     ///
@@ -175,8 +172,7 @@ impl<S> StorageLayer<S> {
 
 impl<S> Layer<(&[u8], &GuestEnv)> for StorageLayer<S>
 where
-    S: StorageProvider,
-    S::Error: std::error::Error + Send + Sync + 'static,
+    S: StorageUploader,
 {
     type Error = anyhow::Error;
     type Output = (Url, RequestInput);
@@ -203,8 +199,7 @@ impl Layer<&GuestEnv> for StorageLayer<NotProvided> {
 
 impl<S> Adapt<StorageLayer<S>> for RequestParams
 where
-    S: StorageProvider,
-    S::Error: std::error::Error + Send + Sync + 'static,
+    S: StorageUploader,
 {
     type Output = RequestParams;
     type Error = anyhow::Error;

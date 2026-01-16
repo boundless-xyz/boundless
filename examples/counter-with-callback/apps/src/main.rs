@@ -21,7 +21,7 @@ use crate::counter::{ICounter, ICounter::ICounterInstance};
 use alloy::{primitives::Address, signers::local::PrivateKeySigner, sol_types::SolCall};
 use anyhow::{Context, Result};
 use boundless_market::{
-    request_builder::RequirementParams, Client, Deployment, StorageProviderConfig,
+    request_builder::RequirementParams, Client, Deployment, StorageUploaderConfig,
 };
 use clap::Parser;
 use guest_util::ECHO_ELF;
@@ -53,7 +53,7 @@ struct Args {
     counter_address: Address,
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    storage_config: StorageUploaderConfig,
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
 }
@@ -82,7 +82,8 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config)?
+        .with_storage_provider_config(&args.storage_config)
+        .await?
         .with_private_key(args.private_key)
         .build()
         .await
@@ -140,7 +141,7 @@ mod tests {
         providers::{Provider, ProviderBuilder, WalletProvider},
     };
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageProviderType;
+    use boundless_market::storage::StorageUploaderType;
     use boundless_test_utils::{
         guests::ECHO_ID,
         market::{create_test_ctx, TestCtx},
@@ -205,8 +206,8 @@ mod tests {
             counter_address,
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
-            storage_config: StorageProviderConfig::builder()
-                .storage_provider(StorageProviderType::Mock)
+            storage_config: StorageUploaderConfig::builder()
+                .storage_provider(StorageUploaderType::Mock)
                 .build()
                 .unwrap(),
             deployment: Some(ctx.deployment),

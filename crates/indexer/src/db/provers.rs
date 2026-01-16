@@ -1525,8 +1525,10 @@ async fn get_prover_last_activity_times_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::market::{RequestStatusType, SlashedStatus};
-    use crate::test_utils::TestDb;
+    use crate::{
+        db::market::{RequestStatusType, SlashedStatus},
+        test_utils::TestDb,
+    };
     use alloy::primitives::{B256, U256};
 
     async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {

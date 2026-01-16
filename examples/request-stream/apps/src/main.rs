@@ -45,7 +45,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{RequestId, RequestInput},
-    Client, Deployment, StorageProvider, StorageProviderConfig,
+    storage::{StorageUploader, StorageUploaderConfig},
+    Client, Deployment,
 };
 use clap::Parser;
 use futures::{Stream, StreamExt};
@@ -84,7 +85,7 @@ struct Args {
     blocks_per_request: u64,
     /// Configuration for the StorageProvider to use for uploading programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    storage_config: StorageUploaderConfig,
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
 }
@@ -318,7 +319,8 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url) // Ethereum RPC endpoint
         .with_deployment(args.deployment) // Contract addresses (optional, uses defaults if not provided)
-        .with_storage_provider_config(&args.storage_config)? // Where to upload programs/inputs
+        .with_storage_provider_config(&args.storage_config)
+        .await? // Where to upload programs/inputs
         .with_private_key(args.private_key.clone()) // Your wallet for signing transactions
         .build()
         .await?;
@@ -458,7 +460,7 @@ mod tests {
     use super::*;
     use alloy::node_bindings::Anvil;
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageProviderType;
+    use boundless_market::storage::StorageUploaderType;
     use boundless_test_utils::market::create_test_ctx;
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
@@ -488,8 +490,8 @@ mod tests {
                 rpc_url: anvil.endpoint_url(),
                 private_key: ctx.customer_signer,
                 blocks_per_request: 2, // Use default value for testing
-                storage_config: StorageProviderConfig::builder()
-                    .storage_provider(StorageProviderType::Mock)
+                storage_config: StorageUploaderConfig::builder()
+                    .storage_provider(StorageUploaderType::Mock)
                     .build()
                     .unwrap(),
                 deployment: Some(ctx.deployment),
@@ -551,11 +553,12 @@ mod tests {
             .with_rpc_url(anvil.endpoint_url())
             .with_deployment(Some(ctx.deployment))
             .with_storage_provider_config(
-                &StorageProviderConfig::builder()
-                    .storage_provider(StorageProviderType::Mock)
+                &StorageUploaderConfig::builder()
+                    .storage_provider(StorageUploaderType::Mock)
                     .build()
                     .unwrap(),
-            )?
+            )
+            .await?
             .build()
             .await?;
 

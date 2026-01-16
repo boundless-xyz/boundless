@@ -84,7 +84,7 @@ pub mod selector;
 pub mod storage;
 #[cfg(not(target_os = "zkvm"))]
 pub use storage::{
-    override_gateway, StandardStorageProvider, StorageProvider, StorageProviderConfig,
+    DefaultDownloader, StandardUploader, StorageDownloaderConfig, StorageUploaderConfig,
 };
 
 /// Utility functions and types used elsewhere.
