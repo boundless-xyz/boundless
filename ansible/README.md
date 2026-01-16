@@ -170,8 +170,9 @@ The repository includes automated deployment via GitHub Actions (`.github/workfl
 
 ### Host Groups
 
-- **nightly**: Deployed daily at 1am UTC from `main` branch
-- **release**: Deployed manually using official release tags
+- **staging**: Deployed manually for testing (Base Sepolia)
+- **nightly**: Deployed daily at 1am UTC from `main` branch (Base Mainnet)
+- **release**: Deployed manually using official release tags (Base Mainnet)
 
 ### Required Secrets
 
@@ -193,7 +194,7 @@ base64 -i inventory.yml | tr -d '\n'
 1. Go to Actions → Prover Deployment
 2. Click "Run workflow"
 3. Select:
-   - **Target**: `nightly`, `release`, or `all`
+   - **Target**: `staging`, `nightly`, `release`, or `all`
    - **Playbook**: `prover.yml` or `monitoring.yml`
 
 ### Scheduled Deployment

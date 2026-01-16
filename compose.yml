@@ -74,8 +74,6 @@ x-broker-environment: &broker-environment
 
 x-gpu-prove-agent: &gpu-prove-agent
   <<: *agent-common
-  mem_limit: 4G
-  cpus: 4
   environment:
     <<: *base-environment
     REDIS_TTL: ${REDIS_TTL:-57600}

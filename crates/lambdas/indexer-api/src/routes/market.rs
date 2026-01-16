@@ -2709,10 +2709,7 @@ async fn list_requestors_impl(
 
             RequestorLeaderboardEntry {
                 chain_id: state.chain_id,
-                requestor_address: alloy::primitives::Address::to_checksum(
-                    &entry.requestor_address,
-                    None,
-                ),
+                requestor_address: format!("{:#x}", entry.requestor_address),
                 orders_requested: entry.orders_requested,
                 orders_locked: entry.orders_locked,
                 cycles_requested: entry.cycles_requested.to_string(),
@@ -2897,10 +2894,7 @@ async fn list_provers_impl(
 
             ProverLeaderboardEntry {
                 chain_id: state.chain_id,
-                prover_address: alloy::primitives::Address::to_checksum(
-                    &entry.prover_address,
-                    None,
-                ),
+                prover_address: format!("{:#x}", entry.prover_address),
                 orders_locked: entry.orders_locked,
                 orders_fulfilled: entry.orders_fulfilled,
                 cycles: entry.cycles.to_string(),

@@ -35,6 +35,7 @@ export interface ManagerComponentConfig extends BaseComponentConfig {
     maxFileSize: string;
     maxMcycleLimit: string;
     maxConcurrentProofs: number;
+    maxConcurrentPreflights: number;
     maxJournalBytes: number;
     balanceWarnThreshold: string;
     balanceErrorThreshold: string;
