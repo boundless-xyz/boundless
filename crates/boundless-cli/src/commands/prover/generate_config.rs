@@ -22,6 +22,9 @@ use boundless_market::indexer_client::IndexerClient;
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
+use boundless_market::{
+    Deployment, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
+};
 use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
@@ -32,7 +35,6 @@ use crate::commands::prover::benchmark::BenchmarkResult;
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
-use boundless_market::Deployment;
 
 // Priority requestor list URLs
 const PRIORITY_REQUESTOR_LIST_STANDARD: &str =
@@ -41,10 +43,6 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.large.json";
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
-
-// Peak performance thresholds for enabling requestor lists (kHz)
-const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
-const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
 
 // Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
 // orders locked by other provers that exceeded their lock timeout

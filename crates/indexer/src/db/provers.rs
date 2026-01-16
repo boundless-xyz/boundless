@@ -1305,7 +1305,7 @@ async fn get_prover_leaderboard_impl(
                 LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles,
                 LPAD(SUM(CAST(total_fees_earned AS NUMERIC))::TEXT, 78, '0') as fees_earned,
                 LPAD(SUM(CAST(total_collateral_earned AS NUMERIC))::TEXT, 78, '0') as collateral_earned,
-                MAX(best_peak_prove_mhz) as peak_prove_mhz
+                MAX(best_effective_prove_mhz) as best_effective_prove_mhz
             FROM {}
             WHERE period_timestamp >= $1 AND period_timestamp < $2
             GROUP BY prover_address
@@ -1328,7 +1328,7 @@ async fn get_prover_leaderboard_impl(
                 LPAD(SUM(CAST(total_cycles AS NUMERIC))::TEXT, 78, '0') as cycles,
                 LPAD(SUM(CAST(total_fees_earned AS NUMERIC))::TEXT, 78, '0') as fees_earned,
                 LPAD(SUM(CAST(total_collateral_earned AS NUMERIC))::TEXT, 78, '0') as collateral_earned,
-                MAX(best_peak_prove_mhz) as peak_prove_mhz
+                MAX(best_effective_prove_mhz) as best_effective_prove_mhz
             FROM {}
             WHERE period_timestamp >= $1 AND period_timestamp < $2
             GROUP BY prover_address
@@ -1369,7 +1369,7 @@ async fn get_prover_leaderboard_impl(
         let cycles_str: String = row.try_get("cycles")?;
         let fees_str: String = row.try_get("fees_earned")?;
         let collateral_str: String = row.try_get("collateral_earned")?;
-        let peak_prove_mhz: f64 = row.try_get("peak_prove_mhz")?;
+        let best_effective_prove_mhz: f64 = row.try_get("best_effective_prove_mhz")?;
 
         let cycles = padded_string_to_u256(&cycles_str)?;
         let fees_earned = padded_string_to_u256(&fees_str)?;
@@ -1390,7 +1390,7 @@ async fn get_prover_leaderboard_impl(
             fees_earned,
             collateral_earned,
             median_lock_price_per_cycle: None,
-            peak_prove_mhz,
+            best_effective_prove_mhz,
             locked_order_fulfillment_rate,
             last_activity_time: 0,
         });
@@ -1523,6 +1523,7 @@ async fn get_prover_last_activity_times_impl(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::db::market::{RequestStatusType, SlashedStatus};
@@ -1595,6 +1596,7 @@ mod tests {
                 total_cycles: None,
                 peak_prove_mhz: None,
                 effective_prove_mhz: None,
+                prover_effective_prove_mhz: None,
                 cycle_status: None,
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("100".to_string()),
@@ -1650,6 +1652,7 @@ mod tests {
                 total_cycles: Some(U256::from(1015800)),
                 peak_prove_mhz: Some(1000.0),
                 effective_prove_mhz: Some(950.0),
+                prover_effective_prove_mhz: Some(950.0),
                 cycle_status: Some("COMPLETED".to_string()),
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("100".to_string()),
@@ -1704,6 +1707,7 @@ mod tests {
             total_cycles: Some(U256::from(2031600)),
             peak_prove_mhz: Some(2000.0),
             effective_prove_mhz: Some(1900.0),
+            prover_effective_prove_mhz: Some(1900.0),
             cycle_status: Some("COMPLETED".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("100".to_string()),
@@ -1757,6 +1761,7 @@ mod tests {
             total_cycles: Some(U256::from(3047400)),
             peak_prove_mhz: Some(3000.0),
             effective_prove_mhz: Some(2800.0),
+            prover_effective_prove_mhz: Some(2800.0),
             cycle_status: Some("COMPLETED".to_string()),
             lock_price: None,
             lock_price_per_cycle: None,
@@ -2063,6 +2068,7 @@ mod tests {
             total_cycles: Some(U256::from(1100000)),
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: Some(u256_to_padded_string(lock_price_per_cycle)),
             lock_price_per_cycle: Some(u256_to_padded_string(lock_price_per_cycle)),
