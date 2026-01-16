@@ -22,7 +22,9 @@ use boundless_market::indexer_client::IndexerClient;
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
-use boundless_market::{Deployment, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ};
+use boundless_market::{
+    Deployment, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
+};
 use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
