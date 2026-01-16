@@ -694,9 +694,9 @@ impl ParameterizationMode {
     /// Creates a parameterization mode for fulfillment.
     ///
     /// This mode is more conservative and ensures more provers can fulfill the request.
-    /// 
+    ///
     /// Sets the ramp up period as 10x the executor time assuming the executor speed is 30 MHz.
-    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times 
+    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times
     /// assuming the proving speed is 500 kHz and the executor speed is 30 MHz.
     /// Sets the timeout as 2 times the lock timeout.
     pub fn fulfillment() -> Self {
@@ -712,9 +712,9 @@ impl ParameterizationMode {
     ///
     /// This mode is more aggressive and allows for faster fulfillment,
     /// at the cost of higher prices and lower fulfillment guarantees.
-    /// 
+    ///
     /// Sets the ramp up period as 5x the executor time assuming the executor speed is 50 MHz.
-    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times 
+    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times
     /// assuming the proving speed is 3 MHz and the executor speed is 50 MHz.
     /// Sets the timeout as 2 times the lock timeout.
     pub fn latency() -> Self {
