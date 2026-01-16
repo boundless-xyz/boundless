@@ -1246,7 +1246,9 @@ impl<P: Provider> BoundlessMarketService<P> {
         let start_block = lower_bound
             .unwrap_or(upper_block.saturating_sub(config.block_range * config.max_iterations));
 
-        let iterations = if lower_bound.is_some() && upper_bound.is_some() {
+        // Calculate the number of iterations needed. We either use the provided lower bound to
+        // determine the number of iterations, or we default to the max iterations.
+        let iterations = if lower_bound.is_some() {
             ((upper_block - start_block) / config.block_range).saturating_add(1)
         } else {
             config.max_iterations
@@ -1395,11 +1397,6 @@ impl<P: Provider> BoundlessMarketService<P> {
         upper_bound: Option<u64>,
     ) -> Result<RequestSubmittedEventData, MarketError> {
         let config = self.event_query_config.clone();
-        tracing::info!(
-            "block range: {:?}, max iterations: {:?}",
-            config.block_range,
-            config.max_iterations
-        );
         self.retry_query(
             &config,
             || async {
