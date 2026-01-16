@@ -18,6 +18,9 @@ prover_state: started
 # User to run Docker Compose commands
 prover_user: "{{ ansible_user | default('ubuntu') }}"
 
+# Docker runtime (nvidia for GPU, runc for CPU-only)
+prover_docker_runtime: "nvidia"
+
 # Database
 prover_postgres_host: "postgres"
 prover_postgres_port: "5432"
