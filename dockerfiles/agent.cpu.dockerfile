@@ -55,6 +55,5 @@ RUN apt-get update -q -y \
 
 # Main agent (CPU-only)
 COPY --from=builder /src/agent /app/agent
-COPY --from=builder /usr/local/risc0 /usr/local/risc0
 
 ENTRYPOINT ["/app/agent"]
