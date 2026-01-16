@@ -86,9 +86,8 @@ impl Default for EventQueryConfig {
     /// The default enables searching back ~350,000 blocks, which is around 1 week on Base Mainnet.
     fn default() -> Self {
         Self {
-            // TODO: change back defaults
-            block_range: 9,
-            max_iterations: 10,
+            block_range: 499,
+            max_iterations: 500,
             retry_config: Some(EventRetryConfig { retries: 1, retry_delay_ms: Some(5000) }),
         }
     }
