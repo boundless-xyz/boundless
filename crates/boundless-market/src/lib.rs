@@ -36,6 +36,13 @@ pub mod client;
 #[cfg(not(target_os = "zkvm"))]
 pub use client::{Client, StandardClient};
 
+/// Client module for interacting with the Boundless Indexer API.
+#[cfg(not(target_os = "zkvm"))]
+pub mod indexer_client;
+/// Test helpers for testing the Boundless Market.
+#[cfg(not(target_os = "zkvm"))]
+pub mod test_helpers;
+
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
 #[cfg(not(target_os = "zkvm"))]
@@ -76,6 +83,10 @@ pub use request_builder::ParameterizationMode;
 /// Module providing blake3-groth16 related integrations.
 #[cfg(all(feature = "blake3-groth16", not(target_os = "zkvm")))]
 pub mod blake3_groth16;
+
+/// Module providing market pricing functionality.
+#[cfg(not(target_os = "zkvm"))]
+pub mod price_provider;
 
 /// Selector module implementing utility functions for supported selectors.
 #[cfg(not(target_os = "zkvm"))]

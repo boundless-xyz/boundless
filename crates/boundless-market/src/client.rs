@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::max, future::Future, str::FromStr, time::Duration};
+use std::{cmp::max, future::Future, str::FromStr, sync::Arc, time::Duration};
 
 use alloy::{
     network::{Ethereum, EthereumWallet, TxSigner},
@@ -41,8 +41,12 @@ use crate::{
     },
     deployments::Deployment,
     dynamic_gas_filler::{DynamicGasFiller, PriorityMode},
+    indexer_client::IndexerClient,
     nonce_layer::NonceProvider,
     order_stream_client::OrderStreamClient,
+    price_provider::{
+        MarketPricing, MarketPricingConfigBuilder, PriceProviderArc, StandardPriceProvider,
+    },
     request_builder::{
         FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, ParameterizationMode,
         RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
@@ -101,6 +105,9 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
     balance_alerts: Option<BalanceAlertConfig>,
+    /// Optional price provider for fetching market prices.
+    /// If set, takes precedence over the indexer URL from [Deployment]. Allows using any [PriceProviderArc] implementation.
+    price_provider: Option<PriceProviderArc>,
     /// Configuration builder for [OfferLayer], part of [StandardRequestBuilder].
     pub offer_layer_config: OfferLayerConfigBuilder,
     /// Configuration builder for [StorageLayer], part of [StandardRequestBuilder].
@@ -129,6 +136,7 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             storage_provider: None,
             tx_timeout: None,
             balance_alerts: None,
+            price_provider: None,
             offer_layer_config: Default::default(),
             storage_layer_config: Default::default(),
             request_id_layer_config: Default::default(),
@@ -304,6 +312,8 @@ impl<St, Si> ClientBuilder<St, Si> {
         Self: ClientProviderBuilder<Error = anyhow::Error>,
     {
         let all_urls = self.collect_rpc_urls()?;
+        // It's safe to unwrap here because we know there's at least one URL.
+        let first_rpc_url = all_urls.first().cloned().unwrap();
         let provider = self.build_provider(all_urls).await?;
 
         // Resolve the deployment information.
@@ -346,13 +356,44 @@ impl<St, Si> ClientBuilder<St, Si> {
             })
             .transpose()?;
 
+        // Build the price provider - use explicit provider if set, otherwise create from deployment.indexer_url
+        let price_provider: Option<PriceProviderArc> = if let Some(provider) =
+            self.price_provider.clone()
+        {
+            Some(provider)
+        } else if let Some(url_str) = deployment.indexer_url.as_ref() {
+            let url = Url::parse(url_str.as_ref()).with_context(|| {
+                format!("Failed to parse indexer URL from deployment: {}", url_str)
+            })?;
+            let indexer_client = IndexerClient::new(url).with_context(|| {
+                format!("Failed to create indexer client from deployment indexer URL: {}", url_str)
+            })?;
+            let market_pricing = MarketPricing::new(
+                first_rpc_url,
+                MarketPricingConfigBuilder::default()
+                    .deployment(deployment.clone())
+                    .build()
+                    .with_context(|| {
+                        format!(
+                            "Failed to build MarketPricingConfig for deployment: {deployment:?}",
+                        )
+                    })?,
+            );
+            Some(Arc::new(StandardPriceProvider::new(indexer_client).with_fallback(market_pricing)))
+        } else {
+            None
+        };
+
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(StorageLayer::new(
                 self.storage_provider.clone(),
                 self.storage_layer_config.build()?,
             ))
-            .offer_layer(OfferLayer::new(provider.clone(), self.offer_layer_config.build()?))
+            .offer_layer(
+                OfferLayer::new(provider.clone(), self.offer_layer_config.build()?)
+                    .with_price_provider(price_provider),
+            )
             .request_id_layer(RequestIdLayer::new(
                 boundless_market.clone(),
                 self.request_id_layer_config.build()?,
@@ -482,6 +523,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             rpc_urls: self.rpc_urls,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
+            price_provider: self.price_provider.clone(),
             offer_layer_config: self.offer_layer_config,
             storage_layer_config: self.storage_layer_config,
             request_id_layer_config: self.request_id_layer_config,
@@ -516,6 +558,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             signer: self.signer,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
+            price_provider: self.price_provider.clone(),
             request_finalizer_config: self.request_finalizer_config,
             request_id_layer_config: self.request_id_layer_config,
             storage_layer_config: self.storage_layer_config,
@@ -535,6 +578,32 @@ impl<St, Si> ClientBuilder<St, Si> {
             Err(e) => return Err(e),
         };
         Ok(self.with_storage_provider(storage_provider))
+    }
+
+    /// Set a custom price provider for fetching market prices.
+    ///
+    /// If provided, the [OfferLayer] will use market prices (p10 and p99 percentiles)
+    /// when [`OfferParams`](crate::request_builder::OfferParams) doesn't explicitly set min_price or max_price.
+    ///
+    /// This method allows you to use any implementation of [`PriceProvider`](crate::price_provider::PriceProvider), not just [IndexerClient].
+    /// This is useful for testing with mock providers or using alternative price data sources.
+    ///
+    /// If not set, the indexer URL from the [Deployment] will be used to create an [IndexerClient].
+    /// The price provider takes precedence over the deployment's indexer URL.
+    ///
+    /// ```rust
+    /// # use boundless_market::client::ClientBuilder;
+    /// # use boundless_market::request_builder::PriceProviderArc;
+    /// // Example: Use a custom price provider
+    /// // let custom_provider: PriceProviderArc = ...;
+    /// // ClientBuilder::new().with_price_provider(Some(custom_provider));
+    /// ```
+    pub fn with_price_provider(
+        mut self,
+        price_provider: impl Into<Option<PriceProviderArc>>,
+    ) -> Self {
+        self.price_provider = price_provider.into();
+        self
     }
 
     /// Modify the [OfferLayer] configuration used in the [StandardRequestBuilder].
@@ -698,6 +767,7 @@ where
                 order_stream_url: None,
                 collateral_token_address: None,
                 verifier_router_address: None,
+                indexer_url: None,
                 deployment_block: None,
             },
             boundless_market,
