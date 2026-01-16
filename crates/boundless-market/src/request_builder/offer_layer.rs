@@ -386,10 +386,10 @@ where
                     ((DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD) * 2) - DEFAULT_RAMP_UP_PERIOD;
                 let ramp_up_period = DEFAULT_RAMP_UP_PERIOD;
                 let ramp_up_start = now_timestamp() + 15;
+                tracing::warn!("Using default ramp up start: {}", ramp_up_start);
+                tracing::warn!("Using default ramp up period: {}", ramp_up_period);
                 tracing::warn!("Using default lock timeout: {}", lock_timeout);
                 tracing::warn!("Using default timeout: {}", timeout);
-                tracing::warn!("Using default ramp up period: {}", ramp_up_period);
-                tracing::warn!("Using default ramp up start: {}", ramp_up_start);
                 (lock_timeout, timeout, ramp_up_period, ramp_up_start)
             };
 
