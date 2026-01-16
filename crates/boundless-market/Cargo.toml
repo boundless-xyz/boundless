@@ -59,7 +59,7 @@ derive_builder = "0.20.2"
 futures = "0.3"
 futures-util = { workspace = true }
 hex = { workspace = true }
-httpmock = "0.7"
+httpmock = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 risc0-aggregation = { workspace = true }

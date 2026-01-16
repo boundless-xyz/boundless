@@ -44,7 +44,7 @@
   ansible.builtin.apt:
     name:
       - cuda-toolkit-{{ nvidia_cuda_version }}
-      - nvidia-open
+      - "{{ nvidia_drivers_package }}"
     state: present
     update_cache: true
   when: nvidia_cuda_check.rc != 0
