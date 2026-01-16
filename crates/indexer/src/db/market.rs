@@ -2261,7 +2261,10 @@ impl IndexerDb for MarketDb {
                     .bind(&status.slash_burned_amount)
                     .bind(status.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
                     .bind(status.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
-                    .bind(status.peak_prove_mhz.map(|v| v.to_string()))
+                    .bind({
+                        #[allow(deprecated)]
+                        status.peak_prove_mhz.map(|v| v.to_string())
+                    })
                     .bind(status.effective_prove_mhz.map(|v| v.to_string()))
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
@@ -4352,6 +4355,7 @@ impl MarketDb {
                 .ok()
                 .flatten()
                 .and_then(|s| padded_string_to_u256(&s).ok()),
+            #[allow(deprecated)]
             peak_prove_mhz: row.try_get::<Option<f64>, _>("peak_prove_mhz_v2").ok().flatten(),
             effective_prove_mhz: row
                 .try_get::<Option<f64>, _>("effective_prove_mhz_v2")
