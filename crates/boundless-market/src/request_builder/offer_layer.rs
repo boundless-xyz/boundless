@@ -35,6 +35,7 @@ use derive_builder::Builder;
 
 pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
 pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
+pub(crate) const DEFAULT_MAX_TIMEOUT: u32 = 14400; // 4 hours
 
 struct CollateralRecommendation {
     default: U256,
@@ -539,10 +540,15 @@ where
                     .config
                     .ramp_up_period
                     .unwrap_or(parameterization_mode.recommended_ramp_up_period(cycle_count));
-                let lock_timeout = self.config.lock_timeout.unwrap_or(
-                    parameterization_mode.recommended_timeout(cycle_count) + ramp_up_period,
+                let recommended_timeout =
+                    parameterization_mode.recommended_timeout(cycle_count) + ramp_up_period;
+                let lock_timeout = self
+                    .config
+                    .lock_timeout
+                    .unwrap_or(recommended_timeout.min(DEFAULT_MAX_TIMEOUT));
+                let timeout = self.config.timeout.unwrap_or(
+                    (recommended_timeout * 2 - ramp_up_period).min(DEFAULT_MAX_TIMEOUT * 2),
                 );
-                let timeout = self.config.timeout.unwrap_or(lock_timeout * 2 - ramp_up_period);
                 (lock_timeout, timeout, ramp_up_period, ramp_up_start)
             } else {
                 let lock_timeout = DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD;

@@ -725,8 +725,8 @@ impl ParameterizationMode {
     ///
     /// Sets the ramp up period as 10x the executor time assuming the executor speed is 30 MHz.
     /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times
-    /// assuming the proving speed is 500 kHz and the executor speed is 30 MHz.
-    /// Sets the timeout as 2 times the lock timeout.
+    /// assuming the proving speed is 500 kHz and the executor speed is 30 MHz and capped at 4 hours.
+    /// Sets the timeout as 2 times the lock timeout and capped at 8 hours.
     pub fn fulfillment() -> Self {
         Self {
             proving_speed: Self::DEFAULT_PROVING_SPEED_HZ,
@@ -745,8 +745,8 @@ impl ParameterizationMode {
     ///
     /// Sets the ramp up period as 5x the executor time assuming the executor speed is 50 MHz.
     /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times
-    /// assuming the proving speed is 3 MHz and the executor speed is 50 MHz.
-    /// Sets the timeout as 2 times the lock timeout.
+    /// assuming the proving speed is 3 MHz and the executor speed is 50 MHz and capped at 4 hours.
+    /// Sets the timeout as 2 times the lock timeout and capped at 8 hours.
     pub fn latency() -> Self {
         Self {
             proving_speed: Self::FAST_PROVING_SPEED_HZ,
