@@ -15,8 +15,8 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
-    request_builder::ParameterizationMode,
     price_provider::PriceProviderArc,
+    request_builder::ParameterizationMode,
     selector::{ProofType, SupportedSelectors},
     util::now_timestamp,
 };
