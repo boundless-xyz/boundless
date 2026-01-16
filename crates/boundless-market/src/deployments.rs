@@ -20,6 +20,10 @@ use derive_builder::Builder;
 
 pub use alloy_chains::NamedChain;
 
+pub(crate) const BASE_MAINNET_INDEXER_URL: &str = "https://d2mdvlnmyov1e1.cloudfront.net/";
+pub(crate) const BASE_SEPOLIA_INDEXER_URL: &str = "https://d3kkukmpiqlzm1.cloudfront.net/";
+pub(crate) const SEPOLIA_INDEXER_URL: &str = "https://d3jjbcwhlw21k7.cloudfront.net/";
+
 /// Configuration for a deployment of the Boundless Market.
 // NOTE: See https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717 about clap usage.
 #[non_exhaustive]
@@ -83,6 +87,11 @@ pub struct Deployment {
     #[clap(skip)]
     #[builder(setter(strip_option), default)]
     pub deployment_block: Option<u64>,
+
+    /// Indexer URL for the market.
+    #[clap(long, env, long_help = "URL for the indexer")]
+    #[builder(setter(into, strip_option), default)]
+    pub indexer_url: Option<Cow<'static, str>>,
 }
 
 impl Deployment {
@@ -123,6 +132,7 @@ pub const SEPOLIA: Deployment = Deployment {
     set_verifier_address: address!("0xcb9D14347b1e816831ECeE46EC199144F360B55c"),
     collateral_token_address: Some(address!("0xb4FC69A452D09D2662BD8C3B5BB756902260aE28")),
     order_stream_url: Some(Cow::Borrowed("https://eth-sepolia.boundless.network")),
+    indexer_url: Some(Cow::Borrowed(SEPOLIA_INDEXER_URL)),
     deployment_block: None,
 };
 
@@ -134,6 +144,7 @@ pub const BASE: Deployment = Deployment {
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
     collateral_token_address: Some(address!("0xAA61bB7777bD01B684347961918f1E07fBbCe7CF")),
     order_stream_url: Some(Cow::Borrowed("https://base-mainnet.boundless.network")),
+    indexer_url: Some(Cow::Borrowed(BASE_MAINNET_INDEXER_URL)),
     deployment_block: Some(35060420),
 };
 
@@ -145,6 +156,7 @@ pub const BASE_SEPOLIA: Deployment = Deployment {
     set_verifier_address: address!("0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104"),
     collateral_token_address: Some(address!("0x8d4dA4b7938471A919B08F941461b2ed1679d7bb")),
     order_stream_url: Some(Cow::Borrowed("https://base-sepolia.boundless.network")),
+    indexer_url: Some(Cow::Borrowed(BASE_SEPOLIA_INDEXER_URL)),
     deployment_block: Some(30570944),
 };
 
