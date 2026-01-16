@@ -372,17 +372,18 @@ where
 
         let (lock_timeout, timeout, ramp_up_period) =
             if let Some(parameterization_mode) = self.config.parameterization_mode {
-                (
-                    self.config
-                        .lock_timeout
-                        .unwrap_or_else(|| parameterization_mode.recommended_timeout(cycle_count)),
-                    self.config.timeout.unwrap_or_else(|| {
-                        parameterization_mode.recommended_timeout(cycle_count) * 2
-                    }),
-                    self.config.ramp_up_period.unwrap_or_else(|| {
-                        parameterization_mode.recommended_ramp_up_period(cycle_count)
-                    }),
-                )
+                let ramp_up_period = self
+                    .config
+                    .ramp_up_period
+                    .unwrap_or(parameterization_mode.recommended_ramp_up_period(cycle_count));
+                let lock_timeout = self.config.lock_timeout.unwrap_or(
+                    parameterization_mode.recommended_timeout(cycle_count) + ramp_up_period,
+                );
+                let timeout = self
+                    .config
+                    .timeout
+                    .unwrap_or(parameterization_mode.recommended_timeout(cycle_count) * 2);
+                (lock_timeout, timeout, ramp_up_period)
             } else {
                 (
                     self.config.lock_timeout.unwrap_or(600),

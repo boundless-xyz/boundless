@@ -656,7 +656,7 @@ pub struct ParameterizationMode {
 
 impl ParameterizationMode {
     /// Default proving speed in Hz.
-    const DEFAULT_PROVING_SPEED_HZ: u64 = 750000; // 750 kHz
+    const DEFAULT_PROVING_SPEED_HZ: u64 = 500000; // 500 kHz
 
     /// Default executor speed in Hz.
     const DEFAULT_EXECUTOR_SPEED_HZ: u64 = 30000000; // 30 MHz
@@ -694,6 +694,11 @@ impl ParameterizationMode {
     /// Creates a parameterization mode for fulfillment.
     ///
     /// This mode is more conservative and ensures more provers can fulfill the request.
+    /// 
+    /// Sets the ramp up period as 10x the executor time assuming the executor speed is 30 MHz.
+    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times 
+    /// assuming the proving speed is 500 kHz and the executor speed is 30 MHz.
+    /// Sets the timeout as 2 times the lock timeout.
     pub fn fulfillment() -> Self {
         Self {
             proving_speed: Self::DEFAULT_PROVING_SPEED_HZ,
@@ -707,6 +712,11 @@ impl ParameterizationMode {
     ///
     /// This mode is more aggressive and allows for faster fulfillment,
     /// at the cost of higher prices and lower fulfillment guarantees.
+    /// 
+    /// Sets the ramp up period as 5x the executor time assuming the executor speed is 50 MHz.
+    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times 
+    /// assuming the proving speed is 3 MHz and the executor speed is 50 MHz.
+    /// Sets the timeout as 2 times the lock timeout.
     pub fn latency() -> Self {
         Self {
             proving_speed: Self::FAST_PROVING_SPEED_HZ,
@@ -811,8 +821,8 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000; // 1M cycles
         let timeout = mode.recommended_timeout(Some(cycle_count));
 
-        // Expected: (1_000_000 / (750 * 1000)) + (1_000_000 / (30000 * 1000))
-        // = (1_000_000 / 750_000) + (1_000_000 / 30_000_000)
+        // Expected: (1_000_000 / (500 * 1000)) + (1_000_000 / (30000 * 1000))
+        // = (1_000_000 / 500_000) + (1_000_000 / 30_000_000)
         // = 2 + 1 = 3 seconds, but should be at least MIN_TIMEOUT (30)
         assert_eq!(timeout, mode.min_timeout);
 
@@ -820,9 +830,9 @@ mod parameterization_mode_tests {
         let cycle_count = 50_000_000; // 50M cycles
         let timeout = mode.recommended_timeout(Some(cycle_count));
 
-        // Expected: (50_000_000 / 750_000) + (50_000_000 / 30_000_000)
-        // = 67 + 2 = 69 seconds
-        assert_eq!(timeout, 69);
+        // Expected: (50_000_000 / 500_000) + (50_000_000 / 30_000_000)
+        // = 100 + 2 = 102 seconds
+        assert_eq!(timeout, 102);
     }
 
     #[test]
