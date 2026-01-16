@@ -47,8 +47,7 @@ pub struct OfferLayerConfig {
     /// - [ParameterizationMode::fulfillment] is a more conservative mode that ensures more provers can fulfill the request.
     /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees.
     ///
-    /// The default is None, which means the parameterization mode is not set and the offer will use the values from the configuration.
-    /// The parameterization mode is used to override the values from the configuration.
+    /// The default is [ParameterizationMode::fulfillment()], which is the default fulfillment mode.
     ///
     /// # Example
     /// ```rust
@@ -58,7 +57,7 @@ pub struct OfferLayerConfig {
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
     /// ```
-    #[builder(setter(into), default = "None")]
+    #[builder(setter(into), default = "Some(ParameterizationMode::fulfillment())")]
     pub parameterization_mode: Option<ParameterizationMode>,
 
     /// Minimum price per RISC Zero execution cycle, in wei.
@@ -70,8 +69,8 @@ pub struct OfferLayerConfig {
     pub max_price_per_cycle: U256,
 
     /// Time in seconds to delay the start of bidding after request creation.
-    #[builder(default = "15")]
-    pub bidding_start_delay: u64,
+    #[builder(setter(strip_option), default)]
+    pub bidding_start_delay: Option<u64>,
 
     /// Duration in seconds for the price to ramp up from min to max.
     #[builder(setter(strip_option), default)]
@@ -366,12 +365,12 @@ where
             params.max_price.unwrap()
         };
 
-        let bidding_start = params
-            .bidding_start
-            .unwrap_or_else(|| now_timestamp() + self.config.bidding_start_delay);
-
-        let (lock_timeout, timeout, ramp_up_period) =
+        let (lock_timeout, timeout, ramp_up_period, ramp_up_start) =
             if let Some(parameterization_mode) = self.config.parameterization_mode {
+                let ramp_up_start = self
+                    .config
+                    .bidding_start_delay
+                    .unwrap_or(parameterization_mode.recommended_ramp_up_start(cycle_count));
                 let ramp_up_period = self
                     .config
                     .ramp_up_period
@@ -379,28 +378,27 @@ where
                 let lock_timeout = self.config.lock_timeout.unwrap_or(
                     parameterization_mode.recommended_timeout(cycle_count) + ramp_up_period,
                 );
-                let timeout = self
-                    .config
-                    .timeout
-                    .unwrap_or(parameterization_mode.recommended_timeout(cycle_count) * 2);
-                (lock_timeout, timeout, ramp_up_period)
+                let timeout = self.config.timeout.unwrap_or(lock_timeout * 2 - ramp_up_period);
+                (lock_timeout, timeout, ramp_up_period, ramp_up_start)
             } else {
                 (
-                    self.config.lock_timeout.unwrap_or(600),
-                    self.config.timeout.unwrap_or(1200),
-                    self.config.ramp_up_period.unwrap_or(60),
+                    self.config.lock_timeout.unwrap_or(DEFAULT_TIMEOUT),
+                    self.config.timeout.unwrap_or(DEFAULT_TIMEOUT * 2), // 2x the timeout
+                    self.config.ramp_up_period.unwrap_or(DEFAULT_RAMP_UP_PERIOD),
+                    self.config.bidding_start_delay.unwrap_or(now_timestamp() + 15), // 15 seconds default
                 )
             };
 
         let offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
-            rampUpStart: bidding_start,
+            rampUpStart: params.bidding_start.unwrap_or(ramp_up_start),
             rampUpPeriod: params.ramp_up_period.unwrap_or(ramp_up_period),
             lockTimeout: params.lock_timeout.unwrap_or(lock_timeout),
             timeout: params.timeout.unwrap_or(timeout),
             lockCollateral: params.lock_collateral.unwrap_or(self.config.lock_collateral),
         };
+        println!("offer: {offer:#?}");
 
         Ok(offer)
     }
