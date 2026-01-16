@@ -16,6 +16,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
 
+/// Peak performance thresholds for enabling requestor lists (kHz) for large requests.
+pub const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
+/// Peak performance thresholds for enabling requestor lists (kHz) for XL requests.
+pub const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
+
 /// Re-export of [alloy], provided to ensure that the correct version of the types used in the
 /// public API are available in case multiple versions of [alloy] are in use.
 ///

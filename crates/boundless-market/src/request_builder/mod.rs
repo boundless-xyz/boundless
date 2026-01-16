@@ -666,7 +666,7 @@ mod tests {
         util::NotProvided,
         StandardStorageProvider,
     };
-    use alloy_primitives::U256;
+    use alloy_primitives::{utils::parse_ether, U256};
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
 
     #[tokio::test]
@@ -695,6 +695,33 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn offer_layer_lock_collateral_default() -> anyhow::Result<()> {
+        let anvil = Anvil::new().spawn();
+        let test_ctx = create_test_ctx(&anvil).await.unwrap();
+        let storage = Arc::new(MockStorageProvider::start());
+        let market = BoundlessMarketService::new(
+            test_ctx.deployment.boundless_market_address,
+            test_ctx.customer_provider.clone(),
+            test_ctx.customer_signer.address(),
+        );
+
+        let request_builder = StandardRequestBuilder::builder()
+            .storage_layer(Some(storage))
+            .offer_layer(OfferLayer::new(
+                test_ctx.customer_provider.clone(),
+                OfferLayerConfig::builder().build()?,
+            ))
+            .request_id_layer(market)
+            .build()?;
+
+        let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
+        let request = request_builder.build(params).await?;
+        assert_eq!(request.offer.lockCollateral, parse_ether("0").unwrap());
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn with_offer_layer_settings() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
@@ -709,7 +736,10 @@ mod tests {
             .storage_layer(Some(storage))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
-                OfferLayerConfig::builder().ramp_up_period(27).build()?,
+                OfferLayerConfig::builder()
+                    .ramp_up_period(27)
+                    .lock_collateral(parse_ether("10").unwrap())
+                    .build()?,
             ))
             .request_id_layer(market)
             .build()?;
@@ -717,6 +747,7 @@ mod tests {
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         assert_eq!(request.offer.rampUpPeriod, 27);
+        assert_eq!(request.offer.lockCollateral, parse_ether("10").unwrap());
         Ok(())
     }
 
