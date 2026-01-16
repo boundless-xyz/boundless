@@ -79,7 +79,12 @@ impl RequestorVerifyProof {
         // Fetch original request
         let (req, _) = client
             .boundless_market
-            .get_submitted_request(self.request_id, None, self.search_to_block, self.search_from_block)
+            .get_submitted_request(
+                self.request_id,
+                None,
+                self.search_to_block,
+                self.search_from_block,
+            )
             .await?;
         let predicate = Predicate::try_from(req.requirements.predicate)?;
 
