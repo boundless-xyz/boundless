@@ -24,7 +24,7 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, Deployment, ParameterizationMode, StorageProviderConfig};
+use boundless_market::{Client, Deployment, StorageProviderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use risc0_zkvm::sha::Digestible;
@@ -90,9 +90,6 @@ async fn run(args: Args) -> Result<()> {
         .with_deployment(args.deployment)
         .with_storage_provider_config(&args.storage_config)?
         .with_private_key(args.private_key)
-        // Use ParameterizationMode::fulfillment() for more conservative offering parameters.
-        // Or use ParameterizationMode::latency() for lower latency but higher price and lower fulfillment guarantees.
-        .with_parameterization_mode(ParameterizationMode::fulfillment())
         .build()
         .await
         .context("failed to build boundless client")?;
