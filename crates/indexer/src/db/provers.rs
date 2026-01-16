@@ -1523,6 +1523,7 @@ async fn get_prover_last_activity_times_impl(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::db::market::{RequestStatusType, SlashedStatus};
