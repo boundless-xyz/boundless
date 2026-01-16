@@ -684,13 +684,15 @@ where
             vec![alloy::primitives::U256::ZERO; 7]
         };
 
-        let mut best_peak_prove_mhz = 0.0;
-        let mut best_peak_prove_mhz_request_id = None;
+        // TODO: Remove these fields
+        let best_peak_prove_mhz = 0.0;
+        let best_peak_prove_mhz_request_id = None;
+
         let mut best_effective_prove_mhz = 0.0;
         let mut best_effective_prove_mhz_request_id = None;
 
         let fulfilled_rows = sqlx::query(
-            "SELECT peak_prove_mhz_v2, effective_prove_mhz_v2, request_id FROM request_status
+            "SELECT prover_effective_prove_mhz, request_id FROM request_status
              WHERE fulfill_prover_address = $1
              AND request_status = 'fulfilled'
              AND fulfilled_at IS NOT NULL
@@ -704,21 +706,10 @@ where
         .map_err(|e| ServiceError::DatabaseError(crate::db::DbError::SqlErr(e)))?;
 
         for row in fulfilled_rows {
-            let peak_mhz: Option<f64> =
-                row.try_get::<Option<f64>, _>("peak_prove_mhz_v2").ok().flatten();
             let effective_mhz: Option<f64> =
-                row.try_get::<Option<f64>, _>("effective_prove_mhz_v2").ok().flatten();
+                row.try_get::<Option<f64>, _>("prover_effective_prove_mhz").ok().flatten();
             let request_id_str: Option<String> =
                 row.try_get::<Option<String>, _>("request_id").ok().flatten();
-
-            if let Some(peak) = peak_mhz {
-                if peak > best_peak_prove_mhz {
-                    best_peak_prove_mhz = peak;
-                    if let Some(rid) = &request_id_str {
-                        best_peak_prove_mhz_request_id = U256::from_str(rid).ok();
-                    }
-                }
-            }
 
             if let Some(effective) = effective_mhz {
                 if effective > best_effective_prove_mhz {

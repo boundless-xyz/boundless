@@ -245,6 +245,7 @@ pub struct PeriodRequestorSummary {
     pub total_locked_and_fulfilled: u64,
     pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
+    pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
     pub best_peak_prove_mhz: f64,
@@ -301,6 +302,7 @@ pub struct AllTimeRequestorSummary {
     pub total_locked_and_fulfilled: u64,
     pub total_secondary_fulfillments: u64,
     pub locked_orders_fulfillment_rate: f32,
+    pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
     pub best_peak_prove_mhz: f64,
@@ -321,6 +323,7 @@ pub struct RequestorLeaderboardEntry {
     pub median_lock_price_per_cycle: Option<U256>,
     pub acceptance_rate: f32,
     pub locked_order_fulfillment_rate: f32,
+    pub locked_orders_fulfillment_rate_adjusted: f32,
     pub last_activity_time: u64,
 }
 
@@ -333,7 +336,7 @@ pub struct ProverLeaderboardEntry {
     pub fees_earned: U256,
     pub collateral_earned: U256,
     pub median_lock_price_per_cycle: Option<U256>,
-    pub peak_prove_mhz: f64,
+    pub best_effective_prove_mhz: f64,
     pub locked_order_fulfillment_rate: f32,
     pub last_activity_time: u64,
 }
@@ -441,8 +444,10 @@ pub struct RequestStatus {
     pub slash_burned_amount: Option<String>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
+    #[deprecated(note = "Use effective_prove_mhz instead. This field is always None.")]
     pub peak_prove_mhz: Option<f64>,
     pub effective_prove_mhz: Option<f64>,
+    pub prover_effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
@@ -504,8 +509,6 @@ pub struct RequestComprehensive {
     pub fulfill_tx_hash: Option<B256>,
     pub program_cycles: Option<U256>,
     pub total_cycles: Option<U256>,
-    pub peak_prove_mhz: Option<f64>,
-    pub effective_prove_mhz: Option<f64>,
     pub cycle_status: Option<String>,
     pub fulfill_journal: Option<String>,
     pub fulfill_seal: Option<String>,
@@ -2167,7 +2170,7 @@ impl IndexerDb for MarketDb {
                     min_price, max_price, lock_collateral, ramp_up_start, ramp_up_period, expires_at, lock_end,
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
                     program_cycles, total_cycles,
-                    peak_prove_mhz_v2, effective_prove_mhz_v2, cycle_status,
+                    peak_prove_mhz_v2, effective_prove_mhz_v2, prover_effective_prove_mhz, cycle_status,
                     lock_price, lock_price_per_cycle,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
@@ -2181,7 +2184,7 @@ impl IndexerDb for MarketDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2191,9 +2194,9 @@ impl IndexerDb for MarketDb {
                     params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
                     params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45,
-                    params_count + 46, params_count + 47, params_count + 48
+                    params_count + 46, params_count + 47, params_count + 48, params_count + 49
                 ));
-                params_count += 48;
+                params_count += 49;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2219,6 +2222,7 @@ impl IndexerDb for MarketDb {
                     total_cycles = EXCLUDED.total_cycles,
                     peak_prove_mhz_v2 = EXCLUDED.peak_prove_mhz_v2,
                     effective_prove_mhz_v2 = EXCLUDED.effective_prove_mhz_v2,
+                    prover_effective_prove_mhz = EXCLUDED.prover_effective_prove_mhz,
                     cycle_status = EXCLUDED.cycle_status,
                     lock_price = EXCLUDED.lock_price,
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
@@ -2259,8 +2263,12 @@ impl IndexerDb for MarketDb {
                     .bind(&status.slash_burned_amount)
                     .bind(status.program_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
                     .bind(status.total_cycles.as_ref().map(|c| u256_to_padded_string(*c)))
-                    .bind(status.peak_prove_mhz.map(|v| v.to_string()))
+                    .bind({
+                        #[allow(deprecated)]
+                        status.peak_prove_mhz.map(|v| v.to_string())
+                    })
                     .bind(status.effective_prove_mhz.map(|v| v.to_string()))
+                    .bind(status.prover_effective_prove_mhz.map(|v| v.to_string()))
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
                     .bind(&status.lock_price_per_cycle)
@@ -2996,8 +3004,6 @@ impl IndexerDb for MarketDb {
                     fulfill_tx_hash,
                     program_cycles,
                     total_cycles,
-                    peak_prove_mhz: None,      // TODO
-                    effective_prove_mhz: None, // TODO
                     cycle_status,
                     fulfill_journal: None, // TODO
                     fulfill_seal: None,    // Will be populated from proofs table below
@@ -4352,9 +4358,14 @@ impl MarketDb {
                 .ok()
                 .flatten()
                 .and_then(|s| padded_string_to_u256(&s).ok()),
+            #[allow(deprecated)]
             peak_prove_mhz: row.try_get::<Option<f64>, _>("peak_prove_mhz_v2").ok().flatten(),
             effective_prove_mhz: row
                 .try_get::<Option<f64>, _>("effective_prove_mhz_v2")
+                .ok()
+                .flatten(),
+            prover_effective_prove_mhz: row
+                .try_get::<Option<f64>, _>("prover_effective_prove_mhz")
                 .ok()
                 .flatten(),
             cycle_status: row.try_get("cycle_status").ok(),
@@ -4378,6 +4389,7 @@ impl MarketDb {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::db::events::EventsDb;
@@ -5388,6 +5400,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: None,
             lock_price_per_cycle: None,
