@@ -882,7 +882,7 @@ mod tests {
 
         // retrieve fulfillment data and seal from the fulfilled request
         let fulfillment_result =
-            ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+            ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
         let fulfillment_data = fulfillment_result.data().unwrap();
         let seal = fulfillment_result.seal;
         let expected_fulfillment_data = FulfillmentData::decode_with_type(

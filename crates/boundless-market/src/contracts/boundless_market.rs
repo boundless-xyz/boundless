@@ -1587,11 +1587,14 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn get_request_fulfillment(
         &self,
         request_id: U256,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
     ) -> Result<Fulfillment, MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                let event =
+                    self.query_fulfilled_event(request_id, lower_bound, upper_bound).await?;
                 Ok(event.fulfillment)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),
@@ -1602,11 +1605,14 @@ impl<P: Provider> BoundlessMarketService<P> {
     pub async fn get_request_fulfillment_prover(
         &self,
         request_id: U256,
+        lower_bound: Option<u64>,
+        upper_bound: Option<u64>,
     ) -> Result<Address, MarketError> {
         match self.get_status(request_id, None).await? {
             RequestStatus::Expired => Err(MarketError::RequestHasExpired(request_id)),
             RequestStatus::Fulfilled => {
-                let event = self.query_fulfilled_event(request_id, None, None).await?;
+                let event =
+                    self.query_fulfilled_event(request_id, lower_bound, upper_bound).await?;
                 Ok(event.prover)
             }
             _ => Err(MarketError::RequestNotFulfilled(request_id)),

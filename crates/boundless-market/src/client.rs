@@ -1096,7 +1096,8 @@ where
     ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
         // TODO(#646): This logic is only correct under the assumption there is a single set
         // verifier.
-        let fulfillment = self.boundless_market.get_request_fulfillment(request_id).await?;
+        let fulfillment =
+            self.boundless_market.get_request_fulfillment(request_id, None, None).await?;
         match fulfillment.data().context("failed to decode fulfillment data")? {
             FulfillmentData::None => Err(ClientError::Error(anyhow!(
                 "No fulfillment data found for set inclusion receipt"
