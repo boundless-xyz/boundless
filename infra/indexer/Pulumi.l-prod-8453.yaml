@@ -30,3 +30,5 @@ config:
     secure: v1:qJcWpUCoJ+WigTSB:zuB+u/ZWBkrwqnRZwI8UbjqXl5JM/bqCOIdn6wpeepWgbmrnAzGUeN4vqxwJDiYdtkrSMkL1PFBcjhk=
   indexer:PROXY_SECRET:
     secure: v1:lJlgu7dJjEdBpg+J:49guE+TSvKTHVlf/LXakKarxpItokDS83AbT1XKJ2nAme8PrEX0Gcg==
+  indexer:ALLOWED_IP_ADDRESSES:
+    secure: v1:R2J/3qxRjR2vmJfH:MZcuH1zLSlx3l1hQ5G2HFnOQZB14tiYMZOWWabM=
