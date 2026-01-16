@@ -15,7 +15,7 @@
 	# API endpoints (with API key)
 	handle {
 		# Reject if API key header is missing or doesn't match
-		@api_key header x-api-key {$CADDY_API_KEY}
+		@api_key header x-api-key {$CADDY_API_KEY:INVALID_KEY_NOT_SET}
 		handle @api_key {
 			reverse_proxy {$CADDY_API_HOST:127.0.0.1}:{$CADDY_API_PORT:8081}
 		}

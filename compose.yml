@@ -340,8 +340,7 @@ services:
       CADDY_API_HOST: ${CADDY_API_HOST:-127.0.0.1}
       CADDY_API_PORT: ${CADDY_API_PORT:-8081}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
-      CADDY_AUTH_USER: ${CADDY_AUTH_USER:-}
-      CADDY_AUTH_PASS_HASH: ${CADDY_AUTH_PASS_HASH:-}
+      CADDY_API_KEY: ${CADDY_API_KEY:-}
     volumes:
       - caddy-data:/data
       - caddy-config:/config
