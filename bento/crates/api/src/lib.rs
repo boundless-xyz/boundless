@@ -663,7 +663,8 @@ async fn blake3_groth16_status(
 
     // If job not found in taskdb, check MinIO for completed receipt
     if let Err(TaskDbErr::SqlError(sqlx::Error::RowNotFound)) = &job_state_result {
-        let receipt_key = format!("{RECEIPT_BUCKET_DIR}/{BLAKE3_GROTH16_BUCKET_DIR}/{job_id}.bincode");
+        let receipt_key =
+            format!("{RECEIPT_BUCKET_DIR}/{BLAKE3_GROTH16_BUCKET_DIR}/{job_id}.bincode");
         if state
             .s3_client
             .object_exists(&receipt_key)
