@@ -36,6 +36,7 @@ export interface LaunchTemplateConfig extends BaseComponentConfig {
   maxFileSize?: string;
   maxMcycleLimit?: string;
   maxConcurrentProofs?: number;
+  maxConcurrentPreflights?: number;
   maxJournalBytes?: number;
   balanceWarnThreshold?: string;
   balanceErrorThreshold?: string;
@@ -151,6 +152,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.maxFileSize || "500000000000",
       config.maxMcycleLimit || "1000000000000",
       config.maxConcurrentProofs || 1,
+      config.maxConcurrentPreflights || 2,
       config.maxJournalBytes || 20000,
       config.balanceWarnThreshold || "50",
       config.balanceErrorThreshold || "100",
@@ -161,7 +163,7 @@ export class LaunchTemplateComponent extends BaseComponent {
       config.lockinPriorityGas || "0",
       config.orderCommitmentPriority || "cycle_price",
       config.rustLogLevel || "debug",
-    ]).apply(([dbName, dbUser, dbPass, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowRequestorLists, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
+    ]).apply(([dbName, dbUser, dbPass, privKey, orderStreamUrl, verifierAddress, boundlessMarketAddress, setVerifierAddress, collateralTokenAddress, chainId, stackName, componentType, rdsEndpoint, s3BucketName, s3AccessKeyId, s3SecretAccessKey, brokerRpcUrls, mcyclePrice, peakProveKhz, minDeadline, lookbackBlocks, maxCollateral, maxFileSize, maxMcycleLimit, maxConcurrentProofs, maxConcurrentPreflights, maxJournalBytes, balanceWarnThreshold, balanceErrorThreshold, collateralBalanceWarnThreshold, collateralBalanceErrorThreshold, maxFetchRetries, allowRequestorLists, lockinPriorityGas, orderCommitmentPriority, rustLogLevel]) => {
       const brokerRpcUrlsStr = brokerRpcUrls;
       // Extract host from endpoints (format: host:port)
       const rdsEndpointStr = String(rdsEndpoint);
@@ -193,6 +195,7 @@ order_commitment_priority = "${orderCommitmentPriority}"
 priority_requestor_lists = [
 	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
 ]
+max_concurrent_preflights = ${Number(maxConcurrentPreflights) - Number(maxConcurrentProofs)}
 
 [prover]
 status_poll_retry_count = 3

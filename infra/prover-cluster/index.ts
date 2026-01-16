@@ -54,6 +54,7 @@ const maxCollateral: string = config.get("maxCollateral") || "200";
 const maxFileSize: string = config.get("maxFileSize") || "0";
 const maxMcycleLimit: string = config.get("maxMcycleLimit") || "0";
 const maxConcurrentProofs: number = config.getNumber("maxConcurrentProofs") || 1;
+const maxConcurrentPreflights: number = config.getNumber("maxConcurrentPreflights") || 2;
 const maxJournalBytes: number = config.getNumber("maxJournalBytes") || 1000000;
 const balanceWarnThreshold: string = config.get("balanceWarnThreshold") || "0";
 const balanceErrorThreshold: string = config.get("balanceErrorThreshold") || "0";
@@ -143,6 +144,7 @@ const manager = new ManagerComponent({
     maxFileSize,
     maxMcycleLimit,
     maxConcurrentProofs,
+    maxConcurrentPreflights,
     maxJournalBytes,
     balanceWarnThreshold,
     balanceErrorThreshold,

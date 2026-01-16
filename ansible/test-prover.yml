@@ -1,0 +1,45 @@
+---
+- name: Test prover operation
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: 1
+  tasks:
+    - name: Download bento CLI bundle
+      ansible.builtin.get_url:
+        url: https://github.com/boundless-xyz/boundless/releases/download/bento-v1.2.0/bento-bundle-linux-amd64.tar.gz
+        dest: /tmp/bento-bundle-linux-amd64.tar.gz
+        mode: '0644'
+
+    - name: Extract bento CLI bundle
+      ansible.builtin.unarchive:
+        src: /tmp/bento-bundle-linux-amd64.tar.gz
+        dest: /tmp
+        remote_src: true
+
+    - name: Install bento-cli
+      ansible.builtin.copy:
+        src: /tmp/bento-bundle/bento-cli
+        dest: /usr/local/bin/bento-cli
+        mode: '0755'
+        remote_src: true
+
+    - name: Clean up temporary files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/bento-bundle-linux-amd64.tar.gz
+        - /tmp/bento-bundle
+
+    - name: Test prover operation
+      ansible.builtin.command:
+        cmd: /usr/local/bin/bento-cli --iter-count 500
+      environment:
+        RUST_LOG: info
+      register: test_prover_result
+      changed_when: false
+
+    - name: Print test prover result
+      ansible.builtin.debug:
+        var: test_prover_result

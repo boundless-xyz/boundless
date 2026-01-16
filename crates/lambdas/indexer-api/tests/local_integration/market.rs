@@ -1398,6 +1398,12 @@ async fn test_requestor_leaderboard() {
             "requestor_address should be 42 chars: {}",
             first.requestor_address
         );
+        assert_eq!(
+            first.requestor_address,
+            first.requestor_address.to_lowercase(),
+            "requestor_address should be lowercase: {}",
+            first.requestor_address
+        );
 
         // Numeric fields should be non-negative
         assert!(
@@ -1460,6 +1466,7 @@ async fn test_requestor_leaderboard() {
         assert_eq!(page1.data.len(), 2);
 
         if let Some(ref cursor) = page1.next_cursor {
+            assert!(page1.has_more, "page1 should have has_more=true when next_cursor exists");
             let path = format!("/v1/market/requestors?limit=2&cursor={}", cursor);
             let page2: RequestorLeaderboardResponse = env.get(&path).await.unwrap();
 
@@ -1473,6 +1480,16 @@ async fn test_requestor_leaderboard() {
                     );
                 }
             }
+
+            // Verify has_more is false when there's no next_cursor
+            if page2.next_cursor.is_none() {
+                assert!(
+                    !page2.has_more,
+                    "page2 should have has_more=false when next_cursor is None"
+                );
+            }
+        } else {
+            assert!(!page1.has_more, "page1 should have has_more=false when next_cursor is None");
         }
     }
 }
@@ -1617,6 +1634,12 @@ async fn test_requestor_leaderboard_periods() {
             "Address should be 42 chars: {}",
             entry.requestor_address
         );
+        assert_eq!(
+            entry.requestor_address,
+            entry.requestor_address.to_lowercase(),
+            "requestor_address should be lowercase: {}",
+            entry.requestor_address
+        );
         assert!(
             entry.orders_requested > 0,
             "Requestor {} should have orders",
@@ -1684,6 +1707,12 @@ async fn test_prover_leaderboard() {
             "prover_address should be 42 chars: {}",
             first.prover_address
         );
+        assert_eq!(
+            first.prover_address,
+            first.prover_address.to_lowercase(),
+            "prover_address should be lowercase: {}",
+            first.prover_address
+        );
 
         // Numeric fields should be non-negative
         assert!(first.orders_locked > 0, "orders_locked should be positive for active provers");
@@ -1739,6 +1768,7 @@ async fn test_prover_leaderboard() {
         assert_eq!(page1.data.len(), 2);
 
         if let Some(ref cursor) = page1.next_cursor {
+            assert!(page1.has_more, "page1 should have has_more=true when next_cursor exists");
             let path = format!("/v1/market/provers?limit=2&cursor={}", cursor);
             let page2: ProverLeaderboardResponse = env.get(&path).await.unwrap();
 
@@ -1752,6 +1782,16 @@ async fn test_prover_leaderboard() {
                     );
                 }
             }
+
+            // Verify has_more is false when there's no next_cursor
+            if page2.next_cursor.is_none() {
+                assert!(
+                    !page2.has_more,
+                    "page2 should have has_more=false when next_cursor is None"
+                );
+            }
+        } else {
+            assert!(!page1.has_more, "page1 should have has_more=false when next_cursor is None");
         }
     }
 }
@@ -1855,6 +1895,12 @@ async fn test_prover_leaderboard_periods() {
             entry.prover_address.len(),
             42,
             "Address should be 42 chars: {}",
+            entry.prover_address
+        );
+        assert_eq!(
+            entry.prover_address,
+            entry.prover_address.to_lowercase(),
+            "prover_address should be lowercase: {}",
             entry.prover_address
         );
         // Prover should have some activity (locked or fulfilled)
