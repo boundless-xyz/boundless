@@ -1,0 +1,75 @@
+name: Deploy Prover
+description: Deploy prover stack to a target environment
+
+inputs:
+  target:
+    description: "Deployment target (staging, nightly, release)"
+    required: true
+  ssh_key:
+    description: "SSH private key"
+    required: true
+  inventory:
+    description: "Base64-encoded inventory file"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install Ansible
+      shell: bash
+      run: |
+        pip install ansible ansible-core
+        ansible-galaxy collection install community.postgresql
+
+    - name: Setup SSH
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        echo "${{ inputs.ssh_key }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+
+    - name: Create inventory file
+      shell: bash
+      working-directory: ansible
+      run: |
+        echo "${{ inputs.inventory }}" | base64 -d > inventory.yml
+
+    - name: Deploy monitoring
+      shell: bash
+      working-directory: ansible
+      env:
+        ANSIBLE_HOST_KEY_CHECKING: "False"
+        ANSIBLE_FORCE_COLOR: "1"
+      run: |
+        ansible-playbook -i inventory.yml monitoring.yml --limit ${{ inputs.target }}
+
+    - name: Deploy prover
+      shell: bash
+      working-directory: ansible
+      env:
+        ANSIBLE_HOST_KEY_CHECKING: "False"
+        ANSIBLE_FORCE_COLOR: "1"
+      run: |
+        ansible-playbook -i inventory.yml prover.yml --limit ${{ inputs.target }}
+
+    - name: Test prover operation
+      shell: bash
+      working-directory: ansible
+      env:
+        ANSIBLE_HOST_KEY_CHECKING: "False"
+        ANSIBLE_FORCE_COLOR: "1"
+      run: |
+        ansible-playbook -i inventory.yml test-prover.yml --limit ${{ inputs.target }}
+
+    - name: Cleanup
+      if: always()
+      shell: bash
+      run: |
+        rm -f ~/.ssh/id_ed25519
+        rm -f ansible/inventory.yml

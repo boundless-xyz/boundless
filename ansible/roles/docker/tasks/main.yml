@@ -25,6 +25,7 @@
     chmod a+r /etc/apt/keyrings/docker.gpg
   args:
     creates: /etc/apt/keyrings/docker.gpg
+    executable: /bin/bash
   when: docker_version_check.rc != 0
 
 - name: Detect Ubuntu version for Docker repository
@@ -132,10 +133,13 @@
     - docker
     - docker-nvidia
 
-- name: Configure NVIDIA Container Toolkit
-  ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
-  args:
-    creates: /etc/docker/daemon.json
+- name: Configure Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
   notify: Restart docker
   tags:
     - docker

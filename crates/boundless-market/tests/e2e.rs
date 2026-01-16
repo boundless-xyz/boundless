@@ -180,7 +180,7 @@ async fn test_funding_mode() {
     let balance_before =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     let request = new_request(1, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == balance_before + request.offer.maxPrice);
@@ -190,7 +190,7 @@ async fn test_funding_mode() {
     let balance_before =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     let request = new_request(2, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == balance_before);
@@ -200,7 +200,7 @@ async fn test_funding_mode() {
     let threshold = request.offer.maxPrice * U256::from(5);
     let client = client.with_funding_mode(FundingMode::BelowThreshold(threshold));
     let request = new_request(3, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == threshold);
@@ -211,7 +211,7 @@ async fn test_funding_mode() {
     // Test Never funding mode: balance after submission should remain the same
     let client = client.with_funding_mode(FundingMode::Never);
     let request = new_request(4, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == U256::ZERO);
@@ -223,7 +223,7 @@ async fn test_funding_mode() {
     let client =
         client.with_funding_mode(FundingMode::MinMaxBalance { min_balance: min, max_balance: max });
     let request = new_request(5, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == max);
@@ -231,7 +231,7 @@ async fn test_funding_mode() {
     // Test MinMaxBalance funding mode: balance after submission should remain equal to max
     // since we are above the min balance
     let request = new_request(6, &ctx).await;
-    let _ = client.submit_request_onchain(&request).await.unwrap();
+    let _ = client.submit_request(&request).await.unwrap();
     let balance_after =
         ctx.customer_market.balance_of(ctx.customer_signer.address()).await.unwrap();
     assert!(balance_after == max);
