@@ -846,7 +846,7 @@ impl Default for ParameterizationMode {
 
 #[cfg(test)]
 mod parameterization_mode_tests {
-    use crate::request_builder::offer_layer::{DEFAULT_RAMP_UP_PERIOD, DEFAULT_TIMEOUT};
+    use crate::request_builder::offer_layer::DEFAULT_TIMEOUT;
 
     use super::ParameterizationMode;
 
@@ -959,18 +959,18 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (1_000_000 / (30000 * 1000)) * 10
-        // = (1_000_000 / 30_000_000) * 10
-        // = 1 * 10 = 10 seconds
-        assert_eq!(ramp_up, 10);
+        // Expected: (1_000_000 / (30000 * 1000)) * 10 + 300
+        // = (1_000_000 / 30_000_000) * 10 + 300
+        // = 1 * 10 + 300 = 310 seconds
+        assert_eq!(ramp_up, 310);
 
         // Test with 50M cycles
         let cycle_count = 50_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (50_000_000 / 30_000_000) * 10
-        // = 2 * 10 = 20 seconds
-        assert_eq!(ramp_up, 20);
+        // Expected: (50_000_000 / 30_000_000) * 10 + 300
+        // = 2 * 10 + 300 = 320 seconds
+        assert_eq!(ramp_up, 320);
     }
 
     #[test]
@@ -981,18 +981,18 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (1_000_000 / (50000 * 1000)) * 5
-        // = (1_000_000 / 50_000_000) * 5
-        // = 1 * 5 = 5 seconds
-        assert_eq!(ramp_up, 5);
+        // Expected: (1_000_000 / (50000 * 1000)) * 5 + 60
+        // = (1_000_000 / 50_000_000) * 5 + 60
+        // = 1 * 5 + 60 = 65 seconds
+        assert_eq!(ramp_up, 65);
 
         // Test with 50M cycles
         let cycle_count = 50_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (50_000_000 / 50_000_000) * 5
-        // = 1 * 5 = 5 seconds
-        assert_eq!(ramp_up, 5);
+        // Expected: (50_000_000 / 50_000_000) * 5 + 60
+        // = 1 * 5 + 60 = 65 seconds
+        assert_eq!(ramp_up, 65);
     }
 
     #[test]
@@ -1001,7 +1001,7 @@ mod parameterization_mode_tests {
 
         // Test with zero cycles
         let ramp_up = mode.recommended_ramp_up_period(Some(0));
-        assert_eq!(ramp_up, DEFAULT_RAMP_UP_PERIOD);
+        assert_eq!(ramp_up, ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD);
     }
 
     #[test]
