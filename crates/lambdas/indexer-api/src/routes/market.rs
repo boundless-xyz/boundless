@@ -2216,9 +2216,6 @@ pub struct RequestStatusResponse {
     pub program_cycles: Option<String>,
     /// Total cycles (program + overhead)
     pub total_cycles: Option<String>,
-    /// Peak prove MHz
-    #[deprecated(note = "Use effective_prove_mhz instead. This field is always None.")]
-    pub peak_prove_mhz: Option<f64>,
     /// Effective prove MHz
     pub effective_prove_mhz: Option<f64>,
     /// Submit transaction hash
@@ -2322,7 +2319,6 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         slash_burned_amount_formatted: status.slash_burned_amount.as_ref().map(|a| format_zkc(a)),
         program_cycles: status.program_cycles.as_ref().map(|c| c.to_string()),
         total_cycles: status.total_cycles.as_ref().map(|c| c.to_string()),
-        peak_prove_mhz: status.peak_prove_mhz,
         effective_prove_mhz: status.effective_prove_mhz,
         submit_tx_hash: status.submit_tx_hash.map(|h| format!("{:#x}", h)),
         lock_tx_hash: status.lock_tx_hash.map(|h| format!("{:#x}", h)),

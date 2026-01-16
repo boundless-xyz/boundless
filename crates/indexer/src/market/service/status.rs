@@ -103,7 +103,8 @@ where
             (None, None)
         };
 
-        // Compute effective_prove_mhz: total_cycles / (proof_delivery_time * 1_000_000)
+        // Compute effective_prove_mhz: proving speed performance from the requestor's perspective
+        // total_cycles / (proof_delivery_time * 1_000_000)
         // proof_delivery_time = fulfilled_at - created_at (in seconds)
         let effective_prove_mhz = req
             .fulfilled_at
@@ -122,6 +123,48 @@ where
                 } else {
                     None
                 }
+            });
+
+        // Compute prover_effective_prove_mhz: measures prover performance from their perspective
+        // - Primary fulfillment (lock holder): total_cycles / (fulfilled_at - locked_at)
+        // - Secondary fulfillment (lock expired + different prover): total_cycles / (fulfilled_at - lock_end)
+        // - No lock fallback: total_cycles / (fulfilled_at - created_at)
+        let prover_effective_prove_mhz = req
+            .fulfilled_at
+            .zip(req.total_cycles)
+            .filter(|(_, total_cycles)| *total_cycles > U256::ZERO)
+            .and_then(|(fulfilled_at, total_cycles)| {
+                let total_cycles_f64 = total_cycles.to_string().parse::<f64>().unwrap_or(0.0);
+
+                // Primary fulfillment: lock holder fulfills
+                if req.lock_prover_address.is_some()
+                    && req.lock_prover_address == req.fulfill_prover_address
+                {
+                    if let Some(locked_at) = req.locked_at {
+                        let prove_time = fulfilled_at.saturating_sub(locked_at);
+                        if prove_time > 0 {
+                            return Some(total_cycles_f64 / (prove_time as f64 * 1_000_000.0));
+                        }
+                    }
+                }
+                // Secondary fulfillment: lock expired and different prover fulfilled
+                else if fulfilled_at > req.lock_end
+                    && req.lock_prover_address != req.fulfill_prover_address
+                {
+                    let prove_time = fulfilled_at.saturating_sub(req.lock_end);
+                    if prove_time > 0 {
+                        return Some(total_cycles_f64 / (prove_time as f64 * 1_000_000.0));
+                    }
+                }
+                // No lock fallback: fulfilled without being locked, or any other edge case
+                else if req.locked_at.is_none() && fulfilled_at > req.created_at {
+                    let prove_time = fulfilled_at - req.created_at;
+                    if prove_time > 0 {
+                        return Some(total_cycles_f64 / (prove_time as f64 * 1_000_000.0));
+                    }
+                }
+
+                None
             });
 
         #[allow(deprecated)]
@@ -158,6 +201,7 @@ where
             total_cycles: req.total_cycles,
             peak_prove_mhz: None,
             effective_prove_mhz,
+            prover_effective_prove_mhz,
             cycle_status: req.cycle_status,
             lock_price,
             lock_price_per_cycle,
