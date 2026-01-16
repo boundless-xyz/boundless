@@ -34,13 +34,14 @@ pub struct ProverLock {
     #[arg(long)]
     pub tx_hash: Option<B256>,
 
-    /// Override the starting block for event search (lower bound)
+    /// Lower bound: search events backwards down to this block
     #[clap(long)]
-    pub search_start_block: Option<u64>,
+    pub search_to_block: Option<u64>,
 
-    /// Override the ending block for event search (upper bound)
+    /// Upper bound: search events backwards from this block (defaults to latest).
+    /// Set this for old requests to reduce RPC calls and cost
     #[clap(long)]
-    pub search_end_block: Option<u64>,
+    pub search_from_block: Option<u64>,
 
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
@@ -71,8 +72,8 @@ impl ProverLock {
                 self.request_id,
                 self.tx_hash,
                 self.request_digest,
-                self.search_start_block,
-                self.search_end_block,
+                self.search_to_block,
+                self.search_from_block,
             )
             .await?;
         tracing::debug!("Fetched order details: {request:?}");

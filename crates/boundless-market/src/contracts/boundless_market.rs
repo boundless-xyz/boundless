@@ -146,11 +146,11 @@ pub enum MarketError {
     AddressMismatch(Address, Address),
 
     /// Proof not found.
-    #[error("Proof not found for request 0x{0:x} in events logs after searching from block {1} to block {2}. Consider increasing EventQueryConfig.block_range or EventQueryConfig.max_iterations")]
+    #[error("Proof not found for request 0x{0:x} in events logs after searching from block {1} to block {2}. Consider increasing EventQueryConfig.block_range or EventQueryConfig.max_iterations to increase search depth or specify start/end blocks")]
     ProofNotFound(U256, u64, u64),
 
     /// Request not found in event logs.
-    #[error("Request not found for request 0x{0:x} in event logs after searching from block {1} to block {2}. Consider increasing EventQueryConfig.block_range or EventQueryConfig.max_iterations")]
+    #[error("Request not found for request 0x{0:x} in event logs after searching from block {1} to block {2}. Consider increasing EventQueryConfig.block_range or EventQueryConfig.max_iterations to increase search depth or specify start/end blocks")]
     RequestNotFound(U256, u64, u64),
 
     /// Request already locked.

@@ -1103,8 +1103,8 @@ impl ProverGenerateConfig {
         // Create the benchmark command with proper configuration
         let benchmark = ProverBenchmark {
             request_ids: vec![request_id],
-            search_start_block: None,
-            search_end_block: None,
+            search_to_block: None,
+            search_from_block: None,
             prover_config: ProverConfig {
                 prover_rpc_url: Some(rpc_url.clone()),
                 private_key: None,
