@@ -2216,8 +2216,10 @@ pub struct RequestStatusResponse {
     pub program_cycles: Option<String>,
     /// Total cycles (program + overhead)
     pub total_cycles: Option<String>,
-    /// Effective prove MHz
+    /// Effective prove MHz (from requestor perspective: fulfilled_at - created_at)
     pub effective_prove_mhz: Option<f64>,
+    /// Prover effective prove MHz (from prover perspective: fulfilled_at - locked_at or lock_end)
+    pub prover_effective_prove_mhz: Option<f64>,
     /// Submit transaction hash
     pub submit_tx_hash: Option<String>,
     /// Lock transaction hash
@@ -2320,6 +2322,7 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         program_cycles: status.program_cycles.as_ref().map(|c| c.to_string()),
         total_cycles: status.total_cycles.as_ref().map(|c| c.to_string()),
         effective_prove_mhz: status.effective_prove_mhz,
+        prover_effective_prove_mhz: status.prover_effective_prove_mhz,
         submit_tx_hash: status.submit_tx_hash.map(|h| format!("{:#x}", h)),
         lock_tx_hash: status.lock_tx_hash.map(|h| format!("{:#x}", h)),
         fulfill_tx_hash: status.fulfill_tx_hash.map(|h| format!("{:#x}", h)),
