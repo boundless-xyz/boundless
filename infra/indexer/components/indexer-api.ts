@@ -7,6 +7,7 @@ import { Severity } from '../../util';
 
 // WAF rate-based rules are evaluated per 5-minute window.
 const RATE_LIMIT_PER_5_MINUTES = 200;
+const ALLOWED_IP_RATE_LIMIT_PER_5_MINUTES = 1000;
 // Header names must be lowercase for WAFv2 `singleHeader` matching.
 const PROXY_SECRET_HEADER_NAME = 'x-boundless-proxy-secret';
 const FORWARDED_IP_HEADER_NAME = 'x-forwarded-for';
@@ -36,6 +37,8 @@ export interface IndexerApiArgs {
   boundlessAlertsTopicArns?: string[];
   /** Database version */
   databaseVersion?: string;
+  /** Optional comma-separated list of IP addresses to allow higher rate limit (1000 per 5 minutes) */
+  allowedIpAddresses?: pulumi.Input<string>;
 }
 
 export class IndexerApi extends pulumi.ComponentResource {
@@ -346,6 +349,171 @@ export class IndexerApi extends pulumi.ComponentResource {
       distributionAliases = [args.domain];
     }
 
+    // Parse comma-separated IP addresses and always create IP set
+    const parsedIpAddresses = args.allowedIpAddresses
+      ? pulumi.output(args.allowedIpAddresses).apply(ips =>
+        ips.split(',').map(ip => ip.trim()).filter(ip => ip.length > 0)
+      )
+      : pulumi.output([]);
+
+    const allowedIpSet = parsedIpAddresses.apply(ips =>
+      new aws.wafv2.IpSet(
+        `${serviceName}-allowed-ip`,
+        {
+          name: `${serviceName}-allowed-ip`,
+          scope: 'CLOUDFRONT',
+          addresses: ips,
+          ipAddressVersion: 'IPV4',
+        },
+        { parent: this, provider: usEast1Provider },
+      )
+    );
+
+    // Build WAF rules array - always include allowed IP rule at priority 0
+    const allRules = allowedIpSet.apply(ipSet => [
+      {
+        name: 'AllowedIpRateLimit',
+        priority: 0,
+        statement: {
+          rateBasedStatement: {
+            limit: ALLOWED_IP_RATE_LIMIT_PER_5_MINUTES,
+            aggregateKeyType: 'IP',
+            scopeDownStatement: {
+              ipSetReferenceStatement: {
+                arn: ipSet.arn,
+              },
+            },
+          },
+        },
+        action: { block: {} },
+        visibilityConfig: {
+          sampledRequestsEnabled: true,
+          cloudwatchMetricsEnabled: true,
+          metricName: 'AllowedIpRateLimit',
+        },
+      },
+      // If proxy secret matches, rate limit by forwarded client IP (from X-Forwarded-For)
+      {
+        name: 'ProxyForwardedIpRateLimit',
+        priority: 1,
+        statement: {
+          rateBasedStatement: {
+            limit: RATE_LIMIT_PER_5_MINUTES,
+            aggregateKeyType: 'FORWARDED_IP',
+            forwardedIpConfig: {
+              headerName: FORWARDED_IP_HEADER_NAME,
+              fallbackBehavior: 'NO_MATCH',
+            },
+            scopeDownStatement: {
+              byteMatchStatement: {
+                searchString: args.proxySecret,
+                fieldToMatch: {
+                  singleHeader: { name: PROXY_SECRET_HEADER_NAME },
+                },
+                positionalConstraint: 'EXACTLY',
+                textTransformations: [{ priority: 0, type: 'NONE' }],
+              },
+            },
+          },
+        },
+        action: { block: {} },
+        visibilityConfig: {
+          sampledRequestsEnabled: true,
+          cloudwatchMetricsEnabled: true,
+          metricName: 'ProxyForwardedIpRateLimit',
+        },
+      },
+      // If proxy secret does NOT match, rate limit by true source IP
+      {
+        name: 'SourceIpRateLimit',
+        priority: 2,
+        statement: {
+          rateBasedStatement: {
+            limit: RATE_LIMIT_PER_5_MINUTES,
+            aggregateKeyType: 'IP',
+            scopeDownStatement: {
+              notStatement: {
+                statements: [
+                  {
+                    byteMatchStatement: {
+                      searchString: args.proxySecret,
+                      fieldToMatch: {
+                        singleHeader: { name: PROXY_SECRET_HEADER_NAME },
+                      },
+                      positionalConstraint: 'EXACTLY',
+                      textTransformations: [{ priority: 0, type: 'NONE' }],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        action: { block: {} },
+        visibilityConfig: {
+          sampledRequestsEnabled: true,
+          cloudwatchMetricsEnabled: true,
+          metricName: 'SourceIpRateLimit',
+        },
+      },
+      // AWS Managed Core Rule Set
+      {
+        name: 'AWS-AWSManagedRulesCommonRuleSet',
+        priority: 3,
+        overrideAction: {
+          none: {},
+        },
+        statement: {
+          managedRuleGroupStatement: {
+            vendorName: 'AWS',
+            name: 'AWSManagedRulesCommonRuleSet',
+          },
+        },
+        visibilityConfig: {
+          sampledRequestsEnabled: true,
+          cloudwatchMetricsEnabled: true,
+          metricName: 'AWSManagedRulesCommonRuleSetMetric',
+        },
+      },
+      // AWS Managed Known Bad Inputs Rule Set
+      {
+        name: 'AWS-AWSManagedRulesKnownBadInputsRuleSet',
+        priority: 4,
+        overrideAction: {
+          none: {},
+        },
+        statement: {
+          managedRuleGroupStatement: {
+            vendorName: 'AWS',
+            name: 'AWSManagedRulesKnownBadInputsRuleSet',
+          },
+        },
+        visibilityConfig: {
+          sampledRequestsEnabled: true,
+          cloudwatchMetricsEnabled: true,
+          metricName: 'AWSManagedRulesKnownBadInputsRuleSetMetric',
+        },
+      },
+      // SQL Injection Protection
+      {
+        name: 'AWS-AWSManagedRulesSQLiRuleSet',
+        priority: 5,
+        overrideAction: {
+          none: {},
+        },
+        statement: {
+          managedRuleGroupStatement: {
+            vendorName: 'AWS',
+            name: 'AWSManagedRulesSQLiRuleSet',
+          },
+        },
+        visibilityConfig: {
+          sampledRequestsEnabled: true,
+          cloudwatchMetricsEnabled: true,
+          metricName: 'AWSManagedRulesSQLiRuleSetMetric',
+        },
+      },
+    ]);
 
     // Create WAF WebACL
     const webAcl = new aws.wafv2.WebAcl(
@@ -356,136 +524,18 @@ export class IndexerApi extends pulumi.ComponentResource {
         defaultAction: {
           allow: {},
         },
-        rules: [
-          // If proxy secret matches, rate limit by forwarded client IP (from X-Forwarded-For)
-          {
-            name: 'ProxyForwardedIpRateLimit',
-            priority: 1,
-            statement: {
-              rateBasedStatement: {
-                limit: RATE_LIMIT_PER_5_MINUTES,
-                aggregateKeyType: 'FORWARDED_IP',
-                forwardedIpConfig: {
-                  headerName: FORWARDED_IP_HEADER_NAME,
-                  fallbackBehavior: 'NO_MATCH',
-                },
-                scopeDownStatement: {
-                  byteMatchStatement: {
-                    searchString: args.proxySecret,
-                    fieldToMatch: {
-                      singleHeader: { name: PROXY_SECRET_HEADER_NAME },
-                    },
-                    positionalConstraint: 'EXACTLY',
-                    textTransformations: [{ priority: 0, type: 'NONE' }],
-                  },
-                },
-              },
-            },
-            action: { block: {} },
-            visibilityConfig: {
-              sampledRequestsEnabled: true,
-              cloudwatchMetricsEnabled: true,
-              metricName: 'ProxyForwardedIpRateLimit',
-            },
-          },
-          // If proxy secret does NOT match, rate limit by true source IP
-          {
-            name: 'SourceIpRateLimit',
-            priority: 2,
-            statement: {
-              rateBasedStatement: {
-                limit: RATE_LIMIT_PER_5_MINUTES,
-                aggregateKeyType: 'IP',
-                scopeDownStatement: {
-                  notStatement: {
-                    statements: [
-                      {
-                        byteMatchStatement: {
-                          searchString: args.proxySecret,
-                          fieldToMatch: {
-                            singleHeader: { name: PROXY_SECRET_HEADER_NAME },
-                          },
-                          positionalConstraint: 'EXACTLY',
-                          textTransformations: [{ priority: 0, type: 'NONE' }],
-                        },
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-            action: { block: {} },
-            visibilityConfig: {
-              sampledRequestsEnabled: true,
-              cloudwatchMetricsEnabled: true,
-              metricName: 'SourceIpRateLimit',
-            },
-          },
-          // AWS Managed Core Rule Set
-          {
-            name: 'AWS-AWSManagedRulesCommonRuleSet',
-            priority: 3,
-            overrideAction: {
-              none: {},
-            },
-            statement: {
-              managedRuleGroupStatement: {
-                vendorName: 'AWS',
-                name: 'AWSManagedRulesCommonRuleSet',
-              },
-            },
-            visibilityConfig: {
-              sampledRequestsEnabled: true,
-              cloudwatchMetricsEnabled: true,
-              metricName: 'AWSManagedRulesCommonRuleSetMetric',
-            },
-          },
-          // AWS Managed Known Bad Inputs Rule Set
-          {
-            name: 'AWS-AWSManagedRulesKnownBadInputsRuleSet',
-            priority: 4,
-            overrideAction: {
-              none: {},
-            },
-            statement: {
-              managedRuleGroupStatement: {
-                vendorName: 'AWS',
-                name: 'AWSManagedRulesKnownBadInputsRuleSet',
-              },
-            },
-            visibilityConfig: {
-              sampledRequestsEnabled: true,
-              cloudwatchMetricsEnabled: true,
-              metricName: 'AWSManagedRulesKnownBadInputsRuleSetMetric',
-            },
-          },
-          // SQL Injection Protection
-          {
-            name: 'AWS-AWSManagedRulesSQLiRuleSet',
-            priority: 5,
-            overrideAction: {
-              none: {},
-            },
-            statement: {
-              managedRuleGroupStatement: {
-                vendorName: 'AWS',
-                name: 'AWSManagedRulesSQLiRuleSet',
-              },
-            },
-            visibilityConfig: {
-              sampledRequestsEnabled: true,
-              cloudwatchMetricsEnabled: true,
-              metricName: 'AWSManagedRulesSQLiRuleSetMetric',
-            },
-          },
-        ],
+        rules: allRules,
         visibilityConfig: {
           sampledRequestsEnabled: true,
           cloudwatchMetricsEnabled: true,
           metricName: `${serviceName}-waf`,
         },
       },
-      { parent: this, provider: usEast1Provider }, // WAF for CloudFront must be in us-east-1
+      {
+        parent: this,
+        provider: usEast1Provider,
+        dependsOn: [allowedIpSet]
+      }, // WAF for CloudFront must be in us-east-1
     );
 
     // Cache policy for default behavior: short TTL (60s default, 300s max)

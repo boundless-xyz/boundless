@@ -54,6 +54,7 @@ export = () => {
   const zkcAddress = config.get('ZKC_ADDRESS');
   const povwAccountingAddress = config.get('POVW_ACCOUNTING_ADDRESS');
   const indexerApiDomain = config.get('INDEXER_API_DOMAIN');
+  const allowedIpAddresses = config.getSecret('ALLOWED_IP_ADDRESSES');
 
   const shouldDeployMarket = !!boundlessAddress && !!startBlock;
   const shouldDeployRewards = !!vezkcAddress && !!zkcAddress && !!povwAccountingAddress;
@@ -157,6 +158,7 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       databaseVersion: infra.databaseVersion,
       proxySecret,
+      allowedIpAddresses,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 
