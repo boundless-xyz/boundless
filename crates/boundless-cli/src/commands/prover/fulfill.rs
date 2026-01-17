@@ -41,6 +41,15 @@ pub struct ProverFulfill {
     #[arg(long, default_value = "false")]
     pub withdraw: bool,
 
+    /// Lower bound: search events backwards down to this block
+    #[clap(long)]
+    pub search_to_block: Option<u64>,
+
+    /// Upper bound: search events backwards from this block (defaults to latest).
+    /// Set this for old requests to reduce RPC calls and cost
+    #[clap(long)]
+    pub search_from_block: Option<u64>,
+
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
@@ -90,6 +99,8 @@ impl ProverFulfill {
                         *request_id,
                         self.tx_hashes.as_ref().map(|tx_hashes| tx_hashes[i]),
                         self.request_digests.as_ref().map(|request_digests| request_digests[i]),
+                        self.search_to_block,
+                        self.search_from_block,
                     )
                     .await?;
                 tracing::debug!("Fetched order details: {req:?}");

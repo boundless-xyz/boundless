@@ -41,13 +41,14 @@ pub struct RequestorStatus {
     #[clap(long)]
     pub search_blocks: Option<u64>,
 
-    /// Override the starting block for event search
+    /// Lower bound: search events backwards down to this block
     #[clap(long)]
-    pub search_start_block: Option<u64>,
+    pub search_to_block: Option<u64>,
 
-    /// Override the ending block for event search
+    /// Upper bound: search events backwards from this block (defaults to latest).
+    /// Set this for old requests to reduce RPC calls and cost
     #[clap(long)]
-    pub search_end_block: Option<u64>,
+    pub search_from_block: Option<u64>,
 
     /// Requestor configuration (RPC URL, private key, deployment)
     #[clap(flatten)]
@@ -200,9 +201,9 @@ impl RequestorStatus {
             .unwrap_or(deployment_block.max(1));
 
         // Check for manual overrides first
-        if self.search_start_block.is_some() || self.search_end_block.is_some() {
-            let start_block = self.search_start_block.unwrap_or(deployment_block);
-            let end_block = self.search_end_block.unwrap_or(latest_block);
+        if self.search_to_block.is_some() || self.search_from_block.is_some() {
+            let start_block = self.search_to_block.unwrap_or(deployment_block);
+            let end_block = self.search_from_block.unwrap_or(latest_block);
 
             tracing::info!(
                 "Using manually specified block range: {} to {}",
@@ -320,9 +321,9 @@ impl RequestorStatus {
             }
         };
 
-        // Update lower_bound to submission block if we found it on-chain and user didn't specify search-start-block
+        // Update lower_bound to submission block if we found it on-chain and user didn't specify search-to-block
         if let Some(block) = submission_block {
-            if self.search_start_block.is_none() {
+            if self.search_to_block.is_none() {
                 tracing::debug!(
                     "Updated lower bound from {} to submission block {}",
                     lower_bound,
