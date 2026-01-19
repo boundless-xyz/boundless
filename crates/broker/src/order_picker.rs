@@ -1594,7 +1594,7 @@ pub(crate) mod tests {
         anvil: AnvilInstance,
         pub(crate) picker: OrderPicker<P>,
         boundless_market: BoundlessMarketService<Arc<P>>,
-        storage_provider: MockStorageUploader,
+        storage_uploader: MockStorageUploader,
         db: DbObj,
         provider: Arc<P>,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
@@ -1638,7 +1638,7 @@ pub(crate) mod tests {
 
         pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
             let image_url =
-                self.storage_provider.upload_program(ECHO_ELF).await.unwrap().to_string();
+                self.storage_uploader.upload_program(ECHO_ELF).await.unwrap().to_string();
             let image_id = Digest::from(ECHO_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
@@ -1681,7 +1681,7 @@ pub(crate) mod tests {
             cycles: u64,
         ) -> Box<OrderRequest> {
             let image_url =
-                self.storage_provider.upload_program(LOOP_ELF).await.unwrap().to_string();
+                self.storage_uploader.upload_program(LOOP_ELF).await.unwrap().to_string();
             let image_id = Digest::from(LOOP_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
@@ -1796,7 +1796,7 @@ pub(crate) mod tests {
                 );
             }
 
-            let storage_provider = MockStorageUploader::new();
+            let storage_uploader = MockStorageUploader::new();
 
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
@@ -1834,7 +1834,7 @@ pub(crate) mod tests {
                 anvil,
                 picker,
                 boundless_market,
-                storage_provider,
+                storage_uploader,
                 db,
                 provider,
                 priced_orders_rx,

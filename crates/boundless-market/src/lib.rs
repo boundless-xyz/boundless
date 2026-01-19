@@ -79,7 +79,7 @@ pub mod blake3_groth16;
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;
 
-/// Storage module for interacting with the storage provider.
+/// Storage module for interacting with the storage uploader.
 #[cfg(not(target_os = "zkvm"))]
 pub mod storage;
 #[cfg(not(target_os = "zkvm"))]

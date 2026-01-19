@@ -41,19 +41,19 @@ pub struct FileStorageUploader {
 }
 
 impl FileStorageUploader {
-    /// Creates a new file storage provider with a temporary directory.
+    /// Creates a new file storage uploader with a temporary directory.
     pub fn new() -> Result<Self, StorageError> {
         Ok(Self { path: Arc::new(tempfile::tempdir()?) })
     }
 
-    /// Creates a new file storage provider with a temporary directory under the given path.
+    /// Creates a new file storage uploader with a temporary directory under the given path.
     pub fn with_path(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         Ok(Self { path: Arc::new(tempfile::tempdir_in(path)?) })
     }
 
-    /// Creates a new file storage provider from upload configuration.
+    /// Creates a new file storage uploader from upload configuration.
     pub fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
-        assert_eq!(config.storage_provider, StorageUploaderType::File);
+        assert_eq!(config.storage_uploader, StorageUploaderType::File);
 
         let uploader = match &config.file_path {
             Some(path) => Self::with_path(path)?,

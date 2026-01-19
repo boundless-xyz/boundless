@@ -131,8 +131,8 @@ struct MainArgs {
     #[clap(long, default_value = "false")]
     submit_offchain: bool,
 
-    /// Storage provider to use.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
     storage_config: StorageUploaderConfig,
 }
 
@@ -173,7 +173,7 @@ async fn run(args: &MainArgs) -> Result<()> {
     }
 
     let client = client
-        .with_storage_provider_config(&args.storage_config)
+        .with_storage_uploader_config(&args.storage_config)
         .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())

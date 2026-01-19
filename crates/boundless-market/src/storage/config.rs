@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Configuration types for storage providers.
+//! Configuration types for storage uploaders.
 
 use std::path::PathBuf;
 
@@ -20,31 +20,31 @@ use clap::{builder::ArgPredicate, Args, ValueEnum};
 use derive_builder::Builder;
 use url::Url;
 
-/// The type of storage provider to use for uploads.
+/// The type of storage uploader to use for uploads.
 #[derive(Default, Clone, Debug, ValueEnum, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StorageUploaderType {
-    /// No storage provider.
+    /// No storage uploader.
     #[default]
     None,
-    /// S3 storage provider.
+    /// S3 storage uploader.
     #[cfg(feature = "s3")]
     S3,
     /// Google Cloud Storage provider.
     #[cfg(feature = "gcs")]
     Gcs,
-    /// Pinata storage provider.
+    /// Pinata storage uploader.
     Pinata,
-    /// Temporary file storage provider.
+    /// Temporary file storage uploader.
     File,
-    /// In-memory mock storage provider for testing.
+    /// In-memory mock storage uploader for testing.
     #[cfg(feature = "test-utils")]
     Mock,
 }
 
 /// Configuration for the storage module (upload providers).
 ///
-/// This configuration is used to set up storage providers for uploading programs and inputs.
+/// This configuration is used to set up storage uploaders for uploading programs and inputs.
 ///
 /// # Authentication
 ///
@@ -72,12 +72,12 @@ pub struct StorageUploaderConfig {
         ("file_path", ArgPredicate::IsPresent, "file")
     ])]
     #[builder(default)]
-    pub storage_provider: StorageUploaderType,
+    pub storage_uploader: StorageUploaderType,
 
     // **S3 Storage Provider Options**
     /// S3 bucket name
     #[cfg(feature = "s3")]
-    #[arg(long, env, required_if_eq("storage_provider", "s3"))]
+    #[arg(long, env, required_if_eq("storage_uploader", "s3"))]
     #[builder(setter(strip_option, into), default)]
     pub s3_bucket: Option<String>,
     /// S3 access key (optional, uses AWS default credential chain if not set)
@@ -110,7 +110,7 @@ pub struct StorageUploaderConfig {
     // **GCS Storage Provider Options**
     /// GCS bucket name
     #[cfg(feature = "gcs")]
-    #[arg(long, env, required_if_eq("storage_provider", "gcs"))]
+    #[arg(long, env, required_if_eq("storage_uploader", "gcs"))]
     #[builder(setter(strip_option, into), default)]
     pub gcs_bucket: Option<String>,
     /// GCS endpoint URL (optional, for emulators like fake-gcs-server)
@@ -121,7 +121,7 @@ pub struct StorageUploaderConfig {
 
     // **Pinata Storage Provider Options**
     /// Pinata JWT
-    #[arg(long, env, required_if_eq("storage_provider", "pinata"))]
+    #[arg(long, env, required_if_eq("storage_uploader", "pinata"))]
     #[builder(setter(strip_option, into), default)]
     pub pinata_jwt: Option<String>,
     /// Pinata API URL
@@ -134,7 +134,7 @@ pub struct StorageUploaderConfig {
     pub ipfs_gateway_url: Option<Url>,
 
     // **File Storage Provider Options**
-    /// Path for file storage provider
+    /// Path for file storage uploader
     #[arg(long)]
     #[builder(setter(strip_option, into), default)]
     pub file_path: Option<PathBuf>,
@@ -148,7 +148,7 @@ impl StorageUploaderConfig {
 
     /// Create a new configuration for a [StorageUploaderType::File].
     pub fn dev_mode() -> Self {
-        Self { storage_provider: StorageUploaderType::File, ..Default::default() }
+        Self { storage_uploader: StorageUploaderType::File, ..Default::default() }
     }
 }
 

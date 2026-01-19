@@ -58,7 +58,7 @@ use google_cloud_gax::retry_policy::{AlwaysRetry, NeverRetry, RetryPolicyExt};
 use google_cloud_storage::client::Storage;
 use url::Url;
 
-/// GCS storage provider for uploading programs and inputs.
+/// GCS storage uploader for uploading programs and inputs.
 ///
 /// This provider stores files in a GCS bucket and returns `gs://` URLs.
 ///
@@ -81,7 +81,7 @@ pub struct GcsStorageUploader {
 }
 
 impl GcsStorageUploader {
-    /// Creates a new GCS storage provider from environment variables.
+    /// Creates a new GCS storage uploader from environment variables.
     ///
     /// Required environment variables:
     /// - `GCS_BUCKET`: The name of the GCS bucket
@@ -100,9 +100,9 @@ impl GcsStorageUploader {
         Self::new(bucket, endpoint_url).await
     }
 
-    /// Creates a new GCS storage provider from configuration.
+    /// Creates a new GCS storage uploader from configuration.
     pub async fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
-        assert_eq!(config.storage_provider, StorageUploaderType::Gcs);
+        assert_eq!(config.storage_uploader, StorageUploaderType::Gcs);
 
         let bucket = config
             .gcs_bucket
@@ -112,7 +112,7 @@ impl GcsStorageUploader {
         Self::new(bucket, config.gcs_url.clone()).await
     }
 
-    /// Creates a new GCS storage provider with explicit parameters.
+    /// Creates a new GCS storage uploader with explicit parameters.
     ///
     /// # Arguments
     ///

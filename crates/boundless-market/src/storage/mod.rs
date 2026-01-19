@@ -39,24 +39,24 @@ pub use providers::{GcsStorageDownloader, GcsStorageUploader};
 #[cfg(feature = "s3")]
 pub use providers::{S3StorageDownloader, S3StorageUploader};
 
-/// A storage provider enum that can upload to various backends.
+/// A storage uploader enum that can upload to various backends.
 ///
 /// This enum provides a unified interface over all upload providers,
 /// allowing runtime selection of the storage backend.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum StandardUploader {
-    /// S3 storage provider.
+    /// S3 storage uploader.
     #[cfg(feature = "s3")]
     S3(S3StorageUploader),
     /// Google Cloud Storage provider.
     #[cfg(feature = "gcs")]
     Gcs(GcsStorageUploader),
-    /// Pinata/IPFS storage provider.
+    /// Pinata/IPFS storage uploader.
     Pinata(PinataStorageUploader),
-    /// Local file storage provider.
+    /// Local file storage uploader.
     File(FileStorageUploader),
-    /// In-memory mock storage provider for testing.
+    /// In-memory mock storage uploader for testing.
     #[cfg(feature = "test-utils")]
     Mock(MockStorageUploader),
 }
@@ -104,12 +104,12 @@ impl StandardUploader {
             return Ok(Self::S3(provider));
         }
 
-        Err(StorageError::NoProvider)
+        Err(StorageError::NoUploader)
     }
 
     /// Creates a storage uploader from configuration.
     pub async fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
-        match config.storage_provider {
+        match config.storage_uploader {
             #[cfg(feature = "s3")]
             StorageUploaderType::S3 => Ok(Self::S3(S3StorageUploader::from_config(config).await?)),
             #[cfg(feature = "gcs")]
@@ -122,7 +122,7 @@ impl StandardUploader {
             StorageUploaderType::File => Ok(Self::File(FileStorageUploader::from_config(config)?)),
             #[cfg(feature = "test-utils")]
             StorageUploaderType::Mock => Ok(Self::Mock(MockStorageUploader::new())),
-            StorageUploaderType::None => Err(StorageError::NoProvider),
+            StorageUploaderType::None => Err(StorageError::NoUploader),
         }
     }
 }

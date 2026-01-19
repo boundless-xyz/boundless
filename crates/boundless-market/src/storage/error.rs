@@ -76,9 +76,9 @@ pub enum StorageError {
     #[error("missing config parameter: {0}")]
     MissingConfig(String),
 
-    /// No storage provider configured.
-    #[error("no storage provider configured")]
-    NoProvider,
+    /// No storage uploader configured.
+    #[error("no storage uploader configured")]
+    NoUploader,
 
     /// Other error.
     #[error("{0}")]

@@ -31,7 +31,7 @@ use url::Url;
 const DEFAULT_PINATA_API_URL: &str = "https://uploads.pinata.cloud";
 const DEFAULT_GATEWAY_URL: &str = "https://gateway.pinata.cloud";
 
-/// Pinata storage provider for uploading to IPFS.
+/// Pinata storage uploader for uploading to IPFS.
 ///
 /// This provider uploads files to IPFS via Pinata's API and returns
 /// HTTPS gateway URLs for accessing the uploaded content.
@@ -49,7 +49,7 @@ pub struct PinataStorageUploader {
 }
 
 impl PinataStorageUploader {
-    /// Creates a new Pinata storage provider from environment variables.
+    /// Creates a new Pinata storage uploader from environment variables.
     ///
     /// Required environment variables:
     /// - `PINATA_JWT`: Pinata API JWT token
@@ -88,9 +88,9 @@ impl PinataStorageUploader {
         })
     }
 
-    /// Creates a new Pinata storage provider from configuration.
+    /// Creates a new Pinata storage uploader from configuration.
     pub fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
-        assert_eq!(config.storage_provider, StorageUploaderType::Pinata);
+        assert_eq!(config.storage_uploader, StorageUploaderType::Pinata);
 
         let jwt = config
             .pinata_jwt
@@ -115,7 +115,7 @@ impl PinataStorageUploader {
         })
     }
 
-    /// Creates a new Pinata storage provider with explicit parameters.
+    /// Creates a new Pinata storage uploader with explicit parameters.
     pub fn new(jwt: String, api_url: Url, gateway_url: Url) -> Self {
         Self {
             client: Client::new(),

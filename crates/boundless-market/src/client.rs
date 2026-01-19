@@ -97,7 +97,7 @@ pub struct ClientBuilder<U, D, S> {
     rpc_url: Option<Url>,
     rpc_urls: Vec<Url>,
     signer: Option<S>,
-    storage_provider: Option<U>,
+    storage_uploader: Option<U>,
     downloader: Option<D>,
     tx_timeout: Option<std::time::Duration>,
     balance_alerts: Option<BalanceAlertConfig>,
@@ -126,7 +126,7 @@ impl<U, D, S> Default for ClientBuilder<U, D, S> {
             rpc_url: None,
             rpc_urls: Vec::new(),
             signer: None,
-            storage_provider: None,
+            storage_uploader: None,
             downloader: None,
             tx_timeout: None,
             balance_alerts: None,
@@ -375,7 +375,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(StorageLayer::new(
-                self.storage_provider.clone(),
+                self.storage_uploader.clone(),
                 self.storage_layer_config.build()?,
             ))
             .preflight_layer(PreflightLayer::new(Some(downloader.clone())))
@@ -390,7 +390,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
         let mut client = Client {
             boundless_market,
             set_verifier,
-            storage_provider: self.storage_provider,
+            storage_uploader: self.storage_uploader,
             downloader,
             offchain_client,
             signer: self.signer,
@@ -489,7 +489,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         ClientBuilder {
             signer: signer.into(),
             deployment: self.deployment,
-            storage_provider: self.storage_provider,
+            storage_uploader: self.storage_uploader,
             downloader: self.downloader,
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
@@ -513,12 +513,12 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         Self { balance_alerts: config.into(), ..self }
     }
 
-    /// Set the storage provider.
+    /// Set the storage uploader.
     ///
     /// The returned [ClientBuilder] will be generic over the provider [StorageUploader] type.
-    pub fn with_storage_provider<Z: StorageUploader>(
+    pub fn with_storage_uploader<Z: StorageUploader>(
         self,
-        storage_provider: Option<Z>,
+        storage_uploader: Option<Z>,
     ) -> ClientBuilder<Z, D, S> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
@@ -526,7 +526,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             signer: self.signer,
-            storage_provider,
+            storage_uploader,
             downloader: self.downloader,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
@@ -546,7 +546,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             signer: self.signer,
-            storage_provider: self.storage_provider,
+            storage_uploader: self.storage_uploader,
             downloader: Some(downloader),
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
@@ -558,17 +558,17 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         }
     }
 
-    /// Set the storage provider from the given config
-    pub async fn with_storage_provider_config(
+    /// Set the storage uploader from the given config
+    pub async fn with_storage_uploader_config(
         self,
         config: &StorageUploaderConfig,
     ) -> Result<ClientBuilder<StandardUploader, D, S>, StorageError> {
-        let storage_provider = match StandardUploader::from_config(config).await {
-            Ok(storage_provider) => Some(storage_provider),
-            Err(StorageError::NoProvider) => None,
+        let storage_uploader = match StandardUploader::from_config(config).await {
+            Ok(storage_uploader) => Some(storage_uploader),
+            Err(StorageError::NoUploader) => None,
             Err(e) => return Err(e),
         };
-        Ok(self.with_storage_provider(storage_provider))
+        Ok(self.with_storage_uploader(storage_uploader))
     }
 
     /// Modify the [OfferLayer] configuration used in the [StandardRequestBuilder].
@@ -653,7 +653,7 @@ pub struct Client<
     /// [StandardUploader] to upload programs and inputs.
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
-    pub storage_provider: Option<U>,
+    pub storage_uploader: Option<U>,
     /// Downloader for fetching data from storage.
     pub downloader: D,
     /// [OrderStreamClient] to submit requests off-chain.
@@ -742,7 +742,7 @@ where
             },
             boundless_market,
             set_verifier,
-            storage_provider: None,
+            storage_uploader: None,
             downloader,
             offchain_client: None,
             signer: None,
@@ -834,7 +834,7 @@ where
             signer: Some(signer),
             boundless_market: self.boundless_market,
             set_verifier: self.set_verifier,
-            storage_provider: self.storage_provider,
+            storage_uploader: self.storage_uploader,
             downloader: self.downloader,
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
@@ -843,13 +843,13 @@ where
         }
     }
 
-    /// Upload a program binary to the storage provider.
+    /// Upload a program binary to the storage uploader.
     pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
     where
         St: StorageUploader,
     {
         Ok(self
-            .storage_provider
+            .storage_uploader
             .as_ref()
             .context("Storage provider not set")?
             .upload_program(program)
@@ -857,13 +857,13 @@ where
             .context("Failed to upload program")?)
     }
 
-    /// Upload input to the storage provider.
+    /// Upload input to the storage uploader.
     pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError>
     where
         St: StorageUploader,
     {
         Ok(self
-            .storage_provider
+            .storage_uploader
             .as_ref()
             .context("Storage provider not set")?
             .upload_input(input)

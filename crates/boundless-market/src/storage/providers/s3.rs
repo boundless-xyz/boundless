@@ -77,7 +77,7 @@ async fn apply_role_assumption(sdk_config: SdkConfig) -> SdkConfig {
         .build()
 }
 
-/// S3 storage provider for uploading programs and inputs.
+/// S3 storage uploader for uploading programs and inputs.
 ///
 /// This provider stores files in an S3 bucket and returns either:
 /// - `s3://` URLs (when `use_presigned` is false)
@@ -99,7 +99,7 @@ pub struct S3StorageUploader {
 }
 
 impl S3StorageUploader {
-    /// Creates a new S3 storage provider from environment variables.
+    /// Creates a new S3 storage uploader from environment variables.
     ///
     /// Required environment variables:
     /// - `S3_BUCKET`: Bucket name
@@ -125,9 +125,9 @@ impl S3StorageUploader {
         Self::new(bucket, region, endpoint_url, use_presigned, explicit_credentials).await
     }
 
-    /// Creates a new S3 storage provider from configuration.
+    /// Creates a new S3 storage uploader from configuration.
     pub async fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
-        assert_eq!(config.storage_provider, StorageUploaderType::S3);
+        assert_eq!(config.storage_uploader, StorageUploaderType::S3);
 
         let bucket = config
             .s3_bucket
@@ -152,7 +152,7 @@ impl S3StorageUploader {
         .await
     }
 
-    /// Creates a new S3 storage provider with explicit parameters.
+    /// Creates a new S3 storage uploader with explicit parameters.
     ///
     /// # Arguments
     ///

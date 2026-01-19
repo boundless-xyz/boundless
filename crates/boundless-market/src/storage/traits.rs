@@ -20,7 +20,7 @@ use auto_impl::auto_impl;
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
-/// A trait for uploading risc0-zkvm programs and input files to a storage provider.
+/// A trait for uploading risc0-zkvm programs and input files to a storage uploader.
 #[async_trait]
 #[auto_impl(Arc)]
 pub trait StorageUploader: Send + Sync {

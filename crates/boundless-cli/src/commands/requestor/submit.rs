@@ -57,8 +57,8 @@ pub struct RequestorSubmit {
     #[clap(long, default_value = "false")]
     pub no_preflight: bool,
 
-    /// Configuration for the StorageProvider to use for uploading programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
     pub storage_config: Box<StorageUploaderConfig>,
 
     /// Requestor configuration (RPC URL, private key, deployment)
@@ -74,7 +74,7 @@ impl RequestorSubmit {
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
-            .with_storage_provider_config(&self.storage_config)
+            .with_storage_uploader_config(&self.storage_config)
             .await?
             .build()
             .await

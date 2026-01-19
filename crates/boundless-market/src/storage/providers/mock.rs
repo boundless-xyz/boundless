@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! In-memory storage provider for testing.
+//! In-memory storage uploader for testing.
 //!
 //! This provider uses an embedded HTTP server ([`httpmock::MockServer`]) to store
 //! uploaded data in-memory and serve it via HTTP URLs. This allows the standard
@@ -27,7 +27,7 @@ use url::Url;
 
 use crate::storage::{StorageError, StorageUploader};
 
-/// In-memory storage provider for testing.
+/// In-memory storage uploader for testing.
 ///
 /// This provider stores uploaded data in-memory and provides HTTP URLs that can
 /// be downloaded using the standard [`HttpDownloader`](super::HttpDownloader).
@@ -57,12 +57,12 @@ impl Default for MockStorageUploader {
 }
 
 impl MockStorageUploader {
-    /// Creates a new mock storage provider with an embedded HTTP server.
+    /// Creates a new mock storage uploader with an embedded HTTP server.
     pub fn new() -> Self {
         Self::with_server(MockServer::start())
     }
 
-    /// Creates a new mock storage provider with an existing mock server.
+    /// Creates a new mock storage uploader with an existing mock server.
     ///
     /// This allows sharing a mock server between multiple components in tests.
     pub fn with_server(server: MockServer) -> Self {

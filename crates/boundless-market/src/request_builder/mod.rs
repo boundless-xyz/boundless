@@ -729,7 +729,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn without_storage_provider() -> anyhow::Result<()> {
+    async fn without_storage_uploader() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let downloader = DefaultDownloader::new().await;
@@ -829,7 +829,7 @@ mod tests {
 
         assert!(err
             .to_string()
-            .contains("cannot upload input using StorageLayer with no storage_provider"));
+            .contains("cannot upload input using StorageLayer with no storage_uploader"));
         Ok(())
     }
 

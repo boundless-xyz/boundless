@@ -35,8 +35,8 @@ struct Args {
     /// Private key used to interact with the Boundless Market.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
-    /// Configuration for the StorageProvider to use for uploading programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
     storage_config: StorageUploaderConfig,
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
@@ -66,7 +66,7 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config)
+        .with_storage_uploader_config(&args.storage_config)
         .await?
         .with_private_key(args.private_key)
         .build()
@@ -160,7 +160,7 @@ mod tests {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
             storage_config: StorageUploaderConfig::builder()
-                .storage_provider(StorageUploaderType::Mock)
+                .storage_uploader(StorageUploaderType::Mock)
                 .build()
                 .unwrap(),
             deployment: Some(ctx.deployment),

@@ -102,8 +102,8 @@ pub struct MainArgs {
     /// Boundless Market deployment configuration
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
-    /// Storage provider to use.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
     storage_config: StorageUploaderConfig,
 }
 
@@ -122,7 +122,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     };
     let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url.clone())
-        .with_storage_provider_config(&args.storage_config)
+        .with_storage_uploader_config(&args.storage_config)
         .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(private_key)
