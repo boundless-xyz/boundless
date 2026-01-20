@@ -163,17 +163,28 @@ export class IndexerApi extends pulumi.ComponentResource {
     // Create error log metric filter and alarm
     const alarmActions = args.boundlessAlertsTopicArns ?? [];
 
+    const errorLogMetricName = `${serviceName}-log-err`;
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-error-filter`, {
       name: `${serviceName}-log-err-filter`,
       logGroupName: logGroupName,
       metricTransformation: {
         namespace: `Boundless/Services/${serviceName}`,
-        name: `${serviceName}-log-err`,
+        name: errorLogMetricName,
         value: '1',
         defaultValue: '0',
       },
       pattern: '?ERROR ?error ?Error',
     }, { dependsOn: [this.lambdaFunction], parent: this });
+
+    const stackName = pulumi.getStack();
+    const stage = stackName.includes('prod') ? 'prod' : 'staging';
+    const chainIdOutput = pulumi.output(args.chainId);
+    const alarmTags = pulumi.all([chainIdOutput, logGroupName]).apply(([chainId, logGroup]) => ({
+      StackName: stage,
+      ChainId: chainId,
+      ServiceName: serviceName,
+      LogGroupName: logGroup,
+    }));
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-${Severity.SEV2}-error-alarm`, {
       name: `${serviceName}-${Severity.SEV2}-log-err`,
@@ -182,7 +193,7 @@ export class IndexerApi extends pulumi.ComponentResource {
           id: 'm1',
           metric: {
             namespace: `Boundless/Services/${serviceName}`,
-            metricName: `${serviceName}-log-err`,
+            metricName: errorLogMetricName,
             period: 300,
             stat: 'Sum',
           },
@@ -197,6 +208,7 @@ export class IndexerApi extends pulumi.ComponentResource {
       alarmDescription: `Indexer API Lambda (${serviceName}) ${Severity.SEV2} log ERROR level (2 errors within 20 mins)`,
       actionsEnabled: true,
       alarmActions,
+      tags: alarmTags,
     }, { parent: this });
 
     // Create API Gateway v2 (HTTP API)
