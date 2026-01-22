@@ -206,26 +206,8 @@ async fn sp1_workflow(
     let image_hash = hasher.finalize();
     let image_id_str = hex::encode(image_hash);
 
-    // First get upload URL
-    let image_upload_get_url = format!("{}/images/upload/{}", endpoint, image_id_str);
-    let mut image_upload_get_req = client.get(&image_upload_get_url);
-    if !api_key.is_empty() {
-        image_upload_get_req = image_upload_get_req.header("x-api-key", api_key);
-    }
-    let image_upload_resp: serde_json::Value = image_upload_get_req
-        .send()
-        .await
-        .context("Failed to get image upload URL")?
-        .error_for_status()
-        .context("Failed to get image upload URL")?
-        .json()
-        .await
-        .context("Failed to parse image upload URL response")?;
-
-    let image_upload_url = image_upload_resp["url"]
-        .as_str()
-        .context("Failed to extract image upload URL from response")?
-        .to_string();
+    // Upload image - PUT directly (API validates image_id matches hash)
+    let image_upload_url = format!("{}/images/upload/{}", endpoint, image_id_str);
     let mut image_upload_req = client.put(&image_upload_url);
     if !api_key.is_empty() {
         image_upload_req = image_upload_req.header("x-api-key", api_key);
