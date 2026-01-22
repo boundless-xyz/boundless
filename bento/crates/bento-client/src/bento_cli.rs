@@ -206,7 +206,26 @@ async fn sp1_workflow(
     let image_hash = hasher.finalize();
     let image_id_str = hex::encode(image_hash);
 
-    let image_upload_url = format!("{}/images/upload/{}", endpoint, image_id_str);
+    // First get upload URL
+    let image_upload_get_url = format!("{}/images/upload/{}", endpoint, image_id_str);
+    let mut image_upload_get_req = client.get(&image_upload_get_url);
+    if !api_key.is_empty() {
+        image_upload_get_req = image_upload_get_req.header("x-api-key", api_key);
+    }
+    let image_upload_resp: serde_json::Value = image_upload_get_req
+        .send()
+        .await
+        .context("Failed to get image upload URL")?
+        .error_for_status()
+        .context("Failed to get image upload URL")?
+        .json()
+        .await
+        .context("Failed to parse image upload URL response")?;
+
+    let image_upload_url = image_upload_resp["url"]
+        .as_str()
+        .context("Failed to extract image upload URL from response")?
+        .to_string();
     let mut image_upload_req = client.put(&image_upload_url);
     if !api_key.is_empty() {
         image_upload_req = image_upload_req.header("x-api-key", api_key);
@@ -221,32 +240,43 @@ async fn sp1_workflow(
 
     tracing::info!("Uploaded image: {}", image_id_str);
 
-    // Upload input
-    let input_upload_url = format!("{}/input/upload", endpoint);
+    // Upload input - first get upload URL
+    let input_upload_get_url = format!("{}/inputs/upload", endpoint);
+    let mut input_upload_get_req = client.get(&input_upload_get_url);
+    if !api_key.is_empty() {
+        input_upload_get_req = input_upload_get_req.header("x-api-key", api_key);
+    }
+    let input_upload_get_resp: serde_json::Value = input_upload_get_req
+        .send()
+        .await
+        .context("Failed to get input upload URL")?
+        .error_for_status()
+        .context("Failed to get input upload URL")?
+        .json()
+        .await
+        .context("Failed to parse input upload URL response")?;
+
+    let input_id_str = input_upload_get_resp["uuid"]
+        .as_str()
+        .context("Failed to extract input UUID from response")?
+        .to_string();
+    let input_upload_url = input_upload_get_resp["url"]
+        .as_str()
+        .context("Failed to extract input upload URL from response")?
+        .to_string();
+
+    // Now upload the input data
     let mut input_upload_req = client.put(&input_upload_url);
     if !api_key.is_empty() {
         input_upload_req = input_upload_req.header("x-api-key", api_key);
     }
-    let input_upload_resp = input_upload_req
+    input_upload_req
         .body(input.clone())
         .send()
         .await
         .context("Failed to upload input")?
         .error_for_status()
-        .context("Input upload failed")?
-        .text()
-        .await
-        .context("Failed to read input upload response")?;
-
-    // Parse input ID from response (assuming it returns JSON with an ID field)
-    let input_id: serde_json::Value = serde_json::from_str(&input_upload_resp)
-        .context("Failed to parse input upload response")?;
-    let input_id_str = input_id["uuid"]
-        .as_str()
-        .or_else(|| input_id["id"].as_str())
-        .or_else(|| input_upload_resp.strip_prefix("\"").and_then(|s| s.strip_suffix("\"")))
-        .unwrap_or(&input_upload_resp)
-        .to_string();
+        .context("Input upload failed")?;
 
     tracing::info!("Uploaded input: {}", input_id_str);
 
