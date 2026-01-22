@@ -33,6 +33,12 @@ pub const SNARK_WORK_TYPE: &str = "snark";
 pub const SNARK_RETRIES_DEFAULT: i32 = 3;
 pub const SNARK_TIMEOUT_DEFAULT: i32 = 60;
 
+/// SP1 worker stream identifier
+pub const SP1_WORK_TYPE: &str = "sp1";
+
+pub const SP1_RETRIES_DEFAULT: i32 = 3;
+pub const SP1_TIMEOUT_DEFAULT: i32 = 300; // 5 minutes default for SP1 proving
+
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub enum CompressType {
     None,
@@ -145,6 +151,22 @@ pub struct SnarkResp {
     pub snark: String,
 }
 
+/// SP1 prove task definition
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Sp1Req {
+    /// ELF image UUID
+    pub image: String,
+    /// Input data UUID
+    pub input: String,
+}
+
+/// SP1 prove task response
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Sp1Resp {
+    /// Proof UUID in object store
+    pub proof: String,
+}
+
 /// Keccak prove request
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeccakReq {
@@ -175,6 +197,8 @@ pub enum TaskType {
     Keccak(KeccakReq),
     /// Union task
     Union(UnionReq),
+    /// SP1 prove task
+    Sp1(Sp1Req),
 }
 
 impl TaskType {
@@ -190,6 +214,7 @@ impl TaskType {
             Self::Snark(_) => "snark".into(),
             Self::Keccak(_) => "keccak".into(),
             Self::Union(_) => "union".into(),
+            Self::Sp1(_) => "sp1".into(),
         }
     }
 }

@@ -26,7 +26,8 @@ use thiserror::Error;
 use uuid::Uuid;
 use workflow_common::{
     CompressType, ExecutorReq, SNARK_RETRIES_DEFAULT, SNARK_TIMEOUT_DEFAULT,
-    SnarkReq as WorkflowSnarkReq, TaskType,
+    SnarkReq as WorkflowSnarkReq, SP1_RETRIES_DEFAULT, SP1_TIMEOUT_DEFAULT, SP1_WORK_TYPE,
+    Sp1Req as WorkflowSp1Req, TaskType,
     s3::{
         BLAKE3_GROTH16_BUCKET_DIR, ELF_BUCKET_DIR, GROTH16_BUCKET_DIR, INPUT_BUCKET_DIR,
         PREFLIGHT_JOURNALS_BUCKET_DIR, RECEIPT_BUCKET_DIR, S3Client, STARK_BUCKET_DIR,
@@ -216,6 +217,14 @@ pub struct Args {
     /// Snark retries
     #[clap(long, default_value_t = SNARK_RETRIES_DEFAULT)]
     snark_retries: i32,
+
+    /// SP1 timeout in seconds
+    #[clap(long, default_value_t = SP1_TIMEOUT_DEFAULT)]
+    sp1_timeout: i32,
+
+    /// SP1 retries
+    #[clap(long, default_value_t = SP1_RETRIES_DEFAULT)]
+    sp1_retries: i32,
 }
 
 pub struct AppState {
@@ -225,6 +234,8 @@ pub struct AppState {
     exec_retries: i32,
     snark_timeout: i32,
     snark_retries: i32,
+    sp1_timeout: i32,
+    sp1_retries: i32,
 }
 
 impl AppState {
@@ -252,6 +263,8 @@ impl AppState {
             exec_retries: args.exec_retries,
             snark_timeout: args.snark_timeout,
             snark_retries: args.snark_retries,
+            sp1_timeout: args.sp1_timeout,
+            sp1_retries: args.sp1_retries,
         }))
     }
 }
@@ -725,6 +738,129 @@ async fn groth16_status(
     Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
 }
 
+// SP1 routes
+
+const SP1_START_PATH: &str = "/sp1/create";
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Sp1ApiReq {
+    pub image: String,
+    pub input: String,
+}
+
+async fn prove_sp1(
+    State(state): State<Arc<AppState>>,
+    ExtractApiKey(api_key): ExtractApiKey,
+    Json(start_req): Json<Sp1ApiReq>,
+) -> Result<Json<CreateSessRes>, AppError> {
+    let (_aux_stream, _exec_stream, _gpu_prove_stream, _gpu_coproc_stream, _gpu_join_stream) =
+        helpers::get_or_create_streams(&state.db_pool, &api_key)
+            .await
+            .context("Failed to get / create streams")?;
+
+    // Get or create SP1 stream
+    let reserved = helpers::extract_reserved(&api_key);
+    let sp1_stream = if let Some(stream) = taskdb::get_stream(&state.db_pool, &api_key, SP1_WORK_TYPE)
+        .await
+        .context("Failed to get SP1 stream")?
+    {
+        stream
+    } else {
+        tracing::info!("Creating a new SP1 stream for key: {api_key}");
+        taskdb::create_stream(&state.db_pool, SP1_WORK_TYPE, reserved, 1.0, &api_key)
+            .await
+            .context("Failed to create SP1 stream")?
+    };
+
+    let task_def = serde_json::to_value(TaskType::Sp1(WorkflowSp1Req {
+        image: start_req.image,
+        input: start_req.input,
+    }))
+    .context("Failed to serialize Sp1Req")?;
+
+    let job_id = taskdb::create_job(
+        &state.db_pool,
+        &sp1_stream,
+        &task_def,
+        state.sp1_retries,
+        state.sp1_timeout,
+        &api_key,
+    )
+    .await
+    .context("Failed to create SP1 task")?;
+
+    Ok(Json(CreateSessRes { uuid: job_id.to_string() }))
+}
+
+const SP1_STATUS_PATH: &str = "/sp1/status/:job_id";
+async fn sp1_status(
+    State(state): State<Arc<AppState>>,
+    ExtractApiKey(api_key): ExtractApiKey,
+    Path(job_id): Path<Uuid>,
+    Host(hostname): Host,
+) -> Result<Json<SnarkStatusRes>, AppError> {
+    let job_state_result = taskdb::get_job_state(&state.db_pool, &job_id, &api_key).await;
+
+    // If job not found in taskdb, check MinIO for completed proof
+    if let Err(TaskDbErr::SqlError(sqlx::Error::RowNotFound)) = &job_state_result {
+        let proof_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
+        if state
+            .s3_client
+            .object_exists(&proof_key)
+            .await
+            .context("Failed to check if proof exists")?
+        {
+            // Proof exists - job was completed and cleaned up from taskdb
+            return Ok(Json(SnarkStatusRes {
+                status: JobState::Done.to_string(),
+                error_msg: None,
+                output: Some(format!("http://{hostname}/receipts/sp1/receipt/{job_id}")),
+            }));
+        }
+    }
+
+    let job_state = job_state_result.context("Failed to get job state")?;
+
+    let (error_msg, output) = match job_state {
+        JobState::Running => (None, None),
+        JobState::Done => {
+            (None, Some(format!("http://{hostname}/receipts/sp1/receipt/{job_id}")))
+        }
+        JobState::Failed => (
+            Some(
+                taskdb::get_job_failure(&state.db_pool, &job_id)
+                    .await
+                    .context("Failed to get job error message")?,
+            ),
+            None,
+        ),
+    };
+    Ok(Json(SnarkStatusRes { status: job_state.to_string(), error_msg, output }))
+}
+
+const GET_SP1_PATH: &str = "/receipts/sp1/receipt/:job_id";
+async fn sp1_download(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<Uuid>,
+) -> Result<Vec<u8>, AppError> {
+    let proof_key = format!("{RECEIPT_BUCKET_DIR}/{STARK_BUCKET_DIR}/{job_id}.bincode");
+    if !state
+        .s3_client
+        .object_exists(&proof_key)
+        .await
+        .context("Failed to check if object exists")?
+    {
+        return Err(AppError::ReceiptMissing(job_id.to_string()));
+    }
+
+    let proof = state
+        .s3_client
+        .read_buf_from_s3(&proof_key)
+        .await
+        .context("Failed to read from object store")?;
+
+    Ok(proof)
+}
+
 const GET_GROTH16_PATH: &str = "/receipts/groth16/receipt/:job_id";
 async fn groth16_download(
     State(state): State<Arc<AppState>>,
@@ -935,6 +1071,9 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(BLAKE3_GROTH16_STATUS_PATH, get(blake3_groth16_status))
         .route(GET_GROTH16_PATH, get(groth16_download))
         .route(GET_BLAKE3_GROTH16_PATH, get(blake3_groth16_download))
+        .route(SP1_START_PATH, post(prove_sp1))
+        .route(SP1_STATUS_PATH, get(sp1_status))
+        .route(GET_SP1_PATH, get(sp1_download))
         .route(GET_WORK_RECEIPT_PATH, get(get_work_receipt))
         .route(LIST_WORK_RECEIPTS_PATH, get(list_work_receipts))
         .with_state(state)
