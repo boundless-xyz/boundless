@@ -42,6 +42,7 @@ config:
   prover-cluster:maxCollateral: "200"
   prover-cluster:maxFileSize: "500000000000"
   prover-cluster:maxMcycleLimit: "500000000000"
+  prover-cluster:maxConcurrentPreflights: "3"
   prover-cluster:maxConcurrentProofs: "2"
   prover-cluster:balanceWarnThreshold: "0"
   prover-cluster:balanceErrorThreshold: "0"
