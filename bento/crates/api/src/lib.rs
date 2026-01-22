@@ -19,6 +19,7 @@ use bonsai_sdk::responses::{
 use clap::Parser;
 use risc0_zkvm::compute_image_id;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::sync::Arc;
 use taskdb::{JobState, TaskDbErr};
@@ -311,10 +312,25 @@ async fn image_upload_put(
     let body_bytes =
         to_bytes(body, MAX_UPLOAD_SIZE).await.context("Failed to convert body to bytes")?;
 
-    let comp_img_id =
-        compute_image_id(&body_bytes).context("Failed to compute image id")?.to_string();
-    if comp_img_id != image_id {
-        return Err(AppError::ImageIdMismatch(image_id, comp_img_id));
+    // Validate image ID: SP1 uses SHA256 (64 hex chars), RISC Zero uses its own format (32 hex chars)
+    // If image_id is 64 hex characters, assume it's SP1 and skip RISC Zero validation
+    let is_sp1_format = image_id.len() == 64 && image_id.chars().all(|c| c.is_ascii_hexdigit());
+
+    if !is_sp1_format {
+        // RISC Zero format - validate using compute_image_id
+        let comp_img_id =
+            compute_image_id(&body_bytes).context("Failed to compute image id")?.to_string();
+        if comp_img_id != image_id {
+            return Err(AppError::ImageIdMismatch(image_id, comp_img_id));
+        }
+    } else {
+        // SP1 format - validate using SHA256
+        let mut hasher = Sha256::new();
+        hasher.update(&body_bytes);
+        let computed_hash = hex::encode(hasher.finalize());
+        if computed_hash != image_id {
+            return Err(AppError::ImageIdMismatch(image_id, computed_hash));
+        }
     }
 
     state

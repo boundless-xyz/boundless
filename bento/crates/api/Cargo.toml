@@ -15,8 +15,10 @@ anyhow = { workspace = true }
 axum = "0.7"
 bonsai-sdk = { workspace = true }
 clap = { workspace = true, features = ["env", "derive"] }
+hex = { workspace = true }
 risc0-zkvm = { workspace = true }
 serde = { workspace = true }
+sha2 = "0.10"
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 taskdb = { workspace = true }

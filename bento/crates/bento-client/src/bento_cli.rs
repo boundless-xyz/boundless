@@ -9,6 +9,7 @@ use clap::Parser;
 use risc0_zkvm::{Receipt, compute_image_id, serde::to_vec};
 use sample_guest_common::IterReq;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -198,10 +199,14 @@ async fn sp1_workflow(
     let client = reqwest::Client::new();
 
     // Upload image
-    let image_id = compute_image_id(&image).unwrap();
-    let image_id_str = image_id.to_string();
+    // SP1 uses RISC-V ELF format, not RISC Zero format
+    // Use SHA256 hash instead of RISC Zero's compute_image_id
+    let mut hasher = Sha256::new();
+    hasher.update(&image);
+    let image_hash = hasher.finalize();
+    let image_id_str = hex::encode(image_hash);
 
-    let image_upload_url = format!("{}/image/upload/{}", endpoint, image_id_str);
+    let image_upload_url = format!("{}/images/upload/{}", endpoint, image_id_str);
     let mut image_upload_req = client.put(&image_upload_url);
     if !api_key.is_empty() {
         image_upload_req = image_upload_req.header("x-api-key", api_key);
