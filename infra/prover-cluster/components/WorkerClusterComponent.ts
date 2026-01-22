@@ -93,7 +93,7 @@ export class WorkerClusterComponent extends BaseComponent {
     private createExecutionCluster(config: WorkerClusterConfig): AutoScalingGroupComponent {
         const launchTemplateConfig: LaunchTemplateConfig = {
             ...config,
-            instanceType: "c7i.large",
+            instanceType: "c8a.xlarge",
             componentType: "execution",
             volumeSize: 100,
         };
