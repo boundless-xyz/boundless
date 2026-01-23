@@ -128,7 +128,7 @@ To enable cycle count computation, add Bento API arguments:
   40768860 \
   9999 \
   ./cache_dir \
-  "https://bento-api.boundless.network" \
+  "https://your-bento-api" \
   "your-bento-api-key" \
   20
 ```
