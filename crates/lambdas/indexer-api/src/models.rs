@@ -282,6 +282,8 @@ pub struct EpochPoVWSummary {
     pub epoch_start_time: u64,
     pub epoch_end_time: u64,
     pub num_participants: u64,
+    pub market_fees: String,
+    pub market_fees_formatted: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_updated_at: Option<String>,
 }
