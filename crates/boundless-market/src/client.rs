@@ -1249,6 +1249,24 @@ where
 
     /// Get the [SetInclusionReceipt] for a request.
     ///
+    /// This method fetches the fulfillment data for a request and constructs the set inclusion receipt.
+    ///
+    /// # Parameters
+    ///
+    /// * `request_id` - The unique identifier of the proof request
+    /// * `image_id` - The image ID for the receipt claim
+    /// * `search_to_block` - Optional lower bound for the block search range. The search will go backwards
+    ///   down to this block number. Combined with `search_from_block` to define a specific range.
+    /// * `search_from_block` - Optional upper bound for the block search range. The search starts backwards
+    ///   from this block. Defaults to the latest block if not specified. Set this to a block number near
+    ///   when the request was fulfilled to reduce RPC calls and cost when querying old fulfillments.
+    ///
+    /// # Default Search Behavior
+    ///
+    /// Without explicit block bounds, the onchain search covers blocks according to
+    /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
+    /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -1260,7 +1278,23 @@ where
     ///
     /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
     ///     let client = ClientBuilder::new().build().await?;
-    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+    ///
+    ///     // For recent requests
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
+    ///         request_id,
+    ///         image_id,
+    ///         None,
+    ///         None,
+    ///     ).await?;
+    ///
+    ///     // For old requests with explicit block range
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
+    ///         request_id,
+    ///         image_id,
+    ///         Some(1000000),  // search_to_block
+    ///         Some(1500000),  // search_from_block
+    ///     ).await?;
+    ///
     ///     Ok((journal, receipt))
     /// }
     /// ```
@@ -1268,11 +1302,15 @@ where
         &self,
         request_id: U256,
         image_id: B256,
+        search_to_block: Option<u64>,
+        search_from_block: Option<u64>,
     ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
         // TODO(#646): This logic is only correct under the assumption there is a single set
         // verifier.
-        let fulfillment =
-            self.boundless_market.get_request_fulfillment(request_id, None, None).await?;
+        let fulfillment = self
+            .boundless_market
+            .get_request_fulfillment(request_id, search_to_block, search_from_block)
+            .await?;
         match fulfillment.data().context("failed to decode fulfillment data")? {
             FulfillmentData::None => Err(ClientError::Error(anyhow!(
                 "No fulfillment data found for set inclusion receipt"
@@ -1298,17 +1336,62 @@ where
     /// onchain uses event logs, and will take more time to find requests that are further in the
     /// past.
     ///
-    /// Providing a `tx_hash` will speed up onchain queries, by fetching the transaction containing
-    /// the request. Providing the `request_digest` allows differentiating between multiple
-    /// requests with the same ID. If set to `None`, the first found request matching the ID will
-    /// be returned.
+    /// # Parameters
+    ///
+    /// * `request_id` - The unique identifier of the proof request
+    /// * `tx_hash` - Optional transaction hash containing the request. Providing this will speed up
+    ///   onchain queries by fetching the transaction directly instead of searching through events.
+    /// * `request_digest` - Optional digest to differentiate between multiple requests with the same ID.
+    ///   If `None`, the first found request matching the ID will be returned.
+    /// * `search_to_block` - Optional lower bound for the block search range. The search will go backwards
+    ///   down to this block number. Combined with `search_from_block` to define a specific range.
+    /// * `search_from_block` - Optional upper bound for the block search range. The search starts backwards
+    ///   from this block. Defaults to the latest block if not specified. Set this to a block number near
+    ///   when the request was submitted to reduce RPC calls and cost when querying old requests.
+    ///
+    /// # Default Search Behavior
+    ///
+    /// Without explicit block bounds, the onchain search covers blocks according to
+    /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
+    /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
+    ///
+    /// Providing both bounds overrides the default iteration limit to ensure the full specified range is searched.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use alloy::primitives::U256;
+    /// # use boundless_market::client::ClientBuilder;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ClientBuilder::new().build().await?;
+    ///
+    /// // Query a recent request (no block bounds needed)
+    /// let (request, sig) = client.fetch_proof_request(
+    ///     U256::from(123),
+    ///     None,
+    ///     None,
+    ///     None,
+    ///     None,
+    /// ).await?;
+    ///
+    /// // Query an old request with explicit block range (e.g., blocks 1000000 to 1500000)
+    /// let (request, sig) = client.fetch_proof_request(
+    ///     U256::from(456),
+    ///     None,
+    ///     None,
+    ///     Some(1000000),  // search_to_block (lower bound)
+    ///     Some(1500000),  // search_from_block (upper bound)
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn fetch_proof_request(
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
         request_digest: Option<B256>,
-        lower_bound: Option<u64>,
-        upper_bound: Option<u64>,
+        search_to_block: Option<u64>,
+        search_from_block: Option<u64>,
     ) -> Result<(ProofRequest, Bytes), ClientError> {
         if let Some(ref order_stream_client) = self.offchain_client {
             tracing::debug!("Querying the order stream for request: 0x{request_id:x} using request_digest {request_digest:?}");
@@ -1337,7 +1420,7 @@ where
         );
         match self
             .boundless_market
-            .get_submitted_request(request_id, tx_hash, lower_bound, upper_bound)
+            .get_submitted_request(request_id, tx_hash, search_to_block, search_from_block)
             .await
         {
             Ok((proof_request, signature)) => Ok((proof_request, signature)),
