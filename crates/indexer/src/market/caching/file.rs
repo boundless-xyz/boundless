@@ -221,7 +221,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+    #[cfg_attr(
+        not(feature = "test-r0vm"),
+        ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"
+    )]
     async fn test_logs_and_metadata_serialization() {
         // Set up test context with anvil and market contracts
         let anvil = Anvil::new().block_time_f64(0.5).try_spawn().unwrap();

@@ -680,7 +680,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
     async fn test_fulfill_with_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -701,7 +701,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
     async fn test_fulfill() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -721,7 +721,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
     async fn test_fulfill_blake3_groth16_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();

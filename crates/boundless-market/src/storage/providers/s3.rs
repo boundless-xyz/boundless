@@ -346,7 +346,6 @@ impl StorageDownloader for S3StorageDownloader {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,7 +362,7 @@ mod tests {
         assert!(url.scheme() == "https" || url.scheme() == "http", "expected presigned URL");
 
         let downloader = HttpDownloader::default();
-        let downloaded = downloader.download_url(&url).await.expect("download failed");
+        let downloaded = downloader.download_url(url).await.expect("download failed");
 
         assert_eq!(downloaded, test_data);
     }
@@ -378,10 +377,9 @@ mod tests {
 
         assert_eq!(url.scheme(), "s3", "expected s3:// URL");
 
-        let downloader = S3StorageDownloader::new(100 * 1024 * 1024, None).await;
-        let downloaded = downloader.download_url(&url).await.expect("download failed");
+        let downloader = S3StorageDownloader::new(None).await;
+        let downloaded = downloader.download_url(url).await.expect("download failed");
 
         assert_eq!(downloaded, test_data);
     }
 }
-*/

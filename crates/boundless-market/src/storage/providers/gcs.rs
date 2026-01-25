@@ -256,11 +256,10 @@ impl StorageDownloader for GcsStorageDownloader {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{StorageDownloader, StorageDownloaderConfig, StorageUploader};
+    use crate::storage::{StorageDownloader, StorageUploader};
 
     #[tokio::test]
     #[ignore = "requires GCS_BUCKET and Application Default Credentials"]
@@ -272,12 +271,9 @@ mod tests {
 
         assert_eq!(url.scheme(), "gs", "expected gs:// URL");
 
-        let downloader = GcsStorageDownloader::from_config(&StorageDownloaderConfig::default())
-            .await
-            .expect("failed to create GCS downloader");
-        let downloaded = downloader.download_url(&url).await.expect("download failed");
+        let downloader = GcsStorageDownloader::new(None).await;
+        let downloaded = downloader.download_url(url).await.expect("download failed");
 
         assert_eq!(downloaded, test_data);
     }
 }
-*/

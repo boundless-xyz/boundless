@@ -179,7 +179,6 @@ impl StorageUploader for PinataStorageUploader {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,9 +199,8 @@ mod tests {
         );
 
         let downloader = HttpDownloader::default();
-        let downloaded = downloader.download_url(&url).await.expect("download failed");
+        let downloaded = downloader.download_url(url).await.expect("download failed");
 
         assert_eq!(downloaded, test_data);
     }
 }
-*/

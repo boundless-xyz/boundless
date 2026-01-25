@@ -14,6 +14,8 @@ release = false
 test-utils = ["dep:boundless-test-utils"]
 prove = ["blake3_groth16/prove"]
 cuda = ["blake3_groth16/cuda"]
+# Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
+test-r0vm = []
 
 [dependencies]
 alloy = { workspace = true, features = [

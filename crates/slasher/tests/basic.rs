@@ -196,7 +196,7 @@ async fn test_basic_usage(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-#[ignore = "Generate proofs. Slow without dev mode"]
+#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generate proofs. Slow without dev mode")]
 async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     // Run migrations on the isolated test database
     PgDb::from_pool(pool.clone()).await.unwrap();

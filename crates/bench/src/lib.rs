@@ -558,7 +558,10 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    #[ignore = "Generates real proofs, slow without dev mode or bonsai"]
+    #[cfg_attr(
+        not(feature = "test-r0vm"),
+        ignore = "Generates real proofs, slow without dev mode or bonsai"
+    )]
     async fn test_bench() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
