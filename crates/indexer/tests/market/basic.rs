@@ -1368,6 +1368,7 @@ struct RequestStatusRow {
     slash_burned_amount: Option<String>,
     total_cycles: Option<String>,
     effective_prove_mhz: Option<f64>,
+    prover_effective_prove_mhz: Option<f64>,
 }
 
 async fn get_lock_collateral(pool: &PgPool, request_id: &str) -> String {
@@ -1383,7 +1384,8 @@ async fn get_request_status(pool: &PgPool, request_id: &str) -> RequestStatusRow
     let row = sqlx::query(
         "SELECT request_digest, request_id, request_status, slashed_status, source, created_at, updated_at,
                 locked_at, fulfilled_at, slashed_at, lock_end, slash_recipient,
-                slash_transferred_amount, slash_burned_amount, total_cycles, effective_prove_mhz_v2 as effective_prove_mhz
+                slash_transferred_amount, slash_burned_amount, total_cycles,
+                effective_prove_mhz_v2 as effective_prove_mhz, prover_effective_prove_mhz
          FROM request_status
          WHERE request_id = $1",
     )
@@ -1409,6 +1411,7 @@ async fn get_request_status(pool: &PgPool, request_id: &str) -> RequestStatusRow
         slash_burned_amount: row.get("slash_burned_amount"),
         total_cycles: row.try_get("total_cycles").ok(),
         effective_prove_mhz: row.try_get("effective_prove_mhz").ok(),
+        prover_effective_prove_mhz: row.try_get("prover_effective_prove_mhz").ok(),
     }
 }
 
@@ -1536,6 +1539,11 @@ async fn test_effective_prove_mhz_calculation(pool: sqlx::PgPool) {
     fixture.ctx.prover_market.lock_request(&req, sig.clone()).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
 
+    // Capture locked_at for prover_effective_prove_mhz calculation
+    let status_after_lock =
+        get_request_status(&fixture.test_db.pool, &format!("{:x}", req.id)).await;
+    let locked_at = status_after_lock.locked_at.unwrap() as u64;
+
     // Fulfill request WITHOUT cycle counts first
     fulfill_request(&fixture.ctx, &fixture.prover, &req, sig.clone()).await.unwrap();
     wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
@@ -1547,6 +1555,10 @@ async fn test_effective_prove_mhz_calculation(pool: sqlx::PgPool) {
     assert!(
         status.effective_prove_mhz.is_none(),
         "effective_prove_mhz should be None without cycle counts"
+    );
+    assert!(
+        status.prover_effective_prove_mhz.is_none(),
+        "prover_effective_prove_mhz should be None without cycle counts"
     );
 
     // Now manually insert cycle counts AFTER fulfillment
@@ -1605,6 +1617,39 @@ async fn test_effective_prove_mhz_calculation(pool: sqlx::PgPool) {
     assert!(
         fractional_part > EPSILON,
         "effective_prove_mhz should have decimal precision, but got whole number: {}",
+        actual_mhz
+    );
+
+    // Verify prover_effective_prove_mhz (primary fulfillment case: lock holder fulfills)
+    // Formula: total_cycles / (fulfilled_at - locked_at)
+    let prover_prove_time = fulfilled_at - locked_at;
+    let expected_prover_mhz = total_cycles.to_string().parse::<f64>().unwrap_or(0.0)
+        / (prover_prove_time as f64 * 1_000_000.0);
+    let actual_prover_mhz: f64 = status.prover_effective_prove_mhz.unwrap();
+
+    assert!(
+        (actual_prover_mhz - expected_prover_mhz).abs() < EPSILON,
+        "prover_effective_prove_mhz should equal total_cycles / (fulfilled_at - locked_at). \
+         Expected: {}, Actual: {}, total_cycles: {}, prover_prove_time: {}",
+        expected_prover_mhz,
+        actual_prover_mhz,
+        total_cycles,
+        prover_prove_time
+    );
+
+    assert!(
+        actual_prover_mhz > 0.0,
+        "prover_effective_prove_mhz should be positive, got {}",
+        actual_prover_mhz
+    );
+
+    // prover_effective_prove_mhz should be higher than effective_prove_mhz since
+    // (fulfilled_at - locked_at) < (fulfilled_at - created_at)
+    assert!(
+        actual_prover_mhz > actual_mhz,
+        "prover_effective_prove_mhz ({}) should be greater than effective_prove_mhz ({}) \
+         since prover's time window is shorter",
+        actual_prover_mhz,
         actual_mhz
     );
 

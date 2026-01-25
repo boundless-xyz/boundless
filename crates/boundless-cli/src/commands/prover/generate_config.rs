@@ -12,18 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::{Address, U256};
+use alloy::primitives::utils::format_units;
+use alloy::primitives::U256;
 use alloy::providers::Provider;
 use anyhow::{bail, Context, Result};
+use boundless_market::indexer_client::IndexerClient;
+use boundless_market::price_provider::{
+    MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
+};
+use boundless_market::{
+    Deployment, LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
+};
 use chrono::Utc;
 use clap::Args;
-use futures::future::try_join_all;
 use inquire::{Confirm, Select, Text};
-use rand::Rng;
 use url::Url;
 
 use super::benchmark::ProverBenchmark;
@@ -31,25 +35,6 @@ use crate::commands::prover::benchmark::BenchmarkResult;
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
-use boundless_market::client::ClientBuilder;
-use boundless_market::contracts::{RequestId, RequestInput, RequestInputType};
-use boundless_market::GuestEnv;
-use risc0_zkvm::serde::from_slice;
-
-// Priority requestor addresses for market pricing analysis
-const OG_OFFCHAIN_REQUESTOR: &str = "0xc197ebe12c7bcf1d9f3b415342bdbc795425335c";
-const OG_ONCHAIN_REQUESTOR: &str = "0xe198c6944cae382902a375b0b8673084270a7f8e";
-const SIGNAL_REQUESTOR: &str = "0x734df7809c4ef94da037449c287166d114503198";
-
-// Cycle count range for signal requestor (50B to 54B cycles)
-const SIGNAL_REQUESTOR_MIN_CYCLES: u64 = 50_000_000_000;
-const SIGNAL_REQUESTOR_MAX_CYCLES: u64 = 54_000_000_000;
-
-// Number of blocks to query for market pricing analysis
-const MARKET_PRICE_BLOCKS_TO_QUERY: u64 = 30000;
-
-// Chunk size for querying events to avoid RPC limits
-const EVENT_QUERY_CHUNK_SIZE: u64 = 500;
 
 // Priority requestor list URLs
 const PRIORITY_REQUESTOR_LIST_STANDARD: &str =
@@ -58,10 +43,6 @@ const PRIORITY_REQUESTOR_LIST_LARGE: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.large.json";
 const PRIORITY_REQUESTOR_LIST_XL: &str =
     "https://requestors.boundless.network/boundless-recommended-priority-list.xl.json";
-
-// Peak performance thresholds for enabling requestor lists (kHz)
-const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
-const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
 
 // Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
 // orders locked by other provers that exceeded their lock timeout
@@ -78,14 +59,6 @@ mod selection_strings {
     pub const FILE_GENERATE_NEW: &str = "Generate new";
     pub const FILE_CANCEL: &str = "Cancel";
 }
-
-#[derive(Debug, Clone)]
-struct MarketPricing {
-    median: f64,
-    percentile_25: f64,
-    sample_size: usize,
-}
-
 /// Generate optimized broker.toml and compose.yml configuration files
 #[derive(Args, Clone, Debug)]
 pub struct ProverGenerateConfig {
@@ -465,36 +438,48 @@ impl ProverGenerateConfig {
             }
         }
 
+        let deployment = Deployment::from_chain_id(chain_id)
+            .context("Failed to get deployment configuration for chain ID")?;
+        let indexer_url =
+            deployment.clone().indexer_url.context("No indexer URL found for deployment")?;
+        let price_provider = StandardPriceProvider::new(
+            IndexerClient::new(
+                Url::parse(indexer_url.as_ref()).context("Failed to parse indexer URL")?,
+            )
+            .context("Failed to create indexer client")?,
+        )
+        .with_fallback(MarketPricing::new(
+            Url::parse(rpc_url.as_ref()).context("Failed to parse RPC URL")?,
+            MarketPricingConfigBuilder::default()
+                .deployment(deployment)
+                .build()
+                .context("Failed to build market pricing config")?,
+        ));
+
         // Query market pricing with fallback to defaults
-        let market_pricing = match self.query_market_pricing(&rpc_url, display, global_config).await
-        {
-            Ok(pricing) => {
-                display.item_colored(
-                    "Market analysis",
-                    format!("{} orders analyzed", pricing.sample_size),
-                    "green",
-                );
+        let market_pricing = match price_provider.price_percentiles().await {
+            Ok(price_percentiles) => {
                 display.item_colored(
                     "Median price",
                     format!(
-                        "{:.10} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
-                        pricing.median,
-                        pricing.median * 1e9,
-                        pricing.median * 1e12
+                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
+                        format_units(price_percentiles.p50 * U256::from(1_000_000), "ether")?,
+                        format_units(price_percentiles.p50 * U256::from(1_000_000), "gwei")?,
+                        format_units(price_percentiles.p50, "wei")?
                     ),
                     "cyan",
                 );
                 display.item_colored(
                     "25th percentile",
                     format!(
-                        "{:.10} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
-                        pricing.percentile_25,
-                        pricing.percentile_25 * 1e9,
-                        pricing.percentile_25 * 1e12
+                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
+                        format_units(price_percentiles.p25 * U256::from(1_000_000), "ether")?,
+                        format_units(price_percentiles.p25 * U256::from(1_000_000), "gwei")?,
+                        format_units(price_percentiles.p25, "wei")?
                     ),
                     "cyan",
                 );
-                Some(pricing)
+                Some(price_percentiles)
             }
             Err(e) => {
                 display.note(&format!("⚠  Failed to query market prices: {}", e));
@@ -507,10 +492,10 @@ impl ProverGenerateConfig {
         let min_mcycle_price = if let Some(pricing) = market_pricing {
             display.note("");
             display.note(&format!(
-                "Recommended minimum price: {:.10} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
-                pricing.percentile_25,
-                pricing.percentile_25 * 1e9,
-                pricing.percentile_25 * 1e12
+                "Recommended minimum price: {} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
+                format_units(pricing.p25 * U256::from(1_000_000), "ether")?,
+                format_units(pricing.p25 * U256::from(1_000_000), "gwei")?,
+                format_units(pricing.p25, "wei")?
             ));
             display.note("");
             display
@@ -524,7 +509,7 @@ impl ProverGenerateConfig {
             display.note("");
 
             Text::new("Press Enter to accept or enter custom price:")
-                .with_default(&format!("{:.10}", pricing.percentile_25))
+                .with_default(&format!("{:.10}", pricing.p25))
                 .with_help_message("You can update this later in broker.toml")
                 .prompt()
                 .context("Failed to get price")?
@@ -596,353 +581,6 @@ impl ProverGenerateConfig {
             min_mcycle_price,
             min_mcycle_price_collateral_token,
         })
-    }
-
-    fn try_extract_cycle_count(input: &RequestInput) -> Option<u64> {
-        // Check if inline input
-        if input.inputType != RequestInputType::Inline {
-            tracing::debug!("Skipping URL-based input for cycle count extraction");
-            return None;
-        }
-
-        // Decode GuestEnv
-        match GuestEnv::decode(&input.data) {
-            Ok(guest_env) => {
-                // Convert stdin bytes to u32 words for risc0 deserialization
-                // risc0 serde uses u32 words, need to convert from bytes
-                match bytemuck::try_cast_slice::<u8, u32>(&guest_env.stdin) {
-                    Ok(words) => {
-                        // Decode first u64 from stdin words
-                        match from_slice::<u64, u32>(words) {
-                            Ok(cycle_count) => {
-                                tracing::trace!(
-                                    "Successfully decoded cycle count: {}",
-                                    cycle_count
-                                );
-                                Some(cycle_count)
-                            }
-                            Err(e) => {
-                                tracing::debug!("Failed to decode cycle count from stdin: {}", e);
-                                None
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::debug!("Failed to convert stdin bytes to u32 words: {}", e);
-                        None
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Failed to decode GuestEnv: {}", e);
-                None
-            }
-        }
-    }
-
-    // TODO: Migrate to getting market price from the indexer API once available.
-    async fn query_market_pricing(
-        &self,
-        rpc_url: &Url,
-        display: &DisplayManager,
-        global_config: &GlobalConfig,
-    ) -> Result<MarketPricing> {
-        display.status("Status", "Querying recent market prices", "yellow");
-        display.note("This may take a moment...");
-
-        // Priority requestors to filter for
-        let priority_requestors: Vec<Address> = vec![
-            OG_OFFCHAIN_REQUESTOR.parse()?,
-            OG_ONCHAIN_REQUESTOR.parse()?,
-            SIGNAL_REQUESTOR.parse()?,
-        ];
-
-        // Build market client
-        let timeout = global_config.tx_timeout.unwrap_or(std::time::Duration::from_secs(300));
-        let client = ClientBuilder::new()
-            .with_rpc_url(rpc_url.clone())
-            .with_timeout(timeout)
-            .build()
-            .await
-            .context("Failed to create market client")?;
-
-        // Get current block and calculate range
-        let current_block = client.provider().get_block_number().await?;
-        let start_block = current_block.saturating_sub(MARKET_PRICE_BLOCKS_TO_QUERY);
-
-        display.note(&format!(
-            "Querying market prices from block {} to {} in chunks of {}",
-            start_block, current_block, EVENT_QUERY_CHUNK_SIZE
-        ));
-
-        // Query RequestLocked events in chunks
-        let mut locked_logs = Vec::new();
-        let mut chunk_start = start_block;
-        while chunk_start < current_block {
-            let chunk_end = (chunk_start + EVENT_QUERY_CHUNK_SIZE).min(current_block);
-
-            let locked_filter = client
-                .boundless_market
-                .instance()
-                .RequestLocked_filter()
-                .from_block(chunk_start)
-                .to_block(chunk_end);
-
-            let mut chunk_logs =
-                locked_filter.query().await.context("Failed to query RequestLocked events")?;
-
-            locked_logs.append(&mut chunk_logs);
-            chunk_start = chunk_end + 1;
-        }
-
-        // Query RequestFulfilled events in chunks
-        let mut fulfilled_logs = Vec::new();
-        let mut chunk_start = start_block;
-        while chunk_start < current_block {
-            let chunk_end = (chunk_start + EVENT_QUERY_CHUNK_SIZE).min(current_block);
-
-            let fulfilled_filter = client
-                .boundless_market
-                .instance()
-                .RequestFulfilled_filter()
-                .from_block(chunk_start)
-                .to_block(chunk_end);
-
-            let mut chunk_logs = fulfilled_filter
-                .query()
-                .await
-                .context("Failed to query RequestFulfilled events")?;
-
-            fulfilled_logs.append(&mut chunk_logs);
-            chunk_start = chunk_end + 1;
-        }
-
-        display.note(&format!("Found {} locked orders", locked_logs.len()));
-        display.note(&format!("Found {} fulfilled orders", fulfilled_logs.len()));
-
-        // Build map of fulfilled requests with their block numbers
-        let mut fulfilled_map: HashMap<U256, u64> = HashMap::new();
-        for (event, log_meta) in &fulfilled_logs {
-            let request_id: U256 = event.requestId;
-            if let Some(block_number) = log_meta.block_number {
-                fulfilled_map.insert(request_id, block_number);
-            }
-        }
-
-        // Check if all logs have block_timestamp available. Some RPC providers don't return
-        // timestamps for eth_getLogs queries.
-        let all_logs_have_timestamp = fulfilled_logs.iter().all(|(_, log_meta)| {
-            log_meta.block_number.is_some() && log_meta.block_timestamp.is_some()
-        }) && locked_logs.iter().all(|(_, log_meta)| {
-            log_meta.block_number.is_some() && log_meta.block_timestamp.is_some()
-        });
-
-        // Build block_timestamps map
-        let mut block_timestamps: HashMap<u64, u64> = HashMap::new();
-
-        if all_logs_have_timestamp {
-            // Use timestamps directly from log metadata - no RPC calls needed
-            for (_, log_meta) in &fulfilled_logs {
-                if let (Some(block_num), Some(timestamp)) =
-                    (log_meta.block_number, log_meta.block_timestamp)
-                {
-                    block_timestamps.insert(block_num, timestamp);
-                }
-            }
-            for (_, log_meta) in &locked_logs {
-                if let (Some(block_num), Some(timestamp)) =
-                    (log_meta.block_number, log_meta.block_timestamp)
-                {
-                    block_timestamps.insert(block_num, timestamp);
-                }
-            }
-        } else {
-            // Some logs are missing timestamps, fetch them via concurrent RPC calls
-            // Collect unique block numbers from both event types
-            let mut block_numbers = HashSet::new();
-            for (_, log_meta) in &fulfilled_logs {
-                if let Some(block_num) = log_meta.block_number {
-                    block_numbers.insert(block_num);
-                }
-            }
-            for (_, log_meta) in &locked_logs {
-                if let Some(block_num) = log_meta.block_number {
-                    block_numbers.insert(block_num);
-                }
-            }
-
-            if !block_numbers.is_empty() {
-                let block_numbers: Vec<_> = block_numbers.into_iter().collect();
-                let min_block = block_numbers.iter().min().copied().unwrap_or(0);
-                let max_block = block_numbers.iter().max().copied().unwrap_or(0);
-
-                display.note(&format!(
-                    "Querying block timestamps for blocks {} to {} ({} blocks)",
-                    min_block,
-                    max_block,
-                    block_numbers.len()
-                ));
-
-                tracing::debug!(
-                    "Fetching timestamps for {} blocks using concurrent requests",
-                    block_numbers.len()
-                );
-
-                // Fetch timestamps for blocks using concurrent futures
-                // Process in chunks to avoid overwhelming the RPC
-                const CHUNK_SIZE: usize = 100;
-                for chunk in block_numbers.chunks(CHUNK_SIZE) {
-                    let provider = client.provider();
-                    let futures: Vec<_> = chunk
-                        .iter()
-                        .map(|&block_num| {
-                            let provider = provider.clone();
-                            async move {
-                                let block = provider
-                                    .get_block_by_number(BlockNumberOrTag::Number(block_num))
-                                    .await?;
-                                Ok::<_, anyhow::Error>((block_num, block))
-                            }
-                        })
-                        .collect();
-
-                    let results = try_join_all(futures).await?;
-
-                    // Process results
-                    for (block_num, block) in results {
-                        match block {
-                            Some(block) => {
-                                block_timestamps.insert(block_num, block.header.timestamp);
-                            }
-                            None => {
-                                bail!("Block {} not found", block_num);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Process locked orders
-        let mut prices_per_mcycle: Vec<f64> = Vec::new();
-
-        for (event, log_meta) in &locked_logs {
-            let request_id: U256 = event.requestId;
-            let requestor = RequestId::from_lossy(event.request.id).addr;
-
-            // Filter: only priority requestors
-            if !priority_requestors.contains(&requestor) {
-                continue;
-            }
-
-            // Filter: only fulfilled orders - get block number and then timestamp
-            let fulfilled_block_number = match fulfilled_map.get(&request_id) {
-                Some(&block_num) => block_num,
-                None => continue,
-            };
-            let fulfilled_timestamp = match block_timestamps.get(&fulfilled_block_number) {
-                Some(&timestamp) => timestamp,
-                None => continue,
-            };
-
-            // Get block timestamp for locked order from fetched timestamps
-            let lock_block_number = match log_meta.block_number {
-                Some(block_num) => block_num,
-                None => continue,
-            };
-            let lock_timestamp = match block_timestamps.get(&lock_block_number) {
-                Some(&timestamp) => timestamp,
-                None => continue,
-            };
-
-            // Calculate lock deadline
-            let lock_deadline = event.request.offer.lock_deadline();
-
-            // Filter: only orders fulfilled before lockExpiry
-            if fulfilled_timestamp > lock_deadline {
-                continue;
-            }
-
-            // Calculate price at lock time using Offer.price_at
-            let locked_price = match event.request.offer.price_at(lock_timestamp) {
-                Ok(price) => price,
-                Err(_) => {
-                    bail!(
-                        "Failed to calculate price at lock time for request ID 0x{:x}",
-                        request_id
-                    );
-                }
-            };
-
-            // Extract or estimate cycle count
-            let cycles = if requestor == SIGNAL_REQUESTOR.parse::<Address>()? {
-                let mut rng = rand::rng();
-                let random_cycles =
-                    rng.random_range(SIGNAL_REQUESTOR_MIN_CYCLES..=SIGNAL_REQUESTOR_MAX_CYCLES);
-                tracing::trace!(
-                    "Signal requestor detected, using random cycle count between {}B and {}B: {}",
-                    SIGNAL_REQUESTOR_MIN_CYCLES / 1_000_000_000,
-                    SIGNAL_REQUESTOR_MAX_CYCLES / 1_000_000_000,
-                    random_cycles
-                );
-                random_cycles
-            } else {
-                match Self::try_extract_cycle_count(&event.request.input) {
-                    Some(cycles) => {
-                        tracing::debug!(
-                            "Using decoded cycle count: {} for request ID 0x{:x}",
-                            cycles,
-                            request_id
-                        );
-                        cycles
-                    }
-                    None => {
-                        bail!("Failed to extract cycle count from order generator request input for request ID 0x{:x}", request_id);
-                    }
-                }
-            };
-
-            // Calculate price per megacycle
-            // locked_price is in wei, need to convert to eth per mcycle
-            if locked_price > U256::ZERO {
-                let price_f64 = locked_price.to_string().parse::<f64>().unwrap_or(0.0);
-                let price_per_cycle = price_f64 / cycles as f64;
-                let price_per_mcycle = price_per_cycle * 1_000_000.0;
-
-                // Convert from wei to eth
-                let price_per_mcycle_eth = price_per_mcycle / 1e18;
-
-                prices_per_mcycle.push(price_per_mcycle_eth);
-                // Gwei per mcycle
-                let price_per_mcycle_gwei = price_per_mcycle / 1e9;
-                let locked_price_eth = price_f64 / 1e18;
-                tracing::debug!("Added price per mcycle: {} ETH/Mcycle ({:.2} Gwei/Mcycle, cycles: {}, locked_price: {} wei ({} eth) for request ID 0x{:x}", price_per_mcycle_eth, price_per_mcycle_gwei, cycles, locked_price, locked_price_eth, request_id);
-            }
-        }
-
-        if prices_per_mcycle.is_empty() {
-            bail!("No valid market data found for pricing analysis");
-        }
-
-        let sample_size = prices_per_mcycle.len();
-        display.note(&format!("Analyzed {} qualifying orders", sample_size));
-
-        // Sort prices for percentile calculations
-        prices_per_mcycle.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Calculate median (50th percentile)
-        let median_price = if prices_per_mcycle.len() % 2 == 0 {
-            let mid = prices_per_mcycle.len() / 2;
-            (prices_per_mcycle[mid - 1] + prices_per_mcycle[mid]) / 2.0
-        } else {
-            prices_per_mcycle[prices_per_mcycle.len() / 2]
-        };
-
-        // Calculate 25th percentile
-        let percentile_25_idx = ((prices_per_mcycle.len() as f64) * 0.25) as usize;
-        let percentile_25 = prices_per_mcycle[percentile_25_idx.min(prices_per_mcycle.len() - 1)];
-
-        Ok(MarketPricing { median: median_price, percentile_25, sample_size })
     }
 
     async fn get_peak_performance(
