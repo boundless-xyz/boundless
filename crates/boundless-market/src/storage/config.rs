@@ -50,8 +50,9 @@ pub enum StorageUploaderType {
 ///
 /// - **S3**: Uses the AWS SDK default credential chain (environment variables,
 ///   `~/.aws/credentials`, IAM role, etc.). No explicit credentials needed in config.
-/// - **GCS**: Uses Application Default Credentials (ADC) via `GOOGLE_APPLICATION_CREDENTIALS`,
-///   workload identity, or `gcloud auth application-default login`.
+/// - **GCS**: Uses the Google Cloud SDK default credential chain (ADC) via
+///   `GOOGLE_APPLICATION_CREDENTIALS`, workload identity, or `gcloud auth application-default login`.
+///   Explicit credentials can be provided via `gcs_credentials_json`.
 /// - **Pinata**: Requires a JWT token.
 #[non_exhaustive]
 #[derive(Clone, Default, Debug, Args, Builder)]
@@ -61,7 +62,7 @@ pub struct StorageUploaderConfig {
     /// - For 's3', the following option is required:
     ///   --s3-bucket (optionally: --s3-url, --aws-region)
     /// - For 'gcs', the following option is required:
-    ///   --gcs-bucket (optionally: --gcs-url)
+    ///   --gcs-bucket (optionally: --gcs-url, --gcs-credentials-json)
     /// - For 'pinata', the following option is required:
     ///   --pinata-jwt (optionally: --pinata-api-url, --ipfs-gateway-url)
     /// - For 'file', no additional options are required (optionally: --file-path)
@@ -118,6 +119,11 @@ pub struct StorageUploaderConfig {
     #[arg(long, env, requires("gcs_bucket"))]
     #[builder(setter(strip_option), default)]
     pub gcs_url: Option<String>,
+    /// GCS service account credentials JSON (optional, uses ADC if not set)
+    #[cfg(feature = "gcs")]
+    #[arg(long, env, requires("gcs_bucket"))]
+    #[builder(setter(strip_option, into), default)]
+    pub gcs_credentials_json: Option<String>,
 
     // **Pinata Storage Provider Options**
     /// Pinata JWT

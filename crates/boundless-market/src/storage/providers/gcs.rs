@@ -26,11 +26,14 @@
 //!
 //! # Authentication
 //!
-//! Authentication is handled via Application Default Credentials (ADC):
-//! - `GOOGLE_APPLICATION_CREDENTIALS` environment variable pointing to a service account key
+//! Authentication is handled via the Google Cloud default credential chain (ADC):
+//! - `GOOGLE_APPLICATION_CREDENTIALS` environment variable pointing to a JSON key file
+//! - Well-known file locations (`~/.config/gcloud/application_default_credentials.json`)
 //! - Workload Identity on GKE
-//! - Default credentials on Compute Engine, Cloud Run, Cloud Functions, etc.
-//! - `gcloud auth application-default login` for local development
+//! - Metadata server on Compute Engine, Cloud Run, Cloud Functions, etc.
+//!
+//! Explicit credentials can also be provided via [`StorageUploaderConfig::gcs_credentials_json`]
+//! for programmatic use cases (e.g., loading from a secrets manager without writing to disk).
 //!
 //! ## Downloading
 //!
@@ -54,7 +57,7 @@ use crate::storage::{
 };
 use alloy_primitives::bytes;
 use async_trait::async_trait;
-use google_cloud_auth::credentials::anonymous;
+use google_cloud_auth::credentials::{anonymous, service_account};
 use google_cloud_gax::retry_policy::{AlwaysRetry, NeverRetry, RetryPolicyExt};
 use google_cloud_storage::client::Storage;
 use url::Url;
@@ -65,19 +68,7 @@ const ENV_VAR_GCS_URL: &str = "GCS_URL";
 /// GCS storage uploader for uploading programs and inputs.
 ///
 /// This provider stores files in a GCS bucket and returns `gs://` URLs.
-///
-/// # Authentication
-///
-/// Uses Application Default Credentials (ADC). No explicit credentials needed
-/// if running on GCP infrastructure with an appropriate service account, or if
-/// credentials are configured via `GOOGLE_APPLICATION_CREDENTIALS` or
-/// `gcloud auth application-default login`.
-///
-/// # Bucket Requirements
-///
-/// The bucket must already exist and be accessible with the configured credentials.
-/// For public access to uploaded objects, configure the bucket's IAM policy to
-/// grant `roles/storage.objectViewer` to `allUsers`.
+/// See the [module documentation](self) for authentication details.
 #[derive(Clone, Debug)]
 pub struct GcsStorageUploader {
     bucket: String,
@@ -87,21 +78,13 @@ pub struct GcsStorageUploader {
 impl GcsStorageUploader {
     /// Creates a new GCS storage uploader from environment variables.
     ///
-    /// Required environment variables:
-    /// - `GCS_BUCKET`: The name of the GCS bucket
-    ///
-    /// Optional environment variables:
-    /// - `GCS_URL`: Custom endpoint URL (for emulators like fake-gcs-server)
-    ///
-    /// Credentials are resolved via Application Default Credentials (ADC):
-    /// - `GOOGLE_APPLICATION_CREDENTIALS` environment variable
-    /// - Workload Identity, Compute Engine metadata, etc.
-    /// - `gcloud auth application-default login` for local development
+    /// See the [module documentation](self) for required environment variables
+    /// and authentication details.
     pub async fn from_env() -> Result<Self, StorageError> {
         let bucket = env::var(ENV_VAR_GCS_BUCKET)?;
         let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
 
-        Self::new(bucket, endpoint_url).await
+        Self::new(bucket, endpoint_url, None).await
     }
 
     /// Creates a new GCS storage uploader from configuration.
@@ -113,7 +96,7 @@ impl GcsStorageUploader {
             .clone()
             .ok_or_else(|| StorageError::MissingConfig("gcs_bucket".to_string()))?;
 
-        Self::new(bucket, config.gcs_url.clone()).await
+        Self::new(bucket, config.gcs_url.clone(), config.gcs_credentials_json.clone()).await
     }
 
     /// Creates a new GCS storage uploader with explicit parameters.
@@ -122,11 +105,26 @@ impl GcsStorageUploader {
     ///
     /// * `bucket` - The GCS bucket name (must already exist)
     /// * `endpoint_url` - Custom endpoint URL (optional, for emulators)
-    pub async fn new(bucket: String, endpoint_url: Option<String>) -> Result<Self, StorageError> {
+    /// * `credentials_json` - Service account JSON (optional, uses ADC if None)
+    pub async fn new(
+        bucket: String,
+        endpoint_url: Option<String>,
+        credentials_json: Option<String>,
+    ) -> Result<Self, StorageError> {
         let mut builder = Storage::builder();
 
         if let Some(ref url) = endpoint_url {
             builder = builder.with_endpoint(url);
+        }
+
+        // Use explicit credentials if provided, otherwise use default chain (ADC)
+        if let Some(json) = credentials_json {
+            let json_value: serde_json::Value =
+                serde_json::from_str(&json).map_err(|e| StorageError::Other(e.into()))?;
+            let credentials = service_account::Builder::new(json_value)
+                .build()
+                .map_err(|e| StorageError::Other(e.into()))?;
+            builder = builder.with_credentials(credentials);
         }
 
         let client = builder.build().await.map_err(|e| StorageError::Other(e.into()))?;
@@ -159,22 +157,8 @@ impl StorageUploader for GcsStorageUploader {
 
 /// GCS downloader for fetching data from `gs://` URLs.
 ///
-/// This downloader attempts to use Application Default Credentials (ADC) first,
-/// falling back to anonymous credentials if ADC is not available. This allows:
-/// - Private bucket access when ADC is configured
-/// - Public bucket access when no credentials are available
-///
-/// # Authentication Priority
-///
-/// 1. Application Default Credentials (ADC) - for private buckets
-/// 2. Anonymous credentials - for public buckets (fallback)
-///
-/// # Public Bucket Access
-///
-/// To make a GCS bucket publicly readable:
-/// 1. Go to the bucket in the GCP Console
-/// 2. Go to Permissions tab
-/// 3. Grant `roles/storage.objectViewer` to `allUsers`
+/// Uses ADC if available, otherwise falls back to anonymous access for public buckets.
+/// See the [module documentation](self) for authentication details.
 #[derive(Clone, Debug)]
 pub struct GcsStorageDownloader {
     client: Storage,
