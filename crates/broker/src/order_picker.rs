@@ -1594,7 +1594,7 @@ pub(crate) mod tests {
         anvil: AnvilInstance,
         pub(crate) picker: OrderPicker<P>,
         boundless_market: BoundlessMarketService<Arc<P>>,
-        storage_uploader: MockStorageUploader,
+        uploader: MockStorageUploader,
         db: DbObj,
         provider: Arc<P>,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
@@ -1637,8 +1637,7 @@ pub(crate) mod tests {
         }
 
         pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
-            let image_url =
-                self.storage_uploader.upload_program(ECHO_ELF).await.unwrap().to_string();
+            let image_url = self.uploader.upload_program(ECHO_ELF).await.unwrap().to_string();
             let image_id = Digest::from(ECHO_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
@@ -1680,8 +1679,7 @@ pub(crate) mod tests {
             params: OrderParams,
             cycles: u64,
         ) -> Box<OrderRequest> {
-            let image_url =
-                self.storage_uploader.upload_program(LOOP_ELF).await.unwrap().to_string();
+            let image_url = self.uploader.upload_program(LOOP_ELF).await.unwrap().to_string();
             let image_id = Digest::from(LOOP_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
@@ -1834,7 +1832,7 @@ pub(crate) mod tests {
                 anvil,
                 picker,
                 boundless_market,
-                storage_uploader,
+                uploader: storage_uploader,
                 db,
                 provider,
                 priced_orders_rx,

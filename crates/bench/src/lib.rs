@@ -122,7 +122,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     };
     let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url.clone())
-        .with_storage_uploader_config(&args.storage_config)
+        .with_uploader_config(&args.storage_config)
         .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(private_key)

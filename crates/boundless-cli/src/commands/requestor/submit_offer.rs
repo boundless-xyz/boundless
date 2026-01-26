@@ -127,7 +127,7 @@ impl RequestorSubmitOffer {
         // Resolve the program from command line arguments
         let request = match (&self.program.path, &self.program.url) {
             (Some(path), None) => {
-                if client.storage_uploader.is_none() {
+                if client.uploader.is_none() {
                     bail!("A storage provider is required to upload programs.\nPlease provide a storage provider (see --help for options) or upload your program and set --program-url.")
                 }
                 let program: Cow<'static, [u8]> = std::fs::read(path)

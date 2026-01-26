@@ -713,7 +713,7 @@ async fn test_client_builder_with_price_provider() {
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
-        .with_storage_uploader(Some(storage.clone()))
+        .with_uploader(Some(storage.clone()))
         .with_price_provider(Some(price_provider))
         .build()
         .await

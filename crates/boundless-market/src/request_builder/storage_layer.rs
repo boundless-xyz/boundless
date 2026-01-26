@@ -47,7 +47,7 @@ pub struct StorageLayer<U = StandardUploader> {
     ///
     /// If not provided, the layer cannot upload files and provided inputs must be no larger than
     /// [StorageLayerConfig::inline_input_max_bytes].
-    pub storage_uploader: Option<U>,
+    pub uploader: Option<U>,
 
     /// Configuration controlling storage behavior.
     pub config: StorageLayerConfig,
@@ -69,8 +69,8 @@ impl<S: Clone> From<Option<S>> for StorageLayer<S> {
     ///
     /// Provided value is an [Option] such that whether the storage uploader is available can be
     /// reolved at runtime (e.g. from environment variables).
-    fn from(storage_uploader: Option<S>) -> Self {
-        Self { storage_uploader, config: Default::default() }
+    fn from(uploader: Option<S>) -> Self {
+        Self { uploader, config: Default::default() }
     }
 }
 
@@ -79,19 +79,19 @@ where
     S: StorageUploader + Default,
 {
     fn from(config: StorageLayerConfig) -> Self {
-        Self { storage_uploader: Some(Default::default()), config }
+        Self { uploader: Some(Default::default()), config }
     }
 }
 
 impl<S> Default for StorageLayer<S> {
     fn default() -> Self {
-        Self { storage_uploader: None, config: Default::default() }
+        Self { uploader: None, config: Default::default() }
     }
 }
 
 impl From<StorageLayerConfig> for StorageLayer<NotProvided> {
     fn from(config: StorageLayerConfig) -> Self {
-        Self { storage_uploader: None, config }
+        Self { uploader: None, config }
     }
 }
 
@@ -111,7 +111,7 @@ where
     /// if none is available.
     pub async fn process_program(&self, program: &[u8]) -> anyhow::Result<Url> {
         let storage_uploader = self
-            .storage_uploader
+            .uploader
             .as_ref()
             .context("cannot upload program using StorageLayer with no storage_uploader")?;
         let program_url = storage_uploader.upload_program(program).await?;
@@ -126,7 +126,7 @@ where
         let input_data = env.encode().context("failed to encode guest environment")?;
         let request_input = match self.config.inline_input_max_bytes {
             Some(limit) if input_data.len() > limit => {
-                let storage_uploader = self.storage_uploader.as_ref().with_context( || {
+                let storage_uploader = self.uploader.as_ref().with_context( || {
                     format!("cannot upload input using StorageLayer with no storage_uploader; input length of {} bytes exceeds inline limit of {limit} bytes", input_data.len())
                 })?;
                 RequestInput::url(storage_uploader.upload_input(&input_data).await?)
@@ -141,9 +141,8 @@ impl<S> StorageLayer<S> {
     /// Creates a new [StorageLayer] with the given provider and configuration.
     ///
     /// The storage uploader is used to upload programs and inputs to external storage.
-    /// If no storage uploader is given, the layer can only handle inline inputs.
-    pub fn new(storage_uploader: Option<S>, config: StorageLayerConfig) -> Self {
-        Self { storage_uploader, config }
+    pub fn new(uploader: Option<S>, config: StorageLayerConfig) -> Self {
+        Self { uploader, config }
     }
 
     pub(crate) async fn process_env_no_provider(

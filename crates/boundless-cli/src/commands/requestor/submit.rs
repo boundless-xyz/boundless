@@ -74,7 +74,7 @@ impl RequestorSubmit {
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
-            .with_storage_uploader_config(&self.storage_config)
+            .with_uploader_config(&self.storage_config)
             .await?
             .build()
             .await

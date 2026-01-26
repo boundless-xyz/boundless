@@ -319,7 +319,7 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url) // Ethereum RPC endpoint
         .with_deployment(args.deployment) // Contract addresses (optional, uses defaults if not provided)
-        .with_storage_uploader_config(&args.storage_config)
+        .with_uploader_config(&args.storage_config)
         .await? // Where to upload programs/inputs
         .with_private_key(args.private_key.clone()) // Your wallet for signing transactions
         .build()
@@ -552,7 +552,7 @@ mod tests {
         let client = Client::builder()
             .with_rpc_url(anvil.endpoint_url())
             .with_deployment(Some(ctx.deployment))
-            .with_storage_uploader_config(
+            .with_uploader_config(
                 &StorageUploaderConfig::builder()
                     .storage_uploader(StorageUploaderType::Mock)
                     .build()

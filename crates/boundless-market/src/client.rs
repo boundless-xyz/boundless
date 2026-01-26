@@ -103,7 +103,7 @@ pub struct ClientBuilder<U, D, S> {
     rpc_url: Option<Url>,
     rpc_urls: Vec<Url>,
     signer: Option<S>,
-    storage_uploader: Option<U>,
+    uploader: Option<U>,
     downloader: Option<D>,
     tx_timeout: Option<std::time::Duration>,
     balance_alerts: Option<BalanceAlertConfig>,
@@ -135,7 +135,7 @@ impl<U, D, S> Default for ClientBuilder<U, D, S> {
             rpc_url: None,
             rpc_urls: Vec::new(),
             signer: None,
-            storage_uploader: None,
+            uploader: None,
             downloader: None,
             tx_timeout: None,
             balance_alerts: None,
@@ -415,7 +415,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(StorageLayer::new(
-                self.storage_uploader.clone(),
+                self.uploader.clone(),
                 self.storage_layer_config.build()?,
             ))
             .preflight_layer(PreflightLayer::new(Some(downloader.clone())))
@@ -433,7 +433,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
         let mut client = Client {
             boundless_market,
             set_verifier,
-            storage_uploader: self.storage_uploader,
+            uploader: self.uploader,
             downloader,
             offchain_client,
             signer: self.signer,
@@ -550,7 +550,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         ClientBuilder {
             signer: signer.into(),
             deployment: self.deployment,
-            storage_uploader: self.storage_uploader,
+            uploader: self.uploader,
             downloader: self.downloader,
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
@@ -578,17 +578,14 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     /// Set the storage uploader.
     ///
     /// The returned [ClientBuilder] will be generic over the provider [StorageUploader] type.
-    pub fn with_storage_uploader<Z: StorageUploader>(
-        self,
-        storage_uploader: Option<Z>,
-    ) -> ClientBuilder<Z, D, S> {
+    pub fn with_uploader<Z: StorageUploader>(self, uploader: Option<Z>) -> ClientBuilder<Z, D, S> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
             deployment: self.deployment,
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             signer: self.signer,
-            storage_uploader,
+            uploader,
             downloader: self.downloader,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
@@ -609,7 +606,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             signer: self.signer,
-            storage_uploader: self.storage_uploader,
+            uploader: self.uploader,
             downloader: Some(downloader),
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
@@ -623,7 +620,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     }
 
     /// Set the storage uploader from the given config
-    pub async fn with_storage_uploader_config(
+    pub async fn with_uploader_config(
         self,
         config: &StorageUploaderConfig,
     ) -> Result<ClientBuilder<StandardUploader, D, S>, StorageError> {
@@ -632,7 +629,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             Err(StorageError::NoUploader) => None,
             Err(e) => return Err(e),
         };
-        Ok(self.with_storage_uploader(storage_uploader))
+        Ok(self.with_uploader(storage_uploader))
     }
 
     /// Set a custom price provider for fetching market prices.
@@ -743,7 +740,7 @@ pub struct Client<
     /// [StandardUploader] to upload programs and inputs.
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
-    pub storage_uploader: Option<U>,
+    pub uploader: Option<U>,
     /// Downloader for fetching data from storage.
     pub downloader: D,
     /// [OrderStreamClient] to submit requests off-chain.
@@ -833,7 +830,7 @@ where
             },
             boundless_market,
             set_verifier,
-            storage_uploader: None,
+            uploader: None,
             downloader,
             offchain_client: None,
             signer: None,
@@ -925,7 +922,7 @@ where
             signer: Some(signer),
             boundless_market: self.boundless_market,
             set_verifier: self.set_verifier,
-            storage_uploader: self.storage_uploader,
+            uploader: self.uploader,
             downloader: self.downloader,
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
@@ -940,7 +937,7 @@ where
         St: StorageUploader,
     {
         Ok(self
-            .storage_uploader
+            .uploader
             .as_ref()
             .context("Storage provider not set")?
             .upload_program(program)
@@ -954,7 +951,7 @@ where
         St: StorageUploader,
     {
         Ok(self
-            .storage_uploader
+            .uploader
             .as_ref()
             .context("Storage provider not set")?
             .upload_input(input)
