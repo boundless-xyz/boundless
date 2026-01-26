@@ -149,7 +149,7 @@ jobs:
         run: git diff --exit-code -- crates/boundless-market/src/contracts/artifacts
 
       - name: cargo test
-        run: cargo test --locked --workspace --all-targets --features test-r0vm -- --include-ignored
+        run: cargo test --locked --workspace --all-targets --features test-r0vm
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/postgres
           RISC0_DEV_MODE: true
