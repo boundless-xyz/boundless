@@ -70,7 +70,7 @@ impl<S: Clone> From<Option<S>> for StorageLayer<S> {
     /// Provided value is an [Option] such that whether the storage uploader is available can be
     /// reolved at runtime (e.g. from environment variables).
     fn from(storage_uploader: Option<S>) -> Self {
-        StorageLayer { storage_uploader, config: Default::default() }
+        Self { storage_uploader, config: Default::default() }
     }
 }
 
@@ -83,18 +83,9 @@ where
     }
 }
 
-impl<S> Default for StorageLayer<S>
-where
-    S: StorageUploader + Default,
-{
+impl<S> Default for StorageLayer<S> {
     fn default() -> Self {
-        StorageLayer { storage_uploader: Some(Default::default()), config: Default::default() }
-    }
-}
-
-impl Default for StorageLayer<NotProvided> {
-    fn default() -> Self {
-        StorageLayer { storage_uploader: None, config: Default::default() }
+        Self { storage_uploader: None, config: Default::default() }
     }
 }
 
@@ -174,8 +165,8 @@ impl<S> Layer<(&[u8], &GuestEnv)> for StorageLayer<S>
 where
     S: StorageUploader,
 {
-    type Error = anyhow::Error;
     type Output = (Url, RequestInput);
+    type Error = anyhow::Error;
 
     async fn process(
         &self,
@@ -188,8 +179,8 @@ where
 }
 
 impl Layer<&GuestEnv> for StorageLayer<NotProvided> {
-    type Error = anyhow::Error;
     type Output = RequestInput;
+    type Error = anyhow::Error;
 
     async fn process(&self, env: &GuestEnv) -> Result<Self::Output, Self::Error> {
         let request_input = self.process_env_no_provider(env).await?;

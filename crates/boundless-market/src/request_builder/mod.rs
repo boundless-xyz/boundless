@@ -31,7 +31,7 @@ use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
     selector::SelectorExt,
-    storage::{DefaultDownloader, StorageDownloader, StorageUploader},
+    storage::DefaultDownloader,
     util::NotProvided,
     StandardUploader,
 };
@@ -171,11 +171,11 @@ where
 #[non_exhaustive]
 pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = DefaultDownloader> {
     /// Handles uploading and preparing program and input data.
-    #[builder(setter(into))]
+    #[builder(setter(into), default)]
     pub storage_layer: StorageLayer<U>,
 
     /// Executes preflight checks to validate the request.
-    #[builder(setter(into))]
+    #[builder(setter(into), default)]
     pub preflight_layer: PreflightLayer<D>,
 
     /// Configures the requirements for the proof request.
@@ -212,34 +212,9 @@ impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
 
 impl<P, S, D> Layer<RequestParams> for StandardRequestBuilder<P, S, D>
 where
-    S: StorageUploader,
-    D: StorageDownloader,
     P: Provider<Ethereum> + 'static + Clone,
-{
-    type Output = ProofRequest;
-    type Error = anyhow::Error;
-
-    async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
-        input
-            .process_with(&self.storage_layer)
-            .await?
-            .process_with(&self.preflight_layer)
-            .await?
-            .process_with(&self.requirements_layer)
-            .await?
-            .process_with(&self.request_id_layer)
-            .await?
-            .process_with(&self.offer_layer)
-            .await?
-            .process_with(&self.finalizer)
-            .await
-    }
-}
-
-impl<P, D> Layer<RequestParams> for StandardRequestBuilder<P, NotProvided, D>
-where
-    D: StorageDownloader,
-    P: Provider<Ethereum> + 'static + Clone,
+    RequestParams: Adapt<StorageLayer<S>, Output = RequestParams, Error = anyhow::Error>,
+    RequestParams: Adapt<PreflightLayer<D>, Output = RequestParams, Error = anyhow::Error>,
 {
     type Output = ProofRequest;
     type Error = anyhow::Error;
@@ -739,8 +714,7 @@ mod tests {
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(None::<NotProvided>)
+        let request_builder = StandardRequestBuilder::builder::<_, NotProvided, _>()
             .preflight_layer(Some(downloader))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)

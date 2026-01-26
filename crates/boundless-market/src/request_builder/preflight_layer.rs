@@ -17,6 +17,7 @@ use crate::{
     contracts::{RequestInput, RequestInputType},
     input::GuestEnv,
     storage::StorageDownloader,
+    NotProvided,
 };
 use anyhow::{bail, ensure, Context};
 use risc0_zkvm::{default_executor, sha::Digestible, SessionInfo};
@@ -44,6 +45,12 @@ pub struct PreflightLayer<D> {
 impl<D: Clone> From<Option<D>> for PreflightLayer<D> {
     fn from(downloader: Option<D>) -> Self {
         Self { downloader }
+    }
+}
+
+impl<S> Default for PreflightLayer<S> {
+    fn default() -> Self {
+        Self { downloader: None }
     }
 }
 
@@ -103,11 +110,11 @@ where
     type Error = anyhow::Error;
 
     async fn process_with(self, layer: &PreflightLayer<D>) -> Result<Self::Output, Self::Error> {
-        tracing::trace!("Processing {self:?} with PreflightLayer");
-
         if self.cycles.is_some() && self.journal.is_some() {
             return Ok(self);
         }
+
+        tracing::trace!("Processing {self:?} with PreflightLayer");
 
         let program_url = self.require_program_url().context("failed to preflight request")?;
         let input = self.require_request_input().context("failed to preflight request")?;
@@ -127,5 +134,21 @@ where
         }
 
         Ok(self.with_cycles(cycles).with_journal(journal).with_image_id(preflight_image_id))
+    }
+}
+
+impl Adapt<PreflightLayer<NotProvided>> for RequestParams {
+    type Output = RequestParams;
+    type Error = anyhow::Error;
+
+    async fn process_with(
+        self,
+        _: &PreflightLayer<NotProvided>,
+    ) -> Result<Self::Output, Self::Error> {
+        if self.cycles.is_some() && self.journal.is_some() {
+            return Ok(self);
+        }
+
+        bail!("cannot preflight program without downloader")
     }
 }
