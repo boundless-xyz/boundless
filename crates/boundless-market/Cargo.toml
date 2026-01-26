@@ -93,5 +93,6 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
+temp-env = { version = "0.3", features = ["async_closure"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }

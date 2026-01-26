@@ -18,12 +18,17 @@
 //! - **Uploading**: Store programs and inputs in S3 buckets (requires credentials)
 //! - **Downloading**: Fetch data from `s3://` URLs (supports anonymous access for public buckets)
 //!
-//! # Authentication
+//! # Environment Variables
 //!
-//! ## Uploading
+//! The following environment variables are used:
+//! - `S3_BUCKET`: Required bucket name for uploads
+//! - `S3_URL`: Optional custom endpoint URL (for S3-compatible services like MinIO)
+//! - `S3_NO_PRESIGNED`: If set, return `s3://` URLs instead of presigned HTTPS URLs
 //!
-//! Uploading **requires** AWS credentials via the default credential chain:
-//! - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+//! # Authentication & Region
+//!
+//! Region and credentials are resolved via the AWS SDK default provider chain:
+//! - Environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
 //! - `~/.aws/credentials` and `~/.aws/config`
 //! - IAM role (on EC2, ECS, Lambda, etc.)
 //! - IAM role assumption via `AWS_ROLE_ARN`
@@ -33,12 +38,6 @@
 //! Downloading supports both authenticated and anonymous access:
 //! - If credentials are available, they are used (for private buckets)
 //! - If no credentials are available, anonymous access is used (for public buckets)
-//!
-//! # Endpoint URL
-//!
-//! The endpoint URL is optional. If not provided, the SDK uses the default
-//! AWS S3 endpoint for the configured region. Custom endpoints are typically
-//! only needed for S3-compatible services like MinIO or LocalStack.
 
 use std::{env, time::Duration};
 
@@ -57,6 +56,9 @@ use aws_sdk_s3::{
 use url::Url;
 
 const ENV_VAR_ROLE_ARN: &str = "AWS_ROLE_ARN";
+const ENV_VAR_S3_BUCKET: &str = "S3_BUCKET";
+const ENV_VAR_S3_URL: &str = "S3_URL";
+const ENV_VAR_S3_NO_PRESIGNED: &str = "S3_NO_PRESIGNED";
 
 /// Apply IAM role assumption if `AWS_ROLE_ARN` is set.
 ///
@@ -85,12 +87,13 @@ async fn apply_role_assumption(sdk_config: SdkConfig) -> SdkConfig {
 ///
 /// # Authentication
 ///
-/// Supports two authentication modes:
-/// 1. **Explicit credentials** via `S3_ACCESS_KEY` and `S3_SECRET_KEY` environment variables
-/// 2. **AWS default credential chain** (env vars, `~/.aws/credentials`, IAM role, etc.)
+/// Uses the **AWS default credential chain** for authentication:
+/// - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+/// - `~/.aws/credentials` and `~/.aws/config`
+/// - IAM role (on EC2, ECS, Lambda, etc.)
 ///
-/// Explicit credentials take precedence when set. This is useful for the sensitive
-/// inputs use case where the requestor has dedicated S3 credentials.
+/// Explicit credentials can also be provided via [`StorageUploaderConfig`] for
+/// programmatic use cases (e.g., dedicated S3 credentials for sensitive inputs).
 #[derive(Clone, Debug)]
 pub struct S3StorageUploader {
     bucket: String,
@@ -105,24 +108,18 @@ impl S3StorageUploader {
     /// - `S3_BUCKET`: Bucket name
     ///
     /// Optional environment variables:
-    /// - `S3_ACCESS_KEY`: Explicit access key (takes precedence over default chain)
-    /// - `S3_SECRET_KEY`: Explicit secret key (required if `S3_ACCESS_KEY` is set)
     /// - `S3_URL`: Custom S3 endpoint URL (for MinIO, LocalStack, etc.)
-    /// - `AWS_REGION`: AWS region (can also be inferred from default chain)
     /// - `S3_NO_PRESIGNED`: If set, return `s3://` URLs instead of presigned URLs
+    ///
+    /// Region and credentials are resolved via the AWS SDK default provider chain:
+    /// - Region: `AWS_REGION`, `~/.aws/config`, or instance metadata
+    /// - Credentials: `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, `~/.aws/credentials`, or IAM role
     pub async fn from_env() -> Result<Self, StorageError> {
-        let bucket = env::var("S3_BUCKET")?;
-        let region = env::var("AWS_REGION").ok();
-        let endpoint_url = env::var("S3_URL").ok();
-        let use_presigned = env::var_os("S3_NO_PRESIGNED").is_none();
+        let bucket = env::var(ENV_VAR_S3_BUCKET)?;
+        let endpoint_url = env::var(ENV_VAR_S3_URL).ok();
+        let use_presigned = env::var_os(ENV_VAR_S3_NO_PRESIGNED).is_none();
 
-        // Check for explicit credentials
-        let explicit_credentials = match (env::var("S3_ACCESS_KEY"), env::var("S3_SECRET_KEY")) {
-            (Ok(access_key), Ok(secret_key)) => Some((access_key, secret_key)),
-            _ => None,
-        };
-
-        Self::new(bucket, region, endpoint_url, use_presigned, explicit_credentials).await
+        Self::new(bucket, endpoint_url, None, None, use_presigned).await
     }
 
     /// Creates a new S3 storage uploader from configuration.
@@ -144,10 +141,10 @@ impl S3StorageUploader {
 
         Self::new(
             bucket,
-            config.aws_region.clone(),
             config.s3_url.clone(),
-            use_presigned,
+            config.aws_region.clone(),
             credentials,
+            use_presigned,
         )
         .await
     }
@@ -157,16 +154,16 @@ impl S3StorageUploader {
     /// # Arguments
     ///
     /// * `bucket` - The S3 bucket name
-    /// * `region` - AWS region (optional, can be inferred from environment)
     /// * `endpoint_url` - Custom endpoint URL (optional, for S3-compatible services)
-    /// * `use_presigned` - Whether to return presigned HTTPS URLs (true) or `s3://` URLs (false)
+    /// * `region` - AWS region (optional, resolved from default chain if None)
     /// * `credentials` - Explicit (access_key, secret_key) tuple (optional, uses default chain if None)
+    /// * `use_presigned` - Whether to return presigned HTTPS URLs (true) or `s3://` URLs (false)
     pub async fn new(
         bucket: String,
-        region: Option<String>,
         endpoint_url: Option<String>,
-        use_presigned: bool,
+        region: Option<String>,
         credentials: Option<(String, String)>,
+        use_presigned: bool,
     ) -> Result<Self, StorageError> {
         let mut config_loader = defaults(BehaviorVersion::latest());
 
@@ -258,7 +255,7 @@ pub struct S3StorageDownloader {
 impl S3StorageDownloader {
     /// Creates a new S3 downloader with optional retry configuration.
     pub async fn new(max_retries: Option<u8>) -> Self {
-        let endpoint_url = env::var("S3_URL").ok();
+        let endpoint_url = env::var(ENV_VAR_S3_URL).ok();
         let client = Self::build_client(endpoint_url, max_retries).await;
 
         Self { client }
@@ -354,32 +351,40 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires S3_BUCKET and AWS credentials (env or ~/.aws/credentials)"]
     async fn test_s3_roundtrip_presigned() {
-        let uploader = S3StorageUploader::from_env().await.expect("failed to create S3 uploader");
+        temp_env::async_with_vars([(ENV_VAR_S3_NO_PRESIGNED, None::<&str>)], async {
+            let uploader =
+                S3StorageUploader::from_env().await.expect("failed to create S3 uploader");
 
-        let test_data = b"s3 presigned test data";
-        let url = uploader.upload_input(test_data).await.expect("upload failed");
+            let test_data = b"s3 presigned test data";
+            let url = uploader.upload_input(test_data).await.expect("upload failed");
 
-        assert!(url.scheme() == "https" || url.scheme() == "http", "expected presigned URL");
+            assert!(url.scheme() == "https" || url.scheme() == "http", "expected presigned URL");
 
-        let downloader = HttpDownloader::default();
-        let downloaded = downloader.download_url(url).await.expect("download failed");
+            let downloader = HttpDownloader::default();
+            let downloaded = downloader.download_url(url).await.expect("download failed");
 
-        assert_eq!(downloaded, test_data);
+            assert_eq!(downloaded, test_data);
+        })
+        .await;
     }
 
     #[tokio::test]
-    #[ignore = "requires S3_BUCKET, S3_NO_PRESIGNED, and AWS credentials (env or ~/.aws/credentials)"]
+    #[ignore = "requires S3_BUCKET and AWS credentials (env or ~/.aws/credentials)"]
     async fn test_s3_roundtrip_s3_scheme() {
-        let uploader = S3StorageUploader::from_env().await.expect("failed to create S3 uploader");
+        temp_env::async_with_vars([(ENV_VAR_S3_NO_PRESIGNED, Some("1"))], async {
+            let uploader =
+                S3StorageUploader::from_env().await.expect("failed to create S3 uploader");
 
-        let test_data = b"s3 scheme test data";
-        let url = uploader.upload_input(test_data).await.expect("upload failed");
+            let test_data = b"s3 scheme test data";
+            let url = uploader.upload_input(test_data).await.expect("upload failed");
 
-        assert_eq!(url.scheme(), "s3", "expected s3:// URL");
+            assert_eq!(url.scheme(), "s3", "expected s3:// URL");
 
-        let downloader = S3StorageDownloader::new(None).await;
-        let downloaded = downloader.download_url(url).await.expect("download failed");
+            let downloader = S3StorageDownloader::new(None).await;
+            let downloaded = downloader.download_url(url).await.expect("download failed");
 
-        assert_eq!(downloaded, test_data);
+            assert_eq!(downloaded, test_data);
+        })
+        .await;
     }
 }
