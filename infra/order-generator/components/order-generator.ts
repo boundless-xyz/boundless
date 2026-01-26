@@ -47,6 +47,7 @@ interface OrderGeneratorArgs {
     // Schedule expression for the event bridge rule.
     scheduleExpression: string;
   };
+  indexerUrl: pulumi.Output<string>;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -80,6 +81,12 @@ export class OrderGenerator extends pulumi.ComponentResource {
     new aws.secretsmanager.SecretVersion(`${serviceName}-order-stream-url`, {
       secretId: orderStreamUrlSecret.id,
       secretString: offchainConfig?.orderStreamUrl ?? 'none',
+    });
+
+    const indexerUrlSecret = new aws.secretsmanager.Secret(`${serviceName}-indexer-url`);
+    new aws.secretsmanager.SecretVersion(`${serviceName}-indexer-url`, {
+      secretId: indexerUrlSecret.id,
+      secretString: args.indexerUrl,
     });
 
     const secretHash = pulumi
@@ -121,7 +128,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
           {
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn],
+            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn, indexerUrlSecret.arn],
           },
         ],
       },
@@ -152,6 +159,10 @@ export class OrderGenerator extends pulumi.ComponentResource {
       {
         name: 'PINATA_JWT',
         valueFrom: pinataJwtSecret.arn,
+      },
+      {
+        name: 'INDEXER_URL',
+        valueFrom: indexerUrlSecret.arn,
       },
     ];
 

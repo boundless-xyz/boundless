@@ -357,32 +357,40 @@ impl<St, Si> ClientBuilder<St, Si> {
             .transpose()?;
 
         // Build the price provider - use explicit provider if set, otherwise create from deployment.indexer_url
-        let price_provider: Option<PriceProviderArc> = if let Some(provider) =
-            self.price_provider.clone()
-        {
-            Some(provider)
-        } else if let Some(url_str) = deployment.indexer_url.as_ref() {
-            let url = Url::parse(url_str.as_ref()).with_context(|| {
-                format!("Failed to parse indexer URL from deployment: {}", url_str)
-            })?;
-            let indexer_client = IndexerClient::new(url).with_context(|| {
-                format!("Failed to create indexer client from deployment indexer URL: {}", url_str)
-            })?;
-            let market_pricing = MarketPricing::new(
-                first_rpc_url,
-                MarketPricingConfigBuilder::default()
-                    .deployment(deployment.clone())
-                    .build()
-                    .with_context(|| {
-                        format!(
+        let price_provider: Option<PriceProviderArc> =
+            if let Some(provider) = self.price_provider.clone() {
+                Some(provider)
+            } else {
+                let market_pricing = MarketPricing::new(
+                    first_rpc_url,
+                    MarketPricingConfigBuilder::default()
+                        .deployment(deployment.clone())
+                        .build()
+                        .with_context(|| {
+                            format!(
                             "Failed to build MarketPricingConfig for deployment: {deployment:?}",
                         )
-                    })?,
-            );
-            Some(Arc::new(StandardPriceProvider::new(indexer_client).with_fallback(market_pricing)))
-        } else {
-            None
-        };
+                        })?,
+                );
+                if let Some(url_str) = deployment.indexer_url.as_ref() {
+                    let url = Url::parse(url_str.as_ref()).with_context(|| {
+                        format!("Failed to parse indexer URL from deployment: {}", url_str)
+                    })?;
+                    let indexer_client = IndexerClient::new(url).with_context(|| {
+                        format!(
+                            "Failed to create indexer client from deployment indexer URL: {}",
+                            url_str
+                        )
+                    })?;
+                    Some(Arc::new(
+                        StandardPriceProvider::new(indexer_client).with_fallback(market_pricing),
+                    ))
+                } else {
+                    Some(Arc::new(StandardPriceProvider::<MarketPricing, MarketPricing>::new(
+                        market_pricing,
+                    )))
+                }
+            };
 
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
