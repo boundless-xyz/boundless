@@ -21,7 +21,7 @@ use alloy::primitives::{B256, U256};
 use anyhow::{anyhow, Result};
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
 use boundless_market::storage::StorageDownloader;
-use boundless_market::{DefaultDownloader, StorageDownloaderConfig};
+use boundless_market::{StandardDownloader, StorageDownloaderConfig};
 use broker::futures_retry::retry;
 use bytes::Bytes;
 use std::collections::{HashMap, HashSet};
@@ -557,8 +557,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     }
 }
 
-async fn downloader_from_config(config: &IndexerServiceExecutionConfig) -> DefaultDownloader {
-    DefaultDownloader::from_config(StorageDownloaderConfig {
+async fn downloader_from_config(config: &IndexerServiceExecutionConfig) -> StandardDownloader {
+    StandardDownloader::from_config(StorageDownloaderConfig {
         max_retries: Some(config.bento_retry_count.min(u8::MAX as u64) as u8),
         ..Default::default()
     })
@@ -570,7 +570,7 @@ async fn download_or_decode_input(
     request_digest: B256,
     input_type: &String,
     input_data: &str,
-    downloader: &DefaultDownloader,
+    downloader: &StandardDownloader,
 ) -> Result<Bytes> {
     if input_type != "Url" && input_type != "Inline" {
         return Err(anyhow!(

@@ -25,7 +25,7 @@ mod traits;
 
 pub use config::StorageDownloaderConfig;
 pub use config::{StorageUploaderConfig, StorageUploaderType};
-pub use default::DefaultDownloader;
+pub use default::StandardDownloader;
 pub use error::StorageError;
 pub use providers::{
     FileStorageDownloader, FileStorageUploader, HttpDownloader, PinataStorageUploader,

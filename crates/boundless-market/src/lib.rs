@@ -102,7 +102,7 @@ pub mod selector;
 pub mod storage;
 #[cfg(not(target_os = "zkvm"))]
 pub use storage::{
-    DefaultDownloader, StandardUploader, StorageDownloaderConfig, StorageUploaderConfig,
+    StandardDownloader, StandardUploader, StorageDownloaderConfig, StorageUploaderConfig,
 };
 
 /// Utility functions and types used elsewhere.

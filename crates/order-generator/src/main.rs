@@ -30,7 +30,7 @@ use boundless_market::{
     deployments::Deployment,
     input::GuestEnv,
     request_builder::{OfferParams, StandardRequestBuilder},
-    storage::{DefaultDownloader, HttpDownloader, StorageDownloader},
+    storage::{HttpDownloader, StandardDownloader, StorageDownloader},
     StandardUploader, StorageUploaderConfig,
 };
 use clap::Parser;
@@ -238,8 +238,8 @@ async fn handle_request(
     client: &Client<
         DynProvider,
         StandardUploader,
-        DefaultDownloader,
-        StandardRequestBuilder<DynProvider, StandardUploader, DefaultDownloader>,
+        StandardDownloader,
+        StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
         PrivateKeySigner,
     >,
     program: &[u8],

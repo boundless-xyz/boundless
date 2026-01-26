@@ -30,7 +30,7 @@ use url::Url;
 /// - `s3://` → S3 downloader (requires `s3` feature)
 /// - `gs://` → GCS downloader (requires `gcs` feature)
 #[derive(Clone, Debug)]
-pub struct DefaultDownloader {
+pub struct StandardDownloader {
     http: HttpDownloader,
     file: Option<FileStorageDownloader>,
     #[cfg(feature = "s3")]
@@ -41,7 +41,7 @@ pub struct DefaultDownloader {
     config: StorageDownloaderConfig,
 }
 
-impl DefaultDownloader {
+impl StandardDownloader {
     /// Creates a downloader with default settings.
     pub async fn new() -> Self {
         Self::from_config(StorageDownloaderConfig::default()).await
@@ -115,7 +115,7 @@ impl DefaultDownloader {
 }
 
 #[async_trait]
-impl StorageDownloader for DefaultDownloader {
+impl StorageDownloader for StandardDownloader {
     async fn download_url_with_limit(
         &self,
         url: Url,
@@ -141,12 +141,12 @@ impl StorageDownloader for DefaultDownloader {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::default::DefaultDownloader;
+    use crate::storage::default::StandardDownloader;
     use crate::storage::*;
 
     #[tokio::test]
     async fn test_standard_downloader_http() {
-        use crate::storage::default::DefaultDownloader;
+        use crate::storage::default::StandardDownloader;
         use httpmock::prelude::*;
 
         let server = MockServer::start();
@@ -156,7 +156,7 @@ mod tests {
             then.status(200).body(&resp_data);
         });
 
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
 
         let url = Url::parse(&server.url("/test")).unwrap();
         let data = downloader.download_url(url).await.unwrap();
@@ -166,7 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_roundtrip() {
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
 
         let file_provider = FileStorageUploader::new().unwrap();
         let input_data = b"test data for file roundtrip";

@@ -173,7 +173,7 @@ mod tests {
         boundless_market::FulfillmentTx, IBoundlessMarket, Offer, Predicate, ProofRequest,
         RequestInput, Requirements,
     };
-    use boundless_market::storage::DefaultDownloader;
+    use boundless_market::storage::StandardDownloader;
     use boundless_test_utils::{
         guests::{ECHO_ID, ECHO_PATH},
         market::create_test_ctx,
@@ -246,7 +246,7 @@ mod tests {
         let client = boundless_market::Client::new(
             ctx.prover_market.clone(),
             ctx.set_verifier.clone(),
-            DefaultDownloader::new().await,
+            StandardDownloader::new().await,
         );
         let prover =
             OrderFulfiller::initialize(Arc::new(DefaultProver::default()), &client).await.unwrap();

@@ -647,7 +647,7 @@ mod tests {
             UNSPECIFIED_SELECTOR,
         },
         selector::SelectorExt,
-        storage::DefaultDownloader,
+        storage::StandardDownloader,
     };
     use boundless_test_utils::{
         guests::{ECHO_ID, ECHO_PATH},
@@ -687,7 +687,7 @@ mod tests {
         let client = boundless_market::Client::new(
             ctx.customer_market.clone(),
             ctx.set_verifier.clone(),
-            DefaultDownloader::new().await,
+            StandardDownloader::new().await,
         );
 
         let signer = PrivateKeySigner::random();
@@ -708,7 +708,7 @@ mod tests {
         let client = boundless_market::Client::new(
             ctx.customer_market.clone(),
             ctx.set_verifier.clone(),
-            DefaultDownloader::new().await,
+            StandardDownloader::new().await,
         );
 
         let signer = PrivateKeySigner::random();
@@ -728,7 +728,7 @@ mod tests {
         let client = boundless_market::Client::new(
             ctx.customer_market.clone(),
             ctx.set_verifier.clone(),
-            DefaultDownloader::new().await,
+            StandardDownloader::new().await,
         );
 
         let input = [255u8; 32].to_vec(); // Example output data

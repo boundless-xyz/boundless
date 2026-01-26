@@ -16,7 +16,7 @@ use crate::config::ConfigLock;
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::Predicate,
-    storage::{DefaultDownloader, StorageDownloader, StorageDownloaderConfig, StorageError},
+    storage::{StandardDownloader, StorageDownloader, StorageDownloaderConfig, StorageError},
 };
 use hex::FromHex;
 use risc0_zkvm::Digest;
@@ -25,7 +25,7 @@ use tokio::sync::RwLock;
 
 #[derive(Clone, Debug)]
 pub struct ConfigurableDownloader {
-    inner: Arc<RwLock<DefaultDownloader>>,
+    inner: Arc<RwLock<StandardDownloader>>,
     config_lock: ConfigLock,
 }
 
@@ -41,7 +41,7 @@ impl ConfigurableDownloader {
             })?;
 
         Ok(Self {
-            inner: Arc::new(RwLock::new(DefaultDownloader::from_config(config).await)),
+            inner: Arc::new(RwLock::new(StandardDownloader::from_config(config).await)),
             config_lock,
         })
     }
@@ -70,7 +70,7 @@ impl ConfigurableDownloader {
             }
 
             // Create the new downloader without holding the lock
-            let new_downloader = DefaultDownloader::from_config(new_config.clone()).await;
+            let new_downloader = StandardDownloader::from_config(new_config.clone()).await;
 
             // Now install it, but re-check in case another task raced us
             let mut inner = self.inner.write().await;
@@ -80,7 +80,7 @@ impl ConfigurableDownloader {
         }
     }
 
-    async fn downloader(&self) -> tokio::sync::RwLockReadGuard<'_, DefaultDownloader> {
+    async fn downloader(&self) -> tokio::sync::RwLockReadGuard<'_, StandardDownloader> {
         self.sync_config().await;
         self.inner.read().await
     }

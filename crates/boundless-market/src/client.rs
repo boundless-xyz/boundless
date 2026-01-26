@@ -54,7 +54,7 @@ use crate::{
         StorageLayerConfigBuilder,
     },
     storage::{
-        DefaultDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
+        StandardDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
         StorageUploaderConfig,
     },
     util::NotProvided,
@@ -306,23 +306,23 @@ impl<U, D> ClientProviderBuilder for ClientBuilder<U, D, NotProvided> {
 }
 
 impl<U, S> ClientBuilder<U, NotProvided, S> {
-    /// Build the client with the [DefaultDownloader].
+    /// Build the client with the [StandardDownloader].
     pub async fn build(
         self,
     ) -> Result<
         Client<
             DynProvider,
             U,
-            DefaultDownloader,
-            StandardRequestBuilder<DynProvider, U, DefaultDownloader>,
+            StandardDownloader,
+            StandardRequestBuilder<DynProvider, U, StandardDownloader>,
             S,
         >,
     >
     where
         U: Clone,
-        ClientBuilder<U, DefaultDownloader, S>: ClientProviderBuilder<Error = anyhow::Error>,
+        ClientBuilder<U, StandardDownloader, S>: ClientProviderBuilder<Error = anyhow::Error>,
     {
-        self.with_downloader(DefaultDownloader::new().await).build().await
+        self.with_downloader(StandardDownloader::new().await).build().await
     }
 }
 
@@ -729,7 +729,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
 pub struct Client<
     P = DynProvider,
     U = StandardUploader,
-    D = DefaultDownloader,
+    D = StandardDownloader,
     R = StandardRequestBuilder,
     Si = PrivateKeySigner,
 > {
@@ -771,8 +771,8 @@ pub struct Client<
 pub type StandardClient = Client<
     DynProvider,
     StandardUploader,
-    DefaultDownloader,
-    StandardRequestBuilder<DynProvider, StandardUploader, DefaultDownloader>,
+    StandardDownloader,
+    StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
     PrivateKeySigner,
 >;
 

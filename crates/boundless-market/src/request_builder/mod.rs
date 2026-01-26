@@ -32,7 +32,7 @@ use crate::{
     input::GuestEnv,
     request_builder::offer_layer::DEFAULT_TIMEOUT,
     selector::SelectorExt,
-    storage::DefaultDownloader,
+    storage::StandardDownloader,
     util::{now_timestamp, NotProvided},
     StandardUploader,
 };
@@ -170,7 +170,7 @@ where
 /// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = DefaultDownloader> {
+pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = StandardDownloader> {
     /// Handles uploading and preparing program and input data.
     #[builder(setter(into), default)]
     pub storage_layer: StorageLayer<U>,
@@ -1127,7 +1127,7 @@ mod tests {
         },
         input::GuestEnv,
         request_builder::offer_layer::DEFAULT_TIMEOUT,
-        storage::{DefaultDownloader, MockStorageUploader, StorageDownloader, StorageUploader},
+        storage::{MockStorageUploader, StandardDownloader, StorageDownloader, StorageUploader},
         util::NotProvided,
         StandardUploader,
     };
@@ -1140,7 +1140,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1195,7 +1195,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1227,7 +1227,7 @@ mod tests {
     async fn without_storage_uploader() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1259,7 +1259,7 @@ mod tests {
     #[traced_test]
     async fn test_storage_layer() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
@@ -1294,7 +1294,7 @@ mod tests {
     #[traced_test]
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
@@ -1331,7 +1331,7 @@ mod tests {
     #[traced_test]
     async fn test_preflight_layer() -> anyhow::Result<()> {
         let uploader = MockStorageUploader::new();
-        let downloader = DefaultDownloader::new().await;
+        let downloader = StandardDownloader::new().await;
         let program_url = uploader.upload_program(ECHO_ELF).await?;
         let layer = PreflightLayer::new(Some(downloader));
         let data = b"hello_zkvm".to_vec();
@@ -1605,5 +1605,5 @@ mod tests {
     trait AssertSend: Send {}
 
     // The StandardRequestBuilder must be Send such that a Client can be sent between threads.
-    impl AssertSend for StandardRequestBuilder<DynProvider, StandardUploader, DefaultDownloader> {}
+    impl AssertSend for StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader> {}
 }
