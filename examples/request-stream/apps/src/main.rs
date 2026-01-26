@@ -45,7 +45,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{RequestId, RequestInput},
-    storage::{StorageUploader, StorageUploaderConfig},
+    storage::StorageUploaderConfig,
     Client, Deployment,
 };
 use clap::Parser;
@@ -336,11 +336,7 @@ async fn run(args: Args) -> Result<()> {
     // - Upload the program once and reuse the URL
     // - Use content-addressed storage (hash-based URLs) for caching
     // - Verify the program hash matches what you expect
-    let program_url = if let Some(storage_uploader) = &client.storage_uploader {
-        storage_uploader.upload_program(ECHO_ELF).await.context("failed to upload program")?
-    } else {
-        anyhow::bail!("Storage uploader is required to upload the program");
-    };
+    let program_url = client.upload_program(ECHO_ELF).await.context("failed to upload program")?;
 
     // ============================================================================
     // Step 3: Create the Event Stream
