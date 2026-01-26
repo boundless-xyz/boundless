@@ -226,7 +226,7 @@ impl S3StorageUploader {
             .get_object()
             .bucket(&self.bucket)
             .key(key)
-            .presigned(PresigningConfig::expires_in(Duration::from_secs(3600))?)
+            .presigned(PresigningConfig::expires_in(Duration::from_secs(604800))?)
             .await
             .map_err(StorageError::s3)?;
 
