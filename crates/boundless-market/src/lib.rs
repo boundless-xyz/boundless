@@ -16,6 +16,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
 
+/// Peak performance thresholds for enabling requestor lists (kHz) for large requests.
+pub const LARGE_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 4000.0;
+/// Peak performance thresholds for enabling requestor lists (kHz) for XL requests.
+pub const XL_REQUESTOR_LIST_THRESHOLD_KHZ: f64 = 10000.0;
+
 /// Re-export of [alloy], provided to ensure that the correct version of the types used in the
 /// public API are available in case multiple versions of [alloy] are in use.
 ///
@@ -35,6 +40,13 @@ pub mod balance_alerts_layer;
 pub mod client;
 #[cfg(not(target_os = "zkvm"))]
 pub use client::{Client, StandardClient};
+
+/// Client module for interacting with the Boundless Indexer API.
+#[cfg(not(target_os = "zkvm"))]
+pub mod indexer_client;
+/// Test helpers for testing the Boundless Market.
+#[cfg(not(target_os = "zkvm"))]
+pub mod test_helpers;
 
 /// Contracts module for interacting with the Boundless Market smart contracts.
 pub mod contracts;
@@ -70,10 +82,16 @@ pub use order_stream_client::OrderStreamClient;
 /// Module providing functionality to build requests.
 #[cfg(not(target_os = "zkvm"))]
 pub mod request_builder;
+#[cfg(not(target_os = "zkvm"))]
+pub use request_builder::ParameterizationMode;
 
 /// Module providing blake3-groth16 related integrations.
 #[cfg(all(feature = "blake3-groth16", not(target_os = "zkvm")))]
 pub mod blake3_groth16;
+
+/// Module providing market pricing functionality.
+#[cfg(not(target_os = "zkvm"))]
+pub mod price_provider;
 
 /// Selector module implementing utility functions for supported selectors.
 #[cfg(not(target_os = "zkvm"))]

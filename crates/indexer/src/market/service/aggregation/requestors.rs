@@ -518,6 +518,7 @@ where
                                     total_locked_and_fulfilled: 0,
                                     total_secondary_fulfillments: 0,
                                     locked_orders_fulfillment_rate: 0.0,
+                                    locked_orders_fulfillment_rate_adjusted: 0.0,
                                     total_program_cycles: alloy::primitives::U256::ZERO,
                                     total_cycles: alloy::primitives::U256::ZERO,
                                     best_peak_prove_mhz: 0.0,
@@ -582,6 +583,20 @@ where
                                 0.0
                             };
 
+                            // Query adjusted counts and recalculate adjusted fulfillment rate
+                            let adjusted_fulfilled = service.db
+                                .get_all_time_requestor_locked_and_fulfilled_count_adjusted(hour_ts + 1, requestor)
+                                .await?;
+                            let adjusted_expired = service.db
+                                .get_all_time_requestor_locked_and_expired_count_adjusted(hour_ts + 1, requestor)
+                                .await?;
+                            let total_locked_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
+                            cumulative_summary.locked_orders_fulfillment_rate_adjusted = if total_locked_outcomes_adjusted > 0 {
+                                (adjusted_fulfilled as f32 / total_locked_outcomes_adjusted as f32) * 100.0
+                            } else {
+                                0.0
+                            };
+
                             // ALWAYS save the all-time requestor aggregate, even if there was no activity
                             service.db.upsert_all_time_requestor_summary(cumulative_summary.clone()).await?;
                         }
@@ -618,6 +633,8 @@ where
             total_locked_and_expired,
             total_locked_and_fulfilled,
             total_secondary_fulfillments,
+            total_locked_and_fulfilled_adjusted,
+            total_locked_and_expired_adjusted,
             locks,
             all_lock_collaterals,
             locked_and_expired_collaterals,
@@ -670,6 +687,16 @@ where
                 period_end,
                 requestor_address
             ),
+            self.db.get_period_requestor_locked_and_fulfilled_count_adjusted(
+                period_start,
+                period_end,
+                requestor_address
+            ),
+            self.db.get_period_requestor_locked_and_expired_count_adjusted(
+                period_start,
+                period_end,
+                requestor_address
+            ),
             self.db.get_period_requestor_lock_pricing_data(
                 period_start,
                 period_end,
@@ -705,6 +732,8 @@ where
         let total_locked_and_expired = total_locked_and_expired?;
         let total_locked_and_fulfilled = total_locked_and_fulfilled?;
         let total_secondary_fulfillments = total_secondary_fulfillments?;
+        let total_locked_and_fulfilled_adjusted = total_locked_and_fulfilled_adjusted?;
+        let total_locked_and_expired_adjusted = total_locked_and_expired_adjusted?;
         let locks = locks?;
         let all_lock_collaterals = all_lock_collaterals?;
         let locked_and_expired_collaterals = locked_and_expired_collaterals?;
@@ -715,6 +744,17 @@ where
             let total_locked_outcomes = total_locked_and_fulfilled + total_locked_and_expired;
             if total_locked_outcomes > 0 {
                 (total_locked_and_fulfilled as f32 / total_locked_outcomes as f32) * 100.0
+            } else {
+                0.0
+            }
+        };
+
+        let locked_orders_fulfillment_rate_adjusted = {
+            let total_locked_outcomes_adjusted =
+                total_locked_and_fulfilled_adjusted + total_locked_and_expired_adjusted;
+            if total_locked_outcomes_adjusted > 0 {
+                (total_locked_and_fulfilled_adjusted as f32 / total_locked_outcomes_adjusted as f32)
+                    * 100.0
             } else {
                 0.0
             }
@@ -824,6 +864,7 @@ where
             total_locked_and_fulfilled,
             total_secondary_fulfillments,
             locked_orders_fulfillment_rate,
+            locked_orders_fulfillment_rate_adjusted,
             total_program_cycles,
             total_cycles,
             best_peak_prove_mhz,

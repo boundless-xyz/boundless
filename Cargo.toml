@@ -74,6 +74,7 @@ guest-assessor = { path = "crates/guest/assessor" }
 guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", tag = "aggregation-v0.8.1" }
 guest-util = { path = "crates/guest/util" }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
+httpmock = "0.7"
 order-stream = { path = "crates/order-stream" }
 postcard = { version = "1.0" }
 rand = { version = "0.9" }

@@ -54,6 +54,11 @@ fn parse_period_requestor_summary_row(row: &PgRow) -> Result<PeriodRequestorSumm
     let total_locked_and_fulfilled: i64 = row.try_get("total_locked_and_fulfilled")?;
     let total_secondary_fulfillments: i64 = row.try_get("total_secondary_fulfillments")?;
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
+    let locked_orders_fulfillment_rate_adjusted: f64 = row
+        .try_get::<Option<f64>, _>("locked_orders_fulfillment_rate_adjusted")
+        .ok()
+        .flatten()
+        .unwrap_or(0.0);
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
     let best_peak_prove_mhz: f64 =
@@ -95,6 +100,7 @@ fn parse_period_requestor_summary_row(row: &PgRow) -> Result<PeriodRequestorSumm
         total_locked_and_fulfilled: total_locked_and_fulfilled as u64,
         total_secondary_fulfillments: total_secondary_fulfillments as u64,
         locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
+        locked_orders_fulfillment_rate_adjusted: locked_orders_fulfillment_rate_adjusted as f32,
         total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
         total_cycles: padded_string_to_u256(&total_cycles_str)?,
         best_peak_prove_mhz,
@@ -131,6 +137,11 @@ fn parse_all_time_requestor_summary_row(row: &PgRow) -> Result<AllTimeRequestorS
     let total_locked_and_fulfilled: i64 = row.try_get("total_locked_and_fulfilled")?;
     let total_secondary_fulfillments: i64 = row.try_get("total_secondary_fulfillments")?;
     let locked_orders_fulfillment_rate: f64 = row.try_get("locked_orders_fulfillment_rate")?;
+    let locked_orders_fulfillment_rate_adjusted: f64 = row
+        .try_get::<Option<f64>, _>("locked_orders_fulfillment_rate_adjusted")
+        .ok()
+        .flatten()
+        .unwrap_or(0.0);
     let total_program_cycles_str: String = row.try_get("total_program_cycles")?;
     let total_cycles_str: String = row.try_get("total_cycles")?;
     let best_peak_prove_mhz: f64 =
@@ -165,6 +176,7 @@ fn parse_all_time_requestor_summary_row(row: &PgRow) -> Result<AllTimeRequestorS
         total_locked_and_fulfilled: total_locked_and_fulfilled as u64,
         total_secondary_fulfillments: total_secondary_fulfillments as u64,
         locked_orders_fulfillment_rate: locked_orders_fulfillment_rate as f32,
+        locked_orders_fulfillment_rate_adjusted: locked_orders_fulfillment_rate_adjusted as f32,
         total_program_cycles: padded_string_to_u256(&total_program_cycles_str)?,
         total_cycles: padded_string_to_u256(&total_cycles_str)?,
         best_peak_prove_mhz,
@@ -300,6 +312,7 @@ pub trait RequestorDb: IndexerDb {
                 total_locked_and_fulfilled,
                 total_secondary_fulfillments,
                 locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles,
                 total_cycles,
                 best_peak_prove_mhz_prover,
@@ -309,7 +322,7 @@ pub trait RequestorDb: IndexerDb {
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CAST($24 AS DOUBLE PRECISION), CAST($25 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CAST($25 AS DOUBLE PRECISION), CAST($26 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -326,6 +339,7 @@ pub trait RequestorDb: IndexerDb {
                 total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
                 total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
                 locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted = EXCLUDED.locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
@@ -354,6 +368,7 @@ pub trait RequestorDb: IndexerDb {
             .bind(summary.total_locked_and_fulfilled as i64)
             .bind(summary.total_secondary_fulfillments as i64)
             .bind(summary.locked_orders_fulfillment_rate)
+            .bind(summary.locked_orders_fulfillment_rate_adjusted)
             .bind(u256_to_padded_string(summary.total_program_cycles))
             .bind(u256_to_padded_string(summary.total_cycles))
             .bind(summary.best_peak_prove_mhz_prover)
@@ -1024,6 +1039,57 @@ pub trait RequestorDb: IndexerDb {
         Ok(count as u64)
     }
 
+    async fn get_period_requestor_locked_and_fulfilled_count_adjusted(
+        &self,
+        period_start: u64,
+        period_end: u64,
+        requestor_address: Address,
+    ) -> Result<u64, DbError> {
+        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
+            FROM request_status rs
+            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
+            WHERE rs.fulfilled_at >= $1 
+            AND rs.fulfilled_at < $2
+            AND rs.locked_at IS NOT NULL
+            AND rs.client_address = $3";
+
+        let row = sqlx::query(query_str)
+            .bind(period_start as i64)
+            .bind(period_end as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_one(self.pool())
+            .await?;
+
+        let count: i64 = row.try_get("count")?;
+        Ok(count as u64)
+    }
+
+    async fn get_period_requestor_locked_and_expired_count_adjusted(
+        &self,
+        period_start: u64,
+        period_end: u64,
+        requestor_address: Address,
+    ) -> Result<u64, DbError> {
+        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
+            FROM request_status rs
+            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
+            WHERE rs.expires_at >= $1 
+            AND rs.expires_at < $2
+            AND rs.request_status = 'expired'
+            AND rs.locked_at IS NOT NULL
+            AND rs.client_address = $3";
+
+        let row = sqlx::query(query_str)
+            .bind(period_start as i64)
+            .bind(period_end as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_one(self.pool())
+            .await?;
+
+        let count: i64 = row.try_get("count")?;
+        Ok(count as u64)
+    }
+
     async fn get_period_requestor_total_program_cycles(
         &self,
         period_start: u64,
@@ -1095,6 +1161,51 @@ pub trait RequestorDb: IndexerDb {
             FROM request_locked_events rle
             JOIN request_status rs ON rle.request_digest = rs.request_digest
             WHERE rle.block_timestamp < $1
+            AND rs.client_address = $2";
+
+        let row = sqlx::query(query_str)
+            .bind(end_ts as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_one(self.pool())
+            .await?;
+
+        let count: i64 = row.try_get("count")?;
+        Ok(count as u64)
+    }
+
+    async fn get_all_time_requestor_locked_and_fulfilled_count_adjusted(
+        &self,
+        end_ts: u64,
+        requestor_address: Address,
+    ) -> Result<u64, DbError> {
+        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
+            FROM request_status rs
+            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
+            WHERE rs.fulfilled_at < $1
+            AND rs.locked_at IS NOT NULL
+            AND rs.client_address = $2";
+
+        let row = sqlx::query(query_str)
+            .bind(end_ts as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_one(self.pool())
+            .await?;
+
+        let count: i64 = row.try_get("count")?;
+        Ok(count as u64)
+    }
+
+    async fn get_all_time_requestor_locked_and_expired_count_adjusted(
+        &self,
+        end_ts: u64,
+        requestor_address: Address,
+    ) -> Result<u64, DbError> {
+        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
+            FROM request_status rs
+            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
+            WHERE rs.expires_at < $1
+            AND rs.request_status = 'expired'
+            AND rs.locked_at IS NOT NULL
             AND rs.client_address = $2";
 
         let row = sqlx::query(query_str)
@@ -1186,6 +1297,7 @@ async fn upsert_requestor_summary_generic(
             total_locked_and_fulfilled,
             total_secondary_fulfillments,
             locked_orders_fulfillment_rate,
+            locked_orders_fulfillment_rate_adjusted,
             total_program_cycles,
             total_cycles,
             best_peak_prove_mhz_prover,
@@ -1195,7 +1307,7 @@ async fn upsert_requestor_summary_generic(
             best_peak_prove_mhz_v2,
             best_effective_prove_mhz_v2,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, CAST($31 AS DOUBLE PRECISION), CAST($32 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, CAST($32 AS DOUBLE PRECISION), CAST($33 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
         ON CONFLICT (period_timestamp, requestor_address) DO UPDATE SET
             total_fulfilled = EXCLUDED.total_fulfilled,
             unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
@@ -1219,6 +1331,7 @@ async fn upsert_requestor_summary_generic(
             total_locked_and_fulfilled = EXCLUDED.total_locked_and_fulfilled,
             total_secondary_fulfillments = EXCLUDED.total_secondary_fulfillments,
             locked_orders_fulfillment_rate = EXCLUDED.locked_orders_fulfillment_rate,
+            locked_orders_fulfillment_rate_adjusted = EXCLUDED.locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles = EXCLUDED.total_program_cycles,
                 total_cycles = EXCLUDED.total_cycles,
                 best_peak_prove_mhz_prover = EXCLUDED.best_peak_prove_mhz_prover,
@@ -1256,6 +1369,7 @@ async fn upsert_requestor_summary_generic(
         .bind(summary.total_locked_and_fulfilled as i64)
         .bind(summary.total_secondary_fulfillments as i64)
         .bind(summary.locked_orders_fulfillment_rate)
+        .bind(summary.locked_orders_fulfillment_rate_adjusted)
         .bind(u256_to_padded_string(summary.total_program_cycles))
         .bind(u256_to_padded_string(summary.total_cycles))
         .bind(summary.best_peak_prove_mhz_prover)
@@ -1631,6 +1745,47 @@ async fn get_requestor_leaderboard_impl(
             0.0
         };
 
+        let adjusted_fulfilled_query =
+            "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+            FROM request_status rs
+            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
+            WHERE rs.fulfilled_at >= $1
+            AND rs.fulfilled_at < $2
+            AND rs.locked_at IS NOT NULL
+            AND rs.client_address = $3";
+        let adjusted_fulfilled_row = sqlx::query(adjusted_fulfilled_query)
+            .bind(start_ts as i64)
+            .bind(end_ts as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_optional(pool)
+            .await?;
+        let adjusted_fulfilled: i64 =
+            adjusted_fulfilled_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+
+        let adjusted_expired_query = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count
+            FROM request_status rs
+            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
+            WHERE rs.expires_at >= $1
+            AND rs.expires_at < $2
+            AND rs.request_status = 'expired'
+            AND rs.locked_at IS NOT NULL
+            AND rs.client_address = $3";
+        let adjusted_expired_row = sqlx::query(adjusted_expired_query)
+            .bind(start_ts as i64)
+            .bind(end_ts as i64)
+            .bind(format!("{:x}", requestor_address))
+            .fetch_optional(pool)
+            .await?;
+        let adjusted_expired: i64 =
+            adjusted_expired_row.and_then(|row| row.try_get("count").ok()).unwrap_or(0);
+
+        let total_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
+        let locked_orders_fulfillment_rate_adjusted = if total_outcomes_adjusted > 0 {
+            (adjusted_fulfilled as f32 / total_outcomes_adjusted as f32) * 100.0
+        } else {
+            0.0
+        };
+
         results.push(RequestorLeaderboardEntry {
             requestor_address,
             orders_requested: orders_requested as u64,
@@ -1639,6 +1794,7 @@ async fn get_requestor_leaderboard_impl(
             median_lock_price_per_cycle: None,
             acceptance_rate,
             locked_order_fulfillment_rate,
+            locked_orders_fulfillment_rate_adjusted,
             last_activity_time: 0,
         });
     }
@@ -1743,6 +1899,7 @@ async fn get_requestor_last_activity_times_impl(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::{
@@ -1877,6 +2034,11 @@ mod tests {
                 total_cycles: if i < 3 { Some(U256::from(50_790_000 * (i + 1))) } else { None },
                 peak_prove_mhz: if i < 3 { Some((1000 + (i * 100)) as f64) } else { None },
                 effective_prove_mhz: if i < 3 { Some((900 + (i * 100)) as f64) } else { None },
+                prover_effective_prove_mhz: if i < 3 {
+                    Some((1100 + (i * 100)) as f64)
+                } else {
+                    None
+                },
                 cycle_status: if i < 3 { Some("resolved".to_string()) } else { None },
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("30".to_string()),
@@ -1975,6 +2137,7 @@ mod tests {
             total_locked_and_fulfilled: 5,
             total_secondary_fulfillments: 2,
             locked_orders_fulfillment_rate: 0.625,
+            locked_orders_fulfillment_rate_adjusted: 0.625,
             total_program_cycles: U256::from(50_000_000_000u64),
             total_cycles: U256::from(50_790_000_000u64),
             best_peak_prove_mhz: 1500.0,
@@ -2035,6 +2198,7 @@ mod tests {
             total_locked_and_fulfilled: 100,
             total_secondary_fulfillments: 20,
             locked_orders_fulfillment_rate: 0.909,
+            locked_orders_fulfillment_rate_adjusted: 0.909,
             total_program_cycles: U256::from(500_000_000_000u64),
             total_cycles: U256::from(507_900_000_000u64),
             best_peak_prove_mhz: 2000.0,
@@ -2121,6 +2285,7 @@ mod tests {
                 total_locked_and_fulfilled: 10 * (i + 1),
                 total_secondary_fulfillments: 2 * (i + 1),
                 locked_orders_fulfillment_rate: 0.8,
+                locked_orders_fulfillment_rate_adjusted: 0.8,
                 total_program_cycles: U256::from(100_000_000 * (i + 1)),
                 total_cycles: U256::from(101_580_000 * (i + 1)),
                 best_peak_prove_mhz: 1000.0,
@@ -2177,6 +2342,7 @@ mod tests {
             total_locked_and_fulfilled: 50,
             total_secondary_fulfillments: 10,
             locked_orders_fulfillment_rate: 0.833,
+            locked_orders_fulfillment_rate_adjusted: 0.833,
             total_program_cycles: U256::from(1_000_000_000),
             total_cycles: U256::from(1_015_800_000),
             best_peak_prove_mhz: 1200.0,
@@ -2231,6 +2397,7 @@ mod tests {
             total_locked_and_fulfilled: 200,
             total_secondary_fulfillments: 40,
             locked_orders_fulfillment_rate: 0.909,
+            locked_orders_fulfillment_rate_adjusted: 0.909,
             total_program_cycles: U256::from(5_000_000_000u64),
             total_cycles: U256::from(5_079_000_000u64),
             best_peak_prove_mhz: 1500.0,
@@ -2278,6 +2445,7 @@ mod tests {
             total_locked_and_fulfilled: 100,
             total_secondary_fulfillments: 20,
             locked_orders_fulfillment_rate: 0.909,
+            locked_orders_fulfillment_rate_adjusted: 0.909,
             total_program_cycles: U256::from(1_000_000_000),
             total_cycles: U256::from(1_015_800_000),
             best_peak_prove_mhz: 1000.0,
@@ -2496,6 +2664,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -2593,6 +2762,7 @@ mod tests {
             total_cycles: Some(U256::from(50_790_000)),
             peak_prove_mhz: Some(1000.0),
             effective_prove_mhz: Some(900.0),
+            prover_effective_prove_mhz: Some(900.0),
             cycle_status: Some("resolved".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -2696,6 +2866,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -2800,6 +2971,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: None,
             lock_price_per_cycle: None,
@@ -2893,6 +3065,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -2970,6 +3143,7 @@ mod tests {
             total_cycles: Some(U256::from(50_790_000)),
             peak_prove_mhz: Some(1000.0),
             effective_prove_mhz: Some(900.0),
+            prover_effective_prove_mhz: Some(900.0),
             cycle_status: Some("resolved".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("30".to_string()),
@@ -3134,6 +3308,7 @@ mod tests {
                 total_cycles: None,
                 peak_prove_mhz: None,
                 effective_prove_mhz: None,
+                prover_effective_prove_mhz: None,
                 cycle_status: None,
                 lock_price: None,
                 lock_price_per_cycle: None,
@@ -3187,6 +3362,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: None,
             lock_price_per_cycle: None,
@@ -3313,6 +3489,7 @@ mod tests {
                 total_cycles: Some(U256::from(50_790_000)),
                 peak_prove_mhz: Some(1000.0),
                 effective_prove_mhz: Some(900.0),
+                prover_effective_prove_mhz: Some(900.0),
                 cycle_status: Some("resolved".to_string()),
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("30".to_string()),
@@ -3427,6 +3604,285 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_fulfilled_count_adjusted(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x5D; 20]);
+        let base_ts = 1700000000u64;
+
+        let submit_metadata =
+            TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 100, base_ts + 100, 0);
+        let lock_metadata =
+            TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 101, base_ts + 150, 0);
+        let fulfill_metadata =
+            TxMetadata::new(B256::from([0x03; 32]), Address::ZERO, 102, base_ts + 200, 0);
+
+        let shared_input_data = "0x41414141";
+        let shared_image_url = "https://shared_image_url.dev";
+
+        for i in 0..5 {
+            let collateral = U256::from(100 * (i + 1));
+            let mut request = generate_request_with_collateral(i, &requestor, collateral);
+            let mut digest_bytes = [i as u8; 32];
+            digest_bytes[0] = requestor.0[0];
+            let digest = B256::from(digest_bytes);
+
+            if i < 3 {
+                request = ProofRequest::new(
+                    RequestId::new(requestor, i),
+                    Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
+                    shared_image_url.to_string(),
+                    RequestInput::builder()
+                        .write_slice(&[0x41, 0x41, 0x41, 0x41])
+                        .build_inline()
+                        .unwrap(),
+                    request.offer,
+                );
+            }
+
+            db.add_proof_requests(&[(
+                digest,
+                request,
+                submit_metadata,
+                "onchain".to_string(),
+                submit_metadata.block_timestamp,
+            )])
+            .await
+            .unwrap();
+
+            let status = RequestStatus {
+                request_digest: digest,
+                request_id: U256::from(i),
+                request_status: if i < 3 {
+                    RequestStatusType::Fulfilled
+                } else {
+                    RequestStatusType::Submitted
+                },
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: requestor,
+                lock_prover_address: Some(Address::from([0xAA; 20])),
+                fulfill_prover_address: if i < 3 { Some(Address::from([0xAA; 20])) } else { None },
+                created_at: base_ts + 100,
+                updated_at: base_ts + 200,
+                locked_at: Some(base_ts + 150),
+                fulfilled_at: if i < 3 { Some(base_ts + 200) } else { None },
+                slashed_at: None,
+                lock_prover_delivered_proof_at: if i < 3 { Some(base_ts + 180) } else { None },
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: if i < 3 { Some(102) } else { None },
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: format!("{}", 100 * (i + 1)),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 10000,
+                lock_end: base_ts + 500,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: if i < 3 { Some(U256::from(50_000_000)) } else { None },
+                total_cycles: if i < 3 { Some(U256::from(50_790_000)) } else { None },
+                peak_prove_mhz: if i < 3 { Some(1000.0) } else { None },
+                effective_prove_mhz: if i < 3 { Some(900.0) } else { None },
+                prover_effective_prove_mhz: if i < 3 { Some(900.0) } else { None },
+                cycle_status: if i < 3 { Some("resolved".to_string()) } else { None },
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("30".to_string()),
+                submit_tx_hash: Some(B256::from([0x01; 32])),
+                lock_tx_hash: Some(B256::from([0x02; 32])),
+                fulfill_tx_hash: if i < 3 { Some(B256::from([0x03; 32])) } else { None },
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: if i < 3 { Some(shared_image_url.to_string()) } else { None },
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: if i < 3 { shared_input_data.to_string() } else { "0x00".to_string() },
+                fulfill_journal: None,
+                fulfill_seal: None,
+            };
+            db.upsert_request_statuses(&[status]).await.unwrap();
+
+            db.add_request_submitted_events(&[(digest, U256::from(i), submit_metadata)])
+                .await
+                .unwrap();
+            db.add_request_locked_events(&[(
+                digest,
+                U256::from(i),
+                Address::from([0xAA; 20]),
+                lock_metadata,
+            )])
+            .await
+            .unwrap();
+
+            if i < 3 {
+                db.add_request_fulfilled_events(&[(
+                    digest,
+                    U256::from(i),
+                    Address::from([0xAA; 20]),
+                    fulfill_metadata,
+                )])
+                .await
+                .unwrap();
+            }
+        }
+
+        let regular_count = db
+            .get_period_requestor_locked_and_fulfilled_count(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
+        assert_eq!(regular_count, 3);
+
+        let adjusted_count = db
+            .get_period_requestor_locked_and_fulfilled_count_adjusted(
+                base_ts,
+                base_ts + 1000,
+                requestor,
+            )
+            .await
+            .unwrap();
+        assert_eq!(adjusted_count, 1);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_period_requestor_locked_and_expired_count_adjusted(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let requestor = Address::from([0x5E; 20]);
+        let base_ts = 1700000000u64;
+
+        let submit_metadata =
+            TxMetadata::new(B256::from([0x01; 32]), Address::ZERO, 100, base_ts + 100, 0);
+        let lock_metadata =
+            TxMetadata::new(B256::from([0x02; 32]), Address::ZERO, 101, base_ts + 150, 0);
+
+        let shared_input_data = "0x42424242";
+        let shared_image_url = "https://shared_expired_image_url.dev";
+
+        for i in 0..3 {
+            let collateral = U256::from(100 * (i + 1));
+            let request = ProofRequest::new(
+                RequestId::new(requestor, i),
+                Requirements::new(Predicate::prefix_match(Digest::default(), Bytes::default())),
+                shared_image_url.to_string(),
+                RequestInput::builder()
+                    .write_slice(&[0x42, 0x42, 0x42, 0x42])
+                    .build_inline()
+                    .unwrap(),
+                Offer {
+                    minPrice: U256::from(20000000000000u64),
+                    maxPrice: U256::from(40000000000000u64),
+                    rampUpStart: 0,
+                    timeout: 420,
+                    lockTimeout: 420,
+                    rampUpPeriod: 1,
+                    lockCollateral: collateral,
+                },
+            );
+            let mut digest_bytes = [i as u8; 32];
+            digest_bytes[0] = requestor.0[0];
+            let digest = B256::from(digest_bytes);
+
+            db.add_proof_requests(&[(
+                digest,
+                request,
+                submit_metadata,
+                "onchain".to_string(),
+                submit_metadata.block_timestamp,
+            )])
+            .await
+            .unwrap();
+
+            let status = RequestStatus {
+                request_digest: digest,
+                request_id: U256::from(i),
+                request_status: RequestStatusType::Expired,
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: requestor,
+                lock_prover_address: Some(Address::from([0xAA; 20])),
+                fulfill_prover_address: None,
+                created_at: base_ts + 100,
+                updated_at: base_ts + 250,
+                locked_at: Some(base_ts + 150),
+                fulfilled_at: None,
+                slashed_at: None,
+                lock_prover_delivered_proof_at: None,
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: None,
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: format!("{}", 100 * (i + 1)),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 250,
+                lock_end: base_ts + 500,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: None,
+                total_cycles: None,
+                peak_prove_mhz: None,
+                effective_prove_mhz: None,
+                prover_effective_prove_mhz: None,
+                cycle_status: None,
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("30".to_string()),
+                submit_tx_hash: Some(B256::from([0x01; 32])),
+                lock_tx_hash: Some(B256::from([0x02; 32])),
+                fulfill_tx_hash: None,
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: Some(shared_image_url.to_string()),
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: shared_input_data.to_string(),
+                fulfill_journal: None,
+                fulfill_seal: None,
+            };
+            db.upsert_request_statuses(&[status]).await.unwrap();
+
+            db.add_request_submitted_events(&[(digest, U256::from(i), submit_metadata)])
+                .await
+                .unwrap();
+            db.add_request_locked_events(&[(
+                digest,
+                U256::from(i),
+                Address::from([0xAA; 20]),
+                lock_metadata,
+            )])
+            .await
+            .unwrap();
+        }
+
+        let regular_count = db
+            .get_period_requestor_locked_and_expired_count(base_ts, base_ts + 1000, requestor)
+            .await
+            .unwrap();
+        assert_eq!(regular_count, 3);
+
+        let adjusted_count = db
+            .get_period_requestor_locked_and_expired_count_adjusted(
+                base_ts,
+                base_ts + 1000,
+                requestor,
+            )
+            .await
+            .unwrap();
+        assert_eq!(adjusted_count, 1);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -3691,6 +4147,7 @@ mod tests {
                 },
                 peak_prove_mhz: if fulfilled_at.is_some() { Some(1000.0) } else { None },
                 effective_prove_mhz: if fulfilled_at.is_some() { Some(900.0) } else { None },
+                prover_effective_prove_mhz: if fulfilled_at.is_some() { Some(900.0) } else { None },
                 cycle_status: if fulfilled_at.is_some() {
                     Some("resolved".to_string())
                 } else {
@@ -3853,6 +4310,7 @@ mod tests {
                 total_locked_and_fulfilled: 5,
                 total_secondary_fulfillments: 2,
                 locked_orders_fulfillment_rate: 0.5,
+                locked_orders_fulfillment_rate_adjusted: 0.5,
                 total_program_cycles: U256::from(50_000_000),
                 total_cycles: U256::from(50_790_000),
                 best_peak_prove_mhz: 1000.0,
@@ -4000,6 +4458,7 @@ mod tests {
                 total_locked_and_fulfilled: 10,
                 total_secondary_fulfillments: 4,
                 locked_orders_fulfillment_rate: 0.8,
+                locked_orders_fulfillment_rate_adjusted: 0.8,
                 total_program_cycles: U256::from(100_000_000),
                 total_cycles: U256::from(101_580_000),
                 best_peak_prove_mhz: 1000.0,
@@ -4097,6 +4556,7 @@ mod tests {
                 total_locked_and_fulfilled: 50,
                 total_secondary_fulfillments: 10,
                 locked_orders_fulfillment_rate: 0.83,
+                locked_orders_fulfillment_rate_adjusted: 0.83,
                 total_program_cycles: U256::from(500_000_000),
                 total_cycles: U256::from(507_900_000),
                 best_peak_prove_mhz: 1200.0,
@@ -4177,6 +4637,7 @@ mod tests {
                 total_locked_and_fulfilled: 100,
                 total_secondary_fulfillments: 20 * (i + 1),
                 locked_orders_fulfillment_rate: 0.9,
+                locked_orders_fulfillment_rate_adjusted: 0.9,
                 total_program_cycles: U256::from(1_000_000_000u64 * (i + 1)),
                 total_cycles: U256::from(1_015_800_000u64 * (i + 1)),
                 best_peak_prove_mhz: 2000.0,
@@ -4318,6 +4779,7 @@ mod tests {
             total_locked_and_fulfilled: 5,
             total_secondary_fulfillments: 0,
             locked_orders_fulfillment_rate: 83.3,
+            locked_orders_fulfillment_rate_adjusted: 83.3,
             total_program_cycles: U256::from(1_000_000_000u64),
             total_cycles: U256::from(1_100_000_000u64),
             best_peak_prove_mhz: 1500.0,
@@ -4422,6 +4884,7 @@ mod tests {
             total_locked_and_fulfilled: 20,
             total_secondary_fulfillments: 0,
             locked_orders_fulfillment_rate: 95.0,
+            locked_orders_fulfillment_rate_adjusted: 95.0,
             total_program_cycles: U256::from(500_000_000u64),
             total_cycles: U256::from(550_000_000u64),
             best_peak_prove_mhz: 1500.0,
@@ -4506,6 +4969,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some(lock_price_per_cycle.to_string()),
@@ -4622,6 +5086,7 @@ mod tests {
             total_cycles: None,
             peak_prove_mhz: None,
             effective_prove_mhz: None,
+            prover_effective_prove_mhz: None,
             cycle_status: None,
             lock_price: None,
             lock_price_per_cycle: None,

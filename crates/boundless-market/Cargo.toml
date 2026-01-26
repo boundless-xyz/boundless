@@ -66,7 +66,7 @@ derive_builder = "0.20.2"
 futures = "0.3"
 futures-util = { workspace = true }
 hex = { workspace = true }
-httpmock = { version = "0.8", optional = true }
+httpmock = { workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart"] }
 reqwest-middleware = "0.4"
