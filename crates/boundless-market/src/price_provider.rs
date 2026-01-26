@@ -94,40 +94,11 @@ impl<D: PriceProvider + Clone + Send + 'static, F: PriceProvider + Clone + Send 
     StandardPriceProvider<D, F>
 {
     /// Create a new standard price provider.
-    ///
-    /// # Parameters
-    ///
-    /// * `default`: The default price provider to use for fetching prices.
-    /// * `fallback`: The fallback price provider to use as a fallback.
-    ///
-    /// # Returns
-    ///
-    /// A new [StandardPriceProvider].
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use boundless_market::price_provider::StandardPriceProvider;
-    /// use boundless_market::indexer_client::IndexerClient;
-    /// use url::Url;
-    ///
-    /// let indexer_client = IndexerClient::new(Url::parse("https://indexer.boundless.com").unwrap()).unwrap();
-    /// let price_provider = StandardPriceProvider::new(indexer_client);
-    /// ```
-    ///
     pub fn new(default: D) -> Self {
         Self { default, fallback: None }
     }
 
     /// Set the fallback price provider.
-    ///
-    /// # Parameters
-    ///
-    /// * `fallback`: The fallback price provider to use as a fallback.
-    ///
-    /// # Returns
-    ///
-    /// A new [StandardPriceProvider] with the fallback price provider set.
     ///
     /// # Example
     ///
