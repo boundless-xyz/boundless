@@ -62,7 +62,7 @@ test-order-stream:
     just test-db setup
     DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p order-stream
 
-# Run indexer lib tests and all integration tests (requires both RPC URLs)
+# Run all indexer tests (requires both RPC URLs)
 test-indexer:
     #!/usr/bin/env bash
     set -e
@@ -76,10 +76,9 @@ test-indexer:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer -- --ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --features test-r0vm,test-rpc
 
-# Run indexer lib tests and market integration tests (requires BASE_MAINNET_RPC_URL)
+# Run indexer market integration tests (requires BASE_MAINNET_RPC_URL)
 test-indexer-market:
     #!/usr/bin/env bash
     set -e
@@ -89,10 +88,9 @@ test-indexer-market:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test market -- --ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test market --features test-r0vm,test-rpc
 
-# Run indexer lib tests and rewards integration tests (requires ETH_MAINNET_RPC_URL)
+# Run indexer rewards integration tests (requires ETH_MAINNET_RPC_URL)
 test-indexer-rewards:
     #!/usr/bin/env bash
     set -e
@@ -102,8 +100,7 @@ test-indexer-rewards:
     fi
     just test-db clean || true
     just test-db setup
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --lib
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test rewards -- --ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p boundless-indexer --test rewards --features test-r0vm,test-rpc
 
 # Run indexer-api integration tests (requires both RPC URLs)
 test-indexer-api:
@@ -121,7 +118,7 @@ test-indexer-api:
     just test-db setup
     # Ensure indexer binaries are built with latest changes, API tests depend on them.
     RISC0_DEV_MODE=1 cargo build -p boundless-indexer --bin rewards-indexer --bin market-indexer
-    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p indexer-api -- --ignored
+    DATABASE_URL={{DATABASE_URL}} RISC0_DEV_MODE=1 cargo test -p indexer-api --features test-rpc
 
 # Manage test postgres instance (setup or clean, defaults to setup)
 test-db action="setup":

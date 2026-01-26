@@ -13,6 +13,8 @@ release = false
 [features]
 # Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
 test-r0vm = []
+# Enable this feature to run tests that require RPC URLs (ETH_MAINNET_RPC_URL, etc.)
+test-rpc = []
 
 [[bin]]
 name = "market-indexer"
