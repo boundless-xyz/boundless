@@ -15,6 +15,7 @@ export = () => {
   const chainId = isDev ? getEnvVar("CHAIN_ID") : baseConfig.require('CHAIN_ID');
   const pinataJWT = isDev ? pulumi.output(getEnvVar("PINATA_JWT")) : baseConfig.requireSecret('PINATA_JWT');
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : baseConfig.requireSecret('ETH_RPC_URL');
+  const indexerUrl = isDev ? pulumi.output(getEnvVar("INDEXER_URL")) : baseConfig.requireSecret('INDEXER_URL');
   const orderStreamUrl = isDev
     ? pulumi.output(getEnvVar("ORDER_STREAM_URL"))
     : (baseConfig.getSecret('ORDER_STREAM_URL') || pulumi.output(""));
@@ -161,6 +162,7 @@ export = () => {
       timeout: offchainTimeout,
       secondsPerMCycle: offchainSecondsPerMCycle,
       execRateKhz: offchainExecRateKhz,
+      indexerUrl,
     });
   }
 
@@ -215,6 +217,7 @@ export = () => {
       lockTimeout: onchainLockTimeout,
       timeout: onchainTimeout,
       execRateKhz: onchainExecRateKhz,
+      indexerUrl,
     });
   }
 
@@ -276,6 +279,7 @@ export = () => {
         count: randomRequestorCount,
         scheduleExpression: randomRequestorScheduleExpression,
       },
+      indexerUrl,
     });
   }
 };
