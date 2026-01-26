@@ -38,3 +38,16 @@ vector_buffer_when_full: "block"
 
 # Vector log level
 vector_log_level: "info"
+
+# Host metrics collection
+vector_collect_host_metrics: true  # Enable system metrics collection (CPU, memory, disk, network)
+vector_host_metrics_collectors:
+  - cpu
+  - memory
+  - disk
+  - filesystem
+vector_metrics_scrape_interval: 15  # Scrape interval in seconds
+
+# CloudWatch Metrics configuration
+# Metrics will be published to CloudWatch Metrics with this namespace
+vector_cloudwatch_metrics_namespace: "Boundless/SystemMetrics"

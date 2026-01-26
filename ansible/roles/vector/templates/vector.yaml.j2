@@ -6,6 +6,16 @@ sources:
       - {{ service }}
 {% endfor %}
 
+{% if vector_collect_host_metrics | bool %}
+  host_metrics:
+    type: host_metrics
+    collectors:
+{% for collector in vector_host_metrics_collectors %}
+      - {{ collector }}
+{% endfor %}
+    scrape_interval_secs: {{ vector_metrics_scrape_interval }}
+{% endif %}
+
 transforms:
   extract_message:
     type: remap
@@ -26,4 +36,16 @@ sinks:
       type: "{{ vector_buffer_type }}"
       max_size: {{ vector_buffer_max_size }}
       when_full: "{{ vector_buffer_when_full }}"
+
+{% if vector_collect_host_metrics | bool %}
+  cloudwatch_metrics:
+    type: aws_cloudwatch_metrics
+    inputs: ["host_metrics"]
+    default_namespace: "{{ vector_cloudwatch_metrics_namespace }}"
+    region: "{{ vector_cloudwatch_region }}"
+    buffer:
+      type: "{{ vector_buffer_type }}"
+      max_size: {{ vector_buffer_max_size }}
+      when_full: "{{ vector_buffer_when_full }}"
+{% endif %}
 
