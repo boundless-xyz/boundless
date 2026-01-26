@@ -18,6 +18,12 @@
 //! - **Uploading**: Store programs and inputs in GCS buckets (returns `gs://` URLs)
 //! - **Downloading**: Fetch data from `gs://` URLs
 //!
+//! # Environment Variables
+//!
+//! The following environment variables are used:
+//! - `GCS_BUCKET`: Required bucket name for uploads
+//! - `GCS_URL`: Optional custom endpoint URL (for emulators like fake-gcs-server)
+//!
 //! # Authentication
 //!
 //! Authentication is handled via Application Default Credentials (ADC):
@@ -26,24 +32,19 @@
 //! - Default credentials on Compute Engine, Cloud Run, Cloud Functions, etc.
 //! - `gcloud auth application-default login` for local development
 //!
-//! # Endpoint URL
+//! ## Downloading
 //!
-//! The endpoint URL is optional and only needed for testing with emulators
-//! like fake-gcs-server. In production, the default GCS endpoint is used.
-//!
-//! # Public Buckets
-//!
-//! For downloading from public buckets, anonymous credentials are used.
-//! This allows accessing publicly readable objects without authentication.
+//! Downloading supports both authenticated and anonymous access:
+//! - If ADC is available, it is used (for private buckets)
+//! - If ADC is not available, anonymous access is used (for public buckets)
 //!
 //! # Presigned URLs
 //!
-//! TODO: Presigned URL support is not yet available in the google-cloud-storage
-//! Rust SDK. This feature is being actively developed. For now, uploaded objects
-//! should be made publicly readable, or downloaders should have appropriate
-//! GCS permissions.
+//! Unlike S3, presigned URL support is not yet stable in the `google-cloud-storage` crate.
+//! For now, uploaded objects should be made publicly readable, or downloaders should have
+//! appropriate GCS permissions.
 
-use std::env::{self, VarError};
+use std::env;
 
 use crate::storage::{
     config::StorageUploaderConfig,
@@ -57,6 +58,9 @@ use google_cloud_auth::credentials::anonymous;
 use google_cloud_gax::retry_policy::{AlwaysRetry, NeverRetry, RetryPolicyExt};
 use google_cloud_storage::client::Storage;
 use url::Url;
+
+const ENV_VAR_GCS_BUCKET: &str = "GCS_BUCKET";
+const ENV_VAR_GCS_URL: &str = "GCS_URL";
 
 /// GCS storage uploader for uploading programs and inputs.
 ///
@@ -88,14 +92,14 @@ impl GcsStorageUploader {
     ///
     /// Optional environment variables:
     /// - `GCS_URL`: Custom endpoint URL (for emulators like fake-gcs-server)
-    /// - `GOOGLE_APPLICATION_CREDENTIALS`: Path to service account JSON key file
+    ///
+    /// Credentials are resolved via Application Default Credentials (ADC):
+    /// - `GOOGLE_APPLICATION_CREDENTIALS` environment variable
+    /// - Workload Identity, Compute Engine metadata, etc.
+    /// - `gcloud auth application-default login` for local development
     pub async fn from_env() -> Result<Self, StorageError> {
-        let bucket = env::var("GCS_BUCKET")?;
-        let endpoint_url = match env::var("GCS_URL") {
-            Ok(url) => Some(url),
-            Err(VarError::NotPresent) => None,
-            Err(e) => return Err(e.into()),
-        };
+        let bucket = env::var(ENV_VAR_GCS_BUCKET)?;
+        let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
 
         Self::new(bucket, endpoint_url).await
     }
@@ -179,7 +183,7 @@ pub struct GcsStorageDownloader {
 impl GcsStorageDownloader {
     /// Creates a new GCS downloader with optional retry configuration.
     pub async fn new(max_retries: Option<u8>) -> Self {
-        let endpoint_url = env::var("GCS_URL").ok();
+        let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
 
         // Try with Application Default Credentials first
         if let Ok(client) = Self::build_client(endpoint_url.clone(), max_retries, false).await {
