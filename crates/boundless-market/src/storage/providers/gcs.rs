@@ -26,11 +26,10 @@
 //!
 //! # Authentication
 //!
-//! Authentication is handled via the Google Cloud default credential chain (ADC):
+//! Credentials are resolved via the Google Cloud default credential chain (ADC):
 //! - `GOOGLE_APPLICATION_CREDENTIALS` environment variable pointing to a JSON key file
 //! - Well-known file locations (`~/.config/gcloud/application_default_credentials.json`)
-//! - Workload Identity on GKE
-//! - Metadata server on Compute Engine, Cloud Run, Cloud Functions, etc.
+//! - Workload Identity on GKE, metadata server on Compute Engine, etc.
 //!
 //! Explicit credentials can also be provided via [`StorageUploaderConfig::gcs_credentials_json`]
 //! for programmatic use cases (e.g., loading from a secrets manager without writing to disk).
@@ -68,7 +67,7 @@ const ENV_VAR_GCS_URL: &str = "GCS_URL";
 /// GCS storage uploader for uploading programs and inputs.
 ///
 /// This provider stores files in a GCS bucket and returns `gs://` URLs.
-/// See the [module documentation](self) for authentication details.
+/// Uses ADC for authentication; see module docs for details.
 #[derive(Clone, Debug)]
 pub struct GcsStorageUploader {
     bucket: String,
@@ -78,8 +77,16 @@ pub struct GcsStorageUploader {
 impl GcsStorageUploader {
     /// Creates a new GCS storage uploader from environment variables.
     ///
-    /// See the [module documentation](self) for required environment variables
-    /// and authentication details.
+    /// Required environment variables:
+    /// - `GCS_BUCKET`: Bucket name
+    ///
+    /// Optional environment variables:
+    /// - `GCS_URL`: Custom endpoint URL (for emulators like fake-gcs-server)
+    ///
+    /// Credentials are resolved via the Google Cloud default credential chain (ADC):
+    /// - `GOOGLE_APPLICATION_CREDENTIALS` environment variable pointing to a JSON key file
+    /// - Well-known file locations (`~/.config/gcloud/application_default_credentials.json`)
+    /// - Workload Identity on GKE, metadata server on Compute Engine, etc.
     pub async fn from_env() -> Result<Self, StorageError> {
         let bucket = env::var(ENV_VAR_GCS_BUCKET)?;
         let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
@@ -157,8 +164,9 @@ impl StorageUploader for GcsStorageUploader {
 
 /// GCS downloader for fetching data from `gs://` URLs.
 ///
-/// Uses ADC if available, otherwise falls back to anonymous access for public buckets.
-/// See the [module documentation](self) for authentication details.
+/// This downloader supports both authenticated and anonymous access:
+/// - If ADC is available (via environment, config, or workload identity), it is used.
+/// - If no credentials are available, anonymous access is used for public buckets.
 #[derive(Clone, Debug)]
 pub struct GcsStorageDownloader {
     client: Storage,

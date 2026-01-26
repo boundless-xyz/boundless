@@ -38,6 +38,13 @@
 //! Downloading supports both authenticated and anonymous access:
 //! - If credentials are available, they are used (for private buckets)
 //! - If no credentials are available, anonymous access is used (for public buckets)
+//!
+//! # Presigned URLs
+//!
+//! By default, uploads return presigned HTTPS URLs with the maximum expiration time of
+//! 7 days. Note that if using temporary credentials (STS, SSO), URLs may expire earlier
+//! when the underlying credentials expire. Set `S3_NO_PRESIGNED` to return `s3://` URLs
+//! instead.
 
 use std::{env, time::Duration};
 
@@ -59,6 +66,13 @@ const ENV_VAR_ROLE_ARN: &str = "AWS_ROLE_ARN";
 const ENV_VAR_S3_BUCKET: &str = "S3_BUCKET";
 const ENV_VAR_S3_URL: &str = "S3_URL";
 const ENV_VAR_S3_NO_PRESIGNED: &str = "S3_NO_PRESIGNED";
+
+/// Maximum expiration time for S3 presigned URLs (7 days).
+///
+/// This is the maximum value allowed by S3. Note that if using temporary credentials
+/// (e.g., STS, SSO), the URL will expire when the credentials expire, regardless of
+/// this setting.
+const PRESIGNED_URL_EXPIRY: Duration = Duration::from_secs(604800);
 
 /// Apply IAM role assumption if `AWS_ROLE_ARN` is set.
 ///
@@ -223,7 +237,7 @@ impl S3StorageUploader {
             .get_object()
             .bucket(&self.bucket)
             .key(key)
-            .presigned(PresigningConfig::expires_in(Duration::from_secs(604800))?)
+            .presigned(PresigningConfig::expires_in(PRESIGNED_URL_EXPIRY)?)
             .await
             .map_err(StorageError::s3)?;
 
