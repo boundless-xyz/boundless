@@ -25,6 +25,7 @@ use tokio::time;
 use workflow_common::{COPROC_WORK_TYPE, TaskType};
 mod redis;
 mod tasks;
+pub mod zkvm;
 
 pub use workflow_common::{
     AUX_WORK_TYPE, EXEC_WORK_TYPE, JOIN_WORK_TYPE, PROVE_WORK_TYPE, SNARK_RETRIES_DEFAULT,
@@ -43,6 +44,14 @@ pub struct Args {
     /// ex: `cpu`, `prove`, `join`, `snark`, etc
     #[arg(env, short, long)]
     pub task_stream: String,
+
+    /// Select which zkVM plugin this agent will accept tasks for.
+    ///
+    /// - `risc0` (default): existing segmented prove/join/resolve pipeline
+    /// - `sp1`: single-shot SP1 prove tasks (`TaskType::Sp1Prove`) (requires `workflow` built with `--features sp1`)
+    /// - `auto`: choose a plugin based on the task type
+    #[arg(env = "BENTO_ZKVM", long, default_value = "risc0")]
+    pub zkvm: String,
 
     /// Polling internal between tasks
     ///
@@ -232,10 +241,24 @@ impl Agent {
         .await
         .context("[BENTO-WF-101] Failed to initialize s3 client / bucket")?;
 
+        // Validate zkVM selection early (except auto)
+        if args.zkvm != "auto" {
+            zkvm::plugin_by_id(&args.zkvm).with_context(|| {
+                let available = zkvm::plugins()
+                    .into_iter()
+                    .map(|p| p.id())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Unknown zkVM plugin '{}'. Available: {}", args.zkvm, available)
+            })?;
+        }
+
         let verifier_ctx = VerifierContext::default();
-        let prover = if args.task_stream == PROVE_WORK_TYPE
+        let prover = if (args.zkvm == "risc0" || args.zkvm == "auto")
+            && (args.task_stream == PROVE_WORK_TYPE
             || args.task_stream == JOIN_WORK_TYPE
             || args.task_stream == COPROC_WORK_TYPE
+            || args.task_stream == workflow_common::SNARK_WORK_TYPE)
         {
             let opts = ProverOpts::default();
             let prover = get_prover_server(&opts)
@@ -421,85 +444,17 @@ impl Agent {
         let task_type: TaskType = serde_json::from_value(task.task_def.clone())
             .with_context(|| format!("Invalid task_def: {}:{}", task.job_id, task.task_id))?;
 
-        // run the task
-        let res = match task_type {
-            TaskType::Executor(req) => serde_json::to_value(
-                tasks::executor::executor(self, &task.job_id, &req)
-                    .await
-                    .context("[BENTO-WF-113] Executor failed")?,
-            )
-            .context("[BENTO-WF-114] Failed to serialize executor response")?,
-            TaskType::Prove(req) => serde_json::to_value(
-                tasks::prove::prover(self, &task.job_id, &task.task_id, &req)
-                    .await
-                    .context("[BENTO-WF-115] Prove failed")?,
-            )
-            .context("[BENTO-WF-116] Failed to serialize prove response")?,
-            TaskType::Join(req) => {
-                // Route to POVW or regular join based on agent POVW setting
-                if self.is_povw_enabled() {
-                    serde_json::to_value(
-                        tasks::join_povw::join_povw(self, &task.job_id, &req)
-                            .await
-                            .context("[BENTO-WF-117] POVW join failed")?,
-                    )
-                    .context("[BENTO-WF-118] Failed to serialize POVW join response")?
-                } else {
-                    serde_json::to_value(
-                        tasks::join::join(self, &task.job_id, &req)
-                            .await
-                            .context("[BENTO-WF-119] Join failed")?,
-                    )
-                    .context("[BENTO-WF-120] Failed to serialize join response")?
-                }
-            }
-            TaskType::Resolve(req) => {
-                // Route to POVW or regular resolve based on agent POVW setting
-                if self.is_povw_enabled() {
-                    serde_json::to_value(
-                        tasks::resolve_povw::resolve_povw(self, &task.job_id, &req)
-                            .await
-                            .context("[BENTO-WF-121] POVW resolve failed")?,
-                    )
-                    .context("[BENTO-WF-122] Failed to serialize POVW resolve response")?
-                } else {
-                    serde_json::to_value(
-                        tasks::resolve::resolver(self, &task.job_id, &req)
-                            .await
-                            .context("[BENTO-WF-123] Resolve failed")?,
-                    )
-                    .context("[BENTO-WF-124] Failed to serialize resolve response")?
-                }
-            }
-            TaskType::Finalize(req) => serde_json::to_value(
-                tasks::finalize::finalize(self, &task.job_id, &req)
-                    .await
-                    .context("[BENTO-WF-125] Finalize failed")?,
-            )
-            .context("[BENTO-WF-126] Failed to serialize finalize response")?,
-            TaskType::Snark(req) => serde_json::to_value(
-                tasks::snark::stark2snark(self, &task.job_id.to_string(), &req)
-                    .await
-                    .context("[BENTO-WF-127] Snark failed")?,
-            )
-            .context("[BENTO-WF-128] failed to serialize snark response")?,
-            TaskType::Keccak(req) => serde_json::to_value(
-                tasks::keccak::keccak(self, &task.job_id, &task.task_id, &req)
-                    .await
-                    .context("[BENTO-WF-129] Keccak failed")?,
-            )
-            .context("[BENTO-WF-130] failed to serialize keccak response")?,
-            TaskType::Union(req) => serde_json::to_value(
-                tasks::union::union(self, &task.job_id, &req)
-                    .await
-                    .context("[BENTO-WF-131] Union failed")?,
-            )
-            .context("[BENTO-WF-132] failed to serialize union response")?,
-        };
+        let plugin = zkvm::resolve_plugin(&self.args.zkvm, &task_type)
+            .context("[BENTO-WF-113] Failed to resolve zkVM plugin")?;
+        plugin.init(self).context("[BENTO-WF-114] Failed to init zkVM plugin")?;
+        let res = plugin
+            .handle(self, task, task_type)
+            .await
+            .context("[BENTO-WF-115] zkVM plugin task handler failed")?;
 
         taskdb::update_task_done(&self.db_pool, &task.job_id, &task.task_id, res)
             .await
-            .context("[BENTO-WF-133] Failed to report task done")?;
+            .context("[BENTO-WF-116] Failed to report task done")?;
 
         Ok(())
     }

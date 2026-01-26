@@ -8,6 +8,8 @@ members = [
     "crates/taskdb",
     "crates/workflow",
     "crates/workflow-common",
+    "crates/workflow-agent",
+    "crates/workflow-zkvm-sp1",
 ]
 
 [workspace.package]

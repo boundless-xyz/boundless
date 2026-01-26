@@ -1,5 +1,5 @@
 [package]
-name = "workflow-common"
+name = "workflow-zkvm-sp1"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }
@@ -12,12 +12,15 @@ release = false
 
 [dependencies]
 anyhow = { workspace = true }
-aws-sdk-s3 = { workspace = true }
+async-trait = "0.1"
 bincode = { workspace = true }
-lazy_static = "1.4"
-prometheus = "0.13"
-prometheus_exporter = { workspace = true }
-risc0-zkvm = { workspace = true }
-serde = { workspace = true }
+inventory = "0.3"
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sp1-sdk = "5.2.4"
+taskdb = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
+workflow = { workspace = true }
+workflow-common = { workspace = true }
+

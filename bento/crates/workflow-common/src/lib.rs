@@ -5,6 +5,7 @@
 
 use risc0_zkvm::sha::Digest;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 
 pub mod metrics;
 pub mod s3;
@@ -156,6 +157,49 @@ pub struct KeccakReq {
     pub control_root: Digest,
 }
 
+/// Generic plugin task envelope.
+///
+/// This allows zkVM plugins to define tasks without adding new variants to [`TaskType`].
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PluginTask {
+    /// Plugin identifier (e.g. `"sp1"`, `"nova"`, `"jolt"`).
+    pub plugin: String,
+    /// Plugin-defined task name (e.g. `"prove"`).
+    pub task: String,
+    /// Plugin-defined payload (JSON).
+    pub payload: JsonValue,
+}
+
+impl PluginTask {
+    /// Create a new plugin task from raw JSON payload.
+    #[must_use]
+    pub fn new(plugin: impl Into<String>, task: impl Into<String>, payload: JsonValue) -> Self {
+        Self { plugin: plugin.into(), task: task.into(), payload }
+    }
+
+    /// Create a new plugin task by serializing a payload value into JSON.
+    ///
+    /// This is convenient for API/client code so plugin request types can remain
+    /// self-contained in the plugin crate.
+    pub fn with_payload<T: Serialize>(
+        plugin: impl Into<String>,
+        task: impl Into<String>,
+        payload: &T,
+    ) -> anyhow::Result<Self> {
+        Ok(Self::new(
+            plugin,
+            task,
+            serde_json::to_value(payload).map_err(anyhow::Error::new)?,
+        ))
+    }
+
+    /// Wrap this plugin task into the workflow task enum.
+    #[must_use]
+    pub fn into_task_type(self) -> TaskType {
+        TaskType::Plugin(self)
+    }
+}
+
 /// High level enum of different sub task types and data
 #[derive(Debug, Deserialize, Serialize)]
 pub enum TaskType {
@@ -175,6 +219,8 @@ pub enum TaskType {
     Keccak(KeccakReq),
     /// Union task
     Union(UnionReq),
+    /// Plugin-defined task
+    Plugin(PluginTask),
 }
 
 impl TaskType {
@@ -190,6 +236,7 @@ impl TaskType {
             Self::Snark(_) => "snark".into(),
             Self::Keccak(_) => "keccak".into(),
             Self::Union(_) => "union".into(),
+            Self::Plugin(t) => format!("plugin:{}:{}", t.plugin, t.task),
         }
     }
 }

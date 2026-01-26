@@ -1,0 +1,27 @@
+[package]
+name = "workflow-agent"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[package.metadata.release]
+release = false
+
+[features]
+default = []
+sp1 = ["dep:workflow-zkvm-sp1"]
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+workflow = { workspace = true }
+workflow-common = { workspace = true }
+workflow-zkvm-sp1 = { path = "../workflow-zkvm-sp1", optional = true }
+
