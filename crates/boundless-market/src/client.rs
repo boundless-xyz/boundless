@@ -381,7 +381,20 @@ impl<St, Si> ClientBuilder<St, Si> {
             );
             Some(Arc::new(StandardPriceProvider::new(indexer_client).with_fallback(market_pricing)))
         } else {
-            None
+            let market_pricing = MarketPricing::new(
+                first_rpc_url,
+                MarketPricingConfigBuilder::default()
+                    .deployment(deployment.clone())
+                    .build()
+                    .with_context(|| {
+                        format!(
+                            "Failed to build MarketPricingConfig for deployment: {deployment:?}",
+                        )
+                    })?,
+            );
+            Some(Arc::new(StandardPriceProvider::<MarketPricing, MarketPricing>::new(
+                market_pricing,
+            )))
         };
 
         // Build the RequestBuilder.
