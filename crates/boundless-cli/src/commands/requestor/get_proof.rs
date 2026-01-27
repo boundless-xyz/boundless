@@ -26,6 +26,15 @@ pub struct RequestorGetProof {
     /// The proof request identifier
     pub request_id: U256,
 
+    /// Lower bound: search events backwards down to this block
+    #[clap(long)]
+    pub search_to_block: Option<u64>,
+
+    /// Upper bound: search events backwards from this block (defaults to latest).
+    /// Set this for old requests to reduce RPC calls and cost
+    #[clap(long)]
+    pub search_from_block: Option<u64>,
+
     /// Requestor configuration (RPC URL, private key, deployment)
     #[clap(flatten)]
     pub requestor_config: RequestorConfig,
@@ -46,7 +55,7 @@ impl RequestorGetProof {
 
         let fulfillment = client
             .boundless_market
-            .get_request_fulfillment(self.request_id)
+            .get_request_fulfillment(self.request_id, self.search_to_block, self.search_from_block)
             .await
             .context("Failed to retrieve proof")?;
 

@@ -545,14 +545,12 @@ where
                     .config
                     .lock_timeout
                     .unwrap_or(recommended_timeout.min(DEFAULT_MAX_TIMEOUT));
-                let timeout = self.config.timeout.unwrap_or(
-                    (recommended_timeout * 2 - ramp_up_period).min(DEFAULT_MAX_TIMEOUT * 2),
-                );
+                let timeout =
+                    self.config.timeout.unwrap_or((lock_timeout * 2).min(DEFAULT_MAX_TIMEOUT * 2));
                 (lock_timeout, timeout, ramp_up_period, ramp_up_start)
             } else {
                 let lock_timeout = DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD;
-                let timeout =
-                    ((DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD) * 2) - DEFAULT_RAMP_UP_PERIOD;
+                let timeout = lock_timeout * 2;
                 let ramp_up_period = DEFAULT_RAMP_UP_PERIOD;
                 let ramp_up_start = now_timestamp() + 15;
                 tracing::warn!("Using default ramp up start: {}", ramp_up_start);

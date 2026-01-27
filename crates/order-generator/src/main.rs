@@ -172,21 +172,24 @@ async fn run(args: &MainArgs) -> Result<()> {
         client = client.with_rpc_urls(rpc_urls.clone());
     }
 
-    let client = client
+    let mut client = client
         .with_uploader_config(&args.storage_config)
         .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
-        .config_offer_layer(|config| {
+        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()));
+
+    if args.submit_offchain {
+        client = client.config_offer_layer(|config| {
             config
                 .min_price_per_cycle(args.min_price_per_mcycle >> 20)
                 .max_price_per_cycle(args.max_price_per_mcycle >> 20)
-        })
-        .with_funding_mode(FundingMode::AvailableBalance)
-        .build()
-        .await?;
+        });
+    }
+
+    let client = client.build().await?;
 
     let ipfs_gateway = args
         .storage_config
