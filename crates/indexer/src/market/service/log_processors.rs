@@ -24,6 +24,7 @@ use alloy::providers::Provider;
 use alloy::rpc::types::Log;
 use alloy::sol_types::SolEvent;
 use anyhow::{anyhow, Context};
+use rand::Rng;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -78,7 +79,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub(super) async fn process_request_submitted_events(
+    pub async fn process_request_submitted_events(
         &self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -170,7 +171,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_request_submitted_offchain(
+    pub async fn process_request_submitted_offchain(
         &self,
         from_block: u64,
         to_block: u64,
@@ -263,9 +264,13 @@ where
                 let request_id = RequestId::from_lossy(request.id);
                 let created_at = order_data.created_at;
                 let submission_timestamp = created_at.timestamp() as u64;
-                // Off-chain orders have no associated on-chain transaction, so use sentinel values:
-                // tx_hash = B256::ZERO, block_number = 0, block_timestamp = 0, transaction_index = 0
-                let metadata = TxMetadata::new(B256::ZERO, request_id.addr, 0, 0, 0);
+                // Off-chain orders have no associated on-chain transaction.
+                // Generate unique tx_hash: 8 zero bytes prefix (sentinel marker) + 24 random bytes
+                // Required to prevent conflicts in db on insert
+                let mut tx_hash_bytes = [0u8; 32];
+                rand::rng().fill(&mut tx_hash_bytes[8..]);
+                let tx_hash = B256::from(tx_hash_bytes);
+                let metadata = TxMetadata::new(tx_hash, request_id.addr, 0, 0, 0);
 
                 tracing::debug!("Processing request submitted offchain event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]", request.id, request_digest, metadata.block_number, metadata.block_timestamp);
 
@@ -300,6 +305,8 @@ where
 
         // Batch insert all collected proof requests
         if !all_proof_requests.is_empty() {
+            tracing::info!("Num all proof requests: {}", all_proof_requests.len());
+            tracing::info!("Num touched requests: {}", touched_requests.len());
             tracing::info!("Batch inserting {} offchain proof requests", all_proof_requests.len());
             self.db.add_proof_requests(&all_proof_requests).await?;
         }
@@ -324,7 +331,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_locked_events(
+    pub async fn process_locked_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -390,7 +397,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_proof_delivered_events(
+    pub async fn process_proof_delivered_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -458,7 +465,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_fulfilled_events(
+    pub async fn process_fulfilled_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -515,7 +522,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_slashed_events(
+    pub async fn process_slashed_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -591,10 +598,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_deposit_events(
-        &self,
-        all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    pub async fn process_deposit_events(&self, all_logs: &[Log]) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Filter logs for Deposit events
@@ -644,10 +648,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_withdrawal_events(
-        &self,
-        all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    pub async fn process_withdrawal_events(&self, all_logs: &[Log]) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Filter logs for Withdrawal events
@@ -697,7 +698,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_collateral_deposit_events(
+    pub async fn process_collateral_deposit_events(
         &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
@@ -750,7 +751,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_collateral_withdrawal_events(
+    pub async fn process_collateral_withdrawal_events(
         &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
@@ -803,7 +804,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_callback_failed_events(
+    pub async fn process_callback_failed_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {

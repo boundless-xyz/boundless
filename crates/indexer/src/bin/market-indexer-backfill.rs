@@ -14,7 +14,11 @@
 
 use std::time::Duration;
 
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy::{
+    primitives::Address,
+    providers::{Provider, ProviderBuilder},
+    signers::local::PrivateKeySigner,
+};
 use anyhow::{bail, Result};
 use boundless_indexer::db::IndexerDb;
 use boundless_indexer::market::backfill::{BackfillMode, BackfillService};
@@ -26,7 +30,7 @@ use url::Url;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Backfill mode: "statuses_and_aggregates" or "aggregates"
+    /// Backfill mode: "statuses_and_aggregates", "aggregates", or "chain_data"
     #[clap(long, env)]
     mode: String,
 
@@ -46,11 +50,17 @@ struct Args {
     #[clap(long, env = "DATABASE_URL")]
     db: String,
 
-    /// Start block number (backfill from this block)
+    /// Start block number (backfill from this block). Either this or --lookback-blocks is required.
     #[clap(long)]
-    start_block: u64,
+    start_block: Option<u64>,
 
-    /// End block number (backfill up to this block, default: latest indexed block)
+    /// Number of blocks to look back from the current block. Alternative to --start-block.
+    /// When specified, fetches current block from RPC and calculates start_block = current - lookback.
+    #[clap(long)]
+    lookback_blocks: Option<u64>,
+
+    /// End block number. Defaults to the last block processed by the main indexer.
+    /// The backfill will never process beyond what the main indexer has already indexed.
     #[clap(long)]
     end_block: Option<u64>,
 
@@ -87,7 +97,11 @@ async fn main() -> Result<()> {
     let mode = match args.mode.as_str() {
         "statuses_and_aggregates" => BackfillMode::StatusesAndAggregates,
         "aggregates" => BackfillMode::Aggregates,
-        _ => bail!("Invalid mode: {}. Use 'statuses_and_aggregates' or 'aggregates'", args.mode),
+        "chain_data" => BackfillMode::ChainData,
+        _ => bail!(
+            "Invalid mode: {}. Use 'statuses_and_aggregates', 'aggregates', or 'chain_data'",
+            args.mode
+        ),
     };
 
     let tx_fetch_strategy = match args.tx_fetch_strategy.as_str() {
@@ -107,9 +121,40 @@ async fn main() -> Result<()> {
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
         execution_config: None,
+        block_delay: 0,
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
+
+    // Determine start and end blocks
+    let (start_block, end_block) = match (args.start_block, args.lookback_blocks) {
+        (Some(start), None) => {
+            // Explicit start block provided
+            (start, args.end_block)
+        }
+        (None, Some(lookback)) => {
+            // Lookback mode: fetch current block from RPC
+            tracing::info!("Fetching current block for lookback calculation...");
+            let provider = ProviderBuilder::new().connect_http(args.rpc_url.clone());
+            let current_block = provider.get_block_number().await?;
+            let start = current_block.saturating_sub(lookback);
+            let end = args.end_block.unwrap_or(current_block);
+            tracing::info!(
+                "Lookback mode: current_block={}, lookback={}, start_block={}, end_block={}",
+                current_block,
+                lookback,
+                start,
+                end
+            );
+            (start, Some(end))
+        }
+        (Some(_), Some(_)) => {
+            bail!("Cannot specify both --start-block and --lookback-blocks");
+        }
+        (None, None) => {
+            bail!("Either --start-block or --lookback-blocks must be specified");
+        }
+    };
 
     tracing::info!("Initializing market indexer for backfill");
     let indexer_service = IndexerService::new(
@@ -122,11 +167,10 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    // Determine end block
-    let end_block = if let Some(end) = args.end_block {
+    // Determine final end block (defaults to last block processed by main indexer)
+    let end_block = if let Some(end) = end_block {
         end
     } else {
-        // Get latest indexed block from database
         match indexer_service.db.get_last_block().await? {
             Some(block) => {
                 tracing::info!("Using latest indexed block: {}", block);
@@ -141,12 +185,11 @@ async fn main() -> Result<()> {
     tracing::info!(
         "Starting backfill with mode: {:?}, start_block: {}, end_block: {}",
         mode,
-        args.start_block,
+        start_block,
         end_block
     );
 
-    let mut backfill_service =
-        BackfillService::new(indexer_service, mode, args.start_block, end_block);
+    let mut backfill_service = BackfillService::new(indexer_service, mode, start_block, end_block);
 
     if let Err(err) = backfill_service.run().await {
         bail!("FATAL: Error running backfill: {err}");

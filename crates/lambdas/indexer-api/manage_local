@@ -28,40 +28,63 @@ usage() {
     echo "Usage: $0 <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  run-rewards-indexer <database> [duration] [end_epoch] [end_block] [batch_size]"
-    echo "                                     Run rewards-indexer to populate database"
-    echo "                                     database: PostgreSQL URL"
-    echo "                                               (e.g., 'postgres://user:pass@host:port/db')"
-    echo "                                     duration: seconds to run (default: 120)"
-    echo "                                     end_epoch: stop at this epoch (optional)"
-    echo "                                     end_block: stop at this block (optional)"
-    echo "                                     batch_size: blocks per batch (default: 500)"
+    echo "  run-rewards-indexer"
+    echo "    Run rewards-indexer to populate database"
     echo ""
-    echo "  run-market-indexer <database> [start_block] [end_block] [batch_size] [cache_dir] [bento_api_url] [bento_api_key] [max_concurrent_executing]"
-    echo "                                     Run market-indexer to populate database"
-    echo "                                     database: PostgreSQL URL"
-    echo "                                               (e.g., 'postgres://user:pass@host:port/db')"
-    echo "                                     start_block: block to start from (optional)"
-    echo "                                     end_block: stop at this block (optional)"
-    echo "                                     batch_size: blocks per batch (default: 500)"
-    echo "                                     cache_dir: directory for cache file storage (optional)"
-    echo "                                     bento_api_url: URL to Bento API for cycle count execution (optional)"
-    echo "                                     bento_api_key: API key for Bento API (required if bento_api_url is set)"
-    echo "                                     max_concurrent_executing: max concurrent execution requests (default: 20)"
-    echo "                                     Press Ctrl+C to stop the indexer"
+    echo "    Required:"
+    echo "      --database URL              PostgreSQL URL (e.g., 'postgres://user:pass@host:port/db')"
     echo ""
-    echo "  run-api <port> <database>         Run API server with debug logging"
-    echo "                                     database: PostgreSQL URL"
+    echo "    Optional:"
+    echo "      --duration SECONDS          Seconds to run (default: 120)"
+    echo "      --end-epoch EPOCH          Stop at this epoch"
+    echo "      --end-block BLOCK         Stop at this block"
+    echo "      --batch-size SIZE         Blocks per batch (default: 500)"
     echo ""
-    echo "  run-market-backfill <database> <mode> <start_block> [end_block] [cache_dir] [tx_fetch_strategy]"
-    echo "                                     Run market-indexer-backfill to recompute statuses/aggregates"
-    echo "                                     database: PostgreSQL URL"
-    echo "                                               (e.g., 'postgres://user:pass@host:port/db')"
-    echo "                                     mode: 'statuses_and_aggregates' or 'aggregates'"
-    echo "                                     start_block: block to start backfill from"
-    echo "                                     end_block: block to end backfill at (optional, default: latest indexed)"
-    echo "                                     cache_dir: directory for cache file storage (optional)"
-    echo "                                     tx_fetch_strategy: 'block-receipts' or 'tx-by-hash' (optional, default: block-receipts)"
+    echo "  run-market-indexer"
+    echo "    Run market-indexer to populate database"
+    echo ""
+    echo "    Required:"
+    echo "      --database URL              PostgreSQL URL (e.g., 'postgres://user:pass@host:port/db')"
+    echo ""
+    echo "    Optional:"
+    echo "      --start-block BLOCK        Block to start from"
+    echo "      --end-block BLOCK         Stop at this block"
+    echo "      --batch-size SIZE         Blocks per batch (default: 9999)"
+    echo "      --cache-dir DIR           Directory for cache file storage"
+    echo "      --bento-api-url URL       URL to Bento API for cycle count execution (requires --bento-api-key)"
+    echo "      --bento-api-key KEY       API key for Bento API (requires --bento-api-url)"
+    echo "      --max-concurrent-executing NUM  Max concurrent execution requests (default: 20)"
+    echo ""
+    echo "    Press Ctrl+C to stop the indexer"
+    echo ""
+    echo "  run-api"
+    echo "    Run API server with debug logging"
+    echo ""
+    echo "    Required:"
+    echo "      --port PORT                Port to run the API server on"
+    echo "      --database URL             PostgreSQL URL (e.g., 'postgres://user:pass@host:port/db')"
+    echo ""
+    echo "  run-market-backfill"
+    echo "    Run market-indexer-backfill to recompute statuses/aggregates/chain_data"
+    echo ""
+    echo "    Required:"
+    echo "      --database URL             PostgreSQL URL (e.g., 'postgres://user:pass@host:port/db')"
+    echo "      --mode MODE                'statuses_and_aggregates', 'aggregates', or 'chain_data'"
+    echo "      --start-block BLOCK        Block to start backfill from (required if --lookback-blocks not provided)"
+    echo "      --lookback-blocks NUM      Number of blocks to look back from current (required if --start-block not provided)"
+    echo "                                 Either --start-block or --lookback-blocks must be provided, but not both"
+    echo ""
+    echo "    Optional:"
+    echo "      --end-block BLOCK         Block to end backfill at (default: latest indexed)"
+    echo "      --cache-dir DIR           Directory for cache file storage"
+    echo "      --tx-fetch-strategy STR   'block-receipts' or 'tx-by-hash' (default: block-receipts)"
+    echo ""
+    echo "  Examples:"
+    echo "    ./manage_local run-market-indexer --database postgres://user:pass@host:5432/db --start-block 7200 --end-block 40697700 --batch-size 9999 --cache-dir ./cache"
+    echo ""
+    echo "    ./manage_local run-market-backfill --database postgres://... --mode chain_data --start-block 12345"
+    echo ""
+    echo "    ./manage_local run-market-backfill --database postgres://... --mode chain_data --lookback-blocks 1000 --end-block 20000"
     echo ""
     echo "Environment variables (Rewards Indexer):"
     echo "  ZKC_RPC_URL                        Required: Ethereum RPC endpoint for ZKC/veZKC"
@@ -150,19 +173,34 @@ build_binaries() {
 
 # Function to run rewards indexer
 run_rewards_indexer() {
-    local db_input="$1"
-    local duration="${2:-120}"
-    local end_epoch="$3"
-    local end_block="$4"
-    local batch_size="$5"
+    local database=""
+    local duration="120"
+    local end_epoch=""
+    local end_block=""
+    local batch_size=""
+
+    # Parse named arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --database) database="$2"; shift 2 ;;
+            --duration) duration="$2"; shift 2 ;;
+            --end-epoch) end_epoch="$2"; shift 2 ;;
+            --end-block) end_block="$2"; shift 2 ;;
+            --batch-size) batch_size="$2"; shift 2 ;;
+            -h|--help) usage ;;
+            *) echo -e "${RED}Unknown option: $1${NC}"; usage ;;
+        esac
+    done
 
     check_rpc_url "zkc"
 
-    # Validate arguments
-    if [ -z "$db_input" ]; then
-        echo -e "${RED}Error: Database path or URL required${NC}"
+    # Validate required arguments
+    if [ -z "$database" ]; then
+        echo -e "${RED}Error: --database is required${NC}"
         usage
     fi
+
+    local db_input="$database"
 
     # Prepare database
     local db_result=$(prepare_database "$db_input")
@@ -241,22 +279,50 @@ run_rewards_indexer() {
 
 # Function to run market indexer
 run_market_indexer() {
-    local db_input="$1"
-    local start_block="$2"
-    local end_block="$3"
-    local batch_size="$4"
-    local cache_dir="$5"
-    local bento_api_url="$6"
-    local bento_api_key="$7"
-    local max_concurrent_executing="$8"
+    local database=""
+    local start_block=""
+    local end_block=""
+    local batch_size=""
+    local cache_dir=""
+    local bento_api_url=""
+    local bento_api_key=""
+    local max_concurrent_executing=""
+
+    # Parse named arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --database) database="$2"; shift 2 ;;
+            --start-block) start_block="$2"; shift 2 ;;
+            --end-block) end_block="$2"; shift 2 ;;
+            --batch-size) batch_size="$2"; shift 2 ;;
+            --cache-dir) cache_dir="$2"; shift 2 ;;
+            --bento-api-url) bento_api_url="$2"; shift 2 ;;
+            --bento-api-key) bento_api_key="$2"; shift 2 ;;
+            --max-concurrent-executing) max_concurrent_executing="$2"; shift 2 ;;
+            -h|--help) usage ;;
+            *) echo -e "${RED}Unknown option: $1${NC}"; usage ;;
+        esac
+    done
 
     check_rpc_url "market"
 
-    # Validate arguments
-    if [ -z "$db_input" ]; then
-        echo -e "${RED}Error: Database path or URL required${NC}"
+    # Validate required arguments
+    if [ -z "$database" ]; then
+        echo -e "${RED}Error: --database is required${NC}"
         usage
     fi
+
+    # Validate bento arguments
+    if [ ! -z "$bento_api_url" ] && [ -z "$bento_api_key" ]; then
+        echo -e "${RED}Error: --bento-api-key is required when --bento-api-url is provided${NC}"
+        usage
+    fi
+    if [ ! -z "$bento_api_key" ] && [ -z "$bento_api_url" ]; then
+        echo -e "${RED}Error: --bento-api-url is required when --bento-api-key is provided${NC}"
+        usage
+    fi
+
+    local db_input="$database"
 
     # Prepare database
     local db_result=$(prepare_database "$db_input")
@@ -299,7 +365,7 @@ run_market_indexer() {
     if [ ! -z "$cache_uri" ]; then
         echo "Cache directory: $cache_dir"
     fi
-    if [ ! -z "$bento_api_url" ]; then
+    if [ ! -z "$bento_api_url" ] && [ ! -z "$bento_api_key" ]; then
         echo "Bento API URL: $bento_api_url"
         echo "Bento API Key: (set)"
         if [ ! -z "$max_concurrent_executing" ]; then
@@ -327,11 +393,9 @@ run_market_indexer() {
     if [ ! -z "$cache_uri" ]; then
         cmd="$cmd --cache-uri \"$cache_uri\""
     fi
-    if [ ! -z "$bento_api_url" ]; then
+    if [ ! -z "$bento_api_url" ] && [ ! -z "$bento_api_key" ]; then
         cmd="$cmd --bento-api-url \"$bento_api_url\""
-        if [ ! -z "$bento_api_key" ]; then
-            cmd="$cmd --bento-api-key \"$bento_api_key\""
-        fi
+        cmd="$cmd --bento-api-key \"$bento_api_key\""
         if [ ! -z "$max_concurrent_executing" ]; then
             cmd="$cmd --max-concurrent-executing $max_concurrent_executing"
         fi
@@ -345,24 +409,56 @@ run_market_indexer() {
 
 # Function to run market backfill
 run_market_backfill() {
-    local db_input="$1"
-    local mode="$2"
-    local start_block="$3"
-    local end_block="$4"
-    local cache_dir="$5"
-    local tx_fetch_strategy="${6:-block-receipts}"
+    local database=""
+    local mode=""
+    local start_block=""
+    local end_block=""
+    local cache_dir=""
+    local tx_fetch_strategy="block-receipts"
+    local lookback_blocks=""
+
+    # Parse named arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --database) database="$2"; shift 2 ;;
+            --mode) mode="$2"; shift 2 ;;
+            --start-block) start_block="$2"; shift 2 ;;
+            --end-block) end_block="$2"; shift 2 ;;
+            --cache-dir) cache_dir="$2"; shift 2 ;;
+            --tx-fetch-strategy) tx_fetch_strategy="$2"; shift 2 ;;
+            --lookback-blocks) lookback_blocks="$2"; shift 2 ;;
+            -h|--help) usage ;;
+            *) echo -e "${RED}Unknown option: $1${NC}"; usage ;;
+        esac
+    done
 
     check_rpc_url "market"
 
-    # Validate arguments
-    if [ -z "$db_input" ] || [ -z "$mode" ] || [ -z "$start_block" ]; then
-        echo -e "${RED}Error: Database, mode, and start_block are required${NC}"
+    # Validate required arguments
+    if [ -z "$database" ]; then
+        echo -e "${RED}Error: --database is required${NC}"
+        usage
+    fi
+    if [ -z "$mode" ]; then
+        echo -e "${RED}Error: --mode is required${NC}"
         usage
     fi
 
+    # Validate that either start_block or lookback_blocks is provided (but not both)
+    if [ ! -z "$start_block" ] && [ ! -z "$lookback_blocks" ]; then
+        echo -e "${RED}Error: Cannot specify both --start-block and --lookback-blocks${NC}"
+        usage
+    fi
+    if [ -z "$start_block" ] && [ -z "$lookback_blocks" ]; then
+        echo -e "${RED}Error: Either --start-block or --lookback-blocks must be provided${NC}"
+        usage
+    fi
+
+    local db_input="$database"
+
     # Validate mode
-    if [ "$mode" != "statuses_and_aggregates" ] && [ "$mode" != "aggregates" ]; then
-        echo -e "${RED}Error: Invalid mode: $mode. Use 'statuses_and_aggregates' or 'aggregates'${NC}"
+    if [ "$mode" != "statuses_and_aggregates" ] && [ "$mode" != "aggregates" ] && [ "$mode" != "chain_data" ]; then
+        echo -e "${RED}Error: Invalid mode: $mode. Use 'statuses_and_aggregates', 'aggregates', or 'chain_data'${NC}"
         usage
     fi
 
@@ -400,7 +496,12 @@ run_market_backfill() {
     echo "RPC URL: $MARKET_RPC_URL"
     echo "Boundless Market Address: $BOUNDLESS_MARKET_ADDRESS"
     echo "Mode: $mode"
-    echo "Start block: $start_block"
+    if [ ! -z "$start_block" ]; then
+        echo "Start block: $start_block"
+    fi
+    if [ ! -z "$lookback_blocks" ]; then
+        echo "Lookback blocks: $lookback_blocks"
+    fi
     if [ ! -z "$end_block" ]; then
         echo "End block: $end_block"
     fi
@@ -416,9 +517,14 @@ run_market_backfill() {
     cmd="$cmd --rpc-url \"$MARKET_RPC_URL\""
     cmd="$cmd --boundless-market-address \"$BOUNDLESS_MARKET_ADDRESS\""
     cmd="$cmd --db \"$db_url\""
-    cmd="$cmd --start-block $start_block"
     cmd="$cmd --tx-fetch-strategy \"$tx_fetch_strategy\""
 
+    if [ ! -z "$start_block" ]; then
+        cmd="$cmd --start-block $start_block"
+    fi
+    if [ ! -z "$lookback_blocks" ]; then
+        cmd="$cmd --lookback-blocks $lookback_blocks"
+    fi
     if [ ! -z "$end_block" ]; then
         cmd="$cmd --end-block $end_block"
     fi
@@ -443,14 +549,30 @@ run_market_backfill() {
 
 # Function to run API
 run_api() {
-    local port="$1"
-    local db_input="$2"
+    local port=""
+    local database=""
 
-    # Validate arguments
-    if [ -z "$port" ] || [ -z "$db_input" ]; then
-        echo -e "${RED}Error: Port and database path or URL required${NC}"
+    # Parse named arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --port) port="$2"; shift 2 ;;
+            --database) database="$2"; shift 2 ;;
+            -h|--help) usage ;;
+            *) echo -e "${RED}Unknown option: $1${NC}"; usage ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [ -z "$port" ]; then
+        echo -e "${RED}Error: --port is required${NC}"
         usage
     fi
+    if [ -z "$database" ]; then
+        echo -e "${RED}Error: --database is required${NC}"
+        usage
+    fi
+
+    local db_input="$database"
 
     local db_url=""
     if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
