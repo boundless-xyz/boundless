@@ -242,10 +242,13 @@ impl StorageDownloader for GcsStorageDownloader {
         // via StorageControl, adding an extra API request. Instead, we check during streaming.
         let mut buffer = Vec::new();
         while let Some(chunk) = stream.next().await.transpose()? {
-            buffer.extend_from_slice(&chunk);
-            if buffer.len() > limit {
-                return Err(StorageError::SizeLimitExceeded { size: 0, limit });
+            if buffer.len() + chunk.len() > limit {
+                return Err(StorageError::SizeLimitExceeded {
+                    size: buffer.len() + chunk.len(),
+                    limit,
+                });
             }
+            buffer.extend_from_slice(&chunk);
         }
 
         Ok(buffer)
@@ -259,7 +262,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires GCS_BUCKET and Application Default Credentials"]
-    async fn test_gcs_roundtrip() {
+    async fn roundtrip() {
         let uploader = GcsStorageUploader::from_env().await.expect("failed to create GCS uploader");
 
         let test_data = b"gcs integration test data";

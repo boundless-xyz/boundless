@@ -51,7 +51,6 @@ use std::{env, time::Duration};
 use crate::storage::{
     StorageDownloader, StorageError, StorageUploader, StorageUploaderConfig, StorageUploaderType,
 };
-use alloy::primitives::bytes::Buf;
 use async_trait::async_trait;
 use aws_config::{defaults, retry::RetryConfig, BehaviorVersion, SdkConfig};
 use aws_sdk_s3::{
@@ -276,39 +275,41 @@ impl S3StorageDownloader {
     }
 
     async fn build_client(endpoint_url: Option<String>, max_retries: Option<u8>) -> S3Client {
-        let retry_config = if let Some(max_retries) = max_retries {
-            RetryConfig::standard().with_max_attempts(max_retries as u32 + 1)
-        } else {
-            RetryConfig::disabled()
+        let retry_config = match max_retries {
+            Some(n) => RetryConfig::standard().with_max_attempts(n as u32 + 1),
+            None => RetryConfig::disabled(),
         };
 
-        let config_loader = defaults(BehaviorVersion::latest()).retry_config(retry_config);
-
-        // Check if credentials are available
-        let sdk_config_check = defaults(BehaviorVersion::latest()).load().await;
-        let has_credentials = if let Some(provider) = sdk_config_check.credentials_provider() {
-            provider.provide_credentials().await.is_ok()
-        } else {
-            false
-        };
-
-        let sdk_config = if has_credentials {
-            tracing::debug!("Using AWS credentials for S3 downloads");
-            let sdk_config = config_loader.load().await;
-            // Apply IAM role assumption if configured
-            apply_role_assumption(sdk_config).await
-        } else {
-            tracing::debug!("No AWS credentials found, using anonymous access for S3 downloads");
-            config_loader.no_credentials().load().await
+        let config_loader = defaults(BehaviorVersion::latest());
+        let sdk_config = match credentials_available().await {
+            true => {
+                tracing::debug!("Using AWS credentials for S3 downloads");
+                let config = config_loader.retry_config(retry_config).load().await;
+                apply_role_assumption(config).await
+            }
+            false => {
+                tracing::debug!(
+                    "No AWS credentials found, using anonymous access for S3 downloads"
+                );
+                config_loader.retry_config(retry_config).no_credentials().load().await
+            }
         };
 
         let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config);
-
         if let Some(url) = endpoint_url {
             s3_config_builder = s3_config_builder.endpoint_url(url).force_path_style(true);
         }
 
         S3Client::from_conf(s3_config_builder.build())
+    }
+}
+
+/// Check if AWS credentials are available via the default provider chain.
+async fn credentials_available() -> bool {
+    let config = defaults(BehaviorVersion::latest()).load().await;
+    match config.credentials_provider() {
+        Some(provider) => provider.provide_credentials().await.is_ok(),
+        None => false,
     }
 }
 
@@ -335,22 +336,25 @@ impl StorageDownloader for S3StorageDownloader {
                 StorageError::s3(sdk_err)
             })?;
 
-        // Check size from content length
-        let capacity = resp.content_length.unwrap_or_default() as usize;
-        if capacity > limit {
-            return Err(StorageError::SizeLimitExceeded { size: capacity, limit });
+        // Check content length if available for early rejection
+        let content_length = resp.content_length.unwrap_or(0).max(0) as usize;
+        if content_length > limit {
+            return Err(StorageError::SizeLimitExceeded { size: content_length, limit });
         }
 
-        // Stream the response
-        let mut buffer = Vec::with_capacity(capacity);
+        // Stream the response body with size checking
+        let mut buffer = Vec::with_capacity(content_length.min(limit));
         let mut stream = resp.body;
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(StorageError::s3)?;
-            buffer.extend_from_slice(chunk.chunk());
-            if buffer.len() > limit {
-                return Err(StorageError::SizeLimitExceeded { size: buffer.len(), limit });
+            if buffer.len() + chunk.len() > limit {
+                return Err(StorageError::SizeLimitExceeded {
+                    size: buffer.len() + chunk.len(),
+                    limit,
+                });
             }
+            buffer.extend_from_slice(&chunk);
         }
 
         Ok(buffer)
@@ -364,7 +368,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires S3_BUCKET and AWS credentials (env or ~/.aws/credentials)"]
-    async fn test_s3_roundtrip_presigned() {
+    async fn roundtrip_presigned() {
         temp_env::async_with_vars([(ENV_VAR_S3_NO_PRESIGNED, None::<&str>)], async {
             let uploader =
                 S3StorageUploader::from_env().await.expect("failed to create S3 uploader");
@@ -384,7 +388,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires S3_BUCKET and AWS credentials (env or ~/.aws/credentials)"]
-    async fn test_s3_roundtrip_s3_scheme() {
+    async fn roundtrip_s3_scheme() {
         temp_env::async_with_vars([(ENV_VAR_S3_NO_PRESIGNED, Some("1"))], async {
             let uploader =
                 S3StorageUploader::from_env().await.expect("failed to create S3 uploader");

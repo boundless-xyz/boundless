@@ -122,7 +122,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_file_storage_roundtrip() {
+    async fn roundtrip() {
         let uploader = FileStorageUploader::new().unwrap();
 
         let test_data = b"test input data";
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_file_storage_max_size() {
+    async fn rejects_oversized_file() {
         let uploader = FileStorageUploader::new().unwrap();
 
         let test_data = b"this is more than 10 bytes";
