@@ -485,37 +485,38 @@ async fn test_backfill_chain_data(pool: sqlx::PgPool) {
     let (fixture, current_block) = setup_backfill_test(pool).await;
 
     // Get original block_number from request_submitted_events
-    let original_row = sqlx::query(
-        "SELECT request_digest, block_number FROM request_submitted_events LIMIT 1"
-    )
-    .fetch_one(&fixture.test_db.pool)
-    .await
-    .unwrap();
-    
+    let original_row =
+        sqlx::query("SELECT request_digest, block_number FROM request_submitted_events LIMIT 1")
+            .fetch_one(&fixture.test_db.pool)
+            .await
+            .unwrap();
+
     let request_digest: String = original_row.get("request_digest");
     let original_block_number: i64 = original_row.get("block_number");
-    
+
     tracing::info!(
         "Original: request_digest={}, block_number={}",
-        request_digest, original_block_number
+        request_digest,
+        original_block_number
     );
 
     // Corrupt the block_number
-    sqlx::query("UPDATE request_submitted_events SET block_number = 999999 WHERE request_digest = $1")
-        .bind(&request_digest)
-        .execute(&fixture.test_db.pool)
-        .await
-        .unwrap();
-
-    // Verify corruption
-    let corrupted_row = sqlx::query(
-        "SELECT block_number FROM request_submitted_events WHERE request_digest = $1"
+    sqlx::query(
+        "UPDATE request_submitted_events SET block_number = 999999 WHERE request_digest = $1",
     )
     .bind(&request_digest)
-    .fetch_one(&fixture.test_db.pool)
+    .execute(&fixture.test_db.pool)
     .await
     .unwrap();
-    
+
+    // Verify corruption
+    let corrupted_row =
+        sqlx::query("SELECT block_number FROM request_submitted_events WHERE request_digest = $1")
+            .bind(&request_digest)
+            .fetch_one(&fixture.test_db.pool)
+            .await
+            .unwrap();
+
     let corrupted_block_number: i64 = corrupted_row.get("block_number");
     assert_eq!(corrupted_block_number, 999999, "Data should be corrupted");
 
@@ -523,14 +524,13 @@ async fn test_backfill_chain_data(pool: sqlx::PgPool) {
     run_backfill_and_verify(&fixture, "chain_data", current_block).await;
 
     // Verify data was corrected
-    let restored_row = sqlx::query(
-        "SELECT block_number FROM request_submitted_events WHERE request_digest = $1"
-    )
-    .bind(&request_digest)
-    .fetch_one(&fixture.test_db.pool)
-    .await
-    .unwrap();
-    
+    let restored_row =
+        sqlx::query("SELECT block_number FROM request_submitted_events WHERE request_digest = $1")
+            .bind(&request_digest)
+            .fetch_one(&fixture.test_db.pool)
+            .await
+            .unwrap();
+
     let restored_block_number: i64 = restored_row.get("block_number");
     assert_eq!(
         restored_block_number, original_block_number,
@@ -545,5 +545,8 @@ async fn test_backfill_chain_data(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(count, 1, "Should have exactly 1 row, no duplicates");
 
-    tracing::info!("Chain data backfill correctly restored block_number from 999999 to {}", original_block_number);
+    tracing::info!(
+        "Chain data backfill correctly restored block_number from 999999 to {}",
+        original_block_number
+    );
 }
