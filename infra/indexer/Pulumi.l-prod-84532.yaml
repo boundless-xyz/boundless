@@ -18,6 +18,7 @@ config:
   indexer:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
   indexer:START_BLOCK: "30570944"
   indexer:BLOCK_DELAY: "30"
+  indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100000"
   indexer:ETH_RPC_URL:
     secure: v1:/yk3EyDn/zeBKeYt:yVddQoJCdKkAFHjUoED031293aH68HP/2vMDJlCKYBC4wmRz5TewrMgcVOOzUnv+xVz/nBDSDlJ8uv2VzZmQEFL9B5VHj8NBXMLYgQLa87IM6W0PpZorDI1GX1nGXS2tHLzcGHy4zkDm0rS+BRZF
   indexer:ORDER_STREAM_URL: https://base-sepolia.boundless.network

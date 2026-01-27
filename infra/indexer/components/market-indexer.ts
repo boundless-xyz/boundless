@@ -26,6 +26,7 @@ export interface MarketIndexerArgs {
   bentoApiKey?: pulumi.Output<string>;
   rustLogLevel: string;
   blockDelay?: pulumi.Input<string>;
+  backfillChainDataBlocks?: pulumi.Input<string>;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -54,6 +55,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       bentoApiKey,
       rustLogLevel,
       blockDelay,
+      backfillChainDataBlocks,
     } = args;
 
     const serviceName = name;
@@ -360,11 +362,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
           LOGS_RPC_URL: logsEthRpcUrl ?? ethRpcUrl,
           BOUNDLESS_ADDRESS: boundlessAddress,
           CACHE_BUCKET: infra.cacheBucket.bucket,
-          // Chain data backfill configuration
           SCHEDULED_BACKFILL_MODE: 'chain_data',
-          // 2 days of blocks: ~14400 for mainnet (12s blocks), ~86400 for Base (2s blocks)
-          // Using a conservative estimate that works for most chains
-          LOOKBACK_BLOCKS: '100000',
+          LOOKBACK_BLOCKS: backfillChainDataBlocks ?? '100000',
         },
       },
     }, { parent: this, dependsOn: [lambdaRole] });
@@ -397,11 +396,11 @@ export class MarketIndexer extends pulumi.ComponentResource {
       arn: backfillLambda.arn,
     }, { parent: this });
 
-    // Create EventBridge rule for daily chain data backfill (runs at 3 AM UTC, 1 hour after aggregates)
+    // Create EventBridge rule for daily chain data backfill
     const chainDataBackfillRule = new aws.cloudwatch.EventRule(`${serviceName}-chain-backfill-rule`, {
       name: `${serviceName}-chain-backfill-rule`,
-      description: `Daily chain data backfill for ${serviceName} (past 2 days)`,
-      scheduleExpression: 'cron(0 3 * * ? *)', // Run daily at 3 AM UTC
+      description: `Daily chain data backfill for ${serviceName}`,
+      scheduleExpression: 'cron(0 18 * * ? *)', // Run daily at 6 PM UTC
       state: 'ENABLED',
     }, { parent: this });
 
