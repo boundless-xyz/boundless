@@ -33,7 +33,7 @@ use boundless_market::{
     input::GuestEnv,
     price_provider::{PricePercentiles, PriceProviderArc},
     request_builder::{OfferParams, RequestParams},
-    storage::MockStorageUploader,
+    storage::{HttpDownloader, MockStorageUploader},
     test_helpers::create_mock_indexer_client,
 };
 use boundless_test_utils::{
@@ -179,6 +179,7 @@ async fn test_funding_mode() {
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .with_downloader(HttpDownloader::default())
         .build()
         .await
         .unwrap();
@@ -720,6 +721,7 @@ async fn test_client_builder_with_price_provider() {
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
         .with_uploader(Some(storage.clone()))
         .with_price_provider(Some(price_provider))
+        .with_downloader(HttpDownloader::default())
         .build()
         .await
         .unwrap();
