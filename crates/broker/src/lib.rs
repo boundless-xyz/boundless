@@ -711,15 +711,7 @@ where
                             image_id,
                             computed_id
                         );
-                        let program = match self.download_image(&contract_url, "contract").await {
-                            Ok(bytes) => bytes,
-                            Err(_) => {
-                                let overridden_url = override_gateway(&contract_url);
-                                tracing::debug!("Retrying with overridden URL: {overridden_url}");
-                                self.download_image(&overridden_url, "gateway fallback").await?
-                            }
-                        };
-                        program
+                        self.download_image(&contract_url, "contract").await?
                     }
                 }
                 Err(e) => {
@@ -728,15 +720,7 @@ where
                         image_label,
                         e
                     );
-                    let program = match self.download_image(&contract_url, "contract").await {
-                        Ok(bytes) => bytes,
-                        Err(_) => {
-                            let overridden_url = override_gateway(&contract_url);
-                            tracing::debug!("Retrying with overridden URL: {overridden_url}");
-                            self.download_image(&overridden_url, "gateway fallback").await?
-                        }
-                    };
-                    program
+                    self.download_image(&contract_url, "contract").await?
                 }
             }
         };
@@ -1220,10 +1204,6 @@ where
         }
         Ok(())
     }
-}
-
-fn override_gateway(_: &str) -> String {
-    todo!()
 }
 
 /// A very small utility function to get the current unix timestamp in seconds.

@@ -1140,7 +1140,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None);
+        let downloader = HttpDownloader::new(None, None);
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1166,7 +1166,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let storage = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None);
+        let downloader = HttpDownloader::new(None, None);
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1195,7 +1195,7 @@ mod tests {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None);
+        let downloader = HttpDownloader::new(None, None);
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1227,7 +1227,7 @@ mod tests {
     async fn without_storage_uploader() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let downloader = HttpDownloader::new(None);
+        let downloader = HttpDownloader::new(None, None);
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1259,7 +1259,7 @@ mod tests {
     #[traced_test]
     async fn test_storage_layer() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None);
+        let downloader = HttpDownloader::new(None, None);
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
@@ -1294,7 +1294,7 @@ mod tests {
     #[traced_test]
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
         let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None);
+        let downloader = HttpDownloader::new(None, None);
         let layer = StorageLayer::new(
             Some(uploader),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
@@ -1331,7 +1331,7 @@ mod tests {
     #[traced_test]
     async fn test_preflight_layer() -> anyhow::Result<()> {
         let uploader = MockStorageUploader::new();
-        let downloader = HttpDownloader::new(None);
+        let downloader = HttpDownloader::new(None, None);
         let program_url = uploader.upload_program(ECHO_ELF).await?;
         let layer = PreflightLayer::new(Some(downloader));
         let data = b"hello_zkvm".to_vec();

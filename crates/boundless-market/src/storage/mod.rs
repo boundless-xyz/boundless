@@ -23,7 +23,7 @@ mod error;
 mod providers;
 mod traits;
 
-pub use config::StorageDownloaderConfig;
+pub use config::{StorageDownloaderConfig, DEFAULT_IPFS_GATEWAY_URL};
 pub use config::{StorageUploaderConfig, StorageUploaderType};
 pub use default::StandardDownloader;
 pub use error::StorageError;

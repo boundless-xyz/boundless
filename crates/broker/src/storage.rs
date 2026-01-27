@@ -45,6 +45,7 @@ impl ConfigurableDownloader {
                 max_size: c.market.max_file_size,
                 max_retries: c.market.max_fetch_retries,
                 cache_dir: c.market.cache_dir.clone(),
+                ipfs_gateway: c.market.ipfs_gateway_fallback.clone(),
             })?;
 
         Ok(Self {
@@ -59,6 +60,7 @@ impl ConfigurableDownloader {
                 max_size: c.market.max_file_size,
                 max_retries: c.market.max_fetch_retries,
                 cache_dir: c.market.cache_dir.clone(),
+                ipfs_gateway: c.market.ipfs_gateway_fallback.clone(),
             }),
             Err(e) => {
                 tracing::warn!("Failed to reload config for StorageDownloader: {e:#}");

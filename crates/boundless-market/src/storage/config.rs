@@ -158,6 +158,9 @@ impl StorageUploaderConfig {
     }
 }
 
+/// Default IPFS gateway URL for fallback downloads.
+pub const DEFAULT_IPFS_GATEWAY_URL: &str = "https://gateway.beboundless.cloud";
+
 /// Configuration for download operations (construction-time settings).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageDownloaderConfig {
@@ -171,10 +174,21 @@ pub struct StorageDownloaderConfig {
     ///
     /// If not set, files will be re-downloaded every time.
     pub cache_dir: Option<PathBuf>,
+    /// Optional IPFS gateway URL for fallback when downloading IPFS content.
+    ///
+    /// When set, if an HTTP download fails for a URL containing `/ipfs/`,
+    /// the downloader will retry with this gateway.
+    pub ipfs_gateway: Option<Url>,
 }
 
 impl Default for StorageDownloaderConfig {
     fn default() -> Self {
-        Self { max_size: usize::MAX, max_retries: None, cache_dir: None }
+        Self {
+            max_size: usize::MAX,
+            max_retries: None,
+            cache_dir: None,
+            // Safe to unwrap: DEFAULT_IPFS_GATEWAY_URL is a valid URL constant
+            ipfs_gateway: Some(Url::parse(DEFAULT_IPFS_GATEWAY_URL).unwrap()),
+        }
     }
 }

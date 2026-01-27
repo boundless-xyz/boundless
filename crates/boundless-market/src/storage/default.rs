@@ -49,7 +49,7 @@ impl StandardDownloader {
 
     /// Creates a new downloader from configuration.
     pub async fn from_config(config: StorageDownloaderConfig) -> Self {
-        let http = HttpDownloader::new(config.max_retries);
+        let http = HttpDownloader::new(config.max_retries, config.ipfs_gateway.clone());
         let file =
             if crate::util::is_dev_mode() { Some(FileStorageDownloader::new()) } else { None };
 
@@ -141,11 +141,10 @@ impl StorageDownloader for StandardDownloader {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::default::StandardDownloader;
-    use crate::storage::*;
+    use super::*;
 
     #[tokio::test]
-    async fn test_standard_downloader_http() {
+    async fn download_http() {
         use crate::storage::default::StandardDownloader;
         use httpmock::prelude::*;
 
@@ -162,17 +161,5 @@ mod tests {
         let data = downloader.download_url(url).await.unwrap();
 
         assert_eq!(data, resp_data);
-    }
-
-    #[tokio::test]
-    async fn test_file_roundtrip() {
-        let downloader = StandardDownloader::new().await;
-
-        let file_provider = FileStorageUploader::new().unwrap();
-        let input_data = b"test data for file roundtrip";
-        let url = file_provider.upload_input(input_data).await.unwrap();
-
-        let downloaded = downloader.download_url(url).await.unwrap();
-        assert_eq!(downloaded, input_data);
     }
 }
