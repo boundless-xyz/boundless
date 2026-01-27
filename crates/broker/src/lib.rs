@@ -30,6 +30,7 @@ use boundless_market::{
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
+    storage::StorageDownloader,
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};

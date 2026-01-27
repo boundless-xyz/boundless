@@ -14,6 +14,7 @@
 
 use crate::config::ConfigLock;
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use boundless_market::{
     contracts::Predicate,
     storage::{StandardDownloader, StorageDownloader, StorageDownloaderConfig, StorageError},
@@ -22,7 +23,13 @@ use hex::FromHex;
 use risc0_zkvm::Digest;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use url::Url;
 
+/// A [`StorageDownloader`] wrapper that automatically reloads configuration.
+///
+/// This wrapper checks for configuration changes before each download operation,
+/// replacing the inner [`StandardDownloader`] when settings change. This enables
+/// runtime configuration updates without restarting the broker.
 #[derive(Clone, Debug)]
 pub struct ConfigurableDownloader {
     inner: Arc<RwLock<StandardDownloader>>,
@@ -61,47 +68,43 @@ impl ConfigurableDownloader {
     }
 
     async fn sync_config(&self) {
-        if let Some(new_config) = self.current_config() {
-            {
-                // Fast path: no change
-                if self.inner.read().await.config() == &new_config {
-                    return;
-                }
-            }
+        let Some(target_config) = self.current_config() else { return };
 
-            // Create the new downloader without holding the lock
-            let new_downloader = StandardDownloader::from_config(new_config.clone()).await;
-
-            // Now install it, but re-check in case another task raced us
-            let mut inner = self.inner.write().await;
-            if inner.config() != &new_config {
-                *inner = new_downloader;
-            }
+        if self.inner.read().await.config() == &target_config {
+            return; // no change
         }
+
+        let new_downloader = StandardDownloader::from_config(target_config).await;
+        *self.inner.write().await = new_downloader;
     }
 
-    async fn downloader(&self) -> tokio::sync::RwLockReadGuard<'_, StandardDownloader> {
+    async fn downloader(&self) -> StandardDownloader {
         self.sync_config().await;
-        self.inner.read().await
+        self.inner.read().await.clone()
     }
+}
 
-    pub async fn download(&self, url: &str) -> Result<Vec<u8>, StorageError> {
-        self.downloader().await.download(url).await
-    }
-
-    pub async fn download_with_limit(
+#[async_trait]
+impl StorageDownloader for ConfigurableDownloader {
+    async fn download_url_with_limit(
         &self,
-        url: &str,
+        url: Url,
         limit: usize,
     ) -> Result<Vec<u8>, StorageError> {
-        self.downloader().await.download_with_limit(url, limit).await
+        self.downloader().await.download_url_with_limit(url, limit).await
+    }
+
+    // Override required: StandardDownloader::download_url applies config.max_size,
+    // but the trait default uses usize::MAX, which would bypass the size limit.
+    async fn download_url(&self, url: Url) -> Result<Vec<u8>, StorageError> {
+        self.downloader().await.download_url(url).await
     }
 }
 
 pub async fn upload_image_uri(
     prover: &crate::provers::ProverObj,
     request: &crate::ProofRequest,
-    downloader: &ConfigurableDownloader,
+    downloader: &impl StorageDownloader,
 ) -> Result<String> {
     let predicate = Predicate::try_from(request.requirements.predicate.clone())
         .with_context(|| format!("Failed to parse predicate for request {:x}", request.id))?;
@@ -158,7 +161,7 @@ pub async fn upload_image_uri(
 pub async fn upload_input_uri(
     prover: &crate::provers::ProverObj,
     request: &crate::ProofRequest,
-    downloader: &ConfigurableDownloader,
+    downloader: &impl StorageDownloader,
     priority_requestors: &crate::requestor_monitor::PriorityRequestors,
 ) -> Result<String> {
     Ok(match request.input.inputType {
@@ -197,23 +200,54 @@ pub async fn upload_input_uri(
 mod tests {
     use super::*;
     use crate::config::MarketConf;
+    use boundless_market::storage::{MockStorageUploader, StorageUploader};
 
     #[tokio::test]
-    async fn test_downloader_updates_on_config_change() {
+    async fn test_config_update_and_snapshot_behavior() {
         let config_lock = ConfigLock::default();
         let downloader = ConfigurableDownloader::new(config_lock.clone()).await.unwrap();
-        assert_eq!(
-            downloader.inner.read().await.config().max_size,
-            MarketConf::default().max_file_size
-        );
 
+        // Simulate holding a downloader during a long download
+        let held = downloader.downloader().await;
+        assert_eq!(held.config().max_size, MarketConf::default().max_file_size);
+        assert_eq!(held.config().cache_dir, MarketConf::default().cache_dir);
+
+        // Config update should succeed even while `held` is alive
         {
             let mut cfg = config_lock.load_write().unwrap();
-            cfg.market.max_file_size = 2000;
-            cfg.market.cache_dir = Some("/tmp/cache2".into());
+            cfg.market.max_file_size = 9999;
+            cfg.market.cache_dir = Some("/tmp/cache".into());
         }
-        let guard = downloader.downloader().await;
-        assert_eq!(guard.config().max_size, 2000);
-        assert_eq!(guard.config().cache_dir, Some("/tmp/cache2".into()));
+
+        // New downloader() call should see the updated config
+        let new = downloader.downloader().await;
+        assert_eq!(new.config().max_size, 9999);
+        assert_eq!(new.config().cache_dir, Some("/tmp/cache".into()));
+
+        // Original held downloader still has old config (it's a snapshot)
+        assert_eq!(held.config().max_size, MarketConf::default().max_file_size);
+        assert_eq!(held.config().cache_dir, MarketConf::default().cache_dir);
+    }
+
+    #[tokio::test]
+    async fn test_download_enforces_max_file_size() {
+        let config_lock = ConfigLock::default();
+        let downloader = ConfigurableDownloader::new(config_lock.clone()).await.unwrap();
+        // Reduce the max file size limit
+        {
+            let mut cfg = config_lock.load_write().unwrap();
+            cfg.market.max_file_size = 10; // 10 bytes limit
+        }
+
+        // Upload data larger than the limit
+        let uploader = MockStorageUploader::new();
+        let large_data = vec![0u8; 100]; // 100 bytes, exceeds limit
+        let url = uploader.upload_bytes(&large_data, "large_file").await.unwrap();
+
+        // downloading should fail with size limit exceeded
+        let result = downloader.download(url.as_str()).await;
+        assert!(matches!(result, Err(StorageError::SizeLimitExceeded { .. })));
+        let result = downloader.download_url(url).await;
+        assert!(matches!(result, Err(StorageError::SizeLimitExceeded { .. })));
     }
 }
