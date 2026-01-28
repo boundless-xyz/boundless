@@ -200,17 +200,17 @@ all:
 ## Security Best Practices
 
 1. **Never commit plain-text secrets** to git
-   * Use base64-encoded inventory in CI/CD secrets
-   * Use Ansible Vault for local development
+   - Use base64-encoded inventory in CI/CD secrets
+   - Use Ansible Vault for local development
 
 2. **Use strong passwords** for all services
-   * `prover_postgres_password`
-   * `prover_minio_root_pass`
+   - `prover_postgres_password`
+   - `prover_minio_root_pass`
 
 3. **Protect private keys**
-   * `prover_private_key` should be stored securely
-   * Consider using hardware wallets or key management systems
+   - `prover_private_key` should be stored securely
+   - Consider using hardware wallets or key management systems
 
 4. **Use IAM roles** for AWS credentials when possible
-   * Avoid storing AWS credentials in inventory files
-   * Use EC2 instance profiles instead
+   - Avoid storing AWS credentials in inventory files
+   - Use EC2 instance profiles instead
