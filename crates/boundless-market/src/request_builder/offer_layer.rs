@@ -130,18 +130,15 @@ fn check_secondary_performance_warning(
 pub struct OfferLayerConfig {
     /// Parameterization mode.
     ///
-    /// Defines the offering parameters for the request based on the mode:
-    /// - [ParameterizationMode::fulfillment] is a more conservative mode that ensures more provers can fulfill the request.
-    /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees.
-    ///
-    /// The default is [ParameterizationMode::fulfillment()], which is the default fulfillment mode.
+    /// Defines the offering parameters for the request. The default is
+    /// [ParameterizationMode::fulfillment()], which is a conservative mode that ensures
+    /// more provers can fulfill the request.
     ///
     /// # Example
     /// ```rust
     /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
     /// use boundless_market::request_builder::ParameterizationMode;
     ///
-    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
     /// ```
     #[builder(setter(into), default = "Some(ParameterizationMode::fulfillment())")]

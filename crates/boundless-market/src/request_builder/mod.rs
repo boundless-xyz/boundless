@@ -671,18 +671,6 @@ impl ParameterizationMode {
     /// to expire before the prover can execute and evaluate the request.
     const DEFAULT_MIN_TIMEOUT: u32 = 60;
 
-    /// Fast proving speed in Hz.
-    const FAST_PROVING_SPEED_HZ: u64 = 3000000; // 3 MHz
-
-    /// Fast executor speed in Hz.
-    const FAST_EXECUTOR_SPEED_HZ: u64 = 50000000; // 50 MHz
-
-    /// Minimum fast timeout in seconds.
-    ///
-    /// This is to prevent the timeout from being too short and causing the request
-    /// to expire before the prover can execute and evaluate the request.
-    const FAST_MIN_TIMEOUT: u32 = 60; // 1 minute
-
     /// Default base ramp up period in seconds.
     ///
     /// This is used to ensure that the ramp up period is long enough
@@ -701,24 +689,6 @@ impl ParameterizationMode {
     /// to allow provers to execute and evaluate the request.
     const DEFAULT_RAMP_UP_DELAY_MULTIPLIER: u64 = 2; // 2x the executor time
 
-    /// Fast multiplier for the ramp up period.
-    ///
-    /// This is used to ensure that the ramp up period is long enough
-    /// to allow provers to execute and evaluate the request.
-    const FAST_RAMP_UP_PERIOD_MULTIPLIER: u32 = 5; // 5x the executor time
-
-    /// Fast multiplier for the ramp up delay.
-    ///
-    /// This is used to ensure that the ramp up start is set
-    /// to allow provers to execute and evaluate the request.
-    const FAST_RAMP_UP_DELAY_MULTIPLIER: u64 = 1; // 1x the executor time
-
-    /// Fast base ramp up period in seconds.
-    ///
-    /// This is used to ensure that the ramp up period is long enough
-    /// to allow provers to execute and evaluate the request.
-    const FAST_BASE_RAMP_UP_PERIOD: u32 = 60; // 1 minute
-
     /// Creates a parameterization mode for fulfillment.
     ///
     /// This mode is more conservative and ensures more provers can fulfill the request.
@@ -735,26 +705,6 @@ impl ParameterizationMode {
             ramp_up_period_multiplier: Self::DEFAULT_RAMP_UP_PERIOD_MULTIPLIER,
             ramp_up_delay_multiplier: Self::DEFAULT_RAMP_UP_DELAY_MULTIPLIER,
             base_ramp_up_period: Self::DEFAULT_BASE_RAMP_UP_PERIOD,
-        }
-    }
-
-    /// Creates a parameterization mode for low latency.
-    ///
-    /// This mode is more aggressive and allows for faster fulfillment,
-    /// at the cost of higher prices and lower fulfillment guarantees.
-    ///
-    /// Sets the ramp up period as 5x the executor time assuming the executor speed is 50 MHz.
-    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times
-    /// assuming the proving speed is 3 MHz and the executor speed is 50 MHz and capped at 4 hours.
-    /// Sets the timeout as 2 times the lock timeout and capped at 8 hours.
-    pub fn latency() -> Self {
-        Self {
-            proving_speed: Self::FAST_PROVING_SPEED_HZ,
-            executor_speed: Self::FAST_EXECUTOR_SPEED_HZ,
-            min_timeout: Self::FAST_MIN_TIMEOUT,
-            ramp_up_period_multiplier: Self::FAST_RAMP_UP_PERIOD_MULTIPLIER,
-            ramp_up_delay_multiplier: Self::FAST_RAMP_UP_DELAY_MULTIPLIER,
-            base_ramp_up_period: Self::FAST_BASE_RAMP_UP_PERIOD,
         }
     }
 
@@ -875,18 +825,6 @@ mod parameterization_mode_tests {
     }
 
     #[test]
-    fn test_latency_creation() {
-        let mode = ParameterizationMode::latency();
-        assert_eq!(mode.proving_speed, ParameterizationMode::FAST_PROVING_SPEED_HZ);
-        assert_eq!(mode.executor_speed, ParameterizationMode::FAST_EXECUTOR_SPEED_HZ);
-        assert_eq!(mode.min_timeout, ParameterizationMode::FAST_MIN_TIMEOUT);
-        assert_eq!(
-            mode.ramp_up_period_multiplier,
-            ParameterizationMode::FAST_RAMP_UP_PERIOD_MULTIPLIER
-        );
-    }
-
-    #[test]
     fn test_recommended_timeout_default() {
         let mode = ParameterizationMode::default();
 
@@ -906,36 +844,6 @@ mod parameterization_mode_tests {
         // Expected: (50_000_000 / 500_000) + (50_000_000 / 10_000_000)
         // = 100 + 5 = 105 seconds
         assert_eq!(timeout, 105);
-    }
-
-    #[test]
-    fn test_recommended_timeout_latency() {
-        let mode = ParameterizationMode::latency();
-
-        // Test with a small cycle count
-        let cycle_count = 1_000_000; // 1M cycles
-        let timeout = mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Expected: (1_000_000 / (3000 * 1000)) + (1_000_000 / (50000 * 1000))
-        // = (1_000_000 / 3_000_000) + (1_000_000 / 50_000_000)
-        // = 1 + 1 = 2 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, mode.min_timeout);
-
-        // Test with a larger cycle count
-        let cycle_count = 50_000_000; // 50M cycles
-        let timeout = mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Expected: (50_000_000 / 3_000_000) + (50_000_000 / 50_000_000)
-        // = 17 + 1 = 18 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, mode.min_timeout);
-
-        // Test with a very large cycle count that exceeds MIN_TIMEOUT
-        let cycle_count = 200_000_000; // 200M cycles
-        let timeout = mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Expected: (200_000_000 / 3_000_000) + (200_000_000 / 50_000_000)
-        // = 67 + 4 = 71 seconds
-        assert_eq!(timeout, 71);
     }
 
     #[test]
@@ -974,58 +882,12 @@ mod parameterization_mode_tests {
     }
 
     #[test]
-    fn test_recommended_ramp_up_period_fast() {
-        let mode = ParameterizationMode::latency();
-
-        // Test with 1M cycles
-        let cycle_count = 1_000_000;
-        let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
-
-        // Expected: (1_000_000 / (50000 * 1000)) * 5 + 60
-        // = (1_000_000 / 50_000_000) * 5 + 60
-        // = 1 * 5 + 60 = 65 seconds
-        assert_eq!(ramp_up, 65);
-
-        // Test with 50M cycles
-        let cycle_count = 50_000_000;
-        let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
-
-        // Expected: (50_000_000 / 50_000_000) * 5 + 60
-        // = 1 * 5 + 60 = 65 seconds
-        assert_eq!(ramp_up, 65);
-    }
-
-    #[test]
     fn test_recommended_ramp_up_period_zero_cycles() {
         let mode = ParameterizationMode::default();
 
         // Test with zero cycles
         let ramp_up = mode.recommended_ramp_up_period(Some(0));
         assert_eq!(ramp_up, ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD);
-    }
-
-    #[test]
-    fn test_latency_vs_fulfillment_timeout_comparison() {
-        let latency_mode = ParameterizationMode::latency();
-        let fulfillment_mode = ParameterizationMode::fulfillment();
-
-        let cycle_count = 100_000_000; // 100M cycles
-
-        let latency_timeout = latency_mode.recommended_timeout(Some(cycle_count as u64));
-        let fulfillment_timeout = fulfillment_mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Latency mode should generally result in shorter timeouts (when above MIN_TIMEOUT)
-        // For this cycle count, both should be above MIN_TIMEOUT
-        if latency_timeout > latency_mode.min_timeout
-            && fulfillment_timeout > fulfillment_mode.min_timeout
-        {
-            assert!(
-                latency_timeout < fulfillment_timeout,
-                "Latency mode should have shorter timeout: latency={}, fulfillment={}",
-                latency_timeout,
-                fulfillment_timeout
-            );
-        }
     }
 
     #[test]
@@ -1058,65 +920,6 @@ mod parameterization_mode_tests {
         let ramp_up_start = mode.recommended_ramp_up_start(Some(cycle_count));
         assert!(ramp_up_start >= now + expected_delay);
         assert!(ramp_up_start <= now + expected_delay + 1); // Allow 1 second tolerance
-    }
-
-    #[test]
-    fn test_recommended_ramp_up_start_latency() {
-        let mode = ParameterizationMode::latency();
-        let now = crate::util::now_timestamp();
-
-        // Test with zero cycles - should return now + 15
-        let ramp_up_start = mode.recommended_ramp_up_start(Some(0));
-        assert!(ramp_up_start >= now + 15);
-        assert!(ramp_up_start <= now + 16); // Allow 1 second tolerance
-
-        // Test with 1M cycles
-        let cycle_count = 1_000_000;
-        let executor_time = mode.executor_time(Some(cycle_count));
-        let expected_delay = executor_time as u64 * mode.ramp_up_delay_multiplier;
-        let ramp_up_start = mode.recommended_ramp_up_start(Some(cycle_count));
-        assert!(ramp_up_start >= now + expected_delay);
-        assert!(ramp_up_start <= now + expected_delay + 1); // Allow 1 second tolerance
-
-        // Test with 50M cycles
-        let cycle_count = 50_000_000;
-        let executor_time = mode.executor_time(Some(cycle_count));
-        let expected_delay = executor_time as u64 * mode.ramp_up_delay_multiplier;
-        let ramp_up_start = mode.recommended_ramp_up_start(Some(cycle_count));
-        assert!(ramp_up_start >= now + expected_delay);
-        assert!(ramp_up_start <= now + expected_delay + 1); // Allow 1 second tolerance
-    }
-
-    #[test]
-    fn test_recommended_ramp_up_start_fulfillment_vs_latency() {
-        let fulfillment_mode = ParameterizationMode::fulfillment();
-        let latency_mode = ParameterizationMode::latency();
-        let now = crate::util::now_timestamp();
-
-        let cycle_count = 100_000_000; // 100M cycles
-
-        let fulfillment_start = fulfillment_mode.recommended_ramp_up_start(Some(cycle_count));
-        let latency_start = latency_mode.recommended_ramp_up_start(Some(cycle_count));
-
-        // Both should be in the future
-        assert!(fulfillment_start > now);
-        assert!(latency_start > now);
-
-        // Fulfillment mode uses a larger delay multiplier (2x) vs latency (1x),
-        // and fulfillment has slower executor speed, so fulfillment should have a later start
-        let fulfillment_executor_time = fulfillment_mode.executor_time(Some(cycle_count));
-        let latency_executor_time = latency_mode.executor_time(Some(cycle_count));
-        let fulfillment_delay =
-            fulfillment_executor_time as u64 * fulfillment_mode.ramp_up_delay_multiplier;
-        let latency_delay = latency_executor_time as u64 * latency_mode.ramp_up_delay_multiplier;
-
-        // Fulfillment should have a longer delay (2x multiplier vs 1x, and slower executor)
-        assert!(
-            fulfillment_delay > latency_delay,
-            "Fulfillment mode should have longer ramp up delay: fulfillment={}, latency={}",
-            fulfillment_delay,
-            latency_delay
-        );
     }
 }
 
@@ -1541,34 +1344,6 @@ mod tests {
         let expected_ramp_up_period =
             fulfillment_mode.recommended_ramp_up_period(Some(cycle_count));
         assert_eq!(offer.rampUpPeriod, expected_ramp_up_period);
-
-        // Test with latency mode
-        let latency_mode = ParameterizationMode::latency();
-        let layer = OfferLayer::new(
-            provider.clone(),
-            OfferLayerConfig::builder().parameterization_mode(latency_mode).build()?,
-        );
-        let offer_latency =
-            layer.process((&requirements, &request_id, Some(cycle_count), &offer_params)).await?;
-
-        // Latency mode should have a shorter ramp up start delay
-        let latency_executor_time = latency_mode.executor_time(Some(cycle_count));
-        let latency_delay = latency_executor_time as u64 * latency_mode.ramp_up_delay_multiplier;
-        assert!(offer_latency.rampUpStart >= now + latency_delay);
-        assert!(offer_latency.rampUpStart <= now + latency_delay + 1); // Allow 1 second tolerance
-
-        // Latency mode should have a shorter ramp up period
-        let expected_latency_ramp_up_period =
-            latency_mode.recommended_ramp_up_period(Some(cycle_count));
-        assert_eq!(offer_latency.rampUpPeriod, expected_latency_ramp_up_period);
-
-        // Fulfillment mode should have a later ramp up start than latency mode
-        assert!(
-            offer.rampUpStart > offer_latency.rampUpStart,
-            "Fulfillment mode should have later ramp up start: fulfillment={}, latency={}",
-            offer.rampUpStart,
-            offer_latency.rampUpStart
-        );
 
         Ok(())
     }
