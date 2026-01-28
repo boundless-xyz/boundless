@@ -220,7 +220,7 @@ format:
     forge fmt
 
 # Clean up all build artifacts
-clean: 
+clean:
     @just localnet down || true
     @echo "Cleaning up..."
     @rm -rf {{LOGS_DIR}} ./broadcast
@@ -251,7 +251,7 @@ localnet action="up": check-deps
     DEPOSIT_AMOUNT="100000000000000000000"
     CHAIN_ID="31337"
     CI=${CI:-0}
-    
+
     if [ "{{action}}" = "up" ]; then
         # Find an unused port
         get_free_port() {
@@ -269,13 +269,13 @@ localnet action="up": check-deps
         echo "Starting anvil on port $PORT"
         ANVIL_PORT=$PORT
         mkdir -p {{LOGS_DIR}}
-        
+
         # Create .env.localnet from template if it doesn't exist
         if [ ! -f .env.localnet ]; then
             echo "Creating .env.localnet from template..."
             cp .env.localnet-template .env.localnet || { echo "Error: .env.localnet-template not found"; exit 1; }
         fi
-        
+
         echo "Building contracts..."
         forge build || { echo "Failed to build contracts"; just localnet down; exit 1; }
         echo "Building Rust project..."
@@ -327,11 +327,11 @@ localnet action="up": check-deps
         sed -i.bak "s/^export RISC0_DEV_MODE=.*/export RISC0_DEV_MODE=$RISC0_DEV_MODE/" .env.localnet
         rm .env.localnet.bak
         echo ".env.localnet file updated successfully."
-        
+
         # Mint stake to the address in the localnet template wallet
         DEFAULT_PRIVATE_KEY="0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
         DEFAULT_ADDRESS="0x90F79bf6EB2c4f870365E785982E1f101E93b906"
-        
+
         echo "Minting HP for prover address."
         cast send --private-key $DEPLOYER_PRIVATE_KEY \
             --rpc-url http://localhost:$ANVIL_PORT \
@@ -368,7 +368,7 @@ localnet action="up": check-deps
                 --min-balance-raw 0 \
                 --bypass-addrs="0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f" \
                 --boundless-market-address $BOUNDLESS_MARKET_ADDRESS > {{LOGS_DIR}}/order_stream.txt 2>&1 & echo $! >> {{PID_FILE}}
-            
+
             echo "Depositing collateral using boundless CLI..."
             PROVER_RPC_URL=http://localhost:$ANVIL_PORT \
             PROVER_PRIVATE_KEY=$DEFAULT_PRIVATE_KEY \
@@ -378,7 +378,7 @@ localnet action="up": check-deps
             COLLATERAL_TOKEN_ADDRESS=$COLLATERAL_TOKEN_ADDRESS \
             CHAIN_ID=$CHAIN_ID \
             ./target/debug/boundless prover deposit-collateral 100 || echo "Note: Stake deposit failed, but this is non-critical for localnet setup"
-            
+
             echo "Localnet is running with RISC0_DEV_MODE=$RISC0_DEV_MODE"
             if [ ! -f broker.toml ]; then
                 echo "Creating broker.toml from template..."
@@ -389,7 +389,7 @@ localnet action="up": check-deps
             echo "To start the broker manually, run:"
             echo "source .env.localnet && cp broker-template.toml broker.toml && cargo run --bin broker"
         fi
-        
+
     elif [ "{{action}}" = "down" ]; then
         if [ -f {{PID_FILE}} ]; then
             while read pid; do
@@ -449,13 +449,13 @@ bento action="up" env_file="" compose_flags="" detached="true":
         else
             echo "Using default values from compose.yml"
         fi
-        
+
         if [ "{{detached}}" = "true" ]; then
             DETACHED_FLAG="-d"
         else
             DETACHED_FLAG=""
         fi
-        
+
         docker compose {{compose_flags}} $ENV_FILE_ARG up --build $DETACHED_FLAG
         if [ "{{detached}}" != "true" ]; then
             echo "Docker Compose services have been started."
