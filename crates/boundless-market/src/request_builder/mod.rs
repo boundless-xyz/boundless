@@ -863,15 +863,15 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: 1_000_000 / 1_000_000 * 2 + 300 = 2 + 300 = 302 seconds
-        assert_eq!(ramp_up, 302);
+        // Expected: 1_000_000 / 1_000_000 * 2 + 600 = 2 + 600 = 602 seconds
+        assert_eq!(ramp_up, 602);
 
         // Test with 50M cycles
         let cycle_count = 50_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: 50_000_000 / 1_000_000 * 2 + 300 = 100 + 300 = 400 seconds
-        assert_eq!(ramp_up, 400);
+        // Expected: 50_000_000 / 1_000_000 * 2 + 600 = 100 + 600 = 700 seconds
+        assert_eq!(ramp_up, 700);
     }
 
     #[test]
