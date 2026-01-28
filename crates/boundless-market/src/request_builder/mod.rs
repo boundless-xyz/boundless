@@ -750,6 +750,7 @@ impl ParameterizationMode {
     /// # Notes
     /// The timeout is guaranteed to be at least [self.min_timeout] seconds.
     fn recommended_timeout(&self, cycle_count: Option<u64>) -> u32 {
+        const MAX_TIMEOUT: u32 = 14400; // 4 hours
         cycle_count
             .filter(|&count| count > 0)
             .map(|cycle_count| {
@@ -757,6 +758,7 @@ impl ParameterizationMode {
                 m_cycles
                     .saturating_mul(self.timeout_seconds_per_mcycle)
                     .saturating_add(self.base_timeout)
+                    .min(MAX_TIMEOUT)
             })
             .unwrap_or(self.base_timeout)
     }
