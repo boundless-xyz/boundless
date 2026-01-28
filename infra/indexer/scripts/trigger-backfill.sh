@@ -16,6 +16,7 @@ Required:
 Optional:
   --end-block BLOCK       Ending block number
   --tx-fetch-strategy STR 'block-receipts' or 'tx-by-hash' (default: 'tx-by-hash')
+  --chain-data-batch-delay-ms MS  Delay in milliseconds between batches during chain data backfill
   --region REGION         AWS region (default: 'us-west-2')
 
 Example:
@@ -34,6 +35,7 @@ EOF
 # Defaults
 REGION="us-west-2"
 TX_FETCH_STRATEGY="tx-by-hash"
+CHAIN_DATA_BATCH_DELAY_MS=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -44,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --lookback-blocks) LOOKBACK_BLOCKS="$2"; shift 2 ;;
     --end-block) END_BLOCK="$2"; shift 2 ;;
     --tx-fetch-strategy) TX_FETCH_STRATEGY="$2"; shift 2 ;;
+    --chain-data-batch-delay-ms) CHAIN_DATA_BATCH_DELAY_MS="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown option: $1"; usage ;;
@@ -87,6 +90,11 @@ fi
 if [ -n "$END_BLOCK" ]; then
   PAYLOAD="$PAYLOAD,
   \"endBlock\": $END_BLOCK"
+fi
+
+if [ -n "$CHAIN_DATA_BATCH_DELAY_MS" ]; then
+  PAYLOAD="$PAYLOAD,
+  \"chainDataBatchDelayMs\": $CHAIN_DATA_BATCH_DELAY_MS"
 fi
 
 PAYLOAD="$PAYLOAD

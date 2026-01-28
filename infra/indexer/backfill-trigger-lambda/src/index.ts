@@ -8,6 +8,8 @@ interface BackfillEvent {
   txFetchStrategy?: 'block-receipts' | 'tx-by-hash';
   // Number of blocks to look back from current block (alternative to startBlock)
   lookbackBlocks?: number;
+  // Delay in milliseconds between batches during chain data backfill
+  chainDataBatchDelayMs?: number;
   // EventBridge scheduled event fields
   source?: string;
   'detail-type'?: string;
@@ -56,6 +58,7 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
   let startBlock: number | undefined;
   let lookbackBlocks: number | undefined;
   let endBlock: number | undefined;
+  let chainDataBatchDelayMs: number | undefined;
 
   if (isScheduledEvent(event)) {
     // Scheduled event - use all config from environment variables
@@ -85,7 +88,16 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
     }
 
     // endBlock is not typically set for scheduled events (defaults to last indexed block)
-    console.log(`Scheduled backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}`);
+    if (process.env.CHAIN_DATA_BATCH_DELAY_MS) {
+      chainDataBatchDelayMs = parseInt(process.env.CHAIN_DATA_BATCH_DELAY_MS, 10);
+      if (isNaN(chainDataBatchDelayMs) || chainDataBatchDelayMs < 0) {
+        return {
+          message: 'Invalid CHAIN_DATA_BATCH_DELAY_MS',
+          error: `CHAIN_DATA_BATCH_DELAY_MS must be a non-negative number, got: ${process.env.CHAIN_DATA_BATCH_DELAY_MS}`,
+        };
+      }
+    }
+    console.log(`Scheduled backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, chainDataBatchDelayMs=${chainDataBatchDelayMs}`);
   } else {
     // Manual invocation - use all config from event payload
     if (!event.mode) {
@@ -108,7 +120,14 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
       };
     }
 
-    console.log(`Manual backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, endBlock=${endBlock}`);
+    chainDataBatchDelayMs = event.chainDataBatchDelayMs ?? 1000;
+    if (isNaN(chainDataBatchDelayMs) || chainDataBatchDelayMs < 0) {
+      return {
+        message: 'Invalid chainDataBatchDelayMs',
+        error: `chainDataBatchDelayMs must be a non-negative number, got: ${chainDataBatchDelayMs}`,
+      };
+    }
+    console.log(`Manual backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, endBlock=${endBlock}, chainDataBatchDelayMs=${chainDataBatchDelayMs}`);
   }
 
   if (!['statuses_and_aggregates', 'aggregates', 'chain_data'].includes(mode)) {
@@ -141,6 +160,10 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
 
   if (endBlock !== undefined) {
     command.push('--end-block', endBlock.toString());
+  }
+
+  if (chainDataBatchDelayMs !== undefined && chainDataBatchDelayMs > 0) {
+    command.push('--chain-data-batch-delay-ms', chainDataBatchDelayMs.toString());
   }
 
   console.log('Running task with command:', command);

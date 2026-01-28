@@ -75,11 +75,24 @@ export = () => {
     const logsEthRpcUrl = isDev ? pulumi.output(getEnvVar("LOGS_ETH_RPC_URL")) : config.requireSecret('LOGS_ETH_RPC_URL');
     const orderStreamApiKey = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_API_KEY")) : config.requireSecret('ORDER_STREAM_API_KEY');
     const orderStreamUrl = isDev ? pulumi.output(getEnvVar("ORDER_STREAM_URL")) : config.getSecret('ORDER_STREAM_URL');
-    const bentoApiUrl = isDev ? pulumi.output(process.env.BENTO_API_URL || '') : config.getSecret('BENTO_API_URL');
-    const bentoApiKey = isDev ? pulumi.output(process.env.BENTO_API_KEY || '') : config.getSecret('BENTO_API_KEY');
+
+    let bentoApiUrl: pulumi.Output<string> | undefined;
+    let bentoApiKey: pulumi.Output<string> | undefined;
+    if (isDev) {
+      if (process.env.BENTO_API_URL) {
+        bentoApiUrl = pulumi.output(process.env.BENTO_API_URL);
+      }
+      if (process.env.BENTO_API_KEY) {
+        bentoApiKey = pulumi.output(process.env.BENTO_API_KEY);
+      }
+    } else {
+      bentoApiUrl = config.getSecret('BENTO_API_URL');
+      bentoApiKey = config.getSecret('BENTO_API_KEY');
+    }
 
     const blockDelay = config.get('BLOCK_DELAY') || "0";
     const backfillChainDataBlocks = config.get('BACKFILL_CHAIN_DATA_BLOCKS');
+    const chainDataBatchDelayMs = config.get('CHAIN_DATA_BATCH_DELAY_MS') || '1000';
 
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
@@ -102,6 +115,7 @@ export = () => {
       rustLogLevel: rustLogIndexer,
       blockDelay,
       backfillChainDataBlocks,
+      chainDataBatchDelayMs,
     }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
