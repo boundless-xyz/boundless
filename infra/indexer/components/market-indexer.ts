@@ -25,6 +25,8 @@ export interface MarketIndexerArgs {
   bentoApiUrl?: pulumi.Output<string>;
   bentoApiKey?: pulumi.Output<string>;
   rustLogLevel: string;
+  blockDelay?: pulumi.Input<string>;
+  backfillChainDataBlocks?: pulumi.Input<string>;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -52,6 +54,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
       bentoApiUrl,
       bentoApiKey,
       rustLogLevel,
+      blockDelay,
+      backfillChainDataBlocks,
     } = args;
 
     const serviceName = name;
@@ -177,6 +181,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
             ...(orderStreamApiKey ? ['--order-stream-api-key', orderStreamApiKey] : []),
             ...(bentoApiUrl ? ['--bento-api-url', bentoApiUrl] : []),
             ...(bentoApiKey ? ['--bento-api-key', bentoApiKey] : []),
+            ...(blockDelay ? ['--block-delay', blockDelay] : []),
           ],
           secrets: [
             {
@@ -308,7 +313,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       ),
     }, { parent: this });
 
-    // Create Lambda function
+    // Create Lambda function for aggregates backfill
     const backfillLambda = new aws.lambda.Function(`${serviceName}-backfill-start`, {
       name: `${serviceName}-backfill-start`,
       role: lambdaRole.arn,
@@ -330,8 +335,35 @@ export class MarketIndexer extends pulumi.ComponentResource {
           BOUNDLESS_ADDRESS: boundlessAddress,
           CACHE_BUCKET: infra.cacheBucket.bucket,
           // Scheduled backfill configuration
-          SCHEDULED_BACKFILL_MODE: 'statuses_and_aggregates', // Default to aggregates for daily runs
-          START_BLOCK: startBlock, // Use same start block as regular indexer
+          SCHEDULED_BACKFILL_MODE: 'statuses_and_aggregates',
+          START_BLOCK: startBlock,
+        },
+      },
+    }, { parent: this, dependsOn: [lambdaRole] });
+
+    // Create Lambda function for chain data backfill (with lookback support)
+    const chainDataBackfillLambda = new aws.lambda.Function(`${serviceName}-chain-backfill-start`, {
+      name: `${serviceName}-chain-backfill-start`,
+      role: lambdaRole.arn,
+      runtime: 'nodejs20.x',
+      handler: 'index.handler',
+      timeout: 30,
+      code: new pulumi.asset.AssetArchive({
+        '.': new pulumi.asset.FileArchive('../indexer/backfill-trigger-lambda/build'),
+      }),
+      environment: {
+        variables: {
+          CLUSTER_ARN: infra.cluster.arn,
+          TASK_DEFINITION_ARN: backfillTaskDef.taskDefinition.arn,
+          SUBNET_IDS: privSubNetIds.apply(ids => ids.join(',')),
+          SECURITY_GROUP_ID: infra.indexerSecurityGroup.id,
+          CONTAINER_NAME: backfillContainerName,
+          RPC_URL: ethRpcUrl,
+          LOGS_RPC_URL: logsEthRpcUrl ?? ethRpcUrl,
+          BOUNDLESS_ADDRESS: boundlessAddress,
+          CACHE_BUCKET: infra.cacheBucket.bucket,
+          SCHEDULED_BACKFILL_MODE: 'chain_data',
+          LOOKBACK_BLOCKS: backfillChainDataBlocks ?? '100000',
         },
       },
     }, { parent: this, dependsOn: [lambdaRole] });
@@ -362,6 +394,29 @@ export class MarketIndexer extends pulumi.ComponentResource {
     new aws.cloudwatch.EventTarget(`${serviceName}-backfill-targ`, {
       rule: backfillScheduleRule.name,
       arn: backfillLambda.arn,
+    }, { parent: this });
+
+    // Create EventBridge rule for daily chain data backfill
+    const chainDataBackfillRule = new aws.cloudwatch.EventRule(`${serviceName}-chain-backfill-rule`, {
+      name: `${serviceName}-chain-backfill-rule`,
+      description: `Daily chain data backfill for ${serviceName}`,
+      scheduleExpression: 'cron(0 18 * * ? *)', // Run daily at 6 PM UTC
+      state: 'ENABLED',
+    }, { parent: this });
+
+    // Grant EventBridge permission to invoke chain data backfill Lambda
+    new aws.lambda.Permission(`${serviceName}-chain-backfill-lmbd-perm`, {
+      statementId: `AllowEventBridge-${serviceName}-chain`,
+      action: 'lambda:InvokeFunction',
+      function: chainDataBackfillLambda.name,
+      principal: 'events.amazonaws.com',
+      sourceArn: chainDataBackfillRule.arn,
+    }, { parent: this });
+
+    // Add Lambda as target for chain data EventBridge rule
+    new aws.cloudwatch.EventTarget(`${serviceName}-chain-backfill-targ`, {
+      rule: chainDataBackfillRule.name,
+      arn: chainDataBackfillLambda.arn,
     }, { parent: this });
 
     // Grant execution role permission to write to this service's specific log group

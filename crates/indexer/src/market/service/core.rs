@@ -273,10 +273,11 @@ where
     }
 
     async fn current_block(&self) -> Result<u64, ServiceError> {
-        Ok(self.boundless_market.instance().provider().get_block_number().await?)
+        let chain_head = self.boundless_market.instance().provider().get_block_number().await?;
+        Ok(chain_head.saturating_sub(self.config.block_delay))
     }
 
-    fn clear_in_memory_cache(&mut self) {
+    pub fn clear_in_memory_cache(&mut self) {
         self.tx_hash_to_metadata.clear();
         self.block_num_to_timestamp.clear();
     }

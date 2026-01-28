@@ -73,6 +73,15 @@ aws lambda list-functions --query 'Functions[?contains(FunctionName, `backfill-t
   --end-block 39383104
 ```
 
+or chain_data mode with lookback blocks:
+
+```bash
+./scripts/trigger-backfill.sh \
+  --lambda-name <from above> \
+  --mode chain_data \
+  --lookback-blocks 1000
+```
+
 ### (Backup, prefer script) Direct Lambda Invocation
 
 ```bash
@@ -87,13 +96,15 @@ aws lambda invoke \
 
 **Required:**
 
-- `mode`: "statuses_and_aggregates" or "aggregates"
-- `startBlock`: Starting block number
+- `mode`: "statuses_and_aggregates", "aggregates", or "chain_data"
+- `startBlock` OR `lookbackBlocks`: Starting block number OR number of blocks to look back from current
 
 **Optional:**
 
 - `endBlock`: Ending block number (default: latest indexed)
 - `txFetchStrategy`: "block-receipts" or "tx-by-hash" (default: "tx-by-hash")
+
+**Note:** You must provide either `startBlock` or `lookbackBlocks`, but not both. The `lookbackBlocks` parameter is useful when you want to backfill a fixed number of blocks from the current chain head.
 
 ## Development
 
