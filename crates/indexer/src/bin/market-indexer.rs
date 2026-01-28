@@ -73,6 +73,9 @@ struct MainArgs {
     /// Depending on RPC provider, one may be more efficient than the other.
     #[clap(long, env, default_value = "tx-by-hash")]
     tx_fetch_strategy: String,
+    /// Number of blocks to lag behind chain head to reduce reorg risk.
+    #[clap(long, default_value = "0")]
+    block_delay: u64,
     /// Interval in seconds between checking for requests with pending cycle counts, which will need
     /// to be scheduled for execution.
     #[clap(long, default_value = "3")]
@@ -154,6 +157,7 @@ async fn main() -> Result<()> {
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
         execution_config,
+        block_delay: args.block_delay,
     };
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());

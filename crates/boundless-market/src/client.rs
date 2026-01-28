@@ -357,32 +357,40 @@ impl<St, Si> ClientBuilder<St, Si> {
             .transpose()?;
 
         // Build the price provider - use explicit provider if set, otherwise create from deployment.indexer_url
-        let price_provider: Option<PriceProviderArc> = if let Some(provider) =
-            self.price_provider.clone()
-        {
-            Some(provider)
-        } else if let Some(url_str) = deployment.indexer_url.as_ref() {
-            let url = Url::parse(url_str.as_ref()).with_context(|| {
-                format!("Failed to parse indexer URL from deployment: {}", url_str)
-            })?;
-            let indexer_client = IndexerClient::new(url).with_context(|| {
-                format!("Failed to create indexer client from deployment indexer URL: {}", url_str)
-            })?;
-            let market_pricing = MarketPricing::new(
-                first_rpc_url,
-                MarketPricingConfigBuilder::default()
-                    .deployment(deployment.clone())
-                    .build()
-                    .with_context(|| {
-                        format!(
+        let price_provider: Option<PriceProviderArc> =
+            if let Some(provider) = self.price_provider.clone() {
+                Some(provider)
+            } else {
+                let market_pricing = MarketPricing::new(
+                    first_rpc_url,
+                    MarketPricingConfigBuilder::default()
+                        .deployment(deployment.clone())
+                        .build()
+                        .with_context(|| {
+                            format!(
                             "Failed to build MarketPricingConfig for deployment: {deployment:?}",
                         )
-                    })?,
-            );
-            Some(Arc::new(StandardPriceProvider::new(indexer_client).with_fallback(market_pricing)))
-        } else {
-            None
-        };
+                        })?,
+                );
+                if let Some(url_str) = deployment.indexer_url.as_ref() {
+                    let url = Url::parse(url_str.as_ref()).with_context(|| {
+                        format!("Failed to parse indexer URL from deployment: {}", url_str)
+                    })?;
+                    let indexer_client = IndexerClient::new(url).with_context(|| {
+                        format!(
+                            "Failed to create indexer client from deployment indexer URL: {}",
+                            url_str
+                        )
+                    })?;
+                    Some(Arc::new(
+                        StandardPriceProvider::new(indexer_client).with_fallback(market_pricing),
+                    ))
+                } else {
+                    Some(Arc::new(StandardPriceProvider::<MarketPricing, MarketPricing>::new(
+                        market_pricing,
+                    )))
+                }
+            };
 
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
@@ -781,6 +789,45 @@ where
     }
 }
 
+/// Computes the funding value to send for a given balance, max price, and funding mode.
+/// Used by [Client::compute_funding_value] and by unit tests.
+fn funding_value_for_balance(balance: U256, max_price: U256, funding_mode: FundingMode) -> U256 {
+    match funding_mode {
+        FundingMode::Always => max_price,
+
+        FundingMode::Never => U256::ZERO,
+
+        FundingMode::AvailableBalance => {
+            if balance < max_price {
+                max_price.saturating_sub(balance)
+            } else {
+                U256::ZERO
+            }
+        }
+
+        FundingMode::BelowThreshold(threshold) => {
+            if balance < threshold || balance < max_price {
+                max(threshold.saturating_sub(balance), max_price.saturating_sub(balance))
+            } else {
+                U256::ZERO
+            }
+        }
+
+        FundingMode::MinMaxBalance { min_balance, max_balance } => {
+            if balance < min_balance || balance < max_price {
+                let topup = if balance < min_balance {
+                    max_balance.saturating_sub(balance)
+                } else {
+                    U256::ZERO
+                };
+                max(topup, max_price.saturating_sub(balance))
+            } else {
+                U256::ZERO
+            }
+        }
+    }
+}
+
 impl<P, St, R, Si> Client<P, St, R, Si>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -943,63 +990,43 @@ where
         max_price: U256,
     ) -> Result<U256, ClientError> {
         let balance = self.boundless_market.balance_of(client_address).await?;
+        let value = funding_value_for_balance(balance, max_price, self.funding_mode);
 
-        let value = match self.funding_mode {
-            FundingMode::Always => {
-                if balance > max_price.saturating_mul(U256::from(3u8)) {
-                    tracing::warn!(
-                        "Client balance is {} ETH, that is more than 3x the value being sent. \
-                         Consider switching to a different funding mode to avoid overfunding.",
-                        format_ether(balance),
-                    );
-                }
-                max_price
-            }
-
-            FundingMode::Never => U256::ZERO,
-
-            FundingMode::AvailableBalance => {
-                if balance < max_price {
-                    max_price.saturating_sub(balance)
-                } else {
-                    U256::ZERO
-                }
-            }
-
-            FundingMode::BelowThreshold(threshold) => {
+        if value > U256::ZERO {
+            if let FundingMode::BelowThreshold(threshold) = self.funding_mode {
                 if balance < threshold {
-                    let to_send =
-                        max(threshold.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < threshold {} ETH. \
                          Sending additional funds to top up the balance.",
                         format_ether(balance),
                         format_ether(threshold),
                     );
-                    to_send
-                } else {
-                    U256::ZERO
                 }
-            }
-
-            FundingMode::MinMaxBalance { min_balance, max_balance } => {
+            } else if let FundingMode::MinMaxBalance { min_balance, max_balance } =
+                self.funding_mode
+            {
                 if balance < min_balance {
-                    let to_send =
-                        max(max_balance.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < min {} ETH. \
                          Sending {} ETH (max target {}).",
                         format_ether(balance),
                         format_ether(min_balance),
-                        format_ether(to_send),
+                        format_ether(value),
                         format_ether(max_balance),
                     );
-                    to_send
-                } else {
-                    U256::ZERO
                 }
             }
-        };
+        }
+
+        if let FundingMode::Always = self.funding_mode {
+            if balance > max_price.saturating_mul(U256::from(3u8)) {
+                tracing::warn!(
+                    "Client balance is {} ETH, that is more than 3x the value being sent. \
+                     Consider switching to a different funding mode to avoid overfunding.",
+                    format_ether(balance),
+                );
+            }
+        }
 
         Ok(value)
     }
@@ -1249,6 +1276,24 @@ where
 
     /// Get the [SetInclusionReceipt] for a request.
     ///
+    /// This method fetches the fulfillment data for a request and constructs the set inclusion receipt.
+    ///
+    /// # Parameters
+    ///
+    /// * `request_id` - The unique identifier of the proof request
+    /// * `image_id` - The image ID for the receipt claim
+    /// * `search_to_block` - Optional lower bound for the block search range. The search will go backwards
+    ///   down to this block number. Combined with `search_from_block` to define a specific range.
+    /// * `search_from_block` - Optional upper bound for the block search range. The search starts backwards
+    ///   from this block. Defaults to the latest block if not specified. Set this to a block number near
+    ///   when the request was fulfilled to reduce RPC calls and cost when querying old fulfillments.
+    ///
+    /// # Default Search Behavior
+    ///
+    /// Without explicit block bounds, the onchain search covers blocks according to
+    /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
+    /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -1260,7 +1305,23 @@ where
     ///
     /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
     ///     let client = ClientBuilder::new().build().await?;
-    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+    ///
+    ///     // For recent requests
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
+    ///         request_id,
+    ///         image_id,
+    ///         None,
+    ///         None,
+    ///     ).await?;
+    ///
+    ///     // For old requests with explicit block range
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
+    ///         request_id,
+    ///         image_id,
+    ///         Some(1000000),  // search_to_block
+    ///         Some(1500000),  // search_from_block
+    ///     ).await?;
+    ///
     ///     Ok((journal, receipt))
     /// }
     /// ```
@@ -1268,10 +1329,15 @@ where
         &self,
         request_id: U256,
         image_id: B256,
+        search_to_block: Option<u64>,
+        search_from_block: Option<u64>,
     ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
         // TODO(#646): This logic is only correct under the assumption there is a single set
         // verifier.
-        let fulfillment = self.boundless_market.get_request_fulfillment(request_id).await?;
+        let fulfillment = self
+            .boundless_market
+            .get_request_fulfillment(request_id, search_to_block, search_from_block)
+            .await?;
         match fulfillment.data().context("failed to decode fulfillment data")? {
             FulfillmentData::None => Err(ClientError::Error(anyhow!(
                 "No fulfillment data found for set inclusion receipt"
@@ -1297,15 +1363,62 @@ where
     /// onchain uses event logs, and will take more time to find requests that are further in the
     /// past.
     ///
-    /// Providing a `tx_hash` will speed up onchain queries, by fetching the transaction containing
-    /// the request. Providing the `request_digest` allows differentiating between multiple
-    /// requests with the same ID. If set to `None`, the first found request matching the ID will
-    /// be returned.
+    /// # Parameters
+    ///
+    /// * `request_id` - The unique identifier of the proof request
+    /// * `tx_hash` - Optional transaction hash containing the request. Providing this will speed up
+    ///   onchain queries by fetching the transaction directly instead of searching through events.
+    /// * `request_digest` - Optional digest to differentiate between multiple requests with the same ID.
+    ///   If `None`, the first found request matching the ID will be returned.
+    /// * `search_to_block` - Optional lower bound for the block search range. The search will go backwards
+    ///   down to this block number. Combined with `search_from_block` to define a specific range.
+    /// * `search_from_block` - Optional upper bound for the block search range. The search starts backwards
+    ///   from this block. Defaults to the latest block if not specified. Set this to a block number near
+    ///   when the request was submitted to reduce RPC calls and cost when querying old requests.
+    ///
+    /// # Default Search Behavior
+    ///
+    /// Without explicit block bounds, the onchain search covers blocks according to
+    /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
+    /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
+    ///
+    /// Providing both bounds overrides the default iteration limit to ensure the full specified range is searched.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use alloy::primitives::U256;
+    /// # use boundless_market::client::ClientBuilder;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ClientBuilder::new().build().await?;
+    ///
+    /// // Query a recent request (no block bounds needed)
+    /// let (request, sig) = client.fetch_proof_request(
+    ///     U256::from(123),
+    ///     None,
+    ///     None,
+    ///     None,
+    ///     None,
+    /// ).await?;
+    ///
+    /// // Query an old request with explicit block range (e.g., blocks 1000000 to 1500000)
+    /// let (request, sig) = client.fetch_proof_request(
+    ///     U256::from(456),
+    ///     None,
+    ///     None,
+    ///     Some(1000000),  // search_to_block (lower bound)
+    ///     Some(1500000),  // search_from_block (upper bound)
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn fetch_proof_request(
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
         request_digest: Option<B256>,
+        search_to_block: Option<u64>,
+        search_from_block: Option<u64>,
     ) -> Result<(ProofRequest, Bytes), ClientError> {
         if let Some(ref order_stream_client) = self.offchain_client {
             tracing::debug!("Querying the order stream for request: 0x{request_id:x} using request_digest {request_digest:?}");
@@ -1332,12 +1445,148 @@ where
         tracing::debug!(
             "Querying the blockchain for request: 0x{request_id:x} using tx_hash {tx_hash:?}"
         );
-        match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
+        match self
+            .boundless_market
+            .get_submitted_request(request_id, tx_hash, search_to_block, search_from_block)
+            .await
+        {
             Ok((proof_request, signature)) => Ok((proof_request, signature)),
-            Err(err @ MarketError::RequestNotFound(_)) => Err(err.into()),
+            Err(err @ MarketError::RequestNotFound(..)) => Err(err.into()),
             err @ Err(_) => err
                 .with_context(|| format!("error querying for 0x{request_id:x} onchain"))
                 .map_err(Into::into),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{funding_value_for_balance, FundingMode};
+    use alloy::primitives::U256;
+
+    #[test]
+    fn funding_always_sends_max_price() {
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(U256::ZERO, max_price, FundingMode::Always),
+            max_price
+        );
+        assert_eq!(
+            funding_value_for_balance(U256::from(100u64), max_price, FundingMode::Always),
+            max_price
+        );
+    }
+
+    #[test]
+    fn funding_never_sends_zero() {
+        let balance = U256::from(5u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(funding_value_for_balance(balance, max_price, FundingMode::Never), U256::ZERO);
+    }
+
+    #[test]
+    fn funding_available_balance_sends_shortfall_when_insufficient() {
+        let balance = U256::from(5u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(balance, max_price, FundingMode::AvailableBalance),
+            U256::from(15u64)
+        );
+    }
+
+    #[test]
+    fn funding_available_balance_sends_zero_when_sufficient() {
+        let balance = U256::from(25u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(balance, max_price, FundingMode::AvailableBalance),
+            U256::ZERO
+        );
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_above_threshold_below_max_price_sends_shortfall() {
+        // Balance >= threshold but < max_price: must send (max_price - balance) to fund request.
+        let balance = U256::from(15u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::from(5u64), "should send shortfall for this request");
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_below_threshold_sends_max_of_topup_and_shortfall() {
+        let balance = U256::from(5u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::from(15u64)); // max(5, 15) = 15
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_above_max_price_sends_zero() {
+        let balance = U256::from(25u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::ZERO);
+    }
+
+    #[test]
+    fn funding_min_max_balance_above_min_below_max_price_sends_shortfall() {
+        // Balance >= min_balance but < max_price: must send (max_price - balance) to fund request.
+        let balance = U256::from(15u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::from(5u64), "should send shortfall for this request");
+    }
+
+    #[test]
+    fn funding_min_max_balance_below_min_sends_max_of_topup_and_shortfall() {
+        let balance = U256::from(5u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::from(95u64)); // max(95, 15) = 95
+    }
+
+    #[test]
+    fn funding_min_max_balance_above_max_price_sends_zero() {
+        let balance = U256::from(25u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::ZERO);
     }
 }

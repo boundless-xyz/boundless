@@ -78,6 +78,9 @@ export = () => {
     const bentoApiUrl = isDev ? pulumi.output(process.env.BENTO_API_URL || '') : config.getSecret('BENTO_API_URL');
     const bentoApiKey = isDev ? pulumi.output(process.env.BENTO_API_KEY || '') : config.getSecret('BENTO_API_KEY');
 
+    const blockDelay = config.get('BLOCK_DELAY') || "0";
+    const backfillChainDataBlocks = config.get('BACKFILL_CHAIN_DATA_BLOCKS');
+
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
@@ -97,6 +100,8 @@ export = () => {
       bentoApiUrl,
       bentoApiKey,
       rustLogLevel: rustLogIndexer,
+      blockDelay,
+      backfillChainDataBlocks,
     }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 

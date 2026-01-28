@@ -9,8 +9,9 @@ Trigger a market indexer backfill task via Lambda.
 
 Required:
   --lambda-name NAME       Lambda function name
-  --mode MODE             Backfill mode: 'statuses_and_aggregates' or 'aggregates'
-  --start-block BLOCK     Starting block number
+  --mode MODE             Backfill mode: 'statuses_and_aggregates', 'aggregates', or 'chain_data'
+  --start-block BLOCK     Starting block number (required if --lookback-blocks not provided)
+  --lookback-blocks NUM   Number of blocks to look back from current (required if --start-block not provided)
 
 Optional:
   --end-block BLOCK       Ending block number
@@ -22,6 +23,10 @@ Example:
      --mode statuses_and_aggregates \\
      --start-block 1000000 \\
      --end-block 2000000
+
+  $0 --lambda-name dev-backfill-trigger \\
+     --mode chain_data \\
+     --lookback-blocks 1000
 EOF
   exit 1
 }
@@ -36,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --lambda-name) LAMBDA_NAME="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
     --start-block) START_BLOCK="$2"; shift 2 ;;
+    --lookback-blocks) LOOKBACK_BLOCKS="$2"; shift 2 ;;
     --end-block) END_BLOCK="$2"; shift 2 ;;
     --tx-fetch-strategy) TX_FETCH_STRATEGY="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
@@ -45,8 +51,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate
-if [ -z "$LAMBDA_NAME" ] || [ -z "$MODE" ] || [ -z "$START_BLOCK" ]; then
+if [ -z "$LAMBDA_NAME" ] || [ -z "$MODE" ]; then
   echo "Error: Missing required arguments"
+  usage
+fi
+
+if [ -z "$START_BLOCK" ] && [ -z "$LOOKBACK_BLOCKS" ]; then
+  echo "Error: Either --start-block or --lookback-blocks must be provided"
+  usage
+fi
+
+if [ -n "$START_BLOCK" ] && [ -n "$LOOKBACK_BLOCKS" ]; then
+  echo "Error: Cannot specify both --start-block and --lookback-blocks"
   usage
 fi
 
@@ -54,10 +70,19 @@ fi
 PAYLOAD=$(cat <<EOF
 {
   "mode": "$MODE",
-  "startBlock": $START_BLOCK,
   "txFetchStrategy": "$TX_FETCH_STRATEGY"
 EOF
 )
+
+if [ -n "$START_BLOCK" ]; then
+  PAYLOAD="$PAYLOAD,
+  \"startBlock\": $START_BLOCK"
+fi
+
+if [ -n "$LOOKBACK_BLOCKS" ]; then
+  PAYLOAD="$PAYLOAD,
+  \"lookbackBlocks\": $LOOKBACK_BLOCKS"
+fi
 
 if [ -n "$END_BLOCK" ]; then
   PAYLOAD="$PAYLOAD,

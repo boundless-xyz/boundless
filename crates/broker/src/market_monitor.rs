@@ -472,7 +472,7 @@ where
                                         // Try to get from market first. If the request was submitted via the order stream, we will be unable to find it there.
                                         // In that case we check the order stream.
                                         let mut order: Option<OrderRequest> = None;
-                                        if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None).await {
+                                        if let Ok((proof_request, signature)) = market.get_submitted_request(event.requestId, None, None, None).await {
                                             order = Some(OrderRequest::new(
                                                 proof_request,
                                                 signature,
@@ -882,7 +882,7 @@ mod tests {
 
         // retrieve fulfillment data and seal from the fulfilled request
         let fulfillment_result =
-            ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+            ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
         let fulfillment_data = fulfillment_result.data().unwrap();
         let seal = fulfillment_result.seal;
         let expected_fulfillment_data = FulfillmentData::decode_with_type(
