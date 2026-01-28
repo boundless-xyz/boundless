@@ -10,6 +10,8 @@ interface BackfillEvent {
   lookbackBlocks?: number;
   // Delay in milliseconds between batches during chain data backfill
   chainDataBatchDelayMs?: number;
+  // Number of blocks to process in each batch
+  batchSize?: number;
   // EventBridge scheduled event fields
   source?: string;
   'detail-type'?: string;
@@ -59,6 +61,7 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
   let lookbackBlocks: number | undefined;
   let endBlock: number | undefined;
   let chainDataBatchDelayMs: number | undefined;
+  let batchSize: number | undefined;
 
   if (isScheduledEvent(event)) {
     // Scheduled event - use all config from environment variables
@@ -97,7 +100,16 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
         };
       }
     }
-    console.log(`Scheduled backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, chainDataBatchDelayMs=${chainDataBatchDelayMs}`);
+    if (process.env.BACKFILL_BATCH_SIZE) {
+      batchSize = parseInt(process.env.BACKFILL_BATCH_SIZE, 10);
+      if (isNaN(batchSize) || batchSize <= 0) {
+        return {
+          message: 'Invalid BACKFILL_BATCH_SIZE',
+          error: `BACKFILL_BATCH_SIZE must be a positive number, got: ${process.env.BACKFILL_BATCH_SIZE}`,
+        };
+      }
+    }
+    console.log(`Scheduled backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, chainDataBatchDelayMs=${chainDataBatchDelayMs}, batchSize=${batchSize}`);
   } else {
     // Manual invocation - use all config from event payload
     if (!event.mode) {
@@ -129,7 +141,16 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
         };
       }
     }
-    console.log(`Manual backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, endBlock=${endBlock}, chainDataBatchDelayMs=${chainDataBatchDelayMs}`);
+    if (event.batchSize !== undefined) {
+      batchSize = event.batchSize;
+      if (isNaN(batchSize) || batchSize <= 0) {
+        return {
+          message: 'Invalid batchSize',
+          error: `batchSize must be a positive number, got: ${batchSize}`,
+        };
+      }
+    }
+    console.log(`Manual backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, endBlock=${endBlock}, chainDataBatchDelayMs=${chainDataBatchDelayMs}, batchSize=${batchSize}`);
   }
 
   if (!['statuses_and_aggregates', 'aggregates', 'chain_data'].includes(mode)) {
@@ -166,6 +187,10 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
 
   if (chainDataBatchDelayMs !== undefined && chainDataBatchDelayMs > 0) {
     command.push('--chain-data-batch-delay-ms', chainDataBatchDelayMs.toString());
+  }
+
+  if (batchSize !== undefined && batchSize > 0) {
+    command.push('--batch-size', batchSize.toString());
   }
 
   console.log('Running task with command:', command);

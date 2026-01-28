@@ -93,6 +93,7 @@ export = () => {
     const blockDelay = config.get('BLOCK_DELAY') || "0";
     const backfillChainDataBlocks = config.get('BACKFILL_CHAIN_DATA_BLOCKS');
     const chainDataBatchDelayMs = config.get('CHAIN_DATA_BATCH_DELAY_MS') || '1000';
+    const backfillBatchSize = config.get('BACKFILL_BATCH_SIZE') || '750';
 
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
@@ -116,6 +117,7 @@ export = () => {
       blockDelay,
       backfillChainDataBlocks,
       chainDataBatchDelayMs,
+      backfillBatchSize,
     }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
