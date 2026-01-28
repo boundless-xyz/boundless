@@ -569,28 +569,6 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
     use tokio::task::JoinHandle;
 
-    struct EnvGuard {
-        key: &'static str,
-        value: Option<String>,
-    }
-
-    impl EnvGuard {
-        fn set(key: &'static str, value: &str) -> Self {
-            let old = std::env::var(key).ok();
-            std::env::set_var(key, value);
-            Self { key, value: old }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            match &self.value {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
-
     /// Test setup helper that creates common test infrastructure
     async fn setup_test_env(
         pool: PgPool,
@@ -723,7 +701,8 @@ mod tests {
     #[sqlx::test]
     #[serial]
     async fn integration_test(pool: PgPool) {
-        let _env = EnvGuard::set("ORDER_STREAM_CLIENT_PING_MS", "10000");
+        // Set the ping interval to 500ms for this test
+        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
 
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
@@ -899,7 +878,8 @@ mod tests {
     #[sqlx::test]
     #[serial]
     async fn test_websocket_connection_replacement(pool: PgPool) {
-        let _env = EnvGuard::set("ORDER_STREAM_CLIENT_PING_MS", "10000");
+        // Set the ping interval to 500ms for this test
+        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
 
         // Set up server and client
         let (client, app_state, ctx, _anvil, server_handle, _addr) =
@@ -935,20 +915,14 @@ mod tests {
         // Wait a bit to ensure first connection is fully established
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
+        // Connect second websocket connection for the same address
         let second_socket = client.connect_async(&ctx.prover_signer).await.unwrap();
         let mut second_stream = order_stream(second_socket);
 
-        let second_stream_task = tokio::spawn(async move {
-            while let Some(order) = second_stream.next().await {
-                // Send order through channel, or break if channel is closed
-                if second_order_tx.send(order).await.is_err() {
-                    break;
-                }
-            }
-        });
+        // Wait a bit for the old connection to be closed
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
+        // Verify new connection is active in connections map
         {
             let connections = app_state.connections.read().await;
             assert!(
@@ -957,6 +931,16 @@ mod tests {
             );
             assert_eq!(connections.len(), 1, "Should only have one connection for this address");
         }
+
+        // Spawn task to listen on second connection
+        let second_stream_task = tokio::spawn(async move {
+            while let Some(order) = second_stream.next().await {
+                // Send order through channel, or break if channel is closed
+                if second_order_tx.send(order).await.is_err() {
+                    break;
+                }
+            }
+        });
 
         // Submit an order and verify it's received on the new connection (not the old one)
         let app_state_clone = app_state.clone();
@@ -986,13 +970,7 @@ mod tests {
                 assert_eq!(order, db_order.order);
             }
             Ok(None) => {
-                if let Err(e) = second_stream_task.await {
-                    panic!("Second stream task panicked (connection likely closed): {:?}", e);
-                }
-                panic!(
-                    "Order channel closed unexpectedly on new connection (stream ended before \
-                     receiving order)"
-                );
+                panic!("Order channel closed unexpectedly on new connection");
             }
             Err(_) => {
                 panic!("Timed out waiting for order on new connection");
