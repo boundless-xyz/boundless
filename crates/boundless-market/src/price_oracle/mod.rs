@@ -11,6 +11,8 @@ pub mod error;
 pub mod sources;
 /// Composite oracle with aggregation
 pub mod composite_oracle;
+/// Cached oracle with background refresh
+pub mod cached_oracle;
 
 pub use config::{PriceOracleConfig, StaticPriceConfig};
 pub use error::PriceOracleError;
@@ -32,6 +34,12 @@ impl TradingPair {
             Self::EthUsd => "ETH/USD",
             Self::ZkcUsd => "ZKC/USD",
         }
+    }
+}
+
+impl std::fmt::Display for TradingPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 
