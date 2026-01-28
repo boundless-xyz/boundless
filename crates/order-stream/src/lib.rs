@@ -564,6 +564,7 @@ mod tests {
     use futures_util::StreamExt;
     use reqwest::Url;
     use risc0_zkvm::sha::Digest;
+    use serial_test::serial;
     use sqlx::PgPool;
     use std::net::{Ipv4Addr, SocketAddr};
     use tokio::task::JoinHandle;
@@ -720,8 +721,9 @@ mod tests {
     }
 
     #[sqlx::test]
+    #[serial]
     async fn integration_test(pool: PgPool) {
-        let _env = EnvGuard::set("ORDER_STREAM_CLIENT_PING_MS", "500");
+        let _env = EnvGuard::set("ORDER_STREAM_CLIENT_PING_MS", "10000");
 
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
@@ -895,6 +897,7 @@ mod tests {
     }
 
     #[sqlx::test]
+    #[serial]
     async fn test_websocket_connection_replacement(pool: PgPool) {
         let _env = EnvGuard::set("ORDER_STREAM_CLIENT_PING_MS", "10000");
 
