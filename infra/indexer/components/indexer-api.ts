@@ -576,14 +576,14 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Cache policy for epoch leaderboard: longer TTL (5m default, 1h max)
-    const epochLeaderboardCachePolicy = new aws.cloudfront.CachePolicy(
-      `${serviceName}-long-cache`,
+    // Cache policy for leaderboards: longer TTL to reduce expensive queries
+    const leaderboardCachePolicy = new aws.cloudfront.CachePolicy(
+      `${serviceName}-leaderboard-cache`,
       {
-        name: `${serviceName}-long-cache`,
-        comment: 'Longer cache for historical epoch data (5m default)',
-        defaultTtl: 300,
-        minTtl: 60,
+        name: `${serviceName}-leaderboard-cache`,
+        comment: 'Longer cache for leaderboard endpoints',
+        defaultTtl: 600,
+        minTtl: 300,
         maxTtl: 3600,
         parametersInCacheKeyAndForwardedToOrigin: {
           cookiesConfig: {
@@ -684,7 +684,18 @@ export class IndexerApi extends pulumi.ComponentResource {
             allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
             cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
             compress: true,
-            cachePolicyId: epochLeaderboardCachePolicy.id,
+            cachePolicyId: leaderboardCachePolicy.id,
+            originRequestPolicyId: originRequestPolicy.id,
+          },
+          {
+            // Market leaderboards - cache longer to reduce expensive percentile queries
+            pathPattern: '/v1/market/leaderboard/*',
+            targetOriginId: 'api',
+            viewerProtocolPolicy: 'redirect-to-https',
+            allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            compress: true,
+            cachePolicyId: leaderboardCachePolicy.id,
             originRequestPolicyId: originRequestPolicy.id,
           },
         ],
