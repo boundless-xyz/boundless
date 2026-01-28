@@ -10,11 +10,11 @@ pub mod error;
 /// Price source implementations
 pub mod sources;
 /// Composite oracle with aggregation
-pub mod composite;
+pub mod composite_oracle;
 
 pub use config::{PriceOracleConfig, StaticPriceConfig};
 pub use error::PriceOracleError;
-pub use composite::CompositeOracle;
+pub use composite_oracle::CompositeOracle;
 
 /// Trading pair for price queries
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,7 +36,7 @@ impl TradingPair {
 }
 
 /// Price quote from a source (all prices scaled by 1e8)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PriceQuote {
     /// USD price scaled by 1e8 (e.g., $2000.00 = 200000000000)
     pub price: U256,
