@@ -623,11 +623,7 @@ where
             },
         );
 
-        let (
-            locks,
-            total_program_cycles,
-            total_cycles,
-        ) = tokio::join!(
+        let (locks, total_program_cycles, total_cycles) = tokio::join!(
             async {
                 self.db
                     .get_period_prover_lock_pricing_data(period_start, period_end, prover_address)
