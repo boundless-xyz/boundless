@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-povw"
-version = "1.3.0"
+version = "0.15.0"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
@@ -1021,7 +1021,9 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
+ "borsh",
  "boundless-povw",
+ "risc0-povw",
  "risc0-zkvm",
 ]
 
@@ -1551,7 +1553,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2908,9 +2910,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-binfmt"
-version = "3.0.3"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dca096030bb4c52f99b12abcfe3531ea93b17b95a12a5aeb06fbf8ee588a275"
+checksum = "1c8f97f81bcdead4101bca06469ecef481a2695cd04e7e877b49dea56a7f6f2a"
 dependencies = [
  "anyhow",
  "borsh",
@@ -2930,9 +2932,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-keccak"
-version = "4.0.3"
+version = "4.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e1d23ef3648bb85b0bd37bc9f9f7d13f1a4388e5e779e18f7eea82b969e5dbc"
+checksum = "5f195f865ac1afdc21a172d7756fdcc21be18e13eb01d78d3d7f2b128fa881ba"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2946,9 +2948,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-recursion"
-version = "4.0.3"
+version = "4.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "028cd26e1b1f7bdd964d2f1eac8f812d1872b6b8fd24f10804f07d916b90000e"
+checksum = "dca8f15c8abc0fd8c097aa7459879110334d191c63dd51d4c28881c4a497279e"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2961,9 +2963,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-circuit-rv32im"
-version = "4.0.3"
+version = "4.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7ecd73a71ddce62eab8a28552ee182dc2ea08cdce2a3474a616a80bf2d6e9be"
+checksum = "ae1b0689f4a270a2f247b04397ebb431b8f64fe5170e98ee4f9d71bd04825205"
 dependencies = [
  "anyhow",
  "bit-vec",
@@ -2989,9 +2991,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "3.0.3"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73ff13f9b427254c5264e01aaa32e33f355525299b6829449295905778f3b1e8"
+checksum = "724285dc79604abfb2d40feaefe3e335420a6b293511661f77d6af62f1f5fae9"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -3010,9 +3012,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-povw"
-version = "0.4.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "132e97bbfd0a7a9c34c991050398c4f664a2121a983a5587e5f0274b9015de94"
+checksum = "e14723827128770b53eb6550e2f995586ab79627581ff225de440d6e78bd69a3"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -3049,9 +3051,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkos-v1compat"
-version = "2.2.1"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faf1f35f2ef61d8d86fdd06288c11d2f3bbf08f1af66b24ca0a1976ecbf324a1"
+checksum = "840c2228803557a8b7dc035a8f196516b6fd68c9dc6ac092f0c86241b5b1bafb"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
@@ -3060,9 +3062,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkp"
-version = "3.0.3"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "beb493b3f007f04a11106a001c66bca77338d0fc375766189fd7ca3a1e8c3700"
+checksum = "ffb6bf356f469bb8744f72a07a37134c5812c1d55d6271bba80e87bdb7a58c8e"
 dependencies = [
  "anyhow",
  "blake2",
@@ -3085,9 +3087,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "3.0.4"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c39d9943fe71decea1e8b6a99480cefa33799ab08b5abfccd7e2a18fb07121c1"
+checksum = "3fcce11648a9ff60b8e7af2f0ce7fbf8d25275ab6d414cc91b9da69ee75bc978"
 dependencies = [
  "anyhow",
  "borsh",
@@ -3233,7 +3235,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3658,7 +3660,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
