@@ -1,10 +1,11 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
+use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair};
 use alloy::primitives::U256;
 use reqwest::Client;
 use serde::Deserialize;
 use std::{future::Future, pin::Pin, time::Duration};
 use std::collections::HashMap;
 use url::Url;
+use crate::price_oracle::sources::{scale_price, PriceSource};
 
 #[derive(Deserialize)]
 struct CoinGeckoPriceData {
@@ -51,12 +52,7 @@ impl CoinGeckoSource {
         let coin_data = data
             .get(ids).ok_or_else(|| PriceOracleError::Internal(format!("coin {} not found in response", ids)))?;
 
-        // Convert to U256 scaled by 1e8
-        if !coin_data.usd.is_finite() || coin_data.usd < 0.0 {
-            return Err(PriceOracleError::Internal(format!("invalid price data: {}", coin_data.usd)));
-        }
-        let price_scaled = (coin_data.usd * 1e8).round() as u128;
-        let price = U256::from(price_scaled);
+        let price = scale_price(coin_data.usd)?;
 
         Ok(PriceQuote::new(price, coin_data.last_updated_at))
     }
@@ -93,7 +89,7 @@ mod tests {
         )?;
 
         let quote = source
-            .fetch_price("/api/v3/simple/price", "ethereum", "usd")
+            .get_price(TradingPair::EthUsd)
             .await?;
 
         println!("{:?}", quote);
@@ -113,7 +109,7 @@ mod tests {
         )?;
 
         let quote = source
-            .fetch_price("/api/v3/simple/price", "boundless", "usd")
+            .get_price(TradingPair::ZkcUsd)
             .await?;
 
         println!("{:?}", quote);
