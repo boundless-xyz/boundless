@@ -44,9 +44,6 @@ prover_snark_timeout: "180"
 prover_executor_count: 4
 prover_aux_worker_count: 2
 
-# Bento binary URL (used with prebuilt dockerfiles)
-prover_binary_url: "https://github.com/boundless-xyz/boundless/releases/download/bento-{{ prover_version }}/bento-bundle-linux-amd64.tar.gz"
-
 # Options: dockerfiles/agent.prebuilt.dockerfile or dockerfiles/agent.dockerfile
 prover_agent_dockerfile: "dockerfiles/agent.prebuilt.dockerfile"
 # Options: dockerfiles/broker.prebuilt.dockerfile or dockerfiles/broker.dockerfile

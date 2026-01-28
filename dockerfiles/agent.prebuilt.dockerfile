@@ -5,10 +5,14 @@ ARG CUDA_RUNTIME_IMG=nvidia/cuda:12.9.1-runtime-ubuntu24.04
 FROM ${CUDA_RUNTIME_IMG}
 
 ARG BINARY_URL
+ARG DEBIAN_FRONTEND=noninteractive
 
 # Install runtime dependencies matching non-prebuilt version
-RUN apt-get update && \
-    apt-get install -y ca-certificates libssl3 curl tar xz-utils && \
+# Retry apt-get update up to 3 times in case of transient network issues
+RUN for i in 1 2 3; do \
+        apt-get update && break || sleep 5; \
+    done && \
+    apt-get install -y --no-install-recommends ca-certificates libssl3 curl tar xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # Download and extract bento bundle tar.gz
@@ -37,7 +41,7 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y \
 RUN curl -L https://risczero.com/install | bash && \
     /root/.risc0/bin/rzup install risc0-groth16 && \
     # Clean up any temporary files to reduce image size
-    rm -rf /tmp/* /var/tmp/*    
+    rm -rf /tmp/* /var/tmp/*
 
 # Download and extract BLAKE3 Groth16 artifacts.
 ARG BLAKE3_GROTH16_ARTIFACTS_URL
