@@ -224,7 +224,7 @@ where
 
         // Calculate total number of batches for progress reporting
         let total_blocks = self.end_block.saturating_sub(self.start_block) + 1;
-        let total_batches = (total_blocks + batch_size - 1) / batch_size;
+        let total_batches = total_blocks.div_ceil(batch_size);
 
         while from_block <= self.end_block {
             batch_num += 1;
