@@ -253,7 +253,7 @@ where
                 // Fetch tx metadata for the logs
                 self.indexer.fetch_tx_metadata(&logs, from_block, to_block).await?;
 
-                // Process all events (this will upsert data since we changed add_* to use DO UPDATE)
+                // Process all events
                 let (submitted_digests, _offchain_digests) = tokio::try_join!(
                     self.indexer.process_request_submitted_events(&logs),
                     self.indexer.process_request_submitted_offchain(from_block, to_block)
