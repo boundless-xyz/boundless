@@ -681,7 +681,7 @@ impl ParameterizationMode {
     ///
     /// This is used to ensure that the ramp up period is long enough
     /// to allow provers to execute and evaluate the request.
-    const DEFAULT_BASE_RAMP_UP_PERIOD: u32 = 300; // 5 minutes
+    const DEFAULT_BASE_RAMP_UP_PERIOD: u32 = 600; // 10 minutes
 
     /// Default minimum ramp up delay in seconds.
     ///
