@@ -1994,6 +1994,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tower",
  "tracing",
  "url",
