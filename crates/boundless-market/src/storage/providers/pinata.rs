@@ -92,10 +92,8 @@ impl PinataStorageUploader {
     pub fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
         assert_eq!(config.storage_uploader, StorageUploaderType::Pinata);
 
-        let jwt = config
-            .pinata_jwt
-            .clone()
-            .ok_or_else(|| StorageError::MissingConfig("pinata_jwt".to_string()))?;
+        let jwt =
+            config.pinata_jwt.clone().ok_or_else(|| StorageError::MissingConfig("pinata_jwt"))?;
 
         let api_url = config
             .pinata_api_url

@@ -15,14 +15,15 @@
 //! Provider implementation for uploading and downloading from Google Cloud Storage.
 //!
 //! This module supports both:
-//! - **Uploading**: Store programs and inputs in GCS buckets (returns `gs://` URLs)
-//! - **Downloading**: Fetch data from `gs://` URLs
+//! - **Uploading**: Store programs and inputs in GCS buckets (returns `gs://` or HTTPS URLs)
+//! - **Downloading**: Fetch data from `gs://` URLs (requires credentials)
 //!
 //! # Environment Variables
 //!
 //! The following environment variables are used:
 //! - `GCS_BUCKET`: Required bucket name for uploads
 //! - `GCS_URL`: Optional custom endpoint URL (for emulators like fake-gcs-server)
+//! - `GCS_PUBLIC_URL`: Optional, if "true" returns public HTTPS URLs instead of gs://
 //!
 //! # Authentication
 //!
@@ -36,15 +37,17 @@
 //!
 //! ## Downloading
 //!
-//! Downloading supports both authenticated and anonymous access:
-//! - If ADC is available, it is used (for private buckets)
-//! - If ADC is not available, anonymous access is used (for public buckets)
+//! Downloading from `gs://` URLs requires GCS credentials (ADC). For public buckets,
+//! use public HTTPS URLs (via `gcs_public_url`) which can be downloaded with the
+//! HTTP downloader without credentials.
 //!
-//! # Presigned URLs
+//! # Public URLs
 //!
-//! Unlike S3, presigned URL support is not yet stable in the `google-cloud-storage` crate.
-//! For now, uploaded objects should be made publicly readable, or downloaders should have
-//! appropriate GCS permissions.
+//! For public buckets, you can enable `gcs_public_url` to return HTTPS URLs
+//! (`https://storage.googleapis.com/{bucket}/{key}`) instead of `gs://` URLs.
+//! This is useful as an alternative to S3 presigned URLs. After each upload,
+//! a HEAD request verifies the object is publicly accessible. If verification
+//! fails, an error is returned.
 
 use std::env;
 
@@ -55,23 +58,27 @@ use crate::storage::{
     StorageUploaderType,
 };
 use alloy_primitives::bytes;
+use anyhow::Context;
 use async_trait::async_trait;
-use google_cloud_auth::credentials::{anonymous, service_account};
+use google_cloud_auth::credentials::service_account;
 use google_cloud_gax::retry_policy::{AlwaysRetry, NeverRetry, RetryPolicyExt};
-use google_cloud_storage::client::Storage;
+use google_cloud_storage::client::Storage as GcsClient;
 use url::Url;
 
 const ENV_VAR_GCS_BUCKET: &str = "GCS_BUCKET";
 const ENV_VAR_GCS_URL: &str = "GCS_URL";
+const ENV_VAR_GCS_PUBLIC_URL: &str = "GCS_PUBLIC_URL";
 
 /// GCS storage uploader for uploading programs and inputs.
 ///
-/// This provider stores files in a GCS bucket and returns `gs://` URLs.
-/// Uses ADC for authentication; see module docs for details.
+/// This provider stores files in a GCS bucket and returns either:
+/// - `gs://` URLs
+/// - Public HTTPS URLs, for public buckets, when `public_url` is true
 #[derive(Clone, Debug)]
 pub struct GcsStorageUploader {
     bucket: String,
-    client: Storage,
+    client: GcsClient,
+    public_url: bool,
 }
 
 impl GcsStorageUploader {
@@ -82,6 +89,7 @@ impl GcsStorageUploader {
     ///
     /// Optional environment variables:
     /// - `GCS_URL`: Custom endpoint URL (for emulators like fake-gcs-server)
+    /// - `GCS_PUBLIC_URL`: If set, return HTTPS URLs instead of gs:// URLs for public buckets
     ///
     /// Credentials are resolved via the Google Cloud default credential chain (ADC):
     /// - `GOOGLE_APPLICATION_CREDENTIALS` environment variable pointing to a JSON key file
@@ -90,20 +98,21 @@ impl GcsStorageUploader {
     pub async fn from_env() -> Result<Self, StorageError> {
         let bucket = env::var(ENV_VAR_GCS_BUCKET)?;
         let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
+        let use_public_url = env::var_os(ENV_VAR_GCS_PUBLIC_URL).is_some();
 
-        Self::new(bucket, endpoint_url, None).await
+        Self::new(bucket, endpoint_url, None, use_public_url).await
     }
 
     /// Creates a new GCS storage uploader from configuration.
     pub async fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
         assert_eq!(config.storage_uploader, StorageUploaderType::Gcs);
 
-        let bucket = config
-            .gcs_bucket
-            .clone()
-            .ok_or_else(|| StorageError::MissingConfig("gcs_bucket".to_string()))?;
+        let bucket =
+            config.gcs_bucket.clone().ok_or_else(|| StorageError::MissingConfig("gcs_bucket"))?;
+        let public_url = config.gcs_public_url.unwrap_or(false);
 
-        Self::new(bucket, config.gcs_url.clone(), config.gcs_credentials_json.clone()).await
+        Self::new(bucket, config.gcs_url.clone(), config.gcs_credentials_json.clone(), public_url)
+            .await
     }
 
     /// Creates a new GCS storage uploader with explicit parameters.
@@ -113,12 +122,14 @@ impl GcsStorageUploader {
     /// * `bucket` - The GCS bucket name (must already exist)
     /// * `endpoint_url` - Custom endpoint URL (optional, for emulators)
     /// * `credentials_json` - Service account JSON (optional, uses ADC if None)
+    /// * `public_url` - If true, return public HTTPS URLs and verify accessibility
     pub async fn new(
         bucket: String,
         endpoint_url: Option<String>,
         credentials_json: Option<String>,
+        public_url: bool,
     ) -> Result<Self, StorageError> {
-        let mut builder = Storage::builder();
+        let mut builder = GcsClient::builder();
 
         if let Some(ref url) = endpoint_url {
             builder = builder.with_endpoint(url);
@@ -127,32 +138,48 @@ impl GcsStorageUploader {
         // Use explicit credentials if provided, otherwise use default chain (ADC)
         if let Some(json) = credentials_json {
             let json_value: serde_json::Value =
-                serde_json::from_str(&json).map_err(|e| StorageError::Other(e.into()))?;
-            let credentials = service_account::Builder::new(json_value)
-                .build()
-                .map_err(|e| StorageError::Other(e.into()))?;
+                serde_json::from_str(&json).context("invalid credentials json")?;
+            let credentials =
+                service_account::Builder::new(json_value).build().map_err(StorageError::gcs)?;
             builder = builder.with_credentials(credentials);
         }
 
-        let client = builder.build().await.map_err(|e| StorageError::Other(e.into()))?;
+        let client = builder.build().await.map_err(StorageError::gcs)?;
 
-        Ok(Self { bucket, client })
+        Ok(Self { bucket, client, public_url })
     }
 
-    /// Uploads data to GCS and returns a `gs://` URL.
+    /// Uploads data to GCS and returns a URL.
+    ///
+    /// If `public_url` is enabled, returns a public HTTPS URL after verifying
+    /// the object is publicly accessible. Otherwise, returns a `gs://` URL.
     async fn upload(&self, data: bytes::Bytes, key: &str) -> Result<Url, StorageError> {
-        tracing::debug!(?key, bucket = %self.bucket, "uploading to GCS");
+        tracing::debug!(?key, bucket = %self.bucket, public_url = %self.public_url, "uploading to GCS");
 
         let bucket_path = format!("projects/_/buckets/{}", self.bucket);
-        self.client.write_object(&bucket_path, key, data).send_unbuffered().await?;
+        self.client
+            .write_object(&bucket_path, key, data)
+            .send_unbuffered()
+            .await
+            .map_err(StorageError::gcs)?;
 
-        let base = format!("gs://{}/", self.bucket);
-        let mut url = Url::parse(&base)
-            .map_err(|_| StorageError::InvalidUrl("invalid bucket name for GCS URL"))?;
-        url.set_path(key);
-        tracing::debug!(?url, "uploaded to GCS");
+        let url = gcs_url(&self.bucket, key, self.public_url)?;
+        if self.public_url {
+            super::verify_public_url(&url).await?;
+        }
+        tracing::debug!(%url, "uploaded to GCS");
+
         Ok(url)
     }
+}
+
+fn gcs_url(bucket: &str, key: &str, public: bool) -> Result<Url, StorageError> {
+    let url_str = if public {
+        format!("https://storage.googleapis.com/{}/{}", bucket, key)
+    } else {
+        format!("gs://{}/{}", bucket, key)
+    };
+    Url::parse(&url_str).map_err(|_| StorageError::InvalidUrl("invalid bucket/key for GCS URL"))
 }
 
 #[async_trait]
@@ -164,40 +191,29 @@ impl StorageUploader for GcsStorageUploader {
 
 /// GCS downloader for fetching data from `gs://` URLs.
 ///
-/// This downloader supports both authenticated and anonymous access:
-/// - If ADC is available (via environment, config, or workload identity), it is used.
-/// - If no credentials are available, anonymous access is used for public buckets.
+/// This downloader requires GCS credentials (ADC via environment, config, or workload
+/// identity). For public buckets, use public HTTPS URLs (via `gcs_public_url`) which
+/// can be downloaded with the HTTP downloader without GCS credentials.
 #[derive(Clone, Debug)]
 pub struct GcsStorageDownloader {
-    client: Storage,
+    client: GcsClient,
 }
 
 impl GcsStorageDownloader {
     /// Creates a new GCS downloader with optional retry configuration.
-    pub async fn new(max_retries: Option<u8>) -> Self {
+    pub async fn new(max_retries: Option<u8>) -> Result<Self, StorageError> {
         let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
+        let client = Self::build_client(endpoint_url, max_retries).await?;
 
-        // Try with Application Default Credentials first
-        if let Ok(client) = Self::build_client(endpoint_url.clone(), max_retries, false).await {
-            tracing::debug!("GCS downloader using Application Default Credentials");
-            return Self { client };
-        }
-
-        // Fall back to anonymous credentials for public bucket access
-        tracing::debug!("GCS downloader falling back to anonymous credentials");
-        let client = Self::build_client(endpoint_url, max_retries, true)
-            .await
-            .expect("anonymous GCS client should always succeed");
-        Self { client }
+        Ok(Self { client })
     }
 
     /// Build a GCS client with the specified settings.
     async fn build_client(
         endpoint_url: Option<String>,
         max_retries: Option<u8>,
-        anonymous: bool,
-    ) -> Result<Storage, StorageError> {
-        let mut builder = Storage::builder();
+    ) -> Result<GcsClient, StorageError> {
+        let mut builder = GcsClient::builder();
 
         if let Some(url) = endpoint_url {
             builder = builder.with_endpoint(url);
@@ -209,11 +225,13 @@ impl GcsStorageDownloader {
             builder.with_retry_policy(NeverRetry)
         };
 
-        if anonymous {
-            builder = builder.with_credentials(anonymous::Builder::new().build());
-        }
+        let client = builder
+            .build()
+            .await
+            .context("failed to initialize GCS client")
+            .map_err(StorageError::gcs)?;
 
-        builder.build().await.map_err(|e| StorageError::Other(e.into()))
+        Ok(client)
     }
 }
 
@@ -234,14 +252,17 @@ impl StorageDownloader for GcsStorageDownloader {
             return Err(StorageError::InvalidUrl("empty key"));
         }
 
+        tracing::debug!(%url, %bucket, %key, "downloading from GCS");
+
         let bucket_name = format!("projects/_/buckets/{}", bucket);
-        let mut stream = self.client.read_object(bucket_name, key).send().await?;
+        let mut stream =
+            self.client.read_object(bucket_name, key).send().await.map_err(StorageError::gcs)?;
 
         // NOTE: Unlike S3, the GCS SDK's read_object doesn't return content-length in the
         // response metadata. Checking size upfront would require a separate get_object call
         // via StorageControl, adding an extra API request. Instead, we check during streaming.
         let mut buffer = Vec::new();
-        while let Some(chunk) = stream.next().await.transpose()? {
+        while let Some(chunk) = stream.next().await.transpose().map_err(StorageError::gcs)? {
             if buffer.len() + chunk.len() > limit {
                 return Err(StorageError::SizeLimitExceeded {
                     size: buffer.len() + chunk.len(),
@@ -250,6 +271,7 @@ impl StorageDownloader for GcsStorageDownloader {
             }
             buffer.extend_from_slice(&chunk);
         }
+        tracing::trace!(size = buffer.len(), %url, "downloaded from GCS");
 
         Ok(buffer)
     }
@@ -258,21 +280,41 @@ impl StorageDownloader for GcsStorageDownloader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{StorageDownloader, StorageUploader};
+    use crate::storage::{HttpDownloader, StorageDownloader, StorageUploader};
 
     #[tokio::test]
     #[ignore = "requires GCS_BUCKET and Application Default Credentials"]
-    async fn roundtrip() {
-        let uploader = GcsStorageUploader::from_env().await.expect("failed to create GCS uploader");
+    async fn roundtrip_gs_scheme() {
+        temp_env::async_with_vars([(ENV_VAR_GCS_PUBLIC_URL, None::<&str>)], async {
+            let uploader =
+                GcsStorageUploader::from_env().await.expect("failed to create GCS uploader");
 
-        let test_data = b"gcs integration test data";
-        let url = uploader.upload_input(test_data).await.expect("upload failed");
+            let test_data = b"gcs scheme test data";
+            let url = uploader.upload_input(test_data).await.expect("upload failed");
+            assert_eq!(url.scheme(), "gs", "expected gs:// URL");
 
-        assert_eq!(url.scheme(), "gs", "expected gs:// URL");
+            let downloader = GcsStorageDownloader::new(None).await.unwrap();
+            let downloaded = downloader.download_url(url).await.expect("download failed");
+            assert_eq!(downloaded, test_data);
+        })
+        .await;
+    }
 
-        let downloader = GcsStorageDownloader::new(None).await;
-        let downloaded = downloader.download_url(url).await.expect("download failed");
+    #[tokio::test]
+    #[ignore = "requires GCS_BUCKET and Application Default Credentials"]
+    async fn roundtrip_public_url() {
+        temp_env::async_with_vars([(ENV_VAR_GCS_PUBLIC_URL, Some("1"))], async {
+            let uploader =
+                GcsStorageUploader::from_env().await.expect("failed to create GCS uploader");
 
-        assert_eq!(downloaded, test_data);
+            let test_data = b"gcs public url test data";
+            let url = uploader.upload_input(test_data).await.expect("upload failed");
+            assert!(url.scheme() == "https" || url.scheme() == "http", "expected HTTP URL");
+
+            let downloader = HttpDownloader::default();
+            let downloaded = downloader.download_url(url).await.expect("download failed");
+            assert_eq!(downloaded, test_data);
+        })
+        .await;
     }
 }

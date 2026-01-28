@@ -58,15 +58,10 @@ pub enum StorageError {
     #[error("S3 error: {0}")]
     S3(#[source] Box<dyn StdError + Send + Sync + 'static>),
 
-    /// S3 presigning error.
-    #[cfg(feature = "s3")]
-    #[error("S3 presigning error: {0}")]
-    S3Presigning(#[from] aws_sdk_s3::presigning::PresigningConfigError),
-
     /// Google Cloud Storage error.
     #[cfg(feature = "gcs")]
     #[error("GCS error: {0}")]
-    Gcs(#[from] google_cloud_storage::Error),
+    Gcs(#[source] Box<dyn StdError + Send + Sync + 'static>),
 
     /// Environment variable error.
     #[error("environment variable error: {0}")]
@@ -74,7 +69,7 @@ pub enum StorageError {
 
     /// Missing configuration parameter.
     #[error("missing config parameter: {0}")]
-    MissingConfig(String),
+    MissingConfig(&'static str),
 
     /// No storage uploader configured.
     #[error("no storage uploader configured")]
@@ -95,5 +90,11 @@ impl StorageError {
     #[cfg(feature = "s3")]
     pub fn s3(err: impl Into<Box<dyn StdError + Send + Sync + 'static>>) -> Self {
         Self::S3(err.into())
+    }
+
+    /// Create a GCS error.
+    #[cfg(feature = "gcs")]
+    pub fn gcs(err: impl Into<Box<dyn StdError + Send + Sync + 'static>>) -> Self {
+        Self::Gcs(err.into())
     }
 }

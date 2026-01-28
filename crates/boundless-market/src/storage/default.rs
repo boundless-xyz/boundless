@@ -34,9 +34,9 @@ pub struct StandardDownloader {
     http: HttpDownloader,
     file: Option<FileStorageDownloader>,
     #[cfg(feature = "s3")]
-    s3: S3StorageDownloader,
+    s3: Option<S3StorageDownloader>,
     #[cfg(feature = "gcs")]
-    gcs: GcsStorageDownloader,
+    gcs: Option<GcsStorageDownloader>,
 
     config: StorageDownloaderConfig,
 }
@@ -54,10 +54,22 @@ impl StandardDownloader {
             if crate::util::is_dev_mode() { Some(FileStorageDownloader::new()) } else { None };
 
         #[cfg(feature = "s3")]
-        let s3 = S3StorageDownloader::new(config.max_retries).await;
+        let s3 = match S3StorageDownloader::new(config.max_retries).await {
+            Ok(s3) => Some(s3),
+            Err(err) => {
+                tracing::debug!(%err, "S3 downloader not available, s3:// URLs will fail");
+                None
+            }
+        };
 
         #[cfg(feature = "gcs")]
-        let gcs = GcsStorageDownloader::new(config.max_retries).await;
+        let gcs = match GcsStorageDownloader::new(config.max_retries).await {
+            Ok(gcs) => Some(gcs),
+            Err(err) => {
+                tracing::debug!(%err, "GCS downloader not available, gs:// URLs will fail");
+                None
+            }
+        };
 
         Self {
             http,
@@ -123,13 +135,20 @@ impl StorageDownloader for StandardDownloader {
     ) -> Result<Vec<u8>, StorageError> {
         match url.scheme() {
             "http" | "https" => self.cache(&self.http, url, max_size).await,
-            "file" if self.file.is_some() => {
-                self.cache(self.file.as_ref().unwrap(), url, max_size).await
-            }
+            "file" => match &self.file {
+                Some(file) => self.cache(file, url, max_size).await,
+                None => Err(StorageError::UnsupportedScheme("file (dev mode only)".into())),
+            },
             #[cfg(feature = "s3")]
-            "s3" => self.cache(&self.s3, url, max_size).await,
+            "s3" => match &self.s3 {
+                Some(s3) => self.cache(s3, url, max_size).await,
+                None => Err(StorageError::UnsupportedScheme("s3 (credentials unavailable)".into())),
+            },
             #[cfg(feature = "gcs")]
-            "gs" => self.cache(&self.gcs, url, max_size).await,
+            "gs" => match &self.gcs {
+                Some(gcs) => self.cache(gcs, url, max_size).await,
+                None => Err(StorageError::UnsupportedScheme("gs (credentials unavailable)".into())),
+            },
             scheme => Err(StorageError::UnsupportedScheme(scheme.to_string())),
         }
     }

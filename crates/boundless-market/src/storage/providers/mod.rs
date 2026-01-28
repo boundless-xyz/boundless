@@ -28,10 +28,33 @@ mod s3;
 pub use file::{FileStorageDownloader, FileStorageUploader};
 pub use http::HttpDownloader;
 pub use pinata::PinataStorageUploader;
+use std::time::Duration;
+use url::Url;
 
+use crate::storage::StorageError;
 #[cfg(feature = "gcs")]
 pub use gcs::{GcsStorageDownloader, GcsStorageUploader};
 #[cfg(feature = "test-utils")]
 pub use mock::MockStorageUploader;
 #[cfg(feature = "s3")]
 pub use s3::{S3StorageDownloader, S3StorageUploader};
+
+/// Verify that a URL is publicly accessible via an unauthenticated HEAD request.
+pub(crate) async fn verify_public_url(url: &Url) -> Result<(), StorageError> {
+    tracing::trace!(%url, "verifying public accessibility");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| StorageError::Other(e.into()))?;
+    let resp = client.head(url.as_str()).send().await.map_err(|e| StorageError::Other(e.into()))?;
+
+    if !resp.status().is_success() {
+        return Err(StorageError::Other(anyhow::anyhow!(
+            "public URL verification failed: HEAD {} returned {}",
+            url,
+            resp.status()
+        )));
+    }
+    Ok(())
+}

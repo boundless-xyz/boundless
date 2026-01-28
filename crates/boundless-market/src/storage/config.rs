@@ -107,6 +107,16 @@ pub struct StorageUploaderConfig {
     #[arg(long, env, default_value = "true")]
     #[builder(setter(strip_option), default)]
     pub s3_use_presigned: Option<bool>,
+    /// Return public HTTPS URLs instead of s3:// or presigned URLs (requires bucket to be public)
+    ///
+    /// When enabled, uploads return `https://{bucket}.s3.{region}.amazonaws.com/{key}` URLs.
+    /// After upload, a HEAD request verifies the object is publicly accessible.
+    /// If verification fails, an error is returned. This option takes precedence over
+    /// `s3_use_presigned`.
+    #[cfg(feature = "s3")]
+    #[arg(long, env, requires("s3_bucket"))]
+    #[builder(setter(strip_option), default)]
+    pub s3_public_url: Option<bool>,
 
     // **GCS Storage Provider Options**
     /// GCS bucket name
@@ -124,6 +134,11 @@ pub struct StorageUploaderConfig {
     #[arg(long, env, requires("gcs_bucket"))]
     #[builder(setter(strip_option, into), default)]
     pub gcs_credentials_json: Option<String>,
+    /// Return public HTTPS URLs instead of gs:// URLs (requires bucket to be publicly readable)
+    #[cfg(feature = "gcs")]
+    #[arg(long, env, requires("gcs_bucket"))]
+    #[builder(setter(strip_option), default)]
+    pub gcs_public_url: Option<bool>,
 
     // **Pinata Storage Provider Options**
     /// Pinata JWT
