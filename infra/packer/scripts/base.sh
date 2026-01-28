@@ -2,6 +2,12 @@
 set -eou pipefail
 echo "Installing all Bento dependencies..."
 
+# Disable unattended-upgrades
+echo "Disabling unattended-upgrades..."
+sudo systemctl stop unattended-upgrades
+sudo systemctl disable unattended-upgrades
+sudo apt-get remove -y unattended-upgrades || true
+
 # Update system
 sudo apt-get update -y
 sudo apt-get install -y jq htop tree git nvtop build-essential pkg-config libssl-dev curl wget gnupg2 software-properties-common apt-transport-https ca-certificates lsb-release protobuf-compiler unzip clang
