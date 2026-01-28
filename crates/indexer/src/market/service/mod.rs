@@ -176,6 +176,7 @@ pub struct IndexerServiceConfig {
     pub cache_uri: Option<String>,
     pub tx_fetch_strategy: TransactionFetchStrategy,
     pub execution_config: Option<IndexerServiceExecutionConfig>,
+    pub block_delay: u64,
 }
 
 #[derive(Clone)]

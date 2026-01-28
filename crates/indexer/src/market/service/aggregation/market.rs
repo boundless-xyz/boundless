@@ -280,7 +280,7 @@ where
         period_start: u64,
         period_end: u64,
     ) -> Result<PeriodMarketSummary, ServiceError> {
-        // Execute all initial database queries in parallel
+        // Execute database queries in 3 sequential batches to parallelize without overloading the database
         let (
             total_fulfilled,
             unique_provers,
@@ -288,16 +288,6 @@ where
             total_requests_submitted,
             total_requests_submitted_onchain,
             total_requests_locked,
-            total_requests_slashed,
-            total_expired,
-            total_locked_and_expired,
-            total_locked_and_fulfilled,
-            total_secondary_fulfillments,
-            locks,
-            all_lock_collaterals,
-            locked_and_expired_collaterals,
-            total_program_cycles,
-            total_cycles,
         ) = tokio::join!(
             self.db.get_period_fulfilled_count(period_start, period_end),
             self.db.get_period_unique_provers(period_start, period_end),
@@ -305,11 +295,29 @@ where
             self.db.get_period_total_requests_submitted(period_start, period_end),
             self.db.get_period_total_requests_submitted_onchain(period_start, period_end),
             self.db.get_period_total_requests_locked(period_start, period_end),
+        );
+
+        let (
+            total_requests_slashed,
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            total_secondary_fulfillments,
+        ) = tokio::join!(
             self.db.get_period_total_requests_slashed(period_start, period_end),
             self.db.get_period_expired_count(period_start, period_end),
             self.db.get_period_locked_and_expired_count(period_start, period_end),
             self.db.get_period_locked_and_fulfilled_count(period_start, period_end),
             self.db.get_period_secondary_fulfillments_count(period_start, period_end),
+        );
+
+        let (
+            locks,
+            all_lock_collaterals,
+            locked_and_expired_collaterals,
+            total_program_cycles,
+            total_cycles,
+        ) = tokio::join!(
             self.db.get_period_lock_pricing_data(period_start, period_end),
             self.db.get_period_all_lock_collateral(period_start, period_end),
             self.db.get_period_locked_and_expired_collateral(period_start, period_end),
