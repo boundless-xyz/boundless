@@ -33,7 +33,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub(super) async fn fetch_logs(&self, from: u64, to: u64) -> Result<Vec<Log>, ServiceError> {
+    pub async fn fetch_logs(&self, from: u64, to: u64) -> Result<Vec<Log>, ServiceError> {
         let start = std::time::Instant::now();
 
         // Try to get from cache if enabled
@@ -126,7 +126,7 @@ where
 
         Ok(meta)
     }
-    pub(super) async fn fetch_tx_metadata(
+    pub async fn fetch_tx_metadata(
         &mut self,
         logs: &[Log],
         from: u64,

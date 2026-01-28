@@ -2,10 +2,12 @@ import { ECSClient, RunTaskCommand } from '@aws-sdk/client-ecs';
 import { Handler, Context } from 'aws-lambda';
 
 interface BackfillEvent {
-  mode?: 'statuses_and_aggregates' | 'aggregates';
+  mode?: 'statuses_and_aggregates' | 'aggregates' | 'chain_data';
   startBlock?: number;
   endBlock?: number;
   txFetchStrategy?: 'block-receipts' | 'tx-by-hash';
+  // Number of blocks to look back from current block (alternative to startBlock)
+  lookbackBlocks?: number;
   // EventBridge scheduled event fields
   source?: string;
   'detail-type'?: string;
@@ -50,46 +52,69 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
   }
 
   // Handle scheduled events vs manual invocations
-  let mode: 'statuses_and_aggregates' | 'aggregates';
-  let startBlock: number;
+  let mode: 'statuses_and_aggregates' | 'aggregates' | 'chain_data';
+  let startBlock: number | undefined;
+  let lookbackBlocks: number | undefined;
+  let endBlock: number | undefined;
 
   if (isScheduledEvent(event)) {
-    // Scheduled event - use defaults from environment
-    mode = (process.env.SCHEDULED_BACKFILL_MODE as 'statuses_and_aggregates' | 'aggregates') || 'aggregates';
+    // Scheduled event - use all config from environment variables
+    mode = (process.env.SCHEDULED_BACKFILL_MODE as 'statuses_and_aggregates' | 'aggregates' | 'chain_data') || 'aggregates';
 
-    // Use the same START_BLOCK as the regular indexer
-    const startBlockEnv = process.env.START_BLOCK;
-    if (!startBlockEnv) {
+    if (process.env.LOOKBACK_BLOCKS) {
+      lookbackBlocks = parseInt(process.env.LOOKBACK_BLOCKS, 10);
+      if (isNaN(lookbackBlocks) || lookbackBlocks <= 0) {
+        return {
+          message: 'Invalid LOOKBACK_BLOCKS',
+          error: `LOOKBACK_BLOCKS must be a positive number, got: ${process.env.LOOKBACK_BLOCKS}`,
+        };
+      }
+    } else if (process.env.START_BLOCK) {
+      startBlock = parseInt(process.env.START_BLOCK, 10);
+      if (isNaN(startBlock)) {
+        return {
+          message: 'Invalid START_BLOCK',
+          error: `START_BLOCK must be a valid number, got: ${process.env.START_BLOCK}`,
+        };
+      }
+    } else {
       return {
         message: 'Missing required environment variable',
-        error: 'START_BLOCK is required for scheduled backfill',
-      };
-    }
-    startBlock = parseInt(startBlockEnv, 10);
-    if (isNaN(startBlock)) {
-      return {
-        message: 'Invalid START_BLOCK',
-        error: `START_BLOCK must be a valid number, got: ${startBlockEnv}`,
+        error: 'START_BLOCK or LOOKBACK_BLOCKS is required for scheduled backfill',
       };
     }
 
-    console.log(`Scheduled backfill: mode=${mode}, startBlock=${startBlock}`);
+    // endBlock is not typically set for scheduled events (defaults to last indexed block)
+    console.log(`Scheduled backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}`);
   } else {
-    // Manual invocation - require explicit parameters
-    if (!event.mode || event.startBlock === undefined) {
+    // Manual invocation - use all config from event payload
+    if (!event.mode) {
       return {
         message: 'Missing required parameters',
-        error: 'mode and startBlock are required for manual invocations',
+        error: 'mode is required for manual invocations',
       };
     }
     mode = event.mode;
-    startBlock = event.startBlock;
+    endBlock = event.endBlock;
+
+    if (event.lookbackBlocks !== undefined) {
+      lookbackBlocks = event.lookbackBlocks;
+    } else if (event.startBlock !== undefined) {
+      startBlock = event.startBlock;
+    } else {
+      return {
+        message: 'Missing required parameters',
+        error: 'startBlock or lookbackBlocks is required for manual invocations',
+      };
+    }
+
+    console.log(`Manual backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, endBlock=${endBlock}`);
   }
 
-  if (!['statuses_and_aggregates', 'aggregates'].includes(mode)) {
+  if (!['statuses_and_aggregates', 'aggregates', 'chain_data'].includes(mode)) {
     return {
       message: 'Invalid mode',
-      error: 'mode must be "statuses_and_aggregates" or "aggregates"',
+      error: 'mode must be "statuses_and_aggregates", "aggregates", or "chain_data"',
     };
   }
 
@@ -98,18 +123,24 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
     '--mode', mode,
     '--rpc-url', process.env.RPC_URL!,
     '--boundless-market-address', process.env.BOUNDLESS_ADDRESS!,
-    '--start-block', startBlock.toString(),
     '--log-json',
     '--cache-uri', `s3://${process.env.CACHE_BUCKET}`,
     '--tx-fetch-strategy', event.txFetchStrategy || 'tx-by-hash',
   ];
 
+  // Add either --start-block or --lookback-blocks
+  if (lookbackBlocks !== undefined) {
+    command.push('--lookback-blocks', lookbackBlocks.toString());
+  } else if (startBlock !== undefined) {
+    command.push('--start-block', startBlock.toString());
+  }
+
   if (process.env.LOGS_RPC_URL) {
     command.push('--logs-rpc-url', process.env.LOGS_RPC_URL);
   }
 
-  if (event.endBlock) {
-    command.push('--end-block', event.endBlock.toString());
+  if (endBlock !== undefined) {
+    command.push('--end-block', endBlock.toString());
   }
 
   console.log('Running task with command:', command);
