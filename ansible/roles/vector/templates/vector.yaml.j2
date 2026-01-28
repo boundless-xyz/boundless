@@ -14,6 +14,37 @@ sources:
       - {{ collector }}
 {% endfor %}
     scrape_interval_secs: {{ vector_metrics_scrape_interval }}
+{% if "filesystem" in vector_host_metrics_collectors %}
+    filesystem:
+{% if vector_filesystem_devices_includes is defined and vector_filesystem_devices_includes | length > 0 %}
+      devices:
+        includes:
+{% for device in vector_filesystem_devices_includes %}
+          - {{ device }}
+{% endfor %}
+{% endif %}
+{% if vector_filesystem_devices_excludes is defined and vector_filesystem_devices_excludes | length > 0 %}
+      devices:
+        excludes:
+{% for device in vector_filesystem_devices_excludes %}
+          - {{ device }}
+{% endfor %}
+{% endif %}
+{% if vector_filesystem_mountpoints_includes is defined and vector_filesystem_mountpoints_includes | length > 0 %}
+      mountpoints:
+        includes:
+{% for mountpoint in vector_filesystem_mountpoints_includes %}
+          - {{ mountpoint }}
+{% endfor %}
+{% endif %}
+{% if vector_filesystem_mountpoints_excludes is defined and vector_filesystem_mountpoints_excludes | length > 0 %}
+      mountpoints:
+        excludes:
+{% for mountpoint in vector_filesystem_mountpoints_excludes %}
+          - {{ mountpoint }}
+{% endfor %}
+{% endif %}
+{% endif %}
 {% endif %}
 
 transforms:

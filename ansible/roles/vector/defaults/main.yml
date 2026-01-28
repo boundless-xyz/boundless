@@ -42,11 +42,18 @@ vector_log_level: "info"
 # Host metrics collection
 vector_collect_host_metrics: true  # Enable system metrics collection (CPU, memory, disk, network)
 vector_host_metrics_collectors:
-  - cpu
   - memory
   - disk
   - filesystem
 vector_metrics_scrape_interval: 15  # Scrape interval in seconds
+
+# Filesystem collector configuration
+# By default, explicitly include root filesystem (/) to ensure it's tracked
+# To include additional mountpoints or devices, add them to the lists below
+vector_filesystem_devices_includes: []  # Empty list means include all (default: ["*"])
+vector_filesystem_devices_excludes: []  # Exclude specific device patterns (e.g., ["loop*"])
+vector_filesystem_mountpoints_includes: ["/"]  # Explicitly include root filesystem
+vector_filesystem_mountpoints_excludes: []  # Exclude specific mountpoint patterns (e.g., ["/proc", "/sys"])
 
 # CloudWatch Metrics configuration
 # Metrics will be published to CloudWatch Metrics with this namespace
