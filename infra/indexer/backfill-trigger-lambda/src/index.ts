@@ -120,12 +120,14 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
       };
     }
 
-    chainDataBatchDelayMs = event.chainDataBatchDelayMs ?? 1000;
-    if (isNaN(chainDataBatchDelayMs) || chainDataBatchDelayMs < 0) {
-      return {
-        message: 'Invalid chainDataBatchDelayMs',
-        error: `chainDataBatchDelayMs must be a non-negative number, got: ${chainDataBatchDelayMs}`,
-      };
+    if (event.chainDataBatchDelayMs !== undefined) {
+      chainDataBatchDelayMs = event.chainDataBatchDelayMs;
+      if (isNaN(chainDataBatchDelayMs) || chainDataBatchDelayMs < 0) {
+        return {
+          message: 'Invalid chainDataBatchDelayMs',
+          error: `chainDataBatchDelayMs must be a non-negative number, got: ${chainDataBatchDelayMs}`,
+        };
+      }
     }
     console.log(`Manual backfill: mode=${mode}, startBlock=${startBlock}, lookbackBlocks=${lookbackBlocks}, endBlock=${endBlock}, chainDataBatchDelayMs=${chainDataBatchDelayMs}`);
   }
