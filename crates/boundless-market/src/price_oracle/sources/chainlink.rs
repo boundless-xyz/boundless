@@ -1,9 +1,8 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair};
+use crate::price_oracle::{scale_price_from_i256, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
 use alloy::primitives::{address, Address, U256};
 use alloy::providers::Provider;
 use alloy::sol;
 use alloy_chains::NamedChain;
-use crate::price_oracle::sources::{scale_price_from_i256, PriceSource};
 
 sol! {
     #[sol(rpc)]

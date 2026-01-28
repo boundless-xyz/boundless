@@ -1,11 +1,10 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair};
+use crate::price_oracle::{scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
 use alloy::primitives::U256;
 use reqwest::Client;
 use serde::Deserialize;
-use std::{future::Future, pin::Pin, time::Duration};
 use std::collections::HashMap;
+use std::time::Duration;
 use url::Url;
-use crate::price_oracle::sources::{scale_price_from_f64, PriceSource};
 
 #[derive(Deserialize)]
 struct CoinGeckoPriceData {
