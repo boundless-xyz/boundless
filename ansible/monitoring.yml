@@ -1,5 +1,5 @@
 ---
-- name: Install AWS CLI and Vector
+- name: Install AWS CLI and Vector (with metrics collection)
   hosts: all
   become: true
   gather_facts: true
@@ -7,6 +7,6 @@
     - name: Install AWS CLI
       ansible.builtin.include_role:
         name: awscli
-    - name: Install Vector
+    - name: Install Vector with system metrics collection
       ansible.builtin.include_role:
         name: vector

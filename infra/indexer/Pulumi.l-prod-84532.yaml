@@ -27,8 +27,8 @@ config:
   indexer:ORDER_STREAM_API_KEY:
     secure: v1:m6WPylUvKKtSfmSv:8U9kK/h04l4lR7BCP2oi0ylQ1jMtIXVYAo/xl3q2
   indexer:BENTO_API_URL:
-    secure: v1:CGZIDIR+/rZ+uBqg:5LHdmraz/IS5iH9hvdSI1xxIcHXRvryr6yqXLMDne0CCh+aexpdDzm0iDWzwbVSnXeU76N0tzYIWzRvPIN9ZL8K8JMu1WDkEAqw6hcZ9p38vKDdJT/0=
+    secure: v1:fJH5iEUFExz5HG6W:QM9ap68wx17CkOHwjWYnQJdkWDYmRdj1K7rXcf/JrXLgkluDb5Ucs8QzkdPtJ8EYEeCS
   indexer:BENTO_API_KEY:
-    secure: v1:Tbd9Zd2klTvDDkej:6RgPRVcCZve2w92Hx5bk1YJZ6dED3ZFkEEzr6CpZUOmyqowomdhxBbvRfyX9UVARzP/i19nh7Gjfhu4=
+    secure: v1:ekjfNm9SSFzPPiCj:m5TGbA6seaZXCcnxDKoQqGvk1N8iadfJn3hkSSsPQJZJieRP0etiy9Z0eIcskTNxIXN0AdsfJLEX2g==
   indexer:PROXY_SECRET:
     secure: v1:6O1PfDZ2aQm9MdS8:VbcKQSeinm3j91v893R3f+JT/8La/7sJCEPYM7xvB3izBszxz+u/0Q==
