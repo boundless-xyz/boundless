@@ -132,17 +132,16 @@ pub struct OfferLayerConfig {
     ///
     /// Defines the offering parameters for the request based on the mode:
     /// - [ParameterizationMode::fulfillment] is a more conservative mode that ensures more provers can fulfill the request.
-    /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees.
+    /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees (requires `unstable` or `unstable-latency-mode` feature).
     ///
     /// The default is [ParameterizationMode::fulfillment()], which is the default fulfillment mode.
     ///
     /// # Example
     /// ```rust
     /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
-    /// use boundless_market::request_builder::ParameterizationMode;
-    ///
-    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
+    /// # #[cfg(feature = "unstable-latency-mode")]
+    /// # OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
     /// ```
     #[builder(setter(into), default = "Some(ParameterizationMode::fulfillment())")]
     pub parameterization_mode: Option<ParameterizationMode>,

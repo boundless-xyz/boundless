@@ -18,6 +18,8 @@ blake3-groth16 = [
     "dep:risc0-circuit-recursion"
 ]
 default = []
+unstable = ["unstable-latency-mode"]
+unstable-latency-mode = []
 test-utils = []
 
 [dependencies]

@@ -672,15 +672,18 @@ impl ParameterizationMode {
     const DEFAULT_MIN_TIMEOUT: u32 = 60;
 
     /// Fast proving speed in Hz.
+    #[cfg(feature = "unstable-latency-mode")]
     const FAST_PROVING_SPEED_HZ: u64 = 3000000; // 3 MHz
 
     /// Fast executor speed in Hz.
+    #[cfg(feature = "unstable-latency-mode")]
     const FAST_EXECUTOR_SPEED_HZ: u64 = 50000000; // 50 MHz
 
     /// Minimum fast timeout in seconds.
     ///
     /// This is to prevent the timeout from being too short and causing the request
     /// to expire before the prover can execute and evaluate the request.
+    #[cfg(feature = "unstable-latency-mode")]
     const FAST_MIN_TIMEOUT: u32 = 60; // 1 minute
 
     /// Default base ramp up period in seconds.
@@ -705,18 +708,21 @@ impl ParameterizationMode {
     ///
     /// This is used to ensure that the ramp up period is long enough
     /// to allow provers to execute and evaluate the request.
+    #[cfg(feature = "unstable-latency-mode")]
     const FAST_RAMP_UP_PERIOD_MULTIPLIER: u32 = 5; // 5x the executor time
 
     /// Fast multiplier for the ramp up delay.
     ///
     /// This is used to ensure that the ramp up start is set
     /// to allow provers to execute and evaluate the request.
+    #[cfg(feature = "unstable-latency-mode")]
     const FAST_RAMP_UP_DELAY_MULTIPLIER: u64 = 1; // 1x the executor time
 
     /// Fast base ramp up period in seconds.
     ///
     /// This is used to ensure that the ramp up period is long enough
     /// to allow provers to execute and evaluate the request.
+    #[cfg(feature = "unstable-latency-mode")]
     const FAST_BASE_RAMP_UP_PERIOD: u32 = 60; // 1 minute
 
     /// Creates a parameterization mode for fulfillment.
@@ -747,6 +753,10 @@ impl ParameterizationMode {
     /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times
     /// assuming the proving speed is 3 MHz and the executor speed is 50 MHz and capped at 4 hours.
     /// Sets the timeout as 2 times the lock timeout and capped at 8 hours.
+    ///
+    /// Requires the `unstable` or `unstable-latency-mode` feature.
+    #[cfg(feature = "unstable-latency-mode")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-latency-mode")))]
     pub fn latency() -> Self {
         Self {
             proving_speed: Self::FAST_PROVING_SPEED_HZ,
@@ -875,6 +885,7 @@ mod parameterization_mode_tests {
     }
 
     #[test]
+    #[cfg(feature = "unstable-latency-mode")]
     fn test_latency_creation() {
         let mode = ParameterizationMode::latency();
         assert_eq!(mode.proving_speed, ParameterizationMode::FAST_PROVING_SPEED_HZ);
@@ -909,6 +920,7 @@ mod parameterization_mode_tests {
     }
 
     #[test]
+    #[cfg(feature = "unstable-latency-mode")]
     fn test_recommended_timeout_latency() {
         let mode = ParameterizationMode::latency();
 
@@ -974,6 +986,7 @@ mod parameterization_mode_tests {
     }
 
     #[test]
+    #[cfg(feature = "unstable-latency-mode")]
     fn test_recommended_ramp_up_period_fast() {
         let mode = ParameterizationMode::latency();
 
@@ -1005,6 +1018,7 @@ mod parameterization_mode_tests {
     }
 
     #[test]
+    #[cfg(feature = "unstable-latency-mode")]
     fn test_latency_vs_fulfillment_timeout_comparison() {
         let latency_mode = ParameterizationMode::latency();
         let fulfillment_mode = ParameterizationMode::fulfillment();
@@ -1061,6 +1075,7 @@ mod parameterization_mode_tests {
     }
 
     #[test]
+    #[cfg(feature = "unstable-latency-mode")]
     fn test_recommended_ramp_up_start_latency() {
         let mode = ParameterizationMode::latency();
         let now = crate::util::now_timestamp();
@@ -1088,6 +1103,7 @@ mod parameterization_mode_tests {
     }
 
     #[test]
+    #[cfg(feature = "unstable-latency-mode")]
     fn test_recommended_ramp_up_start_fulfillment_vs_latency() {
         let fulfillment_mode = ParameterizationMode::fulfillment();
         let latency_mode = ParameterizationMode::latency();
@@ -1542,33 +1558,38 @@ mod tests {
             fulfillment_mode.recommended_ramp_up_period(Some(cycle_count));
         assert_eq!(offer.rampUpPeriod, expected_ramp_up_period);
 
-        // Test with latency mode
-        let latency_mode = ParameterizationMode::latency();
-        let layer = OfferLayer::new(
-            provider.clone(),
-            OfferLayerConfig::builder().parameterization_mode(latency_mode).build()?,
-        );
-        let offer_latency =
-            layer.process((&requirements, &request_id, Some(cycle_count), &offer_params)).await?;
+        #[cfg(feature = "unstable-latency-mode")]
+        {
+            // Test with latency mode
+            let latency_mode = ParameterizationMode::latency();
+            let layer = OfferLayer::new(
+                provider.clone(),
+                OfferLayerConfig::builder().parameterization_mode(latency_mode).build()?,
+            );
+            let offer_latency = layer
+                .process((&requirements, &request_id, Some(cycle_count), &offer_params))
+                .await?;
 
-        // Latency mode should have a shorter ramp up start delay
-        let latency_executor_time = latency_mode.executor_time(Some(cycle_count));
-        let latency_delay = latency_executor_time as u64 * latency_mode.ramp_up_delay_multiplier;
-        assert!(offer_latency.rampUpStart >= now + latency_delay);
-        assert!(offer_latency.rampUpStart <= now + latency_delay + 1); // Allow 1 second tolerance
+            // Latency mode should have a shorter ramp up start delay
+            let latency_executor_time = latency_mode.executor_time(Some(cycle_count));
+            let latency_delay =
+                latency_executor_time as u64 * latency_mode.ramp_up_delay_multiplier;
+            assert!(offer_latency.rampUpStart >= now + latency_delay);
+            assert!(offer_latency.rampUpStart <= now + latency_delay + 1); // Allow 1 second tolerance
 
-        // Latency mode should have a shorter ramp up period
-        let expected_latency_ramp_up_period =
-            latency_mode.recommended_ramp_up_period(Some(cycle_count));
-        assert_eq!(offer_latency.rampUpPeriod, expected_latency_ramp_up_period);
+            // Latency mode should have a shorter ramp up period
+            let expected_latency_ramp_up_period =
+                latency_mode.recommended_ramp_up_period(Some(cycle_count));
+            assert_eq!(offer_latency.rampUpPeriod, expected_latency_ramp_up_period);
 
-        // Fulfillment mode should have a later ramp up start than latency mode
-        assert!(
-            offer.rampUpStart > offer_latency.rampUpStart,
-            "Fulfillment mode should have later ramp up start: fulfillment={}, latency={}",
-            offer.rampUpStart,
-            offer_latency.rampUpStart
-        );
+            // Fulfillment mode should have a later ramp up start than latency mode
+            assert!(
+                offer.rampUpStart > offer_latency.rampUpStart,
+                "Fulfillment mode should have later ramp up start: fulfillment={}, latency={}",
+                offer.rampUpStart,
+                offer_latency.rampUpStart
+            );
+        }
 
         Ok(())
     }

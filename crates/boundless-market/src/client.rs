@@ -449,14 +449,15 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// The parameterization mode is used to define the offering parameters for the request.
     /// The fulfillment parameterization mode is [ParameterizationMode::fulfillment()], which is the default.
     /// The latency parameterization mode is [ParameterizationMode::latency()], which is faster and allows for faster fulfillment,
-    /// at the cost of higher prices and lower fulfillment guarantees.
+    /// at the cost of higher prices and lower fulfillment guarantees (requires `unstable` or `unstable-latency-mode` feature).
     ///
     /// # Example
     /// ```rust
     /// # use boundless_market::Client;
-    /// use boundless_market::request_builder::ParameterizationMode;
-    ///
-    /// Client::builder().with_parameterization_mode(ParameterizationMode::latency());
+    /// # use boundless_market::request_builder::ParameterizationMode;
+    /// Client::builder().with_parameterization_mode(ParameterizationMode::fulfillment());
+    /// # #[cfg(feature = "unstable-latency-mode")]
+    /// # Client::builder().with_parameterization_mode(ParameterizationMode::latency());
     /// ```
     pub fn with_parameterization_mode(self, parameterization_mode: ParameterizationMode) -> Self {
         self.config_offer_layer(|config| config.parameterization_mode(parameterization_mode))
