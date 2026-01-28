@@ -25,17 +25,19 @@ mod mock;
 #[cfg(feature = "s3")]
 mod s3;
 
-pub use file::{FileStorageDownloader, FileStorageUploader};
-pub use http::HttpDownloader;
-pub use pinata::PinataStorageUploader;
 use std::time::Duration;
+
 use url::Url;
 
 use crate::storage::StorageError;
+
+pub use file::{FileStorageDownloader, FileStorageUploader};
 #[cfg(feature = "gcs")]
 pub use gcs::{GcsStorageDownloader, GcsStorageUploader};
+pub use http::HttpDownloader;
 #[cfg(feature = "test-utils")]
 pub use mock::MockStorageUploader;
+pub use pinata::PinataStorageUploader;
 #[cfg(feature = "s3")]
 pub use s3::{S3StorageDownloader, S3StorageUploader};
 

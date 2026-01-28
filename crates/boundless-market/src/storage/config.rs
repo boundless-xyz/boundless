@@ -54,8 +54,8 @@ pub enum StorageUploaderType {
 ///   `GOOGLE_APPLICATION_CREDENTIALS`, workload identity, or `gcloud auth application-default login`.
 ///   Explicit credentials can be provided via `gcs_credentials_json`.
 /// - **Pinata**: Requires a JWT token.
-#[non_exhaustive]
 #[derive(Clone, Default, Debug, Args, Builder)]
+#[non_exhaustive]
 pub struct StorageUploaderConfig {
     /// Storage provider to use [possible values: s3, gcs, pinata, file]
     ///

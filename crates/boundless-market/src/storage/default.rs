@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::storage::config::StorageDownloaderConfig;
 use crate::storage::{
-    FileStorageDownloader, GcsStorageDownloader, HttpDownloader, S3StorageDownloader,
-    StorageDownloader, StorageError,
+    config::StorageDownloaderConfig, FileStorageDownloader, GcsStorageDownloader, HttpDownloader,
+    S3StorageDownloader, StorageDownloader, StorageError,
 };
 use alloy::signers::k256::ecdsa::signature::digest::Digest;
 use async_trait::async_trait;

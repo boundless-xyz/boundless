@@ -19,8 +19,7 @@
 //! - Size limits
 //! - IPFS gateway fallback
 
-use crate::storage::config::StorageDownloaderConfig;
-use crate::storage::{StorageDownloader, StorageError};
+use crate::storage::{config::StorageDownloaderConfig, StorageDownloader, StorageError};
 use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};

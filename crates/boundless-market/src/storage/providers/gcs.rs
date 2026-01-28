@@ -46,14 +46,11 @@
 use std::env;
 
 use crate::storage::{
-    config::StorageUploaderConfig,
-    error::StorageError,
-    traits::{StorageDownloader, StorageUploader},
-    StorageUploaderType,
+    StorageDownloader, StorageError, StorageUploader, StorageUploaderConfig, StorageUploaderType,
 };
-use alloy_primitives::bytes;
 use anyhow::Context;
 use async_trait::async_trait;
+use bytes::Bytes;
 use google_cloud_auth::credentials::service_account;
 use google_cloud_gax::retry_policy::{AlwaysRetry, NeverRetry, RetryPolicyExt};
 use google_cloud_storage::client::Storage as GcsClient;
@@ -81,7 +78,7 @@ impl GcsStorageUploader {
         let bucket =
             config.gcs_bucket.clone().ok_or_else(|| StorageError::MissingConfig("gcs_bucket"))?;
 
-        let public_url = config.gcs_public_url.unwrap_or(false); // default: s3:// URL
+        let public_url = config.gcs_public_url.unwrap_or(false); // default: gs:// URL
 
         Self::new(bucket, config.gcs_url.clone(), config.gcs_credentials_json.clone(), public_url)
             .await
@@ -125,7 +122,7 @@ impl GcsStorageUploader {
     ///
     /// If `public_url` is enabled, returns a public HTTPS URL after verifying
     /// the object is publicly accessible. Otherwise, returns a `gs://` URL.
-    async fn upload(&self, data: bytes::Bytes, key: &str) -> Result<Url, StorageError> {
+    async fn upload(&self, data: Bytes, key: &str) -> Result<Url, StorageError> {
         tracing::debug!(?key, bucket = %self.bucket, public_url = %self.public_url, "uploading to GCS");
 
         let bucket_path = format!("projects/_/buckets/{}", self.bucket);
@@ -157,7 +154,7 @@ fn gcs_url(bucket: &str, key: &str, public: bool) -> Result<Url, StorageError> {
 #[async_trait]
 impl StorageUploader for GcsStorageUploader {
     async fn upload_bytes(&self, data: &[u8], key: &str) -> Result<Url, StorageError> {
-        self.upload(bytes::Bytes::copy_from_slice(data), key).await
+        self.upload(Bytes::copy_from_slice(data), key).await
     }
 }
 
