@@ -562,7 +562,7 @@ where
         let default_collaterals = default_lock_collateral(chain_id);
         let lock_collateral = self.config.lock_collateral.unwrap_or(default_collaterals.default);
 
-        let mut offer = Offer {
+        let offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
             rampUpStart: params.bidding_start.unwrap_or(ramp_up_start),
@@ -591,10 +591,9 @@ where
                 tracing::warn!(
                     "Warning: the collateral requirement of your request is low. This means the \
                      incentives for secondary provers to fulfill the order if the primary prover \
-                     is slashed may be too low. Overriding your lock collateral to {} ZKC.",
+                     is slashed may be too low. It is recommended to set the lock collateral to at least {} ZKC.",
                     format_units(collateral, "ether")?
                 );
-                offer.lockCollateral = collateral;
             }
         }
 
