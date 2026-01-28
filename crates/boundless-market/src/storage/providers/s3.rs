@@ -304,7 +304,7 @@ impl StorageDownloader for S3StorageDownloader {
             return Err(StorageError::InvalidUrl("empty key"));
         }
 
-        tracing::debug!(%bucket, %key, "downloading from S3");
+        tracing::debug!(%url, "downloading from S3");
 
         let resp =
             self.client.get_object().bucket(bucket).key(key).send().await.map_err(|sdk_err| {
@@ -343,12 +343,18 @@ mod tests {
     use super::*;
     use crate::storage::{HttpDownloader, StorageDownloader, StorageUploader};
 
-    async fn setup(presigned: bool, public_url: bool) -> S3StorageUploader {
-        let bucket = env::var("S3_BUCKET").expect("S3_BUCKET missing");
-        let endpoint_url = env::var(ENV_VAR_S3_URL).ok();
-        S3StorageUploader::new(bucket, endpoint_url, None, None, presigned, public_url)
-            .await
-            .expect("failed to create S3 uploader")
+    #[tokio::test]
+    async fn invalid_credentials() {
+        S3StorageUploader::new(
+            String::default(),
+            None,
+            Some("us-east-1".into()),
+            Some((String::default(), String::default())),
+            false,
+            false,
+        )
+        .await
+        .expect_err("should fail");
     }
 
     #[tokio::test]
@@ -391,5 +397,13 @@ mod tests {
         let downloader = HttpDownloader::default();
         let downloaded = downloader.download_url(url).await.expect("download failed");
         assert_eq!(downloaded, test_data);
+    }
+
+    async fn setup(presigned: bool, public_url: bool) -> S3StorageUploader {
+        let bucket = env::var("S3_BUCKET").expect("S3_BUCKET missing");
+        let endpoint_url = env::var(ENV_VAR_S3_URL).ok();
+        S3StorageUploader::new(bucket, endpoint_url, None, None, presigned, public_url)
+            .await
+            .expect("failed to create S3 uploader")
     }
 }

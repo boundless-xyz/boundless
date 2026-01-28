@@ -228,7 +228,7 @@ impl StorageDownloader for GcsStorageDownloader {
             return Err(StorageError::InvalidUrl("empty key"));
         }
 
-        tracing::debug!(%bucket, %key, "downloading from GCS");
+        tracing::debug!(%url, "downloading from GCS");
 
         let bucket_name = format!("projects/_/buckets/{}", bucket);
         let mut stream =
@@ -258,12 +258,11 @@ mod tests {
     use super::*;
     use crate::storage::{HttpDownloader, StorageDownloader, StorageUploader};
 
-    async fn setup(public_url: bool) -> GcsStorageUploader {
-        let bucket = env::var("GCS_BUCKET").expect("GCS_BUCKET missing");
-        let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
-        GcsStorageUploader::new(bucket, endpoint_url, None, public_url)
+    #[tokio::test]
+    async fn invalid_credentials() {
+        GcsStorageUploader::new(String::default(), None, Some(String::default()), false)
             .await
-            .expect("failed to create GCS uploader")
+            .expect_err("should fail");
     }
 
     #[tokio::test]
@@ -292,5 +291,13 @@ mod tests {
         let downloader = HttpDownloader::default();
         let downloaded = downloader.download_url(url).await.expect("download failed");
         assert_eq!(downloaded, test_data);
+    }
+
+    async fn setup(public_url: bool) -> GcsStorageUploader {
+        let bucket = env::var("GCS_BUCKET").expect("GCS_BUCKET missing");
+        let endpoint_url = env::var(ENV_VAR_GCS_URL).ok();
+        GcsStorageUploader::new(bucket, endpoint_url, None, public_url)
+            .await
+            .expect("failed to create GCS uploader")
     }
 }
