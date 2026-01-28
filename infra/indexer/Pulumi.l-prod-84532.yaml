@@ -27,7 +27,7 @@ config:
   indexer:ORDER_STREAM_API_KEY:
     secure: v1:m6WPylUvKKtSfmSv:8U9kK/h04l4lR7BCP2oi0ylQ1jMtIXVYAo/xl3q2
   indexer:BENTO_API_URL:
-    secure: v1:fJH5iEUFExz5HG6W:QM9ap68wx17CkOHwjWYnQJdkWDYmRdj1K7rXcf/JrXLgkluDb5Ucs8QzkdPtJ8EYEeCS
+    secure: v1:Z9ypgWepU3cscL5C:WpGLcij32SA9QcmnC3OCLzr3zF+/GFLwxi5yC+FAbzYp8AtSmmGZGSnedc6G5Zwu7Rud
   indexer:BENTO_API_KEY:
     secure: v1:ekjfNm9SSFzPPiCj:m5TGbA6seaZXCcnxDKoQqGvk1N8iadfJn3hkSSsPQJZJieRP0etiy9Z0eIcskTNxIXN0AdsfJLEX2g==
   indexer:PROXY_SECRET:
