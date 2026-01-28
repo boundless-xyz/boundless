@@ -1259,14 +1259,8 @@ mod tests {
             offer_zero_mcycles.rampUpPeriod,
             ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD
         );
-        assert_eq!(
-            offer_zero_mcycles.lockTimeout,
-            ParameterizationMode::DEFAULT_BASE_TIMEOUT
-        );
-        assert_eq!(
-            offer_zero_mcycles.timeout,
-            ParameterizationMode::DEFAULT_BASE_TIMEOUT * 2
-        );
+        assert_eq!(offer_zero_mcycles.lockTimeout, ParameterizationMode::DEFAULT_BASE_TIMEOUT);
+        assert_eq!(offer_zero_mcycles.timeout, ParameterizationMode::DEFAULT_BASE_TIMEOUT * 2);
         // Default ramp up start should be now + base ramp up delay
         assert!(
             offer_zero_mcycles.rampUpStart
