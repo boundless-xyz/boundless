@@ -663,7 +663,7 @@ impl ParameterizationMode {
     const DEFAULT_PROVING_SPEED_HZ: u64 = 500000; // 500 kHz
 
     /// Default executor speed in Hz.
-    const DEFAULT_EXECUTOR_SPEED_HZ: u64 = 30000000; // 30 MHz
+    const DEFAULT_EXECUTOR_SPEED_HZ: u64 = 10000000; // 10 MHz
 
     /// Minimum default timeout in seconds.
     ///
@@ -681,7 +681,7 @@ impl ParameterizationMode {
     ///
     /// This is to prevent the timeout from being too short and causing the request
     /// to expire before the prover can execute and evaluate the request.
-    const FAST_MIN_TIMEOUT: u32 = 30;
+    const FAST_MIN_TIMEOUT: u32 = 60; // 1 minute
 
     /// Default base ramp up period in seconds.
     ///
@@ -894,8 +894,8 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000; // 1M cycles
         let timeout = mode.recommended_timeout(Some(cycle_count));
 
-        // Expected: (1_000_000 / (500 * 1000)) + (1_000_000 / (30000 * 1000))
-        // = (1_000_000 / 500_000) + (1_000_000 / 30_000_000)
+        // Expected: (1_000_000 / (500 * 1000)) + (1_000_000 / (10000 * 1000))
+        // = (1_000_000 / 500_000) + (1_000_000 / 10_000_000)
         // = 2 + 1 = 3 seconds, but should be at least MIN_TIMEOUT (30)
         assert_eq!(timeout, mode.min_timeout);
 
@@ -903,9 +903,9 @@ mod parameterization_mode_tests {
         let cycle_count = 50_000_000; // 50M cycles
         let timeout = mode.recommended_timeout(Some(cycle_count));
 
-        // Expected: (50_000_000 / 500_000) + (50_000_000 / 30_000_000)
-        // = 100 + 2 = 102 seconds
-        assert_eq!(timeout, 102);
+        // Expected: (50_000_000 / 500_000) + (50_000_000 / 10_000_000)
+        // = 100 + 5 = 105 seconds
+        assert_eq!(timeout, 105);
     }
 
     #[test]
@@ -959,8 +959,8 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (1_000_000 / (30000 * 1000)) * 10 + 300
-        // = (1_000_000 / 30_000_000) * 10 + 300
+        // Expected: (1_000_000 / (10000 * 1000)) * 10 + 300
+        // = (1_000_000 / 10_000_000) * 10 + 300
         // = 1 * 10 + 300 = 310 seconds
         assert_eq!(ramp_up, 310);
 
@@ -968,9 +968,9 @@ mod parameterization_mode_tests {
         let cycle_count = 50_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (50_000_000 / 30_000_000) * 10 + 300
-        // = 2 * 10 + 300 = 320 seconds
-        assert_eq!(ramp_up, 320);
+        // Expected: (50_000_000 / 10_000_000) * 10 + 300
+        // = 5 * 10 + 300 = 350 seconds
+        assert_eq!(ramp_up, 350);
     }
 
     #[test]
@@ -1469,7 +1469,6 @@ mod tests {
         assert_eq!(
             offer_zero_mcycles.timeout,
             (DEFAULT_TIMEOUT + ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD) * 2
-                - ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD
         );
         // Default ramp up start should be now + 15 seconds
         assert!(offer_zero_mcycles.rampUpStart >= now + 15);

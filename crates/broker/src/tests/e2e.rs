@@ -405,7 +405,8 @@ async fn e2e_fulfill_after_lock_expiry() {
 
     run_with_broker(broker, async move {
         let request_id = locker_market.submit_request(&request, &locker_signer).await.unwrap();
-        let (_, client_sig) = locker_market.get_submitted_request(request_id, None).await.unwrap();
+        let (_, client_sig) =
+            locker_market.get_submitted_request(request_id, None, None, None).await.unwrap();
         locker_market.lock_request(&request, client_sig).await.unwrap();
 
         // Wait for fulfillment

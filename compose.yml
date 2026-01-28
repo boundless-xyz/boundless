@@ -14,6 +14,7 @@ x-base-environment: &base-environment
   S3_BUCKET: ${MINIO_BUCKET:-workflow}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
   S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
+  NO_COLOR: 1
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
@@ -56,6 +57,7 @@ x-exec-agent-common: &exec-agent-common
     ]
 
 x-broker-environment: &broker-environment
+  NO_COLOR: 1
   RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
   # RUST_BACKTRACE: 1
   PROVER_PRIVATE_KEY: ${PROVER_PRIVATE_KEY:-${PRIVATE_KEY}}
