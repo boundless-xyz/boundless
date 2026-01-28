@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::{future::Future, pin::Pin, time::Duration};
 use std::collections::HashMap;
 use url::Url;
-use crate::price_oracle::sources::{scale_price, PriceSource};
+use crate::price_oracle::sources::{scale_price_from_f64, PriceSource};
 
 #[derive(Deserialize)]
 struct CoinGeckoPriceData {
@@ -52,7 +52,7 @@ impl CoinGeckoSource {
         let coin_data = data
             .get(ids).ok_or_else(|| PriceOracleError::Internal(format!("coin {} not found in response", ids)))?;
 
-        let price = scale_price(coin_data.usd)?;
+        let price = scale_price_from_f64(coin_data.usd)?;
 
         Ok(PriceQuote::new(price, coin_data.last_updated_at))
     }
@@ -79,6 +79,7 @@ impl PriceOracle for CoinGeckoSource {
 
 #[cfg(test)]
 mod tests {
+    // TODO: add mock tests
     use super::*;
 
     #[tokio::test]

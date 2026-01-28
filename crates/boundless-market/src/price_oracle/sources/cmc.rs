@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::{collections::HashMap, time::Duration};
 use url::Url;
-use crate::price_oracle::sources::{scale_price, PriceSource};
+use crate::price_oracle::sources::{scale_price_from_f64, PriceSource};
 
 #[derive(Deserialize, Debug)]
 struct CmcResponse {
@@ -69,7 +69,7 @@ impl CoinMarketCapSource {
             .get(convert)
             .ok_or_else(|| PriceOracleError::Internal(format!("currency {} not found in quote", convert)))?;
 
-        let price = scale_price(quote.price)?;
+        let price = scale_price_from_f64(quote.price)?;
 
         // Parse ISO 8601 timestamp to unix timestamp
         let timestamp = chrono::DateTime::parse_from_rfc3339(&quote.last_updated)
@@ -99,6 +99,7 @@ impl PriceOracle for CoinMarketCapSource {
 
 #[cfg(test)]
 mod tests {
+    // TODO: add mock tests
     use super::*;
 
     #[tokio::test]
