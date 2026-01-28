@@ -677,8 +677,8 @@ export class IndexerApi extends pulumi.ComponentResource {
 
         orderedCacheBehaviors: [
           {
-            // Historical epoch data - cache longer
-            pathPattern: '/v1/rewards/povw/leaderboard/epoch/*',
+            // Epoch history list - cache longer
+            pathPattern: '/v1/povw/epochs',
             targetOriginId: 'api',
             viewerProtocolPolicy: 'redirect-to-https',
             allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
@@ -688,8 +688,19 @@ export class IndexerApi extends pulumi.ComponentResource {
             originRequestPolicyId: originRequestPolicy.id,
           },
           {
-            // Market leaderboards - cache longer to reduce expensive percentile queries
-            pathPattern: '/v1/market/leaderboard/*',
+            // Market requestors leaderboard - cache longer
+            pathPattern: '/v1/market/requestors',
+            targetOriginId: 'api',
+            viewerProtocolPolicy: 'redirect-to-https',
+            allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            compress: true,
+            cachePolicyId: leaderboardCachePolicy.id,
+            originRequestPolicyId: originRequestPolicy.id,
+          },
+          {
+            // Market provers leaderboard - cache longer
+            pathPattern: '/v1/market/provers',
             targetOriginId: 'api',
             viewerProtocolPolicy: 'redirect-to-https',
             allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
