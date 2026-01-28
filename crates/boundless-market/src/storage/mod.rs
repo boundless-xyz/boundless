@@ -78,35 +78,6 @@ impl StorageUploader for StandardUploader {
 }
 
 impl StandardUploader {
-    /// Creates a storage uploader from environment variables.
-    ///
-    /// Checks environment variables in the following order:
-    /// 1. If `RISC0_DEV_MODE` is set, uses file storage
-    /// 2. `PINATA_JWT` → Pinata provider
-    /// 3. `GCS_BUCKET` → GCS provider (requires `gcs` feature)
-    /// 4. `S3_BUCKET` → S3 provider (requires `s3` feature)
-    pub async fn from_env() -> Result<Self, StorageError> {
-        if crate::util::is_dev_mode() {
-            return Ok(Self::File(FileStorageUploader::new()?));
-        }
-
-        if let Ok(provider) = PinataStorageUploader::from_env() {
-            return Ok(Self::Pinata(provider));
-        }
-
-        #[cfg(feature = "gcs")]
-        if let Ok(provider) = GcsStorageUploader::from_env().await {
-            return Ok(Self::Gcs(provider));
-        }
-
-        #[cfg(feature = "s3")]
-        if let Ok(provider) = S3StorageUploader::from_env().await {
-            return Ok(Self::S3(provider));
-        }
-
-        Err(StorageError::NoUploader)
-    }
-
     /// Creates a storage uploader from configuration.
     pub async fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
         match config.storage_uploader {

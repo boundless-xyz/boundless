@@ -17,8 +17,6 @@
 //! This is an **upload-only** provider. Downloads from the resulting HTTPS URLs
 //! should be handled by the HTTP downloader.
 
-use std::env::{self, VarError};
-
 use crate::storage::{StorageError, StorageUploader, StorageUploaderConfig, StorageUploaderType};
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -49,45 +47,6 @@ pub struct PinataStorageUploader {
 }
 
 impl PinataStorageUploader {
-    /// Creates a new Pinata storage uploader from environment variables.
-    ///
-    /// Required environment variables:
-    /// - `PINATA_JWT`: Pinata API JWT token
-    ///
-    /// Optional environment variables:
-    /// - `PINATA_API_URL`: Pinata API URL (default: <https://uploads.pinata.cloud>)
-    /// - `IPFS_GATEWAY_URL`: IPFS gateway URL (default: <https://gateway.pinata.cloud>)
-    pub fn from_env() -> Result<Self, StorageError> {
-        let jwt = env::var("PINATA_JWT")?;
-        if jwt.is_empty() {
-            return Err(StorageError::Other(anyhow!("PINATA_JWT must be non-empty")));
-        }
-
-        let api_url_str = match env::var("PINATA_API_URL") {
-            Ok(url) => url,
-            Err(VarError::NotPresent) => DEFAULT_PINATA_API_URL.to_string(),
-            Err(e) => return Err(e.into()),
-        };
-        if api_url_str.is_empty() {
-            return Err(StorageError::Other(anyhow!("PINATA_API_URL must be non-empty")));
-        }
-        let api_url = Url::parse(&api_url_str)?;
-
-        let gateway_url_str = match env::var("IPFS_GATEWAY_URL") {
-            Ok(url) => url,
-            Err(VarError::NotPresent) => DEFAULT_GATEWAY_URL.to_string(),
-            Err(e) => return Err(e.into()),
-        };
-        let gateway_url = Url::parse(&gateway_url_str)?;
-
-        Ok(Self {
-            client: Client::new(),
-            pinata_jwt: jwt,
-            pinata_api_url: api_url,
-            ipfs_gateway_url: gateway_url,
-        })
-    }
-
     /// Creates a new Pinata storage uploader from configuration.
     pub fn from_config(config: &StorageUploaderConfig) -> Result<Self, StorageError> {
         assert_eq!(config.storage_uploader, StorageUploaderType::Pinata);
@@ -181,11 +140,15 @@ impl StorageUploader for PinataStorageUploader {
 mod tests {
     use super::*;
     use crate::storage::{HttpDownloader, StorageDownloader, StorageUploader};
+    use std::env;
 
     #[tokio::test]
     #[ignore = "requires PINATA_JWT credentials"]
     async fn test_pinata_roundtrip() {
-        let uploader = PinataStorageUploader::from_env().expect("failed to create Pinata uploader");
+        let jwt = env::var("PINATA_JWT").expect("PINATA_JWT missing");
+        let api_url = Url::parse(DEFAULT_PINATA_API_URL).unwrap();
+        let gateway_url = Url::parse(DEFAULT_GATEWAY_URL).unwrap();
+        let uploader = PinataStorageUploader::new(jwt, api_url, gateway_url);
 
         let test_data = b"pinata integration test data";
         let url = uploader.upload_input(test_data).await.expect("upload failed");

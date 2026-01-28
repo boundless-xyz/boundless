@@ -81,38 +81,32 @@ pub struct StorageUploaderConfig {
     #[arg(long, env, required_if_eq("storage_uploader", "s3"))]
     #[builder(setter(strip_option, into), default)]
     pub s3_bucket: Option<String>,
-    /// S3 access key (optional, uses AWS default credential chain if not set)
-    #[cfg(feature = "s3")]
-    #[arg(long, env, requires("s3_bucket"))]
-    #[builder(setter(strip_option, into), default)]
-    pub s3_access_key: Option<String>,
-    /// S3 secret key (required if s3_access_key is set)
-    #[cfg(feature = "s3")]
-    #[arg(long, env, requires = "s3_access_key")]
-    #[builder(setter(strip_option, into), default)]
-    pub s3_secret_key: Option<String>,
     /// S3 endpoint URL (optional, for S3-compatible services like MinIO)
     #[cfg(feature = "s3")]
     #[arg(long, env, requires("s3_bucket"))]
     #[builder(setter(strip_option, into), default)]
     pub s3_url: Option<String>,
+    /// AWS access key (optional, uses AWS default credential chain if not set)
+    #[cfg(feature = "s3")]
+    #[arg(long, env, requires("s3_bucket"))]
+    #[builder(setter(strip_option, into), default)]
+    pub aws_access_key_id: Option<String>,
+    /// AWS secret key (required if aws_access_key_id is set)
+    #[cfg(feature = "s3")]
+    #[arg(long, env, requires = "aws_access_key_id")]
+    #[builder(setter(strip_option, into), default)]
+    pub aws_secret_access_key: Option<String>,
     /// AWS region (optional, can be inferred from environment)
     #[cfg(feature = "s3")]
     #[arg(long, env, requires("s3_bucket"))]
     #[builder(setter(strip_option, into), default)]
     pub aws_region: Option<String>,
-
     /// Use presigned URLs for S3 (default: true)
     #[cfg(feature = "s3")]
-    #[arg(long, env, default_value = "true")]
+    #[arg(long, env, requires("s3_bucket"))]
     #[builder(setter(strip_option), default)]
-    pub s3_use_presigned: Option<bool>,
+    pub s3_presigned: Option<bool>,
     /// Return public HTTPS URLs instead of s3:// or presigned URLs (requires bucket to be public)
-    ///
-    /// When enabled, uploads return `https://{bucket}.s3.{region}.amazonaws.com/{key}` URLs.
-    /// After upload, a HEAD request verifies the object is publicly accessible.
-    /// If verification fails, an error is returned. This option takes precedence over
-    /// `s3_use_presigned`.
     #[cfg(feature = "s3")]
     #[arg(long, env, requires("s3_bucket"))]
     #[builder(setter(strip_option), default)]
