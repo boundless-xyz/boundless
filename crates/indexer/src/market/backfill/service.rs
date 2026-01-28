@@ -161,6 +161,7 @@ fn chunk_monthly_range(
 pub enum BackfillMode {
     StatusesAndAggregates,
     Aggregates,
+    ChainData,
 }
 
 pub struct BackfillService<P, ANP> {
@@ -202,9 +203,113 @@ where
             BackfillMode::Aggregates => {
                 self.backfill_aggregates().await?;
             }
+            BackfillMode::ChainData => {
+                self.backfill_chain_data().await?;
+            }
         }
 
         tracing::info!("Backfill completed in {:?}", start_time.elapsed());
+        Ok(())
+    }
+
+    async fn backfill_chain_data(&mut self) -> Result<(), ServiceError> {
+        use std::cmp::min;
+
+        let start_time = std::time::Instant::now();
+        tracing::info!(
+            "Starting chain data backfill from block {} to {}...",
+            self.start_block,
+            self.end_block
+        );
+
+        let batch_size = self.indexer.config.batch_size;
+        let mut from_block = self.start_block;
+        let mut batch_num = 0;
+
+        // Calculate total number of batches for progress reporting
+        let total_blocks = self.end_block.saturating_sub(self.start_block) + 1;
+        let total_batches = total_blocks.div_ceil(batch_size);
+
+        while from_block <= self.end_block {
+            batch_num += 1;
+            let to_block = min(from_block + batch_size - 1, self.end_block);
+            let batch_start = std::time::Instant::now();
+
+            tracing::info!(
+                "=== Chain data backfill batch {}/{}: processing blocks {} to {} ===",
+                batch_num,
+                total_batches,
+                from_block,
+                to_block
+            );
+
+            // Fetch logs from RPC
+            let logs = self.indexer.fetch_logs(from_block, to_block).await?;
+            tracing::info!(
+                "Batch {}: fetched {} logs from blocks {} to {}",
+                batch_num,
+                logs.len(),
+                from_block,
+                to_block
+            );
+
+            if !logs.is_empty() {
+                // Fetch tx metadata for the logs
+                self.indexer.fetch_tx_metadata(&logs, from_block, to_block).await?;
+
+                // Process all events
+                let (submitted_digests, _offchain_digests) = tokio::try_join!(
+                    self.indexer.process_request_submitted_events(&logs),
+                    self.indexer.process_request_submitted_offchain(from_block, to_block)
+                )?;
+
+                let locked_digests = self.indexer.process_locked_events(&logs).await?;
+                let proof_delivered_digests =
+                    self.indexer.process_proof_delivered_events(&logs).await?;
+                let fulfilled_digests = self.indexer.process_fulfilled_events(&logs).await?;
+                let callback_failed_digests =
+                    self.indexer.process_callback_failed_events(&logs).await?;
+                let slashed_digests = self.indexer.process_slashed_events(&logs).await?;
+
+                // Process deposit/withdrawal events
+                tokio::try_join!(
+                    self.indexer.process_deposit_events(&logs),
+                    self.indexer.process_withdrawal_events(&logs),
+                    self.indexer.process_collateral_deposit_events(&logs),
+                    self.indexer.process_collateral_withdrawal_events(&logs)
+                )?;
+
+                let total_touched = submitted_digests.len()
+                    + locked_digests.len()
+                    + proof_delivered_digests.len()
+                    + fulfilled_digests.len()
+                    + callback_failed_digests.len()
+                    + slashed_digests.len();
+
+                tracing::info!(
+                    "Completed chain data backfill batch {}/{} [blocks {} to {}] : processed {} events, touched {} request digests in {:?}",
+                    batch_num, total_batches, from_block, to_block, logs.len(), total_touched, batch_start.elapsed()
+                );
+            } else {
+                tracing::info!(
+                    "Completed chain data backfill batch {}/{} [blocks {} to {}] : no logs found in blocks {} to {} ({:?})",
+                    batch_num, total_batches, from_block, to_block, from_block, to_block, batch_start.elapsed()
+                );
+            }
+
+            // Clear in-memory cache to free memory
+            self.indexer.clear_in_memory_cache();
+
+            from_block = to_block + 1;
+        }
+
+        tracing::info!(
+            "Chain data backfill completed: processed {} batches (blocks {} to {}) in {:?}",
+            batch_num,
+            self.start_block,
+            self.end_block,
+            start_time.elapsed()
+        );
         Ok(())
     }
 

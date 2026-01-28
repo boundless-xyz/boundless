@@ -621,7 +621,7 @@ where
     ) -> Result<crate::db::market::PeriodRequestorSummary, ServiceError> {
         use crate::db::market::PeriodRequestorSummary;
 
-        // Execute all database queries in parallel
+        // Execute database queries in 3 sequential batches to parallelize without overloading the database
         let (
             total_fulfilled,
             unique_provers,
@@ -629,17 +629,6 @@ where
             total_requests_submitted_onchain,
             total_requests_locked,
             total_requests_slashed,
-            total_expired,
-            total_locked_and_expired,
-            total_locked_and_fulfilled,
-            total_secondary_fulfillments,
-            total_locked_and_fulfilled_adjusted,
-            total_locked_and_expired_adjusted,
-            locks,
-            all_lock_collaterals,
-            locked_and_expired_collaterals,
-            total_program_cycles,
-            total_cycles,
         ) = tokio::join!(
             self.db.get_period_requestor_fulfilled_count(
                 period_start,
@@ -671,6 +660,16 @@ where
                 period_end,
                 requestor_address
             ),
+        );
+
+        let (
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            total_secondary_fulfillments,
+            total_locked_and_fulfilled_adjusted,
+            total_locked_and_expired_adjusted,
+        ) = tokio::join!(
             self.db.get_period_requestor_expired_count(period_start, period_end, requestor_address),
             self.db.get_period_requestor_locked_and_expired_count(
                 period_start,
@@ -697,6 +696,15 @@ where
                 period_end,
                 requestor_address
             ),
+        );
+
+        let (
+            locks,
+            all_lock_collaterals,
+            locked_and_expired_collaterals,
+            total_program_cycles,
+            total_cycles,
+        ) = tokio::join!(
             self.db.get_period_requestor_lock_pricing_data(
                 period_start,
                 period_end,
