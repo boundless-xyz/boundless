@@ -104,7 +104,9 @@ impl StorageDownloader for FileStorageDownloader {
             return Err(StorageError::UnsupportedScheme(url.scheme().to_string()));
         }
 
-        let path = std::path::Path::new(url.path());
+        tracing::debug!(%url, "downloading from file");
+
+        let path = Path::new(url.path());
 
         // Check file size before reading
         let metadata = tokio::fs::metadata(path).await?;
@@ -113,7 +115,10 @@ impl StorageDownloader for FileStorageDownloader {
             return Err(StorageError::SizeLimitExceeded { size, limit });
         }
 
-        Ok(tokio::fs::read(path).await?)
+        let data = tokio::fs::read(path).await?;
+        tracing::trace!(size = data.len(), %url, "downloaded from file");
+
+        Ok(data)
     }
 }
 

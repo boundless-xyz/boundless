@@ -91,7 +91,9 @@ impl HttpDownloader {
             return Err(StorageError::UnsupportedScheme(url.scheme().to_string()));
         }
 
-        let resp = self.client.get(url).send().await.map_err(StorageError::http)?;
+        tracing::debug!(%url, "downloading from HTTP");
+
+        let resp = self.client.get(url.clone()).send().await.map_err(StorageError::http)?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -119,6 +121,8 @@ impl HttpDownloader {
             buffer.extend_from_slice(&chunk);
         }
 
+        tracing::trace!(size = buffer.len(), %url, "downloaded from HTTP");
+
         Ok(buffer)
     }
 }
@@ -141,6 +145,18 @@ fn normalize_gateway_url(mut url: Url) -> Url {
     url
 }
 
+/// Returns `true` if the error is worth retrying with a fallback gateway.
+fn should_retry(err: &StorageError) -> bool {
+    match err {
+        // Retry on any HTTP-related error (connection, status, etc.)
+        StorageError::Http(_) | StorageError::HttpStatus(_) => true,
+        // Don't retry on size limit - the fallback would have the same content
+        StorageError::SizeLimitExceeded { .. } => false,
+        // Don't retry on other errors
+        _ => false,
+    }
+}
+
 #[async_trait]
 impl StorageDownloader for HttpDownloader {
     async fn download_url_with_limit(
@@ -150,7 +166,7 @@ impl StorageDownloader for HttpDownloader {
     ) -> Result<Vec<u8>, StorageError> {
         match self.download_impl(url.clone(), limit).await {
             Ok(data) => Ok(data),
-            Err(e) => match self.rewrite_ipfs_url(&url) {
+            Err(e) if should_retry(&e) => match self.rewrite_ipfs_url(&url) {
                 Some(gateway_url) => {
                     tracing::debug!(
                         original = %url,
@@ -162,6 +178,7 @@ impl StorageDownloader for HttpDownloader {
                 }
                 None => Err(e),
             },
+            Err(e) => Err(e),
         }
     }
 }

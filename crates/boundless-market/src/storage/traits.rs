@@ -57,6 +57,11 @@ pub trait StorageUploader: Send + Sync {
 #[auto_impl(Arc)]
 pub trait StorageDownloader: Send + Sync {
     /// Downloads data from the given URL, returning at most `limit` bytes.
+    ///
+    /// This method allows callers to override the default size limit configured in the
+    /// downloader. Pass `usize::MAX` to effectively disable the limit for this call.
+    /// This is useful for trusted sources or priority requestors that should not be
+    /// subject to the global size restrictions.
     async fn download_url_with_limit(
         &self,
         url: Url,
