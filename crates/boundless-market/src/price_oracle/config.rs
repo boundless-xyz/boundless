@@ -88,9 +88,6 @@ pub struct OffChainConfig {
 pub struct CoinGeckoConfig {
     /// Whether CoinGecko is enabled
     pub enabled: bool,
-    // TODO: set default
-    /// API URL
-    pub api_url: String,
     /// API key (optional, for pro tier)
     pub api_key: Option<String>,
 }
@@ -100,9 +97,6 @@ pub struct CoinGeckoConfig {
 pub struct CoinMarketCapConfig {
     /// Whether CoinMarketCap is enabled
     pub enabled: bool,
-    // TODO: set default
-    /// API URL
-    pub api_url: String,
     /// API key (required)
     pub api_key: String,
 }
@@ -157,9 +151,6 @@ impl PriceOracleConfig {
             // CoinMarketCap
             if let Some(ref cmc_config) = offchain.cmc {
                 if cmc_config.enabled {
-                    let _api_url = url::Url::parse(&cmc_config.api_url)
-                        .map_err(|e| PriceOracleError::ConfigError(format!("Invalid CMC API URL: {}", e)))?;
-
                     let cmc = CoinMarketCapSource::new(
                         cmc_config.api_key.clone(),
                         Duration::from_secs(self.timeout_secs),

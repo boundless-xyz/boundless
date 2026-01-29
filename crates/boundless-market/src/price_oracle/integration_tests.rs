@@ -1,0 +1,229 @@
+//! Integration tests for price oracle (run with --ignored flag)
+//! These tests make real network calls to APIs and RPC endpoints
+//!
+//! Run with:
+//! ```bash
+//! RUST_LOG=debug ETH_RPC_URL="https://..." CMC_API_KEY="your_key" \
+//!   cargo test -p boundless-market price_oracle::integration_tests -- --ignored --test-threads=1 --nocapture
+//! ```
+
+#![cfg(test)]
+
+use crate::price_oracle::{PriceOracle, PriceQuote, TradingPair, AggregationMode, config::{PriceOracleConfig, OnChainConfig, OffChainConfig, ChainlinkConfig,
+                                                                                          CoinGeckoConfig, CoinMarketCapConfig}};
+use alloy::providers::ProviderBuilder;
+
+// Price bounds for sanity checks
+const ETH_MIN_USD: f64 = 100.0;
+const ETH_MAX_USD: f64 = 10000.0;
+const ZKC_MIN_USD: f64 = 0.001;
+const ZKC_MAX_USD: f64 = 10.0;
+
+/// Get RPC URL from environment or fallback to public RPC
+fn get_rpc_url() -> String {
+    std::env::var("ETH_RPC_URL")
+        .unwrap_or_else(|_| "https://ethereum.publicnode.com".to_string())
+}
+
+/// Get CoinMarketCap API key from environment
+fn get_cmc_api_key() -> Option<String> {
+    std::env::var("CMC_API_KEY").ok()
+}
+
+/// Assert price is within reasonable bounds for the trading pair
+fn assert_price_reasonable(quote: PriceQuote, pair: TradingPair) {
+    let price_usd = quote.price_to_f64();
+
+    let (min, max, pair_name) = match pair {
+        TradingPair::EthUsd => (ETH_MIN_USD, ETH_MAX_USD, "ETH/USD"),
+        TradingPair::ZkcUsd => (ZKC_MIN_USD, ZKC_MAX_USD, "ZKC/USD"),
+    };
+
+    assert!(
+        price_usd >= min && price_usd <= max,
+        "{} price ${:.2} out of reasonable range [${:.2}, ${:.2}]",
+        pair_name, price_usd, min, max
+    );
+}
+
+/// Assert timestamp is recent (within max_age_secs)
+fn assert_timestamp_recent(timestamp: u64, max_age_secs: u64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    assert!(
+        timestamp > now.saturating_sub(max_age_secs),
+        "Timestamp {} is too old (now: {}, max age: {}s)",
+        timestamp, now, max_age_secs
+    );
+}
+
+/// Build a config with all 3 sources (Chainlink, CoinGecko, CMC)
+fn build_config(mode: AggregationMode) -> PriceOracleConfig {
+    let cmc_api_key = get_cmc_api_key()
+        .expect("CMC_API_KEY environment variable is required for integration tests");
+
+    PriceOracleConfig {
+        enabled: true,
+        refresh_interval_secs: 60,
+        timeout_secs: 10,
+        aggregation_mode: mode,
+        min_sources: 1,
+        max_staleness_secs: 3600,
+        onchain: Some(OnChainConfig {
+            chainlink: Some(ChainlinkConfig {
+                enabled: true,
+            }),
+        }),
+        offchain: Some(OffChainConfig {
+            coingecko: Some(CoinGeckoConfig {
+                enabled: true,
+                api_key: None,
+            }),
+            cmc: Some(CoinMarketCapConfig {
+                enabled: true,
+                api_key: cmc_api_key,
+            }),
+        }),
+        static_fallback: None,
+    }
+}
+
+
+#[tokio::test]
+#[ignore] // Requires network and CMC_API_KEY
+async fn test_composite_priority_mode() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init()
+        .ok();
+
+    let rpc_url = get_rpc_url();
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+
+    let config = build_config(AggregationMode::Priority);
+    let oracle = config.build(provider).await?
+        .expect("Oracle should be built");
+
+    // Fetch ETH/USD price
+    let quote = oracle.get_price(TradingPair::EthUsd).await?;
+    println!("Priority mode ETH/USD: ${:.2}", quote.price_to_f64());
+    assert_price_reasonable(quote, TradingPair::EthUsd);
+    assert_timestamp_recent(quote.timestamp, 3600);
+
+    // Fetch ZKC/USD price
+    let quote_zkc = oracle.get_price(TradingPair::ZkcUsd).await?;
+    println!("Priority mode ZKC/USD: ${:.6}", quote_zkc.price_to_f64());
+    assert_price_reasonable(quote_zkc, TradingPair::ZkcUsd);
+    assert_timestamp_recent(quote_zkc.timestamp, 3600);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore] // Requires network and CMC_API_KEY
+async fn test_composite_median_mode() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init()
+        .ok();
+
+    let rpc_url = get_rpc_url();
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+
+    let config = build_config(AggregationMode::Median);
+    let oracle = config.build(provider).await?
+        .expect("Oracle should be built");
+
+    // Fetch ETH/USD price
+    let quote = oracle.get_price(TradingPair::EthUsd).await?;
+    println!("Median mode ETH/USD: ${:.2}", quote.price_to_f64());
+    assert_price_reasonable(quote, TradingPair::EthUsd);
+    assert_timestamp_recent(quote.timestamp, 3600);
+
+    // Fetch ZKC/USD price
+    let quote_zkc = oracle.get_price(TradingPair::ZkcUsd).await?;
+    println!("Median mode ZKC/USD: ${:.6}", quote_zkc.price_to_f64());
+    assert_price_reasonable(quote_zkc, TradingPair::ZkcUsd);
+    assert_timestamp_recent(quote_zkc.timestamp, 3600);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore] // Requires network and CMC_API_KEY
+async fn test_composite_average_mode() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init()
+        .ok();
+
+    let rpc_url = get_rpc_url();
+    let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+
+    let config = build_config(AggregationMode::Average);
+    let oracle = config.build(provider).await?
+        .expect("Oracle should be built");
+
+    // Fetch ETH/USD price
+    let quote = oracle.get_price(TradingPair::EthUsd).await?;
+    println!("Average mode ETH/USD: ${:.2}", quote.price_to_f64());
+    assert_price_reasonable(quote, TradingPair::EthUsd);
+    assert_timestamp_recent(quote.timestamp, 3600);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore] // Requires network and CMC_API_KEY
+async fn test_all_aggregation_modes_price_consistency() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init()
+        .ok();
+
+    let rpc_url = get_rpc_url();
+
+    // Test all three modes
+    let modes = [
+        AggregationMode::Priority,
+        AggregationMode::Median,
+        AggregationMode::Average,
+    ];
+
+    let mut prices = Vec::new();
+
+    for mode in modes {
+        let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+        let config = build_config(mode);
+        let oracle = config.build(provider).await?
+            .expect("Oracle should be built");
+
+        let quote = oracle.get_price(TradingPair::EthUsd).await?;
+        println!("{:?} mode ETH/USD: ${:.2}", mode, quote.price_to_f64());
+
+        assert_price_reasonable(quote, TradingPair::EthUsd);
+        prices.push(quote.price_to_f64());
+    }
+
+    // All prices should be relatively close (within 10% of each other)
+    let max_price = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min_price = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+    let spread_pct = (max_price - min_price) / min_price * 100.0;
+
+    println!("Price spread: {:.2}% (min: ${:.2}, max: ${:.2})", spread_pct, min_price, max_price);
+
+    assert!(
+        spread_pct < 10.0,
+        "Price spread {:.2}% exceeds 10% threshold",
+        spread_pct
+    );
+
+    Ok(())
+}

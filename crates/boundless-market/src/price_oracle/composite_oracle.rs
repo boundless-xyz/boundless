@@ -34,8 +34,11 @@ impl CompositeOracle {
         for source in &self.sources {
             match source.get_price(pair).await {
                 Ok(quote) => {
-                    tracing::debug!("Priority mode: using {} for {}", source.name(), pair.as_str());
+                    tracing::debug!("Priority mode: using {} for {} with price {} => {}. Timestamp: {} => {}", source.name(), pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
                     return Ok(quote);
+                }
+                Err(e@ PriceOracleError::UnsupportedPair(_)) => {
+                    tracing::debug!("Priority mode: {} does not support {}: {}", source.name(), pair.as_str(), e);
                 }
                 Err(e) => {
                     let error_msg = format!("{}: {}", source.name(), e);
@@ -50,26 +53,29 @@ impl CompositeOracle {
     }
 
     /// Fetch all sources in parallel for median/average mode
-    async fn fetch_all_parallel(&self, pair: TradingPair) -> Vec<(usize, Result<PriceQuote, String>)> {
+    async fn fetch_all_parallel(&self, pair: TradingPair) -> Vec<(usize, Result<PriceQuote, PriceOracleError>)> {
         let futures = self.sources.iter().enumerate().map(|(i, source)| {
             let source = Arc::clone(source);
             async move {
-                let result = source.get_price(pair).await
-                    .map_err(|e| format!("{}: {}", source.name(), e));
+                let result = source.get_price(pair).await;
                 (i, result)
             }
         });
         join_all(futures).await
     }
 
-    fn aggregate_median_or_average(&self, pair: TradingPair, results: Vec<(usize, Result<PriceQuote, String>)>) -> Result<PriceQuote, PriceOracleError> {
+    fn aggregate_median_or_average(&self, pair: TradingPair, results: Vec<(usize, Result<PriceQuote, PriceOracleError>)>) -> Result<PriceQuote, PriceOracleError> {
         // Collect successful results
         let mut successful: Vec<PriceQuote> = Vec::new();
         for (i, result) in results.into_iter() {
             match result {
                 Ok(quote) => {
-                    tracing::debug!("Source {} returned price for {}: {}", self.sources[i].name(), pair.as_str(), quote.price);
+                    tracing::debug!("Source {} returned price for {}: {} => {}. Timestamp: {} => {}", self.sources[i].name(), pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
                     successful.push(quote);
+                }
+                Err(e
+                    @ PriceOracleError::UnsupportedPair(_)) => {
+                    tracing::debug!("Source {} does not support {}: {}", self.sources[i].name(), pair.as_str(), e);
                 }
                 Err(e) => {
                     tracing::warn!("Source {} failed for {}: {}", self.sources[i].name(), pair.as_str(), e);
@@ -106,7 +112,7 @@ impl CompositeOracle {
             AggregationMode::Priority => unreachable!("Priority mode handled separately"),
         };
 
-        tracing::debug!("Aggregated price for {} using {:?}: {}", pair.as_str(), self.aggregation_mode, aggregated_price.price);
+        tracing::debug!("Aggregated price for {} using {:?}: {} => {}. Timestamp: {} => {}", pair.as_str(), self.aggregation_mode, aggregated_price.price, aggregated_price.price_to_f64(), aggregated_price.timestamp, aggregated_price.timestamp_to_human_readable());
         Ok(aggregated_price)
     }
 }

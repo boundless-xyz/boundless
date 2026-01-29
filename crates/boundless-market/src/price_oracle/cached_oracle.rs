@@ -133,11 +133,6 @@ mod tests {
             }
         }
 
-        fn with_delay(mut self, delay: Duration) -> Self {
-            self.delay = delay;
-            self
-        }
-
         async fn set_price(&self, pair: TradingPair, price: U256) {
             self.prices.lock().await.insert(pair, price);
         }

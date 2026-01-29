@@ -1,6 +1,7 @@
 use std::time::SystemTime;
 use alloy::primitives::U256;
 use alloy_primitives::I256;
+use chrono::DateTime;
 
 /// Configuration types for price oracle
 pub mod config;
@@ -12,6 +13,9 @@ pub mod sources;
 pub mod composite_oracle;
 /// Cached oracle with background refresh
 pub mod cached_oracle;
+/// Integration tests (run with --ignored flag)
+#[cfg(test)]
+mod integration_tests;
 
 pub use config::{PriceOracleConfig, StaticPriceConfig};
 pub use error::PriceOracleError;
@@ -64,6 +68,20 @@ impl PriceQuote {
             .unwrap()
             .as_secs();
         now.saturating_sub(self.timestamp) > max_age_secs
+    }
+
+    /// Convert scaled U256 price to f64 USD value
+    pub fn price_to_f64(&self) -> f64 {
+        self.price.to::<u128>() as f64 / 10u64.pow(SCALE_DECIMALS) as f64
+    }
+
+    /// Convert timestamp to human-readable string
+    pub fn timestamp_to_human_readable(&self) -> String {
+        let datetime = DateTime::from_timestamp(self.timestamp as i64, 0);
+        match datetime {
+            Some(dt) => dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            None => "Invalid timestamp".to_string(),
+        }
     }
 }
 
