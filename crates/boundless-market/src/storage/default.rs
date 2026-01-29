@@ -18,6 +18,8 @@ use crate::storage::{
 };
 use async_trait::async_trait;
 use sha2::{Digest as _, Sha256};
+use std::path::Path;
+use tempfile::NamedTempFile;
 use url::Url;
 
 /// A downloader that can fetch data from various URL schemes.
@@ -91,7 +93,16 @@ impl StandardDownloader {
         hex::encode(hash)
     }
 
-    async fn cache<D: StorageDownloader>(
+    /// Downloads from the given URL, using the cache if available.
+    ///
+    /// Implements a write-through cache strategy:
+    /// - On cache hit: returns cached data immediately
+    /// - On cache miss: downloads from source, writes to cache, returns data
+    ///
+    /// Cache writes are atomic (via temp file + rename) to prevent corrupt entries
+    /// from concurrent access or crashes. Cache failures are logged but don't fail
+    /// the download - the data is still returned successfully.
+    async fn download_with_cache<D: StorageDownloader>(
         &self,
         downloader: &D,
         url: Url,
@@ -103,11 +114,11 @@ impl StandardDownloader {
 
         let cache_path = cache_dir.join(Self::cache_key(&url));
         if let Ok(metadata) = tokio::fs::metadata(&cache_path).await {
+            tracing::debug!(%url, "cache hit");
             let size = metadata.len() as usize;
             if size > limit {
                 return Err(StorageError::SizeLimitExceeded { size, limit });
             }
-            tracing::debug!(%url, "cache hit");
             let data = tokio::fs::read(&cache_path).await?;
             tracing::trace!(size = data.len(), %url, "read from cache");
             return Ok(data);
@@ -115,14 +126,30 @@ impl StandardDownloader {
 
         tracing::debug!(%url, "cache miss");
         let data = downloader.download_url_with_limit(url, limit).await?;
-
-        if let Err(err) = tokio::fs::create_dir_all(cache_dir).await {
-            tracing::warn!(%err, cache_path = %cache_path.display(), "failed to create cache directory");
-        } else if let Err(err) = tokio::fs::write(&cache_path, &data).await {
-            tracing::warn!(%err, cache_path = %cache_path.display(), "failed to write cache file");
-        }
+        Self::write_cache(cache_dir, &cache_path, &data).await;
 
         Ok(data)
+    }
+
+    /// Attempts to write data to the cache. Failures are logged but not propagated.
+    async fn write_cache(cache_dir: &Path, cache_path: &Path, data: &[u8]) {
+        if let Err(err) = tokio::fs::create_dir_all(cache_dir).await {
+            tracing::warn!(%err, dir = %cache_dir.display(), "failed to create cache directory");
+            return;
+        }
+
+        match NamedTempFile::new_in(cache_dir) {
+            Ok(temp_file) => {
+                if let Err(err) = tokio::fs::write(temp_file.path(), &data).await {
+                    tracing::warn!(%err, dir = %cache_dir.display(), "failed to write temp file");
+                } else if let Err(err) = temp_file.persist(cache_path) {
+                    tracing::warn!(%err, path = %cache_path.display(), "failed to persist cache file");
+                }
+            }
+            Err(err) => {
+                tracing::warn!(%err, dir = %cache_dir.display(), "failed to create temp file")
+            }
+        }
     }
 }
 
@@ -131,23 +158,23 @@ impl StorageDownloader for StandardDownloader {
     async fn download_url_with_limit(
         &self,
         url: Url,
-        max_size: usize,
+        limit: usize,
     ) -> Result<Vec<u8>, StorageError> {
         match url.scheme() {
-            "http" | "https" => self.cache(&self.http, url, max_size).await,
+            "http" | "https" => self.download_with_cache(&self.http, url, limit).await,
             "file" => match &self.file {
                 // File URLs are already local, so caching would just copy them unnecessarily
-                Some(file) => file.download_url_with_limit(url, max_size).await,
+                Some(file) => file.download_url_with_limit(url, limit).await,
                 None => Err(StorageError::UnsupportedScheme("file (dev mode only)".into())),
             },
             #[cfg(feature = "s3")]
             "s3" => match &self.s3 {
-                Some(s3) => self.cache(s3, url, max_size).await,
+                Some(s3) => self.download_with_cache(s3, url, limit).await,
                 None => Err(StorageError::UnsupportedScheme("s3 (credentials unavailable)".into())),
             },
             #[cfg(feature = "gcs")]
             "gs" => match &self.gcs {
-                Some(gcs) => self.cache(gcs, url, max_size).await,
+                Some(gcs) => self.download_with_cache(gcs, url, limit).await,
                 None => Err(StorageError::UnsupportedScheme("gs (credentials unavailable)".into())),
             },
             scheme => Err(StorageError::UnsupportedScheme(scheme.to_string())),
