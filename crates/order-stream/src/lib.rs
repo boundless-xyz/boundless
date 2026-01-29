@@ -701,9 +701,6 @@ mod tests {
     #[sqlx::test]
     #[serial]
     async fn integration_test(pool: PgPool) {
-        // Set the ping interval to 500ms for this test
-        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
-
         // Create listener first
         let listener = tokio::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
             .await
@@ -878,9 +875,6 @@ mod tests {
     #[sqlx::test]
     #[serial]
     async fn test_websocket_connection_replacement(pool: PgPool) {
-        // Set the ping interval to 500ms for this test
-        std::env::set_var("ORDER_STREAM_CLIENT_PING_MS", "500");
-
         // Set up server and client
         let (client, app_state, ctx, _anvil, server_handle, _addr) =
             setup_server_and_client(pool).await;
