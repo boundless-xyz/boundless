@@ -70,8 +70,8 @@ http-cache-reqwest = "0.16"
 httpmock = { workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
-reqwest-middleware = "0.4"
-reqwest-retry = "0.8"
+reqwest-middleware = "0.5"
+reqwest-retry = "0.9"
 risc0-aggregation = { workspace = true }
 risc0-binfmt = { workspace = true }
 risc0-circuit-recursion = { workspace = true, optional = true }

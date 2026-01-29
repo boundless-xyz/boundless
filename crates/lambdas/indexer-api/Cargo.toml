@@ -71,7 +71,7 @@ assert_cmd = "=2.0"
 # Random number generation for tests
 rand = "0.8"
 # HTTP client for integration tests
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true, features = ["json"] }
 # Temporary file handling for tests
 tempfile = "3.8"
 # Test logging
