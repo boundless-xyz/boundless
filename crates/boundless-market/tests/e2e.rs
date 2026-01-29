@@ -33,7 +33,7 @@ use boundless_market::{
     input::GuestEnv,
     price_provider::{PricePercentiles, PriceProviderArc},
     request_builder::{OfferParams, RequestParams},
-    storage::MockStorageProvider,
+    storage::{HttpDownloader, MockStorageUploader},
     test_helpers::create_mock_indexer_client,
 };
 use boundless_test_utils::{
@@ -179,6 +179,7 @@ async fn test_funding_mode() {
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .with_downloader(HttpDownloader::default())
         .build()
         .await
         .unwrap();
@@ -693,7 +694,7 @@ async fn test_client_builder_with_price_provider() {
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Use a storage provider to avoid URL fetching issues
-    let storage = Arc::new(MockStorageProvider::start());
+    let storage = Arc::new(MockStorageUploader::new());
 
     // Create a mock IndexerClient that returns specific prices
     // This allows us to test the price provider integration without a real indexer
@@ -718,8 +719,9 @@ async fn test_client_builder_with_price_provider() {
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
-        .with_storage_provider(Some(storage.clone()))
+        .with_uploader(Some(storage.clone()))
         .with_price_provider(Some(price_provider))
+        .with_downloader(HttpDownloader::default())
         .build()
         .await
         .unwrap();

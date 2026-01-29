@@ -35,7 +35,7 @@ use boundless_market::{
     deployments::Deployment,
     input::GuestEnv,
     request_builder::OfferParams,
-    storage::StorageProviderConfig,
+    storage::StorageUploaderConfig,
 };
 use clap::Parser;
 use futures::future::try_join_all;
@@ -102,9 +102,9 @@ pub struct MainArgs {
     /// Boundless Market deployment configuration
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
-    /// Storage provider to use.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
+    storage_config: StorageUploaderConfig,
 }
 
 pub async fn run(args: &MainArgs) -> Result<()> {
@@ -122,7 +122,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
     };
     let boundless_client = ClientBuilder::new()
         .with_rpc_url(args.rpc_url.clone())
-        .with_storage_provider_config(&args.storage_config)?
+        .with_uploader_config(&args.storage_config)
+        .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(private_key)
         .with_balance_alerts(balance_alerts)
@@ -141,8 +142,8 @@ pub async fn run(args: &MainArgs) -> Result<()> {
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            let url = "https://dweb.link/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi";
-            (fetch_http(&Url::parse(url)?).await?, Url::parse(url)?)
+            let url = Url::parse("https://dweb.link/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi").unwrap();
+            (boundless_client.download(url.as_str()).await?, url)
         }
     };
     let image_id = compute_image_id(&program)?;
@@ -465,16 +466,6 @@ async fn process(rows: &[BenchRow], db: &str) -> Result<BenchRows> {
     Ok(BenchRows(bench_rows))
 }
 
-async fn fetch_http(url: &Url) -> Result<Vec<u8>> {
-    let response = reqwest::get(url.as_str()).await?;
-    let status = response.status();
-    if !status.is_success() {
-        bail!("HTTP request failed with status: {}", status);
-    }
-
-    Ok(response.bytes().await?.to_vec())
-}
-
 fn now_timestamp() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -488,7 +479,6 @@ mod tests {
 
     use alloy::{node_bindings::Anvil, primitives::Address};
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageProviderConfig;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use broker::{
         config::{Config, ConfigWatcher},
@@ -569,7 +559,10 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    #[ignore = "Generates real proofs, slow without dev mode or bonsai"]
+    #[cfg_attr(
+        not(feature = "test-r0vm"),
+        ignore = "Generates real proofs, slow without dev mode or bonsai"
+    )]
     async fn test_bench() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
@@ -624,7 +617,7 @@ mod tests {
 
         let args = MainArgs {
             rpc_url: anvil.endpoint_url(),
-            storage_config: StorageProviderConfig::dev_mode(),
+            storage_config: StorageUploaderConfig::dev_mode(),
             private_key: ctx.customer_signer.clone(),
             deployment: Some(ctx.deployment.clone()),
             program: is_dev_mode().then(|| PathBuf::from(LOOP_PATH)),

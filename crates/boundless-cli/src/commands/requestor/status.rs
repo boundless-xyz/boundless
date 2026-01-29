@@ -183,9 +183,9 @@ impl RequestorStatus {
     /// Returns (start_block, end_block) defining the search window.
     /// When order exists: uses submission to expiration timestamps.
     /// When no order: searches backwards from current block.
-    async fn find_event_search_blocks<P, St, R, Si>(
+    async fn find_event_search_blocks<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, R, Si>,
+        client: &boundless_market::Client<P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
     ) -> (u64, u64)
     where
@@ -276,9 +276,9 @@ impl RequestorStatus {
         (start_block, end_block)
     }
 
-    async fn build_timeline<P, St, R, Si>(
+    async fn build_timeline<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, R, Si>,
+        client: &boundless_market::Client<P, St, U, R, Si>,
         _requestor_config: &crate::config::RequestorConfig,
     ) -> Result<(Vec<TimelineEntry>, Option<ProofRequest>)>
     where
@@ -514,9 +514,9 @@ impl RequestorStatus {
         Ok((timeline, proof_request))
     }
 
-    async fn query_submission_info<P, St, R, Si>(
+    async fn query_submission_info<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, R, Si>,
+        client: &boundless_market::Client<P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,
@@ -565,9 +565,9 @@ impl RequestorStatus {
         (None, None, None, None)
     }
 
-    async fn get_proof_request<P, St, R, Si>(
+    async fn get_proof_request<P, St, U, R, Si>(
         &self,
-        client: &boundless_market::Client<P, St, R, Si>,
+        client: &boundless_market::Client<P, St, U, R, Si>,
         order_data: &Option<(boundless_market::order_stream_client::Order, DateTime<Utc>)>,
         lower_bound: u64,
         upper_bound: u64,

@@ -45,7 +45,7 @@ pub use client::{Client, StandardClient};
 #[cfg(not(target_os = "zkvm"))]
 pub mod indexer_client;
 /// Test helpers for testing the Boundless Market.
-#[cfg(not(target_os = "zkvm"))]
+#[cfg(all(feature = "test-utils", not(target_os = "zkvm")))]
 pub mod test_helpers;
 
 /// Contracts module for interacting with the Boundless Market smart contracts.
@@ -103,12 +103,12 @@ pub mod prover_utils;
 #[cfg(all(not(feature = "prover_utils"), not(target_os = "zkvm")))]
 pub(crate) mod prover_utils;
 
-/// Storage module for interacting with the storage provider.
+/// Storage module for interacting with the storage uploader.
 #[cfg(not(target_os = "zkvm"))]
 pub mod storage;
 #[cfg(not(target_os = "zkvm"))]
 pub use storage::{
-    override_gateway, StandardStorageProvider, StorageProvider, StorageProviderConfig,
+    StandardDownloader, StandardUploader, StorageDownloaderConfig, StorageUploaderConfig,
 };
 
 /// Utility functions and types used elsewhere.
