@@ -224,7 +224,7 @@ where
         // Build submitted_events from deduplicated proof_requests
         let mut submitted_events: Vec<(B256, U256, TxMetadata)> = Vec::new();
         for (digest, request, metadata, _, _) in &proof_requests {
-            submitted_events.push((*digest, request.id.into(), *metadata));
+            submitted_events.push((*digest, request.id, *metadata));
         }
 
         // Batch insert all collected events
