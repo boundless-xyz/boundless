@@ -2,7 +2,7 @@
 # NVIDIA driver and CUDA installation configuration
 
 # CUDA version to install
-nvidia_cuda_version: "13-0"
+nvidia_cuda_version: "13-1"
 nvidia_drivers_package: "nvidia-open"
 # Ubuntu version mapping for CUDA repository
 # Automatically detected, but can be overridden
