@@ -25,7 +25,7 @@ use crate::{
     storage::{upload_image_uri, upload_input_uri},
     task::{RetryRes, RetryTask, SupervisorErr},
     utils::cancel_proof_and_fail_order,
-    CompressionType, ConfigurableDownloader, FulfillmentType, Order, OrderStateChange, OrderStatus,
+    CompressionType, FulfillmentType, Order, OrderStateChange, OrderStatus,
 };
 use alloy::providers::DynProvider;
 use anyhow::{Context, Result};
@@ -70,12 +70,10 @@ pub struct ProvingService {
     order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
     fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
-    downloader: ConfigurableDownloader,
 }
 
 impl ProvingService {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub async fn new(
         db: DbObj,
         prover: ProverObj,
         snark_prover: ProverObj,
@@ -83,9 +81,8 @@ impl ProvingService {
         order_state_tx: tokio::sync::broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
         fulfillment_market: Arc<BoundlessMarketService<DynProvider>>,
-        downloader: ConfigurableDownloader,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             db,
             prover,
             snark_prover,
@@ -93,8 +90,7 @@ impl ProvingService {
             order_state_tx,
             priority_requestors,
             fulfillment_market,
-            downloader,
-        }
+        })
     }
 
     async fn monitor_proof_internal(
@@ -206,7 +202,7 @@ impl ProvingService {
                 // Mostly hit by skipping pre-flight
                 let image_id = match order.image_id.as_ref() {
                     Some(val) => val.clone(),
-                    None => upload_image_uri(&self.prover, &order.request, &self.downloader)
+                    None => upload_image_uri(&self.prover, &order.request, &self.config)
                         .await
                         .context(format!("Failed to upload image for order {order_id}"))?,
                 };
@@ -216,7 +212,7 @@ impl ProvingService {
                     None => upload_input_uri(
                         &self.prover,
                         &order.request,
-                        &self.downloader,
+                        &self.config,
                         &self.priority_requestors,
                     )
                     .await
@@ -572,11 +568,9 @@ mod tests {
         provers::{encode_input, DefaultProver},
         FulfillmentType, OrderStatus,
     };
-    use alloy::{
-        primitives::{Address, Bytes, U256},
-        providers::{DynProvider, Provider, ProviderBuilder},
-        transports::mock::Asserter,
-    };
+    use alloy::primitives::{Address, Bytes, U256};
+    use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+    use alloy::transports::mock::Asserter;
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestInput, RequestInputType, Requirements,
     };
@@ -673,7 +667,6 @@ mod tests {
         let config = ConfigLock::default();
         let market = mock_market(vec![false; 4]);
         let prover: ProverObj = Arc::new(DefaultProver::new());
-        let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -692,8 +685,9 @@ mod tests {
             order_state_tx,
             priority_requestors,
             market.clone(),
-            downloader.clone(),
-        );
+        )
+        .await
+        .unwrap();
 
         let order = create_test_order(
             U256::ZERO,
@@ -722,8 +716,9 @@ mod tests {
             order_state_tx.clone(),
             priority_requestors,
             market.clone(),
-            downloader.clone(),
-        );
+        )
+        .await
+        .unwrap();
 
         let lock_and_fulfill_order = create_test_order(
             U256::from(999),
@@ -759,7 +754,6 @@ mod tests {
 
         let prover: ProverObj = Arc::new(DefaultProver::new());
         let market = mock_market(vec![false; 6]);
-        let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -781,8 +775,9 @@ mod tests {
             order_state_tx,
             priority_requestors,
             market,
-            downloader,
-        );
+        )
+        .await
+        .unwrap();
 
         let order_id = U256::ZERO;
         let min_price = 2;
@@ -856,7 +851,6 @@ mod tests {
         let config = ConfigLock::default();
         let prover: ProverObj = Arc::new(DefaultProver::new());
         let market = mock_market(vec![false; 6]);
-        let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
         let image_id = Digest::from(ECHO_ID).to_string();
         prover.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
@@ -875,8 +869,9 @@ mod tests {
             order_state_tx.clone(),
             priority_requestors,
             market,
-            downloader,
-        );
+        )
+        .await
+        .unwrap();
 
         let request_id = U256::from(123);
         let proof_id = prover.prove_stark(&image_id, &input_id, vec![]).await.unwrap();

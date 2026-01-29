@@ -18,7 +18,7 @@ use alloy::{primitives::utils::parse_ether, signers::local::PrivateKeySigner};
 use anyhow::{Context, Result};
 use blake3_groth16::Blake3Groth16ReceiptClaim;
 use boundless_market::{
-    request_builder::OfferParamsBuilder, Client, Deployment, StorageUploaderConfig,
+    request_builder::OfferParamsBuilder, Client, Deployment, StorageProviderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
@@ -35,9 +35,9 @@ struct Args {
     /// Private key used to interact with the Boundless Market.
     #[clap(long, env)]
     private_key: PrivateKeySigner,
-    /// Configuration for the uploader used for programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Uploader")]
-    storage_config: StorageUploaderConfig,
+    /// Configuration for the StorageProvider to use for uploading programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    storage_config: StorageProviderConfig,
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
 }
@@ -66,8 +66,7 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_uploader_config(&args.storage_config)
-        .await?
+        .with_storage_provider_config(&args.storage_config)?
         .with_private_key(args.private_key)
         .build()
         .await
@@ -130,7 +129,7 @@ mod tests {
     use super::*;
     use alloy::node_bindings::Anvil;
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageUploaderType;
+    use boundless_market::storage::StorageProviderType;
     use boundless_test_utils::market::create_test_ctx;
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
@@ -159,8 +158,8 @@ mod tests {
         let run_task = run(Args {
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
-            storage_config: StorageUploaderConfig::builder()
-                .storage_uploader(StorageUploaderType::Mock)
+            storage_config: StorageProviderConfig::builder()
+                .storage_provider(StorageProviderType::Mock)
                 .build()
                 .unwrap(),
             deployment: Some(ctx.deployment),

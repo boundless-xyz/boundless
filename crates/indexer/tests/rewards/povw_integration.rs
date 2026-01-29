@@ -15,7 +15,7 @@
 use super::common;
 
 #[tokio::test]
-#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_summary_stats() {
     let db = common::setup_test_db().await;
 
@@ -35,7 +35,7 @@ async fn test_povw_summary_stats() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_epoch_povw_summary() {
     let db = common::setup_test_db().await;
 
@@ -64,7 +64,7 @@ async fn test_epoch_povw_summary() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_rewards_by_epoch() {
     let db = common::setup_test_db().await;
 
@@ -90,7 +90,7 @@ async fn test_povw_rewards_by_epoch() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_povw_rewards_aggregate() {
     let db = common::setup_test_db().await;
 
@@ -111,7 +111,7 @@ async fn test_povw_rewards_aggregate() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
+#[ignore = "Requires ETH_MAINNET_RPC_URL"]
 async fn test_all_epoch_povw_summaries() {
     let db = common::setup_test_db().await;
 

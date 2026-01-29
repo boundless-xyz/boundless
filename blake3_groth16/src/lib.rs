@@ -136,7 +136,6 @@ mod tests {
 
     #[tokio::test]
     #[test_log::test]
-    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
     async fn test_succinct_to_blake3_groth16() {
         use guest_util::ECHO_ID;
 

@@ -30,10 +30,10 @@ use url::Url;
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
+    prover_utils::requestor_pricing::requestor_order_preflight,
     selector::SelectorExt,
-    storage::StandardDownloader,
+    storage::{StandardStorageProvider, StorageProvider},
     util::{now_timestamp, NotProvided},
-    StandardUploader,
 };
 mod preflight_layer;
 mod storage_layer;
@@ -169,14 +169,14 @@ where
 /// the input for the next.
 #[derive(Clone, Builder)]
 #[non_exhaustive]
-pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = StandardDownloader> {
+pub struct StandardRequestBuilder<P = DynProvider, S = StandardStorageProvider> {
     /// Handles uploading and preparing program and input data.
-    #[builder(setter(into), default)]
-    pub storage_layer: StorageLayer<U>,
+    #[builder(setter(into))]
+    pub storage_layer: StorageLayer<S>,
 
     /// Executes preflight checks to validate the request.
     #[builder(setter(into), default)]
-    pub preflight_layer: PreflightLayer<D>,
+    pub preflight_layer: PreflightLayer,
 
     /// Configures the requirements for the proof request.
     #[builder(setter(into), default)]
@@ -193,9 +193,17 @@ pub struct StandardRequestBuilder<P = DynProvider, U = StandardUploader, D = Sta
     /// Finalizes and validates the complete request.
     #[builder(setter(into), default)]
     pub finalizer: Finalizer,
+
+    /// Whether to skip preflight/pricing checks.
+    ///
+    /// If `Some(true)`, preflight checks are skipped.
+    /// If `Some(false)`, preflight checks are run.
+    /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    #[builder(setter(into, strip_option), default)]
+    pub skip_preflight: Option<bool>,
 }
 
-impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
+impl StandardRequestBuilder<NotProvided, NotProvided> {
     /// Creates a new builder for constructing a [StandardRequestBuilder].
     ///
     /// This is the entry point for creating a request builder with specific
@@ -203,26 +211,55 @@ impl StandardRequestBuilder<NotProvided, NotProvided, NotProvided> {
     ///
     /// # Type Parameters
     /// * `P` - An Ethereum RPC provider, using alloy.
-    /// * `S` - The storage uploader type for storing programs and inputs.
-    /// * `D` - The storage downloader type for fetching programs and inputs during preflight.
-    pub fn builder<P: Clone, S: Clone, D: Clone>() -> StandardRequestBuilderBuilder<P, S, D> {
+    /// * `S` - The storage provider type for storing programs and inputs.
+    pub fn builder<P: Clone, S: Clone>() -> StandardRequestBuilderBuilder<P, S> {
         Default::default()
     }
 }
 
-impl<P, S, D> Layer<RequestParams> for StandardRequestBuilder<P, S, D>
+impl<P, S> StandardRequestBuilder<P, S>
 where
     P: Provider<Ethereum> + 'static + Clone,
-    RequestParams: Adapt<StorageLayer<S>, Output = RequestParams, Error = anyhow::Error>,
-    RequestParams: Adapt<PreflightLayer<D>, Output = RequestParams, Error = anyhow::Error>,
 {
-    type Output = ProofRequest;
-    type Error = anyhow::Error;
+    fn should_skip_preflight(&self) -> bool {
+        self.skip_preflight.unwrap_or_else(|| std::env::var("BOUNDLESS_IGNORE_PREFLIGHT").is_ok())
+    }
 
-    async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
-        input
-            .process_with(&self.storage_layer)
-            .await?
+    async fn run_pricing_check(&self, request: &ProofRequest) {
+        if self.should_skip_preflight() {
+            return;
+        }
+
+        let market_address = *self.request_id_layer.boundless_market.instance().address();
+        let chain_id = match self.request_id_layer.boundless_market.get_chain_id().await {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Failed to get chain ID for pricing check: {:#}", e);
+                return;
+            }
+        };
+        let provider = std::sync::Arc::new(self.offer_layer.provider.clone());
+        let price_provider = self.offer_layer.price_provider.clone();
+
+        if let Err(e) = requestor_order_preflight(
+            request.clone(),
+            self.preflight_layer.executor(),
+            provider,
+            market_address,
+            chain_id,
+            price_provider,
+        )
+        .await
+        {
+            tracing::error!("Pricing check failed: {:#}", e);
+        }
+    }
+
+    async fn build_from_params(
+        &self,
+        params: RequestParams,
+    ) -> Result<ProofRequest, anyhow::Error> {
+        let params = params
             .process_with(&self.preflight_layer)
             .await?
             .process_with(&self.requirements_layer)
@@ -230,9 +267,77 @@ where
             .process_with(&self.request_id_layer)
             .await?
             .process_with(&self.offer_layer)
-            .await?
-            .process_with(&self.finalizer)
-            .await
+            .await?;
+
+        let request = params.process_with(&self.finalizer).await?;
+        self.run_pricing_check(&request).await;
+        Ok(request)
+    }
+}
+
+impl<P, S> StandardRequestBuilder<P, S>
+where
+    S: StorageProvider,
+    S::Error: std::error::Error + Send + Sync + 'static,
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    /// Build a proof request.
+    ///
+    /// This method also runs a pricing check to validate the request against the same
+    /// pricing logic that provers use, giving early feedback on whether the request
+    /// will be accepted. Pricing checks can be skipped by calling `skip_preflight(true)`
+    /// on the builder, or by setting the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub async fn build(
+        &self,
+        input: impl Into<RequestParams>,
+    ) -> Result<ProofRequest, anyhow::Error> {
+        let params = input.into().process_with(&self.storage_layer).await?;
+        self.build_from_params(params).await
+    }
+}
+
+impl<P, S> Layer<RequestParams> for StandardRequestBuilder<P, S>
+where
+    S: StorageProvider,
+    S::Error: std::error::Error + Send + Sync + 'static,
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    type Output = ProofRequest;
+    type Error = anyhow::Error;
+
+    async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
+        self.build(input).await
+    }
+}
+
+impl<P> StandardRequestBuilder<P, NotProvided>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    /// Build a proof request.
+    ///
+    /// This method also runs a pricing check to validate the request against the same
+    /// pricing logic that provers use, giving early feedback on whether the request
+    /// will be accepted. Pricing checks can be skipped by calling `skip_preflight(true)`
+    /// on the builder, or by setting the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub async fn build(
+        &self,
+        input: impl Into<RequestParams>,
+    ) -> Result<ProofRequest, anyhow::Error> {
+        let params = input.into().process_with(&self.storage_layer).await?;
+        self.build_from_params(params).await
+    }
+}
+
+impl<P> Layer<RequestParams> for StandardRequestBuilder<P, NotProvided>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    type Output = ProofRequest;
+    type Error = anyhow::Error;
+
+    async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
+        self.build(input).await
     }
 }
 
@@ -912,21 +1017,21 @@ mod tests {
     use url::Url;
 
     use super::{
-        Layer, OfferLayer, OfferLayerConfig, OfferParams, ParameterizationMode, PreflightLayer,
-        RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode,
-        RequestParams, RequirementsLayer, StandardRequestBuilder, StorageLayer, StorageLayerConfig,
+        Adapt, Layer, OfferLayer, OfferLayerConfig, OfferParams, ParameterizationMode,
+        PreflightLayer, RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerConfig,
+        RequestIdLayerMode, RequestParams, RequirementsLayer, StandardRequestBuilder, StorageLayer,
+        StorageLayerConfig,
     };
 
-    use crate::storage::HttpDownloader;
     use crate::{
         contracts::{
             boundless_market::BoundlessMarketService, FulfillmentData, Predicate, RequestInput,
             RequestInputType, Requirements,
         },
         input::GuestEnv,
-        storage::{MockStorageUploader, StandardDownloader, StorageDownloader, StorageUploader},
+        storage::{fetch_url, MockStorageProvider, StorageProvider},
         util::NotProvided,
-        StandardUploader,
+        StandardStorageProvider,
     };
     use alloy_primitives::{utils::parse_ether, U256};
     use risc0_zkvm::{compute_image_id, sha::Digestible, Journal};
@@ -936,8 +1041,7 @@ mod tests {
     async fn basic() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None, None);
+        let storage = Arc::new(MockStorageProvider::start());
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -945,8 +1049,7 @@ mod tests {
         );
 
         let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(Some(uploader))
-            .preflight_layer(Some(downloader))
+            .storage_layer(Some(storage))
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
@@ -962,8 +1065,7 @@ mod tests {
     async fn offer_layer_lock_collateral_default() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let storage = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None, None);
+        let storage = Arc::new(MockStorageProvider::start());
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -972,7 +1074,6 @@ mod tests {
 
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(Some(storage))
-            .preflight_layer(Some(downloader))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder().build()?,
@@ -982,7 +1083,7 @@ mod tests {
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
-        assert_eq!(request.offer.lockCollateral, parse_ether("0").unwrap());
+        assert_eq!(request.offer.lockCollateral, parse_ether("5").unwrap());
         Ok(())
     }
 
@@ -991,8 +1092,7 @@ mod tests {
     async fn with_offer_layer_settings() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None, None);
+        let storage = Arc::new(MockStorageProvider::start());
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
@@ -1000,8 +1100,7 @@ mod tests {
         );
 
         let request_builder = StandardRequestBuilder::builder()
-            .storage_layer(Some(uploader))
-            .preflight_layer(Some(downloader))
+            .storage_layer(Some(storage))
             .offer_layer(OfferLayer::new(
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder()
@@ -1021,30 +1120,29 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn without_storage_uploader() -> anyhow::Result<()> {
+    async fn without_storage_provider() -> anyhow::Result<()> {
         let anvil = Anvil::new().spawn();
         let test_ctx = create_test_ctx(&anvil).await.unwrap();
-        let downloader = HttpDownloader::new(None, None);
         let market = BoundlessMarketService::new(
             test_ctx.deployment.boundless_market_address,
             test_ctx.customer_provider.clone(),
             test_ctx.customer_signer.address(),
         );
 
-        let request_builder = StandardRequestBuilder::builder::<_, NotProvided, _>()
-            .preflight_layer(Some(downloader))
+        let request_builder = StandardRequestBuilder::builder()
+            .storage_layer(None::<NotProvided>)
             .offer_layer(test_ctx.customer_provider.clone())
             .request_id_layer(market)
             .build()?;
 
-        // Try building the request by providing the program.
+        // Try building the reqeust by providing the program.
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let err = request_builder.build(params).await.unwrap_err();
         tracing::debug!("err: {err}");
 
         // Try again after uploading the program first.
-        let uploader = Arc::new(MockStorageUploader::new());
-        let program_url = uploader.upload_program(ECHO_ELF).await?;
+        let storage = Arc::new(MockStorageProvider::start());
+        let program_url = storage.upload_program(ECHO_ELF).await?;
         let params = request_builder.params().with_program_url(program_url)?.with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
@@ -1055,17 +1153,16 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_storage_layer() -> anyhow::Result<()> {
-        let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None, None);
+        let storage = Arc::new(MockStorageProvider::start());
         let layer = StorageLayer::new(
-            Some(uploader),
+            Some(storage.clone()),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
         let env = GuestEnv::from_stdin(b"inline_data");
         let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
 
         // Program should be uploaded and input inline.
-        assert_eq!(downloader.download_url(program_url).await?, ECHO_ELF);
+        assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
         assert_eq!(request_input.inputType, RequestInputType::Inline);
         assert_eq!(request_input.data, env.encode()?);
         Ok(())
@@ -1090,20 +1187,18 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_storage_layer_large_input() -> anyhow::Result<()> {
-        let uploader = Arc::new(MockStorageUploader::new());
-        let downloader = HttpDownloader::new(None, None);
+        let storage = Arc::new(MockStorageProvider::start());
         let layer = StorageLayer::new(
-            Some(uploader),
+            Some(storage.clone()),
             StorageLayerConfig::builder().inline_input_max_bytes(Some(1024)).build()?,
         );
         let env = GuestEnv::from_stdin(rand::random_iter().take(2048).collect::<Vec<u8>>());
         let (program_url, request_input) = layer.process((ECHO_ELF, &env)).await?;
 
-        // Program and input should be uploaded.
-        assert_eq!(downloader.download_url(program_url).await?, ECHO_ELF);
+        // Program and input should be uploaded and input inline.
+        assert_eq!(fetch_url(&program_url).await?, ECHO_ELF);
         assert_eq!(request_input.inputType, RequestInputType::Url);
-        let fetched_input =
-            downloader.download(&String::from_utf8(request_input.data.to_vec())?).await?;
+        let fetched_input = fetch_url(String::from_utf8(request_input.data.to_vec())?).await?;
         assert_eq!(fetched_input, env.encode()?);
         Ok(())
     }
@@ -1120,27 +1215,27 @@ mod tests {
 
         assert!(err
             .to_string()
-            .contains("cannot upload input using StorageLayer with no storage_uploader"));
+            .contains("cannot upload input using StorageLayer with no storage_provider"));
         Ok(())
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_preflight_layer() -> anyhow::Result<()> {
-        let uploader = MockStorageUploader::new();
-        let downloader = HttpDownloader::new(None, None);
-        let program_url = uploader.upload_program(ECHO_ELF).await?;
-        let layer = PreflightLayer::new(Some(downloader));
+        let storage = MockStorageProvider::start();
+        let program_url = storage.upload_program(ECHO_ELF).await?;
+        let layer = PreflightLayer::default();
         let data = b"hello_zkvm".to_vec();
         let env = GuestEnv::from_stdin(data.clone());
         let input = RequestInput::inline(env.encode()?);
-        let session = layer.process((&program_url, &input)).await?;
 
-        assert_eq!(session.journal.as_ref(), data.as_slice());
-        // Verify non-zero cycle count and an exit code of zero.
-        let cycles: u64 = session.segments.iter().map(|s| 1 << s.po2).sum();
-        assert!(cycles > 0);
-        assert!(session.exit_code.is_ok());
+        // Create RequestParams and process through the layer
+        let params = RequestParams::new().with_program_url(program_url)?.with_request_input(input);
+        let result = params.process_with(&layer).await?;
+
+        assert_eq!(result.journal.unwrap().bytes, data);
+        // Verify non-zero cycle count
+        assert!(result.cycles.unwrap() > 0);
         Ok(())
     }
 
@@ -1372,5 +1467,5 @@ mod tests {
     trait AssertSend: Send {}
 
     // The StandardRequestBuilder must be Send such that a Client can be sent between threads.
-    impl AssertSend for StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader> {}
+    impl AssertSend for StandardRequestBuilder<DynProvider, StandardStorageProvider> {}
 }

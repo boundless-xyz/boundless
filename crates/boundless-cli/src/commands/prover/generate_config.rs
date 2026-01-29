@@ -375,7 +375,7 @@ impl ProverGenerateConfig {
         display.step(6, 7, "Collateral Configuration");
 
         let recommended_collateral = match priority_requestor_lists.len() {
-            1 => "50",
+            1 => boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD,
             2 => "200",
             _ => "500",
         };

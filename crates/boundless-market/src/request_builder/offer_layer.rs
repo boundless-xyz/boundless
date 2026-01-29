@@ -134,7 +134,7 @@ pub struct OfferLayerConfig {
     ///
     /// # Example
     /// ```rust
-    /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
+    /// # use boundless_market::request_builder::ParameterizationMode;
     ///
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
     /// ```
@@ -611,7 +611,12 @@ fn default_lock_collateral(chain_id: u64) -> CollateralRecommendation {
             U256::from(10) * Unit::ETHER.wei_const(),
             U256::from(20) * Unit::ETHER.wei_const(),
         ), // Sepolia - 5 ZKC
-        _ => CollateralRecommendation::new(U256::ZERO, U256::ZERO, U256::ZERO), // No default lock collateral for other chains
+        // Default for local/unknown chains (e.g., Anvil) - use similar to testnet defaults
+        _ => CollateralRecommendation::new(
+            U256::from(5) * Unit::ETHER.wei_const(),
+            U256::from(10) * Unit::ETHER.wei_const(),
+            U256::from(20) * Unit::ETHER.wei_const(),
+        ),
     }
 }
 

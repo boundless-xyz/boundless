@@ -134,10 +134,10 @@ impl ProverDepositCollateral {
         }
     }
 
-    async fn display_success<P, St, D, Rb, Si>(
+    async fn display_success<P, St, Rb, Si>(
         &self,
         display: &DisplayManager,
-        client: &boundless_market::Client<P, St, D, Rb, Si>,
+        client: &boundless_market::Client<P, St, Rb, Si>,
         token_info: &crate::contracts::TokenInfo,
         formatted_amount: &str,
         collateral_label: &str,
