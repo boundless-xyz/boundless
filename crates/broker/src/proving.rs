@@ -431,9 +431,7 @@ impl ProvingService {
     }
 
     async fn handle_order_failure(&self, order_id: &str, failure_reason: &'static str) {
-        if let Err(inner_err) =
-            self.db.set_order_failure(order_id, failure_reason, &self.prover).await
-        {
+        if let Err(inner_err) = self.db.set_order_failure(order_id, failure_reason).await {
             tracing::error!("Failed to set order {order_id} failure: {inner_err:?}");
         }
     }

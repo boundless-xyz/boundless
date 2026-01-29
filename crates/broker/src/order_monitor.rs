@@ -20,6 +20,7 @@ use crate::{
     db::DbObj,
     errors::CodedError,
     impl_coded_debug, now_timestamp,
+    order_picker::PreflightCache,
     task::{RetryRes, RetryTask, SupervisorErr},
     utils, FulfillmentType, Order, ProverObj,
 };
@@ -159,6 +160,7 @@ pub struct OrderMonitor<P> {
     supported_selectors: SupportedSelectors,
     rpc_retry_config: RpcRetryConfig,
     gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    preflight_cache: PreflightCache,
 }
 
 impl<P> OrderMonitor<P>
@@ -179,6 +181,7 @@ where
         collateral_token_decimals: u8,
         rpc_retry_config: RpcRetryConfig,
         gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        preflight_cache: PreflightCache,
     ) -> Result<Self> {
         let txn_timeout_opt = {
             let config = config.lock_all().context("Failed to read config")?;
@@ -222,6 +225,7 @@ where
             supported_selectors: SupportedSelectors::default(),
             rpc_retry_config,
             gas_priority_mode,
+            preflight_cache,
         };
         Ok(monitor)
     }
@@ -392,7 +396,9 @@ where
 
     /// Helper method to skip an order in the database and invalidate the appropriate cache
     async fn skip_order(&self, order: &OrderRequest, reason: &str) {
-        if let Err(e) = self.db.insert_skipped_request(order, &self.prover).await {
+        if let Err(e) =
+            self.db.insert_skipped_request(order, &self.prover, &self.preflight_cache).await
+        {
             tracing::error!("Failed to skip order ({}): {} - {e:?}", reason, order.id());
         }
 
@@ -557,8 +563,10 @@ where
                                     );
                                 }
                             }
-                            if let Err(err) =
-                                self.db.insert_skipped_request(order, &self.prover).await
+                            if let Err(err) = self
+                                .db
+                                .insert_skipped_request(order, &self.prover, &self.preflight_cache)
+                                .await
                             {
                                 tracing::error!(
                                     "Failed to set DB failure state for order: {order_id} - {err:?}"
@@ -1178,6 +1186,7 @@ pub(crate) mod tests {
             collateral_token_decimals,
             RpcRetryConfig { retry_count: 2, retry_sleep_ms: 500 },
             gas_priority_mode,
+            Default::default(),
         )
         .unwrap();
 

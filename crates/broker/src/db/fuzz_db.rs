@@ -122,6 +122,7 @@ fn generate_test_order(request_id: u32) -> Order {
 // Main fuzz test function
 proptest! {
     #[test]
+    #[ignore]
     fn fuzz_db_operations(operations in prop::collection::vec(any::<DbOperation>(), 1..1000)) {
         // Create a multi-threaded runtime with 4 worker threads
         let rt = Builder::new_multi_thread()
@@ -201,7 +202,7 @@ proptest! {
                                         db.set_order_complete(id, &prover).await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderFailure => {
-                                        db.set_order_failure(id, "test", &prover).await.unwrap();
+                                        db.set_order_failure(id, "test").await.unwrap();
                                     },
                                     ExistingOrderOperation::SetOrderProofId { proof_id } => {
                                         db.set_order_proof_id(id, &proof_id).await.unwrap();

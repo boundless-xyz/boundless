@@ -25,6 +25,8 @@ use thiserror::Error;
 
 use crate::{
     errors::{impl_coded_debug, CodedError},
+    format_order_id,
+    order_picker::PreflightCache,
     provers::ProverObj,
     AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderRequest, OrderStatus,
     ProofRequest,
@@ -129,6 +131,7 @@ pub trait BrokerDb {
         &self,
         order_request: &OrderRequest,
         prover: &ProverObj,
+        preflight_cache: &PreflightCache,
     ) -> Result<(), DbError>;
     async fn insert_accepted_request(
         &self,
@@ -142,12 +145,7 @@ pub trait BrokerDb {
         id: &str,
     ) -> Result<(ProofRequest, Bytes, String, String, U256, FulfillmentType), DbError>;
     async fn get_order_compressed_proof_id(&self, id: &str) -> Result<String, DbError>;
-    async fn set_order_failure(
-        &self,
-        id: &str,
-        failure_str: &'static str,
-        prover: &ProverObj,
-    ) -> Result<(), DbError>;
+    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError>;
     async fn set_order_complete(&self, id: &str, prover: &ProverObj) -> Result<(), DbError>;
     /// Get all orders that are committed to be prove and be fulfilled.
     async fn get_committed_orders(&self) -> Result<Vec<Order>, DbError>;
@@ -208,24 +206,6 @@ pub trait BrokerDb {
     async fn add_batch(&self, batch_id: usize, batch: Batch) -> Result<(), DbError>;
     #[cfg(test)]
     async fn set_batch_status(&self, batch_id: usize, status: BatchStatus) -> Result<(), DbError>;
-}
-
-async fn delete_input_with_context(
-    prover: &ProverObj,
-    input_id: &str,
-    order_id: &str,
-    context: &str,
-) {
-    match prover.delete_input(input_id).await {
-        Ok(_) => tracing::info!("Deleted input {} for {} order {}", input_id, context, order_id),
-        Err(e) => tracing::warn!(
-            "Failed to delete input {} for {} order {}: {}",
-            input_id,
-            context,
-            order_id,
-            e
-        ),
-    }
 }
 
 pub type DbObj = Arc<dyn BrokerDb + Send + Sync>;
@@ -349,10 +329,35 @@ impl BrokerDb for SqliteDb {
         &self,
         order_request: &OrderRequest,
         prover: &ProverObj,
+        preflight_cache: &PreflightCache,
     ) -> Result<(), DbError> {
         self.insert_order_ignore_duplicates(&order_request.to_skipped_order()).await?;
-        if let Some(input_id) = &order_request.input_id {
-            delete_input_with_context(prover, input_id, &order_request.id(), "skipped").await;
+
+        // Check other fulfillment type for the same order ID to see if it is also skipped.
+        let other_fulfillment_type = match order_request.fulfillment_type {
+            FulfillmentType::LockAndFulfill => FulfillmentType::FulfillAfterLockExpire,
+            FulfillmentType::FulfillAfterLockExpire => FulfillmentType::LockAndFulfill,
+            FulfillmentType::FulfillWithoutLocking => {
+                panic!("Invariants of this function are broken if using FulfillWithoutLocking");
+            }
+        };
+        let order_id = format_order_id(
+            &order_request.request.id,
+            &order_request.signing_hash(),
+            &other_fulfillment_type,
+        );
+        match self.get_order(&order_id).await {
+            Ok(Some(order)) if order.status == OrderStatus::Skipped => {
+                // If the other order variant is also skipped, can delete the input
+                tracing::debug!("Order {} is skipped, deleting input from prover", order_id);
+                preflight_cache.delete_input(prover, order_request).await;
+            }
+            Err(e) => {
+                tracing::error!("Failed to get order {}, skipping input deletion: {}", order_id, e);
+            }
+            _ => {
+                tracing::trace!("Skipping input deletion for order {}", order_id);
+            }
         }
         Ok(())
     }
@@ -424,17 +429,7 @@ impl BrokerDb for SqliteDb {
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{id}")))]
-    async fn set_order_failure(
-        &self,
-        id: &str,
-        failure_str: &'static str,
-        prover: &ProverObj,
-    ) -> Result<(), DbError> {
-        let input_id = self
-            .get_order(id)
-            .await?
-            .ok_or_else(|| DbError::OrderNotFound(id.to_string()))?
-            .input_id;
+    async fn set_order_failure(&self, id: &str, failure_str: &'static str) -> Result<(), DbError> {
         let res = sqlx::query(
             r#"
             UPDATE orders
@@ -458,10 +453,6 @@ impl BrokerDb for SqliteDb {
 
         if res.rows_affected() == 0 {
             return Err(DbError::OrderNotFound(id.to_string()));
-        }
-
-        if let Some(input_id) = input_id {
-            delete_input_with_context(prover, &input_id, id, "failed").await;
         }
 
         Ok(())
@@ -496,8 +487,10 @@ impl BrokerDb for SqliteDb {
             return Err(DbError::OrderNotFound(id.to_string()));
         }
 
-        if let Some(input_id) = input_id {
-            delete_input_with_context(prover, &input_id, id, "completed").await;
+        if let Some(input) = input_id {
+            if let Err(e) = prover.delete_input(&input).await {
+                tracing::error!("Failed to delete input {input} for completed order {id}: {e}");
+            }
         }
 
         Ok(())
@@ -1123,6 +1116,7 @@ impl BrokerDb for SqliteDb {
 pub(crate) mod tests {
     use super::*;
     use crate::{
+        order_picker::{PreflightCache, PreflightCacheKey, PreflightCacheValue},
         provers::{ProofResult, Prover, ProverError},
         ProofRequest,
     };
@@ -1246,6 +1240,23 @@ pub(crate) mod tests {
         Arc::new(TestProver::new())
     }
 
+    /// Pre-populate the cache with a successful preflight entry for an order
+    async fn prepopulate_cache(cache: &PreflightCache, order: &OrderRequest, input_id: &str) {
+        let cache_key = PreflightCacheKey::new(order);
+        cache
+            .cache
+            .insert(
+                cache_key,
+                PreflightCacheValue::Success {
+                    exec_session_id: "test_session".into(),
+                    cycle_count: 1000,
+                    image_id: "test_image".into(),
+                    input_id: input_id.to_string(),
+                },
+            )
+            .await;
+    }
+
     #[sqlx::test]
     async fn add_order(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
@@ -1316,18 +1327,14 @@ pub(crate) mod tests {
         let mut order = create_order();
         order.input_id = Some("input_failure".into());
         db.add_order(&order).await.unwrap();
-        let prover = TestProver::new();
-        let deleted = prover.deleted_ids();
-        let prover: ProverObj = Arc::new(prover);
 
         let failure_str = "TEST_FAIL";
-        db.set_order_failure(&order.id(), failure_str, &prover).await.unwrap();
+        db.set_order_failure(&order.id(), failure_str).await.unwrap();
 
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Failed);
         assert_eq!(db_order.error_msg, Some(failure_str.into()));
         assert!(db_order.input_id.is_none());
-        assert_eq!(deleted.lock().unwrap().as_slice(), ["input_failure"]);
     }
 
     #[sqlx::test]
@@ -1355,28 +1362,48 @@ pub(crate) mod tests {
         let prover = TestProver::new();
         let deleted = prover.deleted_ids();
         let prover: ProverObj = Arc::new(prover);
+        let preflight_cache = PreflightCache::default();
 
-        db.insert_skipped_request(&order, &prover).await.unwrap();
+        db.insert_skipped_request(&order, &prover, &preflight_cache).await.unwrap();
         let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
         assert_eq!(db_order.status, OrderStatus::Skipped);
+        // No input_id in this order, so nothing to delete
         assert!(deleted.lock().unwrap().is_empty());
     }
 
     #[sqlx::test]
-    async fn insert_skipped_request_deletes_input(pool: SqlitePool) {
+    async fn insert_skipped_request_waits_for_both_variants(pool: SqlitePool) {
         let db: DbObj = Arc::new(SqliteDb::from(pool).await.unwrap());
-        let mut order = create_order_request();
-        order.input_id = Some("input_skip".into());
+        let mut order1 = create_order_request();
+        order1.input_id = Some("input_skip".into());
+        order1.fulfillment_type = FulfillmentType::LockAndFulfill;
+
+        let mut order2 = create_order_request();
+        order2.input_id = Some("input_skip".into());
+        order2.fulfillment_type = FulfillmentType::FulfillAfterLockExpire;
+
         let prover = TestProver::new();
         let deleted = prover.deleted_ids();
         let prover: ProverObj = Arc::new(prover);
+        let preflight_cache = PreflightCache::default();
 
-        db.insert_skipped_request(&order, &prover).await.unwrap();
+        // Prepopulate cache with a successful preflight entry (simulates preflight having run)
+        prepopulate_cache(&preflight_cache, &order1, "input_skip").await;
 
-        let db_order = db.get_order(&order.id()).await.unwrap().unwrap();
-        assert_eq!(db_order.status, OrderStatus::Skipped);
-        assert!(db_order.input_id.is_none());
-        assert_eq!(deleted.lock().unwrap().as_slice(), ["input_skip"]);
+        // First variant skipped - input should NOT be deleted yet
+        db.insert_skipped_request(&order1, &prover, &preflight_cache).await.unwrap();
+        assert!(
+            deleted.lock().unwrap().is_empty(),
+            "Input should not be deleted after first variant skip"
+        );
+
+        // Second variant skipped - now input should be deleted
+        db.insert_skipped_request(&order2, &prover, &preflight_cache).await.unwrap();
+        assert_eq!(
+            deleted.lock().unwrap().as_slice(),
+            ["input_skip"],
+            "Input should be deleted after both variants skip"
+        );
     }
 
     #[sqlx::test]
@@ -1824,13 +1851,14 @@ pub(crate) mod tests {
         // Skipped request ignores duplicates
         let order_request = create_order_request();
         let prover = db_test_prover();
-        db.insert_skipped_request(&order_request, &prover).await.unwrap();
+        let preflight_cache = PreflightCache::default();
+        db.insert_skipped_request(&order_request, &prover, &preflight_cache).await.unwrap();
 
         let stored_order = db.get_order(&order_request.id()).await.unwrap().unwrap();
         assert_eq!(stored_order.status, OrderStatus::Skipped);
 
         // Try to insert the same skipped request again - should be ignored
-        db.insert_skipped_request(&order_request, &prover).await.unwrap();
+        db.insert_skipped_request(&order_request, &prover, &preflight_cache).await.unwrap();
         assert!(logs_contain("already exists"));
 
         // Accepted request can overwrite skipped order

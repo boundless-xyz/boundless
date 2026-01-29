@@ -21,7 +21,7 @@ use std::{
 use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
-    primitives::{Address, Bytes, FixedBytes, U256},
+    primitives::{Address, Bytes, FixedBytes, B256, U256},
     providers::{Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
@@ -197,7 +197,7 @@ pub enum OrderStateChange {
 }
 
 /// Helper function to format an order ID consistently
-fn format_order_id(
+pub(crate) fn format_order_id(
     request_id: &U256,
     signing_hash: &FixedBytes<32>,
     fulfillment_type: &FulfillmentType,
@@ -253,13 +253,13 @@ impl OrderRequest {
     pub fn id(&self) -> String {
         self.cached_id
             .get_or_init(|| {
-                let signing_hash = self
-                    .request
-                    .signing_hash(self.boundless_market_address, self.chain_id)
-                    .unwrap();
-                format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
+                format_order_id(&self.request.id, &self.signing_hash(), &self.fulfillment_type)
             })
             .clone()
+    }
+
+    pub(crate) fn signing_hash(&self) -> B256 {
+        self.request.signing_hash(self.boundless_market_address, self.chain_id).unwrap()
     }
 
     fn to_order(&self, status: OrderStatus) -> Order {
@@ -935,6 +935,8 @@ where
             order_state_tx.clone(),
             self.priority_requestors.clone(),
         ));
+        // Clone the preflight cache before moving order_picker into the async block
+        let preflight_cache = order_picker.preflight_cache().clone();
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         non_critical_tasks.spawn(async move {
@@ -986,6 +988,7 @@ where
                 retry_sleep_ms: self.args.rpc_retry_backoff,
             },
             self.gas_priority_mode.clone(),
+            preflight_cache,
         )?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
