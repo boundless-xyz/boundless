@@ -138,7 +138,7 @@ export class IndexerShared extends pulumi.ComponentResource {
     }, { parent: this /* protect: true */ });
 
     // IAM role for RDS Enhanced Monitoring
-    const enhancedMonitoringRole = new aws.iam.Role(`${serviceName}-rds-monitoring-role`, {
+    const enhancedMonitoringRole = new aws.iam.Role(`${serviceName}-rds-mon`, {
       assumeRolePolicy: JSON.stringify({
         Version: '2012-10-17',
         Statement: [{
@@ -149,7 +149,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       }),
     }, { parent: this });
 
-    new aws.iam.RolePolicyAttachment(`${serviceName}-rds-monitoring-policy`, {
+    new aws.iam.RolePolicyAttachment(`${serviceName}-rds-mon-pol`, {
       role: enhancedMonitoringRole.name,
       policyArn: 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole',
     }, { parent: this });
