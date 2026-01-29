@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::super::{
-    IndexerService, DAILY_AGGREGATION_RECOMPUTE_DAYS, HOURLY_AGGREGATION_RECOMPUTE_HOURS,
-    MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_WEEK,
-    WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
+    DbResultExt, IndexerService, DAILY_AGGREGATION_RECOMPUTE_DAYS,
+    HOURLY_AGGREGATION_RECOMPUTE_HOURS, MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY,
+    SECONDS_PER_HOUR, SECONDS_PER_WEEK, WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
 };
 use crate::db::RequestorDb;
 use crate::market::{
@@ -115,7 +115,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(hour_ts, hour_end, requestor)
                                 .await?;
-                            service.db.upsert_hourly_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_hourly_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_hourly_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -198,7 +202,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(day_ts, day_end, requestor)
                                 .await?;
-                            service.db.upsert_daily_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_daily_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_daily_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -281,7 +289,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(week_ts, week_end, requestor)
                                 .await?;
-                            service.db.upsert_weekly_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_weekly_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_weekly_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -385,7 +397,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(month_ts, month_end, requestor)
                                 .await?;
-                            service.db.upsert_monthly_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_monthly_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_monthly_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -598,7 +614,11 @@ where
                             };
 
                             // ALWAYS save the all-time requestor aggregate, even if there was no activity
-                            service.db.upsert_all_time_requestor_summary(cumulative_summary.clone()).await?;
+                            service
+                                .db
+                                .upsert_all_time_requestor_summary(cumulative_summary.clone())
+                                .await
+                                .with_db_context("upsert_all_time_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
