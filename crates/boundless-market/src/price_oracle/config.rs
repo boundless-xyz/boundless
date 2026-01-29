@@ -4,7 +4,7 @@ use alloy::providers::Provider;
 use alloy_chains::NamedChain;
 use serde::{Deserialize, Serialize};
 use core::time::Duration;
-use crate::price_oracle::{PriceQuote, TradingPair, PriceOracleError, AggregationMode, scale_price_from_f64, PriceSource, CompositeOracle};
+use crate::price_oracle::{PriceQuote, TradingPair, PriceOracleError, AggregationMode, scale_price_from_f64, PriceSource, CompositeOracle, WithStalenessCheck};
 use crate::price_oracle::cached_oracle::CachedPriceOracle;
 use crate::price_oracle::sources::{ChainlinkSource, CoinGeckoSource, CoinMarketCapSource};
 
@@ -131,7 +131,11 @@ impl PriceOracleConfig {
                         provider.clone(),
                         NamedChain::Mainnet,
                     )?;
-                    sources.push(Arc::new(chainlink));
+                    if self.max_staleness_secs > 0 {
+                        sources.push(Arc::new(WithStalenessCheck::new(chainlink, self.max_staleness_secs)));
+                    } else {
+                        sources.push(Arc::new(chainlink));
+                    }
                 }
             }
         }
@@ -140,19 +144,32 @@ impl PriceOracleConfig {
         if let Some(ref offchain) = self.offchain {
             if let Some(ref coingecko_config) = offchain.coingecko {
                 if coingecko_config.enabled {
-                    let coingecko = CoinGeckoSource::new(Duration::from_secs(self.timeout_secs))?;
-                    sources.push(Arc::new(coingecko));
+                    let coingecko = CoinGeckoSource::new(
+                        Duration::from_secs(self.timeout_secs),
+                    )?;
+                    if self.max_staleness_secs > 0 {
+                        sources.push(Arc::new(WithStalenessCheck::new(coingecko, self.max_staleness_secs)));
+                    } else {
+                        sources.push(Arc::new(coingecko));
+                    }
                 }
             }
 
             // CoinMarketCap
             if let Some(ref cmc_config) = offchain.cmc {
                 if cmc_config.enabled {
-                    let api_url = url::Url::parse(&cmc_config.api_url)
+                    let _api_url = url::Url::parse(&cmc_config.api_url)
                         .map_err(|e| PriceOracleError::ConfigError(format!("Invalid CMC API URL: {}", e)))?;
 
-                    let cmc = CoinMarketCapSource::new(cmc_config.api_key.clone(), Duration::from_secs(self.timeout_secs))?;
-                    sources.push(Arc::new(cmc));
+                    let cmc = CoinMarketCapSource::new(
+                        cmc_config.api_key.clone(),
+                        Duration::from_secs(self.timeout_secs),
+                    )?;
+                    if self.max_staleness_secs > 0 {
+                        sources.push(Arc::new(WithStalenessCheck::new(cmc, self.max_staleness_secs)));
+                    } else {
+                        sources.push(Arc::new(cmc));
+                    }
                 }
             }
         }

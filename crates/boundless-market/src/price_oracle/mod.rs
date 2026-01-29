@@ -136,4 +136,122 @@ pub fn scale_price_from_i256(price: I256, decimals: u32) -> Result<U256, PriceOr
     Ok(price)
 }
 
+/// Validate that a price quote is not stale
+pub fn validate_freshness(quote: PriceQuote, max_staleness_secs: Option<u64>) -> Result<PriceQuote, PriceOracleError> {
+    if let Some(max_age) = max_staleness_secs {
+        if quote.is_stale(max_age) {
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            return Err(PriceOracleError::StalePrice {
+                age_secs: now.saturating_sub(quote.timestamp),
+                max_secs: max_age,
+            });
+        }
+    }
+    Ok(quote)
+}
+
+/// Wrapper that adds staleness checking to any PriceSource
+pub struct WithStalenessCheck<T: PriceSource> {
+    inner: T,
+    max_staleness_secs: u64,
+}
+
+impl<T: PriceSource> WithStalenessCheck<T> {
+    /// Wrap a price source with staleness checking
+    pub fn new(inner: T, max_staleness_secs: u64) -> Self {
+        Self { inner, max_staleness_secs }
+    }
+}
+
+#[async_trait::async_trait]
+impl<T: PriceSource> PriceOracle for WithStalenessCheck<T> {
+    async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+        let quote = self.inner.get_price(pair).await?;
+        validate_freshness(quote, Some(self.max_staleness_secs))
+    }
+}
+
+impl<T: PriceSource> PriceSource for WithStalenessCheck<T> {
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+}
+
 // TODO: add tests for price scaling function
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockSource {
+        quote: PriceQuote,
+    }
+
+    #[async_trait::async_trait]
+    impl PriceOracle for MockSource {
+        async fn get_price(&self, _pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+            Ok(self.quote)
+        }
+    }
+
+    impl PriceSource for MockSource {
+        fn name(&self) -> &'static str {
+            "Mock"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_wrapper_accepts_fresh_price() {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let quote = PriceQuote::new(U256::from(200000000000u128), now - 10); // 10 seconds old
+
+        let source = MockSource { quote };
+        let wrapped = WithStalenessCheck::new(source, 60);
+
+        let result = wrapped.get_price(TradingPair::EthUsd).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_wrapper_rejects_stale_price() {
+        let old_timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() - 120; // 2 minutes old
+
+        let quote = PriceQuote::new(U256::from(200000000000u128), old_timestamp);
+
+        let source = MockSource { quote };
+        let wrapped = WithStalenessCheck::new(source, 60); // Max 60 seconds
+
+        let result = wrapped.get_price(TradingPair::EthUsd).await;
+        assert!(result.is_err());
+        match result {
+            Err(PriceOracleError::StalePrice { age_secs, max_secs }) => {
+                assert!(age_secs >= 120);
+                assert_eq!(max_secs, 60);
+            }
+            _ => panic!("Expected StalePrice error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_wrapper_preserves_source_name() {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let quote = PriceQuote::new(U256::from(200000000000u128), now);
+
+        let source = MockSource { quote };
+        let wrapped = WithStalenessCheck::new(source, 60);
+
+        assert_eq!(wrapped.name(), "Mock");
+    }
+}
