@@ -978,7 +978,7 @@ pub trait OrderPricingContext {
 
         // Pricing based cycle limits: Calculate the cycle limit based on collateral price
         let collateral_based_limit = if min_mcycle_price_collateral_tokens == U256::ZERO {
-            tracing::warn!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
+            tracing::info!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
             u64::MAX
         } else {
             let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
@@ -1007,7 +1007,7 @@ pub trait OrderPricingContext {
         if !is_fulfill_after_lock_expire {
             // Calculate eth-based limit for lock and fulfill orders
             let eth_based_limit: u64 = if min_mcycle_price == U256::ZERO {
-                tracing::warn!("min_mcycle_price is 0, setting unlimited exec limit");
+                tracing::info!("min_mcycle_price is 0, setting unlimited exec limit");
                 u64::MAX
             } else {
                 let limit: U256 = U256::from(order.request.offer.maxPrice)
