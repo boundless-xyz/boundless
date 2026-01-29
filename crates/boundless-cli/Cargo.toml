@@ -20,8 +20,6 @@ name = "boundless-ffi"
 prove = ["risc0-zkvm/prove", "blake3_groth16/prove"]
 # Enables the cuda feature on risc0-zkvm to build the prover directly into this CLI, with CUDA support.
 cuda = ["prove", "risc0-zkvm/cuda", "blake3_groth16/cuda"]
-# Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
-test-r0vm = []
 
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
@@ -52,7 +50,7 @@ reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 risc0-povw = { workspace = true, features = ["prover"] }
-risc0-zkvm = { workspace = true, features = ["std"] }
+risc0-zkvm = { workspace = true, features = ["std", "default"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

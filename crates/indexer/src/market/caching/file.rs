@@ -173,13 +173,12 @@ mod tests {
         boundless_market::FulfillmentTx, IBoundlessMarket, Offer, Predicate, ProofRequest,
         RequestInput, Requirements,
     };
-    use boundless_market::storage::StandardDownloader;
     use boundless_test_utils::{
         guests::{ECHO_ID, ECHO_PATH},
         market::create_test_ctx,
     };
     use broker::provers::DefaultProver;
-    use std::{collections::HashSet, default::Default, sync::Arc};
+    use std::{collections::HashSet, sync::Arc};
 
     async fn create_order(
         ctx: &boundless_test_utils::market::TestCtx<impl Provider + Clone>,
@@ -221,10 +220,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(
-        not(feature = "test-r0vm"),
-        ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"
-    )]
+    #[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
     async fn test_logs_and_metadata_serialization() {
         // Set up test context with anvil and market contracts
         let anvil = Anvil::new().block_time_f64(0.5).try_spawn().unwrap();
@@ -243,11 +239,8 @@ mod tests {
         let (request, client_sig) = create_order(&ctx, 1, now).await;
 
         // Submit, lock, and fulfill the request
-        let client = boundless_market::Client::new(
-            ctx.prover_market.clone(),
-            ctx.set_verifier.clone(),
-            StandardDownloader::new().await,
-        );
+        let client =
+            boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
         let prover =
             OrderFulfiller::initialize(Arc::new(DefaultProver::default()), &client).await.unwrap();
 

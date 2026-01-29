@@ -189,10 +189,7 @@ impl RequestorConfig {
     }
 
     /// Create a partially initialized [ClientBuilder] from the options in this struct.
-    pub fn client_builder(
-        &self,
-        tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, NotProvided>> {
+    pub fn client_builder(&self, tx_timeout: Option<Duration>) -> Result<ClientBuilder> {
         Ok(Client::builder()
             .with_rpc_url(self.require_rpc_url()?)
             .with_deployment(self.deployment.clone())
@@ -203,7 +200,7 @@ impl RequestorConfig {
     pub fn client_builder_with_signer(
         &self,
         tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, PrivateKeySigner>> {
+    ) -> Result<ClientBuilder<NotProvided, PrivateKeySigner>> {
         Ok(self.client_builder(tx_timeout)?.with_private_key(self.require_private_key()?))
     }
 }
@@ -681,10 +678,7 @@ impl ProverConfig {
     }
 
     /// Create a partially initialized [ClientBuilder] from the options in this struct.
-    pub fn client_builder(
-        &self,
-        tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, NotProvided>> {
+    pub fn client_builder(&self, tx_timeout: Option<Duration>) -> Result<ClientBuilder> {
         Ok(Client::builder()
             .with_rpc_url(self.require_rpc_url()?)
             .with_deployment(self.deployment.clone())
@@ -695,7 +689,7 @@ impl ProverConfig {
     pub fn client_builder_with_signer(
         &self,
         tx_timeout: Option<Duration>,
-    ) -> Result<ClientBuilder<NotProvided, NotProvided, PrivateKeySigner>> {
+    ) -> Result<ClientBuilder<NotProvided, PrivateKeySigner>> {
         Ok(self.client_builder(tx_timeout)?.with_private_key(self.require_private_key()?))
     }
 

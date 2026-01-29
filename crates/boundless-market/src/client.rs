@@ -49,13 +49,12 @@ use crate::{
     },
     request_builder::{
         FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, ParameterizationMode,
-        PreflightLayer, RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder,
-        StandardRequestBuilder, StandardRequestBuilderBuilderError, StorageLayer,
-        StorageLayerConfigBuilder,
+        RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
+        StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
     },
     storage::{
-        StandardDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
-        StorageUploaderConfig,
+        StandardStorageProvider, StandardStorageProviderError, StorageProvider,
+        StorageProviderConfig,
     },
     util::NotProvided,
 };
@@ -98,13 +97,12 @@ pub enum FundingMode {
 }
 /// Builder for the [Client] with standard implementations for the required components.
 #[derive(Clone)]
-pub struct ClientBuilder<U, D, S> {
+pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     deployment: Option<Deployment>,
     rpc_url: Option<Url>,
     rpc_urls: Vec<Url>,
-    signer: Option<S>,
-    uploader: Option<U>,
-    downloader: Option<D>,
+    signer: Option<Si>,
+    storage_provider: Option<St>,
     tx_timeout: Option<std::time::Duration>,
     balance_alerts: Option<BalanceAlertConfig>,
     /// Optional price provider for fetching market prices.
@@ -128,15 +126,14 @@ pub struct ClientBuilder<U, D, S> {
     pub funding_mode: FundingMode,
 }
 
-impl<U, D, S> Default for ClientBuilder<U, D, S> {
+impl<St, Si> Default for ClientBuilder<St, Si> {
     fn default() -> Self {
         Self {
             deployment: None,
             rpc_url: None,
             rpc_urls: Vec::new(),
             signer: None,
-            uploader: None,
-            downloader: None,
+            storage_provider: None,
             tx_timeout: None,
             balance_alerts: None,
             price_provider: None,
@@ -149,7 +146,7 @@ impl<U, D, S> Default for ClientBuilder<U, D, S> {
     }
 }
 
-impl ClientBuilder<NotProvided, NotProvided, NotProvided> {
+impl ClientBuilder {
     /// Create a new client builder.
     pub fn new() -> Self {
         Self::default()
@@ -171,7 +168,7 @@ pub trait ClientProviderBuilder {
     fn signer_address(&self) -> Option<Address>;
 }
 
-impl<U, D, S> ClientBuilder<U, D, S> {
+impl<St, Si> ClientBuilder<St, Si> {
     /// Collect all RPC URLs by merging rpc_url and rpc_urls.
     /// If both are provided, they are merged into a single list.
     fn collect_rpc_urls(&self) -> Result<Vec<Url>, anyhow::Error> {
@@ -214,9 +211,9 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     }
 }
 
-impl<U, D, S> ClientProviderBuilder for ClientBuilder<U, D, S>
+impl<St, Si> ClientProviderBuilder for ClientBuilder<St, Si>
 where
-    S: TxSigner<Signature> + Send + Sync + Clone + 'static,
+    Si: TxSigner<Signature> + Send + Sync + Clone + 'static,
 {
     type Error = anyhow::Error;
 
@@ -280,7 +277,7 @@ where
     }
 }
 
-impl<U, D> ClientProviderBuilder for ClientBuilder<U, D, NotProvided> {
+impl<St> ClientProviderBuilder for ClientBuilder<St, NotProvided> {
     type Error = anyhow::Error;
 
     async fn build_provider(&self, rpc_urls: Vec<Url>) -> Result<DynProvider, Self::Error> {
@@ -305,35 +302,13 @@ impl<U, D> ClientProviderBuilder for ClientBuilder<U, D, NotProvided> {
     }
 }
 
-impl<U, S> ClientBuilder<U, NotProvided, S> {
-    /// Build the client with the [StandardDownloader].
+impl<St, Si> ClientBuilder<St, Si> {
+    /// Build the client
     pub async fn build(
         self,
-    ) -> Result<
-        Client<
-            DynProvider,
-            U,
-            StandardDownloader,
-            StandardRequestBuilder<DynProvider, U, StandardDownloader>,
-            S,
-        >,
-    >
+    ) -> Result<Client<DynProvider, St, StandardRequestBuilder<DynProvider, St>, Si>>
     where
-        U: Clone,
-        ClientBuilder<U, StandardDownloader, S>: ClientProviderBuilder<Error = anyhow::Error>,
-    {
-        self.with_downloader(StandardDownloader::new().await).build().await
-    }
-}
-
-impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
-    /// Build the client.
-    pub async fn build(
-        self,
-    ) -> Result<Client<DynProvider, U, D, StandardRequestBuilder<DynProvider, U, D>, S>>
-    where
-        U: Clone,
-        D: Clone,
+        St: Clone,
         Self: ClientProviderBuilder<Error = anyhow::Error>,
     {
         let all_urls = self.collect_rpc_urls()?;
@@ -365,9 +340,6 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
             provider.clone(),
             self.signer_address().unwrap_or(Address::ZERO),
         );
-
-        // Safe unwrap: Since D is not NotProvided a downloader must be set
-        let downloader = self.downloader.unwrap();
 
         // Build the order stream client, if a URL was provided.
         let offchain_client = deployment
@@ -423,10 +395,9 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(StorageLayer::new(
-                self.uploader.clone(),
+                self.storage_provider.clone(),
                 self.storage_layer_config.build()?,
             ))
-            .preflight_layer(PreflightLayer::new(Some(downloader.clone())))
             .offer_layer(
                 OfferLayer::new(provider.clone(), self.offer_layer_config.build()?)
                     .with_price_provider(price_provider),
@@ -441,8 +412,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
         let mut client = Client {
             boundless_market,
             set_verifier,
-            uploader: self.uploader,
-            downloader,
+            storage_provider: self.storage_provider,
             offchain_client,
             signer: self.signer,
             request_builder: Some(request_builder),
@@ -456,12 +426,10 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
 
         Ok(client)
     }
-}
 
-impl<U, D, S> ClientBuilder<U, D, S> {
     /// Set the [Deployment] of the Boundless Market that this client will use.
     ///
-    /// If `None`, the builder will attempt to infer the deployment from the chain ID.
+    /// If `None`, the builder will attempty to infer the deployment from the chain ID.
     pub fn with_deployment(self, deployment: impl Into<Option<Deployment>>) -> Self {
         Self { deployment: deployment.into(), ..self }
     }
@@ -529,7 +497,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     pub fn with_private_key(
         self,
         private_key: impl Into<PrivateKeySigner>,
-    ) -> ClientBuilder<U, D, PrivateKeySigner> {
+    ) -> ClientBuilder<St, PrivateKeySigner> {
         self.with_signer(private_key.into())
     }
 
@@ -544,12 +512,12 @@ impl<U, D, S> ClientBuilder<U, D, S> {
     pub fn with_private_key_str(
         self,
         private_key: impl AsRef<str>,
-    ) -> Result<ClientBuilder<U, D, PrivateKeySigner>, LocalSignerError> {
+    ) -> Result<ClientBuilder<St, PrivateKeySigner>, LocalSignerError> {
         Ok(self.with_signer(PrivateKeySigner::from_str(private_key.as_ref())?))
     }
 
     /// Set the signer and wallet.
-    pub fn with_signer<Zi>(self, signer: impl Into<Option<Zi>>) -> ClientBuilder<U, D, Zi>
+    pub fn with_signer<Zi>(self, signer: impl Into<Option<Zi>>) -> ClientBuilder<St, Zi>
     where
         Zi: Signer + Clone + TxSigner<Signature> + Send + Sync + 'static,
     {
@@ -557,8 +525,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         ClientBuilder {
             signer: signer.into(),
             deployment: self.deployment,
-            uploader: self.uploader,
-            downloader: self.downloader,
+            storage_provider: self.storage_provider,
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             tx_timeout: self.tx_timeout,
@@ -582,18 +549,20 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         Self { balance_alerts: config.into(), ..self }
     }
 
-    /// Set the storage uploader.
+    /// Set the storage provider.
     ///
-    /// The returned [ClientBuilder] will be generic over the provider [StorageUploader] type.
-    pub fn with_uploader<Z: StorageUploader>(self, uploader: Option<Z>) -> ClientBuilder<Z, D, S> {
+    /// The returned [ClientBuilder] will be generic over the provider [StorageProvider] type.
+    pub fn with_storage_provider<Z: StorageProvider>(
+        self,
+        storage_provider: Option<Z>,
+    ) -> ClientBuilder<Z, Si> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
+            storage_provider,
             deployment: self.deployment,
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             signer: self.signer,
-            uploader,
-            downloader: self.downloader,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             price_provider: self.price_provider.clone(),
@@ -605,38 +574,17 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         }
     }
 
-    /// Sets the storage downloader for fetching data from URLs.
-    pub fn with_downloader<Z: StorageDownloader>(self, downloader: Z) -> ClientBuilder<U, Z, S> {
-        // NOTE: We can't use the ..self syntax here because return is not Self.
-        ClientBuilder {
-            deployment: self.deployment,
-            rpc_url: self.rpc_url,
-            rpc_urls: self.rpc_urls,
-            signer: self.signer,
-            uploader: self.uploader,
-            downloader: Some(downloader),
-            tx_timeout: self.tx_timeout,
-            balance_alerts: self.balance_alerts,
-            price_provider: self.price_provider,
-            request_finalizer_config: self.request_finalizer_config,
-            request_id_layer_config: self.request_id_layer_config,
-            storage_layer_config: self.storage_layer_config,
-            offer_layer_config: self.offer_layer_config,
-            funding_mode: self.funding_mode,
-        }
-    }
-
-    /// Set the storage uploader from the given config
-    pub async fn with_uploader_config(
+    /// Set the storage provider from the given config
+    pub fn with_storage_provider_config(
         self,
-        config: &StorageUploaderConfig,
-    ) -> Result<ClientBuilder<StandardUploader, D, S>, StorageError> {
-        let storage_uploader = match StandardUploader::from_config(config).await {
-            Ok(storage_uploader) => Some(storage_uploader),
-            Err(StorageError::NoUploader) => None,
+        config: &StorageProviderConfig,
+    ) -> Result<ClientBuilder<StandardStorageProvider, Si>, StandardStorageProviderError> {
+        let storage_provider = match StandardStorageProvider::from_config(config) {
+            Ok(storage_provider) => Some(storage_provider),
+            Err(StandardStorageProviderError::NoProvider) => None,
             Err(e) => return Err(e),
         };
-        Ok(self.with_uploader(storage_uploader))
+        Ok(self.with_storage_provider(storage_provider))
     }
 
     /// Set a custom price provider for fetching market prices.
@@ -735,8 +683,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
 /// Client for interacting with the boundless market.
 pub struct Client<
     P = DynProvider,
-    U = StandardUploader,
-    D = StandardDownloader,
+    St = StandardStorageProvider,
     R = StandardRequestBuilder,
     Si = PrivateKeySigner,
 > {
@@ -744,12 +691,10 @@ pub struct Client<
     pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
     pub set_verifier: SetVerifierService<P>,
-    /// [StandardUploader] to upload programs and inputs.
+    /// [StorageProvider] to upload programs and inputs.
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
-    pub uploader: Option<U>,
-    /// Downloader for fetching data from storage.
-    pub downloader: D,
+    pub storage_provider: Option<St>,
     /// [OrderStreamClient] to submit requests off-chain.
     ///
     /// If not provided, requests not only be sent onchain via a transaction.
@@ -777,11 +722,24 @@ pub struct Client<
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
 pub type StandardClient = Client<
     DynProvider,
-    StandardUploader,
-    StandardDownloader,
-    StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+    StandardStorageProvider,
+    StandardRequestBuilder<DynProvider>,
     PrivateKeySigner,
 >;
+
+impl<P, St, Si> Client<P, St, StandardRequestBuilder<P, St>, Si> {
+    /// Set whether to skip preflight/pricing checks on the request builder.
+    ///
+    /// If `true`, preflight checks are skipped.
+    /// If `false`, preflight checks are run.
+    /// If not called, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub fn with_skip_preflight(mut self, skip: bool) -> Self {
+        if let Some(ref mut builder) = self.request_builder {
+            builder.skip_preflight = Some(skip);
+        }
+        self
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -789,7 +747,7 @@ pub type StandardClient = Client<
 pub enum ClientError {
     /// Storage provider error
     #[error("Storage provider error {0}")]
-    StorageProviderError(#[from] StorageError),
+    StorageProviderError(#[from] StandardStorageProviderError),
     /// Market error
     #[error("Market error {0}")]
     MarketError(#[from] MarketError),
@@ -804,23 +762,21 @@ pub enum ClientError {
     Error(#[from] anyhow::Error),
 }
 
-impl Client<NotProvided, NotProvided, NotProvided, NotProvided, NotProvided> {
+impl Client<NotProvided, NotProvided, NotProvided, NotProvided> {
     /// Create a [ClientBuilder] to construct a [Client].
-    pub fn builder() -> ClientBuilder<NotProvided, NotProvided, NotProvided> {
+    pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
     }
 }
 
-impl<P, D> Client<P, NotProvided, D, NotProvided, NotProvided>
+impl<P> Client<P, NotProvided, NotProvided, NotProvided>
 where
     P: Provider<Ethereum> + 'static + Clone,
-    D: StorageDownloader,
 {
     /// Create a new client
     pub fn new(
         boundless_market: BoundlessMarketService<P>,
         set_verifier: SetVerifierService<P>,
-        downloader: D,
     ) -> Self {
         let boundless_market = boundless_market.clone();
         let set_verifier = set_verifier.clone();
@@ -837,8 +793,7 @@ where
             },
             boundless_market,
             set_verifier,
-            uploader: None,
-            downloader,
+            storage_provider: None,
             offchain_client: None,
             signer: None,
             request_builder: None,
@@ -886,7 +841,7 @@ fn funding_value_for_balance(balance: U256, max_price: U256, funding_mode: Fundi
     }
 }
 
-impl<P, St, D, R, Si> Client<P, St, D, R, Si>
+impl<P, St, R, Si> Client<P, St, R, Si>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -922,6 +877,14 @@ where
             set_verifier,
             ..self
         }
+    }
+
+    /// Set the storage provider
+    pub fn with_storage_provider(self, storage_provider: St) -> Self
+    where
+        St: StorageProvider,
+    {
+        Self { storage_provider: Some(storage_provider), ..self }
     }
 
     /// Set the offchain client
@@ -962,14 +925,13 @@ where
     ///     .unwrap());
     /// # };
     /// ```
-    pub fn with_signer<Zi>(self, signer: Zi) -> Client<P, St, D, R, Zi> {
+    pub fn with_signer<Zi>(self, signer: Zi) -> Client<P, St, R, Zi> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         Client {
             signer: Some(signer),
             boundless_market: self.boundless_market,
             set_verifier: self.set_verifier,
-            uploader: self.uploader,
-            downloader: self.downloader,
+            storage_provider: self.storage_provider,
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
             deployment: self.deployment,
@@ -977,13 +939,14 @@ where
         }
     }
 
-    /// Upload a program binary to the storage uploader.
+    /// Upload a program binary to the storage provider.
     pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
     where
-        St: StorageUploader,
+        St: StorageProvider,
+        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
     {
         Ok(self
-            .uploader
+            .storage_provider
             .as_ref()
             .context("Storage provider not set")?
             .upload_program(program)
@@ -991,30 +954,19 @@ where
             .context("Failed to upload program")?)
     }
 
-    /// Upload input to the storage uploader.
+    /// Upload input to the storage provider.
     pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError>
     where
-        St: StorageUploader,
+        St: StorageProvider,
+        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
     {
         Ok(self
-            .uploader
+            .storage_provider
             .as_ref()
             .context("Storage provider not set")?
             .upload_input(input)
             .await
             .context("Failed to upload input")?)
-    }
-
-    /// Downloads the content at the given URL using the configured downloader.
-    pub async fn download(&self, url: &str) -> Result<Vec<u8>, ClientError>
-    where
-        D: StorageDownloader,
-    {
-        Ok(self
-            .downloader
-            .download(url)
-            .await
-            .with_context(|| format!("Failed to download {}", url))?)
     }
 
     /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
@@ -1028,7 +980,13 @@ where
 
     /// Build a proof request from the given parameters.
     ///
-    /// Requires a a [RequestBuilder] to be provided.
+    /// Requires a [RequestBuilder] to be provided. After building, pricing validation
+    /// is run to check if the request will likely be accepted by provers.
+    ///
+    /// If a signer is available on the client, the request will be signed for full validation.
+    /// If no signer is available, pricing validation still runs but without signing.
+    ///
+    /// Pricing checks can be skipped by setting the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     pub async fn build_request<Params>(
         &self,
         params: impl Into<Params>,
@@ -1042,9 +1000,15 @@ where
         tracing::debug!("Building request");
         let request = request_builder.build(params).await.map_err(Into::into)?;
         tracing::debug!("Built request with id {:x}", request.id);
+
         Ok(request)
     }
+}
 
+impl<P, St, R, Si> Client<P, St, R, Si>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     async fn compute_funding_value(
         &self,
         client_address: Address,
@@ -1308,6 +1272,9 @@ where
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
+
+        request.validate()?;
+
         let max_price = U256::from(request.offer.maxPrice);
         let value = self.compute_funding_value(client_address, max_price).await?;
         if value > 0 {
