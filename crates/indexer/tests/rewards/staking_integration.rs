@@ -15,7 +15,7 @@
 use super::common;
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_staking_summary_stats() {
     let db = common::setup_test_db().await;
 
@@ -34,7 +34,7 @@ async fn test_staking_summary_stats() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_epoch_staking_summary() {
     let db = common::setup_test_db().await;
 
@@ -63,7 +63,7 @@ async fn test_epoch_staking_summary() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_staking_positions_by_epoch() {
     let db = common::setup_test_db().await;
 
@@ -92,7 +92,7 @@ async fn test_staking_positions_by_epoch() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_staking_positions_aggregate() {
     let db = common::setup_test_db().await;
 
@@ -118,7 +118,7 @@ async fn test_staking_positions_aggregate() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_all_epoch_staking_summaries() {
     let db = common::setup_test_db().await;
 

@@ -2608,9 +2608,9 @@ pub async fn list_requestors(
             let mut res = Json(response).into_response();
             // Use shorter cache for recent periods, longer for all-time
             let cache_duration = match period {
-                LeaderboardPeriod::OneHour => "public, max-age=60",
-                LeaderboardPeriod::OneDay => "public, max-age=120",
-                _ => "public, max-age=300",
+                LeaderboardPeriod::OneHour => "public, max-age=300",
+                LeaderboardPeriod::OneDay => "public, max-age=600",
+                _ => "public, max-age=900",
             };
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
             res
@@ -2791,9 +2791,9 @@ pub async fn list_provers(
         Ok(response) => {
             let mut res = Json(response).into_response();
             let cache_duration = match period {
-                LeaderboardPeriod::OneHour => "public, max-age=60",
-                LeaderboardPeriod::OneDay => "public, max-age=120",
-                _ => "public, max-age=300",
+                LeaderboardPeriod::OneHour => "public, max-age=300",
+                LeaderboardPeriod::OneDay => "public, max-age=600",
+                _ => "public, max-age=900",
             };
             res.headers_mut().insert(header::CACHE_CONTROL, cache_control(cache_duration));
             res

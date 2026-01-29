@@ -12,18 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::db::market::IndexerDb;
-use crate::market::{
-    time_boundaries::{
-        get_day_start, get_hour_start, get_month_start, get_next_day, get_next_hour,
-        get_next_month, get_next_week, get_week_start,
+use crate::{
+    db::market::IndexerDb,
+    market::{
+        time_boundaries::{
+            get_day_start, get_hour_start, get_month_start, get_next_day, get_next_hour,
+            get_next_month, get_next_week, get_week_start,
+        },
+        IndexerService, ServiceError,
     },
-    IndexerService, ServiceError,
 };
-use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::B256;
-use alloy::providers::Provider;
+use alloy::{
+    network::{AnyNetwork, Ethereum},
+    primitives::B256,
+    providers::Provider,
+};
 use std::collections::HashSet;
+use std::time::Duration;
 
 const DIGEST_BATCH_SIZE: i64 = 5000;
 const STATUS_BATCH_SIZE: usize = 2500;
@@ -165,6 +170,7 @@ pub struct BackfillService<P, ANP> {
     pub mode: BackfillMode,
     pub start_block: u64,
     pub end_block: u64,
+    pub chain_data_batch_delay_ms: u64,
 }
 
 impl<P, ANP> BackfillService<P, ANP>
@@ -177,8 +183,9 @@ where
         mode: BackfillMode,
         start_block: u64,
         end_block: u64,
+        chain_data_batch_delay_ms: u64,
     ) -> Self {
-        Self { indexer, mode, start_block, end_block }
+        Self { indexer, mode, start_block, end_block, chain_data_batch_delay_ms }
     }
 
     pub async fn run(&mut self) -> Result<(), ServiceError> {
@@ -213,9 +220,11 @@ where
 
         let start_time = std::time::Instant::now();
         tracing::info!(
-            "Starting chain data backfill from block {} to {}...",
+            "Starting chain data backfill from block {} to {} (batch_size: {}, delay_ms: {})...",
             self.start_block,
-            self.end_block
+            self.end_block,
+            self.indexer.config.batch_size,
+            self.chain_data_batch_delay_ms
         );
 
         let batch_size = self.indexer.config.batch_size;
@@ -248,6 +257,15 @@ where
                 from_block,
                 to_block
             );
+
+            // Apply rate limiting delay between batches if configured
+            if self.chain_data_batch_delay_ms > 0 {
+                tracing::info!(
+                    "Applying delay: {}ms before next batch",
+                    self.chain_data_batch_delay_ms
+                );
+                tokio::time::sleep(Duration::from_millis(self.chain_data_batch_delay_ms)).await;
+            }
 
             if !logs.is_empty() {
                 // Fetch tx metadata for the logs
@@ -1351,8 +1369,7 @@ mod tests {
 
     #[test]
     fn test_chunk_hourly_range_non_boundary_end() {
-        use crate::market::time_boundaries::get_hour_start;
-        use crate::market::time_boundaries::get_next_hour;
+        use crate::market::time_boundaries::{get_hour_start, get_next_hour};
 
         // Test: start=0 (aligned), end=9000 (30 minutes into hour 2)
         // The function should align end_ts to hour boundary

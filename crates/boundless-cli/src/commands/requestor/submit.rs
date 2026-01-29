@@ -20,20 +20,23 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use alloy::primitives::U256;
-use anyhow::{ensure, Context, Result};
-use boundless_market::{
-    contracts::{FulfillmentData, Offer, Predicate, ProofRequest},
-    storage::{fetch_url, StorageProviderConfig},
-};
-use clap::Args;
-use risc0_zkvm::sha::{Digest, Digestible};
-use risc0_zkvm::{compute_image_id, default_executor, ExecutorEnv, ReceiptClaim, SessionInfo};
-
 use crate::{
     config::{GlobalConfig, RequestorConfig},
     config_ext::RequestorConfigExt,
     display::{convert_timestamp, DisplayManager},
+};
+use alloy::primitives::U256;
+use anyhow::{ensure, Context, Result};
+use boundless_market::{
+    contracts::{FulfillmentData, Offer, Predicate, ProofRequest},
+    storage::StorageDownloader,
+    StorageUploaderConfig,
+};
+use clap::Args;
+use risc0_zkvm::{
+    compute_image_id, default_executor,
+    sha::{Digest, Digestible},
+    ExecutorEnv, ReceiptClaim, SessionInfo,
 };
 
 /// Submit a fully specified proof request
@@ -54,9 +57,9 @@ pub struct RequestorSubmit {
     #[clap(long, default_value = "false")]
     pub no_preflight: bool,
 
-    /// Configuration for the StorageProvider to use for uploading programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    pub storage_config: Box<StorageProviderConfig>,
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
+    pub storage_config: Box<StorageUploaderConfig>,
 
     /// Requestor configuration (RPC URL, private key, deployment)
     #[clap(flatten)]
@@ -71,7 +74,8 @@ impl RequestorSubmit {
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
-            .with_storage_provider_config(&self.storage_config)?
+            .with_uploader_config(&self.storage_config)
+            .await?
             .build()
             .await
             .context("Failed to build Boundless Client")?;
@@ -104,7 +108,7 @@ impl RequestorSubmit {
         // Run preflight check if enabled
         if !self.no_preflight {
             display.info("Running request preflight check");
-            let (image_id, session_info) = execute(&request).await?;
+            let (image_id, session_info) = execute(&request, &client.downloader).await?;
             let journal = &session_info.journal.bytes;
 
             // Verify image ID
@@ -170,9 +174,12 @@ impl RequestorSubmit {
 }
 
 /// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
-async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
+async fn execute(
+    request: &ProofRequest,
+    downloader: &impl StorageDownloader,
+) -> Result<(Digest, SessionInfo)> {
     tracing::info!("Fetching program from {}", request.imageUrl);
-    let program = fetch_url(&request.imageUrl).await?;
+    let program = downloader.download(&request.imageUrl).await?;
     let image_id = compute_image_id(&program)?;
 
     tracing::debug!("Program image id: {}", image_id);
@@ -185,7 +192,7 @@ async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
             let input_url =
                 std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
             tracing::info!("Fetching input from {}", input_url);
-            let input_data = fetch_url(input_url).await?;
+            let input_data = downloader.download(input_url).await?;
             boundless_market::input::GuestEnv::decode(&input_data)?.stdin
         }
         _ => anyhow::bail!("Unsupported input type"),

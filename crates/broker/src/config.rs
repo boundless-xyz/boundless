@@ -18,6 +18,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::{errors::CodedError, impl_coded_debug};
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use boundless_market::dynamic_gas_filler::PriorityMode;
@@ -29,11 +30,11 @@ use tokio::{
     task::JoinHandle,
     time::{timeout, Duration},
 };
-
-use crate::{errors::CodedError, impl_coded_debug};
+use url::Url;
 
 mod defaults {
     use super::PriorityMode;
+    use url::Url;
 
     const ESTIMATED_GROTH16_TIME: u64 = 15;
 
@@ -89,6 +90,15 @@ mod defaults {
 
     pub const fn max_file_size() -> usize {
         50_000_000
+    }
+
+    pub const fn max_fetch_retries() -> Option<u8> {
+        Some(2)
+    }
+
+    pub fn ipfs_gateway() -> Option<Url> {
+        // Safe to unwrap: DEFAULT_IPFS_GATEWAY_URL is a valid URL constant
+        Some(Url::parse(boundless_market::storage::DEFAULT_IPFS_GATEWAY_URL).unwrap())
     }
 
     pub fn assessor_default_image_url() -> String {
@@ -398,6 +408,12 @@ pub struct MarketConf {
     ///
     /// If not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
+    /// Optional IPFS gateway URL for fallback when downloading IPFS content
+    ///
+    /// When set, if an HTTP download fails for a URL containing `/ipfs/`,
+    /// the downloader will retry with this gateway. Defaults to the Boundless gateway.
+    #[serde(default = "defaults::ipfs_gateway")]
+    pub ipfs_gateway_fallback: Option<Url>,
     /// Default URL for assessor image
     ///
     /// This URL will be tried first before falling back to the contract URL
@@ -462,7 +478,7 @@ impl Default for MarketConf {
             gas_priority_mode: defaults::priority_mode(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
-            max_fetch_retries: Some(2),
+            max_fetch_retries: defaults::max_fetch_retries(),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
@@ -473,6 +489,7 @@ impl Default for MarketConf {
             collateral_balance_error_threshold: None,
             max_concurrent_proofs: defaults::max_concurrent_proofs(),
             cache_dir: None,
+            ipfs_gateway_fallback: defaults::ipfs_gateway(),
             assessor_default_image_url: defaults::assessor_default_image_url(),
             set_builder_default_image_url: defaults::set_builder_default_image_url(),
             max_concurrent_preflights: defaults::max_concurrent_preflights(),

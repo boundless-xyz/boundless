@@ -81,6 +81,7 @@ pub trait PriceProvider {
 pub type PriceProviderArc = std::sync::Arc<dyn PriceProvider + Send + Sync>;
 
 /// Standard price provider that uses a default and an optional fallback price provider.
+#[derive(Clone)]
 pub struct StandardPriceProvider<
     D: PriceProvider + Clone + Send + 'static,
     F: PriceProvider + Clone + Send + 'static,
@@ -93,54 +94,23 @@ impl<D: PriceProvider + Clone + Send + 'static, F: PriceProvider + Clone + Send 
     StandardPriceProvider<D, F>
 {
     /// Create a new standard price provider.
-    ///
-    /// # Parameters
-    ///
-    /// * `default`: The default price provider to use for fetching prices.
-    /// * `fallback`: The fallback price provider to use as a fallback.
-    ///
-    /// # Returns
-    ///
-    /// A new [StandardPriceProvider].
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use boundless_market::price_provider::{StandardPriceProvider, IndexerClient};
-    /// use boundless_market::indexer_client::IndexerClient;
-    /// use url::Url;
-    ///
-    /// let indexer_client = IndexerClient::new(Url::parse("https://indexer.boundless.com").unwrap());
-    /// let price_provider = StandardPriceProvider::new(indexer_client);
-    /// ```
-    ///
     pub fn new(default: D) -> Self {
         Self { default, fallback: None }
     }
 
     /// Set the fallback price provider.
     ///
-    /// # Parameters
-    ///
-    /// * `fallback`: The fallback price provider to use as a fallback.
-    ///
-    /// # Returns
-    ///
-    /// A new [StandardPriceProvider] with the fallback price provider set.
-    ///
     /// # Example
     ///
     /// ```rust
-    /// use boundless_market::price_provider::{StandardPriceProvider, IndexerClient, MarketPricing};
+    /// use boundless_market::price_provider::{MarketPricing, MarketPricingConfig, StandardPriceProvider};
     /// use boundless_market::indexer_client::IndexerClient;
-    /// use boundless_market::market_pricing::MarketPricing;
     /// use url::Url;
     ///
-    /// let indexer_client = IndexerClient::new(Url::parse("https://indexer.boundless.com").unwrap());
+    /// let indexer_client = IndexerClient::new(Url::parse("https://indexer.boundless.com").unwrap()).unwrap();
     /// let market_pricing = MarketPricing::new(Url::parse("https://sepolia.rpc.com").unwrap(), MarketPricingConfig::default());
     /// let price_provider = StandardPriceProvider::new(indexer_client).with_fallback(market_pricing);
     /// ```
-    ///
     pub fn with_fallback(self, fallback: F) -> Self {
         Self { default: self.default, fallback: Some(fallback) }
     }
@@ -273,13 +243,11 @@ pub struct MarketPricing {
 ///
 /// ```
 /// use boundless_market::price_provider::{MarketPricingConfig};
-/// use boundless_market::Deployment;
 ///
 /// let config = MarketPricingConfig::builder()
-///     .deployment(Deployment::default())
 ///     .event_query_chunk_size(100)
 ///     .market_price_blocks_to_query(30000)
-///     .tx_timeout(std::time::Duration::from_secs(300))
+///     .timeout(std::time::Duration::from_secs(300))
 ///     .build()
 ///     .unwrap();
 /// ```
@@ -312,10 +280,8 @@ impl MarketPricingConfig {
     ///
     /// ```
     /// use boundless_market::price_provider::{MarketPricingConfig, MarketPricingConfigBuilder};
-    /// use boundless_market::Deployment;
     ///
     /// let config = MarketPricingConfig::builder()
-    ///     .deployment(Deployment::default())
     ///     .event_query_chunk_size(100)
     ///     .market_price_blocks_to_query(30000)
     ///     .timeout(std::time::Duration::from_secs(300))
@@ -353,7 +319,6 @@ impl MarketPricing {
     /// use url::Url;
     ///
     /// let config = MarketPricingConfig::builder()
-    ///     .deployment(Deployment::default())
     ///     .event_query_chunk_size(100)
     ///     .market_price_blocks_to_query(30000)
     ///     .timeout(std::time::Duration::from_secs(300))

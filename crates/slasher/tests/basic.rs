@@ -26,6 +26,7 @@ use boundless_market::contracts::{
     boundless_market::{FulfillmentTx, UnlockedRequest},
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
+use boundless_market::storage::StandardDownloader;
 use boundless_slasher::db::PgDb;
 use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
 use boundless_test_utils::market::create_test_ctx;
@@ -195,7 +196,7 @@ async fn test_basic_usage(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
-#[ignore = "Generate proofs. Slow without dev mode"]
+#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generate proofs. Slow without dev mode")]
 async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     // Run migrations on the isolated test database
     PgDb::from_pool(pool.clone()).await.unwrap();
@@ -260,8 +261,11 @@ async fn test_slash_fulfilled(pool: sqlx::PgPool) {
     // Wait for slasher to process the locked event before fulfilling
     wait_for_slasher_to_process_locked(&pool, request.id).await;
 
-    let client =
-        boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+    let client = boundless_market::Client::new(
+        ctx.customer_market.clone(),
+        ctx.set_verifier.clone(),
+        StandardDownloader::new().await,
+    );
     let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
     let prover = OrderFulfiller::initialize(prover, &client).await.unwrap();
     let (fill, root_receipt, assessor_receipt) =
