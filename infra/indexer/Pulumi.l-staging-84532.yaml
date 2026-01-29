@@ -19,6 +19,7 @@ config:
   indexer:START_BLOCK: "30757608"
   indexer:BLOCK_DELAY: "10"
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100000"
+  indexer:CHAIN_DATA_BATCH_DELAY_MS: "1000"
   indexer:ETH_RPC_URL:
     secure: v1:S5t1d+qfUUS63zZv:23xURask3Aq2/6rL1KDiVhN7xnnTMnFsYRt7cHvClBDl3sfEELo8WlegCoxYtiEZcB7dYQXtVvGBTCW9Z/lgHOo4r1xBoL/h4uLcYHhxkGlacrX/HoyyPfYRLollzEVwU77FQ9Z+fKVLVkNk2Q==
   indexer:ORDER_STREAM_URL:

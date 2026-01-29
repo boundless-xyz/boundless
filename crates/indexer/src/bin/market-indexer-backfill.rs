@@ -75,6 +75,14 @@ struct Args {
     /// Transaction fetching strategy: "block-receipts" (default) or "tx-by-hash"
     #[clap(long, env, default_value = "block-receipts")]
     tx_fetch_strategy: String,
+
+    /// Delay in milliseconds between batches during chain data backfill (default: 1000)
+    #[clap(long, env, default_value_t = 1000)]
+    chain_data_batch_delay_ms: u64,
+
+    /// Number of blocks to process in each batch (default: 750)
+    #[clap(long, env, default_value_t = 750)]
+    batch_size: u64,
 }
 
 #[tokio::main]
@@ -117,7 +125,7 @@ async fn main() -> Result<()> {
         interval: Duration::from_secs(3),
         aggregation_interval: Duration::from_secs(2),
         retries: 3,
-        batch_size: 500,
+        batch_size: args.batch_size,
         cache_uri: args.cache_uri.clone(),
         tx_fetch_strategy,
         execution_config: None,
@@ -189,7 +197,13 @@ async fn main() -> Result<()> {
         end_block
     );
 
-    let mut backfill_service = BackfillService::new(indexer_service, mode, start_block, end_block);
+    let mut backfill_service = BackfillService::new(
+        indexer_service,
+        mode,
+        start_block,
+        end_block,
+        args.chain_data_batch_delay_ms,
+    );
 
     if let Err(err) = backfill_service.run().await {
         bail!("FATAL: Error running backfill: {err}");

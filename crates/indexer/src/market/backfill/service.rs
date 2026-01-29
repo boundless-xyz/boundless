@@ -24,6 +24,7 @@ use alloy::network::{AnyNetwork, Ethereum};
 use alloy::primitives::B256;
 use alloy::providers::Provider;
 use std::collections::HashSet;
+use std::time::Duration;
 
 const DIGEST_BATCH_SIZE: i64 = 5000;
 const STATUS_BATCH_SIZE: usize = 2500;
@@ -165,6 +166,7 @@ pub struct BackfillService<P, ANP> {
     pub mode: BackfillMode,
     pub start_block: u64,
     pub end_block: u64,
+    pub chain_data_batch_delay_ms: u64,
 }
 
 impl<P, ANP> BackfillService<P, ANP>
@@ -177,8 +179,9 @@ where
         mode: BackfillMode,
         start_block: u64,
         end_block: u64,
+        chain_data_batch_delay_ms: u64,
     ) -> Self {
-        Self { indexer, mode, start_block, end_block }
+        Self { indexer, mode, start_block, end_block, chain_data_batch_delay_ms }
     }
 
     pub async fn run(&mut self) -> Result<(), ServiceError> {
@@ -213,9 +216,11 @@ where
 
         let start_time = std::time::Instant::now();
         tracing::info!(
-            "Starting chain data backfill from block {} to {}...",
+            "Starting chain data backfill from block {} to {} (batch_size: {}, delay_ms: {})...",
             self.start_block,
-            self.end_block
+            self.end_block,
+            self.indexer.config.batch_size,
+            self.chain_data_batch_delay_ms
         );
 
         let batch_size = self.indexer.config.batch_size;
@@ -248,6 +253,15 @@ where
                 from_block,
                 to_block
             );
+
+            // Apply rate limiting delay between batches if configured
+            if self.chain_data_batch_delay_ms > 0 {
+                tracing::info!(
+                    "Applying delay: {}ms before next batch",
+                    self.chain_data_batch_delay_ms
+                );
+                tokio::time::sleep(Duration::from_millis(self.chain_data_batch_delay_ms)).await;
+            }
 
             if !logs.is_empty() {
                 // Fetch tx metadata for the logs

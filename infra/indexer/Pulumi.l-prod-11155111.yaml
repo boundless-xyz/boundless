@@ -22,6 +22,7 @@ config:
   indexer:START_BLOCK: "9125190"
   indexer:BLOCK_DELAY: "10"
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "10000"
+  indexer:CHAIN_DATA_BATCH_DELAY_MS: "1000"
   indexer:ETH_RPC_URL:
     secure: v1:3RLCb+RU0GBoN2u8:S/Ll6MQr8KjNwYf4hGVwQmU62NHT7G8z6vD60xwOFF26MHEF7UwtW6coBHsTzCYMLVd95lo4xGcLWof9jw+PCWlXer0vAMPiooTWDR4bKrtficCmzWBPPEJSAOciE+KP7y8JsEFF9BLFTViWQjK+sX0sfi0T
   indexer:INDEXER_API_DOMAIN: indexer.eth-sepolia.boundless.network

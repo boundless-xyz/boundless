@@ -108,7 +108,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(hour_ts, hour_end, prover)
                                 .await?;
-                            service.db.upsert_hourly_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_hourly_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_hourly_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -184,7 +188,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(day_ts, day_end, prover)
                                 .await?;
-                            service.db.upsert_daily_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_daily_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_daily_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -260,7 +268,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(week_ts, week_end, prover)
                                 .await?;
-                            service.db.upsert_weekly_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_weekly_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_weekly_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -337,7 +349,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(month_ts, month_end, prover)
                                 .await?;
-                            service.db.upsert_monthly_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_monthly_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_monthly_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -501,7 +517,11 @@ where
                                 0.0
                             };
 
-                            service.db.upsert_all_time_prover_summary(cumulative_summary.clone()).await?;
+                            service
+                                .db
+                                .upsert_all_time_prover_summary(cumulative_summary.clone())
+                                .await
+                                .with_db_context("upsert_all_time_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }

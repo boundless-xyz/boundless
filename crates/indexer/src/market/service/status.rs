@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::IndexerService;
+use super::{DbResultExt, IndexerService};
 use crate::db::market::{IndexerDb, RequestStatusType, SlashedStatus};
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
@@ -281,7 +281,10 @@ where
         );
 
         let start_upsert_request_statuses = std::time::Instant::now();
-        self.db.upsert_request_statuses(&request_statuses).await?;
+        self.db
+            .upsert_request_statuses(&request_statuses)
+            .await
+            .with_db_context("upsert_request_statuses")?;
         tracing::info!(
             "upsert_request_statuses completed in {:?} [{} statuses upserted]",
             start_upsert_request_statuses.elapsed(),
