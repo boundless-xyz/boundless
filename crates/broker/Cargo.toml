@@ -80,7 +80,7 @@ proptest = "1.4"
 proptest-derive = "0.5"
 rand = { workspace = true }
 risc0-groth16 = { workspace = true, features = ["prove"] }
-risc0-zkvm = { workspace = true, default-features = true }
+risc0-zkvm = { workspace = true, features = ["std"] }
 test-log = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }

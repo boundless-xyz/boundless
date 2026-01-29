@@ -52,7 +52,7 @@ reqwest = { workspace = true }
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }
 risc0-povw = { workspace = true, features = ["prover"] }
-risc0-zkvm = { workspace = true, features = ["std", "default"] }
+risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
