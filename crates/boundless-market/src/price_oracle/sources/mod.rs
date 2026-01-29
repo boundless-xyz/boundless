@@ -1,6 +1,3 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError};
-use std::{future::Future};
-use alloy_primitives::{I256, U256};
 
 /// Price source implementation for chainlink
 pub mod chainlink;

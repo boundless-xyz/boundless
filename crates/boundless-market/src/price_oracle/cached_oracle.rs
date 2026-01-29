@@ -1,7 +1,7 @@
 use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair};
 use futures::future::join_all;
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
-use tokio::{sync::RwLock, sync::Mutex, time::MissedTickBehavior};
+use std::{collections::HashMap, sync::Arc, time::Duration};
+use tokio::{sync::RwLock, time::MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 
 /// Cached price oracle with background refresh
@@ -103,6 +103,7 @@ mod tests {
     use super::*;
     use alloy::primitives::U256;
     use crate::price_oracle::PriceOracle;
+    use tokio::sync::Mutex;
 
     struct MockOracle {
         price: Mutex<U256>,

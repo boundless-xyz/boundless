@@ -1,5 +1,4 @@
 use crate::price_oracle::{scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
-use alloy::primitives::U256;
 use reqwest::Client;
 use serde::Deserialize;
 use std::{collections::HashMap, time::Duration};
@@ -42,6 +41,12 @@ impl CoinMarketCapSource {
             api_url,
             api_key,
         })
+    }
+
+    /// Configure the API URL for testing
+    pub fn with_api_url(mut self, url: Url) -> Self {
+        self.api_url = url;
+        self
     }
 
     async fn fetch_price(&self, path: &str, id: &str, convert: &str) -> Result<PriceQuote, PriceOracleError> {
@@ -98,9 +103,170 @@ impl PriceOracle for CoinMarketCapSource {
 
 #[cfg(test)]
 mod tests {
-    // TODO: add mock tests
     use super::*;
+    use alloy::primitives::U256;
+    use httpmock::prelude::*;
 
+    #[tokio::test]
+    async fn test_eth_usd_price_success() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/v2/cryptocurrency/quotes/latest")
+                .query_param("id", "1027")
+                .query_param("convert", "USD")
+                .header("X-CMC_PRO_API_KEY", "test-api-key");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "data": {
+                        "1027": {
+                            "quote": {
+                                "USD": {
+                                    "price": 2500.50,
+                                    "last_updated": "2026-01-29T12:10:00.000Z"
+                                }
+                            }
+                        }
+                    }
+                }));
+        });
+
+        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let quote = source.get_price(TradingPair::EthUsd).await.unwrap();
+
+        mock.assert();
+        assert_eq!(quote.price, U256::from(250050000000u128)); // 2500.50 * 1e8
+        // Verify timestamp is parsed correctly from ISO 8601
+        assert_eq!(quote.timestamp, 1769688600);
+    }
+
+    #[tokio::test]
+    async fn test_zkc_usd_price_success() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/v2/cryptocurrency/quotes/latest")
+                .query_param("id", "38371")
+                .query_param("convert", "USD")
+                .header("X-CMC_PRO_API_KEY", "test-api-key");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "data": {
+                        "38371": {
+                            "quote": {
+                                "USD": {
+                                    "price": 0.123456,
+                                    "last_updated": "2026-01-29T12:30:00.000Z"
+                                }
+                            }
+                        }
+                    }
+                }));
+        });
+
+        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let quote = source.get_price(TradingPair::ZkcUsd).await.unwrap();
+
+        mock.assert();
+        assert_eq!(quote.price, U256::from(12345600u128)); // 0.123456 * 1e8
+        assert_eq!(quote.timestamp, 1769689800);
+    }
+
+    #[tokio::test]
+    async fn test_handles_http_error() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/v2/cryptocurrency/quotes/latest");
+            then.status(401);
+        });
+
+        let source = CoinMarketCapSource::new("invalid-key".to_string(), Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let result = source.get_price(TradingPair::EthUsd).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handles_missing_id() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/v2/cryptocurrency/quotes/latest")
+                .query_param("id", "1027");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "data": {
+                        "1": {
+                            "quote": {
+                                "USD": {
+                                    "price": 50000.0,
+                                    "last_updated": "2024-01-29T12:00:00.000Z"
+                                }
+                            }
+                        }
+                    }
+                }));
+        });
+
+        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let result = source.get_price(TradingPair::EthUsd).await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    #[tokio::test]
+    async fn test_handles_missing_currency() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/v2/cryptocurrency/quotes/latest")
+                .query_param("id", "1027");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "data": {
+                        "1027": {
+                            "quote": {
+                                "EUR": {
+                                    "price": 2300.0,
+                                    "last_updated": "2024-01-29T12:00:00.000Z"
+                                }
+                            }
+                        }
+                    }
+                }));
+        });
+
+        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let result = source.get_price(TradingPair::EthUsd).await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    // Integration tests (require API key and network access)
     #[tokio::test]
     #[ignore]
     async fn test_api_eth_price() -> anyhow::Result<()> {

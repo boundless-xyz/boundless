@@ -1,5 +1,4 @@
 use crate::price_oracle::{scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
-use alloy::primitives::U256;
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -35,6 +34,12 @@ impl CoinGeckoSource {
             client,
             api_url,
         })
+    }
+
+    /// Configure the API URL for testing
+    pub fn with_api_url(mut self, url: Url) -> Self {
+        self.api_url = url;
+        self
     }
 
     async fn fetch_price(&self, path: &str, ids: &str, vs_currencies: &str) -> Result<PriceQuote, PriceOracleError> {
@@ -78,9 +83,118 @@ impl PriceOracle for CoinGeckoSource {
 
 #[cfg(test)]
 mod tests {
-    // TODO: add mock tests
     use super::*;
+    use alloy::primitives::U256;
+    use httpmock::prelude::*;
 
+    #[tokio::test]
+    async fn test_eth_usd_price_success() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v3/simple/price")
+                .query_param("ids", "ethereum")
+                .query_param("vs_currencies", "usd")
+                .query_param("include_last_updated_at", "true");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "ethereum": {
+                        "usd": 2500.50,
+                        "last_updated_at": 1706547200
+                    }
+                }));
+        });
+
+        let source = CoinGeckoSource::new(Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let quote = source.get_price(TradingPair::EthUsd).await.unwrap();
+
+        mock.assert();
+        assert_eq!(quote.price, U256::from(250050000000u128)); // 2500.50 * 1e8
+        assert_eq!(quote.timestamp, 1706547200);
+    }
+
+    #[tokio::test]
+    async fn test_zkc_usd_price_success() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v3/simple/price")
+                .query_param("ids", "boundless")
+                .query_param("vs_currencies", "usd")
+                .query_param("include_last_updated_at", "true");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "boundless": {
+                        "usd": 0.123456,
+                        "last_updated_at": 1706547300
+                    }
+                }));
+        });
+
+        let source = CoinGeckoSource::new(Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let quote = source.get_price(TradingPair::ZkcUsd).await.unwrap();
+
+        mock.assert();
+        assert_eq!(quote.price, U256::from(12345600u128)); // 0.123456 * 1e8
+        assert_eq!(quote.timestamp, 1706547300);
+    }
+
+    #[tokio::test]
+    async fn test_handles_http_error() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v3/simple/price");
+            then.status(500);
+        });
+
+        let source = CoinGeckoSource::new(Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let result = source.get_price(TradingPair::EthUsd).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handles_missing_coin_data() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v3/simple/price")
+                .query_param("ids", "ethereum");
+            then.status(200)
+                .header("content-type", "application/json")
+                .json_body(serde_json::json!({
+                    "bitcoin": {
+                        "usd": 50000.0,
+                        "last_updated_at": 1706547200
+                    }
+                }));
+        });
+
+        let source = CoinGeckoSource::new(Duration::from_secs(10))
+            .unwrap()
+            .with_api_url(server.base_url().parse().unwrap());
+
+        let result = source.get_price(TradingPair::EthUsd).await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    // Integration tests (require network access)
     #[tokio::test]
     #[ignore]
     async fn test_api_eth_price() -> anyhow::Result<()> {

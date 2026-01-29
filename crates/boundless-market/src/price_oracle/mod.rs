@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::SystemTime;
 use alloy::primitives::U256;
 use alloy_primitives::I256;
@@ -180,8 +179,6 @@ impl<T: PriceSource> PriceSource for WithStalenessCheck<T> {
     }
 }
 
-// TODO: add tests for price scaling function
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +200,89 @@ mod tests {
         }
     }
 
+    // Tests for scale_price_from_f64
+    #[test]
+    fn test_scale_price_from_f64_valid_prices() {
+        let price = scale_price_from_f64(2000.50).unwrap();
+        assert_eq!(price, U256::from(200050000000u128));
+
+        let price = scale_price_from_f64(0.001).unwrap();
+        assert_eq!(price, U256::from(100000u128));
+
+        let price = scale_price_from_f64(100000.0).unwrap();
+        assert_eq!(price, U256::from(10000000000000u128));
+
+        let price = scale_price_from_f64(0.0).unwrap();
+        assert_eq!(price, U256::ZERO);
+    }
+
+    #[test]
+    fn test_scale_price_from_f64_negative() {
+        // Negative price should error
+        let result = scale_price_from_f64(-100.0);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    #[test]
+    fn test_scale_price_from_f64_nan() {
+        // NaN should error
+        let result = scale_price_from_f64(f64::NAN);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    #[test]
+    fn test_scale_price_from_f64_infinity() {
+        // Infinity should error
+        let result = scale_price_from_f64(f64::INFINITY);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    // Tests for scale_price_from_i256
+    #[test]
+    fn test_scale_price_from_i256_standard_8_decimals() {
+        // 8 decimals - pass-through
+        let price_raw = I256::try_from(200050000000u128).unwrap();
+        let price = scale_price_from_i256(price_raw, 8).unwrap();
+        assert_eq!(price, U256::from(200050000000u128));
+    }
+
+    #[test]
+    fn test_scale_price_from_i256_scale_up() {
+        // 6 decimals → 8 decimals (multiply by 100)
+        let price_raw = I256::try_from(2000500000u128).unwrap();
+        let price = scale_price_from_i256(price_raw, 6).unwrap();
+        assert_eq!(price, U256::from(200050000000u128));
+    }
+
+    #[test]
+    fn test_scale_price_from_i256_scale_down() {
+        // 18 decimals → 8 decimals (divide by 10^10)
+        let price_raw = I256::try_from(2000500000000000000000u128).unwrap();
+        let price = scale_price_from_i256(price_raw, 18).unwrap();
+        assert_eq!(price, U256::from(200050000000u128));
+    }
+
+    #[test]
+    fn test_scale_price_from_i256_zero() {
+        // Zero value should error
+        let result = scale_price_from_i256(I256::ZERO, 8);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    #[test]
+    fn test_scale_price_from_i256_negative() {
+        // Negative value should error
+        let price_raw = I256::try_from(-100).unwrap();
+        let result = scale_price_from_i256(price_raw, 8);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+    }
+
+    // Tests for WithStalenessCheck wrapper
     #[tokio::test]
     async fn test_wrapper_accepts_fresh_price() {
         let now = SystemTime::now()

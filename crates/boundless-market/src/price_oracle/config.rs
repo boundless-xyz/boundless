@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use alloy::primitives::U256;
 use alloy::providers::Provider;
 use alloy_chains::NamedChain;
 use serde::{Deserialize, Serialize};
