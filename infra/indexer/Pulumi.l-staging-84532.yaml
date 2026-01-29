@@ -28,7 +28,7 @@ config:
   indexer:LOGS_ETH_RPC_URL:
     secure: v1:mtDoiRDofMGFzYoM:JV1359OLhOYkTQpaQZMh3OSBhoco7dF1zR1fMDGu6icxE7JV4ZQDMAnefN8ouQTNtOOM7DBYtMn76Z2UslaAbkX9RdPiF16UXp+P
   indexer:BENTO_API_URL:
-    secure: v1:Rr0L2P39ac7JHlc4:ZAc0z8uJAj5COifz9xFKwTrnjVVdwXiPWL7JJ9ZiE7qcWSnOwnboOZavQn6jSBP5RbTi
+    secure: v1:VoXJzUa7hMIoM9VA:Dk1gBRF3mtZvaVMV6qTa60NC1VGrKwVwFcU4abiwFc09jxRjnhd9r5aSRiE8Jt6fikkbkZQhGMYnIRQ=
   indexer:BENTO_API_KEY:
     secure: v1:r49/xVHhI+yVNEBM:mk3wBWORkdyo2SFq5ZrTgzuOHOCpgrf3hpmkf2trdUB3cQb1aKzW3OsF8ZEb32I9STRas1xAhCLnow==
   indexer:PROXY_SECRET:
