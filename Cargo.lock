@@ -2890,6 +2890,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite 0.24.0",
+ "tokio-util",
  "tower 0.5.2",
  "tracing",
  "tracing-subscriber 0.3.20",

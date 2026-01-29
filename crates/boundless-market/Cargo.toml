@@ -73,6 +73,7 @@ siwe = { version = "0.6", features = ["serde"] }
 tempfile = { workspace = true }
 time = "0.3"
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tower = "0.5"
 tracing = { workspace = true }
