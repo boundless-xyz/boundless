@@ -7,6 +7,7 @@
     version: "{{ prover_version }}"
     recursive: true
     force: true
+  notify: Restart Bento
 
 - name: Generate Docker Compose environment file
   ansible.builtin.template:

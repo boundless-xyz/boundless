@@ -22,6 +22,7 @@ config:
   indexer:START_BLOCK: "9125190"
   indexer:BLOCK_DELAY: "10"
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "10000"
+  indexer:CHAIN_DATA_BATCH_DELAY_MS: "1000"
   indexer:ETH_RPC_URL:
     secure: v1:3RLCb+RU0GBoN2u8:S/Ll6MQr8KjNwYf4hGVwQmU62NHT7G8z6vD60xwOFF26MHEF7UwtW6coBHsTzCYMLVd95lo4xGcLWof9jw+PCWlXer0vAMPiooTWDR4bKrtficCmzWBPPEJSAOciE+KP7y8JsEFF9BLFTViWQjK+sX0sfi0T
   indexer:INDEXER_API_DOMAIN: indexer.eth-sepolia.boundless.network
@@ -33,6 +34,6 @@ config:
   indexer:BENTO_API_KEY:
     secure: v1:+RUDS4ok4X/69VF+:aPoZGobjnEE+X1C86VVLxtuunPDGPTr6ryeUP3swBpQ/7pX/1k/5vITMv+uGtZADIs+FkGw3FoyRXeA=
   indexer:BENTO_API_URL:
-    secure: v1:MNyKR5+ndsNtbGcK:a35F8kz2oc3tpZti5AGvW+2Sn3arLFix2cwu7bklJOmEdVVyvDl8xHs+iYwgjCGRDSmBdk1EXX4D22XbzpWYxMBaWZyxbpLoJbdBRfKCIOqgLO/vjzg=
+    secure: v1:fbklOHjhg0N4goLf:BuVIHqqDuoQ9ANOfaWFdn9Q67q4L6gkrHa0juuN6PU4NH4HDRKKTwO7sJ9J9l6y8N9TZ
   indexer:PROXY_SECRET:
     secure: v1:8tDkD+NKpylrHLY/:TmXWT5IRgeAfG8ZpR2HCQxasqdYiY10zp/H3BjTy5knG/SJSjt8IJw==

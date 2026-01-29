@@ -27,6 +27,8 @@ export interface MarketIndexerArgs {
   rustLogLevel: string;
   blockDelay?: pulumi.Input<string>;
   backfillChainDataBlocks?: pulumi.Input<string>;
+  chainDataBatchDelayMs?: pulumi.Input<string>;
+  backfillBatchSize?: pulumi.Input<string>;
 }
 
 export class MarketIndexer extends pulumi.ComponentResource {
@@ -56,6 +58,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
       rustLogLevel,
       blockDelay,
       backfillChainDataBlocks,
+      chainDataBatchDelayMs,
+      backfillBatchSize,
     } = args;
 
     const serviceName = name;
@@ -364,6 +368,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
           CACHE_BUCKET: infra.cacheBucket.bucket,
           SCHEDULED_BACKFILL_MODE: 'chain_data',
           LOOKBACK_BLOCKS: backfillChainDataBlocks ?? '100000',
+          CHAIN_DATA_BATCH_DELAY_MS: chainDataBatchDelayMs ?? '1000',
+          BACKFILL_BATCH_SIZE: backfillBatchSize ?? '750',
         },
       },
     }, { parent: this, dependsOn: [lambdaRole] });

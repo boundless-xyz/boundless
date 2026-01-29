@@ -20,7 +20,9 @@ use alloy::{
     sol_types::SolValue,
 };
 use anyhow::{anyhow, Context, Result};
-use boundless_market::{Client, Deployment, RequestId, StorageUploaderConfig};
+use boundless_market::{
+    request_builder::OfferParams, Client, Deployment, RequestId, StorageUploaderConfig,
+};
 use boundless_test_utils::guests::ECHO_ELF;
 use clap::Parser;
 use risc0_zkvm::serde::from_slice;
@@ -109,7 +111,8 @@ async fn run(args: Args) -> Result<()> {
         .new_request()
         .with_request_id(request_id)
         .with_program(ECHO_ELF)
-        .with_stdin(days_since_epoch_be);
+        .with_stdin(days_since_epoch_be)
+        .with_offer(OfferParams::builder().ramp_up_period(30).bidding_start(now).build()?);
 
     // Send the request and wait for it to be completed.
     let request = client.build_request(request).await?;

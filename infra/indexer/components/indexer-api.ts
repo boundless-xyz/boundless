@@ -576,14 +576,14 @@ export class IndexerApi extends pulumi.ComponentResource {
       { parent: this },
     );
 
-    // Cache policy for epoch leaderboard: longer TTL (5m default, 1h max)
-    const epochLeaderboardCachePolicy = new aws.cloudfront.CachePolicy(
-      `${serviceName}-long-cache`,
+    // Cache policy for leaderboards: longer TTL to reduce expensive queries
+    const leaderboardCachePolicy = new aws.cloudfront.CachePolicy(
+      `${serviceName}-leaderboard-cache`,
       {
-        name: `${serviceName}-long-cache`,
-        comment: 'Longer cache for historical epoch data (5m default)',
-        defaultTtl: 300,
-        minTtl: 60,
+        name: `${serviceName}-leaderboard-cache`,
+        comment: 'Longer cache for leaderboard endpoints',
+        defaultTtl: 600,
+        minTtl: 300,
         maxTtl: 3600,
         parametersInCacheKeyAndForwardedToOrigin: {
           cookiesConfig: {
@@ -677,14 +677,36 @@ export class IndexerApi extends pulumi.ComponentResource {
 
         orderedCacheBehaviors: [
           {
-            // Historical epoch data - cache longer
-            pathPattern: '/v1/rewards/povw/leaderboard/epoch/*',
+            // Epoch history list - cache longer
+            pathPattern: '/v1/povw/epochs',
             targetOriginId: 'api',
             viewerProtocolPolicy: 'redirect-to-https',
             allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
             cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
             compress: true,
-            cachePolicyId: epochLeaderboardCachePolicy.id,
+            cachePolicyId: leaderboardCachePolicy.id,
+            originRequestPolicyId: originRequestPolicy.id,
+          },
+          {
+            // Market requestors leaderboard - cache longer
+            pathPattern: '/v1/market/requestors',
+            targetOriginId: 'api',
+            viewerProtocolPolicy: 'redirect-to-https',
+            allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            compress: true,
+            cachePolicyId: leaderboardCachePolicy.id,
+            originRequestPolicyId: originRequestPolicy.id,
+          },
+          {
+            // Market provers leaderboard - cache longer
+            pathPattern: '/v1/market/provers',
+            targetOriginId: 'api',
+            viewerProtocolPolicy: 'redirect-to-https',
+            allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
+            compress: true,
+            cachePolicyId: leaderboardCachePolicy.id,
             originRequestPolicyId: originRequestPolicy.id,
           },
         ],

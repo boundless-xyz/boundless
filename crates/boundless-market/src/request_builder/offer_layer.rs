@@ -35,8 +35,6 @@ use derive_builder::Builder;
 
 pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
 pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
-pub(crate) const DEFAULT_MAX_TIMEOUT: u32 = 14400; // 4 hours
-
 struct CollateralRecommendation {
     default: U256,
     large: U256,
@@ -130,17 +128,14 @@ fn check_secondary_performance_warning(
 pub struct OfferLayerConfig {
     /// Parameterization mode.
     ///
-    /// Defines the offering parameters for the request based on the mode:
-    /// - [ParameterizationMode::fulfillment] is a more conservative mode that ensures more provers can fulfill the request.
-    /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees.
-    ///
-    /// The default is [ParameterizationMode::fulfillment()], which is the default fulfillment mode.
+    /// Defines the offering parameters for the request. The default is
+    /// [ParameterizationMode::fulfillment()], which is a conservative mode that ensures
+    /// more provers can fulfill the request.
     ///
     /// # Example
     /// ```rust
     /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
     ///
-    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
     /// ```
     #[builder(setter(into), default = "Some(ParameterizationMode::fulfillment())")]
@@ -539,14 +534,9 @@ where
                     .config
                     .ramp_up_period
                     .unwrap_or(parameterization_mode.recommended_ramp_up_period(cycle_count));
-                let recommended_timeout =
-                    parameterization_mode.recommended_timeout(cycle_count) + ramp_up_period;
-                let lock_timeout = self
-                    .config
-                    .lock_timeout
-                    .unwrap_or(recommended_timeout.min(DEFAULT_MAX_TIMEOUT));
-                let timeout =
-                    self.config.timeout.unwrap_or((lock_timeout * 2).min(DEFAULT_MAX_TIMEOUT * 2));
+                let recommended_timeout = parameterization_mode.recommended_timeout(cycle_count);
+                let lock_timeout = self.config.lock_timeout.unwrap_or(recommended_timeout);
+                let timeout = self.config.timeout.unwrap_or(lock_timeout * 2);
                 (lock_timeout, timeout, ramp_up_period, ramp_up_start)
             } else {
                 let lock_timeout = DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD;
@@ -564,7 +554,7 @@ where
         let default_collaterals = default_lock_collateral(chain_id);
         let lock_collateral = self.config.lock_collateral.unwrap_or(default_collaterals.default);
 
-        let mut offer = Offer {
+        let offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
             rampUpStart: params.bidding_start.unwrap_or(ramp_up_start),
@@ -593,10 +583,9 @@ where
                 tracing::warn!(
                     "Warning: the collateral requirement of your request is low. This means the \
                      incentives for secondary provers to fulfill the order if the primary prover \
-                     is slashed may be too low. Overriding your lock collateral to {} ZKC.",
+                     is slashed may be too low. It is recommended to set the lock collateral to at least {} ZKC.",
                     format_units(collateral, "ether")?
                 );
-                offer.lockCollateral = collateral;
             }
         }
 
