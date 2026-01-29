@@ -96,9 +96,8 @@ impl StorageDownloader for ConfigurableDownloader {
         self.downloader().await.download_url_with_limit(url, limit).await
     }
 
-    // Override required: StandardDownloader::download_url applies config.max_size,
-    // but the trait default uses usize::MAX, which would bypass the size limit.
     async fn download_url(&self, url: Url) -> Result<Vec<u8>, StorageError> {
+        // Delegate to inner downloader which applies config.max_size limit.
         self.downloader().await.download_url(url).await
     }
 }

@@ -248,6 +248,11 @@ impl StorageDownloader for GcsStorageDownloader {
 
         Ok(buffer)
     }
+
+    async fn download_url(&self, url: Url) -> Result<Vec<u8>, StorageError> {
+        // No size limit configured; download full content
+        self.download_url_with_limit(url, usize::MAX).await
+    }
 }
 
 #[cfg(test)]

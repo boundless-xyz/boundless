@@ -68,17 +68,18 @@ pub trait StorageDownloader: Send + Sync {
         limit: usize,
     ) -> Result<Vec<u8>, StorageError>;
 
+    /// Downloads the content from the given URL.
+    ///
+    /// Implementations should apply their configured size limit. For downloaders
+    /// without a configured limit, this typically uses `usize::MAX`.
+    async fn download_url(&self, url: Url) -> Result<Vec<u8>, StorageError>;
+
     /// Parses `url` and downloads data, returning at most `limit` bytes.
     async fn download_with_limit(&self, url: &str, limit: usize) -> Result<Vec<u8>, StorageError> {
         self.download_url_with_limit(Url::parse(url)?, limit).await
     }
 
-    /// Downloads the full content from the given URL.
-    async fn download_url(&self, url: Url) -> Result<Vec<u8>, StorageError> {
-        self.download_url_with_limit(url, usize::MAX).await
-    }
-
-    /// Parses `url` and downloads the full content.
+    /// Parses `url` and downloads the content.
     async fn download(&self, url: &str) -> Result<Vec<u8>, StorageError> {
         self.download_url(Url::parse(url)?).await
     }

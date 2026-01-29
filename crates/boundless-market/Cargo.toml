@@ -69,7 +69,7 @@ hex = { workspace = true }
 http-cache-reqwest = "0.16"
 httpmock = { workspace = true, optional = true }
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["json", "multipart"] }
+reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
 reqwest-middleware = "0.4"
 reqwest-retry = "0.8"
 risc0-aggregation = { workspace = true }
