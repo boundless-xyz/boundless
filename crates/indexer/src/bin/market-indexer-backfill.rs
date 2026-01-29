@@ -76,8 +76,8 @@ struct Args {
     #[clap(long, env, default_value = "block-receipts")]
     tx_fetch_strategy: String,
 
-    /// Delay in milliseconds between batches during chain data backfill (default: 0)
-    #[clap(long, env, default_value_t = 0)]
+    /// Delay in milliseconds between batches during chain data backfill (default: 1000)
+    #[clap(long, env, default_value_t = 1000)]
     chain_data_batch_delay_ms: u64,
 
     /// Number of blocks to process in each batch (default: 750)

@@ -216,9 +216,11 @@ where
 
         let start_time = std::time::Instant::now();
         tracing::info!(
-            "Starting chain data backfill from block {} to {}...",
+            "Starting chain data backfill from block {} to {} (batch_size: {}, delay_ms: {})...",
             self.start_block,
-            self.end_block
+            self.end_block,
+            self.indexer.config.batch_size,
+            self.chain_data_batch_delay_ms
         );
 
         let batch_size = self.indexer.config.batch_size;
@@ -254,7 +256,7 @@ where
 
             // Apply rate limiting delay between batches if configured
             if self.chain_data_batch_delay_ms > 0 {
-                tracing::debug!(
+                tracing::info!(
                     "Applying delay: {}ms before next batch",
                     self.chain_data_batch_delay_ms
                 );
