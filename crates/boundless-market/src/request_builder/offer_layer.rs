@@ -135,7 +135,6 @@ pub struct OfferLayerConfig {
     /// # Example
     /// ```rust
     /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
-    /// use boundless_market::request_builder::ParameterizationMode;
     ///
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
     /// ```

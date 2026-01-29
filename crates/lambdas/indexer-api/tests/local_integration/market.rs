@@ -22,7 +22,7 @@ use indexer_api::routes::market::{
 use super::TestEnv;
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_requests_list() {
     let env = TestEnv::market().await;
 
@@ -415,7 +415,7 @@ async fn test_market_requests_list() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_requests_by_requestor() {
     let env = TestEnv::market().await;
 
@@ -442,7 +442,7 @@ async fn test_market_requests_by_requestor() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_aggregates_hourly() {
     let env = TestEnv::market().await;
 
@@ -508,7 +508,7 @@ async fn test_market_aggregates_hourly() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_aggregates_daily() {
     let env = TestEnv::market().await;
 
@@ -563,7 +563,7 @@ async fn test_market_aggregates_daily() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_aggregates_weekly() {
     let env = TestEnv::market().await;
 
@@ -625,7 +625,7 @@ async fn test_market_aggregates_weekly() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_aggregates_monthly() {
     let env = TestEnv::market().await;
 
@@ -689,7 +689,7 @@ async fn test_market_aggregates_monthly() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_requests_pagination() {
     let env = TestEnv::market().await;
 
@@ -714,7 +714,7 @@ async fn test_market_requests_pagination() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_requests_sorting() {
     let env = TestEnv::market().await;
 
@@ -744,7 +744,7 @@ async fn test_market_requests_sorting() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_verify_all_formatted_currency_fields() {
     let env = TestEnv::market().await;
 
@@ -798,7 +798,7 @@ async fn test_verify_all_formatted_currency_fields() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_requests_by_request_id_hex_parsing() {
     let env = TestEnv::market().await;
 
@@ -831,7 +831,7 @@ async fn test_market_requests_by_request_id_hex_parsing() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_cumulatives() {
     let env = TestEnv::market().await;
 
@@ -1015,7 +1015,7 @@ async fn test_market_cumulatives() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_requestor_aggregates() {
     let env = TestEnv::market().await;
 
@@ -1145,7 +1145,7 @@ async fn test_requestor_aggregates() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_requestor_cumulatives() {
     let env = TestEnv::market().await;
 
@@ -1256,7 +1256,7 @@ async fn test_requestor_cumulatives() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_prover_aggregates() {
     let env = TestEnv::market().await;
 
@@ -1334,7 +1334,7 @@ async fn test_prover_aggregates() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_prover_cumulatives() {
     let env = TestEnv::market().await;
 
@@ -1411,7 +1411,7 @@ async fn test_prover_cumulatives() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_requestor_leaderboard() {
     let env = TestEnv::market().await;
 
@@ -1541,7 +1541,7 @@ async fn test_requestor_leaderboard() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_requestor_leaderboard_periods() {
     let env = TestEnv::market().await;
 
@@ -1733,7 +1733,7 @@ async fn test_requestor_leaderboard_periods() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_prover_leaderboard() {
     let env = TestEnv::market().await;
 
@@ -1849,7 +1849,7 @@ async fn test_prover_leaderboard() {
 }
 
 #[tokio::test]
-#[ignore = "Requires BASE_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_prover_leaderboard_periods() {
     let env = TestEnv::market().await;
 

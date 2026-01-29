@@ -20,7 +20,8 @@ use crate::market::service::IndexerServiceExecutionConfig;
 use alloy::primitives::{B256, U256};
 use anyhow::{anyhow, Result};
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
-use boundless_market::storage::fetch_url;
+use boundless_market::storage::StorageDownloader;
+use boundless_market::{StandardDownloader, StorageDownloaderConfig};
 use broker::futures_retry::retry;
 use bytes::Bytes;
 use std::collections::{HashMap, HashSet};
@@ -49,6 +50,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         risc0_zkvm::VERSION,
     )
     .unwrap();
+    let downloader = downloader_from_config(&config).await;
 
     let mut num_iterations: u32 = 1;
 
@@ -157,11 +159,11 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
             // Obtain the request input from either the URL or the inline data
             let input: Bytes = match download_or_decode_input(
-                &config,
                 request_id,
                 request_digest,
                 &input_type,
                 &input_data,
+                &downloader,
             )
             .await
             {
@@ -265,14 +267,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     image_url
                 );
 
-                let image: Vec<u8> = match retry(
-                    config.bento_retry_count,
-                    config.bento_retry_sleep_ms,
-                    || async { fetch_url(&image_url).await },
-                    "fetch_url",
-                )
-                .await
-                {
+                let image: Vec<u8> = match downloader.download(&image_url).await {
                     Ok(bytes) => {
                         tracing::debug!(
                             "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
@@ -562,12 +557,20 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     }
 }
 
+async fn downloader_from_config(config: &IndexerServiceExecutionConfig) -> StandardDownloader {
+    StandardDownloader::from_config(StorageDownloaderConfig {
+        max_retries: Some(config.bento_retry_count.min(u8::MAX as u64) as u8),
+        ..Default::default()
+    })
+    .await
+}
+
 async fn download_or_decode_input(
-    config: &IndexerServiceExecutionConfig,
     request_id: Option<U256>,
     request_digest: B256,
     input_type: &String,
     input_data: &str,
+    downloader: &StandardDownloader,
 ) -> Result<Bytes> {
     if input_type != "Url" && input_type != "Inline" {
         return Err(anyhow!(
@@ -596,13 +599,7 @@ async fn download_or_decode_input(
             request_digest,
             decoded_url
         );
-        let input = retry(
-            config.bento_retry_count,
-            config.bento_retry_sleep_ms,
-            || async { fetch_url(&decoded_url).await },
-            "fetch_url",
-        )
-        .await?;
+        let input = downloader.download(&decoded_url).await?;
         tracing::debug!(
             "Downloaded input for request id='{}', digest={:x}",
             fmt_request_id(request_id),
@@ -660,11 +657,11 @@ mod tests {
 
         // Decode it
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
+            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -687,11 +684,11 @@ mod tests {
 
         // Decode it
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
+            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -711,11 +708,11 @@ mod tests {
 
         // Decode it
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
+            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -730,11 +727,11 @@ mod tests {
 
         // Invalid hex string
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             "0xGGGG",
+            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -751,11 +748,11 @@ mod tests {
         let hex_input = format!("0x{}", hex::encode(&invalid_data));
 
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
+            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -769,11 +766,11 @@ mod tests {
 
         // Empty hex input (decodes to empty byte array)
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             "0x",
+            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -793,11 +790,11 @@ mod tests {
         let hex_input = format!("0x{}", hex::encode(&v0_encoded));
 
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
+            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -832,11 +829,11 @@ mod tests {
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Url".to_string(),
             &hex_url,
+            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -857,11 +854,11 @@ mod tests {
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Url".to_string(),
             &hex_url,
+            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -890,11 +887,11 @@ mod tests {
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Url".to_string(),
             &hex_url,
+            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -908,11 +905,11 @@ mod tests {
 
         // Invalid input type
         let result = download_or_decode_input(
-            &config,
             Some(U256::from(1)),
             request_digest,
             &"Unsupported".to_string(),
             "0x",
+            &downloader_from_config(&config).await,
         )
         .await;
 
