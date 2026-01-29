@@ -13,20 +13,17 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-blake3-groth16 = [
-    "dep:blake3",
-    "dep:risc0-circuit-recursion"
-]
-default = ["s3", "gcs"]
-s3 = ["dep:aws-sdk-s3", "dep:aws-config"]
-gcs = ["dep:google-cloud-storage", "dep:google-cloud-auth", "dep:google-cloud-gax"]
-test-utils = ["dep:httpmock"]
+blake3-groth16 = ["dep:blake3", "dep:risc0-circuit-recursion"]
+default = []
+prover_utils = ["dep:bincode"]
+test-utils = []
 
 [dependencies]
 alloy-chains = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
+bincode = { workspace = true, optional = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 sha2 = { workspace = true }
@@ -47,14 +44,14 @@ alloy = { workspace = true, features = [
     "signer-local",
     "rpc-client",
 ] }
+
 async-stream = { workspace = true }
-async-trait = { workspace = true }
-auto_impl = "1.3"
-aws-config = { workspace = true, optional = true, features = ["behavior-version-latest"] }
-aws-sdk-s3 = { workspace = true, optional = true }
+async-trait = "0.1"
+# TODO put added deps under feature flag
+aws-config = { workspace = true }
+aws-sdk-s3 = "1.34"
 blake3 = { version = "1.5.0", optional = true }
 borsh = { workspace = true, features = ["derive"] }
-bytes = "1.11"
 bytemuck = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -62,16 +59,13 @@ dashmap = "6"
 derive_builder = "0.20.2"
 futures = "0.3"
 futures-util = { workspace = true }
-google-cloud-auth = { workspace = true, optional = true }
-google-cloud-gax = { workspace = true, optional = true }
-google-cloud-storage = { workspace = true, optional = true }
 hex = { workspace = true }
-http-cache-reqwest = "0.16"
-httpmock = { workspace = true, optional = true }
+http-cache-reqwest = "0.15.1"
+httpmock = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
-reqwest-middleware = "0.5"
-reqwest-retry = "0.9"
+reqwest-middleware = "0.4.1"
+reqwest-retry = "0.7"
 risc0-aggregation = { workspace = true }
 risc0-binfmt = { workspace = true }
 risc0-circuit-recursion = { workspace = true, optional = true }
@@ -84,13 +78,22 @@ tempfile = { workspace = true }
 time = "0.3"
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
+toml = "0.8"
 tower = "0.5"
 tracing = { workspace = true }
 utoipa = { workspace = true }
+moka = { version = "0.12.12", features = ["future"] }
+uuid = { workspace = true }
 
 [build-dependencies]
 serde_json = { workspace = true }
 
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
+guest-util = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
+
+[[example]]
+name = "submit_echo"
+required-features = []
