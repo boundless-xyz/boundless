@@ -2,7 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BasePipelineArgs } from "./base";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../accountConstants";
-import { DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS } from "../../util";
+import { ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS } from "../../util";
 
 interface ProverClusterPipelineArgs extends BasePipelineArgs {
     stagingAccountId: string;
@@ -21,7 +21,8 @@ interface ProverClusterPipelineArgs extends BasePipelineArgs {
 const APP_NAME = "prover-cluster";
 // The branch that we should deploy from on push.
 const BRANCH_NAME = "main";
-// Buildspec for prover cluster deployment
+// Buildspec for prover cluster teardown. CodeBuild runs each phase in a new shell, so
+// assume-role MUST run in the build phase or credentials do not persist for pulumi.
 const PROVER_CLUSTER_BUILD_SPEC = `version: 0.2
 
 env:
@@ -30,11 +31,8 @@ env:
 phases:
   pre_build:
     commands:
-      - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --duration-seconds ${DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS} --role-session-name ProverClusterDeployment --output text | tail -1)
-      - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
-      - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
-      - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
-      - curl -fsSL https://get.pulumi.com/ | sh
+      - set -e
+      - curl -fsSL https://get.pulumi.com/ | sh -s -- --version 3.193.0
       - export PATH=$PATH:$HOME/.pulumi/bin
       - pulumi login --non-interactive "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
       - cd infra/prover-cluster
@@ -42,9 +40,22 @@ phases:
       - pulumi stack select $STACK_NAME
   build:
     commands:
-      - echo "Deploying Prover Cluster to $ENVIRONMENT"
+      - set -e
+      - echo "Assuming deployment role $DEPLOYMENT_ROLE_ARN"
+      - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --duration-seconds ${ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS} --role-session-name ProverClusterTeardown --output text | tail -1)
+      - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
+      - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
+      - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
+      - |
+        CALLER=$(aws sts get-caller-identity --query Arn --output text)
+        echo "Running as $CALLER"
+        if echo "$CALLER" | grep -q "968153779208"; then
+          echo "ERROR: Still using ops account (pipeline role). Assume-role did not take effect."
+          exit 1
+        fi
+      - echo "Tearing down Prover Cluster in $ENVIRONMENT (stack $STACK_NAME)"
       - pulumi refresh --yes
-      - pulumi up --yes
+      - pulumi destroy --yes
 `;
 
 export class ProverClusterPipeline extends pulumi.ComponentResource {
