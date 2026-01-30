@@ -1,0 +1,9 @@
+---
+- name: Configure firewall
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Configure firewall
+      ansible.builtin.include_role:
+        name: ufw
