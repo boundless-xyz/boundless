@@ -26,6 +26,15 @@ import {
 } from "./accountConstants";
 import * as pulumi from '@pulumi/pulumi';
 
+// Resouces that are shared between all deployment pipelines like IAM roles, S3 artifact buckets, etc.
+const codePipelineSharedResources = new CodePipelineSharedResources("codePipelineShared", {
+  accountId: BOUNDLESS_OPS_ACCOUNT_ID,
+  serviceAccountDeploymentRoleArns: [
+    BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+    BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
+  ],
+});
+
 // Defines the S3 bucket used for storing the Pulumi state backend for staging and prod accounts.
 const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
   accountId: BOUNDLESS_OPS_ACCOUNT_ID,
@@ -37,6 +46,7 @@ const pulumiStateBucket = new PulumiStateBucket("pulumiStateBucket", {
     BOUNDLESS_PROD_ADMIN_ROLE_ARN,
     BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
     BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
+    codePipelineSharedResources.role.arn,
   ],
 });
 
@@ -63,15 +73,6 @@ const pulumiSecrets = new PulumiSecrets("pulumiSecrets", {
 const githubConnection = new aws.codestarconnections.Connection("boundlessGithubConnection", {
   name: "boundlessGithubConnection",
   providerType: "GitHub",
-});
-
-// Resouces that are shared between all deployment pipelines like IAM roles, S3 artifact buckets, etc.
-const codePipelineSharedResources = new CodePipelineSharedResources("codePipelineShared", {
-  accountId: BOUNDLESS_OPS_ACCOUNT_ID,
-  serviceAccountDeploymentRoleArns: [
-    BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
-    BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
-  ],
 });
 
 const config = new pulumi.Config();
