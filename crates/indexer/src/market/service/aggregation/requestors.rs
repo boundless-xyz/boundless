@@ -599,19 +599,22 @@ where
                                 0.0
                             };
 
-                            // Query adjusted counts and recalculate adjusted fulfillment rate
-                            let adjusted_fulfilled = service.db
-                                .get_all_time_requestor_locked_and_fulfilled_count_adjusted(hour_ts + 1, requestor)
-                                .await?;
-                            let adjusted_expired = service.db
-                                .get_all_time_requestor_locked_and_expired_count_adjusted(hour_ts + 1, requestor)
-                                .await?;
-                            let total_locked_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
-                            cumulative_summary.locked_orders_fulfillment_rate_adjusted = if total_locked_outcomes_adjusted > 0 {
-                                (adjusted_fulfilled as f32 / total_locked_outcomes_adjusted as f32) * 100.0
-                            } else {
-                                0.0
-                            };
+                            // TODO: Query adjusted counts and recalculate adjusted fulfillment rate
+                            // These queries are too slow (6+ seconds) due to COUNT(DISTINCT) over large dataset.
+                            // Temporarily disabled.
+                            // let adjusted_fulfilled = service.db
+                            //     .get_all_time_requestor_locked_and_fulfilled_count_adjusted(hour_ts + 1, requestor)
+                            //     .await?;
+                            // let adjusted_expired = service.db
+                            //     .get_all_time_requestor_locked_and_expired_count_adjusted(hour_ts + 1, requestor)
+                            //     .await?;
+                            // let total_locked_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
+                            // cumulative_summary.locked_orders_fulfillment_rate_adjusted = if total_locked_outcomes_adjusted > 0 {
+                            //     (adjusted_fulfilled as f32 / total_locked_outcomes_adjusted as f32) * 100.0
+                            // } else {
+                            //     0.0
+                            // };
+                            cumulative_summary.locked_orders_fulfillment_rate_adjusted = 0.0;
 
                             // ALWAYS save the all-time requestor aggregate, even if there was no activity
                             service

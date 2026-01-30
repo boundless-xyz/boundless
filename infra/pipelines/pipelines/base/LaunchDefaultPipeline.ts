@@ -1,6 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../../accountConstants";
+import { DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS } from "../../../util";
 import { BasePipelineArgs } from "./BasePipelineArgs";
 import { LaunchBasePipeline, LaunchPipelineConfig } from "./LaunchBasePipeline";
 
@@ -210,7 +211,7 @@ ${postBuildCommands.map(cmd => `          - ${cmd}`).join('\n')}`
       pre_build:
         commands:
           - echo Assuming role $DEPLOYMENT_ROLE_ARN
-          - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --role-session-name Deployment --output text | tail -1)
+          - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --duration-seconds ${DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS} --role-session-name Deployment --output text | tail -1)
           - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
           - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
           - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')

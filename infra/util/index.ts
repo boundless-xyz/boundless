@@ -69,3 +69,5 @@ export enum Severity {
   SEV1 = 'SEV1',
   SEV2 = 'SEV2',
 }
+
+export const DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS = 7200;
