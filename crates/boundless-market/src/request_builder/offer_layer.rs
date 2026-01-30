@@ -554,12 +554,8 @@ where
             None
         };
 
-        let max_price = resolve_max_price(
-            params.max_price,
-            config_max_value,
-            market_max_price,
-            cycle_count,
-        );
+        let max_price =
+            resolve_max_price(params.max_price, config_max_value, market_max_price, cycle_count);
         let max_price = if params.max_price.is_none() {
             self.max_price_with_gas(requirements, request_id, max_price).await?
         } else {
