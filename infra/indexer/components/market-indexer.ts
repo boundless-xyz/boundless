@@ -368,7 +368,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
           CACHE_BUCKET: infra.cacheBucket.bucket,
           SCHEDULED_BACKFILL_MODE: 'chain_data',
           LOOKBACK_BLOCKS: backfillChainDataBlocks ?? '100000',
-          CHAIN_DATA_BATCH_DELAY_MS: chainDataBatchDelayMs ?? '1000',
+          CHAIN_DATA_BATCH_DELAY_MS: chainDataBatchDelayMs ?? '2500',
           BACKFILL_BATCH_SIZE: backfillBatchSize ?? '750',
         },
       },
