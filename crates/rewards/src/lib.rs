@@ -32,16 +32,8 @@ pub use povw::{
 };
 
 pub use staking::{
-    compute_staking_data,
-    EpochStakingData,
-    EpochStakingPositions,
-    StakeEvent,
-    StakerAggregate,
-    StakerRewardInfo,
-    StakingDataResult,
-    StakingPosition,
-    StakingSummary,
-    TimestampedStakeEvent,
+    compute_staking_data, EpochStakingData, EpochStakingPositions, StakeEvent, StakerAggregate,
+    StakerRewardInfo, StakingDataResult, StakingPosition, StakingSummary, TimestampedStakeEvent,
 };
 
 pub use powers::{
