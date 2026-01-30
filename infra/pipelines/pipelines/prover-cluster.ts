@@ -44,7 +44,7 @@ phases:
     commands:
       - echo "Deploying Prover Cluster to $ENVIRONMENT"
       - pulumi refresh --yes
-      - pulumi up --yes
+      - pulumi destroy --yes
 `;
 
 export class ProverClusterPipeline extends pulumi.ComponentResource {
