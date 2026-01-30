@@ -2,7 +2,7 @@
 # Deployment directory
 prover_dir: "/opt/bento"
 # Version of Bento to install
-prover_version: v1.2.0
+prover_version: v1.2.1
 # File location
 prover_compose_file: "{{ prover_dir }}/compose.yml"
 
