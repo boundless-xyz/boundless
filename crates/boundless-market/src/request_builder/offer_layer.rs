@@ -453,6 +453,31 @@ where
         let gas_cost_estimate = gas_price * (gas_usage_estimate as u128);
         Ok(U256::from(gas_cost_estimate))
     }
+
+    /// Computes max price as cycle-based price plus 2x current gas cost estimate.
+    ///
+    /// Fetches gas price from the provider, estimates gas cost for the request,
+    /// and returns the sum with `max_price_cycle`.
+    pub async fn max_price_with_gas(
+        &self,
+        requirements: &Requirements,
+        request_id: &RequestId,
+        max_price_cycle: U256,
+    ) -> anyhow::Result<U256> {
+        let gas_price: u128 = self.provider.get_gas_price().await?;
+        let gas_cost_estimate =
+            self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
+        let adjusted_gas_cost_estimate = gas_cost_estimate + gas_cost_estimate;
+        let max_price = max_price_cycle + adjusted_gas_cost_estimate;
+        tracing::debug!(
+            "Setting a max price of {} ether: {} cycle_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
+            format_units(max_price, "ether")?,
+            format_units(max_price_cycle, "ether")?,
+            format_units(adjusted_gas_cost_estimate, "ether")?,
+            format_units(U256::from(gas_price), "gwei")?,
+        );
+        Ok(max_price)
+    }
 }
 
 impl<P> Layer<(&Requirements, &RequestId, Option<u64>, &OfferParams)> for OfferLayer<P>
@@ -481,14 +506,16 @@ where
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
                             let min = percentiles.p10 * U256::from(cycle_count);
-                            let max = percentiles.p90 * U256::from(cycle_count);
+                            let max = percentiles.p99 * U256::from(cycle_count);
+                            let max_with_gas =
+                                self.max_price_with_gas(requirements, request_id, max).await?;
                             tracing::debug!(
                                 "Using market prices from price provider: min={}, max={} (for {} cycles)",
                                 format_units(min, "ether")?,
-                                format_units(max, "ether")?,
+                                format_units(max_with_gas, "ether")?,
                                 cycle_count
                             );
-                            (Some(min), Some(max))
+                            (Some(min), Some(max_with_gas))
                         }
                         Err(e) => {
                             tracing::warn!(
@@ -520,20 +547,7 @@ where
             let c = cycle_count.context("cycle count required to set max price in OfferLayer")?;
             if let Some(per_cycle) = self.config.max_price_per_cycle {
                 let max_price_cycle = per_cycle * U256::from(c);
-                let gas_price: u128 = self.provider.get_gas_price().await?;
-                let gas_cost_estimate =
-                    self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
-                let adjusted_gas_cost_estimate =
-                    gas_cost_estimate + (gas_cost_estimate / U256::from(10));
-                let max_price = max_price_cycle + adjusted_gas_cost_estimate;
-                tracing::debug!(
-                    "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate (adjusted by 10%) [gas price: {} gwei]",
-                    format_units(max_price, "ether")?,
-                    format_units(max_price_cycle, "ether")?,
-                    format_units(adjusted_gas_cost_estimate, "ether")?,
-                    format_units(U256::from(gas_price), "gwei")?,
-                );
-                Some(max_price)
+                Some(self.max_price_with_gas(requirements, request_id, max_price_cycle).await?)
             } else {
                 None
             }
