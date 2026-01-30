@@ -166,6 +166,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       performanceInsightsRetentionPeriod: 7,
       monitoringInterval: 60,
       monitoringRoleArn: enhancedMonitoringRole.arn,
+      applyImmediately: true,
     }, { parent: this /* protect: true */ });
 
     new aws.rds.ClusterInstance(`${serviceName}-aurora-reader-${databaseVersion}`, {
@@ -180,6 +181,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       performanceInsightsRetentionPeriod: 7,
       monitoringInterval: 60,
       monitoringRoleArn: enhancedMonitoringRole.arn,
+      applyImmediately: true,
     }, { parent: this /* protect: true */ });
 
     // Writer secret: direct connection to Aurora cluster endpoint (for ECS indexer)
