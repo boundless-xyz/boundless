@@ -741,7 +741,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_upload_image_bytes_reuse() {
+    async fn test_image_bytes_reuse() {
         let bytes = vec![1u8, 2, 3, 4, 5];
         let result = image_bytes(Some(bytes.clone()), "http://dev.null/elf").await;
         assert!(result.is_ok());
@@ -749,7 +749,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_upload_image_bytes_fetch() {
+    async fn test_image_bytes_fetch() {
         let result = image_bytes(None, "http://dev.null/elf").await;
         assert!(result.is_err());
     }
