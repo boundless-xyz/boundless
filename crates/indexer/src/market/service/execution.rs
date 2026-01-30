@@ -679,9 +679,9 @@ async fn download_or_decode_input(
 mod tests {
     use super::*;
     use boundless_market::input::GuestEnv;
-    use std::io::Write;
+    use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID, ECHO_PATH};
+    use risc0_zkvm::sha::Digest;
     use std::time::Duration;
-    use tempfile::NamedTempFile;
 
     fn test_config() -> IndexerServiceExecutionConfig {
         IndexerServiceExecutionConfig {
@@ -698,21 +698,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_image_id_empty() {
-        // When image_id is empty we fetch the image and compute the id from it.
-        std::env::set_var("RISC0_DEV_MODE", "1");
-        let elf = boundless_test_utils::guests::ECHO_ELF;
-        let mut f = NamedTempFile::new().unwrap();
-        f.write_all(elf).unwrap();
-        f.flush().unwrap();
-        let url = format!("file://{}", f.path().display());
-        let expected_id = risc0_zkvm::compute_image_id(elf).unwrap().to_string();
+        let url = format!("file://{}", ECHO_PATH);
+        let expected_id = Digest::from(ECHO_ID).to_string();
         let result = resolve_image_id("", &url).await;
         assert!(result.is_ok(), "empty image_id should trigger fetch and compute");
         let (image_id, downloaded_image) = result.unwrap();
         assert!(!image_id.is_empty(), "image_id should be recomputed");
         assert_eq!(image_id, expected_id);
         let bytes = downloaded_image.expect("downloaded_image should be Some when we recompute");
-        assert_eq!(bytes.as_slice(), elf);
+        assert_eq!(bytes.as_slice(), ECHO_ELF);
     }
 
     #[tokio::test]
@@ -721,7 +715,7 @@ mod tests {
         let existing_id = risc0_zkvm::compute_image_id(boundless_test_utils::guests::ECHO_ELF)
             .unwrap()
             .to_string();
-        let result = resolve_image_id(&existing_id, "http://invalid.invalid/").await;
+        let result = resolve_image_id(&existing_id, "http://dev.null/elf").await;
         assert!(result.is_ok());
         let (image_id, downloaded_image) = result.unwrap();
         assert_eq!(image_id, existing_id);
@@ -731,14 +725,14 @@ mod tests {
     #[tokio::test]
     async fn test_upload_image_bytes_reuse() {
         let bytes = vec![1u8, 2, 3, 4, 5];
-        let result = upload_image_bytes(Some(bytes.clone()), "http://invalid/").await;
+        let result = upload_image_bytes(Some(bytes.clone()), "http://dev.null/elf").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), bytes);
     }
 
     #[tokio::test]
     async fn test_upload_image_bytes_fetch() {
-        let result = upload_image_bytes(None, "http://invalid.invalid/").await;
+        let result = upload_image_bytes(None, "http://dev.null/elf").await;
         assert!(result.is_err());
     }
 
