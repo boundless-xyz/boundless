@@ -506,7 +506,8 @@ where
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
                             let min = percentiles.p10 * U256::from(cycle_count);
-                            let max = percentiles.p99 * U256::from(cycle_count);
+                            let max = percentiles.p99.min(percentiles.p50 * U256::from(2))
+                                * U256::from(cycle_count);
                             tracing::debug!(
                                 "Using market prices from price provider: min={}, max={} (for {} cycles)",
                                 format_units(min, "ether")?,
@@ -552,18 +553,18 @@ where
         } else {
             None
         };
-        let max_price = self
-            .max_price_with_gas(
-                requirements,
-                request_id,
-                resolve_max_price(
-                    params.max_price,
-                    config_max_value,
-                    market_max_price,
-                    cycle_count,
-                ),
-            )
-            .await?;
+
+        let max_price = resolve_max_price(
+            params.max_price,
+            config_max_value,
+            market_max_price,
+            cycle_count,
+        );
+        let max_price = if params.max_price.is_none() {
+            self.max_price_with_gas(requirements, request_id, max_price).await?
+        } else {
+            max_price
+        };
 
         let (lock_timeout, timeout, ramp_up_period, ramp_up_start) =
             if let Some(parameterization_mode) = self.config.parameterization_mode {
