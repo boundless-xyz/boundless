@@ -1,6 +1,5 @@
 [market]
 min_mcycle_price = "0.000000025"
-min_deadline = 300
 lookback_blocks = 300
 min_mcycle_price_collateral_token = "0"
 peak_prove_khz = 8000
