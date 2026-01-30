@@ -20,7 +20,7 @@ use crate::market::service::IndexerServiceExecutionConfig;
 use alloy::primitives::{B256, U256};
 use anyhow::{anyhow, Result};
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
-use boundless_market::storage::StorageDownloader;
+use boundless_market::storage::{StorageDownloader, StorageError};
 use boundless_market::{StandardDownloader, StorageDownloaderConfig};
 use broker::futures_retry::retry;
 use bytes::Bytes;
@@ -156,40 +156,35 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 continue;
             }
             // When the predicate is of type ClaimDigestMatch, image_id is empty so we download the image to compute it.
-            let (image_id, downloaded_image) = if image_id.is_empty() {
-                let image: Vec<u8> = match downloader.download(&image_url).await {
-                    Ok(bytes) => {
+            let (image_id, downloaded_image) = match resolve_image_id(
+                &image_id,
+                &image_url,
+                &downloader,
+            )
+            .await
+            {
+                Ok((id, maybe_image)) => {
+                    if maybe_image.is_some() {
                         tracing::debug!(
-                        "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
-                        fmt_request_id(request_id),
-                        request_digest,
-                        image_url
-                    );
-                        bytes
+                            "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                            fmt_request_id(request_id),
+                            request_digest,
+                            image_url
+                        );
                     }
-                    Err(e) => {
-                        tracing::error!(
-                        "Failed to download image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
+                    (id, maybe_image)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to resolve image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
                         fmt_request_id(request_id),
                         request_digest,
                         image_url,
                         e
                     );
-                        failed_executions.push(request_digest);
-                        continue;
-                    }
-                };
-                let id = match risc0_zkvm::compute_image_id(&image) {
-                    Ok(id) => id.to_string(),
-                    Err(e) => {
-                        tracing::error!("Failed to compute image ID for cycle count computation request id={}, digest={:x}: {}", fmt_request_id(request_id), request_digest, e);
-                        failed_executions.push(request_digest);
-                        continue;
-                    }
-                };
-                (id, Some(image))
-            } else {
-                (image_id, None)
+                    failed_executions.push(request_digest);
+                    continue;
+                }
             };
 
             // Obtain the request input from either the URL or the inline data
@@ -296,41 +291,40 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             // If the image doesn't exist, use already-downloaded bytes when available
             // or download it from its URL, and upload it via the bento API.
             if !image_response {
-                let image: Vec<u8> = if let Some(img) = downloaded_image {
-                    tracing::trace!(
-                        "Reusing already-downloaded image for cycle count computation request id={}, digest={:x}",
-                        fmt_request_id(request_id),
-                        request_digest
-                    );
-                    img
-                } else {
-                    tracing::trace!(
-                        "Downloading image for cycle count computation request id={}, digest={:x} from URL '{}'",
-                        fmt_request_id(request_id),
-                        request_digest,
-                        image_url
-                    );
-                    match downloader.download(&image_url).await {
-                        Ok(bytes) => {
+                let image: Vec<u8> = match upload_image_bytes(
+                    downloaded_image.clone(),
+                    &image_url,
+                    &downloader,
+                )
+                .await
+                {
+                    Ok(bytes) => {
+                        if downloaded_image.is_some() {
+                            tracing::trace!(
+                                "Reusing already-downloaded image for cycle count computation request id={}, digest={:x}",
+                                fmt_request_id(request_id),
+                                request_digest
+                            );
+                        } else {
                             tracing::debug!(
                                 "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
                                 fmt_request_id(request_id),
                                 request_digest,
                                 image_url
                             );
-                            bytes
                         }
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to download image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
-                                fmt_request_id(request_id),
-                                request_digest,
-                                image_url,
-                                e
-                            );
-                            failed_executions.push(request_digest);
-                            continue;
-                        }
+                        bytes
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to download image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
+                            fmt_request_id(request_id),
+                            request_digest,
+                            image_url,
+                            e
+                        );
+                        failed_executions.push(request_digest);
+                        continue;
                     }
                 };
 
@@ -601,6 +595,32 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     }
 }
 
+// When image_id is empty, downloads the image and computes the id; otherwise returns the existing id
+async fn resolve_image_id<D: StorageDownloader>(
+    image_id: &str,
+    image_url: &str,
+    downloader: &D,
+) -> Result<(String, Option<Vec<u8>>), anyhow::Error> {
+    if !image_id.is_empty() {
+        return Ok((image_id.to_string(), None));
+    }
+    let image = downloader.download(image_url).await?;
+    let id = risc0_zkvm::compute_image_id(&image)?;
+    Ok((id.to_string(), Some(image)))
+}
+
+// Returns image bytes for upload: reuses `downloaded_image` when present otherwise downloads from `image_url`.
+async fn upload_image_bytes<D: StorageDownloader>(
+    downloaded_image: Option<Vec<u8>>,
+    image_url: &str,
+    downloader: &D,
+) -> Result<Vec<u8>, StorageError> {
+    match downloaded_image {
+        Some(img) => Ok(img),
+        None => downloader.download(image_url).await,
+    }
+}
+
 async fn downloader_from_config(config: &IndexerServiceExecutionConfig) -> StandardDownloader {
     StandardDownloader::from_config(StorageDownloaderConfig {
         max_retries: Some(config.bento_retry_count.min(u8::MAX as u64) as u8),
@@ -671,7 +691,50 @@ async fn download_or_decode_input(
 mod tests {
     use super::*;
     use boundless_market::input::GuestEnv;
+    use boundless_market::storage::{StorageDownloader, StorageError};
     use std::time::Duration;
+    use url::Url;
+
+    // Downloader that returns fixed bytes; used to test that empty image_id triggers
+    // download and recompute.
+    struct FixedDownloader<'a>(&'a [u8]);
+
+    #[async_trait::async_trait]
+    impl StorageDownloader for FixedDownloader<'_> {
+        async fn download_url_with_limit(
+            &self,
+            _url: Url,
+            limit: usize,
+        ) -> Result<Vec<u8>, StorageError> {
+            let bytes = self.0;
+            if bytes.len() <= limit {
+                Ok(bytes.to_vec())
+            } else {
+                Err(StorageError::SizeLimitExceeded { size: bytes.len(), limit })
+            }
+        }
+        async fn download_url(&self, _url: Url) -> Result<Vec<u8>, StorageError> {
+            Ok(self.0.to_vec())
+        }
+    }
+
+    // Downloader that always fails; used to assert we do not call the downloader when
+    // we already have image bytes (empty image_id path).
+    struct FailDownloader;
+
+    #[async_trait::async_trait]
+    impl StorageDownloader for FailDownloader {
+        async fn download_url_with_limit(
+            &self,
+            _url: Url,
+            _limit: usize,
+        ) -> Result<Vec<u8>, StorageError> {
+            Err(StorageError::InvalidUrl("test"))
+        }
+        async fn download_url(&self, _url: Url) -> Result<Vec<u8>, StorageError> {
+            Err(StorageError::InvalidUrl("test"))
+        }
+    }
 
     fn test_config() -> IndexerServiceExecutionConfig {
         IndexerServiceExecutionConfig {
@@ -684,6 +747,52 @@ mod tests {
             max_status_queries: 20,
             max_iterations: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_image_id_empty() {
+        // When image_id is empty we must download the image and compute the id from it.
+        let elf = boundless_test_utils::guests::ECHO_ELF;
+        let downloader = FixedDownloader(elf);
+        let expected_id = risc0_zkvm::compute_image_id(elf).unwrap().to_string();
+        let result = resolve_image_id("", "http://dev.null/elf", &downloader).await;
+        assert!(result.is_ok(), "empty image_id should trigger download and compute");
+        let (image_id, downloaded_image) = result.unwrap();
+        assert!(!image_id.is_empty(), "image_id should be recomputed");
+        assert_eq!(image_id, expected_id);
+        let bytes = downloaded_image.expect("downloaded_image should be Some when we recompute");
+        assert_eq!(bytes.as_slice(), elf);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_image_id() {
+        let elf = boundless_test_utils::guests::ECHO_ELF;
+        let downloader = FailDownloader;
+        let existing_id = risc0_zkvm::compute_image_id(elf).unwrap().to_string();
+        let result = resolve_image_id(&existing_id, "http://dev.null/elf", &downloader).await;
+        assert!(result.is_ok());
+        let (image_id, downloaded_image) = result.unwrap();
+        assert_eq!(image_id, existing_id);
+        assert!(downloaded_image.is_none(), "should not download when image_id is set");
+    }
+
+    #[tokio::test]
+    async fn test_upload_image_bytes_reuse() {
+        // When image_id was empty we download once and keep bytes, upload path must reuse them
+        let downloader = FailDownloader;
+        let bytes = vec![1u8, 2, 3, 4, 5];
+        let result =
+            upload_image_bytes(Some(bytes.clone()), "http://dev.null/elf", &downloader).await;
+        assert!(result.is_ok(), "should succeed by reusing bytes, not by downloading");
+        assert_eq!(result.unwrap(), bytes);
+    }
+
+    #[tokio::test]
+    async fn test_upload_image_bytes_fetch() {
+        // When we have no cached bytes we must call the downloader
+        let downloader = FailDownloader;
+        let result = upload_image_bytes(None, "http://dev.null/elf", &downloader).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
