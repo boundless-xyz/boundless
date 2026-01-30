@@ -14,12 +14,13 @@ x-base-environment: &base-environment
   S3_BUCKET: ${MINIO_BUCKET:-workflow}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
   S3_SECRET_KEY: ${MINIO_ROOT_PASS:-password}
+  NO_COLOR: 1
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
-  runtime: nvidia
+  runtime: ${DOCKER_RUNTIME:-nvidia}
   build:
     context: .
     dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
@@ -56,6 +57,7 @@ x-exec-agent-common: &exec-agent-common
     ]
 
 x-broker-environment: &broker-environment
+  NO_COLOR: 1
   RUST_LOG: ${RUST_LOG:-info,broker=debug,boundless_market=debug}
   # RUST_BACKTRACE: 1
   PROVER_PRIVATE_KEY: ${PROVER_PRIVATE_KEY:-${PRIVATE_KEY}}
@@ -327,10 +329,30 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
     entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 500000; done"
 
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      rest_api:
+        condition: service_healthy
+    profiles: [caddy]
+    network_mode: host
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-:80}
+      CADDY_API_HOST: ${CADDY_API_HOST:-127.0.0.1}
+      CADDY_API_PORT: ${CADDY_API_PORT:-8081}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
+      CADDY_API_KEY: ${CADDY_API_KEY:-}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./caddy/${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
 volumes:
   redis-data:
   postgres-data:
   minio-data:
   grafana-data:
   broker-data:
+  caddy-data:
+  caddy-config:
   # broker2-data:

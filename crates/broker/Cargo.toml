@@ -38,7 +38,7 @@ bincode = { workspace = true }
 blake3_groth16 = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
-boundless-market = { workspace = true }
+boundless-market = { workspace = true, features = ["prover_utils"] }
 boundless-test-utils = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }

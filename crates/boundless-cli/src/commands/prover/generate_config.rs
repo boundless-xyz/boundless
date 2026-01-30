@@ -375,7 +375,7 @@ impl ProverGenerateConfig {
         display.step(6, 7, "Collateral Configuration");
 
         let recommended_collateral = match priority_requestor_lists.len() {
-            1 => "50",
+            1 => boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD,
             2 => "200",
             _ => "500",
         };
@@ -741,6 +741,8 @@ impl ProverGenerateConfig {
         // Create the benchmark command with proper configuration
         let benchmark = ProverBenchmark {
             request_ids: vec![request_id],
+            search_to_block: None,
+            search_from_block: None,
             prover_config: ProverConfig {
                 prover_rpc_url: Some(rpc_url.clone()),
                 private_key: None,

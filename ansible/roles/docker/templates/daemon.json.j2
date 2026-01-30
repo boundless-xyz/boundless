@@ -1,9 +1,11 @@
 {
-    "iptables": false,
+    "ip": "127.0.0.1"{{"," if docker_nvidia_enabled else ""}}
+    {% if docker_nvidia_enabled %}
     "runtimes": {
         "nvidia": {
             "args": [],
             "path": "nvidia-container-runtime"
         }
     }
+    {% endif %}
 }

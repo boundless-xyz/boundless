@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as vpc from './lib/vpc';
-import { getEnvVar } from '../util';
+import { getEnvVar, DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS } from '../util';
 
 const OPS_ACCOUNT_PIPELINE_ROLE_ARN = "arn:aws:iam::968153779208:role/pipeline-role-3b97f1a";
 const OPS_ACCOUNT_LOG_LAMBDA_ROLE_ARN = "arn:aws:iam::968153779208:role/chatbot-log-fetcher-role-4d93cb1"
@@ -26,6 +26,7 @@ export = async () => {
         }
       ]
     }),
+    maxSessionDuration: DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS,
     managedPolicyArns: [
       aws.iam.ManagedPolicies.AdministratorAccess
     ]

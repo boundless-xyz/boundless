@@ -15,17 +15,20 @@ The following environment variables are required when running the market indexer
 
 - `MARKET_RPC_URL` (required) - Ethereum RPC endpoint URL for the Boundless Market contract
 - `BOUNDLESS_MARKET_ADDRESS` (required) - Boundless Market contract address
-- `BENTO_API_URL` (required) - Bento API endpoint URL for cycle count computation
-- `BENTO_API_KEY` (required) - API key for the Bento API
 
 Optional environment variables:
 
 - `LOGS_RPC_URL` - Separate RPC endpoint for `eth_getLogs` calls. If not provided, uses `MARKET_RPC_URL` for all operations
-- `ORDER_STREAM_URL` - Optional URL of the order stream API for off-chain order indexing
-- `ORDER_STREAM_API_KEY` - Optional API key for authenticating with the order stream API
+- `ORDER_STREAM_URL` - URL of the order stream API for off-chain order indexing
+- `ORDER_STREAM_API_KEY` - API key for authenticating with the order stream API
 - `TX_FETCH_STRATEGY` - Transaction fetching strategy: `"block-receipts"` or `"tx-by-hash"` (default: `"tx-by-hash"`)
 - `RUST_LOG` - Tracing log level (default: info)
-- `CACHE_URI` - Optional cache storage URI (e.g., `file:///path/to/cache` or `s3://bucket-name`)
+- `CACHE_URI` - Cache storage URI (e.g., `file:///path/to/cache` or `s3://bucket-name`)
+
+Cycle count computation (optional - requires both to be set):
+
+- `BENTO_API_URL` - Bento API endpoint URL for cycle count computation
+- `BENTO_API_KEY` - API key for the Bento API
 
 ### Rewards Indexer
 
@@ -54,6 +57,22 @@ For detailed request/response schemas, query parameters, and data models, please
 
 ## Running API Locally
 
+### Prerequisites
+
+#### Start a PostgreSQL Instance
+
+```bash
+docker run -d \
+  --name postgres-indexer \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=postgres \
+  -p 5490:5432 \
+  postgres:latest
+```
+
+This creates a database accessible at `postgres://postgres:password@localhost:5490/postgres`.
+
 ### Setup
 
 The `manage_local` script provides convenient commands for running the indexer and API locally.
@@ -68,10 +87,12 @@ Use the `manage_local` CLI tool to run the indexer and API:
 
 **Commands:**
 
-- `run-market-indexer <database> [duration] [start_block] [end_block] [batch_size] [cache_dir]` - Run market-indexer to populate database with market data
-- `run-market-backfill <database> <mode> <start_block> [end_block] [cache_dir] [tx_fetch_strategy]` - Run market-indexer-backfill to recompute statuses/aggregates
-- `run-rewards-indexer <database> [duration] [end_epoch] [end_block] [batch_size]` - Run rewards-indexer to populate database with staking/delegation/PoVW data
-- `run-api <port> <database>` - Run API server
+- `run-market-indexer` - Run market-indexer to populate database with market data (Ctrl+C to stop)
+- `run-market-backfill` - Run market-indexer-backfill to recompute statuses/aggregates/chain_data
+- `run-rewards-indexer` - Run rewards-indexer to populate database with staking/delegation/PoVW data
+- `run-api` - Run API server
+
+See `./manage_local --help` for detailed usage and options for each command.
 
 ### Example: Running Market Indexer and API
 
@@ -79,41 +100,59 @@ Use the `manage_local` CLI tool to run the indexer and API:
 
 ```bash
 # Set required environment variables
-export MARKET_RPC_URL="https://your-rpc-endpoint.com/v2/YOUR_API_KEY" # recommend quicknode
-export BOUNDLESS_MARKET_ADDRESS="0xfd152dadc5183870710fe54f939eae3ab9f0fe82"
-export LOGS_RPC_URL="https://your-logs-rpc-endpoint.com/v2/YOUR_API_KEY"  # recommend alchemy
-export ORDER_STREAM_URL="https://order-stream.example.com"  # Optional
-export ORDER_STREAM_API_KEY="your-api-key"  # Optional
-export TX_FETCH_STRATEGY="tx-by-hash"  # Optional: "block-receipts" or "tx-by-hash"
-export RUST_LOG="info"  # Optional
-export BENTO_API_URL="https://bento-api.url"
-export BENTO_API_KEY="api-key"
+export BOUNDLESS_MARKET_ADDRESS="0xfd152dadc5183870710fe54f939eae3ab9f0fe82" # Base mainnet
+export ORDER_STREAM_URL="https://base-mainnet.boundless.network" # Base mainnet
+export MARKET_RPC_URL="https://proud-shy-morning.base-mainnet.quiknode.pro/YOUR_API_KEY/"  # recommend quicknode
+export LOGS_RPC_URL="https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY"  # recommend alchemy
 
-# Run indexer for max of 7200 seconds (2 hours), processing blocks 35060420 to 38958539
-# Using PostgreSQL database with cache directory
+# Optional environment variables
+export ORDER_STREAM_API_KEY="your-api-key"
+export RUST_LOG="boundless_indexer=debug"  # default
+
+# Run indexer processing blocks 35060420 to 40768860 (Ctrl+C to stop)
 ./manage_local run-market-indexer \
-  postgres://postgres:password@localhost:5432/postgres \
-  7200 \
-  35060420 \
-  38958539 \
-  9999 \
-  ./cache_market_x2
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --start-block 35060420 \
+  --end-block 40768860 \
+  --batch-size 9999 \
+  --cache-dir ./cache_dir
 ```
 
-**Parameters:**
+#### With Cycle Count Computation
 
-- `database`: PostgreSQL URL
-- `duration`: Seconds to run (default: 120)
-- `start_block`: Block to start from (optional)
-- `end_block`: Block to stop at (optional)
-- `batch_size`: Blocks per batch (default: 500)
-- `cache_dir`: Directory for cache file storage (optional)
+To enable cycle count computation, add Bento API arguments:
+
+```bash
+# Run indexer with cycle count computation enabled
+./manage_local run-market-indexer \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --start-block 35060420 \
+  --end-block 40768860 \
+  --batch-size 9999 \
+  --cache-dir ./cache_dir \
+  --bento-api-url "https://your-bento-api" \
+  --bento-api-key "your-bento-api-key" \
+  --max-concurrent-executing 20
+```
+
+**Options:**
+
+- `--database` (required): PostgreSQL URL
+- `--start-block`: Block to start from (optional)
+- `--end-block`: Block to stop at (optional, runs indefinitely if not set)
+- `--batch-size`: Blocks per batch (default: 9999)
+- `--cache-dir`: Directory for cache file storage (optional)
+- `--bento-api-url`: URL to Bento API for cycle count execution (optional, requires `--bento-api-key`)
+- `--bento-api-key`: API key for Bento API (optional, requires `--bento-api-url`)
+- `--max-concurrent-executing`: Max concurrent execution requests (default: 20)
 
 #### 2. Start the API Server
 
 ```bash
 # Start API server on port 3000
-./manage_local run-api 3000 postgres://postgres:password@localhost:5432/postgres
+./manage_local run-api \
+  --port 3000 \
+  --database postgres://postgres:password@localhost:5490/postgres
 ```
 
 Once the API server is running, you can test it:
@@ -124,44 +163,61 @@ curl http://localhost:3000/docs
 
 ### Running Market Backfill
 
-The `run-market-backfill` command recomputes request statuses and market aggregates from existing event data. This is useful for fixing inconsistencies or rebuilding computed tables after schema changes.
+The `run-market-backfill` command recomputes request statuses, market aggregates, or chain data from existing event data. This is useful for fixing inconsistencies or rebuilding computed tables after schema changes.
 
 **Modes:**
 
 - `statuses_and_aggregates`: Recompute both request statuses and all market summaries
 - `aggregates`: Recompute only market summaries (faster, skips status updates)
+- `chain_data`: Recompute chain data (transaction hashes, block numbers, etc.) for requests
 
 ```bash
 # Set required environment variables
 export MARKET_RPC_URL="https://your-rpc-endpoint.com"
 export BOUNDLESS_MARKET_ADDRESS="0x..."
-export TX_FETCH_STRATEGY="tx-by-hash"  # Optional
 
 # Recompute statuses and aggregates from block 35060420 to 38958539
 ./manage_local run-market-backfill \
-  postgres://postgres:password@localhost:5432/postgres \
-  statuses_and_aggregates \
-  35060420 \
-  38958539 \
-  ./cache_market_x2 \
-  tx-by-hash
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode statuses_and_aggregates \
+  --start-block 35060420 \
+  --end-block 38958539 \
+  --cache-dir ./cache_market_x2 \
+  --tx-fetch-strategy tx-by-hash
 
 # Or recompute only aggregates
 ./manage_local run-market-backfill \
-  postgres://postgres:password@localhost:5432/postgres \
-  aggregates \
-  35060420 \
-  38958539
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode aggregates \
+  --start-block 35060420 \
+  --end-block 38958539
+
+# Recompute chain data using lookback (backfill last 1000 blocks from current)
+./manage_local run-market-backfill \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode chain_data \
+  --lookback-blocks 1000
+
+# Recompute chain data for a specific block range
+./manage_local run-market-backfill \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode chain_data \
+  --start-block 35060420 \
+  --end-block 38958539 \
+  --cache-dir ./cache_dir
 ```
 
-**Parameters:**
+**Options:**
 
-- `database`: PostgreSQL URL
-- `mode`: `"statuses_and_aggregates"` or `"aggregates"`
-- `start_block`: Block to start backfill from (required)
-- `end_block`: Block to end backfill at (optional, default: latest indexed)
-- `cache_dir`: Directory for cache file storage (optional)
-- `tx_fetch_strategy`: `"block-receipts"` or `"tx-by-hash"` (optional, default: `"block-receipts"`)
+- `--database` (required): PostgreSQL URL
+- `--mode` (required): `"statuses_and_aggregates"`, `"aggregates"`, or `"chain_data"`
+- `--start-block`: Block to start backfill from (required if `--lookback-blocks` not provided)
+- `--lookback-blocks`: Number of blocks to look back from current block (required if `--start-block` not provided)
+  - When specified, fetches current block from RPC and calculates `start_block = current_block - lookback_blocks`
+  - Either `--start-block` or `--lookback-blocks` must be provided, but not both
+- `--end-block`: Block to end backfill at (optional, default: latest indexed)
+- `--cache-dir`: Directory for cache file storage (optional)
+- `--tx-fetch-strategy`: `"block-receipts"` or `"tx-by-hash"` (optional, default: `"block-receipts"`)
 
 ### Running Rewards Indexer
 
@@ -177,11 +233,9 @@ export RUST_LOG="info"  # Optional
 
 # Run rewards indexer for 120 seconds
 ./manage_local run-rewards-indexer \
-  postgres://postgres:password@localhost:5432/postgres \
-  120
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --duration 120
 ```
-
-=
 
 ## Deployment
 

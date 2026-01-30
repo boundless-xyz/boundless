@@ -69,6 +69,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     const stackName = pulumi.getStack();
     const serviceName = getServiceNameV1(stackName, SERVICE_NAME_BASE);
     const isStaging = stackName.includes('staging');
+    const stage = isStaging ? 'staging' : 'prod';
 
     // If we're in prod and have a domain, create a cert
     let cert: aws.acm.Certificate | undefined;
@@ -505,6 +506,13 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
 
     const serviceLogGroup = `${serviceName}`;
 
+    const alarmTags = {
+      StackName: stage,
+      ChainId: chainId,
+      ServiceName: SERVICE_NAME_BASE,
+      LogGroupName: serviceLogGroup,
+    };
+
     const albEndPoint = pulumi.interpolate`http://${loadbalancer.loadBalancer.dnsName}/`;
     const domain = albDomain ?? loadbalancer.loadBalancer.dnsName;
 
@@ -643,6 +651,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       alarmDescription: 'Order stream: 2 ERROR logs within an hour',
       actionsEnabled: true,
       alarmActions,
+      tags: alarmTags,
     });
 
     // Two errors within an hour triggers SEV2 alarm.
@@ -669,6 +678,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       alarmDescription: 'Order stream: 5 ERROR logs within an hour',
       actionsEnabled: true,
       alarmActions,
+      tags: alarmTags,
     });
 
     // Convert the arns to the format expected by the Cloudwatch metric alarm.
@@ -696,6 +706,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       alarmDescription: 'Order stream health check alarm failed 2 times within an hour',
       actionsEnabled: true,
       alarmActions,
+      tags: alarmTags,
     });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-health-check-alarm-${Severity.SEV1}`, {
@@ -715,6 +726,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       alarmDescription: 'Order stream health check alarm failed 5 times within an hour',
       actionsEnabled: true,
       alarmActions,
+      tags: alarmTags,
     });
 
     new aws.cloudwatch.LogMetricFilter(`${serviceName}-fatal-filter`, {
@@ -751,6 +763,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       alarmDescription: `Order stream FATAL (task exited) 1 time within an hour`,
       actionsEnabled: true,
       alarmActions,
+      tags: alarmTags,
     });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-fatal-alarm-${Severity.SEV1}`, {
@@ -775,6 +788,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       alarmDescription: `Order stream FATAL (task exited) 3 times within an hour`,
       actionsEnabled: true,
       alarmActions,
+      tags: alarmTags,
     });
 
     this.lbUrl = albEndPoint;

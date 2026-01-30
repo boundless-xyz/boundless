@@ -197,6 +197,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                         cache_uri: None,
                         tx_fetch_strategy: TransactionFetchStrategy::BlockReceipts,
                         execution_config: None,
+                        block_delay: 0,
                     },
                 )
                 .await?;

@@ -82,6 +82,8 @@ pub use order_stream_client::OrderStreamClient;
 /// Module providing functionality to build requests.
 #[cfg(not(target_os = "zkvm"))]
 pub mod request_builder;
+#[cfg(not(target_os = "zkvm"))]
+pub use request_builder::ParameterizationMode;
 
 /// Module providing blake3-groth16 related integrations.
 #[cfg(all(feature = "blake3-groth16", not(target_os = "zkvm")))]
@@ -94,6 +96,12 @@ pub mod price_provider;
 /// Selector module implementing utility functions for supported selectors.
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;
+
+/// Order pricing helpers and prover utilities.
+#[cfg(all(feature = "prover_utils", not(target_os = "zkvm")))]
+pub mod prover_utils;
+#[cfg(all(not(feature = "prover_utils"), not(target_os = "zkvm")))]
+pub(crate) mod prover_utils;
 
 /// Storage module for interacting with the storage provider.
 #[cfg(not(target_os = "zkvm"))]

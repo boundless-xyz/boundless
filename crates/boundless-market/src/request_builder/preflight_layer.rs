@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Adapt, Layer, RequestParams};
+use super::{Adapt, RequestParams};
 use crate::contracts::{RequestInput, RequestInputType};
 use crate::input::GuestEnv;
+use crate::prover_utils::local_executor::LocalExecutor;
 use crate::storage::fetch_url;
 use anyhow::{bail, ensure, Context};
-use risc0_zkvm::{default_executor, sha::Digestible, SessionInfo};
-use url::Url;
 
 /// A layer that performs preflight execution of the guest program.
 ///
@@ -30,13 +29,30 @@ use url::Url;
 /// Running the program in advance allows for proper pricing estimation and
 /// verification configuration based on actual execution results.
 ///
-/// Each time this layer is invoked, it created a new [Executor][risc0_zkvm::Executor] with
-/// [default_executor].
+/// Uses a LocalExecutor for execution, which deduplicates executions by
+/// content-addressing (same program + input = same result returned from cache).
 #[non_exhaustive]
 #[derive(Clone, Default)]
-pub struct PreflightLayer {}
+pub struct PreflightLayer {
+    executor: LocalExecutor,
+}
 
 impl PreflightLayer {
+    /// Create a new preflight layer with a shared executor.
+    ///
+    /// The executor can be shared with other components (like pricing checks)
+    /// to avoid redundant executions.
+    pub fn with_executor(executor: LocalExecutor) -> Self {
+        Self { executor }
+    }
+
+    /// Get a clone of the executor used by this layer.
+    ///
+    /// This can be used to share the executor with other components.
+    pub fn executor(&self) -> LocalExecutor {
+        self.executor.clone()
+    }
+
     async fn fetch_env(&self, input: &RequestInput) -> anyhow::Result<GuestEnv> {
         let env = match input.inputType {
             RequestInputType::Inline => GuestEnv::decode(&input.data)?,
@@ -44,26 +60,11 @@ impl PreflightLayer {
                 let input_url =
                     std::str::from_utf8(&input.data).context("Input URL is not valid UTF-8")?;
                 tracing::info!("Fetching input from {}", input_url);
-                GuestEnv::decode(&fetch_url(&input_url).await?)?
+                GuestEnv::decode(&fetch_url(input_url).await?)?
             }
             _ => bail!("Unsupported input type"),
         };
         Ok(env)
-    }
-}
-
-impl Layer<(&Url, &RequestInput)> for PreflightLayer {
-    type Output = SessionInfo;
-    type Error = anyhow::Error;
-
-    async fn process(
-        &self,
-        (program_url, input): (&Url, &RequestInput),
-    ) -> anyhow::Result<Self::Output> {
-        let program = fetch_url(program_url).await?;
-        let env = self.fetch_env(input).await?;
-        let session_info = default_executor().execute(env.try_into()?, &program)?;
-        Ok(session_info)
     }
 }
 
@@ -79,22 +80,36 @@ impl Adapt<PreflightLayer> for RequestParams {
         }
 
         let program_url = self.require_program_url().context("failed to preflight request")?;
-        let input = self.require_request_input().context("failed to preflight request")?;
+        let request_input = self.require_request_input().context("failed to preflight request")?;
 
-        let session_info = layer.process((program_url, input)).await?;
-        let cycles = session_info.segments.iter().map(|segment| 1 << segment.po2).sum::<u64>();
-        let journal = session_info.journal;
+        // Fetch program and input
+        let program = fetch_url(program_url).await?;
+        let env = layer.fetch_env(request_input).await?;
+        // Use env.stdin directly - this matches what the pricing logic uses for hashing
+        let input_bytes = env.stdin;
 
-        // NOTE: SessionInfo should have ReceiptClaim provided for recent versions of risc0_zkvm.
-        let preflight_image_id = session_info
-            .receipt_claim
-            .context("preflight execution did not provide ReceiptClaim")?
-            .pre
-            .digest();
+        // Compute image_id from the program
+        let image_id = risc0_zkvm::compute_image_id(&program)?;
+        let image_id_str = image_id.to_string();
+
+        // Execute using LocalExecutor (with deduplication)
+        let (stats, journal) = layer
+            .executor
+            .execute_program(&image_id_str, &program, &input_bytes)
+            .await
+            .map_err(|e| anyhow::anyhow!("preflight execution failed: {}", e))?;
+
+        let cycles = stats.total_cycles;
+        let journal = risc0_zkvm::Journal::new(journal);
+
+        // Verify image_id if one was provided
         if let Some(provided_image_id) = self.image_id {
-            ensure!(provided_image_id == preflight_image_id, "provided image ID does not match the value calculated in preflight: {provided_image_id} != {preflight_image_id}");
+            ensure!(
+                provided_image_id == image_id,
+                "provided image ID does not match computed value: {provided_image_id} != {image_id}"
+            );
         }
 
-        Ok(self.with_cycles(cycles).with_journal(journal).with_image_id(preflight_image_id))
+        Ok(self.with_cycles(cycles).with_journal(journal).with_image_id(image_id))
     }
 }

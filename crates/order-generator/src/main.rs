@@ -170,20 +170,23 @@ async fn run(args: &MainArgs) -> Result<()> {
         client = client.with_rpc_urls(rpc_urls.clone());
     }
 
-    let client = client
+    let mut client = client
         .with_storage_provider_config(&args.storage_config)?
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
-        .config_offer_layer(|config| {
+        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()));
+
+    if args.submit_offchain {
+        client = client.config_offer_layer(|config| {
             config
                 .min_price_per_cycle(args.min_price_per_mcycle >> 20)
                 .max_price_per_cycle(args.max_price_per_mcycle >> 20)
-        })
-        .with_funding_mode(FundingMode::AvailableBalance)
-        .build()
-        .await?;
+        });
+    }
+
+    let client = client.build().await?;
 
     let ipfs_gateway = args
         .storage_config
@@ -300,21 +303,31 @@ async fn handle_request(
         now + delay
     };
 
-    let request = client
-        .new_request()
-        .with_program(program.to_vec())
-        .with_program_url(program_url.clone())?
-        .with_env(env)
-        .with_cycles(input)
-        .with_journal(journal)
-        .with_offer(
-            OfferParams::builder()
-                .ramp_up_period(ramp_up)
-                .lock_timeout(lock_timeout)
-                .timeout(timeout)
-                .lock_collateral(args.lock_collateral_raw)
-                .bidding_start(bidding_start),
-        );
+    let request = match args.submit_offchain {
+        true => client
+            .new_request()
+            .with_program(program.to_vec())
+            .with_program_url(program_url.clone())?
+            .with_env(env)
+            .with_cycles(input)
+            .with_journal(journal)
+            .with_offer(
+                OfferParams::builder()
+                    .ramp_up_period(ramp_up)
+                    .lock_timeout(lock_timeout)
+                    .timeout(timeout)
+                    .lock_collateral(args.lock_collateral_raw)
+                    .bidding_start(bidding_start),
+            ),
+        // Onchain submission uses the default offer layer config.
+        false => client
+            .new_request()
+            .with_program(program.to_vec())
+            .with_program_url(program_url.clone())?
+            .with_env(env)
+            .with_cycles(input)
+            .with_journal(journal),
+    };
 
     // Build the request, including preflight, and assigned the remaining fields.
     let request = client.build_request(request).await?;

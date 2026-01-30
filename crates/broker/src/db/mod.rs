@@ -25,8 +25,8 @@ use thiserror::Error;
 
 use crate::{
     errors::{impl_coded_debug, CodedError},
-    AggregationState, Batch, BatchStatus, FulfillmentType, Order, OrderRequest, OrderStatus,
-    ProofRequest,
+    proving_order_from_request, skipped_order_from_request, AggregationState, Batch, BatchStatus,
+    FulfillmentType, Order, OrderRequest, OrderStatus, ProofRequest,
 };
 use tracing::instrument;
 
@@ -318,7 +318,7 @@ impl BrokerDb for SqliteDb {
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
     async fn insert_skipped_request(&self, order_request: &OrderRequest) -> Result<(), DbError> {
-        self.insert_order_ignore_duplicates(&order_request.to_skipped_order()).await
+        self.insert_order_ignore_duplicates(&skipped_order_from_request(order_request)).await
     }
 
     #[instrument(level = "trace", skip_all, fields(id = %format!("{}", order_request.id())))]
@@ -327,7 +327,7 @@ impl BrokerDb for SqliteDb {
         order_request: &OrderRequest,
         lock_price: U256,
     ) -> Result<Order, DbError> {
-        let order = order_request.to_proving_order(lock_price);
+        let order = proving_order_from_request(order_request, lock_price);
         self.insert_accepted_order(&order).await?;
         Ok(order)
     }
@@ -1095,7 +1095,7 @@ mod tests {
     }
 
     fn create_order() -> Order {
-        create_order_request().to_proving_order(Default::default())
+        crate::proving_order_from_request(&create_order_request(), Default::default())
     }
 
     #[sqlx::test]

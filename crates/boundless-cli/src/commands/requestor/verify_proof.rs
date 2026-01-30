@@ -32,6 +32,15 @@ pub struct RequestorVerifyProof {
     /// The image id of the original request
     pub image_id: B256,
 
+    /// Lower bound: search events backwards down to this block
+    #[clap(long)]
+    pub search_to_block: Option<u64>,
+
+    /// Upper bound: search events backwards from this block (defaults to latest).
+    /// Set this for old requests to reduce RPC calls and cost
+    #[clap(long)]
+    pub search_from_block: Option<u64>,
+
     /// Requestor configuration (RPC URL, private key, deployment)
     #[clap(flatten)]
     pub requestor_config: RequestorConfig,
@@ -60,12 +69,23 @@ impl RequestorVerifyProof {
         let verifier = IRiscZeroVerifier::new(verifier_address, client.provider());
 
         // Fetch fulfillment data
-        let fulfillment = client.boundless_market.get_request_fulfillment(self.request_id).await?;
+        let fulfillment = client
+            .boundless_market
+            .get_request_fulfillment(self.request_id, self.search_to_block, self.search_from_block)
+            .await?;
         let fulfillment_data = fulfillment.data()?;
         let seal = fulfillment.seal;
 
         // Fetch original request
-        let (req, _) = client.boundless_market.get_submitted_request(self.request_id, None).await?;
+        let (req, _) = client
+            .boundless_market
+            .get_submitted_request(
+                self.request_id,
+                None,
+                self.search_to_block,
+                self.search_from_block,
+            )
+            .await?;
         let predicate = Predicate::try_from(req.requirements.predicate)?;
 
         // Verify the proof based on fulfillment type

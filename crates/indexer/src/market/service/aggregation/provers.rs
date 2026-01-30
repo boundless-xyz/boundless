@@ -108,7 +108,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(hour_ts, hour_end, prover)
                                 .await?;
-                            service.db.upsert_hourly_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_hourly_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_hourly_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -184,7 +188,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(day_ts, day_end, prover)
                                 .await?;
-                            service.db.upsert_daily_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_daily_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_daily_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -260,7 +268,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(week_ts, week_end, prover)
                                 .await?;
-                            service.db.upsert_weekly_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_weekly_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_weekly_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -337,7 +349,11 @@ where
                             let summary = service
                                 .compute_period_prover_summary(month_ts, month_end, prover)
                                 .await?;
-                            service.db.upsert_monthly_prover_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_monthly_prover_summary(summary)
+                                .await
+                                .with_db_context("upsert_monthly_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -501,7 +517,11 @@ where
                                 0.0
                             };
 
-                            service.db.upsert_all_time_prover_summary(cumulative_summary.clone()).await?;
+                            service
+                                .db
+                                .upsert_all_time_prover_summary(cumulative_summary.clone())
+                                .await
+                                .with_db_context("upsert_all_time_prover_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -523,19 +543,12 @@ where
     ) -> Result<crate::db::market::PeriodProverSummary, ServiceError> {
         use crate::db::market::PeriodProverSummary;
 
+        // Execute database queries in 3 sequential batches to parallelize without overloading the database
         let (
             total_requests_locked,
             total_requests_fulfilled,
             total_unique_requestors,
             total_fees_earned,
-            total_collateral_locked,
-            total_collateral_slashed,
-            total_collateral_earned,
-            total_requests_locked_and_expired,
-            total_requests_locked_and_fulfilled,
-            locks,
-            total_program_cycles,
-            total_cycles,
         ) = tokio::join!(
             async {
                 self.db
@@ -569,6 +582,15 @@ where
                     .await
                     .with_db_context("get_period_prover_total_fees_earned")
             },
+        );
+
+        let (
+            total_collateral_locked,
+            total_collateral_slashed,
+            total_collateral_earned,
+            total_requests_locked_and_expired,
+            total_requests_locked_and_fulfilled,
+        ) = tokio::join!(
             async {
                 self.db
                     .get_period_prover_total_collateral_locked(
@@ -619,6 +641,9 @@ where
                     .await
                     .with_db_context("get_period_prover_locked_and_fulfilled_count")
             },
+        );
+
+        let (locks, total_program_cycles, total_cycles) = tokio::join!(
             async {
                 self.db
                     .get_period_prover_lock_pricing_data(period_start, period_end, prover_address)

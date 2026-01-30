@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::super::{
-    IndexerService, DAILY_AGGREGATION_RECOMPUTE_DAYS, HOURLY_AGGREGATION_RECOMPUTE_HOURS,
-    MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_WEEK,
-    WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
+    DbResultExt, IndexerService, DAILY_AGGREGATION_RECOMPUTE_DAYS,
+    HOURLY_AGGREGATION_RECOMPUTE_HOURS, MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY,
+    SECONDS_PER_HOUR, SECONDS_PER_WEEK, WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
 };
 use crate::db::market::{AllTimeMarketSummary, IndexerDb, PeriodMarketSummary};
 use crate::market::{
@@ -89,7 +89,10 @@ where
         for (hour_ts, hour_end) in iter_hourly_periods(from_time, to_time) {
             let summary = self.compute_period_summary(hour_ts, hour_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
-            self.db.upsert_hourly_market_summary(summary).await?;
+            self.db
+                .upsert_hourly_market_summary(summary)
+                .await
+                .with_db_context("upsert_hourly_market_summary")?;
         }
 
         tracing::info!("aggregate_hourly_market_data_from completed in {:?}", start.elapsed());
@@ -145,7 +148,10 @@ where
         for (day_ts, day_end) in iter_daily_periods(from_time, to_time) {
             let summary = self.compute_period_summary(day_ts, day_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
-            self.db.upsert_daily_market_summary(summary).await?;
+            self.db
+                .upsert_daily_market_summary(summary)
+                .await
+                .with_db_context("upsert_daily_market_summary")?;
         }
 
         tracing::info!("aggregate_daily_market_data_from completed in {:?}", start.elapsed());
@@ -201,7 +207,10 @@ where
         for (week_ts, week_end) in iter_weekly_periods(from_time, to_time) {
             let summary = self.compute_period_summary(week_ts, week_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
-            self.db.upsert_weekly_market_summary(summary).await?;
+            self.db
+                .upsert_weekly_market_summary(summary)
+                .await
+                .with_db_context("upsert_weekly_market_summary")?;
         }
 
         tracing::info!("aggregate_weekly_market_data_from completed in {:?}", start.elapsed());
@@ -268,7 +277,10 @@ where
         for (month_ts, month_end) in iter_monthly_periods(from_time, to_time) {
             let summary = self.compute_period_summary(month_ts, month_end).await?;
             // Always upsert, even if all values are zero - this ensures continuous time series
-            self.db.upsert_monthly_market_summary(summary).await?;
+            self.db
+                .upsert_monthly_market_summary(summary)
+                .await
+                .with_db_context("upsert_monthly_market_summary")?;
         }
 
         tracing::info!("aggregate_monthly_market_data_from completed in {:?}", start.elapsed());
@@ -280,7 +292,7 @@ where
         period_start: u64,
         period_end: u64,
     ) -> Result<PeriodMarketSummary, ServiceError> {
-        // Execute all initial database queries in parallel
+        // Execute database queries in 3 sequential batches to parallelize without overloading the database
         let (
             total_fulfilled,
             unique_provers,
@@ -288,16 +300,6 @@ where
             total_requests_submitted,
             total_requests_submitted_onchain,
             total_requests_locked,
-            total_requests_slashed,
-            total_expired,
-            total_locked_and_expired,
-            total_locked_and_fulfilled,
-            total_secondary_fulfillments,
-            locks,
-            all_lock_collaterals,
-            locked_and_expired_collaterals,
-            total_program_cycles,
-            total_cycles,
         ) = tokio::join!(
             self.db.get_period_fulfilled_count(period_start, period_end),
             self.db.get_period_unique_provers(period_start, period_end),
@@ -305,11 +307,29 @@ where
             self.db.get_period_total_requests_submitted(period_start, period_end),
             self.db.get_period_total_requests_submitted_onchain(period_start, period_end),
             self.db.get_period_total_requests_locked(period_start, period_end),
+        );
+
+        let (
+            total_requests_slashed,
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            total_secondary_fulfillments,
+        ) = tokio::join!(
             self.db.get_period_total_requests_slashed(period_start, period_end),
             self.db.get_period_expired_count(period_start, period_end),
             self.db.get_period_locked_and_expired_count(period_start, period_end),
             self.db.get_period_locked_and_fulfilled_count(period_start, period_end),
             self.db.get_period_secondary_fulfillments_count(period_start, period_end),
+        );
+
+        let (
+            locks,
+            all_lock_collaterals,
+            locked_and_expired_collaterals,
+            total_program_cycles,
+            total_cycles,
+        ) = tokio::join!(
             self.db.get_period_lock_pricing_data(period_start, period_end),
             self.db.get_period_all_lock_collateral(period_start, period_end),
             self.db.get_period_locked_and_expired_collateral(period_start, period_end),

@@ -18,6 +18,9 @@ prover_state: started
 # User to run Docker Compose commands
 prover_user: "{{ ansible_user | default('ubuntu') }}"
 
+# Docker runtime (nvidia for GPU, runc for CPU-only)
+prover_docker_runtime: "nvidia"
+
 # Database
 prover_postgres_host: "postgres"
 prover_postgres_port: "5432"
@@ -64,4 +67,5 @@ prover_povw_log_id: ""
 
 # Broker configuration URL
 prover_broker_toml_url: "https://raw.githubusercontent.com/boundless-xyz/boundless/refs/heads/main/broker-template.toml"
-prover_docker_compose_invoke: "docker compose --profile broker --profile miner"
+prover_docker_compose_profile: "--profile broker --profile miner"
+prover_docker_compose_invoke: ""
