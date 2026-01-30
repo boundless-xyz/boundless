@@ -462,21 +462,21 @@ where
         &self,
         requirements: &Requirements,
         request_id: &RequestId,
-        max_price_cycle: U256,
+        max_price: U256,
     ) -> anyhow::Result<U256> {
         let gas_price: u128 = self.provider.get_gas_price().await?;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
         let adjusted_gas_cost_estimate = gas_cost_estimate + gas_cost_estimate;
-        let max_price = max_price_cycle + adjusted_gas_cost_estimate;
+        let adjusted_max_price = max_price + adjusted_gas_cost_estimate;
         tracing::debug!(
-            "Setting a max price of {} ether: {} cycle_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
+            "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
             format_units(max_price, "ether")?,
-            format_units(max_price_cycle, "ether")?,
+            format_units(adjusted_max_price, "ether")?,
             format_units(adjusted_gas_cost_estimate, "ether")?,
             format_units(U256::from(gas_price), "gwei")?,
         );
-        Ok(max_price)
+        Ok(adjusted_max_price)
     }
 }
 
@@ -507,15 +507,13 @@ where
                         Ok(percentiles) => {
                             let min = percentiles.p10 * U256::from(cycle_count);
                             let max = percentiles.p99 * U256::from(cycle_count);
-                            let max_with_gas =
-                                self.max_price_with_gas(requirements, request_id, max).await?;
                             tracing::debug!(
                                 "Using market prices from price provider: min={}, max={} (for {} cycles)",
                                 format_units(min, "ether")?,
-                                format_units(max_with_gas, "ether")?,
+                                format_units(max, "ether")?,
                                 cycle_count
                             );
-                            (Some(min), Some(max_with_gas))
+                            (Some(min), Some(max))
                         }
                         Err(e) => {
                             tracing::warn!(
@@ -546,16 +544,26 @@ where
         let config_max_value = if params.max_price.is_none() {
             let c = cycle_count.context("cycle count required to set max price in OfferLayer")?;
             if let Some(per_cycle) = self.config.max_price_per_cycle {
-                let max_price_cycle = per_cycle * U256::from(c);
-                Some(self.max_price_with_gas(requirements, request_id, max_price_cycle).await?)
+                let max_price = per_cycle * U256::from(c);
+                Some(max_price)
             } else {
                 None
             }
         } else {
             None
         };
-        let max_price =
-            resolve_max_price(params.max_price, config_max_value, market_max_price, cycle_count);
+        let max_price = self
+            .max_price_with_gas(
+                requirements,
+                request_id,
+                resolve_max_price(
+                    params.max_price,
+                    config_max_value,
+                    market_max_price,
+                    cycle_count,
+                ),
+            )
+            .await?;
 
         let (lock_timeout, timeout, ramp_up_period, ramp_up_start) =
             if let Some(parameterization_mode) = self.config.parameterization_mode {
