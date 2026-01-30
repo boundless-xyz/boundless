@@ -24,10 +24,6 @@ pub enum PriceOracleError {
         need: u8,
     },
 
-    /// No static fallback configured when needed
-    #[error("No static fallback configured")]
-    NoStaticFallback,
-
     /// RPC error from on-chain source
     #[error("RPC error: {0}")]
     RpcError(#[from] alloy::contract::Error),
@@ -52,10 +48,6 @@ pub enum PriceOracleError {
     /// Configuration error
     #[error("Configuration error: {0}")]
     ConfigError(String),
-
-    /// Unsupported trading pair
-    #[error("Unsupported trading pair: {0:?}")]
-    UnsupportedPair(TradingPair),
 
     /// Internal error
     #[error("Internal error: {0}")]

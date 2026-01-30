@@ -3,7 +3,7 @@ use alloy::providers::Provider;
 use alloy_chains::NamedChain;
 use serde::{Deserialize, Serialize, Deserializer};
 use core::time::Duration;
-use crate::price_oracle::{PriceOracleError, AggregationMode, PriceSource, CompositeOracle, WithStalenessCheck};
+use crate::price_oracle::{PriceOracleError, AggregationMode, PriceSource, CompositeOracle, WithStalenessCheck, TradingPair, PriceOracles, PriceOracle};
 use crate::price_oracle::cached_oracle::CachedPriceOracle;
 use crate::price_oracle::sources::{ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource};
 
@@ -145,102 +145,115 @@ pub struct CoinMarketCapConfig {
 }
 
 impl PriceOracleConfig {
-    /// Build a price oracle from this configuration
+    /// Build per-pair price oracles from this configuration
     pub async fn build<P>(
         &self,
+        provider: P,
+    ) -> Result<PriceOracles, PriceOracleError>
+    where
+        P: Provider + Clone + 'static,
+    {
+        // Build ETH/USD oracle
+        let eth_usd = self.build_oracle_for_pair(TradingPair::EthUsd, &self.eth_usd, provider.clone())?;
+
+        // Build ZKC/USD oracle
+        let zkc_usd = self.build_oracle_for_pair(TradingPair::ZkcUsd, &self.zkc_usd, provider.clone())?;
+
+        Ok(PriceOracles::new(eth_usd, zkc_usd))
+    }
+
+    fn build_oracle_for_pair<P>(
+        &self,
+        pair: TradingPair,
+        price_value: &PriceValue,
         provider: P,
     ) -> Result<Arc<CachedPriceOracle>, PriceOracleError>
     where
         P: Provider + Clone + 'static,
     {
-        let mut sources: Vec<Arc<dyn PriceSource>> = Vec::new();
+        // Build the inner oracle based on whether we have static or dynamic pricing
+        let inner: Arc<dyn PriceOracle> = match price_value {
+            PriceValue::Static(price) => {
+                // Static price: use source directly, no composite needed
+                Arc::new(StaticPriceSource::new(*price))
+            }
+            PriceValue::Auto => {
+                // Dynamic pricing: build sources and wrap in CompositeOracle
+                let mut sources: Vec<Arc<dyn PriceSource>> = Vec::new();
 
-        // Extract static price values (if any)
-        let eth_usd_static = match self.eth_usd {
-            PriceValue::Static(v) => Some(v),
-            PriceValue::Auto => None,
+                // On-chain sources
+                if let Some(ref onchain) = self.onchain {
+                    if let Some(ref chainlink_config) = onchain.chainlink {
+                        if chainlink_config.enabled && pair == TradingPair::EthUsd {
+                            // Chainlink only supports ETH/USD
+                            let chainlink = ChainlinkSource::for_eth_usd(
+                                provider.clone(),
+                                NamedChain::Mainnet,
+                            )?;
+                            if self.max_staleness_secs > 0 {
+                                sources.push(Arc::new(WithStalenessCheck::new(chainlink, self.max_staleness_secs)));
+                            } else {
+                                sources.push(Arc::new(chainlink));
+                            }
+                        }
+                    }
+                }
+
+                // Off-chain sources
+                if let Some(ref offchain) = self.offchain {
+                    // CoinGecko
+                    if let Some(ref coingecko_config) = offchain.coingecko {
+                        if coingecko_config.enabled {
+                            let coingecko = CoinGeckoSource::new(
+                                pair,
+                                Duration::from_secs(self.timeout_secs),
+                            )?;
+                            if self.max_staleness_secs > 0 {
+                                sources.push(Arc::new(WithStalenessCheck::new(coingecko, self.max_staleness_secs)));
+                            } else {
+                                sources.push(Arc::new(coingecko));
+                            }
+                        }
+                    }
+
+                    // CoinMarketCap
+                    if let Some(ref cmc_config) = offchain.cmc {
+                        if cmc_config.enabled {
+                            let cmc = CoinMarketCapSource::new(
+                                pair,
+                                cmc_config.api_key.clone(),
+                                Duration::from_secs(self.timeout_secs),
+                            )?;
+                            if self.max_staleness_secs > 0 {
+                                sources.push(Arc::new(WithStalenessCheck::new(cmc, self.max_staleness_secs)));
+                            } else {
+                                sources.push(Arc::new(cmc));
+                            }
+                        }
+                    }
+                }
+
+                // Ensure we have at least one source. This should only happen if misconfigured by user.
+                if sources.is_empty() {
+                    return Err(PriceOracleError::ConfigError(
+                        format!("No price sources configured for {}: ensure at least one source is enabled when using 'auto' pricing or specify a static price", pair)
+                    ));
+                }
+
+                Arc::new(CompositeOracle::new(
+                    pair,
+                    sources,
+                    self.aggregation_mode,
+                    self.min_sources,
+                ))
+            }
         };
-        let zkc_usd_static = match self.zkc_usd {
-            PriceValue::Static(v) => Some(v),
-            PriceValue::Auto => None,
-        };
 
-        // Add static price source first (highest priority in Priority mode)
-        let static_source = StaticPriceSource::new(eth_usd_static, zkc_usd_static);
-        if static_source.has_any_static() {
-            sources.push(Arc::new(static_source));
-        }
-
-        // Build on-chain sources
-        if let Some(ref onchain) = self.onchain {
-            if let Some(ref chainlink_config) = onchain.chainlink {
-                if chainlink_config.enabled {
-                    let chainlink = ChainlinkSource::for_chain(
-                        provider.clone(),
-                        NamedChain::Mainnet,
-                    )?;
-                    if self.max_staleness_secs > 0 {
-                        sources.push(Arc::new(WithStalenessCheck::new(chainlink, self.max_staleness_secs)));
-                    } else {
-                        sources.push(Arc::new(chainlink));
-                    }
-                }
-            }
-        }
-
-        // Build off-chain sources
-        if let Some(ref offchain) = self.offchain {
-            if let Some(ref coingecko_config) = offchain.coingecko {
-                if coingecko_config.enabled {
-                    let coingecko = CoinGeckoSource::new(
-                        Duration::from_secs(self.timeout_secs),
-                    )?;
-                    if self.max_staleness_secs > 0 {
-                        sources.push(Arc::new(WithStalenessCheck::new(coingecko, self.max_staleness_secs)));
-                    } else {
-                        sources.push(Arc::new(coingecko));
-                    }
-                }
-            }
-
-            // CoinMarketCap
-            if let Some(ref cmc_config) = offchain.cmc {
-                if cmc_config.enabled {
-                    let cmc = CoinMarketCapSource::new(
-                        cmc_config.api_key.clone(),
-                        Duration::from_secs(self.timeout_secs),
-                    )?;
-                    if self.max_staleness_secs > 0 {
-                        sources.push(Arc::new(WithStalenessCheck::new(cmc, self.max_staleness_secs)));
-                    } else {
-                        sources.push(Arc::new(cmc));
-                    }
-                }
-            }
-        }
-
-        // Ensure we have at least one source. This can only happen if the user misconfigured
-        // the price oracle with "auto" but disabled all sources.
-        if sources.is_empty() {
-            // TODO:
-            return Err(PriceOracleError::Internal(
-                "No price sources configured: ensure at least one source is enabled when using 'auto' pricing or specify static prices"
-                    .to_string(),
-            ));
-        }
-
-        let composite = CompositeOracle::new(
-            sources,
-            self.aggregation_mode,
-            self.min_sources,
-        );
-
-        let cached = Arc::new(CachedPriceOracle::new(
-            Arc::new(composite),
+        // Wrap in CachedPriceOracle for consistent API
+        Ok(Arc::new(CachedPriceOracle::new(
+            inner,
             self.refresh_interval_secs,
-        ));
-
-        Ok(cached)
+        )))
     }
 }
 

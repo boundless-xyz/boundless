@@ -1,14 +1,13 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair};
-use futures::future::join_all;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote};
+use std::{sync::Arc, time::Duration};
 use tokio::{sync::RwLock, time::MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 
-/// Cached price oracle with background refresh
+/// Cached price oracle with background refresh (single trading pair)
 #[derive(Clone)]
 pub struct CachedPriceOracle {
     oracle: Arc<dyn PriceOracle>,
-    cache: Arc<RwLock<HashMap<TradingPair, PriceQuote>>>,
+    cache: Arc<RwLock<Option<PriceQuote>>>,
     refresh_interval: Duration,
 }
 
@@ -17,15 +16,15 @@ impl CachedPriceOracle {
     pub fn new(oracle: Arc<dyn PriceOracle>, refresh_interval_secs: u64) -> Self {
         Self {
             oracle,
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(RwLock::new(None)),
             refresh_interval: Duration::from_secs(refresh_interval_secs),
         }
     }
 
     /// Get cached price (non-blocking read)
-    pub async fn get_cached_price(&self, pair: TradingPair) -> Option<PriceQuote> {
+    pub async fn get_cached_price(&self) -> Option<PriceQuote> {
         let cache = self.cache.read().await;
-        cache.get(&pair).copied()
+        *cache
     }
 
     /// Spawn background refresh task
@@ -39,12 +38,12 @@ impl CachedPriceOracle {
             ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
             // Do an initial refresh immediately
-            this.refresh_prices().await;
+            this.refresh_price().await;
 
             loop {
                 tokio::select! {
                     _ = ticker.tick() => {
-                        this.refresh_prices().await;
+                        this.refresh_price().await;
                     }
                     _ = cancel_token.cancelled() => {
                         tracing::info!("Price oracle refresh task shutting down");
@@ -55,25 +54,15 @@ impl CachedPriceOracle {
         })
     }
 
-    async fn refresh_prices(&self) {
-        let pairs = [TradingPair::EthUsd, TradingPair::ZkcUsd];
-
-        // Fetch all prices concurrently
-        let results = join_all(pairs.map(|pair| async move {
-            (pair, self.oracle.get_price(pair).await)
-        })).await;
-
-        // Process results
-        let mut cache = self.cache.write().await;
-        for (pair, result) in results {
-            match result {
-                Ok(quote) => {
-                    tracing::debug!("Refreshed {} price: {} (timestamp: {})", pair, quote.price, quote.timestamp);
-                    cache.insert(pair, quote);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to refresh {} price: {}", pair, e);
-                }
+    async fn refresh_price(&self) {
+        match self.oracle.get_price().await {
+            Ok(quote) => {
+                tracing::debug!("Refreshed price: {} (timestamp: {})", quote.price, quote.timestamp);
+                let mut cache = self.cache.write().await;
+                *cache = Some(quote);
+            }
+            Err(e) => {
+                tracing::error!("Failed to refresh price: {}", e);
             }
         }
     }
@@ -81,19 +70,19 @@ impl CachedPriceOracle {
 
 #[async_trait::async_trait]
 impl PriceOracle for CachedPriceOracle {
-    async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
         // Try to get from cache first
-        if let Some(quote) = self.get_cached_price(pair).await {
+        if let Some(quote) = self.get_cached_price().await {
             return Ok(quote);
         }
 
         // If not in cache, fetch from oracle and cache it.
         // In practice this should never happen, as we fetch when we initialize the spawn_refresh_task.
-        tracing::warn!("Cache miss for {:?}, fetching from oracle", pair);
+        tracing::warn!("Cache miss, fetching from oracle");
 
-        let quote = self.oracle.get_price(pair).await?;
+        let quote = self.oracle.get_price().await?;
         let mut cache = self.cache.write().await;
-        cache.insert(pair, quote);
+        *cache = Some(quote);
         Ok(quote)
     }
 }
@@ -105,14 +94,14 @@ mod tests {
     use alloy::primitives::U256;
     use crate::price_oracle::PriceOracle;
     use tokio::sync::Mutex;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     /// Mock oracle with configurable behavior for testing
     struct MockOracle {
-        /// Prices per trading pair
-        prices: Mutex<HashMap<TradingPair, U256>>,
-        /// Call counts per trading pair
-        call_counts: Arc<Mutex<HashMap<TradingPair, u64>>>,
+        /// Price to return
+        price: Mutex<U256>,
+        /// Call count
+        call_count: Arc<AtomicU64>,
         /// Delay to simulate slow fetches
         delay: Duration,
         /// Whether to return errors
@@ -120,40 +109,33 @@ mod tests {
     }
 
     impl MockOracle {
-        fn new() -> Self {
-            let mut prices = HashMap::new();
-            prices.insert(TradingPair::EthUsd, U256::from(200000000000u128));
-            prices.insert(TradingPair::ZkcUsd, U256::from(100000000u128));
-
+        fn new(price: U256) -> Self {
             Self {
-                prices: Mutex::new(prices),
-                call_counts: Arc::new(Mutex::new(HashMap::new())),
+                price: Mutex::new(price),
+                call_count: Arc::new(AtomicU64::new(0)),
                 delay: Duration::from_millis(0),
                 should_error: AtomicBool::new(false),
             }
         }
 
-        async fn set_price(&self, pair: TradingPair, price: U256) {
-            self.prices.lock().await.insert(pair, price);
+        async fn set_price(&self, price: U256) {
+            *self.price.lock().await = price;
         }
 
         fn set_should_error(&self, should_error: bool) {
             self.should_error.store(should_error, Ordering::SeqCst);
         }
 
-        async fn get_call_count(&self, pair: TradingPair) -> u64 {
-            *self.call_counts.lock().await.get(&pair).unwrap_or(&0)
+        fn get_call_count(&self) -> u64 {
+            self.call_count.load(Ordering::SeqCst)
         }
     }
 
     #[async_trait::async_trait]
     impl PriceOracle for MockOracle {
-        async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+        async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
             // Track call counts
-            {
-                let mut counts = self.call_counts.lock().await;
-                *counts.entry(pair).or_insert(0) += 1;
-            }
+            self.call_count.fetch_add(1, Ordering::SeqCst);
 
             // Simulate delay
             if self.delay > Duration::from_millis(0) {
@@ -166,10 +148,7 @@ mod tests {
             }
 
             // Return price
-            let prices = self.prices.lock().await;
-            let price = *prices.get(&pair).ok_or_else(|| {
-                PriceOracleError::Internal(format!("No price for {:?}", pair))
-            })?;
+            let price = *self.price.lock().await;
 
             Ok(PriceQuote::new(price, 1000))
         }
@@ -177,25 +156,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_caching() -> anyhow::Result<()> {
-        let oracle = Arc::new(MockOracle::new());
+        let oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
         let cached_oracle = CachedPriceOracle::new(oracle.clone(), 60);
 
         // First call should fetch from oracle
-        let result1 = cached_oracle.get_price(TradingPair::EthUsd).await?;
+        let result1 = cached_oracle.get_price().await?;
         assert_eq!(result1.price, U256::from(200000000000u128));
 
         // Change underlying price
-        oracle.set_price(TradingPair::EthUsd, U256::from(300000000000u128)).await;
+        oracle.set_price(U256::from(300000000000u128)).await;
 
         // Second call should return cached value
-        let result2 = cached_oracle.get_price(TradingPair::EthUsd).await?;
+        let result2 = cached_oracle.get_price().await?;
         assert_eq!(result2.price, U256::from(200000000000u128));
 
-        // Refresh prices
-        cached_oracle.refresh_prices().await;
+        // Refresh price
+        cached_oracle.refresh_price().await;
 
         // After refresh, should get updated price
-        let result3 = cached_oracle.get_price(TradingPair::EthUsd).await?;
+        let result3 = cached_oracle.get_price().await?;
         assert_eq!(result3.price, U256::from(300000000000u128));
 
         Ok(())
@@ -203,7 +182,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_refresh_task_initial_refresh_and_cancellation() -> anyhow::Result<()> {
-        let oracle = Arc::new(MockOracle::new());
+        let oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
         let cached_oracle = Arc::new(CachedPriceOracle::new(oracle.clone(), 60));
 
         // Clone to keep a reference for checking cache
@@ -216,12 +195,10 @@ mod tests {
         // Wait a bit for the initial refresh to complete
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Verify both trading pairs are cached
-        let eth_price = cached_oracle_ref.get_cached_price(TradingPair::EthUsd).await.expect("EthUsd should be in cache after initial refresh");
-        let zkc_price = cached_oracle_ref.get_cached_price(TradingPair::ZkcUsd).await.expect("ZkcUsd should be in cache after initial refresh");
+        // Verify price is cached
+        let price = cached_oracle_ref.get_cached_price().await.expect("Price should be in cache after initial refresh");
 
-        assert_eq!(eth_price.price, U256::from(200000000000u128));
-        assert_eq!(zkc_price.price, U256::from(100000000u128));
+        assert_eq!(price.price, U256::from(200000000000u128));
 
         // Cleanup
         cancel_token.cancel();
@@ -235,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_refresh_task_periodic_refresh() -> anyhow::Result<()> {
-        let oracle = Arc::new(MockOracle::new());
+        let oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
         // Use 1 second refresh interval
         let cached_oracle = Arc::new(CachedPriceOracle::new(oracle.clone(), 1));
         let cached_oracle_ref = cached_oracle.clone();
@@ -248,33 +225,29 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         // Verify initial refreshes happened (2 due to immediate tick behavior)
-        let initial_eth_count = oracle.get_call_count(TradingPair::EthUsd).await;
-        let initial_zkc_count = oracle.get_call_count(TradingPair::ZkcUsd).await;
-        assert_eq!(initial_eth_count, 2, "Initial refresh + first tick = 2");
-        assert_eq!(initial_zkc_count, 2, "Initial refresh + first tick = 2");
+        let initial_count = oracle.get_call_count();
+        assert_eq!(initial_count, 2, "Initial refresh + first tick = 2");
 
         // Change the price
-        oracle.set_price(TradingPair::EthUsd, U256::from(300000000000u128)).await;
+        oracle.set_price(U256::from(300000000000u128)).await;
 
         // Wait for the next refresh cycle (1 second interval)
         tokio::time::sleep(Duration::from_millis(1100)).await;
 
         // Verify a third refresh happened
-        let third_eth_count = oracle.get_call_count(TradingPair::EthUsd).await;
-        let third_zkc_count = oracle.get_call_count(TradingPair::ZkcUsd).await;
-        assert_eq!(third_eth_count, 3, "Should have exactly 3 refreshes");
-        assert_eq!(third_zkc_count, 3, "Should have exactly 3 refreshes");
+        let third_count = oracle.get_call_count();
+        assert_eq!(third_count, 3, "Should have exactly 3 refreshes");
 
         // Verify cache was updated with new price
-        let cached_price = cached_oracle_ref.get_cached_price(TradingPair::EthUsd).await.unwrap();
+        let cached_price = cached_oracle_ref.get_cached_price().await.unwrap();
         assert_eq!(cached_price.price, U256::from(300000000000u128));
 
         // Wait for another refresh cycle
         tokio::time::sleep(Duration::from_millis(1100)).await;
 
         // Verify fourth refresh happened
-        let fourth_eth_count = oracle.get_call_count(TradingPair::EthUsd).await;
-        assert_eq!(fourth_eth_count, 4, "Should have exactly 4 refreshes");
+        let fourth_count = oracle.get_call_count();
+        assert_eq!(fourth_count, 4, "Should have exactly 4 refreshes");
 
         // Cleanup
         cancel_token.cancel();
@@ -285,28 +258,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_error_preserves_cache() -> anyhow::Result<()> {
-        let oracle = Arc::new(MockOracle::new());
+        let oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
         let cached_oracle = CachedPriceOracle::new(oracle.clone(), 60);
 
-        // Pre-populate cache with valid prices
-        cached_oracle.refresh_prices().await;
+        // Pre-populate cache with valid price
+        cached_oracle.refresh_price().await;
 
-        let cached_eth = cached_oracle.get_cached_price(TradingPair::EthUsd).await.unwrap();
-        let cached_zkc = cached_oracle.get_cached_price(TradingPair::ZkcUsd).await.unwrap();
-        assert_eq!(cached_eth.price, U256::from(200000000000u128));
-        assert_eq!(cached_zkc.price, U256::from(100000000u128));
+        let cached = cached_oracle.get_cached_price().await.unwrap();
+        assert_eq!(cached.price, U256::from(200000000000u128));
 
         // Configure oracle to return errors
         oracle.set_should_error(true);
 
         // Attempt refresh (should fail but not clear cache)
-        cached_oracle.refresh_prices().await;
+        cached_oracle.refresh_price().await;
 
-        // Verify cache still has the old values
-        let still_cached_eth = cached_oracle.get_cached_price(TradingPair::EthUsd).await.unwrap();
-        let still_cached_zkc = cached_oracle.get_cached_price(TradingPair::ZkcUsd).await.unwrap();
-        assert_eq!(still_cached_eth.price, U256::from(200000000000u128));
-        assert_eq!(still_cached_zkc.price, U256::from(100000000u128));
+        // Verify cache still has the old value
+        let still_cached = cached_oracle.get_cached_price().await.unwrap();
+        assert_eq!(still_cached.price, U256::from(200000000000u128));
 
         Ok(())
     }

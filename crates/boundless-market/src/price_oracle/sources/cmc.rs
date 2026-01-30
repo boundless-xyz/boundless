@@ -25,11 +25,12 @@ pub struct CoinMarketCapSource {
     client: Client,
     api_url: Url,
     api_key: String,
+    pair: TradingPair,
 }
 
 impl CoinMarketCapSource {
-    /// Create a new CoinMarketCap source
-    pub fn new(api_key: String, timeout: Duration) -> Result<Self, PriceOracleError> {
+    /// Create a new CoinMarketCap source for a specific trading pair
+    pub fn new(pair: TradingPair, api_key: String, timeout: Duration) -> Result<Self, PriceOracleError> {
         let api_url = Url::parse("https://pro-api.coinmarketcap.com").unwrap();
 
         let client = Client::builder()
@@ -40,6 +41,7 @@ impl CoinMarketCapSource {
             client,
             api_url,
             api_key,
+            pair,
         })
     }
 
@@ -92,8 +94,8 @@ impl PriceSource for CoinMarketCapSource {
 
 #[async_trait::async_trait]
 impl PriceOracle for CoinMarketCapSource {
-    async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
-        match pair {
+    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
+        match self.pair {
             TradingPair::EthUsd => self.fetch_price("/v2/cryptocurrency/quotes/latest","1027", "USD").await,
             TradingPair::ZkcUsd => self.fetch_price("/v2/cryptocurrency/quotes/latest","38371", "USD").await,
         }
@@ -133,11 +135,11 @@ mod tests {
                 }));
         });
 
-        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "test-api-key".to_string(), Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price(TradingPair::EthUsd).await.unwrap();
+        let quote = source.get_price().await.unwrap();
 
         mock.assert();
         assert_eq!(quote.price, U256::from(250050000000u128)); // 2500.50 * 1e8
@@ -171,11 +173,11 @@ mod tests {
                 }));
         });
 
-        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+        let source = CoinMarketCapSource::new(TradingPair::ZkcUsd, "test-api-key".to_string(), Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price(TradingPair::ZkcUsd).await.unwrap();
+        let quote = source.get_price().await.unwrap();
 
         mock.assert();
         assert_eq!(quote.price, U256::from(12345600u128)); // 0.123456 * 1e8
@@ -192,11 +194,11 @@ mod tests {
             then.status(401);
         });
 
-        let source = CoinMarketCapSource::new("invalid-key".to_string(), Duration::from_secs(10))
+        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "invalid-key".to_string(), Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price(TradingPair::EthUsd).await;
+        let result = source.get_price().await;
         assert!(result.is_err());
     }
 
@@ -224,11 +226,11 @@ mod tests {
                 }));
         });
 
-        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "test-api-key".to_string(), Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price(TradingPair::EthUsd).await;
+        let result = source.get_price().await;
         assert!(result.is_err());
         assert!(matches!(result, Err(PriceOracleError::Internal(_))));
     }
@@ -257,11 +259,11 @@ mod tests {
                 }));
         });
 
-        let source = CoinMarketCapSource::new("test-api-key".to_string(), Duration::from_secs(10))
+        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "test-api-key".to_string(), Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price(TradingPair::EthUsd).await;
+        let result = source.get_price().await;
         assert!(result.is_err());
         assert!(matches!(result, Err(PriceOracleError::Internal(_))));
     }
@@ -273,9 +275,9 @@ mod tests {
         let api_key = std::env::var("CMC_API_KEY")
             .expect("CMC_API_KEY env var required");
 
-        let source = CoinMarketCapSource::new(api_key, Duration::from_secs(10))?;
+        let source = CoinMarketCapSource::new(TradingPair::EthUsd, api_key, Duration::from_secs(10))?;
 
-        let quote = source.get_price(TradingPair::EthUsd).await?;
+        let quote = source.get_price().await?;
 
         println!("{:?}", quote);
 
@@ -291,9 +293,9 @@ mod tests {
         let api_key = std::env::var("CMC_API_KEY")
             .expect("CMC_API_KEY env var required");
 
-        let source = CoinMarketCapSource::new(api_key, Duration::from_secs(10))?;
+        let source = CoinMarketCapSource::new(TradingPair::ZkcUsd, api_key, Duration::from_secs(10))?;
 
-        let quote = source.get_price(TradingPair::ZkcUsd).await?;
+        let quote = source.get_price().await?;
 
         println!("{:?}", quote);
 

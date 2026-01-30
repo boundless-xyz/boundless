@@ -9,8 +9,8 @@
 
 #![cfg(test)]
 
-use crate::price_oracle::{PriceOracle, PriceQuote, TradingPair, AggregationMode, config::{PriceOracleConfig, PriceValue, OnChainConfig, OffChainConfig, ChainlinkConfig,
-                                                                                          CoinGeckoConfig, CoinMarketCapConfig}};
+use crate::price_oracle::{PriceQuote, TradingPair, AggregationMode, config::{PriceOracleConfig, PriceValue, OnChainConfig, OffChainConfig, ChainlinkConfig,
+                                                                             CoinGeckoConfig, CoinMarketCapConfig}};
 use alloy::providers::ProviderBuilder;
 
 // Price bounds for sanity checks
@@ -105,16 +105,16 @@ async fn test_composite_priority_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Priority);
-    let oracle = config.build(provider).await?;
+    let oracles = config.build(provider).await?;
 
     // Fetch ETH/USD price
-    let quote = oracle.get_price(TradingPair::EthUsd).await?;
+    let quote = oracles.get_price(TradingPair::EthUsd).await?;
     println!("Priority mode ETH/USD: ${:.2}", quote.price_to_f64());
     assert_price_reasonable(quote, TradingPair::EthUsd);
     assert_timestamp_recent(quote.timestamp, 3600);
 
     // Fetch ZKC/USD price
-    let quote_zkc = oracle.get_price(TradingPair::ZkcUsd).await?;
+    let quote_zkc = oracles.get_price(TradingPair::ZkcUsd).await?;
     println!("Priority mode ZKC/USD: ${:.6}", quote_zkc.price_to_f64());
     assert_price_reasonable(quote_zkc, TradingPair::ZkcUsd);
     assert_timestamp_recent(quote_zkc.timestamp, 3600);
@@ -135,16 +135,16 @@ async fn test_composite_median_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Median);
-    let oracle = config.build(provider).await?;
+    let oracles = config.build(provider).await?;
 
     // Fetch ETH/USD price
-    let quote = oracle.get_price(TradingPair::EthUsd).await?;
+    let quote = oracles.get_price(TradingPair::EthUsd).await?;
     println!("Median mode ETH/USD: ${:.2}", quote.price_to_f64());
     assert_price_reasonable(quote, TradingPair::EthUsd);
     assert_timestamp_recent(quote.timestamp, 3600);
 
     // Fetch ZKC/USD price
-    let quote_zkc = oracle.get_price(TradingPair::ZkcUsd).await?;
+    let quote_zkc = oracles.get_price(TradingPair::ZkcUsd).await?;
     println!("Median mode ZKC/USD: ${:.6}", quote_zkc.price_to_f64());
     assert_price_reasonable(quote_zkc, TradingPair::ZkcUsd);
     assert_timestamp_recent(quote_zkc.timestamp, 3600);
@@ -165,10 +165,10 @@ async fn test_composite_average_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Average);
-    let oracle = config.build(provider).await?;
+    let oracles = config.build(provider).await?;
 
     // Fetch ETH/USD price
-    let quote = oracle.get_price(TradingPair::EthUsd).await?;
+    let quote = oracles.get_price(TradingPair::EthUsd).await?;
     println!("Average mode ETH/USD: ${:.2}", quote.price_to_f64());
     assert_price_reasonable(quote, TradingPair::EthUsd);
     assert_timestamp_recent(quote.timestamp, 3600);
@@ -199,9 +199,9 @@ async fn test_all_aggregation_modes_price_consistency() -> anyhow::Result<()> {
     for mode in modes {
         let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
         let config = build_config(mode);
-        let oracle = config.build(provider).await?;
+        let oracles = config.build(provider).await?;
 
-        let quote = oracle.get_price(TradingPair::EthUsd).await?;
+        let quote = oracles.get_price(TradingPair::EthUsd).await?;
         println!("{:?} mode ETH/USD: ${:.2}", mode, quote.price_to_f64());
 
         assert_price_reasonable(quote, TradingPair::EthUsd);

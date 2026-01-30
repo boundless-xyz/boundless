@@ -3,16 +3,18 @@ use futures::future::join_all;
 use std::sync::Arc;
 use alloy_primitives::U256;
 
-/// Composite oracle that aggregates multiple price sources
+/// Composite oracle that aggregates multiple price sources for a single trading pair
 pub struct CompositeOracle {
     sources: Vec<Arc<dyn PriceSource>>,
     aggregation_mode: AggregationMode,
     min_sources: u8,
+    pair: TradingPair,
 }
 
 impl CompositeOracle {
-    /// Create a new composite oracle
+    /// Create a new composite oracle for a specific trading pair
     pub fn new(
+        pair: TradingPair,
         sources: Vec<Arc<dyn PriceSource>>,
         aggregation_mode: AggregationMode,
         min_sources: u8,
@@ -21,61 +23,55 @@ impl CompositeOracle {
             sources,
             aggregation_mode,
             min_sources,
+            pair,
         }
     }
 
     /// Fetch sources sequentially for priority mode, returning the first successful result
-    async fn fetch_priority_sequential(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+    async fn fetch_priority_sequential(&self) -> Result<PriceQuote, PriceOracleError> {
         let mut errors = Vec::new();
 
         for source in &self.sources {
-            match source.get_price(pair).await {
+            match source.get_price().await {
                 Ok(quote) => {
-                    tracing::debug!("Priority mode: using {} for {} with price {} => {}. Timestamp: {} => {}", source.name(), pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
+                    tracing::debug!("Priority mode: using {} for {} with price {} => {}. Timestamp: {} => {}", source.name(), self.pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
                     return Ok(quote);
-                }
-                Err(e@ PriceOracleError::UnsupportedPair(_)) => {
-                    tracing::debug!("Priority mode: {} does not support {}: {}", source.name(), pair.as_str(), e);
                 }
                 Err(e) => {
                     let error_msg = format!("{}: {}", source.name(), e);
-                    tracing::warn!("Priority mode: {} failed for {}: {}", source.name(), pair.as_str(), e);
+                    tracing::warn!("Priority mode: {} failed for {}: {}", source.name(), self.pair.as_str(), e);
                     errors.push(error_msg);
                 }
             }
         }
 
         // All sources failed
-        Err(PriceOracleError::AllSourcesFailed { pair, errors })
+        Err(PriceOracleError::AllSourcesFailed { pair: self.pair, errors })
     }
 
     /// Fetch all sources in parallel for median/average mode
-    async fn fetch_all_parallel(&self, pair: TradingPair) -> Vec<(usize, Result<PriceQuote, PriceOracleError>)> {
+    async fn fetch_all_parallel(&self) -> Vec<(usize, Result<PriceQuote, PriceOracleError>)> {
         let futures = self.sources.iter().enumerate().map(|(i, source)| {
             let source = Arc::clone(source);
             async move {
-                let result = source.get_price(pair).await;
+                let result = source.get_price().await;
                 (i, result)
             }
         });
         join_all(futures).await
     }
 
-    fn aggregate_median_or_average(&self, pair: TradingPair, results: Vec<(usize, Result<PriceQuote, PriceOracleError>)>) -> Result<PriceQuote, PriceOracleError> {
+    fn aggregate_median_or_average(&self, results: Vec<(usize, Result<PriceQuote, PriceOracleError>)>) -> Result<PriceQuote, PriceOracleError> {
         // Collect successful results
         let mut successful: Vec<PriceQuote> = Vec::new();
         for (i, result) in results.into_iter() {
             match result {
                 Ok(quote) => {
-                    tracing::debug!("Source {} returned price for {}: {} => {}. Timestamp: {} => {}", self.sources[i].name(), pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
+                    tracing::debug!("Source {} returned price for {}: {} => {}. Timestamp: {} => {}", self.sources[i].name(), self.pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
                     successful.push(quote);
                 }
-                Err(e
-                    @ PriceOracleError::UnsupportedPair(_)) => {
-                    tracing::debug!("Source {} does not support {}: {}", self.sources[i].name(), pair.as_str(), e);
-                }
                 Err(e) => {
-                    tracing::warn!("Source {} failed for {}: {}", self.sources[i].name(), pair.as_str(), e);
+                    tracing::warn!("Source {} failed for {}: {}", self.sources[i].name(), self.pair.as_str(), e);
                 }
             }
         }
@@ -83,7 +79,7 @@ impl CompositeOracle {
         // Check if we have enough successful sources
         if successful.len() < self.min_sources as usize {
             return Err(PriceOracleError::InsufficientSources {
-                pair,
+                pair: self.pair,
                 got: successful.len() as u8,
                 need: self.min_sources,
             });
@@ -109,20 +105,20 @@ impl CompositeOracle {
             AggregationMode::Priority => unreachable!("Priority mode handled separately"),
         };
 
-        tracing::debug!("Aggregated price for {} using {:?}: {} => {}. Timestamp: {} => {}", pair.as_str(), self.aggregation_mode, aggregated_price.price, aggregated_price.price_to_f64(), aggregated_price.timestamp, aggregated_price.timestamp_to_human_readable());
+        tracing::debug!("Aggregated price for {} using {:?}: {} => {}. Timestamp: {} => {}", self.pair.as_str(), self.aggregation_mode, aggregated_price.price, aggregated_price.price_to_f64(), aggregated_price.timestamp, aggregated_price.timestamp_to_human_readable());
         Ok(aggregated_price)
     }
 }
 
 #[async_trait::async_trait]
 impl PriceOracle for CompositeOracle {
-    async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
         // Use different fetching strategies based on aggregation mode
         match self.aggregation_mode {
-            AggregationMode::Priority => self.fetch_priority_sequential(pair).await,
+            AggregationMode::Priority => self.fetch_priority_sequential().await,
             AggregationMode::Median | AggregationMode::Average => {
-                let results = self.fetch_all_parallel(pair).await;
-                self.aggregate_median_or_average(pair, results)
+                let results = self.fetch_all_parallel().await;
+                self.aggregate_median_or_average(results)
             }
         }
     }
@@ -143,7 +139,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PriceOracle for MockSource {
-        async fn get_price(&self, _pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+        async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
             self.result.clone().map_err(|s| PriceOracleError::InvalidPrice(s.to_string()))
         }
     }
@@ -170,12 +166,13 @@ mod tests {
         ];
 
         let oracle = CompositeOracle::new(
+            TradingPair::EthUsd,
             sources,
             AggregationMode::Priority,
             1,
         );
 
-        let result = oracle.get_price(TradingPair::EthUsd).await?;
+        let result = oracle.get_price().await?;
         assert_eq!(result, expected);
 
         Ok(())
@@ -199,12 +196,13 @@ mod tests {
         ];
 
         let oracle = CompositeOracle::new(
+            TradingPair::EthUsd,
             sources,
             AggregationMode::Median,
             1,
         );
 
-        let result = oracle.get_price(TradingPair::EthUsd).await?;
+        let result = oracle.get_price().await?;
 
         let expected = PriceQuote::new(U256::from(210000000000u128), 1000);
         assert_eq!(result, expected);
@@ -230,12 +228,13 @@ mod tests {
         ];
 
         let oracle = CompositeOracle::new(
+            TradingPair::EthUsd,
             sources,
             AggregationMode::Average,
             1,
         );
 
-        let result = oracle.get_price(TradingPair::EthUsd).await?;
+        let result = oracle.get_price().await?;
 
         let expected = PriceQuote::new(U256::from(200000000000u128), 999);
         assert_eq!(result, expected);

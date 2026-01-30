@@ -17,11 +17,12 @@ type CoinGeckoPriceResponse = HashMap<String, CoinGeckoPriceData>;
 pub struct CoinGeckoSource {
     client: Client,
     api_url: Url,
+    pair: TradingPair,
 }
 
 impl CoinGeckoSource {
-    /// Create a new CoinGecko source
-    pub fn new(timeout: Duration) -> Result<Self, PriceOracleError> {
+    /// Create a new CoinGecko source for a specific trading pair
+    pub fn new(pair: TradingPair, timeout: Duration) -> Result<Self, PriceOracleError> {
         let api_url = Url::parse("https://api.coingecko.com").unwrap();
 
         let client = Client::builder()
@@ -33,6 +34,7 @@ impl CoinGeckoSource {
         Ok(Self {
             client,
             api_url,
+            pair,
         })
     }
 
@@ -70,11 +72,8 @@ impl PriceSource for CoinGeckoSource {
 
 #[async_trait::async_trait]
 impl PriceOracle for CoinGeckoSource {
-    async fn get_price(
-        &self,
-        pair: TradingPair,
-    ) -> Result<PriceQuote, PriceOracleError> {
-        match pair {
+    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
+        match self.pair {
             TradingPair::EthUsd => self.fetch_price("/api/v3/simple/price", "ethereum", "usd").await,
             TradingPair::ZkcUsd => self.fetch_price("/api/v3/simple/price", "boundless", "usd").await,
         }
@@ -107,11 +106,11 @@ mod tests {
                 }));
         });
 
-        let source = CoinGeckoSource::new(Duration::from_secs(10))
+        let source = CoinGeckoSource::new(TradingPair::EthUsd, Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price(TradingPair::EthUsd).await.unwrap();
+        let quote = source.get_price().await.unwrap();
 
         mock.assert();
         assert_eq!(quote.price, U256::from(250050000000u128)); // 2500.50 * 1e8
@@ -138,11 +137,11 @@ mod tests {
                 }));
         });
 
-        let source = CoinGeckoSource::new(Duration::from_secs(10))
+        let source = CoinGeckoSource::new(TradingPair::ZkcUsd, Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price(TradingPair::ZkcUsd).await.unwrap();
+        let quote = source.get_price().await.unwrap();
 
         mock.assert();
         assert_eq!(quote.price, U256::from(12345600u128)); // 0.123456 * 1e8
@@ -159,11 +158,11 @@ mod tests {
             then.status(500);
         });
 
-        let source = CoinGeckoSource::new(Duration::from_secs(10))
+        let source = CoinGeckoSource::new(TradingPair::EthUsd, Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price(TradingPair::EthUsd).await;
+        let result = source.get_price().await;
         assert!(result.is_err());
     }
 
@@ -185,11 +184,11 @@ mod tests {
                 }));
         });
 
-        let source = CoinGeckoSource::new(Duration::from_secs(10))
+        let source = CoinGeckoSource::new(TradingPair::EthUsd, Duration::from_secs(10))
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price(TradingPair::EthUsd).await;
+        let result = source.get_price().await;
         assert!(result.is_err());
         assert!(matches!(result, Err(PriceOracleError::Internal(_))));
     }
@@ -199,12 +198,11 @@ mod tests {
     #[ignore]
     async fn test_api_eth_price() -> anyhow::Result<()> {
         let source = CoinGeckoSource::new(
+            TradingPair::EthUsd,
             Duration::from_secs(10),
         )?;
 
-        let quote = source
-            .get_price(TradingPair::EthUsd)
-            .await?;
+        let quote = source.get_price().await?;
 
         println!("{:?}", quote);
 
@@ -219,12 +217,11 @@ mod tests {
     #[ignore]
     async fn test_api_zkc_price() -> anyhow::Result<()> {
         let source = CoinGeckoSource::new(
+            TradingPair::ZkcUsd,
             Duration::from_secs(10),
         )?;
 
-        let quote = source
-            .get_price(TradingPair::ZkcUsd)
-            .await?;
+        let quote = source.get_price().await?;
 
         println!("{:?}", quote);
 

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::SystemTime;
 use alloy::primitives::U256;
 use alloy_primitives::I256;
@@ -20,6 +21,7 @@ mod integration_tests;
 pub use config::PriceOracleConfig;
 pub use error::PriceOracleError;
 pub use composite_oracle::CompositeOracle;
+pub use cached_oracle::CachedPriceOracle;
 
 /// Trading pair for price queries
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -103,17 +105,55 @@ impl Default for AggregationMode {
     }
 }
 
-/// Price oracle trait
+/// Price oracle trait - each instance is dedicated to one trading pair
 #[async_trait::async_trait]
 pub trait PriceOracle: Send + Sync {
-    /// Get the current price for a trading pair
-    async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError>;
+    /// Get the current price (pair is determined at construction)
+    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError>;
 }
 
-/// Trait for price sources
+/// Trait for price sources - each instance is dedicated to one trading pair
 pub trait PriceSource: PriceOracle + Send + Sync {
     /// Returns the name of this price source
     fn name(&self) -> &'static str;
+}
+
+/// Container for per-pair price oracles
+pub struct PriceOracles {
+    /// ETH/USD price oracle
+    pub eth_usd: Arc<CachedPriceOracle>,
+    /// ZKC/USD price oracle
+    pub zkc_usd: Arc<CachedPriceOracle>,
+}
+
+impl PriceOracles {
+    /// Create a new PriceOracles container
+    pub fn new(eth_usd: Arc<CachedPriceOracle>, zkc_usd: Arc<CachedPriceOracle>) -> Self {
+        Self { eth_usd, zkc_usd }
+    }
+
+    /// Get price for a specific trading pair
+    pub async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+        match pair {
+            TradingPair::EthUsd => self.eth_usd.get_price().await,
+            TradingPair::ZkcUsd => self.zkc_usd.get_price().await,
+        }
+    }
+
+    /// Spawn background refresh tasks for all oracles
+    ///
+    /// Returns a single join handle that completes when both tasks finish.
+    pub fn spawn_refresh_tasks(
+        &self,
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        let eth_handle = self.eth_usd.clone().spawn_refresh_task(cancel_token.clone());
+        let zkc_handle = self.zkc_usd.clone().spawn_refresh_task(cancel_token);
+
+        tokio::spawn(async move {
+            let _ = tokio::join!(eth_handle, zkc_handle);
+        })
+    }
 }
 
 const SCALE_DECIMALS: u32 = 8;
@@ -122,7 +162,7 @@ const SCALE_DECIMALS: u32 = 8;
 pub fn scale_price_from_f64(price: f64) -> Result<U256, PriceOracleError> {
     // Validate the price
     if !price.is_finite() || price < 0.0 {
-        return Err(PriceOracleError::Internal(format!("invalid price data: {}", price)));
+        return Err(PriceOracleError::InvalidPrice(format!("price data is infinite: {}", price)));
     }
 
     let price_scaled = (price * 10u64.pow(SCALE_DECIMALS) as f64).round() as u128;
@@ -133,12 +173,12 @@ pub fn scale_price_from_f64(price: f64) -> Result<U256, PriceOracleError> {
 /// Scale an I256 price to U256 with fixed decimals
 pub fn scale_price_from_i256(price: I256, decimals: u32) -> Result<U256, PriceOracleError> {
     if price <= I256::ZERO {
-        return Err(PriceOracleError::Internal("invalid price: non-positive".to_string()));
+        return Err(PriceOracleError::InvalidPrice(format!("non-positive: {}", price)));
     }
 
     let price_raw: U256 = price
         .try_into()
-        .map_err(|_| PriceOracleError::Internal("price conversion failed".to_string()))?;
+        .map_err(|_| PriceOracleError::InvalidPrice(format!("conversion failed: {}", price)))?;
 
     let price = match decimals.cmp(&SCALE_DECIMALS) {
         std::cmp::Ordering::Equal => price_raw,
@@ -185,8 +225,8 @@ impl<T: PriceSource> WithStalenessCheck<T> {
 
 #[async_trait::async_trait]
 impl<T: PriceSource> PriceOracle for WithStalenessCheck<T> {
-    async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
-        let quote = self.inner.get_price(pair).await?;
+    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
+        let quote = self.inner.get_price().await?;
         validate_freshness(quote, Some(self.max_staleness_secs))
     }
 }
@@ -207,7 +247,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PriceOracle for MockSource {
-        async fn get_price(&self, _pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
+        async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
             Ok(self.quote)
         }
     }
@@ -312,7 +352,7 @@ mod tests {
         let source = MockSource { quote };
         let wrapped = WithStalenessCheck::new(source, 60);
 
-        let result = wrapped.get_price(TradingPair::EthUsd).await;
+        let result = wrapped.get_price().await;
         assert!(result.is_ok());
     }
 
@@ -328,7 +368,7 @@ mod tests {
         let source = MockSource { quote };
         let wrapped = WithStalenessCheck::new(source, 60); // Max 60 seconds
 
-        let result = wrapped.get_price(TradingPair::EthUsd).await;
+        let result = wrapped.get_price().await;
         assert!(result.is_err());
         match result {
             Err(PriceOracleError::StalePrice { age_secs, max_secs }) => {

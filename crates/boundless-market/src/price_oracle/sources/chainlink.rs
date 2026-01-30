@@ -1,4 +1,4 @@
-use crate::price_oracle::{scale_price_from_i256, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
+use crate::price_oracle::{scale_price_from_i256, PriceOracle, PriceOracleError, PriceQuote, PriceSource};
 use alloy::primitives::{address, Address};
 use alloy::providers::Provider;
 use alloy::sol;
@@ -42,35 +42,35 @@ fn eth_usd_feed(chain: NamedChain) -> Result<FeedInfo, PriceOracleError> {
     }
 }
 
-/// Chainlink price source
+/// Chainlink price source (ETH/USD only)
 pub struct ChainlinkSource<P> {
     provider: P,
-    eth_usd_feed: FeedInfo,
+    feed: FeedInfo,
 }
 
 impl<P> ChainlinkSource<P> {
-    /// Create a new Chainlink source with a custom feed
-    pub fn new(provider: P, eth_usd_feed: FeedInfo) -> Self {
-        Self { provider, eth_usd_feed }
+    /// Create a new Chainlink source for ETH/USD with a custom feed
+    pub fn new(provider: P, feed: FeedInfo) -> Self {
+        Self { provider, feed }
     }
 
-    /// Create a new Chainlink source for a named chain
-    pub fn for_chain(provider: P, chain: NamedChain) -> Result<Self, PriceOracleError> {
-        let eth_usd_feed = eth_usd_feed(chain)?;
-        Ok(Self { provider, eth_usd_feed })
+    /// Create a new Chainlink source for ETH/USD on a named chain
+    pub fn for_eth_usd(provider: P, chain: NamedChain) -> Result<Self, PriceOracleError> {
+        let feed = eth_usd_feed(chain)?;
+        Ok(Self { provider, feed })
     }
 }
 
 impl<P: Provider + Clone> ChainlinkSource<P> {
-    async fn fetch_price(&self, feed: FeedInfo) -> Result<PriceQuote, PriceOracleError> {
-        let contract = AggregatorV3Interface::new(feed.address, &self.provider);
+    async fn fetch_price(&self) -> Result<PriceQuote, PriceOracleError> {
+        let contract = AggregatorV3Interface::new(self.feed.address, &self.provider);
 
         let round_data = contract
             .latestRoundData()
             .call()
             .await?;
 
-        let price = scale_price_from_i256(round_data.answer, feed.decimals as u32)?;
+        let price = scale_price_from_i256(round_data.answer, self.feed.decimals as u32)?;
 
         let timestamp: u64 = round_data
             .updatedAt
@@ -89,11 +89,8 @@ impl<P: Provider + Clone> PriceSource for ChainlinkSource<P> {
 
 #[async_trait::async_trait]
 impl<P: Provider + Clone> PriceOracle for ChainlinkSource<P> {
-    async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
-        match pair {
-            TradingPair::EthUsd => self.fetch_price(self.eth_usd_feed).await,
-            TradingPair::ZkcUsd => Err(PriceOracleError::UnsupportedPair(TradingPair::ZkcUsd)),
-        }
+    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
+        self.fetch_price().await
     }
 }
 
@@ -158,7 +155,7 @@ mod tests {
         let feed = FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8);
         let source = ChainlinkSource::new(provider, feed);
 
-        let quote = source.get_price(TradingPair::EthUsd).await.unwrap();
+        let quote = source.get_price().await.unwrap();
 
         assert_eq!(quote.price, U256::from(250050000000u128));
         assert_eq!(quote.timestamp, 1706547200);
@@ -189,23 +186,8 @@ mod tests {
         let feed = FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8);
         let source = ChainlinkSource::new(provider, feed);
 
-        let result = source.get_price(TradingPair::EthUsd).await;
+        let result = source.get_price().await;
         assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_unsupported_pair_zkc() {
-        let server = MockServer::start();
-
-        let provider = ProviderBuilder::new()
-            .connect_http(server.base_url().parse().unwrap());
-
-        let feed = FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8);
-        let source = ChainlinkSource::new(provider, feed);
-
-        let result = source.get_price(TradingPair::ZkcUsd).await;
-        assert!(result.is_err());
-        assert!(matches!(result, Err(PriceOracleError::UnsupportedPair(_))));
     }
 
     // Integration test (requires RPC URL and network access)
@@ -216,9 +198,9 @@ mod tests {
 
         let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
-        let source = ChainlinkSource::for_chain(provider, NamedChain::Mainnet)?;
+        let source = ChainlinkSource::for_eth_usd(provider, NamedChain::Mainnet)?;
 
-        let quote = source.get_price(TradingPair::EthUsd).await?;
+        let quote = source.get_price().await?;
 
         println!("{:?}", quote);
 
