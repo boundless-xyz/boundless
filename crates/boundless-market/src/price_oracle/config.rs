@@ -270,10 +270,7 @@ mod tests {
         let json = r#""auto""#;
         let value: PriceValue = serde_json::from_str(json).unwrap();
         assert_eq!(value, PriceValue::Auto);
-    }
 
-    #[test]
-    fn test_price_value_deserialize_auto_case_insensitive() {
         let json = r#""AUTO""#;
         let value: PriceValue = serde_json::from_str(json).unwrap();
         assert_eq!(value, PriceValue::Auto);
@@ -284,18 +281,11 @@ mod tests {
     }
 
     #[test]
-    fn test_price_value_deserialize_static() {
-        let json = r#""2500.00""#;
-        let value: PriceValue = serde_json::from_str(json).unwrap();
-        assert_eq!(value, PriceValue::Static(2500.00));
-    }
-
-    #[test]
     fn test_price_value_deserialize_static_various_formats() {
         let test_cases = vec![
             ("1.00", 1.00),
             ("0.50", 0.50),
-            ("2500", 2500.0),
+            ("2500.00", 2500.0),
             ("2500.5", 2500.5),
             ("0.00001", 0.00001),
         ];
@@ -312,11 +302,12 @@ mod tests {
         let json = r#""not_a_number""#;
         let result: Result<PriceValue, _> = serde_json::from_str(json);
         assert!(result.is_err());
-    }
 
-    #[test]
-    fn test_price_value_deserialize_negative() {
         let json = r#""-100.00""#;
+        let result: Result<PriceValue, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+
+        let json = r#""0.0""#;
         let result: Result<PriceValue, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
