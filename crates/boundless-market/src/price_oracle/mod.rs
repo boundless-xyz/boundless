@@ -17,7 +17,7 @@ pub mod cached_oracle;
 #[cfg(test)]
 mod integration_tests;
 
-pub use config::{PriceOracleConfig, StaticPriceConfig};
+pub use config::PriceOracleConfig;
 pub use error::PriceOracleError;
 pub use composite_oracle::CompositeOracle;
 

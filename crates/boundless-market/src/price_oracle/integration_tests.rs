@@ -9,7 +9,7 @@
 
 #![cfg(test)]
 
-use crate::price_oracle::{PriceOracle, PriceQuote, TradingPair, AggregationMode, config::{PriceOracleConfig, OnChainConfig, OffChainConfig, ChainlinkConfig,
+use crate::price_oracle::{PriceOracle, PriceQuote, TradingPair, AggregationMode, config::{PriceOracleConfig, PriceValue, OnChainConfig, OffChainConfig, ChainlinkConfig,
                                                                                           CoinGeckoConfig, CoinMarketCapConfig}};
 use alloy::providers::ProviderBuilder;
 
@@ -66,7 +66,8 @@ fn build_config(mode: AggregationMode) -> PriceOracleConfig {
         .expect("CMC_API_KEY environment variable is required for integration tests");
 
     PriceOracleConfig {
-        enabled: true,
+        eth_usd: PriceValue::Auto,
+        zkc_usd: PriceValue::Auto,
         refresh_interval_secs: 60,
         timeout_secs: 10,
         aggregation_mode: mode,
@@ -87,7 +88,6 @@ fn build_config(mode: AggregationMode) -> PriceOracleConfig {
                 api_key: cmc_api_key,
             }),
         }),
-        static_fallback: None,
     }
 }
 
@@ -105,8 +105,7 @@ async fn test_composite_priority_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Priority);
-    let oracle = config.build(provider).await?
-        .expect("Oracle should be built");
+    let oracle = config.build(provider).await?;
 
     // Fetch ETH/USD price
     let quote = oracle.get_price(TradingPair::EthUsd).await?;
@@ -136,8 +135,7 @@ async fn test_composite_median_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Median);
-    let oracle = config.build(provider).await?
-        .expect("Oracle should be built");
+    let oracle = config.build(provider).await?;
 
     // Fetch ETH/USD price
     let quote = oracle.get_price(TradingPair::EthUsd).await?;
@@ -167,8 +165,7 @@ async fn test_composite_average_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Average);
-    let oracle = config.build(provider).await?
-        .expect("Oracle should be built");
+    let oracle = config.build(provider).await?;
 
     // Fetch ETH/USD price
     let quote = oracle.get_price(TradingPair::EthUsd).await?;
@@ -202,8 +199,7 @@ async fn test_all_aggregation_modes_price_consistency() -> anyhow::Result<()> {
     for mode in modes {
         let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
         let config = build_config(mode);
-        let oracle = config.build(provider).await?
-            .expect("Oracle should be built");
+        let oracle = config.build(provider).await?;
 
         let quote = oracle.get_price(TradingPair::EthUsd).await?;
         println!("{:?} mode ETH/USD: ${:.2}", mode, quote.price_to_f64());

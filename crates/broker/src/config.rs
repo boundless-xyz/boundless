@@ -21,6 +21,7 @@ use std::{
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
 use boundless_market::dynamic_gas_filler::PriorityMode;
+use boundless_market::price_oracle::PriceOracleConfig;
 use notify::{EventKind, Watcher};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -633,6 +634,9 @@ pub struct Config {
     /// Aggregation batch configs
     #[serde(default)]
     pub batcher: BatcherConfig,
+    /// Price oracle configuration
+    #[serde(default)]
+    pub price_oracle: PriceOracleConfig,
 }
 
 impl Config {

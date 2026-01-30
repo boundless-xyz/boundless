@@ -1,4 +1,4 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair, AggregationMode, StaticPriceConfig, PriceSource};
+use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair, AggregationMode, PriceSource};
 use futures::future::join_all;
 use std::sync::Arc;
 use alloy_primitives::U256;
@@ -6,7 +6,6 @@ use alloy_primitives::U256;
 /// Composite oracle that aggregates multiple price sources
 pub struct CompositeOracle {
     sources: Vec<Arc<dyn PriceSource>>,
-    static_fallback: Option<StaticPriceConfig>,
     aggregation_mode: AggregationMode,
     min_sources: u8,
 }
@@ -15,13 +14,11 @@ impl CompositeOracle {
     /// Create a new composite oracle
     pub fn new(
         sources: Vec<Arc<dyn PriceSource>>,
-        static_fallback: Option<StaticPriceConfig>,
         aggregation_mode: AggregationMode,
         min_sources: u8,
     ) -> Self {
         Self {
             sources,
-            static_fallback,
             aggregation_mode,
             min_sources,
         }
@@ -121,24 +118,11 @@ impl CompositeOracle {
 impl PriceOracle for CompositeOracle {
     async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
         // Use different fetching strategies based on aggregation mode
-        let result = match self.aggregation_mode {
+        match self.aggregation_mode {
             AggregationMode::Priority => self.fetch_priority_sequential(pair).await,
             AggregationMode::Median | AggregationMode::Average => {
                 let results = self.fetch_all_parallel(pair).await;
                 self.aggregate_median_or_average(pair, results)
-            }
-        };
-
-        // If aggregation failed and we have a static fallback, use it
-        match result {
-            Ok(quote) => Ok(quote),
-            Err(e) => {
-                if let Some(ref fallback) = self.static_fallback {
-                    tracing::warn!("All price sources failed for {}, falling back to static price: {}", pair.as_str(), e);
-                    fallback.get_price(pair)
-                } else {
-                    Err(e)
-                }
             }
         }
     }
@@ -187,7 +171,6 @@ mod tests {
 
         let oracle = CompositeOracle::new(
             sources,
-            None,
             AggregationMode::Priority,
             1,
         );
@@ -217,7 +200,6 @@ mod tests {
 
         let oracle = CompositeOracle::new(
             sources,
-            None,
             AggregationMode::Median,
             1,
         );
@@ -249,7 +231,6 @@ mod tests {
 
         let oracle = CompositeOracle::new(
             sources,
-            None,
             AggregationMode::Average,
             1,
         );
@@ -258,34 +239,6 @@ mod tests {
 
         let expected = PriceQuote::new(U256::from(200000000000u128), 999);
         assert_eq!(result, expected);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_static_fallback() -> anyhow::Result<()> {
-        let sources: Vec<Arc<dyn PriceSource>> = vec![
-            Arc::new(MockSource {
-                name: "Failed",
-                result: Err("test error"),
-            }),
-        ];
-
-        let fallback = StaticPriceConfig {
-            eth_usd: 3000.00,
-            zkc_usd: 0.50,
-        };
-
-        let oracle = CompositeOracle::new(
-            sources,
-            Some(fallback),
-            AggregationMode::Priority,
-            1,
-        );
-
-        let result = oracle.get_price(TradingPair::ZkcUsd).await?;
-        let expected_price = U256::from(50000000u128); // 0.50 scaled to 8 decimals
-        assert_eq!(result.price, expected_price);
 
         Ok(())
     }

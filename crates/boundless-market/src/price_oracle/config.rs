@@ -1,47 +1,67 @@
 use std::sync::Arc;
 use alloy::providers::Provider;
 use alloy_chains::NamedChain;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer};
 use core::time::Duration;
-use crate::price_oracle::{PriceQuote, TradingPair, PriceOracleError, AggregationMode, scale_price_from_f64, PriceSource, CompositeOracle, WithStalenessCheck};
+use crate::price_oracle::{PriceOracleError, AggregationMode, PriceSource, CompositeOracle, WithStalenessCheck};
 use crate::price_oracle::cached_oracle::CachedPriceOracle;
-use crate::price_oracle::sources::{ChainlinkSource, CoinGeckoSource, CoinMarketCapSource};
+use crate::price_oracle::sources::{ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource};
 
-/// Static fallback configuration (NOT a PriceSource!)
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct StaticPriceConfig {
-    /// ETH/USD price as string (e.g., "2000.00")
-    pub eth_usd: f64,
-    /// ZKC/USD price as string (e.g., "1.00")
-    pub zkc_usd: f64,
+/// Price value configuration: either "auto" for dynamic fetching or a static numeric value
+#[derive(Debug, Clone, PartialEq)]
+pub enum PriceValue {
+    /// Fetch price dynamically from configured sources
+    Auto,
+    /// Use a static price value
+    Static(f64),
 }
 
-impl StaticPriceConfig {
-    /// Get the static price for a trading pair
-    pub fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
-        let price_f64 = match pair {
-            TradingPair::EthUsd => self.eth_usd,
-            TradingPair::ZkcUsd => self.zkc_usd,
-        };
-
-        let price = scale_price_from_f64(price_f64)?;
-
-        // Static prices are considered always fresh, so we set the timestamp to now.
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        Ok(PriceQuote::new(price, now))
+impl Default for PriceValue {
+    fn default() -> Self {
+        Self::Auto
     }
 }
 
+impl<'de> Deserialize<'de> for PriceValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.to_lowercase() == "auto" {
+            Ok(PriceValue::Auto)
+        } else {
+            let value = s.parse::<f64>()
+                .map_err(|e| serde::de::Error::custom(format!("Invalid price value '{}': must be 'auto' or a valid number: {}", s, e)))?;
+            if !value.is_finite() || value <= 0.0 {
+                return Err(serde::de::Error::custom(format!("Invalid price value '{}': must be >0 and finite", s)));
+            }
+            Ok(PriceValue::Static(value))
+        }
+    }
+}
+
+impl Serialize for PriceValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            PriceValue::Auto => serializer.serialize_str("auto"),
+            PriceValue::Static(value) => serializer.serialize_str(&value.to_string()),
+        }
+    }
+}
+
+
 /// Price oracle configuration
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct PriceOracleConfig {
-    /// Whether the price oracle is enabled
-    pub enabled: bool,
+    /// ETH/USD price: "auto" for dynamic or a static value like "2500.00"
+    pub eth_usd: PriceValue,
+    /// ZKC/USD price: "auto" for dynamic or a static value like "1.00"
+    pub zkc_usd: PriceValue,
     /// Refresh interval in seconds
     pub refresh_interval_secs: u64,
     /// HTTP/RPC timeout in seconds
@@ -50,14 +70,37 @@ pub struct PriceOracleConfig {
     pub aggregation_mode: AggregationMode,
     /// Minimum number of successful sources required
     pub min_sources: u8,
+    /// Maximum age in seconds before a price is considered stale
+    pub max_staleness_secs: u64,
     /// On-chain source configuration
     pub onchain: Option<OnChainConfig>,
     /// Off-chain source configuration
     pub offchain: Option<OffChainConfig>,
-    /// Static fallback prices
-    pub static_fallback: Option<StaticPriceConfig>,
-    /// Maximum age in seconds before a price is considered stale
-    pub max_staleness_secs: u64,
+}
+
+impl Default for PriceOracleConfig {
+    fn default() -> Self {
+        Self {
+            eth_usd: PriceValue::Auto,
+            zkc_usd: PriceValue::Auto,
+            refresh_interval_secs: 60,
+            timeout_secs: 10,
+            aggregation_mode: AggregationMode::Priority,
+            min_sources: 1,
+            max_staleness_secs: 300,
+            // Enable both Chainlink and CoinGecko by default
+            onchain: Some(OnChainConfig {
+                chainlink: Some(ChainlinkConfig { enabled: true }),
+            }),
+            offchain: Some(OffChainConfig {
+                coingecko: Some(CoinGeckoConfig {
+                    enabled: true,
+                    api_key: None,
+                }),
+                cmc: None,
+            }),
+        }
+    }
 }
 
 /// On-chain price source configuration
@@ -106,15 +149,27 @@ impl PriceOracleConfig {
     pub async fn build<P>(
         &self,
         provider: P,
-    ) -> Result<Option<Arc<CachedPriceOracle>>, PriceOracleError>
+    ) -> Result<Arc<CachedPriceOracle>, PriceOracleError>
     where
         P: Provider + Clone + 'static,
     {
-        if !self.enabled {
-            return Ok(None);
-        }
-
         let mut sources: Vec<Arc<dyn PriceSource>> = Vec::new();
+
+        // Extract static price values (if any)
+        let eth_usd_static = match self.eth_usd {
+            PriceValue::Static(v) => Some(v),
+            PriceValue::Auto => None,
+        };
+        let zkc_usd_static = match self.zkc_usd {
+            PriceValue::Static(v) => Some(v),
+            PriceValue::Auto => None,
+        };
+
+        // Add static price source first (highest priority in Priority mode)
+        let static_source = StaticPriceSource::new(eth_usd_static, zkc_usd_static);
+        if static_source.has_any_static() {
+            sources.push(Arc::new(static_source));
+        }
 
         // Build on-chain sources
         if let Some(ref onchain) = self.onchain {
@@ -164,15 +219,18 @@ impl PriceOracleConfig {
             }
         }
 
-        if sources.is_empty() && self.static_fallback.is_none() {
-            return Err(PriceOracleError::ConfigError(
-                "No price sources configured and no static fallback".to_string()
+        // Ensure we have at least one source. This can only happen if the user misconfigured
+        // the price oracle with "auto" but disabled all sources.
+        if sources.is_empty() {
+            // TODO:
+            return Err(PriceOracleError::Internal(
+                "No price sources configured: ensure at least one source is enabled when using 'auto' pricing or specify static prices"
+                    .to_string(),
             ));
         }
 
         let composite = CompositeOracle::new(
             sources,
-            self.static_fallback.clone(),
             self.aggregation_mode,
             self.min_sources,
         );
@@ -182,6 +240,94 @@ impl PriceOracleConfig {
             self.refresh_interval_secs,
         ));
 
-        Ok(Some(cached))
+        Ok(cached)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_price_value_deserialize_auto() {
+        let json = r#""auto""#;
+        let value: PriceValue = serde_json::from_str(json).unwrap();
+        assert_eq!(value, PriceValue::Auto);
+    }
+
+    #[test]
+    fn test_price_value_deserialize_auto_case_insensitive() {
+        let json = r#""AUTO""#;
+        let value: PriceValue = serde_json::from_str(json).unwrap();
+        assert_eq!(value, PriceValue::Auto);
+
+        let json = r#""Auto""#;
+        let value: PriceValue = serde_json::from_str(json).unwrap();
+        assert_eq!(value, PriceValue::Auto);
+    }
+
+    #[test]
+    fn test_price_value_deserialize_static() {
+        let json = r#""2500.00""#;
+        let value: PriceValue = serde_json::from_str(json).unwrap();
+        assert_eq!(value, PriceValue::Static(2500.00));
+    }
+
+    #[test]
+    fn test_price_value_deserialize_static_various_formats() {
+        let test_cases = vec![
+            ("1.00", 1.00),
+            ("0.50", 0.50),
+            ("2500", 2500.0),
+            ("2500.5", 2500.5),
+            ("0.00001", 0.00001),
+        ];
+
+        for (input, expected) in test_cases {
+            let json = format!(r#""{}""#, input);
+            let value: PriceValue = serde_json::from_str(&json).unwrap();
+            assert_eq!(value, PriceValue::Static(expected));
+        }
+    }
+
+    #[test]
+    fn test_price_value_deserialize_invalid() {
+        let json = r#""not_a_number""#;
+        let result: Result<PriceValue, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_price_value_deserialize_negative() {
+        let json = r#""-100.00""#;
+        let result: Result<PriceValue, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_price_value_serialize() {
+        let auto = PriceValue::Auto;
+        let serialized = serde_json::to_string(&auto).unwrap();
+        assert!(serialized.contains("auto"));
+
+        let static_val = PriceValue::Static(2500.00);
+        let serialized = serde_json::to_string(&static_val).unwrap();
+        assert!(serialized.contains("2500"));
+    }
+
+    #[test]
+    fn test_price_value_roundtrip() {
+        let values = vec![
+            PriceValue::Auto,
+            PriceValue::Static(1.00),
+            PriceValue::Static(2500.50),
+        ];
+
+        for original in values {
+            let serialized = serde_json::to_string(&original).unwrap();
+            let deserialized: PriceValue = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(original, deserialized);
+        }
     }
 }
