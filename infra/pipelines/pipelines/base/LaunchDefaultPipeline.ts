@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
-import { BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../../accountConstants";
-import { DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS } from "../../../util";
+import { BOUNDLESS_OPS_ACCOUNT_ID, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN } from "../../accountConstants";
+import { ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS } from "../../../util";
 import { BasePipelineArgs } from "./BasePipelineArgs";
 import { LaunchBasePipeline, LaunchPipelineConfig } from "./LaunchBasePipeline";
 
@@ -201,6 +201,10 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
 ${postBuildCommands.map(cmd => `          - ${cmd}`).join('\n')}`
             : '';
 
+        // CodeBuild runs each phase in a new shell. Assume-role must run in the build phase
+        // so exported credentials persist for pulumi refresh/up; otherwise Pulumi uses the
+        // pipeline role (ops) and gets AccessDenied for staging/prod resources.
+        const opsAccountId = BOUNDLESS_OPS_ACCOUNT_ID;
         return `
     version: 0.2
 
@@ -210,11 +214,7 @@ ${postBuildCommands.map(cmd => `          - ${cmd}`).join('\n')}`
     phases:
       pre_build:
         commands:
-          - echo Assuming role $DEPLOYMENT_ROLE_ARN
-          - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --duration-seconds ${DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS} --role-session-name Deployment --output text | tail -1)
-          - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
-          - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
-          - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
+          - set -e
           - curl -fsSL https://get.pulumi.com/ | sh -s -- --version 3.193.0
           - export PATH=$PATH:$HOME/.pulumi/bin
           - pulumi login --non-interactive "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
@@ -224,6 +224,19 @@ ${postBuildCommands.map(cmd => `          - ${cmd}`).join('\n')}`
 ${additionalCommandsStr}          - ls -lt
       build:
         commands:
+          - set -e
+          - echo "Assuming deployment role $DEPLOYMENT_ROLE_ARN"
+          - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --duration-seconds ${ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS} --role-session-name Deployment --output text | tail -1)
+          - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
+          - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
+          - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
+          - |
+            CALLER=$(aws sts get-caller-identity --query Arn --output text)
+            echo "Running as $CALLER"
+            if echo "$CALLER" | grep -q "${opsAccountId}"; then
+              echo "ERROR: Still using ops account (pipeline role). Assume-role did not take effect."
+              exit 1
+            fi
           - cd infra/$APP_NAME
           - pulumi install
           - npm run build

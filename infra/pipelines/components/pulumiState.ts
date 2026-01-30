@@ -9,8 +9,8 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
     name: string,
     args: {
       accountId: string;
-      readOnlyStateBucketArns: string[];
-      readWriteStateBucketArns: string[];
+      readOnlyStateBucketArns: (string | pulumi.Output<string>)[];
+      readWriteStateBucketArns: (string | pulumi.Output<string>)[];
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -43,7 +43,10 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
 
     // Key policy for the Pulumi state bucket key. Accessing the bucket also requires
     // access to the key.
-    const keyPolicy: aws.iam.PolicyDocument = {
+    const keyPolicyDoc = pulumi.all([
+      pulumi.output(args.readWriteStateBucketArns),
+      pulumi.output(args.readOnlyStateBucketArns),
+    ]).apply(([readWriteArns, readOnlyArns]): aws.iam.PolicyDocument => ({
       Id: 'Boundless Pulumi State Bucket Key Policy',
       Version: '2012-10-17',
       Statement: [
@@ -57,31 +60,27 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
           Resource: '*',
         },
         {
-          Principal: {
-            AWS: args.readWriteStateBucketArns,
-          },
+          Principal: { AWS: readWriteArns },
           Effect: 'Allow',
           Action: ['kms:Encrypt', 'kms:Decrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
           Resource: '*',
           Sid: 'Allow principals to use the KMS key to encrypt and decrypt',
         },
         {
-          Principal: {
-            AWS: args.readOnlyStateBucketArns,
-          },
+          Principal: { AWS: readOnlyArns },
           Effect: 'Allow',
           Action: ['kms:Decrypt', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
           Resource: '*',
           Sid: 'Allow principals to decrypt using the KMS key to access the bucket',
         },
       ],
-    };
+    }));
 
     new aws.kms.KeyPolicy(
       'pulumiStateBucketKeyPolicy',
       {
         keyId: pulumiStateBucketKey.id,
-        policy: pulumi.jsonStringify(keyPolicy),
+        policy: keyPolicyDoc.apply(p => pulumi.jsonStringify(p)),
       },
       {
         parent: this,
@@ -148,45 +147,37 @@ export class PulumiStateBucket extends pulumi.ComponentResource {
     );
 
     // Grants read/write access to the Pulumi state bucket to the given principals
-    const bucketPolicy: aws.iam.PolicyDocument = {
+    const readWriteArns = pulumi.output(args.readWriteStateBucketArns);
+    const readOnlyArns = pulumi.output(args.readOnlyStateBucketArns);
+    const bucketPolicy = pulumi.all([readWriteArns, readOnlyArns, this.bucket.arn]).apply(([rw, ro, bucketArn]) => ({
       Version: "2012-10-17",
       Statement: [
         {
-          "Effect": "Allow",
-          "Principal": {
-            "AWS": args.readWriteStateBucketArns
-          },
-          "Action": [
+          Effect: "Allow",
+          Principal: { AWS: rw },
+          Action: [
             "s3:GetObject",
             "s3:ListBucket",
             "s3:PutObject",
             "s3:DeleteObject",
           ],
-          "Resource": [
-            pulumi.interpolate`${this.bucket.arn}`,
-            pulumi.interpolate`${this.bucket.arn}/*`
-          ]
+          Resource: [bucketArn, `${bucketArn}/*`],
         },
         {
-          "Effect": "Allow",
-          "Principal": {
-            "AWS": args.readOnlyStateBucketArns
-          },
-          "Action": [
+          Effect: "Allow",
+          Principal: { AWS: ro },
+          Action: [
             "s3:GetObject",
             "s3:ListBucket",
           ],
-          "Resource": [
-            pulumi.interpolate`${this.bucket.arn}`,
-            pulumi.interpolate`${this.bucket.arn}/*`
-          ]
+          Resource: [bucketArn, `${bucketArn}/*`],
         }
       ]
-    };
+    }));
 
     new aws.s3.BucketPolicy("pulumiStateBucketPolicy", {
       bucket: this.bucket.id,
-      policy: pulumi.jsonStringify(bucketPolicy),
+      policy: bucketPolicy.apply(p => pulumi.jsonStringify(p)),
     });
 
   }

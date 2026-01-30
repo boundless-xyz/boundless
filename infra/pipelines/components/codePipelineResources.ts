@@ -132,5 +132,137 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
       role: this.role,
       policyArn: serviceAccountDeploymentRoleAccessPolicy.arn
     });
+
+    // Allow the pipeline role to read and manage ECR, IAM, ECS, RDS, and Lambda in the ops account.
+    // Required when Pulumi stacks (e.g. indexer l-staging-84532) run with pipeline credentials.
+    // Note: Resources in other accounts (e.g. ECS in staging) require the build to assume that
+    // account's deployment role before running Pulumi.
+    const pipelineOpsEcrandIamPolicy = new aws.iam.Policy(`pipeline-ops-ecr-iam-access`, {
+      name: `pipeline-ops-ecr-iam-access`,
+      policy: pulumi.jsonStringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Sid: "ECRAccess",
+            Effect: "Allow",
+            Action: ["ecr:GetAuthorizationToken"],
+            Resource: "*",
+          },
+          {
+            Sid: "ECRRepositoryAccess",
+            Effect: "Allow",
+            Action: [
+              "ecr:BatchCheckLayerAvailability",
+              "ecr:BatchGetImage",
+              "ecr:DescribeImages",
+              "ecr:DescribeRepositories",
+              "ecr:GetLifecyclePolicy",
+              "ecr:GetRepositoryPolicy",
+              "ecr:ListImages",
+              "ecr:PutLifecyclePolicy",
+              "ecr:PutImageScanningConfiguration",
+              "ecr:PutImageTagMutability",
+              "ecr:TagResource",
+              "ecr:UntagResource",
+            ],
+            Resource: pulumi.interpolate`arn:aws:ecr:*:${args.accountId}:repository/*`,
+          },
+          {
+            Sid: "IAMRolePolicyAccess",
+            Effect: "Allow",
+            Action: [
+              "iam:GetRole",
+              "iam:GetRolePolicy",
+              "iam:ListRolePolicies",
+              "iam:ListAttachedRolePolicies",
+              "iam:ListRoleTags",
+              "iam:PutRolePolicy",
+              "iam:DeleteRolePolicy",
+              "iam:AttachRolePolicy",
+              "iam:DetachRolePolicy",
+              "iam:PassRole",
+              "iam:CreateRole",
+              "iam:DeleteRole",
+              "iam:TagRole",
+              "iam:UntagRole",
+              "iam:UpdateRole",
+              "iam:UpdateRoleDescription",
+            ],
+            Resource: pulumi.interpolate`arn:aws:iam::${args.accountId}:role/*`,
+          },
+          {
+            Sid: "ECSAccess",
+            Effect: "Allow",
+            Action: [
+              "ecs:DescribeClusters",
+              "ecs:DescribeServices",
+              "ecs:DescribeTaskDefinition",
+              "ecs:DescribeTasks",
+              "ecs:ListClusters",
+              "ecs:ListServices",
+              "ecs:ListTaskDefinitions",
+              "ecs:ListTasks",
+              "ecs:CreateCluster",
+              "ecs:DeleteCluster",
+              "ecs:CreateService",
+              "ecs:UpdateService",
+              "ecs:DeleteService",
+              "ecs:RegisterTaskDefinition",
+              "ecs:DeregisterTaskDefinition",
+              "ecs:TagResource",
+              "ecs:UntagResource",
+            ],
+            Resource: "*",
+          },
+          {
+            Sid: "RDSAccess",
+            Effect: "Allow",
+            Action: [
+              "rds:DescribeDBInstances",
+              "rds:DescribeDBClusters",
+              "rds:DescribeDBClusterSnapshots",
+              "rds:DescribeDBSnapshots",
+              "rds:DescribeDBSubnetGroups",
+              "rds:DescribeDBClusterParameterGroups",
+              "rds:DescribeDBParameters",
+            ],
+            Resource: "*",
+          },
+          {
+            Sid: "LambdaAccess",
+            Effect: "Allow",
+            Action: [
+              "lambda:GetPolicy",
+              "lambda:GetFunction",
+              "lambda:GetFunctionUrlConfig",
+              "lambda:ListVersionsByFunction",
+              "lambda:ListAliases",
+              "lambda:ListTags",
+              "lambda:GetEventSourceMapping",
+              "lambda:ListEventSourceMappings",
+            ],
+            Resource: pulumi.interpolate`arn:aws:lambda:*:${args.accountId}:function:*`,
+          },
+          {
+            Sid: "WAFv2Access",
+            Effect: "Allow",
+            Action: [
+              "wafv2:GetWebACL",
+              "wafv2:GetWebACLForResource",
+              "wafv2:ListWebACLs",
+              "wafv2:ListResourcesForWebACL",
+              "wafv2:AssociateWebACL",
+              "wafv2:DisassociateWebACL",
+            ],
+            Resource: "*",
+          },
+        ],
+      }),
+    });
+
+    new aws.iam.RolePolicyAttachment(`pipeline-ops-ecr-iam-access-attachment`, {
+      role: this.role,
+      policyArn: pipelineOpsEcrandIamPolicy.arn,
+    });
   }
 }

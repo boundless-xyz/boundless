@@ -39,10 +39,10 @@ This Ansible role installs and configures UFW (Uncomplicated Firewall) on Ubuntu
 
 When the Docker daemon has `"iptables": false` (e.g. to avoid conflicts with UFW), Docker does not add NAT/MASQUERADE rules, so containers cannot reach the internet. This role can add the required NAT and FORWARD rules to `/etc/ufw/before.rules`:
 
-| Variable                 | Default          | Description                                      |
-| ------------------------ | ---------------- | ------------------------------------------------ |
-| `ufw_docker_nat_enabled` | `false`          | Add NAT and FORWARD for Docker default bridge    |
-| `ufw_docker_subnet`      | `172.17.0.0/16`  | Docker default bridge subnet                     |
+| Variable                 | Default         | Description                                   |
+| ------------------------ | --------------- | --------------------------------------------- |
+| `ufw_docker_nat_enabled` | `false`         | Add NAT and FORWARD for Docker default bridge |
+| `ufw_docker_subnet`      | `172.17.0.0/16` | Docker default bridge subnet                  |
 
 Set `ufw_docker_nat_enabled: true` for hosts that run Docker with `iptables: false` and need container internet access.
 
