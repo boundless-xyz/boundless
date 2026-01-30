@@ -53,7 +53,7 @@ export const getEnvVar = (name: string) => {
 // Returns a service name for naming resources.
 // NOTE: Do not modify this function as it will affect existing resources, causing them to be renamed
 //       and recreated. This is because the service name is used as part of each resource name.
-//       
+//
 //       To use a new naming scheme for new services, we should create a new "V2" function.
 export const getServiceNameV1 = (stackName: string, name: string, chainId?: ChainId | string) => {
   const isDev = stackName === "dev";
@@ -71,3 +71,6 @@ export enum Severity {
 }
 
 export const DEPLOYMENT_ROLE_MAX_SESSION_DURATION_SECONDS = 7200;
+
+/** Max session duration when assuming a role from another role (role chaining). AWS limit is 1 hour. */
+export const ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS = 3600;
