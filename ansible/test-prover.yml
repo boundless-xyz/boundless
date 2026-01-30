@@ -21,7 +21,7 @@
       ansible.builtin.copy:
         src: /tmp/bento-bundle/bento-cli
         dest: /usr/local/bin/bento-cli
-        mode: '0755'
+        mode: "0755"
         remote_src: true
 
     - name: Clean up temporary files
