@@ -3,8 +3,9 @@ use alloy::providers::Provider;
 use alloy_chains::NamedChain;
 use serde::{Deserialize, Serialize, Deserializer};
 use core::time::Duration;
-use crate::price_oracle::{PriceOracleError, AggregationMode, PriceSource, CompositeOracle, WithStalenessCheck, TradingPair, PriceOracles, PriceOracle};
+use crate::price_oracle::{PriceOracleError, AggregationMode, PriceSource, CompositeOracle, WithStalenessCheck, TradingPair, PriceOracle};
 use crate::price_oracle::cached_oracle::CachedPriceOracle;
+use crate::price_oracle::manager::PriceOracleManager;
 use crate::price_oracle::sources::{ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource};
 
 /// Price value configuration: either "auto" for dynamic fetching or a static numeric value
@@ -145,11 +146,11 @@ pub struct CoinMarketCapConfig {
 }
 
 impl PriceOracleConfig {
-    /// Build per-pair price oracles from this configuration
+    /// Build price oracle manager from this configuration
     pub async fn build<P>(
         &self,
         provider: P,
-    ) -> Result<PriceOracles, PriceOracleError>
+    ) -> Result<PriceOracleManager, PriceOracleError>
     where
         P: Provider + Clone + 'static,
     {
@@ -159,7 +160,7 @@ impl PriceOracleConfig {
         // Build ZKC/USD oracle
         let zkc_usd = self.build_oracle_for_pair(TradingPair::ZkcUsd, &self.zkc_usd, provider.clone())?;
 
-        Ok(PriceOracles::new(eth_usd, zkc_usd))
+        Ok(PriceOracleManager::new(eth_usd, zkc_usd, self.refresh_interval_secs))
     }
 
     fn build_oracle_for_pair<P>(
@@ -250,10 +251,7 @@ impl PriceOracleConfig {
         };
 
         // Wrap in CachedPriceOracle for consistent API
-        Ok(Arc::new(CachedPriceOracle::new(
-            inner,
-            self.refresh_interval_secs,
-        )))
+        Ok(Arc::new(CachedPriceOracle::new(inner)))
     }
 }
 

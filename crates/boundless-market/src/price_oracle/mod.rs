@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::SystemTime;
 use alloy::primitives::U256;
 use alloy_primitives::I256;
@@ -14,6 +13,7 @@ pub mod sources;
 pub mod composite_oracle;
 /// Cached oracle with background refresh
 pub mod cached_oracle;
+mod manager;
 /// Integration tests (run with --ignored flag)
 #[cfg(test)]
 mod integration_tests;
@@ -22,6 +22,7 @@ pub use config::PriceOracleConfig;
 pub use error::PriceOracleError;
 pub use composite_oracle::CompositeOracle;
 pub use cached_oracle::CachedPriceOracle;
+pub use manager::PriceOracleManager;
 
 /// Trading pair for price queries
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -116,44 +117,6 @@ pub trait PriceOracle: Send + Sync {
 pub trait PriceSource: PriceOracle + Send + Sync {
     /// Returns the name of this price source
     fn name(&self) -> &'static str;
-}
-
-/// Container for per-pair price oracles
-pub struct PriceOracles {
-    /// ETH/USD price oracle
-    pub eth_usd: Arc<CachedPriceOracle>,
-    /// ZKC/USD price oracle
-    pub zkc_usd: Arc<CachedPriceOracle>,
-}
-
-impl PriceOracles {
-    /// Create a new PriceOracles container
-    pub fn new(eth_usd: Arc<CachedPriceOracle>, zkc_usd: Arc<CachedPriceOracle>) -> Self {
-        Self { eth_usd, zkc_usd }
-    }
-
-    /// Get price for a specific trading pair
-    pub async fn get_price(&self, pair: TradingPair) -> Result<PriceQuote, PriceOracleError> {
-        match pair {
-            TradingPair::EthUsd => self.eth_usd.get_price().await,
-            TradingPair::ZkcUsd => self.zkc_usd.get_price().await,
-        }
-    }
-
-    /// Spawn background refresh tasks for all oracles
-    ///
-    /// Returns a single join handle that completes when both tasks finish.
-    pub fn spawn_refresh_tasks(
-        &self,
-        cancel_token: tokio_util::sync::CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        let eth_handle = self.eth_usd.clone().spawn_refresh_task(cancel_token.clone());
-        let zkc_handle = self.zkc_usd.clone().spawn_refresh_task(cancel_token);
-
-        tokio::spawn(async move {
-            let _ = tokio::join!(eth_handle, zkc_handle);
-        })
-    }
 }
 
 const SCALE_DECIMALS: u32 = 8;
