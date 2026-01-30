@@ -955,6 +955,14 @@ pub trait IndexerDb {
         period_end: u64,
     ) -> Result<U256, DbError>;
 
+    /// Gets market fees for requests created in the half-open period [period_start, period_end).
+    /// For locked/fulfilled requests: uses lock_price. For other states: uses max_price.
+    async fn get_period_market_fees(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<U256, DbError>;
+
     /// Gets request digests using cursor-based pagination.
     /// Returns digests greater than the cursor, ordered by digest value.
     /// Used for backfilling request statuses.
@@ -3650,6 +3658,38 @@ impl IndexerDb for MarketDb {
             })?;
         }
         Ok(total)
+    }
+
+    async fn get_period_market_fees(
+        &self,
+        period_start: u64,
+        period_end: u64,
+    ) -> Result<U256, DbError> {
+        let row = sqlx::query(
+            "SELECT COALESCE(
+                SUM(
+                    CASE
+                        WHEN request_status IN ('locked', 'fulfilled') THEN
+                            CAST(NULLIF(lock_price, '') AS NUMERIC)
+                        ELSE
+                            CAST(NULLIF(max_price, '') AS NUMERIC)
+                    END
+                ),
+                0
+            )::TEXT AS market_fee
+            FROM request_status
+            WHERE created_at >= $1 AND created_at < $2
+              AND max_price IS NOT NULL",
+        )
+        .bind(period_start as i64)
+        .bind(period_end as i64)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let market_fee_str: String = row.try_get("market_fee")?;
+        let market_fee = U256::from_str(market_fee_str.split('.').next().unwrap_or("0")).unwrap_or(U256::ZERO);
+
+        Ok(market_fee)
     }
 
     async fn get_request_digests_paginated(
