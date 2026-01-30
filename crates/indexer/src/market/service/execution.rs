@@ -23,7 +23,14 @@ use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
 use boundless_market::storage::{fetch_url, override_gateway};
 use broker::futures_retry::retry;
 use bytes::Bytes;
+use moka::future::Cache;
 use std::collections::{HashMap, HashSet};
+
+/// Max number of (image_url -> image_id) entries to keep for reuse.
+const IMAGE_CACHE_MAX_ENTRIES: u64 = 256;
+
+/// Type for the image URL -> image_id cache.
+type ImageCache = Cache<String, String>;
 
 /// Format an optional request ID for logging
 fn fmt_request_id(id: Option<U256>) -> String {
@@ -50,6 +57,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     )
     .unwrap();
 
+    let image_cache: ImageCache = Cache::builder().max_capacity(IMAGE_CACHE_MAX_ENTRIES).build();
     let mut num_iterations: u32 = 1;
 
     loop {
@@ -154,7 +162,13 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 continue;
             }
             // When the predicate is of type ClaimDigestMatch, image_id is empty so we download the image to compute it.
-            let (image_id, downloaded_image) = match resolve_image_id(&image_id, &image_url).await {
+            let (image_id, downloaded_image) = match resolve_image_id(
+                &image_id,
+                &image_url,
+                &image_cache,
+            )
+            .await
+            {
                 Ok((id, maybe_image)) => {
                     if maybe_image.is_some() {
                         tracing::debug!(
@@ -583,32 +597,36 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     }
 }
 
-// When image_id is empty, fetches the image and computes the id; otherwise returns the existing id.
+// When image_id is empty, fetches the image and computes the id (or uses cache); otherwise returns the existing id.
 pub(crate) async fn resolve_image_id(
     image_id: &str,
     image_url: &str,
+    cache: &ImageCache,
 ) -> Result<(String, Option<Vec<u8>>), anyhow::Error> {
     if !image_id.is_empty() {
         return Ok((image_id.to_string(), None));
     }
     let url = override_gateway(image_url);
+    if let Some(id) = cache.get(&url).await {
+        return Ok((id, None));
+    }
     let image = fetch_url(&url).await?;
     let id = risc0_zkvm::compute_image_id(&image)?;
-    Ok((id.to_string(), Some(image)))
+    let id_str = id.to_string();
+    cache.insert(url, id_str.clone()).await;
+    Ok((id_str, Some(image)))
 }
 
-// Returns image bytes for upload: reuses `downloaded_image` when present, otherwise fetches from `image_url`.
+// Returns image bytes for upload: reuses `downloaded_image` when present, else fetches from `image_url`.
 pub(crate) async fn upload_image_bytes(
     downloaded_image: Option<Vec<u8>>,
     image_url: &str,
 ) -> Result<Vec<u8>, anyhow::Error> {
-    match downloaded_image {
-        Some(img) => Ok(img),
-        None => {
-            let url = override_gateway(image_url);
-            fetch_url(&url).await
-        }
+    if let Some(img) = downloaded_image {
+        return Ok(img);
     }
+    let url = override_gateway(image_url);
+    fetch_url(&url).await
 }
 
 async fn download_or_decode_input(
@@ -700,7 +718,8 @@ mod tests {
     async fn test_resolve_image_id_empty() {
         let url = format!("file://{}", ECHO_PATH);
         let expected_id = Digest::from(ECHO_ID).to_string();
-        let result = resolve_image_id("", &url).await;
+        let cache: ImageCache = Cache::builder().max_capacity(IMAGE_CACHE_MAX_ENTRIES).build();
+        let result = resolve_image_id("", &url, &cache).await;
         assert!(result.is_ok(), "empty image_id should trigger fetch and compute");
         let (image_id, downloaded_image) = result.unwrap();
         assert!(!image_id.is_empty(), "image_id should be recomputed");
@@ -715,7 +734,8 @@ mod tests {
         let existing_id = risc0_zkvm::compute_image_id(boundless_test_utils::guests::ECHO_ELF)
             .unwrap()
             .to_string();
-        let result = resolve_image_id(&existing_id, "http://dev.null/elf").await;
+        let cache: ImageCache = Cache::builder().max_capacity(IMAGE_CACHE_MAX_ENTRIES).build();
+        let result = resolve_image_id(&existing_id, "http://dev.null/elf", &cache).await;
         assert!(result.is_ok());
         let (image_id, downloaded_image) = result.unwrap();
         assert_eq!(image_id, existing_id);
