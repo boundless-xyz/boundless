@@ -296,6 +296,7 @@ pub fn compute_staking_data(
     // If a user existed in earlier epochs but doesn't have a position in the latest epoch,
     // it means they have fully withdrawn. We don't remove them entirely as we still
     // keep track of and display their other data like total_rewards_earned, etc.
+    // But we do reset their current state fields to reflect that they have fully withdrawn.
     let latest_positions = &latest_epoch.positions_by_staker;
     for aggregate in staker_aggregates.values_mut() {
         if !latest_positions.contains_key(&aggregate.staker_address) {
