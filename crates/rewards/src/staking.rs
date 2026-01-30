@@ -293,6 +293,19 @@ pub fn compute_staking_data(
     // Get latest epoch data for current stats
     let latest_epoch = epochs.last().ok_or_else(|| anyhow::anyhow!("No epoch data computed"))?;
 
+    // If a user existed in earlier epochs but doesn't have a position in the latest epoch,
+    // it means they have fully withdrawn. We don't remove them entirely as we still
+    // keep track of and display their other data like total_rewards_earned, etc.
+    let latest_positions = &latest_epoch.positions_by_staker;
+    for aggregate in staker_aggregates.values_mut() {
+        if !latest_positions.contains_key(&aggregate.staker_address) {
+            aggregate.current_staked = U256::ZERO;
+            aggregate.is_withdrawing = false;
+            aggregate.rewards_delegated_to = None;
+            aggregate.votes_delegated_to = None;
+        }
+    }
+
     let summary = StakingSummary {
         current_total_staked: latest_epoch.total_staked,
         total_unique_stakers: all_stakers_ever.len(),
@@ -440,121 +453,164 @@ fn create_epoch_snapshot(
     EpochStakingPositions { epoch, positions, total_staked, num_stakers, num_withdrawing }
 }
 
-// ============================================================================
-// Compatibility Functions (for gradual migration)
-// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::address;
+    use std::collections::HashMap;
 
-/// Legacy: Compute only staking positions (without rewards)
-pub fn compute_staking_positions(
-    timestamped_events: &[TimestampedStakeEvent],
-    current_epoch: u64,
-    processing_end_epoch: u64,
-) -> anyhow::Result<StakingPositionsResult> {
-    let positions = compute_positions(timestamped_events, current_epoch, processing_end_epoch)?;
-
-    // Convert to legacy format
-    let epoch_positions = positions
-        .into_iter()
-        .map(|p| EpochStakingPositions {
-            epoch: p.epoch,
-            positions: p.positions,
-            total_staked: p.total_staked,
-            num_stakers: p.num_stakers,
-            num_withdrawing: p.num_withdrawing,
-        })
-        .collect::<Vec<_>>();
-
-    // Get latest for summary
-    let latest = epoch_positions.last().ok_or_else(|| anyhow::anyhow!("No epoch data"))?;
-
-    // Count unique stakers
-    let mut all_stakers = HashSet::new();
-    for epoch in &epoch_positions {
-        for address in epoch.positions.keys() {
-            all_stakers.insert(*address);
+    fn make_event(epoch: u64, event: StakeEvent) -> TimestampedStakeEvent {
+        TimestampedStakeEvent {
+            block_number: epoch * 100,
+            block_timestamp: epoch * 1000,
+            transaction_index: 0,
+            log_index: 0,
+            epoch,
+            event,
         }
     }
 
-    let summary = StakingSummary {
-        current_total_staked: latest.total_staked,
-        total_unique_stakers: all_stakers.len(),
-        current_active_stakers: latest.num_stakers,
-        current_withdrawing: latest.num_withdrawing,
-        total_staking_emissions_all_time: U256::ZERO, // Not computed in legacy
-        total_unique_reward_recipients: 0,            // Not computed in legacy
-    };
+    #[test]
+    fn test_per_epoch_positions_correct_after_unstake_completed() {
+        // This test confirms that per-epoch position data is correct:
+        // - User appears in epochs where they have a position
+        // - User does NOT appear in epochs after UnstakeCompleted
+        let alice = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let stake_amount = U256::from(100);
 
-    Ok(StakingPositionsResult { epoch_positions, summary })
-}
+        let events = vec![
+            make_event(1, StakeEvent::Created { owner: alice, amount: stake_amount }),
+            make_event(3, StakeEvent::UnstakeInitiated { owner: alice }),
+            make_event(4, StakeEvent::UnstakeCompleted { owner: alice }),
+        ];
 
-/// Legacy result structure (kept for compatibility)
-#[derive(Debug, Clone)]
-pub struct StakingPositionsResult {
-    pub epoch_positions: Vec<EpochStakingPositions>,
-    pub summary: StakingSummary,
-}
+        let result = compute_staking_data(
+            5, // current_epoch
+            5, // processing_end_epoch
+            &events,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .unwrap();
 
-pub fn compute_staking_rewards(
-    current_epoch: u64,
-    processing_end_epoch: u64,
-    staking_emissions_by_epoch: &HashMap<u64, U256>,
-    staking_power_by_address_by_epoch: &HashMap<(Address, u64), U256>,
-    total_staking_power_by_epoch: &HashMap<u64, U256>,
-) -> anyhow::Result<StakingRewardsResult> {
-    // Use the new unified function internally
-    let data = compute_staking_data(
-        current_epoch,
-        processing_end_epoch,
-        &[], // No events needed for just rewards
-        staking_emissions_by_epoch,
-        staking_power_by_address_by_epoch,
-        total_staking_power_by_epoch,
-    )?;
+        // Epoch 1: Alice should be present, not withdrawing
+        let epoch1 = result.epochs.iter().find(|e| e.epoch == 1).unwrap();
+        assert!(epoch1.positions_by_staker.contains_key(&alice));
+        assert_eq!(epoch1.positions_by_staker[&alice].staked_amount, stake_amount);
+        assert!(!epoch1.positions_by_staker[&alice].is_withdrawing);
 
-    // Convert to legacy format
-    let epoch_rewards: Vec<EpochStakingRewards> = data
-        .epochs
-        .into_iter()
-        .map(|e| EpochStakingRewards {
-            epoch: e.epoch,
-            total_staking_emissions: e.total_staking_emissions,
-            total_staking_power: e.total_staking_power,
-            rewards_by_staker: e.rewards_by_address,
-            num_participants: e.num_reward_recipients,
-        })
-        .collect();
+        // Epoch 3: Alice should be present AND withdrawing
+        let epoch3 = result.epochs.iter().find(|e| e.epoch == 3).unwrap();
+        assert!(epoch3.positions_by_staker.contains_key(&alice));
+        assert!(epoch3.positions_by_staker[&alice].is_withdrawing);
 
-    let total_epochs = epoch_rewards.len();
-    let summary = StakingRewardsSummary {
-        total_epochs_with_rewards: total_epochs,
-        total_unique_stakers: data.summary.total_unique_reward_recipients,
-        total_staking_emissions_all_time: data.summary.total_staking_emissions_all_time,
-    };
+        // Epoch 4: Alice completed unstake - should NOT be in positions
+        let epoch4 = result.epochs.iter().find(|e| e.epoch == 4).unwrap();
+        assert!(
+            !epoch4.positions_by_staker.contains_key(&alice),
+            "Alice should not appear in epoch 4 after UnstakeCompleted"
+        );
 
-    Ok(StakingRewardsResult { epoch_rewards, summary })
-}
+        // Epoch 5: Alice should still NOT be in positions
+        let epoch5 = result.epochs.iter().find(|e| e.epoch == 5).unwrap();
+        assert!(
+            !epoch5.positions_by_staker.contains_key(&alice),
+            "Alice should not appear in epoch 5 after UnstakeCompleted"
+        );
 
-/// Legacy: Rewards for a single epoch
-#[derive(Debug, Clone)]
-pub struct EpochStakingRewards {
-    pub epoch: u64,
-    pub total_staking_emissions: U256,
-    pub total_staking_power: U256,
-    pub rewards_by_staker: HashMap<Address, StakerRewardInfo>,
-    pub num_participants: usize,
-}
+        // Summary should show 0 current stakers since Alice withdrew
+        assert_eq!(result.summary.current_active_stakers, 0);
+        assert_eq!(result.summary.current_total_staked, U256::ZERO);
+    }
 
-/// Legacy: Summary for rewards only
-#[derive(Debug, Clone)]
-pub struct StakingRewardsSummary {
-    pub total_epochs_with_rewards: usize,
-    pub total_unique_stakers: usize,
-    pub total_staking_emissions_all_time: U256,
-}
+    #[test]
+    fn test_staker_aggregate_correct_after_unstake_completed() {
+        let alice = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let stake_amount = U256::from(100);
 
-/// Legacy: Result structure for rewards
-#[derive(Debug, Clone)]
-pub struct StakingRewardsResult {
-    pub epoch_rewards: Vec<EpochStakingRewards>,
-    pub summary: StakingRewardsSummary,
+        let events = vec![
+            make_event(1, StakeEvent::Created { owner: alice, amount: stake_amount }),
+            make_event(3, StakeEvent::UnstakeInitiated { owner: alice }),
+            make_event(4, StakeEvent::UnstakeCompleted { owner: alice }),
+        ];
+
+        let result = compute_staking_data(
+            5, // current_epoch
+            5, // processing_end_epoch
+            &events,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        // Alice should still have an aggregate entry (she participated in epochs 1-3)
+        assert!(
+            result.staker_aggregates.contains_key(&alice),
+            "Alice should have an aggregate entry"
+        );
+
+        let alice_aggregate = &result.staker_aggregates[&alice];
+
+        // After completing withdrawal, current_staked should be 0
+        assert_eq!(
+            alice_aggregate.current_staked,
+            U256::ZERO,
+            "current_staked should be 0 after UnstakeCompleted"
+        );
+
+        // After completing withdrawal, is_withdrawing should be false
+        assert!(
+            !alice_aggregate.is_withdrawing,
+            "is_withdrawing should be false after UnstakeCompleted"
+        );
+
+        // She participated in 2 epochs (1 and 3) where events occurred
+        // Note: epoch 2 has no events so no snapshot is created for it
+        assert_eq!(alice_aggregate.epochs_participated, 2);
+    }
+
+    #[test]
+    fn test_restake_after_unstake_completed_in_same_epoch() {
+        // If someone completes unstake and then stakes again in the same epoch,
+        // they should appear in that epoch's positions with the new stake
+        let alice = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let initial_stake = U256::from(100);
+        let new_stake = U256::from(50);
+
+        let events = vec![
+            make_event(1, StakeEvent::Created { owner: alice, amount: initial_stake }),
+            make_event(2, StakeEvent::UnstakeInitiated { owner: alice }),
+            // Both events in epoch 3
+            make_event(3, StakeEvent::UnstakeCompleted { owner: alice }),
+            make_event(3, StakeEvent::Created { owner: alice, amount: new_stake }),
+        ];
+
+        let result = compute_staking_data(
+            4, // current_epoch
+            4, // processing_end_epoch
+            &events,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        // Epoch 3: Alice should be present with new stake, not withdrawing
+        let epoch3 = result.epochs.iter().find(|e| e.epoch == 3).unwrap();
+        assert!(epoch3.positions_by_staker.contains_key(&alice));
+        assert_eq!(epoch3.positions_by_staker[&alice].staked_amount, new_stake);
+        assert!(!epoch3.positions_by_staker[&alice].is_withdrawing);
+
+        // Epoch 4: Alice should still be staked
+        let epoch4 = result.epochs.iter().find(|e| e.epoch == 4).unwrap();
+        assert!(epoch4.positions_by_staker.contains_key(&alice));
+        assert_eq!(epoch4.positions_by_staker[&alice].staked_amount, new_stake);
+
+        // Aggregate should reflect current stake
+        let alice_aggregate = &result.staker_aggregates[&alice];
+        assert_eq!(alice_aggregate.current_staked, new_stake);
+        assert!(!alice_aggregate.is_withdrawing);
+    }
 }
