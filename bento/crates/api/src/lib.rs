@@ -679,7 +679,9 @@ async fn blake3_groth16_status(
             }));
         }
     }
-    let (error_msg, output) = match job_state_result.context("Failed to get job state")? {
+    let job_state = job_state_result.context("Failed to get job state")?;
+
+    let (error_msg, output) = match job_state {
         JobState::Running => (None, None),
         JobState::Done => {
             (None, Some(format!("http://{hostname}/receipts/shrink_bitvm2/receipt/{job_id}")))
