@@ -63,6 +63,10 @@ pub struct PriceOracleConfig {
     pub eth_usd: PriceValue,
     /// ZKC/USD price: "auto" for dynamic or a static value like "1.00"
     pub zkc_usd: PriceValue,
+    /// Maximum seconds without a successful price update before prover exits.
+    /// This prevents the system from operating with stale prices when all sources are failing.
+    /// Set to 0 to disable this check.
+    pub max_secs_without_price_update: u64,
     /// Refresh interval in seconds
     pub refresh_interval_secs: u64,
     /// HTTP/RPC timeout in seconds
@@ -84,6 +88,7 @@ impl Default for PriceOracleConfig {
         Self {
             eth_usd: PriceValue::Auto,
             zkc_usd: PriceValue::Auto,
+            max_secs_without_price_update: 7200,
             refresh_interval_secs: 60,
             timeout_secs: 10,
             aggregation_mode: AggregationMode::Priority,
@@ -160,7 +165,7 @@ impl PriceOracleConfig {
         // Build ZKC/USD oracle
         let zkc_usd = self.build_oracle_for_pair(TradingPair::ZkcUsd, &self.zkc_usd, provider.clone())?;
 
-        Ok(PriceOracleManager::new(eth_usd, zkc_usd, self.refresh_interval_secs))
+        Ok(PriceOracleManager::new(eth_usd, zkc_usd, self.refresh_interval_secs, self.max_secs_without_price_update))
     }
 
     fn build_oracle_for_pair<P>(

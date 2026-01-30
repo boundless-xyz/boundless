@@ -11,7 +11,9 @@ pub struct PriceOracleManager {
     /// ZKC/USD price oracle
     pub zkc_usd: Arc<CachedPriceOracle>,
     /// Refresh interval for background price updates
-    refresh_interval: Duration,
+    refresh_interval: u64,
+    /// Maximum time without a successful price update before the refresh task exits
+    max_time_without_update: u64,
 }
 
 impl PriceOracleManager {
@@ -20,11 +22,13 @@ impl PriceOracleManager {
         eth_usd: Arc<CachedPriceOracle>,
         zkc_usd: Arc<CachedPriceOracle>,
         refresh_interval_secs: u64,
+        max_secs_without_price_update: u64,
     ) -> Self {
         Self {
             eth_usd,
             zkc_usd,
-            refresh_interval: Duration::from_secs(refresh_interval_secs),
+            refresh_interval: refresh_interval_secs,
+            max_time_without_update: max_secs_without_price_update,
         }
     }
 
@@ -46,6 +50,7 @@ impl PriceOracleManager {
         let eth_usd = self.eth_usd.clone();
         let zkc_usd = self.zkc_usd.clone();
         let refresh_interval = self.refresh_interval;
+        let max_time_without_update = self.max_time_without_update;
 
         // Do an initial refresh immediately
         tokio::join!(
@@ -54,9 +59,9 @@ impl PriceOracleManager {
         );
 
         tokio::spawn(async move {
-            tracing::info!("Price oracle refresh task started (interval: {}s)", refresh_interval.as_secs());
+            tracing::info!("Price oracle refresh task started (interval: {}s)", refresh_interval);
 
-            let mut ticker = tokio::time::interval(refresh_interval);
+            let mut ticker = tokio::time::interval(Duration::from_secs(refresh_interval));
             ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
             loop {
@@ -66,6 +71,23 @@ impl PriceOracleManager {
                             eth_usd.refresh_price(),
                             zkc_usd.refresh_price(),
                         );
+
+                        // After refresh, check if we've gone too long without a successful update (if enabled)
+                        if max_time_without_update > 0 {
+                            let eth_quote = eth_usd.get_cached_price().await;
+                            let zkc_quote = zkc_usd.get_cached_price().await;
+
+                            // TODO: we need to use this to trigger a shutdown of the entire service
+                            if eth_quote.is_none_or(|q| q.is_stale(max_time_without_update))
+                            || zkc_quote.is_none_or(|q| q.is_stale(max_time_without_update)) {
+                                tracing::error!(
+                                    "Prices haven't been updated for too long (ETH: , ZKC: {} @ {}), exiting price oracle",
+                                    eth_quote.map_or("stale".to_string(), |q| format!("{} @ {}", q.price, q.timestamp_to_human_readable())),
+                                    zkc_quote.map_or("stale".to_string(), |q| format!("{} @ {}", q.price, q.timestamp_to_human_readable())),
+                                );
+                                break;
+                            }
+                        }
                     }
                     _ = cancel_token.cancelled() => {
                         tracing::info!("Price oracle refresh task shutting down");
@@ -148,7 +170,7 @@ mod tests {
         let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
         let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
 
-        let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 60);
+        let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 60, 600);
 
         // Spawn the refresh task
         let cancel_token = CancellationToken::new();
@@ -179,8 +201,8 @@ mod tests {
         let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
         let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
 
-        // Use 1 second refresh interval
-        let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 1);
+        // Use 1 second refresh interval, disable staleness check (0) for this timing-sensitive test
+        let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 1, 0);
 
         let cancel_token = CancellationToken::new();
         let handle = manager.spawn_refresh_tasks(cancel_token.clone()).await;
@@ -232,6 +254,49 @@ mod tests {
         // Cleanup
         cancel_token.cancel();
         handle.await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_spawn_refresh_task_exits_on_stale_cache() -> anyhow::Result<()> {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_test_writer()
+            .try_init()
+            .ok();
+
+        // Create mock oracles that will fail to update (simulate all sources down)
+        let eth_oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
+        let zkc_oracle = Arc::new(MockOracle::new(U256::from(100000000u128)));
+
+        let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
+        let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
+
+        // First populate the cache with an old price by temporarily using non-erroring oracles
+        eth_oracle.should_error.store(false, Ordering::SeqCst);
+        zkc_oracle.should_error.store(false, Ordering::SeqCst);
+        let _ = eth_cached.refresh_price().await;
+        let _ = zkc_cached.refresh_price().await;
+
+        // Now make them error
+        eth_oracle.should_error.store(true, Ordering::SeqCst);
+        zkc_oracle.should_error.store(true, Ordering::SeqCst);
+
+        // Create manager with short cache age limit and refresh interval
+        // max_cache_age_secs = 2 seconds, refresh_interval = 1 second
+        let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 1, 2);
+
+        let cancel_token = CancellationToken::new();
+        let handle = manager.spawn_refresh_tasks(cancel_token.clone()).await;
+
+        // Wait longer than the cache age limit
+        // After initial refresh + 3 more ticks = 4 seconds total, which exceeds the 2 second limit
+        tokio::time::sleep(Duration::from_secs(4)).await;
+
+        // Check that the task has completed (not just cancelled)
+        let result = tokio::time::timeout(Duration::from_millis(100), handle).await;
+        assert!(result.is_ok(), "Task should have exited due prices not being refreshed for too long");
 
         Ok(())
     }

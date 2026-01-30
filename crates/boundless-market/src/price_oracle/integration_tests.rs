@@ -73,6 +73,7 @@ fn build_config(mode: AggregationMode) -> PriceOracleConfig {
         aggregation_mode: mode,
         min_sources: 1,
         max_staleness_secs: 3600,
+        max_secs_without_price_update: 600,
         onchain: Some(OnChainConfig {
             chainlink: Some(ChainlinkConfig {
                 enabled: true,

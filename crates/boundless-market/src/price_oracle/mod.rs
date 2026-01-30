@@ -242,7 +242,7 @@ mod tests {
         // Negative price should error
         let result = scale_price_from_f64(-100.0);
         assert!(result.is_err());
-        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+        assert!(matches!(result, Err(PriceOracleError::InvalidPrice(_))));
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
         // NaN should error
         let result = scale_price_from_f64(f64::NAN);
         assert!(result.is_err());
-        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+        assert!(matches!(result, Err(PriceOracleError::InvalidPrice(_))));
     }
 
     #[test]
@@ -258,7 +258,7 @@ mod tests {
         // Infinity should error
         let result = scale_price_from_f64(f64::INFINITY);
         assert!(result.is_err());
-        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+        assert!(matches!(result, Err(PriceOracleError::InvalidPrice(_))));
     }
 
     // Tests for scale_price_from_i256
@@ -291,7 +291,7 @@ mod tests {
         // Zero value should error
         let result = scale_price_from_i256(I256::ZERO, 8);
         assert!(result.is_err());
-        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+        assert!(matches!(result, Err(PriceOracleError::InvalidPrice(_))));
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod tests {
         let price_raw = I256::try_from(-100).unwrap();
         let result = scale_price_from_i256(price_raw, 8);
         assert!(result.is_err());
-        assert!(matches!(result, Err(PriceOracleError::Internal(_))));
+        assert!(matches!(result, Err(PriceOracleError::InvalidPrice(_))));
     }
 
     // Tests for WithStalenessCheck wrapper

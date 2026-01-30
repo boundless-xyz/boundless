@@ -48,7 +48,7 @@ impl PriceOracle for CachedPriceOracle {
         }
 
         // If not in cache, fetch from oracle and cache it.
-        // In practice this should never happen, as we fetch when we initialize the spawn_refresh_task.
+        // In practice this should never happen, as we fetch when we initialize the oracle.
         tracing::warn!("Cache miss, fetching from oracle");
 
         let quote = self.oracle.get_price().await?;
