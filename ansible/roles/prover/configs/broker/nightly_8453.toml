@@ -5,6 +5,7 @@ min_mcycle_price_collateral_token = "0"
 peak_prove_khz = 8000
 priority_requestor_lists = [
     "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
+    "https://requestors.boundless.network/boundless-recommended-priority-list.large.json",
 ]
 max_collateral = "200"
 max_concurrent_preflights = 4

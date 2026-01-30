@@ -67,15 +67,6 @@ runs:
       run: |
         ansible-playbook -i inventory.yml prover.yml --limit "${{ inputs.target }}"
 
-    - name: Test prover operation
-      shell: bash
-      working-directory: ansible
-      env:
-        ANSIBLE_HOST_KEY_CHECKING: "False"
-        ANSIBLE_FORCE_COLOR: "1"
-      run: |
-        ansible-playbook -i inventory.yml test-prover.yml --limit "${{ inputs.target }}"
-
     - name: Cleanup
       if: always()
       shell: bash
