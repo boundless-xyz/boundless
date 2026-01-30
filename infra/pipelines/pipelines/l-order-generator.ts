@@ -7,7 +7,7 @@ interface LOrderGeneratorPipelineArgs extends BasePipelineArgs { }
 const config: LaunchPipelineConfig = {
   appName: "order-generator",
   buildTimeout: 60,
-  computeType: "BUILD_GENERAL1_MEDIUM"
+  computeType: "BUILD_GENERAL1_LARGE"
 };
 
 export class LOrderGeneratorPipeline extends LaunchDefaultPipeline {
