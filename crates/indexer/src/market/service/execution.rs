@@ -20,8 +20,7 @@ use crate::market::service::IndexerServiceExecutionConfig;
 use alloy::primitives::{B256, U256};
 use anyhow::{anyhow, Result};
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
-use boundless_market::storage::{StorageDownloader, StorageError};
-use boundless_market::{StandardDownloader, StorageDownloaderConfig};
+use boundless_market::storage::{fetch_url, override_gateway};
 use broker::futures_retry::retry;
 use bytes::Bytes;
 use std::collections::{HashMap, HashSet};
@@ -50,7 +49,6 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         risc0_zkvm::VERSION,
     )
     .unwrap();
-    let downloader = downloader_from_config(&config).await;
 
     let mut num_iterations: u32 = 1;
 
@@ -156,13 +154,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 continue;
             }
             // When the predicate is of type ClaimDigestMatch, image_id is empty so we download the image to compute it.
-            let (image_id, downloaded_image) = match resolve_image_id(
-                &image_id,
-                &image_url,
-                &downloader,
-            )
-            .await
-            {
+            let (image_id, downloaded_image) = match resolve_image_id(&image_id, &image_url).await {
                 Ok((id, maybe_image)) => {
                     if maybe_image.is_some() {
                         tracing::debug!(
@@ -189,11 +181,11 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
             // Obtain the request input from either the URL or the inline data
             let input: Bytes = match download_or_decode_input(
+                &config,
                 request_id,
                 request_digest,
                 &input_type,
                 &input_data,
-                &downloader,
             )
             .await
             {
@@ -291,12 +283,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             // If the image doesn't exist, use already-downloaded bytes when available
             // or download it from its URL, and upload it via the bento API.
             if !image_response {
-                let image: Vec<u8> = match upload_image_bytes(
-                    downloaded_image.clone(),
-                    &image_url,
-                    &downloader,
-                )
-                .await
+                let image: Vec<u8> = match upload_image_bytes(downloaded_image.clone(), &image_url)
+                    .await
                 {
                     Ok(bytes) => {
                         if downloaded_image.is_some() {
@@ -595,46 +583,40 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     }
 }
 
-// When image_id is empty, downloads the image and computes the id; otherwise returns the existing id
-async fn resolve_image_id<D: StorageDownloader>(
+// When image_id is empty, fetches the image and computes the id; otherwise returns the existing id.
+pub(crate) async fn resolve_image_id(
     image_id: &str,
     image_url: &str,
-    downloader: &D,
 ) -> Result<(String, Option<Vec<u8>>), anyhow::Error> {
     if !image_id.is_empty() {
         return Ok((image_id.to_string(), None));
     }
-    let image = downloader.download(image_url).await?;
+    let url = override_gateway(image_url);
+    let image = fetch_url(&url).await?;
     let id = risc0_zkvm::compute_image_id(&image)?;
     Ok((id.to_string(), Some(image)))
 }
 
-// Returns image bytes for upload: reuses `downloaded_image` when present otherwise downloads from `image_url`.
-async fn upload_image_bytes<D: StorageDownloader>(
+// Returns image bytes for upload: reuses `downloaded_image` when present, otherwise fetches from `image_url`.
+pub(crate) async fn upload_image_bytes(
     downloaded_image: Option<Vec<u8>>,
     image_url: &str,
-    downloader: &D,
-) -> Result<Vec<u8>, StorageError> {
+) -> Result<Vec<u8>, anyhow::Error> {
     match downloaded_image {
         Some(img) => Ok(img),
-        None => downloader.download(image_url).await,
+        None => {
+            let url = override_gateway(image_url);
+            fetch_url(&url).await
+        }
     }
 }
 
-async fn downloader_from_config(config: &IndexerServiceExecutionConfig) -> StandardDownloader {
-    StandardDownloader::from_config(StorageDownloaderConfig {
-        max_retries: Some(config.bento_retry_count.min(u8::MAX as u64) as u8),
-        ..Default::default()
-    })
-    .await
-}
-
 async fn download_or_decode_input(
+    config: &IndexerServiceExecutionConfig,
     request_id: Option<U256>,
     request_digest: B256,
     input_type: &String,
     input_data: &str,
-    downloader: &StandardDownloader,
 ) -> Result<Bytes> {
     if input_type != "Url" && input_type != "Inline" {
         return Err(anyhow!(
@@ -663,7 +645,13 @@ async fn download_or_decode_input(
             request_digest,
             decoded_url
         );
-        let input = downloader.download(&decoded_url).await?;
+        let input = retry(
+            config.bento_retry_count,
+            config.bento_retry_sleep_ms,
+            || async { fetch_url(&decoded_url).await },
+            "fetch_url",
+        )
+        .await?;
         tracing::debug!(
             "Downloaded input for request id='{}', digest={:x}",
             fmt_request_id(request_id),
@@ -691,50 +679,9 @@ async fn download_or_decode_input(
 mod tests {
     use super::*;
     use boundless_market::input::GuestEnv;
-    use boundless_market::storage::{StorageDownloader, StorageError};
+    use std::io::Write;
     use std::time::Duration;
-    use url::Url;
-
-    // Downloader that returns fixed bytes; used to test that empty image_id triggers
-    // download and recompute.
-    struct FixedDownloader<'a>(&'a [u8]);
-
-    #[async_trait::async_trait]
-    impl StorageDownloader for FixedDownloader<'_> {
-        async fn download_url_with_limit(
-            &self,
-            _url: Url,
-            limit: usize,
-        ) -> Result<Vec<u8>, StorageError> {
-            let bytes = self.0;
-            if bytes.len() <= limit {
-                Ok(bytes.to_vec())
-            } else {
-                Err(StorageError::SizeLimitExceeded { size: bytes.len(), limit })
-            }
-        }
-        async fn download_url(&self, _url: Url) -> Result<Vec<u8>, StorageError> {
-            Ok(self.0.to_vec())
-        }
-    }
-
-    // Downloader that always fails; used to assert we do not call the downloader when
-    // we already have image bytes (empty image_id path).
-    struct FailDownloader;
-
-    #[async_trait::async_trait]
-    impl StorageDownloader for FailDownloader {
-        async fn download_url_with_limit(
-            &self,
-            _url: Url,
-            _limit: usize,
-        ) -> Result<Vec<u8>, StorageError> {
-            Err(StorageError::InvalidUrl("test"))
-        }
-        async fn download_url(&self, _url: Url) -> Result<Vec<u8>, StorageError> {
-            Err(StorageError::InvalidUrl("test"))
-        }
-    }
+    use tempfile::NamedTempFile;
 
     fn test_config() -> IndexerServiceExecutionConfig {
         IndexerServiceExecutionConfig {
@@ -751,12 +698,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_image_id_empty() {
-        // When image_id is empty we must download the image and compute the id from it.
+        // When image_id is empty we fetch the image and compute the id from it.
+        std::env::set_var("RISC0_DEV_MODE", "1");
         let elf = boundless_test_utils::guests::ECHO_ELF;
-        let downloader = FixedDownloader(elf);
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(elf).unwrap();
+        f.flush().unwrap();
+        let url = format!("file://{}", f.path().display());
         let expected_id = risc0_zkvm::compute_image_id(elf).unwrap().to_string();
-        let result = resolve_image_id("", "http://dev.null/elf", &downloader).await;
-        assert!(result.is_ok(), "empty image_id should trigger download and compute");
+        let result = resolve_image_id("", &url).await;
+        assert!(result.is_ok(), "empty image_id should trigger fetch and compute");
         let (image_id, downloaded_image) = result.unwrap();
         assert!(!image_id.is_empty(), "image_id should be recomputed");
         assert_eq!(image_id, expected_id);
@@ -765,33 +716,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_image_id() {
-        let elf = boundless_test_utils::guests::ECHO_ELF;
-        let downloader = FailDownloader;
-        let existing_id = risc0_zkvm::compute_image_id(elf).unwrap().to_string();
-        let result = resolve_image_id(&existing_id, "http://dev.null/elf", &downloader).await;
+    async fn test_resolve_image_id_set() {
+        // When image_id is set we do not fetch.
+        let existing_id = risc0_zkvm::compute_image_id(boundless_test_utils::guests::ECHO_ELF)
+            .unwrap()
+            .to_string();
+        let result = resolve_image_id(&existing_id, "http://invalid.invalid/").await;
         assert!(result.is_ok());
         let (image_id, downloaded_image) = result.unwrap();
         assert_eq!(image_id, existing_id);
-        assert!(downloaded_image.is_none(), "should not download when image_id is set");
+        assert!(downloaded_image.is_none());
     }
 
     #[tokio::test]
     async fn test_upload_image_bytes_reuse() {
-        // When image_id was empty we download once and keep bytes, upload path must reuse them
-        let downloader = FailDownloader;
         let bytes = vec![1u8, 2, 3, 4, 5];
-        let result =
-            upload_image_bytes(Some(bytes.clone()), "http://dev.null/elf", &downloader).await;
-        assert!(result.is_ok(), "should succeed by reusing bytes, not by downloading");
+        let result = upload_image_bytes(Some(bytes.clone()), "http://invalid/").await;
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), bytes);
     }
 
     #[tokio::test]
     async fn test_upload_image_bytes_fetch() {
-        // When we have no cached bytes we must call the downloader
-        let downloader = FailDownloader;
-        let result = upload_image_bytes(None, "http://dev.null/elf", &downloader).await;
+        let result = upload_image_bytes(None, "http://invalid.invalid/").await;
         assert!(result.is_err());
     }
 
@@ -810,11 +757,11 @@ mod tests {
 
         // Decode it
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
-            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -837,11 +784,11 @@ mod tests {
 
         // Decode it
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
-            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -861,11 +808,11 @@ mod tests {
 
         // Decode it
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
-            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -880,11 +827,11 @@ mod tests {
 
         // Invalid hex string
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             "0xGGGG",
-            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -901,11 +848,11 @@ mod tests {
         let hex_input = format!("0x{}", hex::encode(&invalid_data));
 
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
-            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -919,11 +866,11 @@ mod tests {
 
         // Empty hex input (decodes to empty byte array)
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             "0x",
-            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -943,11 +890,11 @@ mod tests {
         let hex_input = format!("0x{}", hex::encode(&v0_encoded));
 
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Inline".to_string(),
             &hex_input,
-            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -982,11 +929,11 @@ mod tests {
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Url".to_string(),
             &hex_url,
-            &downloader_from_config(&config).await,
         )
         .await
         .unwrap();
@@ -1007,11 +954,11 @@ mod tests {
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Url".to_string(),
             &hex_url,
-            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -1040,11 +987,11 @@ mod tests {
         let hex_url = format!("0x{}", hex::encode(url.as_bytes()));
 
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Url".to_string(),
             &hex_url,
-            &downloader_from_config(&config).await,
         )
         .await;
 
@@ -1058,11 +1005,11 @@ mod tests {
 
         // Invalid input type
         let result = download_or_decode_input(
+            &config,
             Some(U256::from(1)),
             request_digest,
             &"Unsupported".to_string(),
             "0x",
-            &downloader_from_config(&config).await,
         )
         .await;
 

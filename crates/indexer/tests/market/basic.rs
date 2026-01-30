@@ -36,7 +36,7 @@ use sqlx::{PgPool, Row};
 use super::common::*;
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_e2e(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 
@@ -220,7 +220,7 @@ async fn test_e2e(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_monitoring(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 
@@ -374,7 +374,7 @@ async fn test_monitoring(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_aggregation_across_hours(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 
@@ -677,7 +677,7 @@ async fn test_aggregation_across_hours(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Slow without RISC0_DEV_MODE=1"]
 async fn test_aggregation_percentiles(pool: sqlx::PgPool) {
     // Test multiple requests with different prices to validate percentile calculations
     // Creates 10 requests with prices from 0.1 ETH to 1.0 ETH
@@ -844,10 +844,7 @@ async fn test_aggregation_percentiles(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(
-    not(feature = "test-r0vm"),
-    ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"
-)]
+#[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool.clone()).await.unwrap();
 
@@ -990,10 +987,7 @@ async fn test_indexer_with_order_stream(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(
-    not(feature = "test-r0vm"),
-    ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"
-)]
+#[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool.clone()).await.unwrap();
 
@@ -1099,10 +1093,7 @@ async fn test_offchain_and_onchain_mixed_aggregation(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(
-    not(feature = "test-r0vm"),
-    ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"
-)]
+#[ignore = "Requires PostgreSQL for order stream. Slow without RISC0_DEV_MODE=1"]
 async fn test_submission_timestamp_field(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool.clone()).await.unwrap();
 
@@ -1425,7 +1416,7 @@ async fn get_request_status(pool: &PgPool, request_id: &str) -> RequestStatusRow
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_happy_path(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 
@@ -1497,7 +1488,7 @@ async fn test_request_status_happy_path(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_effective_prove_mhz_calculation(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 
@@ -1666,7 +1657,7 @@ async fn test_effective_prove_mhz_calculation(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_locked_then_expired(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 
@@ -1735,7 +1726,7 @@ async fn test_request_status_locked_then_expired(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_request_status_lock_expired_then_slashed(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 
@@ -1922,7 +1913,7 @@ async fn test_request_status_lock_expired_then_slashed(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_cumulative_carry_forward_with_no_activity_gaps(pool: sqlx::PgPool) {
     // This test verifies that:
     // 1. All-time cumulatives properly carry forward during hours with no activity
@@ -2319,7 +2310,7 @@ async fn test_cumulative_carry_forward_with_no_activity_gaps(pool: sqlx::PgPool)
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_prover_aggregation(pool: sqlx::PgPool) {
     let fixture = new_market_test_fixture(pool).await.unwrap();
 

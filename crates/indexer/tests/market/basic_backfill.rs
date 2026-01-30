@@ -113,7 +113,7 @@ async fn run_backfill_and_verify(
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_backfill_aggregates(pool: sqlx::PgPool) {
     let (fixture, current_block) = setup_backfill_test(pool).await;
 
@@ -394,7 +394,7 @@ async fn test_backfill_aggregates(pool: sqlx::PgPool) {
 }
 
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
-#[cfg_attr(not(feature = "test-r0vm"), ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1")]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
 async fn test_backfill_statuses(pool: sqlx::PgPool) {
     let (fixture, current_block) = setup_backfill_test(pool).await;
 

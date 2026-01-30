@@ -27,8 +27,7 @@ use atomicwrites::{AtomicFile, OverwriteBehavior};
 use boundless_povw::log_updater::IPovwAccounting::{self, WorkLogUpdated};
 use num_enum::TryFromPrimitive;
 use risc0_povw::{
-    guest::{Journal as LogBuilderJournal, RISC0_POVW_LOG_BUILDER_ID},
-    PovwLogId, WorkLog,
+    guest::Journal as LogBuilderJournal, guest::RISC0_POVW_LOG_BUILDER_ID, PovwLogId, WorkLog,
 };
 use risc0_zkvm::{Digest, Receipt, VerifierContext};
 use serde::{Deserialize, Serialize};

@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    config::{GlobalConfig, ProverConfig},
-    config_ext::ProverConfigExt,
-    display::{network_name_from_chain_id, DisplayManager},
-};
 use alloy::primitives::U256;
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_market::{contracts::RequestInputType, input::GuestEnv};
+use boundless_market::{contracts::RequestInputType, input::GuestEnv, storage::fetch_url};
 use clap::Args;
 use risc0_zkvm::compute_image_id;
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::{postgres::PgPool, postgres::PgPoolOptions};
+
+use crate::config::{GlobalConfig, ProverConfig};
+use crate::config_ext::ProverConfigExt;
+use crate::display::{network_name_from_chain_id, DisplayManager};
 
 /// Benchmark proof requests
 #[derive(Args, Clone, Debug)]
@@ -110,7 +109,7 @@ impl ProverBenchmark {
             tracing::debug!("Image URL: {}", request.imageUrl);
 
             display.status("Status", "Fetching program and input", "yellow");
-            let elf = client.download(&request.imageUrl).await?;
+            let elf = fetch_url(&request.imageUrl).await?;
 
             tracing::debug!("Processing input");
             let input = match request.input.inputType {
@@ -119,7 +118,7 @@ impl ProverBenchmark {
                     let input_url = std::str::from_utf8(&request.input.data)
                         .context("Input URL is not valid UTF-8")?;
                     tracing::debug!("Fetching input from {}", input_url);
-                    GuestEnv::decode(&client.download(input_url).await?)?.stdin
+                    GuestEnv::decode(&fetch_url(input_url).await?)?.stdin
                 }
                 _ => bail!("Unsupported input type"),
             };

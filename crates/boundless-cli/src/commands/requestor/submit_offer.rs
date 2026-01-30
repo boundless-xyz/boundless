@@ -18,11 +18,13 @@ use boundless_market::{
     input::GuestEnvBuilder,
     request_builder::{OfferParams as OfferParamsStruct, RequirementParams},
     selector::{ProofType, SelectorExt},
-    storage::StorageUploaderConfig,
+    storage::StorageProviderConfig,
 };
 use clap::Args;
 use serde_json;
-use std::{borrow::Cow, path::PathBuf, time::Duration};
+use std::borrow::Cow;
+use std::path::PathBuf;
+use std::time::Duration;
 use url::Url;
 
 use crate::config::{GlobalConfig, RequestorConfig};
@@ -61,9 +63,9 @@ pub struct RequestorSubmitOffer {
     /// Offer parameters for the request
     pub offer_params: OfferParamsStruct,
 
-    /// Configuration for the uploader used for programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Uploader")]
-    pub storage_config: StorageUploaderConfig,
+    /// Configuration for the StorageProvider to use for uploading programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    pub storage_config: StorageProviderConfig,
 
     #[clap(flatten)]
     pub requestor_config: RequestorConfig,
@@ -127,7 +129,7 @@ impl RequestorSubmitOffer {
         // Resolve the program from command line arguments
         let request = match (&self.program.path, &self.program.url) {
             (Some(path), None) => {
-                if client.uploader.is_none() {
+                if client.storage_provider.is_none() {
                     bail!("A storage provider is required to upload programs.\nPlease provide a storage provider (see --help for options) or upload your program and set --program-url.")
                 }
                 let program: Cow<'static, [u8]> = std::fs::read(path)
