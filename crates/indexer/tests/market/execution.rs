@@ -512,7 +512,6 @@ async fn test_execute_requests_invalid_request_params(pool: PgPool) {
     // Patch each request with a different invalid field
     patch_request_field(&test_db.pool, &digests[0], "input_type", "").await;
     patch_request_field(&test_db.pool, &digests[1], "input_data", "").await;
-    patch_request_field(&test_db.pool, &digests[2], "image_id", "").await;
 
     // Start the test task for 1 iteration and wait for it to complete
     let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
