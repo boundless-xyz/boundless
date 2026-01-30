@@ -144,18 +144,53 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             let request_id = digest_to_request_id.get(&request_digest).copied().flatten();
 
             // Validate required fields are not empty
-            if image_id.is_empty() || input_type.is_empty() || input_data.is_empty() {
+            if input_type.is_empty() || input_data.is_empty() {
                 tracing::error!(
-                    "Cycle count request id={}, digest={:x} has empty required fields: image_id={}, input_type={}, input_data={}",
+                    "Cycle count request id={}, digest={:x} has empty required fields: input_type={}, input_data={}",
                     fmt_request_id(request_id),
                     request_digest,
-                    if image_id.is_empty() { "<empty>" } else { &image_id },
                     if input_type.is_empty() { "<empty>" } else { &input_type },
                     if input_data.is_empty() { "<empty>" } else { "<present>" }
                 );
                 failed_executions.push(request_digest);
                 continue;
             }
+            // When the predicate is of type ClaimDigestMatch, image_id is empty so we download the image to compute it.
+            let (image_id, downloaded_image) = if image_id.is_empty() {
+                let image: Vec<u8> = match downloader.download(&image_url).await {
+                    Ok(bytes) => {
+                        tracing::debug!(
+                        "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                        fmt_request_id(request_id),
+                        request_digest,
+                        image_url
+                    );
+                        bytes
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                        "Failed to download image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
+                        fmt_request_id(request_id),
+                        request_digest,
+                        image_url,
+                        e
+                    );
+                        failed_executions.push(request_digest);
+                        continue;
+                    }
+                };
+                let id = match risc0_zkvm::compute_image_id(&image) {
+                    Ok(id) => id.to_string(),
+                    Err(e) => {
+                        tracing::error!("Failed to compute image ID for cycle count computation request id={}, digest={:x}: {}", fmt_request_id(request_id), request_digest, e);
+                        failed_executions.push(request_digest);
+                        continue;
+                    }
+                };
+                (id, Some(image))
+            } else {
+                (image_id, None)
+            };
 
             // Obtain the request input from either the URL or the inline data
             let input: Bytes = match download_or_decode_input(
@@ -258,35 +293,44 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
             };
 
-            // If the image doesn't exist, download it from its URL and upload it via the bento API
+            // If the image doesn't exist, use already-downloaded bytes when available
+            // or download it from its URL, and upload it via the bento API.
             if !image_response {
-                tracing::trace!(
-                    "Downloading image for cycle count computation request id={}, digest={:x} from URL '{}'",
-                    fmt_request_id(request_id),
-                    request_digest,
-                    image_url
-                );
-
-                let image: Vec<u8> = match downloader.download(&image_url).await {
-                    Ok(bytes) => {
-                        tracing::debug!(
-                            "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
-                            fmt_request_id(request_id),
-                            request_digest,
-                            image_url
-                        );
-                        bytes
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to download image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
-                            fmt_request_id(request_id),
-                            request_digest,
-                            image_url,
-                            e
-                        );
-                        failed_executions.push(request_digest);
-                        continue;
+                let image: Vec<u8> = if let Some(img) = downloaded_image {
+                    tracing::trace!(
+                        "Reusing already-downloaded image for cycle count computation request id={}, digest={:x}",
+                        fmt_request_id(request_id),
+                        request_digest
+                    );
+                    img
+                } else {
+                    tracing::trace!(
+                        "Downloading image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                        fmt_request_id(request_id),
+                        request_digest,
+                        image_url
+                    );
+                    match downloader.download(&image_url).await {
+                        Ok(bytes) => {
+                            tracing::debug!(
+                                "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                                fmt_request_id(request_id),
+                                request_digest,
+                                image_url
+                            );
+                            bytes
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to download image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
+                                fmt_request_id(request_id),
+                                request_digest,
+                                image_url,
+                                e
+                            );
+                            failed_executions.push(request_digest);
+                            continue;
+                        }
                     }
                 };
 
