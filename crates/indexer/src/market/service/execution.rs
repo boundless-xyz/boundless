@@ -710,7 +710,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_image_id_set() {
+    async fn test_resolve_image_id() {
         // When image_id is set we do not fetch.
         let existing_id = risc0_zkvm::compute_image_id(boundless_test_utils::guests::ECHO_ELF)
             .unwrap()
