@@ -297,9 +297,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             // If the image doesn't exist, use already-downloaded bytes when available
             // or download it from its URL, and upload it via the bento API.
             if !image_response {
-                let image: Vec<u8> = match upload_image_bytes(downloaded_image.clone(), &image_url)
-                    .await
-                {
+                let image: Vec<u8> = match image_bytes(downloaded_image.clone(), &image_url).await {
                     Ok(bytes) => {
                         if downloaded_image.is_some() {
                             tracing::trace!(
@@ -598,7 +596,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 }
 
 // When image_id is empty, fetches the image and computes the id (or uses cache); otherwise returns the existing id.
-pub(crate) async fn resolve_image_id(
+async fn resolve_image_id(
     image_id: &str,
     image_url: &str,
     cache: &ImageCache,
@@ -618,7 +616,7 @@ pub(crate) async fn resolve_image_id(
 }
 
 // Returns image bytes for upload: reuses `downloaded_image` when present, else fetches from `image_url`.
-pub(crate) async fn upload_image_bytes(
+async fn image_bytes(
     downloaded_image: Option<Vec<u8>>,
     image_url: &str,
 ) -> Result<Vec<u8>, anyhow::Error> {
@@ -745,14 +743,14 @@ mod tests {
     #[tokio::test]
     async fn test_upload_image_bytes_reuse() {
         let bytes = vec![1u8, 2, 3, 4, 5];
-        let result = upload_image_bytes(Some(bytes.clone()), "http://dev.null/elf").await;
+        let result = image_bytes(Some(bytes.clone()), "http://dev.null/elf").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), bytes);
     }
 
     #[tokio::test]
     async fn test_upload_image_bytes_fetch() {
-        let result = upload_image_bytes(None, "http://dev.null/elf").await;
+        let result = image_bytes(None, "http://dev.null/elf").await;
         assert!(result.is_err());
     }
 
