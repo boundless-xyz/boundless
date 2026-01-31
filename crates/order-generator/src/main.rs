@@ -186,7 +186,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         });
     }
 
-    let client = client.build().await?;
+    let client = client.build().await?.with_skip_preflight(true);
 
     let ipfs_gateway = args
         .storage_config
