@@ -176,7 +176,8 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
-        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()));
+        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()))
+        .with_skip_preflight(true);
 
     if args.submit_offchain {
         client = client.config_offer_layer(|config| {
@@ -186,7 +187,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         });
     }
 
-    let client = client.build().await?.with_skip_preflight(true);
+    let client = client.build().await?;
 
     let ipfs_gateway = args
         .storage_config
