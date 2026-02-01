@@ -471,8 +471,8 @@ where
         let adjusted_max_price = max_price + adjusted_gas_cost_estimate;
         tracing::debug!(
             "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
-            format_units(max_price, "ether")?,
             format_units(adjusted_max_price, "ether")?,
+            format_units(max_price, "ether")?,
             format_units(adjusted_gas_cost_estimate, "ether")?,
             format_units(U256::from(gas_price), "gwei")?,
         );
