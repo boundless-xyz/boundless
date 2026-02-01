@@ -64,10 +64,10 @@ impl RequestorSubmit {
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
             .with_storage_provider_config(&self.storage_config)?
+            .with_skip_preflight(self.no_preflight)
             .build()
             .await
-            .context("Failed to build Boundless Client")?
-            .with_skip_preflight(self.no_preflight);
+            .context("Failed to build Boundless Client")?;
 
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);

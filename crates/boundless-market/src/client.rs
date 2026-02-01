@@ -750,12 +750,7 @@ pub type StandardClient = Client<
 >;
 
 impl<P, St, Si> Client<P, St, StandardRequestBuilder<P, St>, Si> {
-    /// Set whether to skip preflight/pricing checks on the request builder.
-    ///
-    /// If `true`, preflight checks are skipped.
-    /// If `false`, preflight checks are run.
-    /// If not called, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
-    pub fn with_skip_preflight(mut self, skip: bool) -> Self {
+    fn with_skip_preflight(mut self, skip: bool) -> Self {
         if let Some(ref mut builder) = self.request_builder {
             builder.skip_preflight = Some(skip);
         }
