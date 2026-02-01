@@ -76,6 +76,25 @@ impl Adapt<PreflightLayer> for RequestParams {
         tracing::trace!("Processing {self:?} with PreflightLayer");
 
         if self.cycles.is_some() && self.journal.is_some() {
+            if let (Some(image_id), Some(request_input), Some(cycles), Some(journal)) =
+                (self.image_id, self.request_input.as_ref(), self.cycles, self.journal.as_ref())
+            {
+                if let Ok(env) = layer.fetch_env(request_input).await {
+                    // If we have all values to skip re-executing in future steps, fill the
+                    // executor cache to avoid redundant executions.
+                    tracing::debug!("Filling executor cache for {image_id} with {cycles} cycles");
+                    layer
+                        .executor
+                        .insert_execution_data(
+                            &image_id.to_string(),
+                            &env.stdin,
+                            cycles,
+                            journal.bytes.clone(),
+                        )
+                        .await;
+                }
+            }
+
             return Ok(self);
         }
 
