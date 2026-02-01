@@ -78,6 +78,32 @@ impl LocalExecutor {
         format!("{}_{}", image_id, input_hash)
     }
 
+    /// Manually insert execution data directly into the cache.
+    pub async fn insert_execution_data(
+        &self,
+        image_id: &str,
+        input: &[u8],
+        total_cycles: u64,
+        journal: Vec<u8>,
+    ) {
+        let input_hash = Self::hash_input(input);
+        let exec_id = Self::make_exec_id(image_id, &input_hash);
+
+        let data = ExecutionData {
+            stats: Some(ExecutorResp {
+                total_cycles,
+                user_cycles: total_cycles,
+                segments: 1,
+                assumption_count: 0,
+            }),
+            preflight_journal: Some(journal),
+        };
+
+        tracing::debug!("Pre-filling execution cache for {} with {} cycles", exec_id, total_cycles);
+
+        self.state.executions.insert(exec_id, data).await;
+    }
+
     /// Execute a program with the given input, deduplicating by content.
     ///
     /// Returns the execution stats and journal. If the same image_id + input
@@ -366,5 +392,30 @@ mod tests {
         let executor = LocalExecutor::default();
         let result = executor.prove_stark("image", "input", vec![]).await;
         assert!(matches!(result, Err(ProverError::ProverInternalError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_insert_execution_data() {
+        let executor = LocalExecutor::default();
+        let image_id = Digest::from(ECHO_ID).to_string();
+        let input = b"Hello, World!".to_vec();
+        let cycles = 12345678u64;
+        let journal = b"test journal".to_vec();
+
+        // Pre-fill cache
+        executor.insert_execution_data(&image_id, &input, cycles, journal.clone()).await;
+
+        // Upload image and input (required for preflight to find them)
+        executor.upload_image(&image_id, ECHO_ELF.to_vec()).await.unwrap();
+        let input_id = executor.upload_input(input).await.unwrap();
+
+        // Preflight should return cached data without execution
+        let result = executor.preflight(&image_id, &input_id, vec![], None, "test").await.unwrap();
+
+        assert_eq!(result.stats.total_cycles, cycles);
+
+        // Journal should also be cached
+        let cached_journal = executor.get_preflight_journal(&result.id).await.unwrap();
+        assert_eq!(cached_journal, Some(journal));
     }
 }

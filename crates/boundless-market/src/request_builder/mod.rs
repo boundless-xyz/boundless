@@ -1029,6 +1029,7 @@ mod tests {
             RequestInputType, Requirements,
         },
         input::GuestEnv,
+        prover_utils::prover::Prover,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
         util::NotProvided,
         StandardStorageProvider,
@@ -1236,6 +1237,50 @@ mod tests {
         assert_eq!(result.journal.unwrap().bytes, data);
         // Verify non-zero cycle count
         assert!(result.cycles.unwrap() > 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_preflight_layer_cache_prefill() -> anyhow::Result<()> {
+        // Create layer with shared executor
+        let layer = PreflightLayer::default();
+        let executor = layer.executor();
+
+        // Create params with pre-computed values
+        let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
+        let input_data = b"test input";
+        let cycles = 9999999u64;
+        let journal = risc0_zkvm::Journal::new(input_data.to_vec());
+
+        // Build GuestEnv and encode as request input
+        let env = GuestEnv { stdin: input_data.to_vec(), ..Default::default() };
+        let request_input =
+            RequestInput { inputType: RequestInputType::Inline, data: env.encode()?.into() };
+
+        let params = RequestParams::new()
+            .with_image_id(image_id)
+            .with_cycles(cycles)
+            .with_journal(journal.clone())
+            .with_request_input(request_input);
+
+        // Process through layer (should pre-fill cache and return early)
+        let result = params.process_with(&layer).await?;
+
+        // Verify params unchanged
+        assert_eq!(result.cycles, Some(cycles));
+        assert_eq!(result.journal, Some(journal));
+
+        // Verify cache was pre-filled by checking we can get preflight result
+        // First, upload image so preflight can find it
+        executor.upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
+        let input_id = executor.upload_input(input_data.to_vec()).await?;
+
+        let preflight_result =
+            executor.preflight(&image_id.to_string(), &input_id, vec![], None, "test").await?;
+
+        assert_eq!(preflight_result.stats.total_cycles, cycles);
+
         Ok(())
     }
 
