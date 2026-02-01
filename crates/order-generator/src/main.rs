@@ -175,8 +175,7 @@ async fn run(args: &MainArgs) -> Result<()> {
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
-        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()))
-        .with_skip_preflight(true);
+        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()));
 
     if args.submit_offchain {
         client = client.config_offer_layer(|config| {
