@@ -562,31 +562,54 @@ where
             max_price
         };
 
-        let (lock_timeout, timeout, ramp_up_period, ramp_up_start) =
-            if let Some(parameterization_mode) = self.config.parameterization_mode {
-                let ramp_up_start = self
-                    .config
-                    .bidding_start_delay
-                    .unwrap_or(parameterization_mode.recommended_ramp_up_start(cycle_count));
-                let ramp_up_period = self
-                    .config
-                    .ramp_up_period
-                    .unwrap_or(parameterization_mode.recommended_ramp_up_period(cycle_count));
-                let recommended_timeout = parameterization_mode.recommended_timeout(cycle_count);
-                let lock_timeout = self.config.lock_timeout.unwrap_or(recommended_timeout);
-                let timeout = self.config.timeout.unwrap_or(lock_timeout * 2);
-                (lock_timeout, timeout, ramp_up_period, ramp_up_start)
-            } else {
-                let lock_timeout = DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD;
-                let timeout = lock_timeout * 2;
-                let ramp_up_period = DEFAULT_RAMP_UP_PERIOD;
-                let ramp_up_start = now_timestamp() + 15;
-                tracing::warn!("Using default ramp up start: {}", ramp_up_start);
-                tracing::warn!("Using default ramp up period: {}", ramp_up_period);
-                tracing::warn!("Using default lock timeout: {}", lock_timeout);
-                tracing::warn!("Using default timeout: {}", timeout);
-                (lock_timeout, timeout, ramp_up_period, ramp_up_start)
+        // Priority: config > recommended (from parameterization_mode) > default
+        let (recommended_ramp_up_start, recommended_ramp_up_period, recommended_lock_timeout) =
+            match self.config.parameterization_mode {
+                Some(m) => (
+                    Some(m.recommended_ramp_up_start(cycle_count)),
+                    Some(m.recommended_ramp_up_period(cycle_count)),
+                    Some(m.recommended_timeout(cycle_count)),
+                ),
+                None => (None, None, None),
             };
+
+        let ramp_up_start = self
+            .config
+            .bidding_start_delay
+            .map(|d| now_timestamp() + d)
+            .or(recommended_ramp_up_start)
+            .unwrap_or_else(|| now_timestamp() + 15);
+
+        let ramp_up_period = self
+            .config
+            .ramp_up_period
+            .or(recommended_ramp_up_period)
+            .unwrap_or(DEFAULT_RAMP_UP_PERIOD);
+
+        let lock_timeout = self
+            .config
+            .lock_timeout
+            .or(recommended_lock_timeout)
+            .unwrap_or(DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD);
+
+        let timeout = self
+            .config
+            .timeout
+            .or(Some(lock_timeout * 2))
+            .unwrap_or((DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD) * 2);
+
+        if self.config.bidding_start_delay.is_none() && recommended_ramp_up_start.is_none() {
+            tracing::warn!("Using default ramp up start: {}", ramp_up_start);
+        }
+        if self.config.ramp_up_period.is_none() && recommended_ramp_up_period.is_none() {
+            tracing::warn!("Using default ramp up period: {}", ramp_up_period);
+        }
+        if self.config.lock_timeout.is_none() && recommended_lock_timeout.is_none() {
+            tracing::warn!("Using default lock timeout: {}", lock_timeout);
+        }
+        if self.config.timeout.is_none() && recommended_lock_timeout.is_none() {
+            tracing::warn!("Using default timeout: {}", timeout);
+        }
 
         let chain_id = self.provider.get_chain_id().await?;
         let default_collaterals = default_lock_collateral(chain_id);
