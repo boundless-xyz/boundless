@@ -38,6 +38,7 @@ use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, selector::SupportedSelectors,
 };
 use moka::future::Cache;
+use moka::policy::EvictionPolicy;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -129,12 +130,14 @@ where
             collateral_token_decimals,
             order_cache: Arc::new(
                 Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
                     .max_capacity(ORDER_DEDUP_CACHE_SIZE)
                     .time_to_live(Duration::from_secs(60 * 60)) // 1 hour
                     .build(),
             ),
             preflight_cache: Arc::new(
                 Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
                     .max_capacity(PREFLIGHT_CACHE_SIZE)
                     .time_to_live(Duration::from_secs(PREFLIGHT_CACHE_TTL_SECS))
                     .build(),

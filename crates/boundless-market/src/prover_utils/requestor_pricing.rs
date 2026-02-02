@@ -29,6 +29,7 @@ use alloy::providers::Provider;
 use alloy::uint;
 use anyhow::Context;
 use moka::future::Cache;
+use moka::policy::EvictionPolicy;
 
 use super::local_executor::LocalExecutor;
 use super::prover::ProverObj;
@@ -76,7 +77,8 @@ where
         .context("Failed to fetch collateral token decimals")?;
 
     // Create preflight cache - the LocalExecutor handles execution deduplication internally
-    let preflight_cache: PreflightCache = Arc::new(Cache::builder().max_capacity(32).build());
+    let preflight_cache: PreflightCache =
+        Arc::new(Cache::builder().eviction_policy(EvictionPolicy::lru()).max_capacity(32).build());
 
     // Build market config, using price provider if available
     let market_config = build_market_config(price_provider).await;

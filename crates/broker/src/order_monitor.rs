@@ -39,6 +39,7 @@ use boundless_market::contracts::{
 };
 use boundless_market::dynamic_gas_filler::PriorityMode;
 use boundless_market::selector::SupportedSelectors;
+use moka::policy::EvictionPolicy;
 use moka::{future::Cache, Expiry};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -214,8 +215,18 @@ where
             provider,
             prover_addr,
             priced_order_rx: Arc::new(Mutex::new(priced_orders_rx)),
-            lock_and_prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
-            prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
+            lock_and_prove_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .expire_after(OrderExpiry)
+                    .build(),
+            ),
+            prove_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .expire_after(OrderExpiry)
+                    .build(),
+            ),
             supported_selectors: SupportedSelectors::default(),
             rpc_retry_config,
             gas_priority_mode,

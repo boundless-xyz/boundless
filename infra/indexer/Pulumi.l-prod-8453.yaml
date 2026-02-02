@@ -19,7 +19,7 @@ config:
   indexer:START_BLOCK: "35060420"
   indexer:BLOCK_DELAY: "10"
   indexer:BACKFILL_CHAIN_DATA_BLOCKS: "100000"
-  indexer:CHAIN_DATA_BATCH_DELAY_MS: "1000"
+  indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:ETH_RPC_URL:
     secure: v1:czlCLunFJFxNK5Kt:6I6pDBuQfNFCQ5Of68Z3Vmdiw9tpMdp1bFLPgOKcV1e8n8vRsXyOodPLfAwERKn0gV4erCJs954Nn2FjwNIFEVIT5JkPAFXabRY6SaZshgYqcepfKQSpOkrpTTbaTDdkH/+ov4QaqkXS3jZVlJvFmA==
   indexer:ORDER_STREAM_URL: https://base-mainnet.boundless.network

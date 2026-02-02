@@ -66,16 +66,53 @@ impl PreflightLayer {
         };
         Ok(env)
     }
+
+    /// Ensures image_id is set, computing from program (inline or fetched) if needed.
+    async fn ensure_image_id(&self, params: RequestParams) -> anyhow::Result<RequestParams> {
+        if params.image_id.is_some() {
+            return Ok(params);
+        }
+        let program = match params.require_program() {
+            Ok(bytes) => bytes.to_vec(),
+            Err(_) => {
+                let url = params.require_program_url()?;
+                fetch_url(url.as_str()).await?
+            }
+        };
+        let image_id = risc0_zkvm::compute_image_id(&program)?;
+        Ok(params.with_image_id(image_id))
+    }
+
+    /// Best-effort: fills executor cache when we have all precomputed data.
+    async fn fill_executor_cache_if_ready(&self, params: &RequestParams) {
+        let (Some(image_id), Some(request_input), Some(cycles), Some(journal)) = (
+            params.image_id,
+            params.request_input.as_ref(),
+            params.cycles,
+            params.journal.as_ref(),
+        ) else {
+            return;
+        };
+        let Ok(env) = self.fetch_env(request_input).await else {
+            return;
+        };
+        tracing::debug!("Filling executor cache for {image_id} with {cycles} cycles");
+        self.executor
+            .insert_execution_data(&image_id.to_string(), &env.stdin, cycles, journal.bytes.clone())
+            .await;
+    }
 }
 
 impl Adapt<PreflightLayer> for RequestParams {
     type Output = RequestParams;
     type Error = anyhow::Error;
 
-    async fn process_with(self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
+    async fn process_with(mut self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
         tracing::trace!("Processing {self:?} with PreflightLayer");
 
         if self.cycles.is_some() && self.journal.is_some() {
+            self = layer.ensure_image_id(self).await?;
+            layer.fill_executor_cache_if_ready(&self).await;
             return Ok(self);
         }
 

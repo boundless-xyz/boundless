@@ -20,10 +20,18 @@ use crate::market::service::IndexerServiceExecutionConfig;
 use alloy::primitives::{B256, U256};
 use anyhow::{anyhow, Result};
 use bonsai_sdk::non_blocking::{Client as BonsaiClient, SessionId};
-use boundless_market::storage::fetch_url;
+use boundless_market::storage::{fetch_url, override_gateway};
 use broker::futures_retry::retry;
 use bytes::Bytes;
+use moka::future::Cache;
+use moka::policy::EvictionPolicy;
 use std::collections::{HashMap, HashSet};
+
+/// Max number of (image_url -> image_id) entries to keep for reuse.
+const IMAGE_CACHE_MAX_ENTRIES: u64 = 256;
+
+/// Type for the image URL -> image_id cache.
+type ImageCache = Cache<String, String>;
 
 /// Format an optional request ID for logging
 fn fmt_request_id(id: Option<U256>) -> String {
@@ -50,6 +58,10 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     )
     .unwrap();
 
+    let image_cache: ImageCache = Cache::builder()
+        .eviction_policy(EvictionPolicy::lru())
+        .max_capacity(IMAGE_CACHE_MAX_ENTRIES)
+        .build();
     let mut num_iterations: u32 = 1;
 
     loop {
@@ -142,18 +154,48 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             let request_id = digest_to_request_id.get(&request_digest).copied().flatten();
 
             // Validate required fields are not empty
-            if image_id.is_empty() || input_type.is_empty() || input_data.is_empty() {
+            if input_type.is_empty() || input_data.is_empty() {
                 tracing::error!(
-                    "Cycle count request id={}, digest={:x} has empty required fields: image_id={}, input_type={}, input_data={}",
+                    "Cycle count request id={}, digest={:x} has empty required fields: input_type={}, input_data={}",
                     fmt_request_id(request_id),
                     request_digest,
-                    if image_id.is_empty() { "<empty>" } else { &image_id },
                     if input_type.is_empty() { "<empty>" } else { &input_type },
                     if input_data.is_empty() { "<empty>" } else { "<present>" }
                 );
                 failed_executions.push(request_digest);
                 continue;
             }
+            // When the predicate is of type ClaimDigestMatch, image_id is empty so we download the image to compute it.
+            let (image_id, downloaded_image) = match resolve_image_id(
+                &image_id,
+                &image_url,
+                &image_cache,
+            )
+            .await
+            {
+                Ok((id, maybe_image)) => {
+                    if maybe_image.is_some() {
+                        tracing::debug!(
+                            "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                            fmt_request_id(request_id),
+                            request_digest,
+                            image_url
+                        );
+                    }
+                    (id, maybe_image)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to resolve image for cycle count computation request id={}, digest={:x} from URL '{}': {}",
+                        fmt_request_id(request_id),
+                        request_digest,
+                        image_url,
+                        e
+                    );
+                    failed_executions.push(request_digest);
+                    continue;
+                }
+            };
 
             // Obtain the request input from either the URL or the inline data
             let input: Bytes = match download_or_decode_input(
@@ -256,30 +298,25 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
             };
 
-            // If the image doesn't exist, download it from its URL and upload it via the bento API
+            // If the image doesn't exist, use already-downloaded bytes when available
+            // or download it from its URL, and upload it via the bento API.
             if !image_response {
-                tracing::trace!(
-                    "Downloading image for cycle count computation request id={}, digest={:x} from URL '{}'",
-                    fmt_request_id(request_id),
-                    request_digest,
-                    image_url
-                );
-
-                let image: Vec<u8> = match retry(
-                    config.bento_retry_count,
-                    config.bento_retry_sleep_ms,
-                    || async { fetch_url(&image_url).await },
-                    "fetch_url",
-                )
-                .await
-                {
+                let image: Vec<u8> = match image_bytes(downloaded_image.clone(), &image_url).await {
                     Ok(bytes) => {
-                        tracing::debug!(
-                            "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
-                            fmt_request_id(request_id),
-                            request_digest,
-                            image_url
-                        );
+                        if downloaded_image.is_some() {
+                            tracing::trace!(
+                                "Reusing already-downloaded image for cycle count computation request id={}, digest={:x}",
+                                fmt_request_id(request_id),
+                                request_digest
+                            );
+                        } else {
+                            tracing::debug!(
+                                "Downloaded image for cycle count computation request id={}, digest={:x} from URL '{}'",
+                                fmt_request_id(request_id),
+                                request_digest,
+                                image_url
+                            );
+                        }
                         bytes
                     }
                     Err(e) => {
@@ -562,6 +599,38 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     }
 }
 
+// When image_id is empty, fetches the image and computes the id (or uses cache); otherwise returns the existing id.
+async fn resolve_image_id(
+    image_id: &str,
+    image_url: &str,
+    cache: &ImageCache,
+) -> Result<(String, Option<Vec<u8>>), anyhow::Error> {
+    if !image_id.is_empty() {
+        return Ok((image_id.to_string(), None));
+    }
+    let url = override_gateway(image_url);
+    if let Some(id) = cache.get(&url).await {
+        return Ok((id, None));
+    }
+    let image = fetch_url(&url).await?;
+    let id = risc0_zkvm::compute_image_id(&image)?;
+    let id_str = id.to_string();
+    cache.insert(url, id_str.clone()).await;
+    Ok((id_str, Some(image)))
+}
+
+// Returns image bytes for upload: reuses `downloaded_image` when present, else fetches from `image_url`.
+async fn image_bytes(
+    downloaded_image: Option<Vec<u8>>,
+    image_url: &str,
+) -> Result<Vec<u8>, anyhow::Error> {
+    if let Some(img) = downloaded_image {
+        return Ok(img);
+    }
+    let url = override_gateway(image_url);
+    fetch_url(&url).await
+}
+
 async fn download_or_decode_input(
     config: &IndexerServiceExecutionConfig,
     request_id: Option<U256>,
@@ -630,6 +699,8 @@ async fn download_or_decode_input(
 mod tests {
     use super::*;
     use boundless_market::input::GuestEnv;
+    use boundless_test_utils::guests::{ECHO_ELF, ECHO_ID, ECHO_PATH};
+    use risc0_zkvm::sha::Digest;
     use std::time::Duration;
 
     fn test_config() -> IndexerServiceExecutionConfig {
@@ -643,6 +714,54 @@ mod tests {
             max_status_queries: 20,
             max_iterations: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_image_id_empty() {
+        let url = format!("file://{}", ECHO_PATH);
+        let expected_id = Digest::from(ECHO_ID).to_string();
+        let cache: ImageCache = Cache::builder()
+            .eviction_policy(EvictionPolicy::lru())
+            .max_capacity(IMAGE_CACHE_MAX_ENTRIES)
+            .build();
+        let result = resolve_image_id("", &url, &cache).await;
+        assert!(result.is_ok(), "empty image_id should trigger fetch and compute");
+        let (image_id, downloaded_image) = result.unwrap();
+        assert!(!image_id.is_empty(), "image_id should be recomputed");
+        assert_eq!(image_id, expected_id);
+        let bytes = downloaded_image.expect("downloaded_image should be Some when we recompute");
+        assert_eq!(bytes.as_slice(), ECHO_ELF);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_image_id() {
+        // When image_id is set we do not fetch.
+        let existing_id = risc0_zkvm::compute_image_id(boundless_test_utils::guests::ECHO_ELF)
+            .unwrap()
+            .to_string();
+        let cache: ImageCache = Cache::builder()
+            .eviction_policy(EvictionPolicy::lru())
+            .max_capacity(IMAGE_CACHE_MAX_ENTRIES)
+            .build();
+        let result = resolve_image_id(&existing_id, "http://dev.null/elf", &cache).await;
+        assert!(result.is_ok());
+        let (image_id, downloaded_image) = result.unwrap();
+        assert_eq!(image_id, existing_id);
+        assert!(downloaded_image.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_image_bytes_reuse() {
+        let bytes = vec![1u8, 2, 3, 4, 5];
+        let result = image_bytes(Some(bytes.clone()), "http://dev.null/elf").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), bytes);
+    }
+
+    #[tokio::test]
+    async fn test_image_bytes_fetch() {
+        let result = image_bytes(None, "http://dev.null/elf").await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
