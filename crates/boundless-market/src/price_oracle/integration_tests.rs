@@ -12,6 +12,7 @@
 use crate::price_oracle::{PriceQuote, TradingPair, AggregationMode, config::{PriceOracleConfig, PriceValue, OnChainConfig, OffChainConfig, ChainlinkConfig,
                                                                              CoinGeckoConfig, CoinMarketCapConfig}};
 use alloy::providers::ProviderBuilder;
+use alloy_chains::NamedChain;
 
 // Price bounds for sanity checks
 const ETH_MIN_USD: f64 = 100.0;
@@ -106,7 +107,7 @@ async fn test_composite_priority_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Priority);
-    let oracles = config.build(provider).await?;
+    let oracles = config.build(NamedChain::Mainnet, provider)?;
 
     // Fetch ETH/USD price
     let quote = oracles.get_price(TradingPair::EthUsd).await?;
@@ -136,7 +137,7 @@ async fn test_composite_median_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Median);
-    let oracles = config.build(provider).await?;
+    let oracles = config.build(NamedChain::Mainnet, provider)?;
 
     // Fetch ETH/USD price
     let quote = oracles.get_price(TradingPair::EthUsd).await?;
@@ -166,7 +167,7 @@ async fn test_composite_average_mode() -> anyhow::Result<()> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
 
     let config = build_config(AggregationMode::Average);
-    let oracles = config.build(provider).await?;
+    let oracles = config.build(NamedChain::Mainnet, provider)?;
 
     // Fetch ETH/USD price
     let quote = oracles.get_price(TradingPair::EthUsd).await?;
@@ -200,7 +201,7 @@ async fn test_all_aggregation_modes_price_consistency() -> anyhow::Result<()> {
     for mode in modes {
         let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
         let config = build_config(mode);
-        let oracles = config.build(provider).await?;
+        let oracles = config.build(NamedChain::Mainnet, provider)?;
 
         let quote = oracles.get_price(TradingPair::EthUsd).await?;
         println!("{:?} mode ETH/USD: ${:.2}", mode, quote.price_to_f64());

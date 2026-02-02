@@ -102,7 +102,6 @@ mod tests {
     use crate::price_oracle::PriceOracle;
     use tokio::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use crate::price_oracle::TradingPair::{EthUsd, ZkcUsd};
 
     /// Mock oracle with configurable behavior for testing
     struct MockOracle {
@@ -158,38 +157,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_spawn_refresh_task_initial_refresh_and_cancellation() -> anyhow::Result<()> {
-        let eth_oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
-        let zkc_oracle = Arc::new(MockOracle::new(U256::from(100000000u128)));
-
-        let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
-        let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
-
-        let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 60, 600);
-
-        // Spawn the refresh task
-        let cancel_token = CancellationToken::new();
-        let handle = manager.start_oracle(cancel_token.clone()).await;
-
-        // Verify prices are cached
-        let eth_price = eth_cached.get_cached_price().await.expect("ETH price should be in cache after initial refresh");
-        assert_eq!(eth_price.price, U256::from(200000000000u128));
-
-        let zkc_price = zkc_cached.get_cached_price().await.expect("ZKC price should be in cache after initial refresh");
-        assert_eq!(zkc_price.price, U256::from(100000000u128));
-
-        // Cleanup
-        cancel_token.cancel();
-
-        // Verify the task completes successfully
-        let result = tokio::time::timeout(Duration::from_secs(2),handle).await?;
-        assert!(result.is_ok(), "Task should complete within timeout");
-
-        Ok(())
-    }
-
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_spawn_refresh_task_periodic_refresh() -> anyhow::Result<()> {
         let eth_oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
         let zkc_oracle = Arc::new(MockOracle::new(U256::from(100000000u128)));
@@ -197,102 +165,79 @@ mod tests {
         let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
         let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
 
-        // Use 1 second refresh interval, disable staleness check (0) for this timing-sensitive test
+        // 1 second refresh interval, disable staleness check
         let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 1, 0);
 
         let cancel_token = CancellationToken::new();
-        let handle = manager.start_oracle(cancel_token.clone()).await;
+        let handle = tokio::spawn(manager.start_oracle(cancel_token.clone()));
 
-        // Wait for initial refresh (the task does an immediate refresh, then the first
-        // tick() completes immediately too, so we get 2 refreshes right away)
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Yield to let first tick complete
+        tokio::task::yield_now().await;
 
-        // Verify initial refreshes happened (2 due to immediate tick behavior)
-        let eth_initial_count = eth_oracle.get_call_count();
-        let zkc_initial_count = zkc_oracle.get_call_count();
-        assert_eq!(eth_initial_count, 2, "ETH: Initial refresh + first tick = 2");
-        assert_eq!(zkc_initial_count, 2, "ZKC: Initial refresh + first tick = 2");
+        // Verify initial refresh happened
+        assert_eq!(eth_oracle.get_call_count(), 1);
+        assert_eq!(zkc_oracle.get_call_count(), 1);
 
-        // Verify caches were populated with initial prices
-        let eth_price = manager.get_price(EthUsd).await?;
-        assert_eq!(eth_price.price, U256::from(200000000000u128));
-        let zkc_price = manager.get_price(ZkcUsd).await?;
-        assert_eq!(zkc_price.price, U256::from(100000000u128));
+        // Advance time by 1 second to trigger next refresh
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
 
-        // Change the prices
+        assert_eq!(eth_oracle.get_call_count(), 2);
+        assert_eq!(zkc_oracle.get_call_count(), 2);
+
+        // Change prices and advance again
         eth_oracle.set_price(U256::from(300000000000u128)).await;
         zkc_oracle.set_price(U256::from(150000000u128)).await;
 
-        // Wait for the next refresh cycle (1 second interval)
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
 
-        // Verify a third refresh happened for both
-        let eth_third_count = eth_oracle.get_call_count();
-        let zkc_third_count = zkc_oracle.get_call_count();
-        assert_eq!(eth_third_count, 3, "ETH: Should have exactly 3 refreshes");
-        assert_eq!(zkc_third_count, 3, "ZKC: Should have exactly 3 refreshes");
+        assert_eq!(eth_oracle.get_call_count(), 3);
+        assert_eq!(zkc_oracle.get_call_count(), 3);
 
-        // Verify caches were updated with new prices
-        let eth_price = manager.get_price(EthUsd).await?;
+        // Verify updated prices
+        let eth_price = eth_cached.get_cached_price().await.unwrap();
         assert_eq!(eth_price.price, U256::from(300000000000u128));
-        let zkc_price = manager.get_price(ZkcUsd).await?;
+
+        let zkc_price = zkc_cached.get_cached_price().await.unwrap();
         assert_eq!(zkc_price.price, U256::from(150000000u128));
 
-        // Wait for another refresh cycle
-        tokio::time::sleep(Duration::from_millis(1100)).await;
-
-        // Verify fourth refresh happened for both
-        let eth_fourth_count = eth_oracle.get_call_count();
-        let zkc_fourth_count = zkc_oracle.get_call_count();
-        assert_eq!(eth_fourth_count, 4, "ETH: Should have exactly 4 refreshes");
-        assert_eq!(zkc_fourth_count, 4, "ZKC: Should have exactly 4 refreshes");
-
-        // Cleanup
         cancel_token.cancel();
-        handle.await?;
+        handle.await??;
 
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_spawn_refresh_task_exits_on_stale_cache() -> anyhow::Result<()> {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .with_test_writer()
-            .try_init()
-            .ok();
-
-        // Create mock oracles that will fail to update (simulate all sources down)
         let eth_oracle = Arc::new(MockOracle::new(U256::from(200000000000u128)));
         let zkc_oracle = Arc::new(MockOracle::new(U256::from(100000000u128)));
 
         let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
         let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
 
-        // First populate the cache with an old price by temporarily using non-erroring oracles
-        eth_oracle.should_error.store(false, Ordering::SeqCst);
-        zkc_oracle.should_error.store(false, Ordering::SeqCst);
-        let _ = eth_cached.refresh_price().await;
-        let _ = zkc_cached.refresh_price().await;
+        // First populate the cache
+        eth_cached.refresh_price().await;
+        zkc_cached.refresh_price().await;
 
-        // Now make them error
+        // Now make oracles error
         eth_oracle.should_error.store(true, Ordering::SeqCst);
         zkc_oracle.should_error.store(true, Ordering::SeqCst);
 
-        // Create manager with short cache age limit and refresh interval
-        // max_cache_age_secs = 2 seconds, refresh_interval = 1 second
+        // refresh_interval=1s, max_time_without_update=2s
         let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 1, 2);
 
         let cancel_token = CancellationToken::new();
-        let handle = manager.start_oracle(cancel_token.clone()).await;
+        let handle = tokio::spawn(manager.start_oracle(cancel_token.clone()));
 
-        // Wait longer than the cache age limit
-        // After initial refresh + 3 more ticks = 4 seconds total, which exceeds the 2 second limit
-        tokio::time::sleep(Duration::from_secs(4)).await;
+        // Advance time past the max_time_without_update threshold
+        // Need to advance enough for staleness check to trigger
+        tokio::time::advance(Duration::from_secs(3)).await;
+        tokio::task::yield_now().await;
 
-        // Check that the task has completed (not just cancelled)
-        let result = tokio::time::timeout(Duration::from_millis(100), handle).await;
-        assert!(result.is_ok(), "Task should have exited due prices not being refreshed for too long");
+        // The task should have exited with an error
+        let result = handle.await?;
+        assert!(result.is_err(), "Task should have exited due to stale prices");
 
         Ok(())
     }
