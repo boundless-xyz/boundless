@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::dynamic_gas_filler::PriorityMode;
+use crate::price_oracle::PriceOracleConfig;
 
 pub mod defaults {
     use super::PriorityMode;
@@ -634,6 +635,9 @@ pub struct Config {
     /// Aggregation batch configs
     #[serde(default)]
     pub batcher: BatcherConfig,
+    /// Price oracle configuration
+    #[serde(default)]
+    pub price_oracle: PriceOracleConfig,
 }
 
 impl Config {
