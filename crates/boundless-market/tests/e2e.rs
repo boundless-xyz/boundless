@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{cmp::min, sync::Arc};
 
 use alloy::{
     node_bindings::Anvil,
@@ -730,6 +730,8 @@ async fn test_client_builder_with_price_provider() {
     // Build the request - price provider should succeed and use mock prices
     let request = client.build_request(request_params).await.unwrap();
     // Verify that prices were set using the mock price provider
-    assert!(request.offer.minPrice > price_percentiles.p10);
-    assert!(request.offer.maxPrice > price_percentiles.p90);
+    assert!(request.offer.minPrice == U256::ZERO);
+    assert!(
+        request.offer.maxPrice >= min(price_percentiles.p99, price_percentiles.p50 * U256::from(2))
+    );
 }
