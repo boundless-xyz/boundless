@@ -650,7 +650,7 @@ export const alarmConfig: ChainStageAlarms = {
         },
         {
           name: "cranberries",
-          address: "0xc4ce4f04b9907a9401a0ed7ef073dffebab52aab",
+          address: "0x7276fa3c23c1783bdcb97258717f8f32b75919c9",
           submissionRate: [],
           successRate: [],
           expiredRequests: [{
