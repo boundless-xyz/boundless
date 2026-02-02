@@ -1206,7 +1206,7 @@ pub mod test_utils {
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-            config.market.min_mcycle_price = "0.00000001".into();
+            config.market.min_mcycle_price = "0.0".into();
             config.batcher.min_batch_size = 1;
             config.market.min_deadline = 30;
             config.write(config_file.path()).await.unwrap();
