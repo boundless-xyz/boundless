@@ -36,6 +36,8 @@ prover_minio_host: "minio"
 prover_minio_bucket: workflow
 prover_minio_root_user: admin
 prover_minio_root_pass: password
+# Expire all objects in the workflow bucket older than this many days (MinIO lifecycle)
+prover_minio_work_expiry_days: 7
 
 # Bento configuration
 prover_rust_log: info
