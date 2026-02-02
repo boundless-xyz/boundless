@@ -24,6 +24,7 @@ use boundless_market::storage::{fetch_url, override_gateway};
 use broker::futures_retry::retry;
 use bytes::Bytes;
 use moka::future::Cache;
+use moka::policy::EvictionPolicy;
 use std::collections::{HashMap, HashSet};
 
 /// Max number of (image_url -> image_id) entries to keep for reuse.
@@ -57,7 +58,10 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     )
     .unwrap();
 
-    let image_cache: ImageCache = Cache::builder().max_capacity(IMAGE_CACHE_MAX_ENTRIES).build();
+    let image_cache: ImageCache = Cache::builder()
+        .eviction_policy(EvictionPolicy::lru())
+        .max_capacity(IMAGE_CACHE_MAX_ENTRIES)
+        .build();
     let mut num_iterations: u32 = 1;
 
     loop {
@@ -716,7 +720,10 @@ mod tests {
     async fn test_resolve_image_id_empty() {
         let url = format!("file://{}", ECHO_PATH);
         let expected_id = Digest::from(ECHO_ID).to_string();
-        let cache: ImageCache = Cache::builder().max_capacity(IMAGE_CACHE_MAX_ENTRIES).build();
+        let cache: ImageCache = Cache::builder()
+            .eviction_policy(EvictionPolicy::lru())
+            .max_capacity(IMAGE_CACHE_MAX_ENTRIES)
+            .build();
         let result = resolve_image_id("", &url, &cache).await;
         assert!(result.is_ok(), "empty image_id should trigger fetch and compute");
         let (image_id, downloaded_image) = result.unwrap();
@@ -732,7 +739,10 @@ mod tests {
         let existing_id = risc0_zkvm::compute_image_id(boundless_test_utils::guests::ECHO_ELF)
             .unwrap()
             .to_string();
-        let cache: ImageCache = Cache::builder().max_capacity(IMAGE_CACHE_MAX_ENTRIES).build();
+        let cache: ImageCache = Cache::builder()
+            .eviction_policy(EvictionPolicy::lru())
+            .max_capacity(IMAGE_CACHE_MAX_ENTRIES)
+            .build();
         let result = resolve_image_id(&existing_id, "http://dev.null/elf", &cache).await;
         assert!(result.is_ok());
         let (image_id, downloaded_image) = result.unwrap();
