@@ -1,0 +1,25 @@
+# Boundless API Reverse Proxy (with API key auth)
+# Uses environment variables: {$VAR} or {$VAR:default}
+# API key should be sent in header: X-API-Key: <key>
+
+{
+	email {$CADDY_ACME_EMAIL:admin@localhost}
+}
+
+{$CADDY_DOMAIN::80} {
+	# Health check (no auth)
+	handle /health {
+		reverse_proxy {$CADDY_API_HOST:127.0.0.1}:{$CADDY_API_PORT:8081}
+	}
+
+	# API endpoints (with API key)
+	handle {
+		# Reject if API key header is missing or doesn't match
+		@api_key header x-api-key {$CADDY_API_KEY:INVALID_KEY_NOT_SET}
+		handle @api_key {
+			reverse_proxy {$CADDY_API_HOST:127.0.0.1}:{$CADDY_API_PORT:8081}
+		}
+		# Return 401 if no valid API key
+		respond "Unauthorized: Missing or invalid API key" 401
+	}
+}

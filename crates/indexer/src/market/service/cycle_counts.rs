@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::IndexerService;
+use super::{DbResultExt, IndexerService};
 use crate::db::market::{CycleCount, IndexerDb};
 use crate::market::ServiceError;
 use alloy::network::{AnyNetwork, Ethereum};
@@ -213,7 +213,7 @@ where
 
         // Batch insert
         if !cycle_counts.is_empty() {
-            self.db.add_cycle_counts(&cycle_counts).await?;
+            self.db.add_cycle_counts(&cycle_counts).await.with_db_context("add_cycle_counts")?;
             tracing::info!(
                 "request_cycle_counts completed in {:?} [{} cycle counts inserted: {} COMPLETED (hardcoded), {} PENDING]",
                 start.elapsed(),

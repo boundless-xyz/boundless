@@ -1011,7 +1011,7 @@ where
 pub(crate) mod tests {
     use super::*;
     use crate::OrderStatus;
-    use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
+    use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{address, Bytes};
     use alloy::{
@@ -1099,19 +1099,15 @@ pub(crate) mod tests {
                 .as_bytes()
                 .into();
 
-            Box::new(OrderRequest {
-                target_timestamp: Some(0),
+            let mut order = OrderRequest::new(
                 request,
-                image_id: None,
-                input_id: None,
-                expire_timestamp: None,
                 client_sig,
                 fulfillment_type,
-                boundless_market_address: self.market_address,
-                chain_id: self.anvil.chain_id(),
-                total_cycles: None,
-                cached_id: Default::default(),
-            })
+                self.market_address,
+                self.anvil.chain_id(),
+            );
+            order.target_timestamp = Some(0);
+            Box::new(order)
         }
     }
 
@@ -1435,7 +1431,7 @@ pub(crate) mod tests {
         let committed_order = ctx
             .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
             .await;
-        let mut committed_order = committed_order.to_proving_order(Default::default());
+        let mut committed_order = proving_order_from_request(&committed_order, Default::default());
         committed_order.status = OrderStatus::Proving;
         committed_order.proving_started_at = Some(current_timestamp);
         ctx.db.add_order(&committed_order).await.unwrap();
@@ -1496,7 +1492,7 @@ pub(crate) mod tests {
         let committed_order = ctx
             .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
             .await;
-        let mut committed_order = committed_order.to_proving_order(Default::default());
+        let mut committed_order = proving_order_from_request(&committed_order, Default::default());
         committed_order.status = OrderStatus::Proving;
         committed_order.total_cycles = Some(10_000_000_000_000_000);
         committed_order.proving_started_at = Some(current_timestamp);
@@ -1717,7 +1713,8 @@ pub(crate) mod tests {
                 .create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200)
                 .await;
 
-            let mut committed_order_obj = committed_order.to_proving_order(Default::default());
+            let mut committed_order_obj =
+                proving_order_from_request(&committed_order, Default::default());
             committed_order_obj.status = OrderStatus::Proving;
             committed_order_obj.proving_started_at = Some(now_timestamp());
             ctx.db.add_order(&committed_order_obj).await.unwrap();

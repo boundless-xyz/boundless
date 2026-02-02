@@ -10,6 +10,9 @@ config:
   indexer:RUST_LOG_MONITOR: info,indexer_monitor=debug
   indexer:RUST_LOG_INDEXER: info,boundless_indexer=debug
   indexer:CHAIN_ID: "11155111"
+  indexer:BLOCK_DELAY: "10"
+  indexer:BACKFILL_CHAIN_DATA_BLOCKS: "10000"
+  indexer:CHAIN_DATA_BATCH_DELAY_MS: "2500"
   indexer:GH_TOKEN_SECRET:
     secure: v1:GQkMrkuUECHw9YE3:PoX0OZ26yXcLo9XQraKINIyZTyQ/5MYqXu3BKMDDLD0Q5XHjcDPTtXu9yOJTzUQY9jMJxj/xplpDzmX9pCnHLcG7Th3sqg50Do9Hd6nhEn89RHdKm8xWba0aSGXtaDI+HRwTf+CPPdCpMR9HWQ==
   indexer:ETH_RPC_URL:
@@ -18,5 +21,10 @@ config:
     secure: v1:w4gH1O7RvkOIKDd+:QSjcdDB9Fz4L45pDn/KqazFQ7f3jmVqk6huQozjQ
   indexer:PROXY_SECRET:
     secure: v1:1y+xovRZMHWYX5O1:kXw3QiOcTT8yu809bAWn5IHYwp4qSdRsKx3kp2JrdRfypDBuvUAPzw==
+  indexer:BENTO_API_URL:
+    secure: v1:9sYfIy5tpolVlz6Q:5h0nAHxEkMLj/EdVR/IZJnuQgnW9hW7z2L0/pzH0i5lXo+ZRQ/812AOxpO2CLxmdfjAAhLBYhCyuD80=
+  indexer:BENTO_API_KEY:
+    secure: v1:d7Hv/Kp2znvbAM7O:c1WA0U0eOrVdlUrxV4rTMyO1W/pDcCIwfnAuxu0H42jV3Q6pJ+ChdbFMyACbf65ea+R7qAJ2MCawkQ==
+
 secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
 encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAFHtwzjU7yLfdQ9logy0MInAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMNhj+98DbHRflFcp9AgEQgDvp1BoYvt06/rXZ3L1vMct30E+uQelDoPiY/hIdIIdV2JfqTHKgFfsu73W3Rsy2zG9W0sRQcSl8jrc1tg==

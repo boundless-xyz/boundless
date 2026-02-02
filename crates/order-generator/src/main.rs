@@ -28,7 +28,6 @@ use boundless_market::{
     client::{Client, FundingMode},
     deployments::Deployment,
     input::GuestEnv,
-    request_builder::OfferParams,
     storage::{fetch_url, StorageProviderConfig},
 };
 use clap::Parser;
@@ -256,78 +255,18 @@ async fn handle_request(
     };
     let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
 
-    // add 1 minute for each 1M cycles to the original timeout
-    // Use the input directly as the estimated cycle count, since we are using a loop program.
     let m_cycles = input >> 20;
-    let seconds_for_mcycles = args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-    let ramp_up_seconds_for_mcycles =
-        args.ramp_up_seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-    let ramp_up = args.ramp_up + ramp_up_seconds_for_mcycles;
-    let lock_timeout = args.lock_timeout + seconds_for_mcycles;
-    tracing::debug!(
-        "m_cycles: {}, seconds_for_mcycles: {}, ramp_up [{} + {}]: {}, lock_timeout [{} + {}]: {}",
-        m_cycles,
-        seconds_for_mcycles,
-        args.ramp_up,
-        ramp_up_seconds_for_mcycles,
-        ramp_up,
-        args.lock_timeout,
-        seconds_for_mcycles,
-        lock_timeout
-    );
-    // Give equal time for provers that are fulfilling after lock expiry to prove.
-    let timeout: u32 = args.timeout + lock_timeout + seconds_for_mcycles;
 
     // Provide journal and cycles in order to skip preflighting, allowing us to send requests faster.
     let journal = Journal::new([input.to_le_bytes(), nonce.to_le_bytes()].concat());
 
-    // Calculate bidding_start timestamp
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-
-    let bidding_start = if let Some(delay) = args.bidding_start_delay {
-        // Use provided delay
-        now + delay
-    } else {
-        // Calculate delay based on execution time using configured execution rate
-        // mcycles * 1000 = kcycles, then divide by exec_rate_khz to get seconds
-        let exec_time_seconds = (m_cycles.saturating_mul(1000)).div_ceil(args.exec_rate_khz);
-        let delay = std::cmp::max(30, exec_time_seconds);
-
-        tracing::debug!(
-            "Calculated bidding_start_delay: {} seconds (based on {} mcycles at {} kHz exec rate)",
-            delay,
-            m_cycles,
-            args.exec_rate_khz
-        );
-
-        now + delay
-    };
-
-    let request = match args.submit_offchain {
-        true => client
-            .new_request()
-            .with_program(program.to_vec())
-            .with_program_url(program_url.clone())?
-            .with_env(env)
-            .with_cycles(input)
-            .with_journal(journal)
-            .with_offer(
-                OfferParams::builder()
-                    .ramp_up_period(ramp_up)
-                    .lock_timeout(lock_timeout)
-                    .timeout(timeout)
-                    .lock_collateral(args.lock_collateral_raw)
-                    .bidding_start(bidding_start),
-            ),
-        // Onchain submission uses the default offer layer config.
-        false => client
-            .new_request()
-            .with_program(program.to_vec())
-            .with_program_url(program_url.clone())?
-            .with_env(env)
-            .with_cycles(input)
-            .with_journal(journal),
-    };
+    let request = client
+        .new_request()
+        .with_program(program.to_vec())
+        .with_program_url(program_url.clone())?
+        .with_env(env)
+        .with_cycles(input)
+        .with_journal(journal);
 
     // Build the request, including preflight, and assigned the remaining fields.
     let request = client.build_request(request).await?;

@@ -1,0 +1,86 @@
+---
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+- name: Set default incoming policy to deny
+  ansible.builtin.command:
+    cmd: ufw default {{ ufw_default_incoming }} incoming
+  register: ufw_default_in
+  changed_when: "'updated' in ufw_default_in.stdout or 'set' in ufw_default_in.stdout"
+
+- name: Set default outgoing policy to allow
+  ansible.builtin.command:
+    cmd: ufw default {{ ufw_default_outgoing }} outgoing
+  register: ufw_default_out
+  changed_when: "'updated' in ufw_default_out.stdout or 'set' in ufw_default_out.stdout"
+
+- name: Add Docker NAT and FORWARD rules to UFW before.rules (when Docker iptables=false)
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/before.rules
+    block: "{{ lookup('template', 'docker-nat-before.rules.j2') }}"
+    marker: "# {mark} ANSIBLE MANAGED - Docker NAT"
+    insertafter: EOF
+    create: false
+  notify: Reload ufw
+  when: ufw_docker_nat_enabled | bool
+
+- name: Allow configured ports
+  ansible.builtin.command:
+    cmd: ufw allow {{ item.port }}/{{ item.proto | default('tcp') }} comment '{{ item.comment | default('') }}'
+  loop: "{{ ufw_allowed_ports }}"
+  register: ufw_allow
+  changed_when: "'added' in ufw_allow.stdout or 'updated' in ufw_allow.stdout"
+  failed_when: false
+
+- name: Allow rate-limited ports
+  ansible.builtin.command:
+    cmd: ufw limit {{ item.port }}/{{ item.proto | default('tcp') }} comment '{{ item.comment | default('') }}'
+  loop: "{{ ufw_rate_limited_ports }}"
+  register: ufw_limit
+  changed_when: "'added' in ufw_limit.stdout or 'updated' in ufw_limit.stdout"
+  failed_when: false
+
+- name: Allow specific networks
+  ansible.builtin.command:
+    cmd: >-
+      ufw allow from {{ item.from }}
+      {% if item.port is defined %}to any port {{ item.port }}{% endif %}
+      {% if item.proto is defined %}proto {{ item.proto }}{% endif %}
+      comment '{{ item.comment | default('') }}'
+  loop: "{{ ufw_allowed_networks }}"
+  register: ufw_network
+  changed_when: "'added' in ufw_network.stdout or 'updated' in ufw_network.stdout"
+  failed_when: false
+
+- name: Set logging level
+  ansible.builtin.command:
+    cmd: ufw logging {{ ufw_logging }}
+  register: ufw_log
+  changed_when: "'changed' in ufw_log.stdout"
+
+- name: Enable UFW
+  ansible.builtin.command:
+    cmd: ufw --force enable
+  register: ufw_enable
+  changed_when: "'enabled' in ufw_enable.stdout or 'active' in ufw_enable.stdout"
+  when: ufw_enabled
+
+- name: Disable UFW
+  ansible.builtin.command:
+    cmd: ufw disable
+  register: ufw_disable
+  changed_when: "'disabled' in ufw_disable.stdout"
+  when: not ufw_enabled
+
+- name: Get UFW status
+  ansible.builtin.command:
+    cmd: ufw status verbose
+  register: ufw_status
+  changed_when: false
+
+- name: Display UFW status
+  ansible.builtin.debug:
+    msg: "{{ ufw_status.stdout_lines }}"

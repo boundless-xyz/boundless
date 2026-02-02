@@ -95,7 +95,13 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 5;
             }
-            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_digest) DO UPDATE SET
+                    request_id = EXCLUDED.request_id,
+                    tx_hash = EXCLUDED.tx_hash,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (request_digest, request_id, metadata) in chunk {
@@ -176,11 +182,17 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 6;
             }
-            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_digest) DO UPDATE SET
+                    request_id = EXCLUDED.request_id,
+                    prover_address = EXCLUDED.prover_address,
+                    tx_hash = EXCLUDED.tx_hash,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (request_digest, request_id, prover_address, metadata) in chunk {
-                // Use the exact same formatting as the individual insert
                 query_builder = query_builder
                     .bind(format!("{request_digest:x}"))
                     .bind(format!("{request_id:x}"))
@@ -250,7 +262,13 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 6;
             }
-            query.push_str(" ON CONFLICT (request_digest, tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_digest, tx_hash) DO UPDATE SET
+                    request_id = EXCLUDED.request_id,
+                    prover_address = EXCLUDED.prover_address,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (request_digest, request_id, prover_address, metadata) in chunk {
@@ -323,7 +341,14 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 6;
             }
-            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_digest) DO UPDATE SET
+                    request_id = EXCLUDED.request_id,
+                    prover_address = EXCLUDED.prover_address,
+                    tx_hash = EXCLUDED.tx_hash,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (request_digest, request_id, prover_address, metadata) in chunk {
@@ -428,7 +453,16 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 8;
             }
-            query.push_str(" ON CONFLICT (request_id) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_id) DO UPDATE SET
+                    prover_address = EXCLUDED.prover_address,
+                    burn_value = EXCLUDED.burn_value,
+                    transfer_value = EXCLUDED.transfer_value,
+                    collateral_recipient = EXCLUDED.collateral_recipient,
+                    tx_hash = EXCLUDED.tx_hash,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (request_id, burn_value, transfer_value, collateral_recipient, metadata) in chunk {
@@ -510,7 +544,12 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 5;
             }
-            query.push_str(" ON CONFLICT (account, tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (account, tx_hash) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (account, value, metadata) in chunk {
@@ -581,7 +620,12 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 5;
             }
-            query.push_str(" ON CONFLICT (account, tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (account, tx_hash) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (account, value, metadata) in chunk {
@@ -652,7 +696,12 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 5;
             }
-            query.push_str(" ON CONFLICT (account, tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (account, tx_hash) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (account, value, metadata) in chunk {
@@ -723,7 +772,12 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 5;
             }
-            query.push_str(" ON CONFLICT (account, tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (account, tx_hash) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (account, value, metadata) in chunk {
@@ -796,7 +850,13 @@ pub trait EventsDb: IndexerDb {
                 ));
                 params_count += 6;
             }
-            query.push_str(" ON CONFLICT (request_id, tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_id, tx_hash) DO UPDATE SET
+                    callback_address = EXCLUDED.callback_address,
+                    error_data = EXCLUDED.error_data,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (request_id, callback_address, error_data, metadata) in chunk {

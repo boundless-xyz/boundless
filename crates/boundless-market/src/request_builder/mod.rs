@@ -30,7 +30,7 @@ use url::Url;
 use crate::{
     contracts::{ProofRequest, RequestId, RequestInput},
     input::GuestEnv,
-    request_builder::offer_layer::DEFAULT_TIMEOUT,
+    prover_utils::requestor_pricing::requestor_order_preflight,
     selector::SelectorExt,
     storage::{StandardStorageProvider, StorageProvider},
     util::{now_timestamp, NotProvided},
@@ -193,6 +193,14 @@ pub struct StandardRequestBuilder<P = DynProvider, S = StandardStorageProvider> 
     /// Finalizes and validates the complete request.
     #[builder(setter(into), default)]
     pub finalizer: Finalizer,
+
+    /// Whether to skip preflight/pricing checks.
+    ///
+    /// If `Some(true)`, preflight checks are skipped.
+    /// If `Some(false)`, preflight checks are run.
+    /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    #[builder(setter(into, strip_option), default)]
+    pub skip_preflight: Option<bool>,
 }
 
 impl StandardRequestBuilder<NotProvided, NotProvided> {
@@ -209,6 +217,85 @@ impl StandardRequestBuilder<NotProvided, NotProvided> {
     }
 }
 
+impl<P, S> StandardRequestBuilder<P, S>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    fn should_skip_preflight(&self) -> bool {
+        self.skip_preflight.unwrap_or_else(|| std::env::var("BOUNDLESS_IGNORE_PREFLIGHT").is_ok())
+    }
+
+    async fn run_pricing_check(&self, request: &ProofRequest) {
+        if self.should_skip_preflight() {
+            return;
+        }
+
+        let market_address = *self.request_id_layer.boundless_market.instance().address();
+        let chain_id = match self.request_id_layer.boundless_market.get_chain_id().await {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Failed to get chain ID for pricing check: {:#}", e);
+                return;
+            }
+        };
+        let provider = std::sync::Arc::new(self.offer_layer.provider.clone());
+        let price_provider = self.offer_layer.price_provider.clone();
+
+        if let Err(e) = requestor_order_preflight(
+            request.clone(),
+            self.preflight_layer.executor(),
+            provider,
+            market_address,
+            chain_id,
+            price_provider,
+        )
+        .await
+        {
+            tracing::error!("Pricing check failed: {:#}", e);
+        }
+    }
+
+    async fn build_from_params(
+        &self,
+        params: RequestParams,
+    ) -> Result<ProofRequest, anyhow::Error> {
+        let params = params
+            .process_with(&self.preflight_layer)
+            .await?
+            .process_with(&self.requirements_layer)
+            .await?
+            .process_with(&self.request_id_layer)
+            .await?
+            .process_with(&self.offer_layer)
+            .await?;
+
+        let request = params.process_with(&self.finalizer).await?;
+        self.run_pricing_check(&request).await;
+        Ok(request)
+    }
+}
+
+impl<P, S> StandardRequestBuilder<P, S>
+where
+    S: StorageProvider,
+    S::Error: std::error::Error + Send + Sync + 'static,
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    /// Build a proof request.
+    ///
+    /// This method also runs a pricing check to validate the request against the same
+    /// pricing logic that provers use, giving early feedback on whether the request
+    /// will be accepted. Pricing checks can be skipped by calling `skip_preflight(true)`
+    /// on the builder, or by setting the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub async fn build(
+        &self,
+        input: impl Into<RequestParams>,
+    ) -> Result<ProofRequest, anyhow::Error> {
+        let params = input.into().process_with(&self.storage_layer).await?;
+        self.build_from_params(params).await
+    }
+}
+
 impl<P, S> Layer<RequestParams> for StandardRequestBuilder<P, S>
 where
     S: StorageProvider,
@@ -219,19 +306,26 @@ where
     type Error = anyhow::Error;
 
     async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
-        input
-            .process_with(&self.storage_layer)
-            .await?
-            .process_with(&self.preflight_layer)
-            .await?
-            .process_with(&self.requirements_layer)
-            .await?
-            .process_with(&self.request_id_layer)
-            .await?
-            .process_with(&self.offer_layer)
-            .await?
-            .process_with(&self.finalizer)
-            .await
+        self.build(input).await
+    }
+}
+
+impl<P> StandardRequestBuilder<P, NotProvided>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
+    /// Build a proof request.
+    ///
+    /// This method also runs a pricing check to validate the request against the same
+    /// pricing logic that provers use, giving early feedback on whether the request
+    /// will be accepted. Pricing checks can be skipped by calling `skip_preflight(true)`
+    /// on the builder, or by setting the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub async fn build(
+        &self,
+        input: impl Into<RequestParams>,
+    ) -> Result<ProofRequest, anyhow::Error> {
+        let params = input.into().process_with(&self.storage_layer).await?;
+        self.build_from_params(params).await
     }
 }
 
@@ -243,19 +337,7 @@ where
     type Error = anyhow::Error;
 
     async fn process(&self, input: RequestParams) -> Result<ProofRequest, Self::Error> {
-        input
-            .process_with(&self.storage_layer)
-            .await?
-            .process_with(&self.preflight_layer)
-            .await?
-            .process_with(&self.requirements_layer)
-            .await?
-            .process_with(&self.request_id_layer)
-            .await?
-            .process_with(&self.offer_layer)
-            .await?
-            .process_with(&self.finalizer)
-            .await
+        self.build(input).await
     }
 }
 
@@ -644,80 +726,51 @@ impl MissingFieldError {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct ParameterizationMode {
-    /// Proving speed in Hz.
-    proving_speed: u64,
     /// Executor speed in Hz.
     executor_speed: u64,
     /// Minimum timeout in seconds.
-    min_timeout: u32,
-    /// Ramp up period multiplier.
-    ramp_up_period_multiplier: u32,
-    /// Ramp up delay multiplier.
-    ramp_up_delay_multiplier: u64,
+    base_timeout: u32,
+    /// Base ramp up delay in seconds.
+    base_ramp_up_delay: u64,
     /// Base ramp up period in seconds.
     base_ramp_up_period: u32,
+    /// Timeout seconds per mcycle.
+    timeout_seconds_per_mcycle: u32,
+    /// Ramp up seconds per mcycle.
+    ramp_up_seconds_per_mcycle: u32,
 }
 
 impl ParameterizationMode {
-    /// Default proving speed in Hz.
-    const DEFAULT_PROVING_SPEED_HZ: u64 = 500000; // 500 kHz
-
     /// Default executor speed in Hz.
-    const DEFAULT_EXECUTOR_SPEED_HZ: u64 = 10000000; // 10 MHz
+    const DEFAULT_EXECUTOR_SPEED_HZ: u64 = 1000000; // 1 MHz
 
     /// Minimum default timeout in seconds.
     ///
     /// This is to prevent the timeout from being too short and causing the request
     /// to expire before the prover can execute and evaluate the request.
-    const DEFAULT_MIN_TIMEOUT: u32 = 60;
+    const DEFAULT_BASE_TIMEOUT: u32 = 1800; // 30 minutes
 
-    /// Fast proving speed in Hz.
-    const FAST_PROVING_SPEED_HZ: u64 = 3000000; // 3 MHz
-
-    /// Fast executor speed in Hz.
-    const FAST_EXECUTOR_SPEED_HZ: u64 = 50000000; // 50 MHz
-
-    /// Minimum fast timeout in seconds.
+    /// Default timeout seconds per mcycle.
     ///
-    /// This is to prevent the timeout from being too short and causing the request
-    /// to expire before the prover can execute and evaluate the request.
-    const FAST_MIN_TIMEOUT: u32 = 60; // 1 minute
+    /// This is used to calculate the timeout based on the cycle count.
+    const DEFAULT_TIMEOUT_SECONDS_PER_MCYCLE: u32 = 7;
+
+    /// Default ramp up seconds per mcycle.
+    ///
+    /// This is used to calculate the ramp up period based on the cycle count.
+    const DEFAULT_RAMP_UP_SECONDS_PER_MCYCLE: u32 = 2;
 
     /// Default base ramp up period in seconds.
     ///
     /// This is used to ensure that the ramp up period is long enough
     /// to allow provers to execute and evaluate the request.
-    const DEFAULT_BASE_RAMP_UP_PERIOD: u32 = 300; // 5 minutes
+    const DEFAULT_BASE_RAMP_UP_PERIOD: u32 = 600; // 10 minutes
 
-    /// Default multiplier for the ramp up period.
-    ///
-    /// This is used to ensure that the ramp up period is long enough
-    /// to allow provers to execute and evaluate the request.
-    const DEFAULT_RAMP_UP_PERIOD_MULTIPLIER: u32 = 10; // 10x the executor time
-
-    /// Default multiplier for the ramp up delay.
+    /// Default minimum ramp up delay in seconds.
     ///
     /// This is used to ensure that the ramp up start is set
     /// to allow provers to execute and evaluate the request.
-    const DEFAULT_RAMP_UP_DELAY_MULTIPLIER: u64 = 2; // 2x the executor time
-
-    /// Fast multiplier for the ramp up period.
-    ///
-    /// This is used to ensure that the ramp up period is long enough
-    /// to allow provers to execute and evaluate the request.
-    const FAST_RAMP_UP_PERIOD_MULTIPLIER: u32 = 5; // 5x the executor time
-
-    /// Fast multiplier for the ramp up delay.
-    ///
-    /// This is used to ensure that the ramp up start is set
-    /// to allow provers to execute and evaluate the request.
-    const FAST_RAMP_UP_DELAY_MULTIPLIER: u64 = 1; // 1x the executor time
-
-    /// Fast base ramp up period in seconds.
-    ///
-    /// This is used to ensure that the ramp up period is long enough
-    /// to allow provers to execute and evaluate the request.
-    const FAST_BASE_RAMP_UP_PERIOD: u32 = 60; // 1 minute
+    const DEFAULT_BASE_RAMP_UP_DELAY: u64 = 30;
 
     /// Creates a parameterization mode for fulfillment.
     ///
@@ -729,63 +782,43 @@ impl ParameterizationMode {
     /// Sets the timeout as 2 times the lock timeout and capped at 8 hours.
     pub fn fulfillment() -> Self {
         Self {
-            proving_speed: Self::DEFAULT_PROVING_SPEED_HZ,
             executor_speed: Self::DEFAULT_EXECUTOR_SPEED_HZ,
-            min_timeout: Self::DEFAULT_MIN_TIMEOUT,
-            ramp_up_period_multiplier: Self::DEFAULT_RAMP_UP_PERIOD_MULTIPLIER,
-            ramp_up_delay_multiplier: Self::DEFAULT_RAMP_UP_DELAY_MULTIPLIER,
+            base_timeout: Self::DEFAULT_BASE_TIMEOUT,
+            timeout_seconds_per_mcycle: Self::DEFAULT_TIMEOUT_SECONDS_PER_MCYCLE,
+            ramp_up_seconds_per_mcycle: Self::DEFAULT_RAMP_UP_SECONDS_PER_MCYCLE,
+            base_ramp_up_delay: Self::DEFAULT_BASE_RAMP_UP_DELAY,
             base_ramp_up_period: Self::DEFAULT_BASE_RAMP_UP_PERIOD,
-        }
-    }
-
-    /// Creates a parameterization mode for low latency.
-    ///
-    /// This mode is more aggressive and allows for faster fulfillment,
-    /// at the cost of higher prices and lower fulfillment guarantees.
-    ///
-    /// Sets the ramp up period as 5x the executor time assuming the executor speed is 50 MHz.
-    /// Sets the lock timeout as the sum of the ramp up period and the proving and executor times
-    /// assuming the proving speed is 3 MHz and the executor speed is 50 MHz and capped at 4 hours.
-    /// Sets the timeout as 2 times the lock timeout and capped at 8 hours.
-    pub fn latency() -> Self {
-        Self {
-            proving_speed: Self::FAST_PROVING_SPEED_HZ,
-            executor_speed: Self::FAST_EXECUTOR_SPEED_HZ,
-            min_timeout: Self::FAST_MIN_TIMEOUT,
-            ramp_up_period_multiplier: Self::FAST_RAMP_UP_PERIOD_MULTIPLIER,
-            ramp_up_delay_multiplier: Self::FAST_RAMP_UP_DELAY_MULTIPLIER,
-            base_ramp_up_period: Self::FAST_BASE_RAMP_UP_PERIOD,
         }
     }
 
     /// Calculates the recommended ramp up start based on the cycle count and speeds.
     ///
-    /// The ramp up start is calculated as the current timestamp plus the required executor time multiplied by the ramp up delay multiplier.
+    /// The ramp up start is calculated as the current timestamp plus the base ramp up delay
+    /// or the required executor time, whichever is greater.
     fn recommended_ramp_up_start(&self, cycle_count: Option<u64>) -> u64 {
         cycle_count
             .filter(|&count| count > 0)
             .map(|cycle_count| {
                 now_timestamp()
-                    + (self.executor_time(Some(cycle_count)) as u64 * self.ramp_up_delay_multiplier)
+                    + self.base_ramp_up_delay.max(self.executor_time(Some(cycle_count)) as u64)
             })
-            .unwrap_or(now_timestamp() + 15) // 15 seconds default
+            .unwrap_or(now_timestamp() + self.base_ramp_up_delay)
     }
 
-    /// Calculates the recommended ramp up period based on the cycle count and speeds.
+    /// Calculates the recommended ramp up period based on the cycle count.
     ///
-    /// The ramp up period is calculated as the base ramp up period plus the required executor time multiplied by the ramp up period multiplier.
+    /// The ramp up period is calculated as the number of mcycles multiplied by the ramp up seconds per mcycle plus the base ramp up period.
     /// The ramp up period is capped at 2 hours to prevent the ramp up period from being too long.
     fn recommended_ramp_up_period(&self, cycle_count: Option<u64>) -> u32 {
         const MAX_RAMP_UP_PERIOD: u32 = 7200; // 2 hours
         cycle_count
             .filter(|&count| count > 0)
             .map(|cycle_count| {
-                // MIN(BASE_RAMP_UP_PERIOD + (executor_time * ramp_up_period_multiplier), MAX_RAMP_UP_PERIOD)
-                let ramp_up_period =
-                    self.executor_time(Some(cycle_count)) * self.ramp_up_period_multiplier;
-                let base_ramp_up_period = self.base_ramp_up_period;
-                let max_ramp_up_period = MAX_RAMP_UP_PERIOD;
-                base_ramp_up_period.saturating_add(ramp_up_period).min(max_ramp_up_period)
+                let m_cycles = cycle_count.div_ceil(1_000_000) as u32;
+                m_cycles
+                    .saturating_mul(self.ramp_up_seconds_per_mcycle)
+                    .saturating_add(self.base_ramp_up_period)
+                    .min(MAX_RAMP_UP_PERIOD)
             })
             .unwrap_or(self.base_ramp_up_period)
     }
@@ -800,26 +833,19 @@ impl ParameterizationMode {
     /// # Notes
     /// The timeout is guaranteed to be at least [self.min_timeout] seconds.
     fn recommended_timeout(&self, cycle_count: Option<u64>) -> u32 {
+        const MAX_TIMEOUT: u32 = 14400; // 4 hours
         cycle_count
             .filter(|&count| count > 0)
             .map(|cycle_count| {
-                let required_proving_time = self.proving_time(Some(cycle_count));
-                let required_executor_time = self.executor_time(Some(cycle_count));
-                let timeout = required_proving_time.saturating_add(required_executor_time);
-                timeout.max(self.min_timeout)
+                let m_cycles = cycle_count.div_ceil(1_000_000) as u32;
+                m_cycles
+                    .saturating_mul(self.timeout_seconds_per_mcycle)
+                    .saturating_add(self.base_timeout)
+                    .min(MAX_TIMEOUT)
             })
-            .unwrap_or(DEFAULT_TIMEOUT)
+            .unwrap_or(self.base_timeout)
     }
 
-    /// Calculates the required proving time based on the cycle count and speeds.
-    ///
-    /// The proving time is calculated as the cycle count divided by the proving speed.
-    fn proving_time(&self, cycle_count: Option<u64>) -> u32 {
-        cycle_count
-            .filter(|&count| count > 0)
-            .map(|cycle_count| cycle_count.div_ceil(self.proving_speed) as u32)
-            .unwrap_or(0)
-    }
     /// Calculates the required executor time based on the cycle count and speeds.
     ///
     /// The executor time is calculated as the cycle count divided by the executor speed.
@@ -834,11 +860,11 @@ impl ParameterizationMode {
 impl Default for ParameterizationMode {
     fn default() -> Self {
         Self {
-            proving_speed: Self::DEFAULT_PROVING_SPEED_HZ,
             executor_speed: Self::DEFAULT_EXECUTOR_SPEED_HZ,
-            min_timeout: Self::DEFAULT_MIN_TIMEOUT,
-            ramp_up_period_multiplier: Self::DEFAULT_RAMP_UP_PERIOD_MULTIPLIER,
-            ramp_up_delay_multiplier: Self::DEFAULT_RAMP_UP_DELAY_MULTIPLIER,
+            base_timeout: Self::DEFAULT_BASE_TIMEOUT,
+            timeout_seconds_per_mcycle: Self::DEFAULT_TIMEOUT_SECONDS_PER_MCYCLE,
+            ramp_up_seconds_per_mcycle: Self::DEFAULT_RAMP_UP_SECONDS_PER_MCYCLE,
+            base_ramp_up_delay: Self::DEFAULT_BASE_RAMP_UP_DELAY,
             base_ramp_up_period: Self::DEFAULT_BASE_RAMP_UP_PERIOD,
         }
     }
@@ -846,43 +872,39 @@ impl Default for ParameterizationMode {
 
 #[cfg(test)]
 mod parameterization_mode_tests {
-    use crate::request_builder::offer_layer::DEFAULT_TIMEOUT;
-
     use super::ParameterizationMode;
 
     #[test]
     fn test_default_creation() {
         let mode = ParameterizationMode::default();
-        assert_eq!(mode.proving_speed, ParameterizationMode::DEFAULT_PROVING_SPEED_HZ);
         assert_eq!(mode.executor_speed, ParameterizationMode::DEFAULT_EXECUTOR_SPEED_HZ);
-        assert_eq!(mode.min_timeout, ParameterizationMode::DEFAULT_MIN_TIMEOUT);
+        assert_eq!(mode.base_timeout, ParameterizationMode::DEFAULT_BASE_TIMEOUT);
+        assert_eq!(mode.base_ramp_up_delay, ParameterizationMode::DEFAULT_BASE_RAMP_UP_DELAY);
+        assert_eq!(mode.base_ramp_up_period, ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD);
         assert_eq!(
-            mode.ramp_up_period_multiplier,
-            ParameterizationMode::DEFAULT_RAMP_UP_PERIOD_MULTIPLIER
+            mode.timeout_seconds_per_mcycle,
+            ParameterizationMode::DEFAULT_TIMEOUT_SECONDS_PER_MCYCLE
+        );
+        assert_eq!(
+            mode.ramp_up_seconds_per_mcycle,
+            ParameterizationMode::DEFAULT_RAMP_UP_SECONDS_PER_MCYCLE
         );
     }
 
     #[test]
     fn test_fulfillment_creation() {
         let mode = ParameterizationMode::fulfillment();
-        assert_eq!(mode.proving_speed, ParameterizationMode::DEFAULT_PROVING_SPEED_HZ);
         assert_eq!(mode.executor_speed, ParameterizationMode::DEFAULT_EXECUTOR_SPEED_HZ);
-        assert_eq!(mode.min_timeout, ParameterizationMode::DEFAULT_MIN_TIMEOUT);
+        assert_eq!(mode.base_timeout, ParameterizationMode::DEFAULT_BASE_TIMEOUT);
+        assert_eq!(mode.base_ramp_up_delay, ParameterizationMode::DEFAULT_BASE_RAMP_UP_DELAY);
+        assert_eq!(mode.base_ramp_up_period, ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD);
         assert_eq!(
-            mode.ramp_up_period_multiplier,
-            ParameterizationMode::DEFAULT_RAMP_UP_PERIOD_MULTIPLIER
+            mode.timeout_seconds_per_mcycle,
+            ParameterizationMode::DEFAULT_TIMEOUT_SECONDS_PER_MCYCLE
         );
-    }
-
-    #[test]
-    fn test_latency_creation() {
-        let mode = ParameterizationMode::latency();
-        assert_eq!(mode.proving_speed, ParameterizationMode::FAST_PROVING_SPEED_HZ);
-        assert_eq!(mode.executor_speed, ParameterizationMode::FAST_EXECUTOR_SPEED_HZ);
-        assert_eq!(mode.min_timeout, ParameterizationMode::FAST_MIN_TIMEOUT);
         assert_eq!(
-            mode.ramp_up_period_multiplier,
-            ParameterizationMode::FAST_RAMP_UP_PERIOD_MULTIPLIER
+            mode.ramp_up_seconds_per_mcycle,
+            ParameterizationMode::DEFAULT_RAMP_UP_SECONDS_PER_MCYCLE
         );
     }
 
@@ -894,48 +916,15 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000; // 1M cycles
         let timeout = mode.recommended_timeout(Some(cycle_count));
 
-        // Expected: (1_000_000 / (500 * 1000)) + (1_000_000 / (10000 * 1000))
-        // = (1_000_000 / 500_000) + (1_000_000 / 10_000_000)
-        // = 2 + 1 = 3 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, mode.min_timeout);
+        // Expected: 1_000_000 / 1_000_000 * 7 + 1800 = 7 + 1800 = 1807 seconds
+        assert_eq!(timeout, 1807);
 
         // Test with a larger cycle count that exceeds MIN_TIMEOUT
         let cycle_count = 50_000_000; // 50M cycles
         let timeout = mode.recommended_timeout(Some(cycle_count));
 
-        // Expected: (50_000_000 / 500_000) + (50_000_000 / 10_000_000)
-        // = 100 + 5 = 105 seconds
-        assert_eq!(timeout, 105);
-    }
-
-    #[test]
-    fn test_recommended_timeout_latency() {
-        let mode = ParameterizationMode::latency();
-
-        // Test with a small cycle count
-        let cycle_count = 1_000_000; // 1M cycles
-        let timeout = mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Expected: (1_000_000 / (3000 * 1000)) + (1_000_000 / (50000 * 1000))
-        // = (1_000_000 / 3_000_000) + (1_000_000 / 50_000_000)
-        // = 1 + 1 = 2 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, mode.min_timeout);
-
-        // Test with a larger cycle count
-        let cycle_count = 50_000_000; // 50M cycles
-        let timeout = mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Expected: (50_000_000 / 3_000_000) + (50_000_000 / 50_000_000)
-        // = 17 + 1 = 18 seconds, but should be at least MIN_TIMEOUT (30)
-        assert_eq!(timeout, mode.min_timeout);
-
-        // Test with a very large cycle count that exceeds MIN_TIMEOUT
-        let cycle_count = 200_000_000; // 200M cycles
-        let timeout = mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Expected: (200_000_000 / 3_000_000) + (200_000_000 / 50_000_000)
-        // = 67 + 4 = 71 seconds
-        assert_eq!(timeout, 71);
+        // Expected: 50_000_000 / 1_000_000 * 7 + 1800 = 350 + 1800 = 2150 seconds
+        assert_eq!(timeout, 2150);
     }
 
     #[test]
@@ -944,11 +933,11 @@ mod parameterization_mode_tests {
 
         // Test with zero cycles - should return DEFAULT_TIMEOUT
         let timeout = mode.recommended_timeout(Some(0));
-        assert_eq!(timeout, DEFAULT_TIMEOUT);
+        assert_eq!(timeout, mode.base_timeout);
 
-        // Test with very small cycle count - should return MIN_TIMEOUT
+        // Test with very small cycle count - should return base timeout
         let timeout = mode.recommended_timeout(Some(100));
-        assert_eq!(timeout, mode.min_timeout);
+        assert_eq!(timeout, mode.base_timeout + mode.timeout_seconds_per_mcycle);
     }
 
     #[test]
@@ -959,40 +948,15 @@ mod parameterization_mode_tests {
         let cycle_count = 1_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (1_000_000 / (10000 * 1000)) * 10 + 300
-        // = (1_000_000 / 10_000_000) * 10 + 300
-        // = 1 * 10 + 300 = 310 seconds
-        assert_eq!(ramp_up, 310);
+        // Expected: 1_000_000 / 1_000_000 * 2 + 600 = 2 + 600 = 602 seconds
+        assert_eq!(ramp_up, 602);
 
         // Test with 50M cycles
         let cycle_count = 50_000_000;
         let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
 
-        // Expected: (50_000_000 / 10_000_000) * 10 + 300
-        // = 5 * 10 + 300 = 350 seconds
-        assert_eq!(ramp_up, 350);
-    }
-
-    #[test]
-    fn test_recommended_ramp_up_period_fast() {
-        let mode = ParameterizationMode::latency();
-
-        // Test with 1M cycles
-        let cycle_count = 1_000_000;
-        let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
-
-        // Expected: (1_000_000 / (50000 * 1000)) * 5 + 60
-        // = (1_000_000 / 50_000_000) * 5 + 60
-        // = 1 * 5 + 60 = 65 seconds
-        assert_eq!(ramp_up, 65);
-
-        // Test with 50M cycles
-        let cycle_count = 50_000_000;
-        let ramp_up = mode.recommended_ramp_up_period(Some(cycle_count as u64));
-
-        // Expected: (50_000_000 / 50_000_000) * 5 + 60
-        // = 1 * 5 + 60 = 65 seconds
-        assert_eq!(ramp_up, 65);
+        // Expected: 50_000_000 / 1_000_000 * 2 + 600 = 100 + 600 = 700 seconds
+        assert_eq!(ramp_up, 700);
     }
 
     #[test]
@@ -1005,48 +969,24 @@ mod parameterization_mode_tests {
     }
 
     #[test]
-    fn test_latency_vs_fulfillment_timeout_comparison() {
-        let latency_mode = ParameterizationMode::latency();
-        let fulfillment_mode = ParameterizationMode::fulfillment();
-
-        let cycle_count = 100_000_000; // 100M cycles
-
-        let latency_timeout = latency_mode.recommended_timeout(Some(cycle_count as u64));
-        let fulfillment_timeout = fulfillment_mode.recommended_timeout(Some(cycle_count as u64));
-
-        // Latency mode should generally result in shorter timeouts (when above MIN_TIMEOUT)
-        // For this cycle count, both should be above MIN_TIMEOUT
-        if latency_timeout > latency_mode.min_timeout
-            && fulfillment_timeout > fulfillment_mode.min_timeout
-        {
-            assert!(
-                latency_timeout < fulfillment_timeout,
-                "Latency mode should have shorter timeout: latency={}, fulfillment={}",
-                latency_timeout,
-                fulfillment_timeout
-            );
-        }
-    }
-
-    #[test]
     fn test_recommended_ramp_up_start_default() {
         let mode = ParameterizationMode::default();
         let now = crate::util::now_timestamp();
 
-        // Test with zero cycles - should return now + 15
+        // Test with zero cycles - should return now + base ramp up delay
         let ramp_up_start = mode.recommended_ramp_up_start(Some(0));
-        assert!(ramp_up_start >= now + 15);
-        assert!(ramp_up_start <= now + 16); // Allow 1 second tolerance
+        assert!(ramp_up_start >= now + mode.base_ramp_up_delay);
+        assert!(ramp_up_start <= now + mode.base_ramp_up_delay + 1); // Allow 1 second tolerance
 
-        // Test with None cycles - should return now + 15
+        // Test with None cycles - should return now + base ramp up delay
         let ramp_up_start = mode.recommended_ramp_up_start(None);
-        assert!(ramp_up_start >= now + 15);
-        assert!(ramp_up_start <= now + 16); // Allow 1 second tolerance
+        assert!(ramp_up_start >= now + mode.base_ramp_up_delay);
+        assert!(ramp_up_start <= now + mode.base_ramp_up_delay + 1); // Allow 1 second tolerance
 
         // Test with 1M cycles
         let cycle_count = 1_000_000;
         let executor_time = mode.executor_time(Some(cycle_count));
-        let expected_delay = executor_time as u64 * mode.ramp_up_delay_multiplier;
+        let expected_delay = mode.base_ramp_up_delay.max(executor_time as u64);
         let ramp_up_start = mode.recommended_ramp_up_start(Some(cycle_count));
         assert!(ramp_up_start >= now + expected_delay);
         assert!(ramp_up_start <= now + expected_delay + 1); // Allow 1 second tolerance
@@ -1054,69 +994,10 @@ mod parameterization_mode_tests {
         // Test with 50M cycles
         let cycle_count = 50_000_000;
         let executor_time = mode.executor_time(Some(cycle_count));
-        let expected_delay = executor_time as u64 * mode.ramp_up_delay_multiplier;
+        let expected_delay = mode.base_ramp_up_delay.max(executor_time as u64);
         let ramp_up_start = mode.recommended_ramp_up_start(Some(cycle_count));
         assert!(ramp_up_start >= now + expected_delay);
         assert!(ramp_up_start <= now + expected_delay + 1); // Allow 1 second tolerance
-    }
-
-    #[test]
-    fn test_recommended_ramp_up_start_latency() {
-        let mode = ParameterizationMode::latency();
-        let now = crate::util::now_timestamp();
-
-        // Test with zero cycles - should return now + 15
-        let ramp_up_start = mode.recommended_ramp_up_start(Some(0));
-        assert!(ramp_up_start >= now + 15);
-        assert!(ramp_up_start <= now + 16); // Allow 1 second tolerance
-
-        // Test with 1M cycles
-        let cycle_count = 1_000_000;
-        let executor_time = mode.executor_time(Some(cycle_count));
-        let expected_delay = executor_time as u64 * mode.ramp_up_delay_multiplier;
-        let ramp_up_start = mode.recommended_ramp_up_start(Some(cycle_count));
-        assert!(ramp_up_start >= now + expected_delay);
-        assert!(ramp_up_start <= now + expected_delay + 1); // Allow 1 second tolerance
-
-        // Test with 50M cycles
-        let cycle_count = 50_000_000;
-        let executor_time = mode.executor_time(Some(cycle_count));
-        let expected_delay = executor_time as u64 * mode.ramp_up_delay_multiplier;
-        let ramp_up_start = mode.recommended_ramp_up_start(Some(cycle_count));
-        assert!(ramp_up_start >= now + expected_delay);
-        assert!(ramp_up_start <= now + expected_delay + 1); // Allow 1 second tolerance
-    }
-
-    #[test]
-    fn test_recommended_ramp_up_start_fulfillment_vs_latency() {
-        let fulfillment_mode = ParameterizationMode::fulfillment();
-        let latency_mode = ParameterizationMode::latency();
-        let now = crate::util::now_timestamp();
-
-        let cycle_count = 100_000_000; // 100M cycles
-
-        let fulfillment_start = fulfillment_mode.recommended_ramp_up_start(Some(cycle_count));
-        let latency_start = latency_mode.recommended_ramp_up_start(Some(cycle_count));
-
-        // Both should be in the future
-        assert!(fulfillment_start > now);
-        assert!(latency_start > now);
-
-        // Fulfillment mode uses a larger delay multiplier (2x) vs latency (1x),
-        // and fulfillment has slower executor speed, so fulfillment should have a later start
-        let fulfillment_executor_time = fulfillment_mode.executor_time(Some(cycle_count));
-        let latency_executor_time = latency_mode.executor_time(Some(cycle_count));
-        let fulfillment_delay =
-            fulfillment_executor_time as u64 * fulfillment_mode.ramp_up_delay_multiplier;
-        let latency_delay = latency_executor_time as u64 * latency_mode.ramp_up_delay_multiplier;
-
-        // Fulfillment should have a longer delay (2x multiplier vs 1x, and slower executor)
-        assert!(
-            fulfillment_delay > latency_delay,
-            "Fulfillment mode should have longer ramp up delay: fulfillment={}, latency={}",
-            fulfillment_delay,
-            latency_delay
-        );
     }
 }
 
@@ -1136,9 +1017,10 @@ mod tests {
     use url::Url;
 
     use super::{
-        Layer, OfferLayer, OfferLayerConfig, OfferParams, ParameterizationMode, PreflightLayer,
-        RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerConfig, RequestIdLayerMode,
-        RequestParams, RequirementsLayer, StandardRequestBuilder, StorageLayer, StorageLayerConfig,
+        Adapt, Layer, OfferLayer, OfferLayerConfig, OfferParams, ParameterizationMode,
+        PreflightLayer, RequestBuilder, RequestId, RequestIdLayer, RequestIdLayerConfig,
+        RequestIdLayerMode, RequestParams, RequirementsLayer, StandardRequestBuilder, StorageLayer,
+        StorageLayerConfig,
     };
 
     use crate::{
@@ -1147,7 +1029,7 @@ mod tests {
             RequestInputType, Requirements,
         },
         input::GuestEnv,
-        request_builder::offer_layer::DEFAULT_TIMEOUT,
+        prover_utils::prover::Prover,
         storage::{fetch_url, MockStorageProvider, StorageProvider},
         util::NotProvided,
         StandardStorageProvider,
@@ -1202,7 +1084,7 @@ mod tests {
 
         let params = request_builder.params().with_program(ECHO_ELF).with_stdin(b"hello!");
         let request = request_builder.build(params).await?;
-        assert_eq!(request.offer.lockCollateral, parse_ether("0").unwrap());
+        assert_eq!(request.offer.lockCollateral, parse_ether("5").unwrap());
         Ok(())
     }
 
@@ -1347,13 +1229,58 @@ mod tests {
         let data = b"hello_zkvm".to_vec();
         let env = GuestEnv::from_stdin(data.clone());
         let input = RequestInput::inline(env.encode()?);
-        let session = layer.process((&program_url, &input)).await?;
 
-        assert_eq!(session.journal.as_ref(), data.as_slice());
-        // Verify non-zero cycle count and an exit code of zero.
-        let cycles: u64 = session.segments.iter().map(|s| 1 << s.po2).sum();
-        assert!(cycles > 0);
-        assert!(session.exit_code.is_ok());
+        // Create RequestParams and process through the layer
+        let params = RequestParams::new().with_program_url(program_url)?.with_request_input(input);
+        let result = params.process_with(&layer).await?;
+
+        assert_eq!(result.journal.unwrap().bytes, data);
+        // Verify non-zero cycle count
+        assert!(result.cycles.unwrap() > 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_preflight_layer_cache_prefill() -> anyhow::Result<()> {
+        // Create layer with shared executor
+        let layer = PreflightLayer::default();
+        let executor = layer.executor();
+
+        // Create params with pre-computed values
+        let image_id = risc0_zkvm::compute_image_id(ECHO_ELF)?;
+        let input_data = b"test input";
+        let cycles = 9999999u64;
+        let journal = risc0_zkvm::Journal::new(input_data.to_vec());
+
+        // Build GuestEnv and encode as request input
+        let env = GuestEnv { stdin: input_data.to_vec(), ..Default::default() };
+        let request_input =
+            RequestInput { inputType: RequestInputType::Inline, data: env.encode()?.into() };
+
+        let params = RequestParams::new()
+            .with_image_id(image_id)
+            .with_cycles(cycles)
+            .with_journal(journal.clone())
+            .with_request_input(request_input);
+
+        // Process through layer (should pre-fill cache and return early)
+        let result = params.process_with(&layer).await?;
+
+        // Verify params unchanged
+        assert_eq!(result.cycles, Some(cycles));
+        assert_eq!(result.journal, Some(journal));
+
+        // Verify cache was pre-filled by checking we can get preflight result
+        // First, upload image so preflight can find it
+        executor.upload_image(&image_id.to_string(), ECHO_ELF.to_vec()).await?;
+        let input_id = executor.upload_input(input_data.to_vec()).await?;
+
+        let preflight_result =
+            executor.preflight(&image_id.to_string(), &input_id, vec![], None, "test").await?;
+
+        assert_eq!(preflight_result.stats.total_cycles, cycles);
+
         Ok(())
     }
 
@@ -1462,18 +1389,18 @@ mod tests {
             offer_zero_mcycles.rampUpPeriod,
             ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD
         );
-        assert_eq!(
-            offer_zero_mcycles.lockTimeout,
-            DEFAULT_TIMEOUT + ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD
+        assert_eq!(offer_zero_mcycles.lockTimeout, ParameterizationMode::DEFAULT_BASE_TIMEOUT);
+        assert_eq!(offer_zero_mcycles.timeout, ParameterizationMode::DEFAULT_BASE_TIMEOUT * 2);
+        // Default ramp up start should be now + base ramp up delay
+        assert!(
+            offer_zero_mcycles.rampUpStart
+                >= now + ParameterizationMode::DEFAULT_BASE_RAMP_UP_DELAY
         );
-        assert_eq!(
-            offer_zero_mcycles.timeout,
-            (DEFAULT_TIMEOUT + ParameterizationMode::DEFAULT_BASE_RAMP_UP_PERIOD) * 2
-        );
-        // Default ramp up start should be now + 15 seconds
-        assert!(offer_zero_mcycles.rampUpStart >= now + 15);
-        assert!(offer_zero_mcycles.rampUpStart <= now + 16); // Allow 1 second tolerance
-                                                             // Max price should be non-negative, to account for fixed costs.
+        assert!(
+            offer_zero_mcycles.rampUpStart
+                <= now + ParameterizationMode::DEFAULT_BASE_RAMP_UP_DELAY + 1
+        ); // Allow 1 second tolerance
+           // Max price should be non-negative, to account for fixed costs.
         assert!(offer_zero_mcycles.maxPrice > U256::ZERO);
 
         // Now create an offer for 100 Mcycles.
@@ -1532,8 +1459,7 @@ mod tests {
 
         // Check that ramp up start is calculated based on parameterization mode
         let expected_executor_time = fulfillment_mode.executor_time(Some(cycle_count));
-        let expected_delay =
-            expected_executor_time as u64 * fulfillment_mode.ramp_up_delay_multiplier;
+        let expected_delay = fulfillment_mode.base_ramp_up_delay.max(expected_executor_time as u64);
         assert!(offer.rampUpStart >= now + expected_delay);
         assert!(offer.rampUpStart <= now + expected_delay + 1); // Allow 1 second tolerance
 
@@ -1541,34 +1467,6 @@ mod tests {
         let expected_ramp_up_period =
             fulfillment_mode.recommended_ramp_up_period(Some(cycle_count));
         assert_eq!(offer.rampUpPeriod, expected_ramp_up_period);
-
-        // Test with latency mode
-        let latency_mode = ParameterizationMode::latency();
-        let layer = OfferLayer::new(
-            provider.clone(),
-            OfferLayerConfig::builder().parameterization_mode(latency_mode).build()?,
-        );
-        let offer_latency =
-            layer.process((&requirements, &request_id, Some(cycle_count), &offer_params)).await?;
-
-        // Latency mode should have a shorter ramp up start delay
-        let latency_executor_time = latency_mode.executor_time(Some(cycle_count));
-        let latency_delay = latency_executor_time as u64 * latency_mode.ramp_up_delay_multiplier;
-        assert!(offer_latency.rampUpStart >= now + latency_delay);
-        assert!(offer_latency.rampUpStart <= now + latency_delay + 1); // Allow 1 second tolerance
-
-        // Latency mode should have a shorter ramp up period
-        let expected_latency_ramp_up_period =
-            latency_mode.recommended_ramp_up_period(Some(cycle_count));
-        assert_eq!(offer_latency.rampUpPeriod, expected_latency_ramp_up_period);
-
-        // Fulfillment mode should have a later ramp up start than latency mode
-        assert!(
-            offer.rampUpStart > offer_latency.rampUpStart,
-            "Fulfillment mode should have later ramp up start: fulfillment={}, latency={}",
-            offer.rampUpStart,
-            offer_latency.rampUpStart
-        );
 
         Ok(())
     }

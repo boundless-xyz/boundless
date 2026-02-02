@@ -124,6 +124,12 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
     /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
     pub funding_mode: FundingMode,
+    /// Whether to skip preflight/pricing checks.
+    ///
+    /// If `Some(true)`, preflight checks are skipped.
+    /// If `Some(false)`, preflight checks are run.
+    /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub skip_preflight: Option<bool>,
 }
 
 impl<St, Si> Default for ClientBuilder<St, Si> {
@@ -142,6 +148,7 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             request_id_layer_config: Default::default(),
             request_finalizer_config: Default::default(),
             funding_mode: FundingMode::Always,
+            skip_preflight: None,
         }
     }
 }
@@ -424,6 +431,10 @@ impl<St, Si> ClientBuilder<St, Si> {
             client = client.with_timeout(timeout);
         }
 
+        if let Some(skip_preflight) = self.skip_preflight {
+            client = client.with_skip_preflight(skip_preflight);
+        }
+
         Ok(client)
     }
 
@@ -447,16 +458,15 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the parameterization mode for the offer layer.
     ///
     /// The parameterization mode is used to define the offering parameters for the request.
-    /// The fulfillment parameterization mode is [ParameterizationMode::fulfillment()], which is the default.
-    /// The latency parameterization mode is [ParameterizationMode::latency()], which is faster and allows for faster fulfillment,
-    /// at the cost of higher prices and lower fulfillment guarantees.
+    /// The default is [ParameterizationMode::fulfillment()], which is conservative and ensures
+    /// more provers can fulfill the request.
     ///
     /// # Example
     /// ```rust
     /// # use boundless_market::Client;
     /// use boundless_market::request_builder::ParameterizationMode;
     ///
-    /// Client::builder().with_parameterization_mode(ParameterizationMode::latency());
+    /// Client::builder().with_parameterization_mode(ParameterizationMode::fulfillment());
     /// ```
     pub fn with_parameterization_mode(self, parameterization_mode: ParameterizationMode) -> Self {
         self.config_offer_layer(|config| config.parameterization_mode(parameterization_mode))
@@ -537,6 +547,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             request_id_layer_config: self.request_id_layer_config,
             request_finalizer_config: self.request_finalizer_config,
             funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
         }
     }
 
@@ -572,6 +583,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_layer_config: self.storage_layer_config,
             offer_layer_config: self.offer_layer_config,
             funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
         }
     }
 
@@ -601,7 +613,7 @@ impl<St, Si> ClientBuilder<St, Si> {
     ///
     /// ```rust
     /// # use boundless_market::client::ClientBuilder;
-    /// # use boundless_market::request_builder::PriceProviderArc;
+    /// # use boundless_market::price_provider::PriceProviderArc;
     /// // Example: Use a custom price provider
     /// // let custom_provider: PriceProviderArc = ...;
     /// // ClientBuilder::new().with_price_provider(Some(custom_provider));
@@ -677,6 +689,15 @@ impl<St, Si> ClientBuilder<St, Si> {
         f(&mut self.request_finalizer_config);
         self
     }
+
+    /// Set whether to skip preflight/pricing checks on the request builder.
+    ///
+    /// If `true`, preflight checks are skipped.
+    /// If `false`, preflight checks are run.
+    /// If not called, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub fn with_skip_preflight(self, skip: bool) -> Self {
+        Self { skip_preflight: Some(skip), ..self }
+    }
 }
 
 #[derive(Clone)]
@@ -727,6 +748,15 @@ pub type StandardClient = Client<
     StandardRequestBuilder<DynProvider>,
     PrivateKeySigner,
 >;
+
+impl<P, St, Si> Client<P, St, StandardRequestBuilder<P, St>, Si> {
+    fn with_skip_preflight(mut self, skip: bool) -> Self {
+        if let Some(ref mut builder) = self.request_builder {
+            builder.skip_preflight = Some(skip);
+        }
+        self
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -785,6 +815,45 @@ where
             signer: None,
             request_builder: None,
             funding_mode: FundingMode::Always,
+        }
+    }
+}
+
+/// Computes the funding value to send for a given balance, max price, and funding mode.
+/// Used by [Client::compute_funding_value] and by unit tests.
+fn funding_value_for_balance(balance: U256, max_price: U256, funding_mode: FundingMode) -> U256 {
+    match funding_mode {
+        FundingMode::Always => max_price,
+
+        FundingMode::Never => U256::ZERO,
+
+        FundingMode::AvailableBalance => {
+            if balance < max_price {
+                max_price.saturating_sub(balance)
+            } else {
+                U256::ZERO
+            }
+        }
+
+        FundingMode::BelowThreshold(threshold) => {
+            if balance < threshold || balance < max_price {
+                max(threshold.saturating_sub(balance), max_price.saturating_sub(balance))
+            } else {
+                U256::ZERO
+            }
+        }
+
+        FundingMode::MinMaxBalance { min_balance, max_balance } => {
+            if balance < min_balance || balance < max_price {
+                let topup = if balance < min_balance {
+                    max_balance.saturating_sub(balance)
+                } else {
+                    U256::ZERO
+                };
+                max(topup, max_price.saturating_sub(balance))
+            } else {
+                U256::ZERO
+            }
         }
     }
 }
@@ -928,7 +997,13 @@ where
 
     /// Build a proof request from the given parameters.
     ///
-    /// Requires a a [RequestBuilder] to be provided.
+    /// Requires a [RequestBuilder] to be provided. After building, pricing validation
+    /// is run to check if the request will likely be accepted by provers.
+    ///
+    /// If a signer is available on the client, the request will be signed for full validation.
+    /// If no signer is available, pricing validation still runs but without signing.
+    ///
+    /// Pricing checks can be skipped by setting the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     pub async fn build_request<Params>(
         &self,
         params: impl Into<Params>,
@@ -942,72 +1017,58 @@ where
         tracing::debug!("Building request");
         let request = request_builder.build(params).await.map_err(Into::into)?;
         tracing::debug!("Built request with id {:x}", request.id);
+
         Ok(request)
     }
+}
 
+impl<P, St, R, Si> Client<P, St, R, Si>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     async fn compute_funding_value(
         &self,
         client_address: Address,
         max_price: U256,
     ) -> Result<U256, ClientError> {
         let balance = self.boundless_market.balance_of(client_address).await?;
+        let value = funding_value_for_balance(balance, max_price, self.funding_mode);
 
-        let value = match self.funding_mode {
-            FundingMode::Always => {
-                if balance > max_price.saturating_mul(U256::from(3u8)) {
-                    tracing::warn!(
-                        "Client balance is {} ETH, that is more than 3x the value being sent. \
-                         Consider switching to a different funding mode to avoid overfunding.",
-                        format_ether(balance),
-                    );
-                }
-                max_price
-            }
-
-            FundingMode::Never => U256::ZERO,
-
-            FundingMode::AvailableBalance => {
-                if balance < max_price {
-                    max_price.saturating_sub(balance)
-                } else {
-                    U256::ZERO
-                }
-            }
-
-            FundingMode::BelowThreshold(threshold) => {
+        if value > U256::ZERO {
+            if let FundingMode::BelowThreshold(threshold) = self.funding_mode {
                 if balance < threshold {
-                    let to_send =
-                        max(threshold.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < threshold {} ETH. \
                          Sending additional funds to top up the balance.",
                         format_ether(balance),
                         format_ether(threshold),
                     );
-                    to_send
-                } else {
-                    U256::ZERO
                 }
-            }
-
-            FundingMode::MinMaxBalance { min_balance, max_balance } => {
+            } else if let FundingMode::MinMaxBalance { min_balance, max_balance } =
+                self.funding_mode
+            {
                 if balance < min_balance {
-                    let to_send =
-                        max(max_balance.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < min {} ETH. \
                          Sending {} ETH (max target {}).",
                         format_ether(balance),
                         format_ether(min_balance),
-                        format_ether(to_send),
+                        format_ether(value),
                         format_ether(max_balance),
                     );
-                    to_send
-                } else {
-                    U256::ZERO
                 }
             }
-        };
+        }
+
+        if let FundingMode::Always = self.funding_mode {
+            if balance > max_price.saturating_mul(U256::from(3u8)) {
+                tracing::warn!(
+                    "Client balance is {} ETH, that is more than 3x the value being sent. \
+                     Consider switching to a different funding mode to avoid overfunding.",
+                    format_ether(balance),
+                );
+            }
+        }
 
         Ok(value)
     }
@@ -1228,6 +1289,9 @@ where
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
+
+        request.validate()?;
+
         let max_price = U256::from(request.offer.maxPrice);
         let value = self.compute_funding_value(client_address, max_price).await?;
         if value > 0 {
@@ -1437,5 +1501,137 @@ where
                 .with_context(|| format!("error querying for 0x{request_id:x} onchain"))
                 .map_err(Into::into),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{funding_value_for_balance, FundingMode};
+    use alloy::primitives::U256;
+
+    #[test]
+    fn funding_always_sends_max_price() {
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(U256::ZERO, max_price, FundingMode::Always),
+            max_price
+        );
+        assert_eq!(
+            funding_value_for_balance(U256::from(100u64), max_price, FundingMode::Always),
+            max_price
+        );
+    }
+
+    #[test]
+    fn funding_never_sends_zero() {
+        let balance = U256::from(5u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(funding_value_for_balance(balance, max_price, FundingMode::Never), U256::ZERO);
+    }
+
+    #[test]
+    fn funding_available_balance_sends_shortfall_when_insufficient() {
+        let balance = U256::from(5u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(balance, max_price, FundingMode::AvailableBalance),
+            U256::from(15u64)
+        );
+    }
+
+    #[test]
+    fn funding_available_balance_sends_zero_when_sufficient() {
+        let balance = U256::from(25u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(balance, max_price, FundingMode::AvailableBalance),
+            U256::ZERO
+        );
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_above_threshold_below_max_price_sends_shortfall() {
+        // Balance >= threshold but < max_price: must send (max_price - balance) to fund request.
+        let balance = U256::from(15u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::from(5u64), "should send shortfall for this request");
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_below_threshold_sends_max_of_topup_and_shortfall() {
+        let balance = U256::from(5u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::from(15u64)); // max(5, 15) = 15
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_above_max_price_sends_zero() {
+        let balance = U256::from(25u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::ZERO);
+    }
+
+    #[test]
+    fn funding_min_max_balance_above_min_below_max_price_sends_shortfall() {
+        // Balance >= min_balance but < max_price: must send (max_price - balance) to fund request.
+        let balance = U256::from(15u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::from(5u64), "should send shortfall for this request");
+    }
+
+    #[test]
+    fn funding_min_max_balance_below_min_sends_max_of_topup_and_shortfall() {
+        let balance = U256::from(5u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::from(95u64)); // max(95, 15) = 95
+    }
+
+    #[test]
+    fn funding_min_max_balance_above_max_price_sends_zero() {
+        let balance = U256::from(25u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::ZERO);
     }
 }

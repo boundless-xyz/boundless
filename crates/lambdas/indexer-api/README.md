@@ -87,10 +87,12 @@ Use the `manage_local` CLI tool to run the indexer and API:
 
 **Commands:**
 
-- `run-market-indexer <database> [start_block] [end_block] [batch_size] [cache_dir] [bento_api_url] [bento_api_key] [max_concurrent_executing]` - Run market-indexer to populate database with market data (Ctrl+C to stop)
-- `run-market-backfill <database> <mode> <start_block> [end_block] [cache_dir] [tx_fetch_strategy]` - Run market-indexer-backfill to recompute statuses/aggregates
-- `run-rewards-indexer <database> [duration] [end_epoch] [end_block] [batch_size]` - Run rewards-indexer to populate database with staking/delegation/PoVW data
-- `run-api <port> <database>` - Run API server
+- `run-market-indexer` - Run market-indexer to populate database with market data (Ctrl+C to stop)
+- `run-market-backfill` - Run market-indexer-backfill to recompute statuses/aggregates/chain_data
+- `run-rewards-indexer` - Run rewards-indexer to populate database with staking/delegation/PoVW data
+- `run-api` - Run API server
+
+See `./manage_local --help` for detailed usage and options for each command.
 
 ### Example: Running Market Indexer and API
 
@@ -109,11 +111,11 @@ export RUST_LOG="boundless_indexer=debug"  # default
 
 # Run indexer processing blocks 35060420 to 40768860 (Ctrl+C to stop)
 ./manage_local run-market-indexer \
-  postgres://postgres:password@localhost:5490/postgres \
-  35060420 \
-  40768860 \
-  9999 \
-  ./cache_dir
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --start-block 35060420 \
+  --end-block 40768860 \
+  --batch-size 9999 \
+  --cache-dir ./cache_dir
 ```
 
 #### With Cycle Count Computation
@@ -123,32 +125,34 @@ To enable cycle count computation, add Bento API arguments:
 ```bash
 # Run indexer with cycle count computation enabled
 ./manage_local run-market-indexer \
-  postgres://postgres:password@localhost:5490/postgres \
-  35060420 \
-  40768860 \
-  9999 \
-  ./cache_dir \
-  "https://your-bento-api" \
-  "your-bento-api-key" \
-  20
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --start-block 35060420 \
+  --end-block 40768860 \
+  --batch-size 9999 \
+  --cache-dir ./cache_dir \
+  --bento-api-url "https://your-bento-api" \
+  --bento-api-key "your-bento-api-key" \
+  --max-concurrent-executing 20
 ```
 
-**Parameters:**
+**Options:**
 
-- `database`: PostgreSQL URL
-- `start_block`: Block to start from (optional)
-- `end_block`: Block to stop at (optional, runs indefinitely if not set)
-- `batch_size`: Blocks per batch (default: 9999)
-- `cache_dir`: Directory for cache file storage (optional)
-- `bento_api_url`: URL to Bento API for cycle count execution (optional)
-- `bento_api_key`: API key for Bento API (required if bento_api_url is set)
-- `max_concurrent_executing`: Max concurrent execution requests (default: 20)
+- `--database` (required): PostgreSQL URL
+- `--start-block`: Block to start from (optional)
+- `--end-block`: Block to stop at (optional, runs indefinitely if not set)
+- `--batch-size`: Blocks per batch (default: 9999)
+- `--cache-dir`: Directory for cache file storage (optional)
+- `--bento-api-url`: URL to Bento API for cycle count execution (optional, requires `--bento-api-key`)
+- `--bento-api-key`: API key for Bento API (optional, requires `--bento-api-url`)
+- `--max-concurrent-executing`: Max concurrent execution requests (default: 20)
 
 #### 2. Start the API Server
 
 ```bash
 # Start API server on port 3000
-./manage_local run-api 3000 postgres://postgres:password@localhost:5490/postgres
+./manage_local run-api \
+  --port 3000 \
+  --database postgres://postgres:password@localhost:5490/postgres
 ```
 
 Once the API server is running, you can test it:
@@ -159,44 +163,61 @@ curl http://localhost:3000/docs
 
 ### Running Market Backfill
 
-The `run-market-backfill` command recomputes request statuses and market aggregates from existing event data. This is useful for fixing inconsistencies or rebuilding computed tables after schema changes.
+The `run-market-backfill` command recomputes request statuses, market aggregates, or chain data from existing event data. This is useful for fixing inconsistencies or rebuilding computed tables after schema changes.
 
 **Modes:**
 
 - `statuses_and_aggregates`: Recompute both request statuses and all market summaries
 - `aggregates`: Recompute only market summaries (faster, skips status updates)
+- `chain_data`: Recompute chain data (transaction hashes, block numbers, etc.) for requests
 
 ```bash
 # Set required environment variables
 export MARKET_RPC_URL="https://your-rpc-endpoint.com"
 export BOUNDLESS_MARKET_ADDRESS="0x..."
-export TX_FETCH_STRATEGY="tx-by-hash"  # Optional
 
 # Recompute statuses and aggregates from block 35060420 to 38958539
 ./manage_local run-market-backfill \
-  postgres://postgres:password@localhost:5490/postgres \
-  statuses_and_aggregates \
-  35060420 \
-  38958539 \
-  ./cache_market_x2 \
-  tx-by-hash
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode statuses_and_aggregates \
+  --start-block 35060420 \
+  --end-block 38958539 \
+  --cache-dir ./cache_market_x2 \
+  --tx-fetch-strategy tx-by-hash
 
 # Or recompute only aggregates
 ./manage_local run-market-backfill \
-  postgres://postgres:password@localhost:5490/postgres \
-  aggregates \
-  35060420 \
-  38958539
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode aggregates \
+  --start-block 35060420 \
+  --end-block 38958539
+
+# Recompute chain data using lookback (backfill last 1000 blocks from current)
+./manage_local run-market-backfill \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode chain_data \
+  --lookback-blocks 1000
+
+# Recompute chain data for a specific block range
+./manage_local run-market-backfill \
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --mode chain_data \
+  --start-block 35060420 \
+  --end-block 38958539 \
+  --cache-dir ./cache_dir
 ```
 
-**Parameters:**
+**Options:**
 
-- `database`: PostgreSQL URL
-- `mode`: `"statuses_and_aggregates"` or `"aggregates"`
-- `start_block`: Block to start backfill from (required)
-- `end_block`: Block to end backfill at (optional, default: latest indexed)
-- `cache_dir`: Directory for cache file storage (optional)
-- `tx_fetch_strategy`: `"block-receipts"` or `"tx-by-hash"` (optional, default: `"block-receipts"`)
+- `--database` (required): PostgreSQL URL
+- `--mode` (required): `"statuses_and_aggregates"`, `"aggregates"`, or `"chain_data"`
+- `--start-block`: Block to start backfill from (required if `--lookback-blocks` not provided)
+- `--lookback-blocks`: Number of blocks to look back from current block (required if `--start-block` not provided)
+  - When specified, fetches current block from RPC and calculates `start_block = current_block - lookback_blocks`
+  - Either `--start-block` or `--lookback-blocks` must be provided, but not both
+- `--end-block`: Block to end backfill at (optional, default: latest indexed)
+- `--cache-dir`: Directory for cache file storage (optional)
+- `--tx-fetch-strategy`: `"block-receipts"` or `"tx-by-hash"` (optional, default: `"block-receipts"`)
 
 ### Running Rewards Indexer
 
@@ -212,8 +233,8 @@ export RUST_LOG="info"  # Optional
 
 # Run rewards indexer for 120 seconds
 ./manage_local run-rewards-indexer \
-  postgres://postgres:password@localhost:5490/postgres \
-  120
+  --database postgres://postgres:password@localhost:5490/postgres \
+  --duration 120
 ```
 
 ## Deployment

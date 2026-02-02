@@ -15,9 +15,9 @@
 use std::{borrow::Borrow, collections::HashMap, sync::Arc};
 
 use crate::config::ProverConf;
-use crate::provers::{ExecutorResp, ProofResult, Prover, ProverError};
 use anyhow::{anyhow, Context, Result as AnyhowResult};
 use async_trait::async_trait;
+use boundless_market::prover_utils::prover::{ExecutorResp, ProofResult, Prover, ProverError};
 use risc0_zkvm::{
     default_executor, default_prover, ExecutorEnv, ProveInfo, ProverOpts, Receipt, SessionInfo,
     VERSION,
@@ -356,7 +356,9 @@ impl Prover for DefaultProver {
         // TODO: remove this workaround when default_prover().compress works for Bonsai
         let compress_result: Result<Receipt, ProverError> =
             if default_prover().get_name() == "bonsai" {
-                let client = bonsai_sdk::non_blocking::Client::from_env(VERSION)?;
+                let client = bonsai_sdk::non_blocking::Client::from_env(VERSION).map_err(|e| {
+                    ProverError::ProverInternalError(format!("Bonsai SDK error: {e:?}"))
+                })?;
                 super::Bonsai::compress(&client, &receipt, &ProverConf::default())
                     .await
                     .context(format!("Failed to compress proof {proof_id}"))

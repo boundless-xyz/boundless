@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::super::{
-    IndexerService, DAILY_AGGREGATION_RECOMPUTE_DAYS, HOURLY_AGGREGATION_RECOMPUTE_HOURS,
-    MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_WEEK,
-    WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
+    DbResultExt, IndexerService, DAILY_AGGREGATION_RECOMPUTE_DAYS,
+    HOURLY_AGGREGATION_RECOMPUTE_HOURS, MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY,
+    SECONDS_PER_HOUR, SECONDS_PER_WEEK, WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
 };
 use crate::db::RequestorDb;
 use crate::market::{
@@ -115,7 +115,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(hour_ts, hour_end, requestor)
                                 .await?;
-                            service.db.upsert_hourly_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_hourly_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_hourly_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -198,7 +202,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(day_ts, day_end, requestor)
                                 .await?;
-                            service.db.upsert_daily_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_daily_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_daily_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -281,7 +289,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(week_ts, week_end, requestor)
                                 .await?;
-                            service.db.upsert_weekly_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_weekly_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_weekly_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -385,7 +397,11 @@ where
                             let summary = service
                                 .compute_period_requestor_summary(month_ts, month_end, requestor)
                                 .await?;
-                            service.db.upsert_monthly_requestor_summary(summary).await?;
+                            service
+                                .db
+                                .upsert_monthly_requestor_summary(summary)
+                                .await
+                                .with_db_context("upsert_monthly_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -583,22 +599,29 @@ where
                                 0.0
                             };
 
-                            // Query adjusted counts and recalculate adjusted fulfillment rate
-                            let adjusted_fulfilled = service.db
-                                .get_all_time_requestor_locked_and_fulfilled_count_adjusted(hour_ts + 1, requestor)
-                                .await?;
-                            let adjusted_expired = service.db
-                                .get_all_time_requestor_locked_and_expired_count_adjusted(hour_ts + 1, requestor)
-                                .await?;
-                            let total_locked_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
-                            cumulative_summary.locked_orders_fulfillment_rate_adjusted = if total_locked_outcomes_adjusted > 0 {
-                                (adjusted_fulfilled as f32 / total_locked_outcomes_adjusted as f32) * 100.0
-                            } else {
-                                0.0
-                            };
+                            // TODO: Query adjusted counts and recalculate adjusted fulfillment rate
+                            // These queries are too slow (6+ seconds) due to COUNT(DISTINCT) over large dataset.
+                            // Temporarily disabled.
+                            // let adjusted_fulfilled = service.db
+                            //     .get_all_time_requestor_locked_and_fulfilled_count_adjusted(hour_ts + 1, requestor)
+                            //     .await?;
+                            // let adjusted_expired = service.db
+                            //     .get_all_time_requestor_locked_and_expired_count_adjusted(hour_ts + 1, requestor)
+                            //     .await?;
+                            // let total_locked_outcomes_adjusted = adjusted_fulfilled + adjusted_expired;
+                            // cumulative_summary.locked_orders_fulfillment_rate_adjusted = if total_locked_outcomes_adjusted > 0 {
+                            //     (adjusted_fulfilled as f32 / total_locked_outcomes_adjusted as f32) * 100.0
+                            // } else {
+                            //     0.0
+                            // };
+                            cumulative_summary.locked_orders_fulfillment_rate_adjusted = 0.0;
 
                             // ALWAYS save the all-time requestor aggregate, even if there was no activity
-                            service.db.upsert_all_time_requestor_summary(cumulative_summary.clone()).await?;
+                            service
+                                .db
+                                .upsert_all_time_requestor_summary(cumulative_summary.clone())
+                                .await
+                                .with_db_context("upsert_all_time_requestor_summary")?;
                         }
                         Ok::<(), ServiceError>(())
                     }
@@ -621,7 +644,7 @@ where
     ) -> Result<crate::db::market::PeriodRequestorSummary, ServiceError> {
         use crate::db::market::PeriodRequestorSummary;
 
-        // Execute all database queries in parallel
+        // Execute database queries in 3 sequential batches to parallelize without overloading the database
         let (
             total_fulfilled,
             unique_provers,
@@ -629,17 +652,6 @@ where
             total_requests_submitted_onchain,
             total_requests_locked,
             total_requests_slashed,
-            total_expired,
-            total_locked_and_expired,
-            total_locked_and_fulfilled,
-            total_secondary_fulfillments,
-            total_locked_and_fulfilled_adjusted,
-            total_locked_and_expired_adjusted,
-            locks,
-            all_lock_collaterals,
-            locked_and_expired_collaterals,
-            total_program_cycles,
-            total_cycles,
         ) = tokio::join!(
             self.db.get_period_requestor_fulfilled_count(
                 period_start,
@@ -671,6 +683,16 @@ where
                 period_end,
                 requestor_address
             ),
+        );
+
+        let (
+            total_expired,
+            total_locked_and_expired,
+            total_locked_and_fulfilled,
+            total_secondary_fulfillments,
+            total_locked_and_fulfilled_adjusted,
+            total_locked_and_expired_adjusted,
+        ) = tokio::join!(
             self.db.get_period_requestor_expired_count(period_start, period_end, requestor_address),
             self.db.get_period_requestor_locked_and_expired_count(
                 period_start,
@@ -697,6 +719,15 @@ where
                 period_end,
                 requestor_address
             ),
+        );
+
+        let (
+            locks,
+            all_lock_collaterals,
+            locked_and_expired_collaterals,
+            total_program_cycles,
+            total_cycles,
+        ) = tokio::join!(
             self.db.get_period_requestor_lock_pricing_data(
                 period_start,
                 period_end,

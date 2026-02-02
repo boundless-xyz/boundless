@@ -13,22 +13,14 @@
 // limitations under the License.
 
 use crate::display::network_name_from_chain_id;
-use std::{
-    fs::File,
-    io::BufReader,
-    path::PathBuf,
-    time::{Duration, SystemTime},
-};
+use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
-use alloy::primitives::U256;
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{FulfillmentData, Offer, Predicate, ProofRequest},
-    storage::{fetch_url, StorageProviderConfig},
+    contracts::ProofRequest, request_builder::RequirementParams, storage::StorageProviderConfig,
 };
 use clap::Args;
-use risc0_zkvm::sha::{Digest, Digestible};
-use risc0_zkvm::{compute_image_id, default_executor, ExecutorEnv, ReceiptClaim, SessionInfo};
+use url::Url;
 
 use crate::{
     config::{GlobalConfig, RequestorConfig},
@@ -50,7 +42,7 @@ pub struct RequestorSubmit {
     #[clap(short, long)]
     pub offchain: bool,
 
-    /// Skip preflight check (not recommended)
+    /// Skip preflight and pricing checks (not recommended)
     #[clap(long, default_value = "false")]
     pub no_preflight: bool,
 
@@ -72,6 +64,7 @@ impl RequestorSubmit {
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
             .with_storage_provider_config(&self.storage_config)?
+            .with_skip_preflight(self.no_preflight)
             .build()
             .await
             .context("Failed to build Boundless Client")?;
@@ -85,57 +78,27 @@ impl RequestorSubmit {
         let file = File::open(&self.yaml_request)
             .context(format!("Failed to open request file at {:?}", self.yaml_request))?;
         let reader = BufReader::new(file);
-        let mut request: ProofRequest =
+        let yaml_request: ProofRequest =
             serde_yaml::from_reader(reader).context("Failed to parse request from YAML")?;
 
-        // Fill in some of the request parameters
-        // If set to 0, override the offer bidding_start field with the current timestamp + 30s
-        if request.offer.rampUpStart == 0 {
-            // Adding a delay to bidding start lets provers see and evaluate the request
-            // before the price starts to ramp up
-            let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
-            request.offer = Offer { rampUpStart: now + 30, ..request.offer };
-        }
-        if request.id == U256::ZERO {
-            request.id = client.boundless_market.request_id_from_rand().await?;
-            display.item("Assigned Request ID", format!("{:#x}", request.id));
-        };
+        // Build request using the request builder pattern
+        // This runs preflight execution and pricing checks automatically
+        display.info("Building request (running preflight and pricing checks)");
 
-        // Run preflight check if enabled
-        if !self.no_preflight {
-            display.info("Running request preflight check");
-            let (image_id, session_info) = execute(&request).await?;
-            let journal = &session_info.journal.bytes;
+        let program_url: Url = yaml_request.imageUrl.parse().context("Invalid imageUrl")?;
+        let request_builder = client
+            .new_request()
+            .with_program_url(program_url)?
+            .with_request_input(yaml_request.input.clone())
+            .with_offer(yaml_request.offer.clone())
+            .with_requirements(RequirementParams::try_from(yaml_request.requirements.clone())?);
 
-            // Verify image ID
-            if let Some(claim) = &session_info.receipt_claim {
-                use risc0_zkvm::sha::Digestible;
-                ensure!(
-                    claim.pre.digest() == image_id,
-                    "Image ID mismatch: requirements ({}) do not match the given program ({})",
-                    image_id,
-                    claim.pre.digest(),
-                );
-            } else {
-                tracing::debug!("Cannot check image ID; session info doesn't have receipt claim");
-            }
-            let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
+        let request =
+            client.build_request(request_builder).await.context("Failed to build proof request")?;
 
-            let expected_claim_digest = ReceiptClaim::ok(image_id, journal.clone()).digest();
-            ensure!(
-                predicate.eval(&FulfillmentData::from_image_id_and_journal(image_id, journal.clone())).is_some(),
-                "Preflight failed: Predicate evaluation failed. Journal: {}, Predicate type: {:?}, Predicate data: {}, Expected claim digest: {}, Expected journal digest: {}",
-                hex::encode(journal),
-                request.requirements.predicate.predicateType,
-                hex::encode(&request.requirements.predicate.data),
-                hex::encode(expected_claim_digest),
-                hex::encode(session_info.journal.digest())
-            );
+        display.success("Request built successfully");
 
-            display.success("Preflight check passed");
-        } else {
-            display.warning("Skipping preflight check");
-        }
+        tracing::debug!("Request details: {}", serde_yaml::to_string(&request)?);
 
         // Submit the request
         let (request_id, expires_at) = if self.offchain {
@@ -167,42 +130,4 @@ impl RequestorSubmit {
 
         Ok(())
     }
-}
-
-/// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
-async fn execute(request: &ProofRequest) -> Result<(Digest, SessionInfo)> {
-    tracing::info!("Fetching program from {}", request.imageUrl);
-    let program = fetch_url(&request.imageUrl).await?;
-    let image_id = compute_image_id(&program)?;
-
-    tracing::debug!("Program image id: {}", image_id);
-
-    let input = match request.input.inputType {
-        boundless_market::contracts::RequestInputType::Inline => {
-            boundless_market::input::GuestEnv::decode(&request.input.data)?.stdin
-        }
-        boundless_market::contracts::RequestInputType::Url => {
-            let input_url =
-                std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
-            tracing::info!("Fetching input from {}", input_url);
-            let input_data = fetch_url(input_url).await?;
-            boundless_market::input::GuestEnv::decode(&input_data)?.stdin
-        }
-        _ => anyhow::bail!("Unsupported input type"),
-    };
-
-    tracing::info!("Starting execution");
-    let start = SystemTime::now();
-    let env = ExecutorEnv::builder().write_slice(&input).build()?;
-    let session_info = default_executor().execute(env, &program)?;
-    let elapsed = SystemTime::now().duration_since(start)?.as_secs_f64();
-
-    tracing::info!("Execution completed in {:.2}s", elapsed);
-    tracing::debug!("Journal: {:?}", hex::encode(&session_info.journal.bytes));
-    tracing::info!(
-        "Total cycles: {}",
-        session_info.segments.iter().map(|s| s.cycles as usize).sum::<usize>()
-    );
-
-    Ok((image_id, session_info))
 }

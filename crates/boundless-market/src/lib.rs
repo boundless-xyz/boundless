@@ -101,6 +101,12 @@ pub mod price_oracle;
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;
 
+/// Order pricing helpers and prover utilities.
+#[cfg(all(feature = "prover_utils", not(target_os = "zkvm")))]
+pub mod prover_utils;
+#[cfg(all(not(feature = "prover_utils"), not(target_os = "zkvm")))]
+pub(crate) mod prover_utils;
+
 /// Storage module for interacting with the storage provider.
 #[cfg(not(target_os = "zkvm"))]
 pub mod storage;

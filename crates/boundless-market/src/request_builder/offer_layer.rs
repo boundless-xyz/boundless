@@ -35,7 +35,39 @@ use derive_builder::Builder;
 
 pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
 pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
-pub(crate) const DEFAULT_MAX_TIMEOUT: u32 = 14400; // 4 hours
+/// Default min price when not set by params, config, or market (wei).
+pub(crate) const DEFAULT_MIN_PRICE: U256 = U256::ZERO;
+/// Default max price per cycle when not set by params, config, or market (100 Mwei in wei).
+pub(crate) fn default_max_price_per_cycle() -> U256 {
+    U256::from(100) * Unit::MWEI.wei_const()
+}
+
+/// Resolves min price (total) with priority: params > config > market > default (default is per-cycle × cycle_count).
+pub(crate) fn resolve_min_price(
+    params_min: Option<U256>,
+    config_min_per_cycle: Option<U256>,
+    cycle_count: Option<u64>,
+    market_min: Option<U256>,
+) -> U256 {
+    params_min
+        .or_else(|| cycle_count.and_then(|c| config_min_per_cycle.map(|p| p * U256::from(c))))
+        .or(market_min)
+        .unwrap_or(DEFAULT_MIN_PRICE)
+}
+
+/// Resolves max price (total) with priority: params > config > market > default (default is per-cycle × cycle_count).
+pub(crate) fn resolve_max_price(
+    params_max: Option<U256>,
+    config_max: Option<U256>,
+    market_max: Option<U256>,
+    cycle_count: Option<u64>,
+) -> U256 {
+    params_max.or(config_max).or(market_max).unwrap_or_else(|| {
+        // Use at least 1 so zero-cycle offers get a positive default max (fixed costs).
+        let n = cycle_count.map(|c| c.max(1)).unwrap_or(1);
+        default_max_price_per_cycle() * U256::from(n)
+    })
+}
 
 struct CollateralRecommendation {
     default: U256,
@@ -130,30 +162,26 @@ fn check_secondary_performance_warning(
 pub struct OfferLayerConfig {
     /// Parameterization mode.
     ///
-    /// Defines the offering parameters for the request based on the mode:
-    /// - [ParameterizationMode::fulfillment] is a more conservative mode that ensures more provers can fulfill the request.
-    /// - [ParameterizationMode::latency] is a more aggressive mode that allows for faster fulfillment at the cost of higher prices and lower fulfillment guarantees.
-    ///
-    /// The default is [ParameterizationMode::fulfillment()], which is the default fulfillment mode.
+    /// Defines the offering parameters for the request. The default is
+    /// [ParameterizationMode::fulfillment()], which is a conservative mode that ensures
+    /// more provers can fulfill the request.
     ///
     /// # Example
     /// ```rust
-    /// # use boundless_market::request_builder::{OfferLayerConfig, ParameterizationMode};
-    /// use boundless_market::request_builder::ParameterizationMode;
+    /// # use boundless_market::request_builder::ParameterizationMode;
     ///
-    /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::latency());
     /// OfferLayerConfig::builder().parameterization_mode(ParameterizationMode::fulfillment());
     /// ```
     #[builder(setter(into), default = "Some(ParameterizationMode::fulfillment())")]
     pub parameterization_mode: Option<ParameterizationMode>,
 
     /// Minimum price per RISC Zero execution cycle, in wei.
-    #[builder(setter(into), default = "U256::ZERO")]
-    pub min_price_per_cycle: U256,
+    #[builder(setter(into, strip_option), default)]
+    pub min_price_per_cycle: Option<U256>,
 
     /// Maximum price per RISC Zero execution cycle, in wei.
-    #[builder(setter(into), default = "U256::from(100) * Unit::MWEI.wei_const()")]
-    pub max_price_per_cycle: U256,
+    #[builder(setter(into, strip_option), default)]
+    pub max_price_per_cycle: Option<U256>,
 
     /// Time in seconds to delay the start of bidding after request creation.
     #[builder(setter(strip_option), default)]
@@ -425,6 +453,31 @@ where
         let gas_cost_estimate = gas_price * (gas_usage_estimate as u128);
         Ok(U256::from(gas_cost_estimate))
     }
+
+    /// Computes max price as cycle-based price plus 2x current gas cost estimate.
+    ///
+    /// Fetches gas price from the provider, estimates gas cost for the request,
+    /// and returns the sum with `max_price_cycle`.
+    pub async fn max_price_with_gas(
+        &self,
+        requirements: &Requirements,
+        request_id: &RequestId,
+        max_price: U256,
+    ) -> anyhow::Result<U256> {
+        let gas_price: u128 = self.provider.get_gas_price().await?;
+        let gas_cost_estimate =
+            self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
+        let adjusted_gas_cost_estimate = gas_cost_estimate + gas_cost_estimate;
+        let adjusted_max_price = max_price + adjusted_gas_cost_estimate;
+        tracing::debug!(
+            "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
+            format_units(adjusted_max_price, "ether")?,
+            format_units(max_price, "ether")?,
+            format_units(adjusted_gas_cost_estimate, "ether")?,
+            format_units(U256::from(gas_price), "gwei")?,
+        );
+        Ok(adjusted_max_price)
+    }
 }
 
 impl<P> Layer<(&Requirements, &RequestId, Option<u64>, &OfferParams)> for OfferLayer<P>
@@ -443,16 +496,18 @@ where
             &OfferParams,
         ),
     ) -> Result<Self::Output, Self::Error> {
-        // Try to use market prices from price provider if prices aren't set in params
-        let (market_min_price, market_max_price) = if params.min_price.is_none()
-            || params.max_price.is_none()
+        // Try to use market prices from price provider if prices aren't set in params or config
+        let (market_min_price, market_max_price) = if (params.min_price.is_none()
+            && self.config.min_price_per_cycle.is_none())
+            || (params.max_price.is_none() && self.config.max_price_per_cycle.is_none())
         {
             if let Some(ref price_provider) = self.price_provider {
                 if let Some(cycle_count) = cycle_count {
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
                             let min = percentiles.p10 * U256::from(cycle_count);
-                            let max = percentiles.p90 * U256::from(cycle_count);
+                            let max = percentiles.p99.min(percentiles.p50 * U256::from(2))
+                                * U256::from(cycle_count);
                             tracing::debug!(
                                 "Using market prices from price provider: min={}, max={} (for {} cycles)",
                                 format_units(min, "ether")?,
@@ -479,93 +534,88 @@ where
             (None, None)
         };
 
-        let min_price = if params.min_price.is_none() {
-            // Use market price if available, otherwise fall back to config
-            if let Some(market_min) = market_min_price {
-                market_min
+        // Priority: params > config > market > static default
+        let min_price = resolve_min_price(
+            params.min_price,
+            self.config.min_price_per_cycle,
+            cycle_count,
+            market_min_price,
+        );
+
+        let config_max_value = if params.max_price.is_none() {
+            let c = cycle_count.context("cycle count required to set max price in OfferLayer")?;
+            if let Some(per_cycle) = self.config.max_price_per_cycle {
+                let max_price = per_cycle * U256::from(c);
+                Some(max_price)
             } else {
-                match cycle_count {
-                    Some(cycle_count) => self.config.min_price_per_cycle * U256::from(cycle_count),
-                    None => {
-                        if self.config.min_price_per_cycle != U256::ZERO {
-                            return Err(anyhow::anyhow!(
-                                "cycle count required to set min price in OfferLayer"
-                            ));
-                        }
-                        U256::ZERO
-                    }
-                }
+                None
             }
         } else {
-            params.min_price.unwrap()
+            None
         };
 
+        let max_price =
+            resolve_max_price(params.max_price, config_max_value, market_max_price, cycle_count);
         let max_price = if params.max_price.is_none() {
-            // Use market price if available, otherwise fall back to config + gas
-            if let Some(market_max) = market_max_price {
-                market_max
-            } else {
-                let cycle_count =
-                    cycle_count.context("cycle count required to set max price in OfferLayer")?;
-                let max_price_cycle = self.config.max_price_per_cycle * U256::from(cycle_count);
-
-                let gas_price: u128 = self.provider.get_gas_price().await?;
-                let gas_cost_estimate =
-                    self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
-
-                // Add the gas price plus 10% to the max_price.
-                let adjusted_gas_cost_estimate =
-                    gas_cost_estimate + (gas_cost_estimate / U256::from(10));
-                let max_price = max_price_cycle + adjusted_gas_cost_estimate;
-                tracing::debug!(
-                    "Setting a max price of {} ether: {} cycle_price + {} gas_cost_estimate (adjusted by 10%) [gas price: {} gwei]",
-                    format_units(max_price, "ether")?,
-                    format_units(max_price_cycle, "ether")?,
-                    format_units(adjusted_gas_cost_estimate, "ether")?,
-                    format_units(U256::from(gas_price), "gwei")?,
-                );
-                max_price
-            }
+            self.max_price_with_gas(requirements, request_id, max_price).await?
         } else {
-            params.max_price.unwrap()
+            max_price
         };
 
-        let (lock_timeout, timeout, ramp_up_period, ramp_up_start) =
-            if let Some(parameterization_mode) = self.config.parameterization_mode {
-                let ramp_up_start = self
-                    .config
-                    .bidding_start_delay
-                    .unwrap_or(parameterization_mode.recommended_ramp_up_start(cycle_count));
-                let ramp_up_period = self
-                    .config
-                    .ramp_up_period
-                    .unwrap_or(parameterization_mode.recommended_ramp_up_period(cycle_count));
-                let recommended_timeout =
-                    parameterization_mode.recommended_timeout(cycle_count) + ramp_up_period;
-                let lock_timeout = self
-                    .config
-                    .lock_timeout
-                    .unwrap_or(recommended_timeout.min(DEFAULT_MAX_TIMEOUT));
-                let timeout =
-                    self.config.timeout.unwrap_or((lock_timeout * 2).min(DEFAULT_MAX_TIMEOUT * 2));
-                (lock_timeout, timeout, ramp_up_period, ramp_up_start)
-            } else {
-                let lock_timeout = DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD;
-                let timeout = lock_timeout * 2;
-                let ramp_up_period = DEFAULT_RAMP_UP_PERIOD;
-                let ramp_up_start = now_timestamp() + 15;
-                tracing::warn!("Using default ramp up start: {}", ramp_up_start);
-                tracing::warn!("Using default ramp up period: {}", ramp_up_period);
-                tracing::warn!("Using default lock timeout: {}", lock_timeout);
-                tracing::warn!("Using default timeout: {}", timeout);
-                (lock_timeout, timeout, ramp_up_period, ramp_up_start)
+        // Priority: config > recommended (from parameterization_mode) > default
+        let (recommended_ramp_up_start, recommended_ramp_up_period, recommended_lock_timeout) =
+            match self.config.parameterization_mode {
+                Some(m) => (
+                    Some(m.recommended_ramp_up_start(cycle_count)),
+                    Some(m.recommended_ramp_up_period(cycle_count)),
+                    Some(m.recommended_timeout(cycle_count)),
+                ),
+                None => (None, None, None),
             };
+
+        let ramp_up_start = self
+            .config
+            .bidding_start_delay
+            .map(|d| now_timestamp() + d)
+            .or(recommended_ramp_up_start)
+            .unwrap_or_else(|| now_timestamp() + 15);
+
+        let ramp_up_period = self
+            .config
+            .ramp_up_period
+            .or(recommended_ramp_up_period)
+            .unwrap_or(DEFAULT_RAMP_UP_PERIOD);
+
+        let lock_timeout = self
+            .config
+            .lock_timeout
+            .or(recommended_lock_timeout)
+            .unwrap_or(DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD);
+
+        let timeout = self
+            .config
+            .timeout
+            .or(Some(lock_timeout * 2))
+            .unwrap_or((DEFAULT_TIMEOUT + DEFAULT_RAMP_UP_PERIOD) * 2);
+
+        if self.config.bidding_start_delay.is_none() && recommended_ramp_up_start.is_none() {
+            tracing::warn!("Using default ramp up start: {}", ramp_up_start);
+        }
+        if self.config.ramp_up_period.is_none() && recommended_ramp_up_period.is_none() {
+            tracing::warn!("Using default ramp up period: {}", ramp_up_period);
+        }
+        if self.config.lock_timeout.is_none() && recommended_lock_timeout.is_none() {
+            tracing::warn!("Using default lock timeout: {}", lock_timeout);
+        }
+        if self.config.timeout.is_none() && recommended_lock_timeout.is_none() {
+            tracing::warn!("Using default timeout: {}", timeout);
+        }
 
         let chain_id = self.provider.get_chain_id().await?;
         let default_collaterals = default_lock_collateral(chain_id);
         let lock_collateral = self.config.lock_collateral.unwrap_or(default_collaterals.default);
 
-        let mut offer = Offer {
+        let offer = Offer {
             minPrice: min_price,
             maxPrice: max_price,
             rampUpStart: params.bidding_start.unwrap_or(ramp_up_start),
@@ -594,10 +644,9 @@ where
                 tracing::warn!(
                     "Warning: the collateral requirement of your request is low. This means the \
                      incentives for secondary provers to fulfill the order if the primary prover \
-                     is slashed may be too low. Overriding your lock collateral to {} ZKC.",
+                     is slashed may be too low. It is recommended to set the lock collateral to at least {} ZKC.",
                     format_units(collateral, "ether")?
                 );
-                offer.lockCollateral = collateral;
             }
         }
 
@@ -623,7 +672,12 @@ fn default_lock_collateral(chain_id: u64) -> CollateralRecommendation {
             U256::from(10) * Unit::ETHER.wei_const(),
             U256::from(20) * Unit::ETHER.wei_const(),
         ), // Sepolia - 5 ZKC
-        _ => CollateralRecommendation::new(U256::ZERO, U256::ZERO, U256::ZERO), // No default lock collateral for other chains
+        // Default for local/unknown chains (e.g., Anvil) - use similar to testnet defaults
+        _ => CollateralRecommendation::new(
+            U256::from(5) * Unit::ETHER.wei_const(),
+            U256::from(10) * Unit::ETHER.wei_const(),
+            U256::from(20) * Unit::ETHER.wei_const(),
+        ),
     }
 }
 
@@ -799,6 +853,65 @@ mod tests {
                 .recommend_collateral(12000.0, parse_ether("100").unwrap())
                 .unwrap();
             assert_eq!(result, None);
+        }
+    }
+
+    mod price_priority {
+        use super::*;
+
+        fn u(n: u64) -> U256 {
+            U256::from(n)
+        }
+
+        #[test]
+        fn min_price_params_takes_priority() {
+            assert_eq!(resolve_min_price(Some(u(1)), Some(u(2)), Some(10), Some(u(3))), u(1));
+        }
+
+        #[test]
+        fn min_price_config_over_market_and_default() {
+            assert_eq!(resolve_min_price(None, Some(u(5)), Some(10), Some(u(100))), u(50));
+        }
+
+        #[test]
+        fn min_price_market_over_default() {
+            assert_eq!(resolve_min_price(None, None, None, Some(u(42))), u(42));
+        }
+
+        #[test]
+        fn min_price_default_when_all_none() {
+            assert_eq!(
+                resolve_min_price(None, None, None, None),
+                DEFAULT_MIN_PRICE * U256::from(1)
+            );
+        }
+
+        #[test]
+        fn min_price_config_requires_cycle_count() {
+            assert_eq!(resolve_min_price(None, Some(u(5)), None, Some(u(10))), u(10));
+        }
+
+        #[test]
+        fn max_price_params_takes_priority() {
+            assert_eq!(resolve_max_price(Some(u(1)), Some(u(2)), Some(u(3)), Some(10)), u(1));
+        }
+
+        #[test]
+        fn max_price_config_over_market_and_default() {
+            assert_eq!(resolve_max_price(None, Some(u(50)), Some(u(100)), Some(10)), u(50));
+        }
+
+        #[test]
+        fn max_price_market_over_default() {
+            assert_eq!(resolve_max_price(None, None, Some(u(42)), Some(10)), u(42));
+        }
+
+        #[test]
+        fn max_price_default_when_all_none() {
+            assert_eq!(
+                resolve_max_price(None, None, None, Some(10)),
+                default_max_price_per_cycle() * u(10)
+            );
         }
     }
 }
