@@ -18,6 +18,44 @@
     mode: '0600'
   notify: Restart Bento
 
+- name: Ensure BLAKE3 Groth16 setup directory exists
+  ansible.builtin.file:
+    path: "{{ prover_blake3_groth16_setup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart Bento
+
+- name: Check if BLAKE3 Groth16 setup artifacts are present
+  ansible.builtin.stat:
+    path: "{{ prover_blake3_groth16_setup_dir }}/verify_for_guest_final.zkey"
+  register: prover_blake3_zkey
+
+- name: Download and extract BLAKE3 Groth16 artifacts when setup dir is empty
+  when: not prover_blake3_zkey.stat.exists
+  block:
+    - name: Download BLAKE3 Groth16 artifacts tarball
+      ansible.builtin.get_url:
+        url: "{{ prover_blake3_groth16_url }}"
+        dest: /tmp/blake3_groth16_artifacts.tar.xz
+        mode: '0644'
+      register: prover_blake3_download
+
+    - name: Extract BLAKE3 Groth16 artifacts into setup dir
+      ansible.builtin.unarchive:
+        src: /tmp/blake3_groth16_artifacts.tar.xz
+        dest: "{{ prover_blake3_groth16_setup_dir }}"
+        extra_opts: [--strip-components=1]
+        remote_src: true
+        creates: "{{ prover_blake3_groth16_setup_dir }}/verify_for_guest_final.zkey"
+      notify: Restart Bento
+
+    - name: Remove BLAKE3 Groth16 artifacts tarball
+      ansible.builtin.file:
+        path: /tmp/blake3_groth16_artifacts.tar.xz
+        state: absent
+
 - name: Download broker configuration file
   ansible.builtin.get_url:
     url: '{{ prover_broker_toml_url }}'
@@ -51,22 +89,40 @@
     method: GET
     status_code: 200
     timeout: 5
-  register: minio_health
-  until: minio_health.status == 200
+  register: prover_minio_health
+  until: prover_minio_health.status == 200
   retries: 12
   delay: 5
   when: prover_minio_work_expiry_days | int > 0
 
-- name: Configure MinIO lifecycle to expire work older than {{ prover_minio_work_expiry_days }} days
+- name: Get current MinIO lifecycle rules
   ansible.builtin.shell: |
-    docker run --rm --network host \
+    docker run --rm --network host --entrypoint /bin/sh \
+      -e MC_USER="{{ prover_minio_root_user }}" \
+      -e MC_PASS="{{ prover_minio_root_pass }}" \
+      -e MC_BUCKET="{{ prover_minio_bucket }}" \
+      minio/mc:latest -c '
+      mc alias set proverminio http://127.0.0.1:9000 "$MC_USER" "$MC_PASS" &&
+      mc ilm export proverminio/$MC_BUCKET 2>/dev/null || true
+    '
+  register: prover_minio_ilm_current
+  when: prover_minio_work_expiry_days | int > 0
+  changed_when: false
+  no_log: true
+
+- name: Configure MinIO lifecycle to expire workflow objects after configured days
+  ansible.builtin.shell: |
+    docker run --rm --network host --entrypoint /bin/sh \
       -e MC_USER="{{ prover_minio_root_user }}" \
       -e MC_PASS="{{ prover_minio_root_pass }}" \
       -e MC_BUCKET="{{ prover_minio_bucket }}" \
       -e EXPIRE_DAYS="{{ prover_minio_work_expiry_days }}" \
-      minio/mc:latest sh -c '
+      minio/mc:latest -c '
       mc alias set proverminio http://127.0.0.1:9000 "$MC_USER" "$MC_PASS" &&
       mc ilm rule add proverminio/$MC_BUCKET --expire-days "$EXPIRE_DAYS"
     '
-  when: prover_minio_work_expiry_days | int > 0
+  when:
+    - prover_minio_work_expiry_days | int > 0
+    - (prover_minio_work_expiry_days | string) not in (prover_minio_ilm_current.stdout | default(''))
+  changed_when: true
   no_log: true
