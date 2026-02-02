@@ -61,7 +61,7 @@ This section covers the design and architecture of the Market Indexer in detail.
 
 ### High-Level Design Philosophy
 
-The indexer follows a **performance-first** approach with these key design choices:
+The indexer follows these design principles:
 
 - **Denormalized table structure**: The `request_status` table is a flattened view that consolidates data from `proof_requests`, all event tables, `proofs`, and `cycle_counts`. This avoids expensive joins at query time. This table is the primary source for our frontend applications when displaying request information.
 
