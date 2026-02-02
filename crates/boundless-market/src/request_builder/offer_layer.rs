@@ -28,7 +28,7 @@ use alloy::{
         utils::{format_units, Unit},
         U256,
     },
-    providers::Provider,
+    providers::{utils, Provider},
 };
 use anyhow::{Context, Result};
 use clap::Args;
@@ -465,15 +465,22 @@ where
         request_id: &RequestId,
         max_price: U256,
     ) -> anyhow::Result<U256> {
-        let fee_history =
-            self.provider.get_fee_history(10, BlockNumberOrTag::Latest, &[50.0]).await?;
-        let base_fee = fee_history.base_fee_per_gas.last().copied().unwrap_or_default();
+        let fee_history = self
+            .provider
+            .get_fee_history(
+                utils::EIP1559_FEE_ESTIMATION_PAST_BLOCKS,
+                BlockNumberOrTag::Latest,
+                &[50.0],
+            )
+            .await?;
+        let base_fee =
+            fee_history.latest_block_base_fee().unwrap_or(self.provider.get_gas_price().await?);
         let priority_fee = fee_history
             .reward
             .as_ref()
             .and_then(|r| r.iter().map(|b| b[0]).max()) // p50 across blocks
             .unwrap_or_default();
-        let gas_price = base_fee * 2 + priority_fee;
+        let gas_price = base_fee + priority_fee;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
         let adjusted_max_price = max_price + gas_cost_estimate + gas_cost_estimate;
