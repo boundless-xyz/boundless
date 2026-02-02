@@ -476,9 +476,9 @@ where
         let gas_price = base_fee * 2 + priority_fee;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
-        let adjusted_max_price = max_price + gas_cost_estimate;
+        let adjusted_max_price = max_price + gas_cost_estimate + gas_cost_estimate;
         tracing::debug!(
-            "Setting a max price of {} ether: {} max_price + {} gas_cost_estimate [gas price: {} gwei]",
+            "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
             format_units(adjusted_max_price, "ether")?,
             format_units(max_price, "ether")?,
             format_units(gas_cost_estimate, "ether")?,
