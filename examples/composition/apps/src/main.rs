@@ -135,8 +135,8 @@ async fn run(args: Args) -> Result<()> {
     let identity_request = client
         .new_request()
         .with_program(IDENTITY_ELF)
-        // Set lock timeout to 20 minutes to allow this example to be run onn slower provers.
-        .with_offer(OfferParams::builder().lock_timeout(1200).timeout(1200))
+        // Set lock timeout to 20 minutes to allow this example to be run on slower provers.
+        .with_offer(OfferParams::builder().lock_timeout(1200).timeout(2400))
         .with_env(GuestEnv::builder().write_frame(&postcard::to_allocvec(&identity_input)?));
 
     // Submit the request to the Boundless market
