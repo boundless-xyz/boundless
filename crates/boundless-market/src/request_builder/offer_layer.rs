@@ -22,6 +22,7 @@ use crate::{
     LARGE_REQUESTOR_LIST_THRESHOLD_KHZ, XL_REQUESTOR_LIST_THRESHOLD_KHZ,
 };
 use alloy::{
+    eips::BlockNumberOrTag,
     network::Ethereum,
     primitives::{
         utils::{format_units, Unit},
@@ -464,16 +465,23 @@ where
         request_id: &RequestId,
         max_price: U256,
     ) -> anyhow::Result<U256> {
-        let gas_price: u128 = self.provider.get_gas_price().await?;
+        let fee_history =
+            self.provider.get_fee_history(10, BlockNumberOrTag::Latest, &[50.0]).await?;
+        let base_fee = fee_history.base_fee_per_gas.last().copied().unwrap_or_default();
+        let priority_fee = fee_history
+            .reward
+            .as_ref()
+            .and_then(|r| r.iter().map(|b| b[0]).max()) // p50 across blocks
+            .unwrap_or_default();
+        let gas_price = base_fee * 2 + priority_fee;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
-        let adjusted_gas_cost_estimate = gas_cost_estimate + gas_cost_estimate;
-        let adjusted_max_price = max_price + adjusted_gas_cost_estimate;
+        let adjusted_max_price = max_price + gas_cost_estimate;
         tracing::debug!(
-            "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
+            "Setting a max price of {} ether: {} max_price + {} gas_cost_estimate [gas price: {} gwei]",
             format_units(adjusted_max_price, "ether")?,
             format_units(max_price, "ether")?,
-            format_units(adjusted_gas_cost_estimate, "ether")?,
+            format_units(gas_cost_estimate, "ether")?,
             format_units(U256::from(gas_price), "gwei")?,
         );
         Ok(adjusted_max_price)
