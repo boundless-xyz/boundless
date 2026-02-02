@@ -72,10 +72,19 @@ impl Adapt<PreflightLayer> for RequestParams {
     type Output = RequestParams;
     type Error = anyhow::Error;
 
-    async fn process_with(self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
+    async fn process_with(mut self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
         tracing::trace!("Processing {self:?} with PreflightLayer");
 
         if self.cycles.is_some() && self.journal.is_some() {
+            // Compute image_id from program if not yet provided.
+            if self.image_id.is_none() {
+                if let Ok(program_url) = self.require_program_url() {
+                    let program = fetch_url(program_url).await?;
+                    let image_id = risc0_zkvm::compute_image_id(&program)?;
+                    self = self.with_image_id(image_id);
+                }
+            }
+
             if let (Some(image_id), Some(request_input), Some(cycles), Some(journal)) =
                 (self.image_id, self.request_input.as_ref(), self.cycles, self.journal.as_ref())
             {
