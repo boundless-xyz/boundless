@@ -82,6 +82,7 @@ The Market Indexer runs as a long-running ECS Fargate service. It continuously f
 **API Reads**
 
 The Indexer API Lambda serves read requests from frontend applications. It connects to the Aurora PostgreSQL reader instance to avoid impacting write performance on the writer. CloudFront sits in front of API Gateway to provide:
+
 - Edge caching for frequently accessed data (reduces Lambda invocations and database load)
 - Geographic distribution for lower latency
 - Rate limiting via WAF to protect against abuse
@@ -92,10 +93,10 @@ Backfills reprocess historical data to fix inconsistencies or rebuild computed t
 
 **Scheduled Backfills**:
 
-| Schedule | Mode | Purpose |
-|----------|------|---------|
-| Daily at 2 AM UTC | `statuses_and_aggregates` | Recomputes all request statuses and regenerates aggregation tables |
-| Daily at 6 PM UTC | `chain_data` | Re-fetches recent blockchain events (default: last 100k blocks) to catch any missed data |
+| Schedule          | Mode                      | Purpose                                                                                  |
+| ----------------- | ------------------------- | ---------------------------------------------------------------------------------------- |
+| Daily at 2 AM UTC | `statuses_and_aggregates` | Recomputes all request statuses and regenerates aggregation tables                       |
+| Daily at 6 PM UTC | `chain_data`              | Re-fetches recent blockchain events (default: last 100k blocks) to catch any missed data |
 
 **Backfill Modes**:
 

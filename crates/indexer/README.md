@@ -120,20 +120,20 @@ The core loop processes blocks in batches via `process_blocks()` in [`src/market
 
 **Tables Used**:
 
-| Table | Purpose |
-|-------|---------|
-| `transactions` | Transaction metadata (hash, block, timestamp, from/to) |
-| `proof_requests` | Raw request data from onchain/offchain sources |
-| `request_submitted_events` | RequestSubmitted event data |
-| `request_locked_events` | RequestLocked event data |
-| `proof_delivered_events` | ProofDelivered event data |
-| `request_fulfilled_events` | RequestFulfilled event data |
-| `prover_slashed_events` | ProverSlashed event data |
-| `callback_failed_events` | CallbackFailed event data |
-| `proofs` | Proof seal and journal data |
-| `cycle_counts` | Execution cycle tracking |
-| `request_status` | Denormalized view with computed status and metrics (primary table for frontend queries) |
-| `last_block` | Tracks last processed block (id=0) |
+| Table                      | Purpose                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| `transactions`             | Transaction metadata (hash, block, timestamp, from/to)                                  |
+| `proof_requests`           | Raw request data from onchain/offchain sources                                          |
+| `request_submitted_events` | RequestSubmitted event data                                                             |
+| `request_locked_events`    | RequestLocked event data                                                                |
+| `proof_delivered_events`   | ProofDelivered event data                                                               |
+| `request_fulfilled_events` | RequestFulfilled event data                                                             |
+| `prover_slashed_events`    | ProverSlashed event data                                                                |
+| `callback_failed_events`   | CallbackFailed event data                                                               |
+| `proofs`                   | Proof seal and journal data                                                             |
+| `cycle_counts`             | Execution cycle tracking                                                                |
+| `request_status`           | Denormalized view with computed status and metrics (primary table for frontend queries) |
+| `last_block`               | Tracks last processed block (id=0)                                                      |
 
 #### Aggregation Loop
 
@@ -164,25 +164,25 @@ Recent periods are recomputed to capture delayed data:
 
 **Tables Used**:
 
-| Table | Purpose |
-|-------|---------|
-| `request_status` | Source data for aggregation queries |
-| `hourly_market_summary` | Market stats per hour |
-| `daily_market_summary` | Market stats per day |
-| `weekly_market_summary` | Market stats per week |
-| `monthly_market_summary` | Market stats per month |
-| `all_time_market_summary` | Cumulative market stats |
-| `hourly_requestor_summary` | Per-requestor stats per hour |
-| `daily_requestor_summary` | Per-requestor stats per day |
-| `weekly_requestor_summary` | Per-requestor stats per week |
-| `monthly_requestor_summary` | Per-requestor stats per month |
-| `all_time_requestor_summary` | Cumulative per-requestor stats |
-| `hourly_prover_summary` | Per-prover stats per hour |
-| `daily_prover_summary` | Per-prover stats per day |
-| `weekly_prover_summary` | Per-prover stats per week |
-| `monthly_prover_summary` | Per-prover stats per month |
-| `all_time_prover_summary` | Cumulative per-prover stats |
-| `last_block` | Tracks last aggregation block (id=1) |
+| Table                        | Purpose                              |
+| ---------------------------- | ------------------------------------ |
+| `request_status`             | Source data for aggregation queries  |
+| `hourly_market_summary`      | Market stats per hour                |
+| `daily_market_summary`       | Market stats per day                 |
+| `weekly_market_summary`      | Market stats per week                |
+| `monthly_market_summary`     | Market stats per month               |
+| `all_time_market_summary`    | Cumulative market stats              |
+| `hourly_requestor_summary`   | Per-requestor stats per hour         |
+| `daily_requestor_summary`    | Per-requestor stats per day          |
+| `weekly_requestor_summary`   | Per-requestor stats per week         |
+| `monthly_requestor_summary`  | Per-requestor stats per month        |
+| `all_time_requestor_summary` | Cumulative per-requestor stats       |
+| `hourly_prover_summary`      | Per-prover stats per hour            |
+| `daily_prover_summary`       | Per-prover stats per day             |
+| `weekly_prover_summary`      | Per-prover stats per week            |
+| `monthly_prover_summary`     | Per-prover stats per month           |
+| `all_time_prover_summary`    | Cumulative per-prover stats          |
+| `last_block`                 | Tracks last aggregation block (id=1) |
 
 #### Cycle Counts Executor
 
@@ -221,10 +221,10 @@ PENDING -> EXECUTING -> COMPLETED
 
 **Tables Used**:
 
-| Table | Purpose |
-|-------|---------|
-| `cycle_counts` | Tracks cycle count status and results |
-| `proof_requests` | Source for input data and image info |
+| Table            | Purpose                               |
+| ---------------- | ------------------------------------- |
+| `cycle_counts`   | Tracks cycle count status and results |
+| `proof_requests` | Source for input data and image info  |
 
 ### RPC Configuration
 
@@ -372,27 +372,27 @@ Both indexers share the same database schema. Database migrations are located in
 
 ### Market Tables
 
-| Table | Purpose |
-|-------|---------|
-| `proof_requests` | Raw request data from onchain/offchain sources |
-| `request_status` | Denormalized view with computed status and metrics (primary table used by frontend apps) |
-| `transactions` | Transaction metadata |
-| `proofs` | Proof seal and journal data |
-| `cycle_counts` | Execution cycle tracking |
-| `*_events` tables | Raw event data (7 event types) |
-| `*_market_summary` tables | Precomputed market aggregations (5 time periods) |
-| `*_requestor_summary` tables | Precomputed per-requestor aggregations (5 time periods) |
-| `*_prover_summary` tables | Precomputed per-prover aggregations (5 time periods) |
-| `last_block` | Tracks indexer progress (id=0: core loop, id=1: aggregation) |
+| Table                        | Purpose                                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `proof_requests`             | Raw request data from onchain/offchain sources                                           |
+| `request_status`             | Denormalized view with computed status and metrics (primary table used by frontend apps) |
+| `transactions`               | Transaction metadata                                                                     |
+| `proofs`                     | Proof seal and journal data                                                              |
+| `cycle_counts`               | Execution cycle tracking                                                                 |
+| `*_events` tables            | Raw event data (7 event types)                                                           |
+| `*_market_summary` tables    | Precomputed market aggregations (5 time periods)                                         |
+| `*_requestor_summary` tables | Precomputed per-requestor aggregations (5 time periods)                                  |
+| `*_prover_summary` tables    | Precomputed per-prover aggregations (5 time periods)                                     |
+| `last_block`                 | Tracks indexer progress (id=0: core loop, id=1: aggregation)                             |
 
 ### Rewards Tables
 
-| Table | Purpose |
-|-------|---------|
-| `staking_positions` | Staking position data |
-| `staking_positions_aggregate` | Current staking state |
-| `staking_rewards` | Staking reward distributions |
-| `povw_rewards_by_epoch` | PoVW rewards per epoch |
-| `povw_rewards_aggregate` | Aggregated PoVW rewards |
-| `delegation_powers` | Voting delegation data |
-| `epoch_*_summary` | Epoch-based summary statistics |
+| Table                         | Purpose                        |
+| ----------------------------- | ------------------------------ |
+| `staking_positions`           | Staking position data          |
+| `staking_positions_aggregate` | Current staking state          |
+| `staking_rewards`             | Staking reward distributions   |
+| `povw_rewards_by_epoch`       | PoVW rewards per epoch         |
+| `povw_rewards_aggregate`      | Aggregated PoVW rewards        |
+| `delegation_powers`           | Voting delegation data         |
+| `epoch_*_summary`             | Epoch-based summary statistics |
