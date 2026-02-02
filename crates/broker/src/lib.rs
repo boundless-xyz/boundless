@@ -25,6 +25,7 @@ use alloy::{
     providers::{DynProvider, Provider, WalletProvider},
     signers::local::PrivateKeySigner,
 };
+use alloy_chains::NamedChain;
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
@@ -957,6 +958,18 @@ where
             .collateral_token_decimals()
             .await
             .context("Failed to get stake token decimals. Possible RPC error.")?;
+
+        let named_chain = NamedChain::try_from(chain_id)?;
+        let price_oracle =  Arc::new(config.lock_all().unwrap().price_oracle.build(named_chain, self.provider.clone()).context("Failed to build price oracle")?);
+        let cloned_config = config.clone();
+        let cancel_token = non_critical_cancel_token.clone();
+        non_critical_tasks.spawn(async move {
+            Supervisor::new(price_oracle, cloned_config, cancel_token)
+                .spawn()
+                .await
+                .context("price oracle failed")?;
+            Ok(())
+        });
 
         // Spin up the order picker to pre-flight and find orders to lock
         let order_picker = Arc::new(order_picker::OrderPicker::new(

@@ -5,6 +5,7 @@ use tokio_util::sync::CancellationToken;
 use crate::price_oracle::{CachedPriceOracle, PriceOracle, PriceOracleError, PriceQuote, TradingPair};
 
 /// Container for per-pair price oracles
+#[derive(Clone)]
 pub struct PriceOracleManager {
     /// ETH/USD price oracle
     pub eth_usd: Arc<CachedPriceOracle>,
@@ -43,59 +44,54 @@ impl PriceOracleManager {
     /// Spawn background refresh task for all oracles
     ///
     /// Returns a join handle that completes when the task is cancelled.
-    pub async fn spawn_refresh_tasks(
-        &self,
+    pub async fn start_oracle(
+        self,
         cancel_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        let eth_usd = self.eth_usd.clone();
-        let zkc_usd = self.zkc_usd.clone();
-        let refresh_interval = self.refresh_interval;
-        let max_time_without_update = self.max_time_without_update;
+    ) -> Result<(), PriceOracleError> {
+        tracing::info!("Price oracle refresh task started (interval: {}s)", self.refresh_interval);
 
-        // Do an initial refresh immediately
-        tokio::join!(
-            eth_usd.refresh_price(),
-            zkc_usd.refresh_price(),
-        );
+        let mut ticker = tokio::time::interval(Duration::from_secs(self.refresh_interval));
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        tokio::spawn(async move {
-            tracing::info!("Price oracle refresh task started (interval: {}s)", refresh_interval);
+        loop {
+            tokio::select! {
+                // Make sure to handle cancellation promptly
+                biased;
 
-            let mut ticker = tokio::time::interval(Duration::from_secs(refresh_interval));
-            ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("Price oracle refresh task shutting down");
+                    break;
+                }
 
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        tokio::join!(
-                            eth_usd.refresh_price(),
-                            zkc_usd.refresh_price(),
-                        );
+                // Periodic tick to refresh prices and check staleness
+                _ = ticker.tick() => {
+                    tokio::join!(
+                        self.eth_usd.refresh_price(),
+                        self.zkc_usd.refresh_price(),
+                    );
 
-                        // After refresh, check if we've gone too long without a successful update (if enabled)
-                        if max_time_without_update > 0 {
-                            let eth_quote = eth_usd.get_cached_price().await;
-                            let zkc_quote = zkc_usd.get_cached_price().await;
+                    // After refresh, check if we've gone too long without a successful update (if enabled)
+                    if self.max_time_without_update > 0 {
+                        let eth_quote = self.eth_usd.get_cached_price().await;
+                        let zkc_quote = self.zkc_usd.get_cached_price().await;
 
-                            // TODO: we need to use this to trigger a shutdown of the entire service
-                            if eth_quote.is_none_or(|q| q.is_stale(max_time_without_update))
-                            || zkc_quote.is_none_or(|q| q.is_stale(max_time_without_update)) {
-                                tracing::error!(
-                                    "Prices haven't been updated for too long (ETH: , ZKC: {} @ {}), exiting price oracle",
-                                    eth_quote.map_or("stale".to_string(), |q| format!("{} @ {}", q.price, q.timestamp_to_human_readable())),
-                                    zkc_quote.map_or("stale".to_string(), |q| format!("{} @ {}", q.price, q.timestamp_to_human_readable())),
-                                );
-                                break;
-                            }
+                        // TODO: we need to use this to trigger a shutdown of the entire broker
+                        if eth_quote.is_none_or(|q| q.is_stale(self.max_time_without_update))
+                        || zkc_quote.is_none_or(|q| q.is_stale(self.max_time_without_update)) {
+                            tracing::error!(
+                                "Prices haven't been updated for too long (ETH: {}, ZKC: {}), exiting price oracle",
+                                eth_quote.map_or("stale".to_string(), |q| format!("{} @ {}", q.price, q.timestamp_to_human_readable())),
+                                zkc_quote.map_or("stale".to_string(), |q| format!("{} @ {}", q.price, q.timestamp_to_human_readable())),
+                            );
+
+                            return Err(PriceOracleError::UpdateTimeout());
                         }
-                    }
-                    _ = cancel_token.cancelled() => {
-                        tracing::info!("Price oracle refresh task shutting down");
-                        break;
                     }
                 }
             }
-        })
+        }
+
+        Ok(())
     }
 }
 
@@ -174,7 +170,7 @@ mod tests {
 
         // Spawn the refresh task
         let cancel_token = CancellationToken::new();
-        let handle = manager.spawn_refresh_tasks(cancel_token.clone()).await;
+        let handle = manager.start_oracle(cancel_token.clone()).await;
 
         // Verify prices are cached
         let eth_price = eth_cached.get_cached_price().await.expect("ETH price should be in cache after initial refresh");
@@ -187,7 +183,7 @@ mod tests {
         cancel_token.cancel();
 
         // Verify the task completes successfully
-        let result = tokio::time::timeout(Duration::from_secs(2), handle).await?;
+        let result = tokio::time::timeout(Duration::from_secs(2),handle).await?;
         assert!(result.is_ok(), "Task should complete within timeout");
 
         Ok(())
@@ -205,7 +201,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 1, 0);
 
         let cancel_token = CancellationToken::new();
-        let handle = manager.spawn_refresh_tasks(cancel_token.clone()).await;
+        let handle = manager.start_oracle(cancel_token.clone()).await;
 
         // Wait for initial refresh (the task does an immediate refresh, then the first
         // tick() completes immediately too, so we get 2 refreshes right away)
@@ -288,7 +284,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_cached.clone(), zkc_cached.clone(), 1, 2);
 
         let cancel_token = CancellationToken::new();
-        let handle = manager.spawn_refresh_tasks(cancel_token.clone()).await;
+        let handle = manager.start_oracle(cancel_token.clone()).await;
 
         // Wait longer than the cache age limit
         // After initial refresh + 3 more ticks = 4 seconds total, which exceeds the 2 second limit

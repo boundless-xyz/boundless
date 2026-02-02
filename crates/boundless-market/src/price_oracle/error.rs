@@ -52,4 +52,8 @@ pub enum PriceOracleError {
     /// Internal error
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Price oracle could not be updated for too long
+    #[error("Price oracle could not be updated for too long, shutting down. Please make sure it is correctly configured or set static prices in the config.")]
+    UpdateTimeout(),
 }

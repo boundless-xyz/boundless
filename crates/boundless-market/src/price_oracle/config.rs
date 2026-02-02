@@ -75,6 +75,8 @@ pub struct PriceOracleConfig {
     pub aggregation_mode: AggregationMode,
     /// Minimum number of successful sources required
     pub min_sources: u8,
+
+    // TODO: remove this and just use max_secs_without_price_update
     /// Maximum age in seconds before a price is considered stale
     pub max_staleness_secs: u64,
     /// On-chain source configuration
@@ -152,18 +154,19 @@ pub struct CoinMarketCapConfig {
 
 impl PriceOracleConfig {
     /// Build price oracle manager from this configuration
-    pub async fn build<P>(
+    pub fn build<P>(
         &self,
+        named_chain: NamedChain,
         provider: P,
     ) -> Result<PriceOracleManager, PriceOracleError>
     where
         P: Provider + Clone + 'static,
     {
         // Build ETH/USD oracle
-        let eth_usd = self.build_oracle_for_pair(TradingPair::EthUsd, &self.eth_usd, provider.clone())?;
+        let eth_usd = self.build_oracle_for_pair(TradingPair::EthUsd, &self.eth_usd, named_chain, provider.clone())?;
 
         // Build ZKC/USD oracle
-        let zkc_usd = self.build_oracle_for_pair(TradingPair::ZkcUsd, &self.zkc_usd, provider.clone())?;
+        let zkc_usd = self.build_oracle_for_pair(TradingPair::ZkcUsd, &self.zkc_usd, named_chain, provider.clone())?;
 
         Ok(PriceOracleManager::new(eth_usd, zkc_usd, self.refresh_interval_secs, self.max_secs_without_price_update))
     }
@@ -172,6 +175,7 @@ impl PriceOracleConfig {
         &self,
         pair: TradingPair,
         price_value: &PriceValue,
+        named_chain: NamedChain,
         provider: P,
     ) -> Result<Arc<CachedPriceOracle>, PriceOracleError>
     where
@@ -194,7 +198,7 @@ impl PriceOracleConfig {
                             // Chainlink only supports ETH/USD
                             let chainlink = ChainlinkSource::for_eth_usd(
                                 provider.clone(),
-                                NamedChain::Mainnet,
+                                named_chain,
                             )?;
                             if self.max_staleness_secs > 0 {
                                 sources.push(Arc::new(WithStalenessCheck::new(chainlink, self.max_staleness_secs)));

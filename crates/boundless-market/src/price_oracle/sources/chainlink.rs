@@ -37,7 +37,9 @@ impl FeedInfo {
 fn eth_usd_feed(chain: NamedChain) -> Result<FeedInfo, PriceOracleError> {
     match chain {
         NamedChain::Mainnet => Ok(FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8)),
+        NamedChain::Sepolia => Ok(FeedInfo::new(address!("0x694AA1769357215DE4FAC081bf1f309aDC325306"), 8)),
         NamedChain::Base => Ok(FeedInfo::new(address!("0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70"), 8)),
+        NamedChain::BaseSepolia => Ok(FeedInfo::new(address!("0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1"), 8)),
         _ => Err(PriceOracleError::Internal(format!("unsupported chain: {:?}", chain))),
     }
 }
