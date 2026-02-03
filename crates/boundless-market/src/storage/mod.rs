@@ -50,7 +50,7 @@ pub enum StandardUploader {
     /// S3 storage uploader.
     #[cfg(feature = "s3")]
     S3(S3StorageUploader),
-    /// Google Cloud Storage provider.
+    /// Google Cloud Storage uploader.
     #[cfg(feature = "gcs")]
     Gcs(GcsStorageUploader),
     /// Pinata/IPFS storage uploader.

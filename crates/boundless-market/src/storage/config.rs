@@ -30,7 +30,7 @@ pub enum StorageUploaderType {
     /// S3 storage uploader.
     #[cfg(feature = "s3")]
     S3,
-    /// Google Cloud Storage provider.
+    /// Google Cloud Storage uploader.
     #[cfg(feature = "gcs")]
     Gcs,
     /// Pinata storage uploader.
@@ -57,7 +57,7 @@ pub enum StorageUploaderType {
 #[derive(Clone, Default, Debug, Args, Builder)]
 #[non_exhaustive]
 pub struct StorageUploaderConfig {
-    /// Storage provider to use [possible values: s3, gcs, pinata, file]
+    /// Storage uploader to use [possible values: s3, gcs, pinata, file]
     ///
     /// - For 's3', the following option is required:
     ///   --s3-bucket (optionally: --s3-url, --aws-region)
@@ -75,7 +75,7 @@ pub struct StorageUploaderConfig {
     #[builder(default)]
     pub storage_uploader: StorageUploaderType,
 
-    // **S3 Storage Provider Options**
+    // **S3 Storage Uploader Options**
     /// S3 bucket name
     #[cfg(feature = "s3")]
     #[arg(long, env, required_if_eq("storage_uploader", "s3"))]
@@ -112,7 +112,7 @@ pub struct StorageUploaderConfig {
     #[builder(setter(strip_option), default)]
     pub s3_public_url: Option<bool>,
 
-    // **GCS Storage Provider Options**
+    // **GCS Storage Uploader Options**
     /// GCS bucket name
     #[cfg(feature = "gcs")]
     #[arg(long, env, required_if_eq("storage_uploader", "gcs"))]
@@ -134,7 +134,7 @@ pub struct StorageUploaderConfig {
     #[builder(setter(strip_option), default)]
     pub gcs_public_url: Option<bool>,
 
-    // **Pinata Storage Provider Options**
+    // **Pinata Storage Uploader Options**
     /// Pinata JWT
     #[arg(long, env, required_if_eq("storage_uploader", "pinata"))]
     #[builder(setter(strip_option, into), default)]
@@ -148,7 +148,7 @@ pub struct StorageUploaderConfig {
     #[builder(setter(strip_option), default)]
     pub ipfs_gateway_url: Option<Url>,
 
-    // **File Storage Provider Options**
+    // **File Storage Uploader Options**
     /// Path for file storage uploader
     #[arg(long)]
     #[builder(setter(strip_option, into), default)]

@@ -24,7 +24,7 @@ use std::{path::Path, sync::Arc};
 use tempfile::TempDir;
 use url::Url;
 
-/// Storage provider that stores files locally.
+/// Storage uploader that stores files locally.
 ///
 /// This provider can be used for:
 /// - **Uploading**: Stores files in a temporary directory and returns `file://` URLs.

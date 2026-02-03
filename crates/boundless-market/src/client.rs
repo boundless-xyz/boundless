@@ -823,9 +823,9 @@ impl<P, U, D, Si> Client<P, U, D, StandardRequestBuilder<P, U, D>, Si> {
 #[non_exhaustive]
 /// Client error
 pub enum ClientError {
-    /// Storage provider error
-    #[error("Storage provider error {0}")]
-    StorageProviderError(#[from] StorageError),
+    /// Storage error
+    #[error("Storage error {0}")]
+    StorageError(#[from] StorageError),
     /// Market error
     #[error("Market error {0}")]
     MarketError(#[from] MarketError),
@@ -1021,7 +1021,7 @@ where
         Ok(self
             .uploader
             .as_ref()
-            .context("Storage provider not set")?
+            .context("Storage uploader not set")?
             .upload_program(program)
             .await
             .context("Failed to upload program")?)
@@ -1035,7 +1035,7 @@ where
         Ok(self
             .uploader
             .as_ref()
-            .context("Storage provider not set")?
+            .context("Storage uploader not set")?
             .upload_input(input)
             .await
             .context("Failed to upload input")?)
