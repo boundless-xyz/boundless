@@ -27,6 +27,7 @@ use alloy::{
 use anyhow::{bail, ensure, Context, Result};
 use boundless_cli::{OrderFulfilled, OrderFulfiller};
 use boundless_market::contracts::{eip712_domain, ProofRequest};
+use boundless_market::storage::StandardDownloader;
 use broker::provers::{DefaultProver as BrokerDefaultProver, Prover};
 use clap::Parser;
 use risc0_zkvm::compute_image_id;
@@ -130,6 +131,7 @@ async fn main() -> Result<()> {
 
     let prover = OrderFulfiller::new(
         prover,
+        Arc::new(StandardDownloader::new().await),
         set_builder_image_id,
         assessor_image_id,
         args.prover_address,

@@ -18,7 +18,7 @@ use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     contracts::{FulfillmentData, Predicate, ProofRequest},
-    storage::fetch_url,
+    storage::StorageDownloader,
 };
 use clap::Args;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, SessionInfo};
@@ -95,7 +95,7 @@ impl ProverExecute {
         };
 
         display.status("Status", "Starting execution", "yellow");
-        let (image_id, session_info) = execute(&request, &display).await?;
+        let (image_id, session_info) = execute(&request, &client.downloader, &display).await?;
         let journal = session_info.journal.bytes;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
@@ -117,10 +117,11 @@ impl ProverExecute {
 /// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
 async fn execute(
     request: &ProofRequest,
+    downloader: &impl StorageDownloader,
     display: &DisplayManager,
 ) -> Result<(Digest, SessionInfo)> {
     display.status("Status", "Fetching program", "yellow");
-    let program = fetch_url(&request.imageUrl).await?;
+    let program = downloader.download(&request.imageUrl).await?;
     let image_id = compute_image_id(&program)?;
 
     tracing::debug!("Program image id: {}", image_id);
@@ -133,7 +134,7 @@ async fn execute(
             let input_url =
                 std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
             display.status("Status", "Fetching input", "yellow");
-            let input_data = fetch_url(input_url).await?;
+            let input_data = downloader.download(input_url).await?;
             boundless_market::input::GuestEnv::decode(&input_data)?.stdin
         }
         _ => anyhow::bail!("Unsupported input type"),

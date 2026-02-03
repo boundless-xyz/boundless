@@ -34,6 +34,7 @@ use boundless_indexer::{
 use boundless_market::contracts::{
     Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
 };
+use boundless_market::storage::StandardDownloader;
 use boundless_test_utils::{
     guests::{ECHO_ID, ECHO_PATH},
     market::{create_test_ctx, TestCtx},
@@ -64,7 +65,11 @@ pub async fn new_market_test_fixture(
     let anvil = Anvil::new().spawn();
     let ctx = create_test_ctx(&anvil).await?;
 
-    let client = boundless_market::Client::new(ctx.prover_market.clone(), ctx.set_verifier.clone());
+    let client = boundless_market::Client::new(
+        ctx.prover_market.clone(),
+        ctx.set_verifier.clone(),
+        StandardDownloader::new().await,
+    );
     let prover = OrderFulfiller::initialize(Arc::new(BrokerDefaultProver::default()), &client)
         .await
         .unwrap();

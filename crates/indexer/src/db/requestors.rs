@@ -1697,7 +1697,7 @@ async fn get_requestor_leaderboard_impl(
     // Cast SUM results to BIGINT to match Rust i64
     let query_str = if cursor_orders.is_some() && cursor_address.is_some() {
         format!(
-            "SELECT 
+            "SELECT
                 requestor_address,
                 SUM(total_requests_submitted)::BIGINT as orders_requested,
                 SUM(total_requests_locked)::BIGINT as orders_locked,
@@ -1718,7 +1718,7 @@ async fn get_requestor_leaderboard_impl(
         )
     } else {
         format!(
-            "SELECT 
+            "SELECT
                 requestor_address,
                 SUM(total_requests_submitted)::BIGINT as orders_requested,
                 SUM(total_requests_locked)::BIGINT as orders_locked,
@@ -1854,7 +1854,7 @@ async fn get_requestor_median_lock_prices_impl(
     let placeholders_str = placeholders.join(", ");
 
     let query_str = format!(
-        "SELECT 
+        "SELECT
             client_address,
             LPAD(
                 ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC)))::TEXT,
@@ -1905,7 +1905,7 @@ async fn get_requestor_last_activity_times_impl(
     let placeholders_str = placeholders.join(", ");
 
     let query_str = format!(
-        "SELECT 
+        "SELECT
             client_address,
             MAX(updated_at) as last_activity
         FROM request_status
@@ -1937,12 +1937,16 @@ async fn get_requestor_last_activity_times_impl(
 #[allow(deprecated)]
 mod tests {
     use super::*;
-    use crate::db::events::EventsDb;
-    use crate::db::market::{
-        HourlyRequestorSummary, MarketDb, RequestStatus, RequestStatusType, SlashedStatus,
-        TxMetadata,
+    use crate::{
+        db::{
+            events::EventsDb,
+            market::{
+                HourlyRequestorSummary, MarketDb, RequestStatus, RequestStatusType, SlashedStatus,
+                TxMetadata,
+            },
+        },
+        test_utils::TestDb,
     };
-    use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
