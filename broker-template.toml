@@ -32,12 +32,15 @@ min_mcycle_price = "0.00001 USD"
 # that prover is slashed by the amount of collateral specified in the order. A
 # portion of this collateral is then used to incentivize other provers to
 # fulfill the order. `min_mcycle_price_collateral_token` determines the minimum
-# price per mega-cycle in collateral token (ZKC) that must be offered by the prover 
+# price per mega-cycle in collateral token that must be offered by the prover
 # for the broker to attempt to fulfill these orders.
+#
+# Must include asset: "0.001 ZKC" or "1 USD"
+# If USD, converted to ZKC at runtime via price oracle.
 #
 # Note: attempting to fulfill these orders is a 'proof race' where the first prover
 # to fulfill the order is rewarded with the collateral.
-min_mcycle_price_collateral_token = "0.00005"
+min_mcycle_price_collateral_token = "0.00005 ZKC"
 
 # Estimated peak performance of the proving cluster, in kHz.
 #

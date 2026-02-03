@@ -28,17 +28,17 @@ pub use config::{
 };
 
 use crate::{
-    price_oracle::{Amount, scale_decimals},
     contracts::{
         FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError, RequestInputType,
     },
     input::GuestEnv,
+    price_oracle::{scale_decimals, Amount},
     selector::{is_blake3_groth16_selector, SupportedSelectors},
     util::now_timestamp,
 };
 use alloy::{
     primitives::{
-        utils::{format_ether, format_units, parse_units},
+        utils::{format_ether, format_units},
         Address, Bytes, FixedBytes, U256,
     },
     uint,
@@ -63,10 +63,23 @@ const ONE_MILLION: U256 = uint!(1_000_000_U256);
 /// Execution limit reasoning details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProveLimitReason {
-    EthPricing { max_price: U256, gas_cost: U256, mcycle_price_eth: U256, config_mcycle_price: String },
-    CollateralPricing { collateral_reward: String, mcycle_price_collateral: String },
-    ConfigCap { max_mcycles: u64 },
-    DeadlineCap { time_remaining_secs: u64, peak_prove_khz: u64 },
+    EthPricing {
+        max_price: U256,
+        gas_cost: U256,
+        mcycle_price_eth: U256,
+        config_mcycle_price: String,
+    },
+    CollateralPricing {
+        collateral_reward: String,
+        mcycle_price_collateral: String,
+    },
+    ConfigCap {
+        max_mcycles: u64,
+    },
+    DeadlineCap {
+        time_remaining_secs: u64,
+        peak_prove_khz: u64,
+    },
 }
 
 impl fmt::Display for ProveLimitReason {
@@ -80,7 +93,12 @@ impl fmt::Display for ProveLimitReason {
                     mcycle_price_collateral,
                 )
             }
-            ProveLimitReason::EthPricing { max_price, gas_cost, mcycle_price_eth, config_mcycle_price } => {
+            ProveLimitReason::EthPricing {
+                max_price,
+                gas_cost,
+                mcycle_price_eth,
+                config_mcycle_price,
+            } => {
                 write!(
                     f,
                     "pricing: (order maxPrice {} - gas {}) / min_mcycle_price {} ({} ETH per Mcycle)",
@@ -722,7 +740,12 @@ pub trait OrderPricingContext {
             // If the preflight execution has completed, but for the variant is rejected,
             // provide the config value that needs to be updated in order to have accepted.
             let config_info = match &prove_limit_reason {
-                ProveLimitReason::EthPricing { max_price, gas_cost, mcycle_price_eth, config_mcycle_price } => {
+                ProveLimitReason::EthPricing {
+                    max_price,
+                    gas_cost,
+                    mcycle_price_eth,
+                    config_mcycle_price,
+                } => {
                     let max_price_gas_adjusted = max_price.saturating_sub(*gas_cost);
                     let required_price_per_mcycle = max_price_gas_adjusted
                         .saturating_mul(ONE_MILLION)
@@ -841,12 +864,20 @@ pub trait OrderPricingContext {
             let mcycle_price_in_collateral_tokens =
                 price.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
 
-            let config_min_mcycle_price_collateral_tokens = parse_units(
-                &config.min_mcycle_price_collateral_token,
+            // Get the configured price as Amount
+            let config_min_mcycle_price_collateral_token =
+                &config.min_mcycle_price_collateral_token;
+
+            // Convert to ZKC (handles USD via price oracle)
+            let config_min_mcycle_price_zkc =
+                self.convert_to_zkc(config_min_mcycle_price_collateral_token).await?;
+
+            // Scale from Asset ZKC decimals (18) to contract collateral token decimals
+            let config_min_mcycle_price_collateral_tokens: U256 = scale_decimals(
+                config_min_mcycle_price_zkc.value,
+                config_min_mcycle_price_zkc.asset.decimals(),
                 self.collateral_token_decimals(),
-            )
-            .context("Failed to parse min_mcycle_price_collateral_token")?
-            .into();
+            );
 
             tracing::debug!(
                 "Order price: {} (collateral tokens) - cycles: {} - mcycle price: {} (collateral tokens), config_min_mcycle_price_collateral_tokens: {} (collateral tokens)",
@@ -880,7 +911,8 @@ pub trait OrderPricingContext {
             let config_min_mcycle_price_amount = &config.min_mcycle_price;
 
             // Convert configured price to ETH (i.e., handles USD via price oracle)
-            let config_min_mcycle_price_eth = self.convert_to_eth(config_min_mcycle_price_amount).await?;
+            let config_min_mcycle_price_eth =
+                self.convert_to_eth(config_min_mcycle_price_amount).await?;
             let config_min_mcycle_price: U256 = config_min_mcycle_price_eth.value;
 
             let order_id = order.id();
@@ -922,34 +954,35 @@ pub trait OrderPricingContext {
                 .offer
                 .price_at(now_timestamp())
                 .context("Failed to get current mcycle price")?;
-            let (target_mcycle_price, target_timestamp_secs) =
-                if mcycle_price_min >= config_min_mcycle_price {
-                    tracing::info!(
-                        "Selecting order {order_id} at price {} (min_mcycle_price: {} = {} ETH) - ASAP",
-                        format_ether(current_mcycle_price),
-                        config_min_mcycle_price_amount,
-                        format_ether(config_min_mcycle_price)
-                    );
-                    (mcycle_price_min, 0) // Schedule the lock ASAP
-                } else {
-                    let target_min_price = config_min_mcycle_price
-                        .saturating_mul(U256::from(cycle_count))
-                        .div_ceil(ONE_MILLION)
-                        + order_gas_cost;
-                    tracing::debug!(
+            let (target_mcycle_price, target_timestamp_secs) = if mcycle_price_min
+                >= config_min_mcycle_price
+            {
+                tracing::info!(
+                    "Selecting order {order_id} at price {} (min_mcycle_price: {} = {} ETH) - ASAP",
+                    format_ether(current_mcycle_price),
+                    config_min_mcycle_price_amount,
+                    format_ether(config_min_mcycle_price)
+                );
+                (mcycle_price_min, 0) // Schedule the lock ASAP
+            } else {
+                let target_min_price = config_min_mcycle_price
+                    .saturating_mul(U256::from(cycle_count))
+                    .div_ceil(ONE_MILLION)
+                    + order_gas_cost;
+                tracing::debug!(
                         "Order {order_id} minimum profitable price: {} ETH (min_mcycle_price: {} = {} ETH)",
                         format_ether(target_min_price),
                         config_min_mcycle_price_amount,
                         format_ether(config_min_mcycle_price)
                     );
 
-                    let target_time = order
-                        .request
-                        .offer
-                        .time_at_price(target_min_price)
-                        .context("Failed to get target price timestamp")?;
-                    (target_min_price, target_time)
-                };
+                let target_time = order
+                    .request
+                    .offer
+                    .time_at_price(target_min_price)
+                    .context("Failed to get target price timestamp")?;
+                (target_min_price, target_time)
+            };
 
             let expiry_secs =
                 order.request.offer.rampUpStart + order.request.offer.lockTimeout as u64;
@@ -993,12 +1026,20 @@ pub trait OrderPricingContext {
         // Convert configured price to ETH (handles USD via price oracle)
         let min_mcycle_price_eth = self.convert_to_eth(min_mcycle_price_amount).await?;
         let min_mcycle_price: U256 = min_mcycle_price_eth.value;
-        let min_mcycle_price_collateral_tokens: U256 = parse_units(
-            &config.min_mcycle_price_collateral_token,
+
+        // Get the configured price as Amount
+        let config_min_mcycle_price_collateral_token = &config.min_mcycle_price_collateral_token;
+
+        // Convert to ZKC (handles USD via price oracle)
+        let config_min_mcycle_price_zkc =
+            self.convert_to_zkc(config_min_mcycle_price_collateral_token).await?;
+
+        // Scale from Asset ZKC decimals (18) to contract collateral token decimals
+        let min_mcycle_price_collateral_tokens: U256 = scale_decimals(
+            config_min_mcycle_price_zkc.value,
+            config_min_mcycle_price_zkc.asset.decimals(),
             self.collateral_token_decimals(),
-        )
-        .context("Failed to parse min_mcycle_price_collateral_token")?
-        .into();
+        );
 
         // Pricing based cycle limits: Calculate the cycle limit based on collateral price
         let collateral_based_limit = if min_mcycle_price_collateral_tokens == U256::ZERO {

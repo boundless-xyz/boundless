@@ -182,18 +182,18 @@ mod tests {
     use super::*;
     use alloy::primitives::Address;
     use boundless_market::dynamic_gas_filler::PriorityMode;
+    use boundless_market::price_oracle::Amount;
     use std::{
         fs::File,
         io::{Seek, Write},
     };
     use tempfile::NamedTempFile;
     use tracing_test::traced_test;
-    use boundless_market::price_oracle::Amount;
 
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1 ETH"
-mcycle_price_collateral_token = "0.1"
+mcycle_price_collateral_token = "0.1 ZKC"
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
@@ -219,7 +219,7 @@ block_deadline_buffer_secs = 120"#;
     const CONFIG_TEMPL_2: &str = r#"
 [market]
 mcycle_price = "0.1 ETH"
-mcycle_price_collateral_token = "0.1"
+mcycle_price_collateral_token = "0.1 ZKC"
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
@@ -254,7 +254,7 @@ withdraw = true"#;
     const CONFIG_CUSTOM_PRIORITY_MODE: &str = r#"
 [market]
 mcycle_price = "0.2 ETH"
-mcycle_price_collateral_token = "0.2"
+mcycle_price_collateral_token = "0.2 ZKC"
 max_stake = "0.1 ZKC"
 gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 9 } }
 "#;

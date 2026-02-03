@@ -250,6 +250,15 @@ where
     Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ZKC]).map_err(serde::de::Error::custom)
 }
 
+/// Deserialize Amount with validation that asset is USD or ZKC
+fn deserialize_mcycle_price_collateral_token<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ZKC]).map_err(serde::de::Error::custom)
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
@@ -263,12 +272,17 @@ pub struct MarketConf {
     /// decide the minimum price to accept for a request.
     #[serde(alias = "mcycle_price", deserialize_with = "deserialize_mcycle_price")]
     pub min_mcycle_price: Amount,
-    /// Mega-cycle price, denominated in the Boundless collateral token.
+    /// Mega-cycle price, denominated in the Boundless collateral token. Must include asset: "0.001 ZKC" or "1 USD"
+    ///
+    /// If USD, converted to ZKC at runtime via price oracle.
     ///
     /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
     /// order when paid in collateral tokens, as is the case for orders with an expired lock.
-    #[serde(alias = "mcycle_price_collateral_token")]
-    pub min_mcycle_price_collateral_token: String,
+    #[serde(
+        alias = "mcycle_price_collateral_token",
+        deserialize_with = "deserialize_mcycle_price_collateral_token"
+    )]
+    pub min_mcycle_price_collateral_token: Amount,
     /// Assumption price (in native token)
     ///
     /// DEPRECATED
@@ -466,7 +480,7 @@ impl Default for MarketConf {
         #[allow(deprecated)]
         Self {
             min_mcycle_price: Amount::parse("0.02 USD").expect("valid default"),
-            min_mcycle_price_collateral_token: "0.001".to_string(),
+            min_mcycle_price_collateral_token: Amount::parse("0.001 ZKC").expect("valid default"),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
             min_mcycle_limit: defaults::min_mcycle_limit(),
