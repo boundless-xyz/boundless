@@ -187,7 +187,8 @@ export class OrderGenerator extends pulumi.ComponentResource {
       `--lock-collateral-raw ${args.lockCollateralRaw}`,
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
-      `--tx-timeout ${args.txTimeout}`
+      `--tx-timeout ${args.txTimeout}`,
+      `--storage-uploader pinata`,
     ]
     if (args.collateralTokenAddress) {
       ogArgs.push(`--collateral-token-address ${args.collateralTokenAddress}`);
