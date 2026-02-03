@@ -62,11 +62,14 @@ priority_requestor_lists = [
 	"https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
 ]
 
-# Maximum collateral amount, denominated in the Boundless collateral token,
-# that the broker will use to lock orders.
+# Maximum collateral amount that the broker will use to lock orders.
+# Can be specified in USD or ZKC.
+# If USD, it will be converted to ZKC at runtime using the price oracle.
+#
+# Examples: "100 USD", "200 ZKC"
 #
 # Requests that require a higher collateral amount than this will be skipped.
-max_collateral = "200" # ZKC
+max_collateral = "200 ZKC"
 
 # Maximum number of orders to concurrently preflight.
 #

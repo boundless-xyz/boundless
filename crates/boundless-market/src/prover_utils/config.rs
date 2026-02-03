@@ -241,6 +241,15 @@ where
     Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ETH]).map_err(serde::de::Error::custom)
 }
 
+/// Deserialize Amount with validation that asset is USD or ZKC
+fn deserialize_max_collateral<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ZKC]).map_err(serde::de::Error::custom)
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
@@ -319,11 +328,12 @@ pub struct MarketConf {
     /// but increases RPC load. A higher value reduces RPC calls but may increase response latency.
     #[serde(default = "defaults::events_poll_ms")]
     pub events_poll_ms: u64,
-    /// Max collateral amount, denominated in the Boundless collateral token.
+    /// Max collateral amount. Must include asset: "50 ZKC" or "100 USD"
     ///
+    /// If USD, converted to ZKC at runtime via price oracle.
     /// Requests that require a higher collateral amount than this will not be considered.
-    #[serde(alias = "max_stake")]
-    pub max_collateral: String,
+    #[serde(alias = "max_stake", deserialize_with = "deserialize_max_collateral")]
+    pub max_collateral: Amount,
     /// Optional allow list for customer address.
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
@@ -455,7 +465,7 @@ impl Default for MarketConf {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
-            min_mcycle_price: Amount::parse("0.02 USD").expect("Amount should be parsable"),
+            min_mcycle_price: Amount::parse("0.02 USD").expect("valid default"),
             min_mcycle_price_collateral_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
@@ -469,7 +479,7 @@ impl Default for MarketConf {
             lookback_blocks: defaults::lookback_blocks(),
             events_poll_blocks: defaults::events_poll_blocks(),
             events_poll_ms: defaults::events_poll_ms(),
-            max_collateral: defaults::MAX_COLLATERAL_STANDARD.to_string(),
+            max_collateral: Amount::parse("50 ZKC").expect("valid default"),
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),

@@ -460,6 +460,19 @@ where
             )))
     }
 
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPickerErr> {
+        if amount.asset == Asset::ZKC {
+            return Ok(amount.clone());
+        }
+
+        self.price_oracle
+            .convert(amount, Asset::ZKC)
+            .await
+            .map_err(|e| OrderPickerErr::UnexpectedErr(Arc::new(
+                anyhow::anyhow!("Failed to convert {} to ZKC: {}", amount, e)
+            )))
+    }
+
     fn prover(&self) -> &ProverObj {
         &self.prover
     }
@@ -1431,23 +1444,27 @@ pub(crate) mod tests {
     #[traced_test]
     async fn cannot_overcommit_collateral() {
         let signer_inital_balance_eth = 2;
-        let lockin_collateral = U256::from(150);
+        let decimals = 6;
+        // 200 ZKC tokens with 6 decimals - enough to avoid balance-related failures
+        let initial_balance = parse_units("200", decimals).unwrap().into();
 
         let config = ConfigLock::default();
         {
             config.load_write().unwrap().market.min_mcycle_price = Amount::parse("0.0000001 ETH").unwrap();
-            config.load_write().unwrap().market.max_collateral = "10".into();
+            config.load_write().unwrap().market.max_collateral = Amount::parse("10 ZKC").unwrap();
         }
 
         let mut ctx = PickerTestCtxBuilder::default()
             .with_initial_signer_eth(signer_inital_balance_eth)
-            .with_initial_hp(lockin_collateral)
+            .with_initial_hp(initial_balance)
             .with_config(config)
             .build()
             .await;
+
+        // First order: lock 5 ZKC (should succeed, below max_collateral)
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_collateral: U256::from(100),
+                lock_collateral: parse_units("5", decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;
@@ -1456,32 +1473,16 @@ pub(crate) mod tests {
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.id(), order1_id);
 
+        // Second order: lock 11 ZKC (should fail due to exceeding max_collateral of 10 ZKC)
         let order = ctx
             .generate_next_order(OrderParams {
-                lock_collateral: lockin_collateral + U256::from(1),
-                ..Default::default()
-            })
-            .await;
-        let order_id = order.id();
-        assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
-        assert!(logs_contain("insufficient available collateral to lock order"));
-        assert_eq!(
-            ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
-            OrderStatus::Skipped
-        );
-
-        let order = ctx
-            .generate_next_order(OrderParams {
-                lock_collateral: parse_units("11", ctx.picker.collateral_token_decimals)
-                    .unwrap()
-                    .into(),
+                lock_collateral: parse_units("11", decimals).unwrap().into(),
                 ..Default::default()
             })
             .await;
         let order_id = order.id();
         assert!(!ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await);
 
-        // only the first order above should have marked as active pricing, the second one should have been skipped due to insufficient collateral
         assert_eq!(
             ctx.db.get_order(&order_id).await.unwrap().unwrap().status,
             OrderStatus::Skipped

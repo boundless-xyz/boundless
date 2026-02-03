@@ -197,7 +197,7 @@ mcycle_price_collateral_token = "0.1"
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
-max_stake = "0.1"
+max_stake = "0.1 ZKC"
 max_file_size = 50_000_000
 min_mcycle_limit = 5
 
@@ -224,7 +224,7 @@ assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
 lookback_blocks = 100
-max_stake = "0.1"
+max_stake = "0.1 ZKC"
 max_file_size = 50_000_000
 max_fetch_retries = 10
 allow_client_addresses = ["0x0000000000000000000000000000000000000000"]
@@ -255,7 +255,7 @@ withdraw = true"#;
 [market]
 mcycle_price = "0.2 ETH"
 mcycle_price_collateral_token = "0.2"
-max_stake = "0.1"
+max_stake = "0.1 ZKC"
 gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 9 } }
 "#;
 
@@ -281,7 +281,7 @@ error = ?"#;
         assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 300);
         assert_eq!(config.market.lookback_blocks, 100);
-        assert_eq!(config.market.max_collateral, "0.1");
+        assert_eq!(config.market.max_collateral, Amount::parse("0.1 ZKC").unwrap());
         assert_eq!(config.market.max_file_size, 50_000_000);
         assert_eq!(config.market.min_mcycle_limit, 5);
         assert_eq!(config.market.gas_priority_mode, PriorityMode::Medium);

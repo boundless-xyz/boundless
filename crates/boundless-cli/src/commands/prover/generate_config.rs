@@ -394,13 +394,14 @@ impl ProverGenerateConfig {
         display
             .note("Higher collateral enables higher-reward orders but increases slashing risks.");
 
-        let max_collateral = Text::new("Max collateral (ZKC):")
+        let max_collateral_value = Text::new("Max collateral (ZKC):")
             .with_default(recommended_collateral)
             .with_help_message("Press Enter to use recommended value")
             .prompt()
             .context("Failed to get max collateral")?;
 
-        display.item_colored("Max collateral", format!("{} ZKC", max_collateral), "green");
+        let max_collateral = format!("{} ZKC", max_collateral_value);
+        display.item_colored("Max collateral", &max_collateral, "green");
 
         // Step 7: Pricing Configuration
         display.separator();

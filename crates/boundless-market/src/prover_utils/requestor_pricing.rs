@@ -287,6 +287,15 @@ where
         ))))
     }
 
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {
+        if amount.asset == Asset::ZKC {
+            return Ok(amount.clone());
+        }
+        Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+            "Price conversion not available (USD pricing requires price oracle)"
+        ))))
+    }
+
     fn prover(&self) -> &ProverObj {
         &self.prover
     }

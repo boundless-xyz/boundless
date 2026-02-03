@@ -292,6 +292,34 @@ pub fn convert_asset_value(
     }
 }
 
+/// Scale a value between different decimal precisions.
+///
+/// This is useful when you need to convert between token representations with
+/// different decimal places (e.g., converting between ZKC with 18 decimals and
+/// USDC with 6 decimals) without applying any price conversion.
+///
+/// Example: scale_decimals(1000000000000000000, 18, 6) = 1000000
+/// (1.0 with 18 decimals → 1.0 with 6 decimals)
+///
+/// # Arguments
+/// * `value` - The value to scale
+/// * `from_decimals` - The current decimal precision
+/// * `to_decimals` - The target decimal precision
+///
+/// # Returns
+/// The scaled value with the target decimal precision
+pub fn scale_decimals(value: U256, from_decimals: u8, to_decimals: u8) -> U256 {
+    if from_decimals == to_decimals {
+        value
+    } else if from_decimals > to_decimals {
+        let scale = U256::from(10u64).pow(U256::from(from_decimals - to_decimals));
+        value / scale
+    } else {
+        let scale = U256::from(10u64).pow(U256::from(to_decimals - from_decimals));
+        value * scale
+    }
+}
+
 // ============ Tests ============
 
 #[cfg(test)]
@@ -444,5 +472,67 @@ mod conversion_tests {
 
         let zkc = convert_asset_value(usd, Asset::USD, Asset::ZKC, price).unwrap();
         assert_eq!(zkc, U256::from(100_000_000_000_000_000_000u128)); // 100 ZKC
+    }
+}
+
+#[cfg(test)]
+mod scale_decimals_tests {
+    use super::*;
+
+    #[test]
+    fn test_scale_decimals_same_decimals() {
+        let value = U256::from(1_000_000_000_000_000_000u128); // 1.0 with 18 decimals
+        let result = scale_decimals(value, 18, 18);
+        assert_eq!(result, value);
+    }
+
+    #[test]
+    fn test_scale_decimals_down_18_to_6() {
+        // 1.0 with 18 decimals → 1.0 with 6 decimals
+        let value = U256::from(1_000_000_000_000_000_000u128);
+        let result = scale_decimals(value, 18, 6);
+        assert_eq!(result, U256::from(1_000_000u128));
+    }
+
+    #[test]
+    fn test_scale_decimals_up_6_to_18() {
+        // 1.0 with 6 decimals → 1.0 with 18 decimals
+        let value = U256::from(1_000_000u128);
+        let result = scale_decimals(value, 6, 18);
+        assert_eq!(result, U256::from(1_000_000_000_000_000_000u128));
+    }
+
+    #[test]
+    fn test_scale_decimals_roundtrip() {
+        let original = U256::from(1_500_000_000_000_000_000u128); // 1.5 with 18 decimals
+        let scaled_down = scale_decimals(original, 18, 6);
+        let scaled_back = scale_decimals(scaled_down, 6, 18);
+        assert_eq!(scaled_back, original);
+    }
+
+    #[test]
+    fn test_scale_decimals_precision_loss() {
+        // Value with precision beyond 6 decimals will lose precision when scaling down
+        let value = U256::from(1_234_567_890_123_456_789u128); // 1.234567890123456789 with 18 decimals
+        let scaled = scale_decimals(value, 18, 6);
+        // Should truncate to 1.234567 (1234567 with 6 decimals)
+        assert_eq!(scaled, U256::from(1_234_567u128));
+    }
+
+    #[test]
+    fn test_scale_decimals_zero_value() {
+        let result = scale_decimals(U256::ZERO, 18, 6);
+        assert_eq!(result, U256::ZERO);
+
+        let result = scale_decimals(U256::ZERO, 6, 18);
+        assert_eq!(result, U256::ZERO);
+    }
+
+    #[test]
+    fn test_scale_decimals_large_value() {
+        // Test with large values
+        let value = U256::from(1_000_000_000_000_000_000_000_000u128); // 1 million with 18 decimals
+        let scaled = scale_decimals(value, 18, 6);
+        assert_eq!(scaled, U256::from(1_000_000_000_000u128)); // 1 million with 6 decimals
     }
 }

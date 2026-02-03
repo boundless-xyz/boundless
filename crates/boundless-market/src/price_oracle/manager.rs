@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
-use alloy::primitives::U256;
 use super::asset::{Amount, Asset, convert_asset_value, ConversionError};
 use super::{CachedPriceOracle, PriceOracle, PriceOracleError, PriceQuote, TradingPair};
 

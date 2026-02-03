@@ -28,7 +28,7 @@ pub use config::{
 };
 
 use crate::{
-    price_oracle::{Amount, Asset},
+    price_oracle::{Amount, scale_decimals},
     contracts::{
         FulfillmentData, Predicate, PredicateType, ProofRequest, RequestError, RequestInputType,
     },
@@ -390,6 +390,9 @@ pub trait OrderPricingContext {
     /// Convert an Amount to ETH (using the price oracle).
     async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
 
+    /// Convert an Amount to ZKC using the price oracle.
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError>;
+
     /// Access to the prover for preflight operations.
     fn prover(&self) -> &ProverObj;
 
@@ -577,17 +580,22 @@ pub trait OrderPricingContext {
 
         // Check if the collateral is sane and if we can afford it
         // For lock expired orders, we don't check the max collateral because we can't lock those orders.
-        let max_collateral: U256 =
-            parse_units(&config.max_collateral, self.collateral_token_decimals())
-                .context("Failed to parse max_collateral")?
-                .into();
+        let max_collateral_amount = &config.max_collateral;
+        let max_collateral_zkc = self.convert_to_zkc(max_collateral_amount).await?;
+        // Convert from Asset ZKC decimals (18) to contract collateral token decimals (6 or 18 depending on chain)
+        let max_collateral: U256 = scale_decimals(
+            max_collateral_zkc.value,
+            max_collateral_zkc.asset.decimals(),
+            self.collateral_token_decimals(),
+        );
 
         if !lock_expired && lockin_collateral > max_collateral {
             return Ok(Skip {
                 reason: format!(
-                    "order collateral requirement exceeds max_collateral config {} > {}",
+                    "order collateral requirement exceeds max_collateral config {} > {} ({})",
                     self.format_collateral(lockin_collateral),
                     self.format_collateral(max_collateral),
+                    max_collateral_amount,
                 ),
             });
         }

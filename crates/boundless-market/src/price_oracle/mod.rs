@@ -20,7 +20,7 @@ mod manager;
 #[cfg(test)]
 mod integration_tests;
 
-pub use asset::{Amount, Asset, ParseAmountError, ConversionError, convert_asset_value};
+pub use asset::{Amount, Asset, ParseAmountError, ConversionError, convert_asset_value, scale_decimals};
 pub use config::PriceOracleConfig;
 pub use error::PriceOracleError;
 pub use composite_oracle::CompositeOracle;
