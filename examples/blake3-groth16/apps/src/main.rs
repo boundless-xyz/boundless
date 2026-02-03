@@ -14,12 +14,10 @@
 
 use std::{str::FromStr, time::Duration};
 
-use alloy::{primitives::utils::parse_ether, signers::local::PrivateKeySigner};
+use alloy::signers::local::PrivateKeySigner;
 use anyhow::{Context, Result};
 use blake3_groth16::Blake3Groth16ReceiptClaim;
-use boundless_market::{
-    request_builder::OfferParamsBuilder, Client, Deployment, StorageUploaderConfig,
-};
+use boundless_market::{Client, Deployment, StorageUploaderConfig};
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID};
 use tracing_subscriber::{filter::LevelFilter, prelude::*, EnvFilter};
