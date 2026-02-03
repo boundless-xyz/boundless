@@ -124,6 +124,12 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
     /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
     pub funding_mode: FundingMode,
+    /// Whether to skip preflight/pricing checks.
+    ///
+    /// If `Some(true)`, preflight checks are skipped.
+    /// If `Some(false)`, preflight checks are run.
+    /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub skip_preflight: Option<bool>,
 }
 
 impl<St, Si> Default for ClientBuilder<St, Si> {
@@ -142,6 +148,7 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             request_id_layer_config: Default::default(),
             request_finalizer_config: Default::default(),
             funding_mode: FundingMode::Always,
+            skip_preflight: None,
         }
     }
 }
@@ -424,6 +431,10 @@ impl<St, Si> ClientBuilder<St, Si> {
             client = client.with_timeout(timeout);
         }
 
+        if let Some(skip_preflight) = self.skip_preflight {
+            client = client.with_skip_preflight(skip_preflight);
+        }
+
         Ok(client)
     }
 
@@ -536,6 +547,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             request_id_layer_config: self.request_id_layer_config,
             request_finalizer_config: self.request_finalizer_config,
             funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
         }
     }
 
@@ -571,6 +583,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_layer_config: self.storage_layer_config,
             offer_layer_config: self.offer_layer_config,
             funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
         }
     }
 
@@ -676,6 +689,15 @@ impl<St, Si> ClientBuilder<St, Si> {
         f(&mut self.request_finalizer_config);
         self
     }
+
+    /// Set whether to skip preflight/pricing checks on the request builder.
+    ///
+    /// If `true`, preflight checks are skipped.
+    /// If `false`, preflight checks are run.
+    /// If not called, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub fn with_skip_preflight(self, skip: bool) -> Self {
+        Self { skip_preflight: Some(skip), ..self }
+    }
 }
 
 #[derive(Clone)]
@@ -728,12 +750,7 @@ pub type StandardClient = Client<
 >;
 
 impl<P, St, Si> Client<P, St, StandardRequestBuilder<P, St>, Si> {
-    /// Set whether to skip preflight/pricing checks on the request builder.
-    ///
-    /// If `true`, preflight checks are skipped.
-    /// If `false`, preflight checks are run.
-    /// If not called, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
-    pub fn with_skip_preflight(mut self, skip: bool) -> Self {
+    fn with_skip_preflight(mut self, skip: bool) -> Self {
         if let Some(ref mut builder) = self.request_builder {
             builder.skip_preflight = Some(skip);
         }

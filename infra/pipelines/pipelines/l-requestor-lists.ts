@@ -19,21 +19,21 @@ export class LRequestorListsPipeline extends LaunchBasePipeline<LaunchPipelineCo
     }
 
     protected createPipeline(args: BasePipelineArgs) {
-        const {connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn} = args;
+        const { connection, artifactBucket, role, githubToken, dockerUsername, dockerToken, slackAlertsTopicArn } = args;
 
-        const {githubTokenSecret, dockerTokenSecret} = this.createSecretsAndPolicy(role, githubToken, dockerToken);
+        const { githubTokenSecret, dockerTokenSecret } = this.createSecretsAndPolicy(role, githubToken, dockerToken);
 
         // Create CodeBuild projects for each stack
         const stagingDeployment = new aws.codebuild.Project(
             `l-${this.config.appName}-staging-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-staging", role, BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         const prodDeployment = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
-            {dependsOn: [role]}
+            { dependsOn: [role] }
         );
 
         // Create the pipeline
@@ -249,7 +249,7 @@ ${additionalCommandsStr}          - ls -lt
                     }
                 ]
             },
-            artifacts: {type: "CODEPIPELINE"},
+            artifacts: { type: "CODEPIPELINE" },
             source: {
                 type: "CODEPIPELINE",
                 buildspec: this.getBuildSpec()

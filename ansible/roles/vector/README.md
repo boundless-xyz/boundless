@@ -81,6 +81,16 @@ When enabled, Vector collects and ships the following system metrics to CloudWat
 - **System**: load average, uptime, processes
 - **Filesystem**: mount points, space, inodes
 
+### Root volume alerting
+
+When `vector_collect_host_metrics` is enabled and the `filesystem` collector is used (default), Vector sends **filesystem\_used\_ratio** (0–1) to CloudWatch Metrics under `vector_cloudwatch_metrics_namespace` (default `Boundless/SystemMetrics`). Root (/) is included by default via `vector_filesystem_mountpoints_includes: ["/"]`.
+
+Infrastructure (e.g. Pulumi prover stacks) can create a CloudWatch alarm on this metric to alert when the root volume is filling up, for example:
+
+- **Metric**: `filesystem_used_ratio`, namespace `Boundless/SystemMetrics`
+- **Dimensions**: `mountpoint="/"`, `host=<instance short hostname, e.g. ip-10-0-0-5>`
+- **Threshold**: e.g. ≥ 0.85 (85%) for 2 consecutive 5-minute periods
+
 ## Dependencies
 
 - **AWS CLI**: Required
