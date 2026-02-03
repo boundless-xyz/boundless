@@ -1,9 +1,11 @@
-Create a pull request for the current changes.
+Create/update a pull request for the current changes.
 1. Look at the staged, unstaged, and untracked changes with `git diff`
 2. If there are untracked files, do not add them to the commit, but warn the user
 3. Write a clear commit message based on what changed (use commit message style below)
 4. Commit and push to the current branch
-5. Use `gh pr create --web --title <title> --body <body>` to generate a pull request URL with title/description (use PR Title/Description Guidelines below)
+5. Check if an existing PR exists
+   1. If not, use `gh pr create --web --title <title> --body <body>` to generate a pull request URL with title/description (use PR Title/Description Guidelines below)
+   2. Else update the description with the new changes
 6. Return the PR URL when done
 
 # Commit message style
