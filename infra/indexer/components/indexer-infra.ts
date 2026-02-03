@@ -155,7 +155,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       policyArn: 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole',
     }, { parent: this });
 
-    const instanceClass = isDev ? 'db.r6g.medium' : 'db.r6g.xlarge';
+    const instanceClass = isDev ? 'db.r6g.large' : 'db.r6g.xlarge';
 
     new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-${databaseVersion}`, {
       clusterIdentifier: auroraCluster.id,
