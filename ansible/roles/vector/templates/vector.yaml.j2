@@ -47,12 +47,70 @@ sources:
 {% endif %}
 {% endif %}
 
+{% if vector_track_bento_process | default(true) | bool %}
+  exec_bento_active:
+    type: exec
+    mode: scheduled
+    scheduled:
+      exec_interval_secs: {{ vector_bento_process_interval_secs | default(60) }}
+    command: ["/bin/sh", "-c", "/usr/bin/systemctl is-active bento 2>/dev/null | grep -q active && echo 1 || echo 0"]
+  exec_bento_containers:
+    type: exec
+    mode: scheduled
+    scheduled:
+      exec_interval_secs: {{ vector_bento_process_interval_secs | default(60) }}
+    command: ["/bin/sh", "-c", "PATH=/usr/bin:/bin docker ps -q --filter label=com.docker.compose.project=bento 2>/dev/null | wc -l"]
+{% endif %}
+
 transforms:
   extract_message:
     type: remap
     inputs: ["journald"]
     source: |
       . = .message
+
+{% if vector_track_bento_process | default(true) | bool %}
+  parse_bento_active:
+    type: remap
+    inputs: ["exec_bento_active"]
+    source: |
+      .value = to_int(string!(.message)) ?? 0
+  parse_bento_containers:
+    type: remap
+    inputs: ["exec_bento_containers"]
+    source: |
+      .value = to_int(string!(.message)) ?? 0
+  bento_active_gauge:
+    type: log_to_metric
+    inputs: ["parse_bento_active"]
+    metrics:
+      - type: gauge
+        field: value
+        name: bento_active
+        kind: absolute
+  bento_containers_gauge:
+    type: log_to_metric
+    inputs: ["parse_bento_containers"]
+    metrics:
+      - type: gauge
+        field: value
+        name: bento_containers
+        kind: absolute
+{% endif %}
+
+{% if vector_track_log_errors | default(true) | bool %}
+  filter_log_errors:
+    type: filter
+    inputs: ["journald"]
+    condition: 'contains(to_string(.message) ?? "", "ERROR")'
+  bento_log_errors_counter:
+    type: log_to_metric
+    inputs: ["filter_log_errors"]
+    metrics:
+      - type: counter
+        field: message
+        name: bento_log_errors
+{% endif %}
 
 sinks:
   cloudwatch_bento:
@@ -68,10 +126,20 @@ sinks:
       max_size: {{ vector_buffer_max_size }}
       when_full: "{{ vector_buffer_when_full }}"
 
-{% if vector_collect_host_metrics | bool %}
+{% if vector_collect_host_metrics | bool or vector_track_bento_process | default(true) | bool or vector_track_log_errors | default(true) | bool %}
   cloudwatch_metrics:
     type: aws_cloudwatch_metrics
-    inputs: ["host_metrics"]
+    inputs:
+{% if vector_collect_host_metrics | bool %}
+      - host_metrics
+{% endif %}
+{% if vector_track_bento_process | default(true) | bool %}
+      - bento_active_gauge
+      - bento_containers_gauge
+{% endif %}
+{% if vector_track_log_errors | default(true) | bool %}
+      - bento_log_errors_counter
+{% endif %}
     default_namespace: "{{ vector_cloudwatch_metrics_namespace }}"
     region: "{{ vector_cloudwatch_region }}"
     buffer:

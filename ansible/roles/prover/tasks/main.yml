@@ -44,3 +44,47 @@
     enabled: true
     state: started
     daemon_reload: true
+
+- name: Wait for MinIO to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:9000/minio/health/live"
+    method: GET
+    status_code: 200
+    timeout: 5
+  register: prover_minio_health
+  until: prover_minio_health.status == 200
+  retries: 12
+  delay: 5
+  when: prover_minio_work_expiry_days | int > 0
+
+- name: Get current MinIO lifecycle rules
+  ansible.builtin.shell: |
+    docker run --rm --network host --entrypoint /bin/sh \
+      -e MC_USER="{{ prover_minio_root_user }}" \
+      -e MC_PASS="{{ prover_minio_root_pass }}" \
+      -e MC_BUCKET="{{ prover_minio_bucket }}" \
+      minio/mc:latest -c '
+      mc alias set proverminio http://127.0.0.1:9000 "$MC_USER" "$MC_PASS" &&
+      mc ilm export proverminio/$MC_BUCKET 2>/dev/null || true
+    '
+  register: prover_minio_ilm_current
+  when: prover_minio_work_expiry_days | int > 0
+  changed_when: false
+  no_log: true
+
+- name: Configure MinIO lifecycle to expire workflow objects after configured days
+  ansible.builtin.shell: |
+    docker run --rm --network host --entrypoint /bin/sh \
+      -e MC_USER="{{ prover_minio_root_user }}" \
+      -e MC_PASS="{{ prover_minio_root_pass }}" \
+      -e MC_BUCKET="{{ prover_minio_bucket }}" \
+      -e EXPIRE_DAYS="{{ prover_minio_work_expiry_days }}" \
+      minio/mc:latest -c '
+      mc alias set proverminio http://127.0.0.1:9000 "$MC_USER" "$MC_PASS" &&
+      mc ilm rule add proverminio/$MC_BUCKET --expire-days "$EXPIRE_DAYS"
+    '
+  when:
+    - prover_minio_work_expiry_days | int > 0
+    - (prover_minio_work_expiry_days | string) not in (prover_minio_ilm_current.stdout | default(''))
+  changed_when: true
+  no_log: true

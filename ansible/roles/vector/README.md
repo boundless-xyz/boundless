@@ -91,6 +91,25 @@ Infrastructure (e.g. Pulumi prover stacks) can create a CloudWatch alarm on this
 - **Dimensions**: `mountpoint="/"`, `host=<instance short hostname, e.g. ip-10-0-0-5>`
 - **Threshold**: e.g. ≥ 0.85 (85%) for 2 consecutive 5-minute periods
 
+### Bento process and container tracking
+
+When `vector_track_bento_process` is enabled (default: `true`), Vector runs scheduled checks and publishes gauges to CloudWatch Metrics:
+
+- **bento\_active**: `1` when the `bento` systemd unit is active, `0` otherwise
+- **bento\_containers**: Number of running Docker containers in the Bento Compose project (`com.docker.compose.project=bento`)
+
+Checks run every `vector_bento_process_interval_secs` seconds (default: 60). Use these metrics for dashboards and alarms (e.g. bento\_active < 1 or bento\_containers below expected).
+
+### Log error metrics
+
+When `vector_track_log_errors` is enabled (default: `true`), Vector counts journald log lines containing `"ERROR"` and publishes a counter to CloudWatch Metrics:
+
+- **bento\_log\_errors**: Incremented by 1 for each ERROR line from the monitored units
+
+Use this metric for error-rate dashboards and alarms (e.g. threshold on Sum over 5 minutes).
+
+**If Vector fails to start** after a deploy (e.g. "Job for vector.service failed"), check `journalctl -xeu vector.service` for the config error. To get Vector running again you can temporarily disable these features in group/host vars: `vector_track_bento_process: false` and/or `vector_track_log_errors: false`. Bento tracking and log error metrics require Vector 0.28+ with exec source and log\_to\_metric support.
+
 ## Dependencies
 
 - **AWS CLI**: Required
