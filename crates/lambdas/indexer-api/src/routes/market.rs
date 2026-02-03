@@ -28,8 +28,8 @@ use utoipa;
 
 use crate::{
     db::AppState,
-    handler::{cache_control, handle_error},
-    utils::{format_eth, format_zkc},
+    handler::{bad_request_invalid_address, cache_control, handle_error, AddressRole},
+    utils::{format_eth, format_zkc, is_valid_ethereum_address},
 };
 use boundless_indexer::db::market::{
     RequestCursor, RequestSortField, RequestStatus, SortDirection,
@@ -1512,6 +1512,9 @@ pub async fn get_requestor_aggregates(
     Path(address): Path<String>,
     Query(params): Query<RequestorAggregatesParams>,
 ) -> Response {
+    if !is_valid_ethereum_address(&address) {
+        return bad_request_invalid_address(AddressRole::Requestor, &address);
+    }
     let params_clone = params.clone();
     match get_requestor_aggregates_impl(state, address, params).await {
         Ok(response) => {
@@ -1741,6 +1744,9 @@ pub async fn get_requestor_cumulatives(
     Path(address): Path<String>,
     Query(params): Query<RequestorCumulativesParams>,
 ) -> Response {
+    if !is_valid_ethereum_address(&address) {
+        return bad_request_invalid_address(AddressRole::Requestor, &address);
+    }
     let params_clone = params.clone();
     match get_requestor_cumulatives_impl(state, address, params).await {
         Ok(response) => {
@@ -1900,6 +1906,9 @@ pub async fn get_prover_aggregates(
     Path(address): Path<String>,
     Query(params): Query<ProverAggregatesParams>,
 ) -> Response {
+    if !is_valid_ethereum_address(&address) {
+        return bad_request_invalid_address(AddressRole::Prover, &address);
+    }
     let params_clone = params.clone();
     match get_prover_aggregates_impl(state, address, params).await {
         Ok(response) => {
@@ -2107,6 +2116,9 @@ pub async fn get_prover_cumulatives(
     Path(address): Path<String>,
     Query(params): Query<ProverCumulativesParams>,
 ) -> Response {
+    if !is_valid_ethereum_address(&address) {
+        return bad_request_invalid_address(AddressRole::Prover, &address);
+    }
     let params_clone = params.clone();
     match get_prover_cumulatives_impl(state, address, params).await {
         Ok(response) => {
@@ -2561,6 +2573,9 @@ async fn list_requests_by_requestor(
     Path(address): Path<String>,
     Query(params): Query<RequestListParams>,
 ) -> Response {
+    if !is_valid_ethereum_address(&address) {
+        return bad_request_invalid_address(AddressRole::Requestor, &address);
+    }
     match list_requests_by_requestor_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
@@ -2629,6 +2644,9 @@ async fn list_requests_by_prover(
     Path(address): Path<String>,
     Query(params): Query<RequestListParams>,
 ) -> Response {
+    if !is_valid_ethereum_address(&address) {
+        return bad_request_invalid_address(AddressRole::Prover, &address);
+    }
     match list_requests_by_prover_impl(state, address, params).await {
         Ok(response) => {
             let mut res = Json(response).into_response();
