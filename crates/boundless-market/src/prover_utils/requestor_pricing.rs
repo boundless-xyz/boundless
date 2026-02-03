@@ -278,6 +278,15 @@ where
             .map_err(|err| OrderPricingError::RpcErr(Arc::new(err.into())))
     }
 
+    async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {
+        if amount.asset == Asset::ETH {
+            return Ok(amount.clone());
+        }
+        Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+            "Price conversion not available (USD pricing requires price oracle)"
+        ))))
+    }
+
     fn prover(&self) -> &ProverObj {
         &self.prover
     }

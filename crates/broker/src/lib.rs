@@ -877,8 +877,9 @@ where
         let price_oracle =  Arc::new(config.lock_all().unwrap().price_oracle.build(named_chain, self.provider.clone()).context("Failed to build price oracle")?);
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
+        let price_oracle_clone = price_oracle.clone();
         non_critical_tasks.spawn(async move {
-            Supervisor::new(price_oracle, cloned_config, cancel_token)
+            Supervisor::new(price_oracle_clone, cloned_config, cancel_token)
                 .spawn()
                 .await
                 .context("price oracle failed")?;
@@ -899,6 +900,7 @@ where
             order_state_tx.clone(),
             self.priority_requestors.clone(),
             self.allow_requestors.clone(),
+            price_oracle.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();

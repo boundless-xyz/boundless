@@ -35,13 +35,15 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::boundless_market::BoundlessMarketService, selector::SupportedSelectors,
+    contracts::boundless_market::BoundlessMarketService,
+    price_oracle::PriceOracleManager,
+    selector::SupportedSelectors,
 };
 use moka::future::Cache;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-
+use boundless_market::price_oracle::{Amount, Asset};
 use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -89,6 +91,7 @@ pub struct OrderPicker<P> {
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
     allow_requestors: AllowRequestors,
+    price_oracle: Arc<PriceOracleManager>,
 }
 
 impl<P> OrderPicker<P>
@@ -109,6 +112,7 @@ where
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
         allow_requestors: AllowRequestors,
+        price_oracle: Arc<PriceOracleManager>,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
             market_addr,
@@ -142,6 +146,7 @@ where
             order_state_tx,
             priority_requestors,
             allow_requestors,
+            price_oracle,
         }
     }
 
@@ -440,6 +445,19 @@ where
 
     async fn current_gas_price(&self) -> Result<u128, OrderPickerErr> {
         Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")? as u128)
+    }
+
+    async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPickerErr> {
+        if amount.asset == Asset::ETH {
+            return Ok(amount.clone());
+        }
+
+        self.price_oracle
+            .convert(amount, Asset::ETH)
+            .await
+            .map_err(|e| OrderPickerErr::UnexpectedErr(Arc::new(
+                anyhow::anyhow!("Failed to convert {} to ETH: {}", amount, e)
+            )))
     }
 
     fn prover(&self) -> &ProverObj {
@@ -768,7 +786,25 @@ pub(crate) mod tests {
     use risc0_zkvm::sha::Digest;
     use risc0_zkvm::Receipt;
     use tracing_test::traced_test;
-    use boundless_market::price_oracle::Amount;
+    use boundless_market::price_oracle::{
+        Amount, CachedPriceOracle, PriceOracleManager, sources::StaticPriceSource,
+    };
+
+    /// Create a test price oracle with static prices for ETH and ZKC
+    fn create_test_price_oracle() -> Arc<PriceOracleManager> {
+        let eth_usd = Arc::new(CachedPriceOracle::new(
+            Arc::new(StaticPriceSource::new(2000.0)) // $2000 per ETH
+        ));
+        let zkc_usd = Arc::new(CachedPriceOracle::new(
+            Arc::new(StaticPriceSource::new(1.0)) // $1 per ZKC
+        ));
+        Arc::new(PriceOracleManager::new(
+            eth_usd,
+            zkc_usd,
+            60,  // refresh interval
+            300, // max time without update
+        ))
+    }
 
     /// Reusable context for testing the order picker
     pub(crate) struct PickerTestCtx<P> {
@@ -997,6 +1033,7 @@ pub(crate) mod tests {
                 order_state_tx,
                 priority_requestors,
                 allow_requestors,
+                create_test_price_oracle(),
             );
 
             PickerTestCtx {
@@ -2455,7 +2492,7 @@ pub(crate) mod tests {
         // For lock and fulfill, if the exec limit based on ETH is higher than the exec
         // limit based on collateral, we should use the ETH limit.
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.001 ETH/mcycle = 49M cycles
         // collateral based: (100 collateral tokens - 20% collateral burn) * 1M / 10 collateral_tokens/mcycle = 8M cycles
@@ -2495,7 +2532,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // ETH based: (0.05 ETH - 0.001 ETH) * 1M / 0.1 ETH/mcycle = 490k cycles
         // collateral based: (1000 collateral tokens - 20% burn) * 1M / 1 collateral_token/mcycle = 800M cycles
@@ -2546,7 +2583,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should only use collateral-based pricing for FulfillAfterLockExpire
         // collateral based: (100 collateral tokens - 20% burn) / 0.1 collateral tokens per mcycle = 80M cycles
@@ -2593,7 +2630,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be capped at 20M cycles regardless of high prices
         let expected_cycles = 20_000_000u64;
@@ -2637,7 +2674,7 @@ pub(crate) mod tests {
         order.request.id = RequestId::new(priority_address, 1).into();
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Priority requestors ignore max_mcycle_limit but use different calculations for preflight vs prove
         // For LockAndFulfill orders: preflight uses higher limit (collateral), prove uses ETH-based
@@ -2676,7 +2713,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be limited by timing constraints
         // Prove window: 60 seconds -> 60M cycles max
@@ -2717,7 +2754,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be unlimited (u64::MAX) when collateral price is zero
         assert_eq!(preflight_limit, u64::MAX);
@@ -2755,7 +2792,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be limited by very short deadline: 1 second = 1M cycles
         let expected_cycles = 1_000_000u64;
@@ -2794,7 +2831,7 @@ pub(crate) mod tests {
             .await;
 
         let (preflight_limit, prove_limit, _reason) =
-            ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
+            ctx.picker.calculate_exec_limits(&order, gas_cost).await.unwrap();
 
         // Should be unlimited (u64::MAX) when ETH mcycle_price is zero
         assert_eq!(preflight_limit, u64::MAX);
