@@ -18,44 +18,6 @@
     mode: '0600'
   notify: Restart Bento
 
-- name: Ensure BLAKE3 Groth16 setup directory exists
-  ansible.builtin.file:
-    path: "{{ prover_blake3_groth16_setup_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-  notify: Restart Bento
-
-- name: Check if BLAKE3 Groth16 setup artifacts are present
-  ansible.builtin.stat:
-    path: "{{ prover_blake3_groth16_setup_dir }}/verify_for_guest_final.zkey"
-  register: prover_blake3_zkey
-
-- name: Download and extract BLAKE3 Groth16 artifacts when setup dir is empty
-  when: not prover_blake3_zkey.stat.exists
-  block:
-    - name: Download BLAKE3 Groth16 artifacts tarball
-      ansible.builtin.get_url:
-        url: "{{ prover_blake3_groth16_url }}"
-        dest: /tmp/blake3_groth16_artifacts.tar.xz
-        mode: '0644'
-      register: prover_blake3_download
-
-    - name: Extract BLAKE3 Groth16 artifacts into setup dir
-      ansible.builtin.unarchive:
-        src: /tmp/blake3_groth16_artifacts.tar.xz
-        dest: "{{ prover_blake3_groth16_setup_dir }}"
-        extra_opts: [--strip-components=1]
-        remote_src: true
-        creates: "{{ prover_blake3_groth16_setup_dir }}/verify_for_guest_final.zkey"
-      notify: Restart Bento
-
-    - name: Remove BLAKE3 Groth16 artifacts tarball
-      ansible.builtin.file:
-        path: /tmp/blake3_groth16_artifacts.tar.xz
-        state: absent
-
 - name: Download broker configuration file
   ansible.builtin.get_url:
     url: '{{ prover_broker_toml_url }}'

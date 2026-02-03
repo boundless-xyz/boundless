@@ -56,12 +56,6 @@ prover_broker_dockerfile: "dockerfiles/broker.prebuilt.dockerfile"
 
 # BLAKE3 Groth16 artifacts URL (required for GPU proving)
 prover_blake3_groth16_url: "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
-# Set to true to use locally mounted artifacts instead of downloading at image build
-prover_use_local_blake3_groth16: true
-# Host path for BLAKE3 Groth16 setup artifacts; mounted into the agent (compose volume).
-# Must contain verify_for_guest_final.zkey and verify_for_guest_graph.bin.
-# This role populates it from prover_blake3_groth16_url if the directory is empty.
-prover_blake3_groth16_setup_dir: "{{ prover_dir }}/blake3_groth16_artifacts"
 # Broker configuration (if enabled)
 prover_private_key: ""
 prover_rpc_url: ""
