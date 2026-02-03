@@ -41,7 +41,7 @@ export class MetricAlarmComponent extends BaseComponent {
                 return new aws.cloudwatch.LogGroup(`${config.serviceName}-log-group`, {
                     name: existing.name,
                     retentionInDays: 90,
-                }, {import: existing.id});
+                }, { import: existing.id });
             }
 
             // Otherwise create a new log group
@@ -82,7 +82,7 @@ export class MetricAlarmComponent extends BaseComponent {
                 defaultValue: '0',
             },
             pattern: pattern,
-        }, {dependsOn: this.logGroup});
+        }, { dependsOn: this.logGroup });
 
         this.metricFilters[filterName] = newFilter
         return newFilter
@@ -202,6 +202,36 @@ export class MetricAlarmComponent extends BaseComponent {
             statistic: 'Maximum',
             threshold: 80,
         }, 'Disk utilization is greater than 80% for 20 consecutive minutes.')
+
+        // Vector host_metrics (namespace "host"): alarm when free memory or root free disk is low
+        const vectorHostNamespace = 'host';
+        const memoryFreeBytesThreshold = 500 * 1024 * 1024; // 500 MiB
+        this.createMetricAlarm(config, 'memory-free-bytes', Severity.SEV2, {
+            metricName: 'memory_free_bytes',
+            namespace: vectorHostNamespace,
+            period: 300,
+            dimensions: {}, // evaluate for any host in the group
+            evaluationPeriods: 2,
+            datapointsToAlarm: 2,
+            statistic: 'Minimum',
+            threshold: memoryFreeBytesThreshold,
+            comparisonOperator: 'LessThanOrEqualToThreshold',
+            treatMissingData: 'notBreaching',
+        }, 'Free memory <= 500 MiB for 2 consecutive 5-minute periods (Vector host metric).')
+
+        const filesystemFreeBytesThreshold = 10 * 1024 * 1024 * 1024; // 10 GiB
+        this.createMetricAlarm(config, 'filesystem-free-bytes-root', Severity.SEV2, {
+            metricName: 'filesystem_free_bytes',
+            namespace: vectorHostNamespace,
+            dimensions: { mountpoint: '/' },
+            period: 300,
+            evaluationPeriods: 2,
+            datapointsToAlarm: 2,
+            statistic: 'Minimum',
+            threshold: filesystemFreeBytesThreshold,
+            comparisonOperator: 'LessThanOrEqualToThreshold',
+            treatMissingData: 'notBreaching',
+        }, 'Root volume (/) free space <= 10 GiB for 2 consecutive 5-minute periods (Vector host metric).')
     };
 }
 
@@ -232,11 +262,11 @@ export class WorkerClusterAlarmComponent extends MetricAlarmComponent {
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-AGENT-"', 'bento-agent-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-WF-"', 'bento-workflow-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
     }
 }
 
@@ -249,39 +279,39 @@ export class ExecutorMetricAlarmComponent extends WorkerClusterAlarmComponent {
     private createExecutorMetricAlarms = (config: MetricAlarmConfig): void => {
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-EXEC-"', 'bento-executor-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-FINALIZE-"', 'bento-finalize-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-JOIN-"', 'bento-join-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-JOINPOVW-"', 'bento-joinpovw-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-KECCAK-"', 'bento-keccak-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-PROVE-"', 'bento-prove-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-RESOLVE-"', 'bento-resolve-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-SNARK-"', 'bento-snark-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         this.createErrorCodeAlarm(config, 'ERROR "[BENTO-UNION-"', 'bento-union-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 1800});
+        }, { period: 1800 });
     }
 }
 
@@ -368,12 +398,12 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // [Regex] 5 unexpected errors across the entire prover in 5 minutes triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '%\[B-[A-Z]+-500\]%', 'unexpected-errors', Severity.SEV2, {
             threshold: brokerUnexpectedErrorThreshold,
-        }, {period: 300});
+        }, { period: 300 });
 
         // [Regex] 10 errors of any kind across the entire prover within an hour triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '%\[B-[A-Z]+-\d+\]%', 'assorted-errors', Severity.SEV2, {
             threshold: 10,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         // Matches on any ERROR log that does NOT contain an error code. Ensures we don't miss any errors.
         // Don't match on INTERNAL_ERROR which is sometimes returned by our dependencies e.g. Bonsai on retryable errors.
@@ -383,28 +413,28 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // to prevent noise from the alarm being triggered multiple times.
         this.createErrorCodeAlarm(config, 'WARN "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV2, {
             threshold: 1,
-        }, {period: 3600});
+        }, { period: 3600 });
         this.createErrorCodeAlarm(config, 'WARN "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV2, {
             threshold: 1,
-        }, {period: 3600});
+        }, { period: 3600 });
         this.createErrorCodeAlarm(config, 'ERROR "[B-BAL-ETH]"', 'low-balance-alert-eth', Severity.SEV1, {
             threshold: 1,
-        }, {period: 3600});
+        }, { period: 3600 });
         this.createErrorCodeAlarm(config, 'ERROR "[B-BAL-STK]"', 'low-balance-alert-stk', Severity.SEV1, {
             threshold: 1,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         // Alarms at the supervisor level
         //
         // 5 supervisor restarts within 15 mins triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '"[B-SUP-RECOVER]"', 'supervisor-recover-errors', Severity.SEV2, {
             threshold: supervisorUnexpectedErrorThreshold,
-        }, {period: 900});
+        }, { period: 900 });
 
         // 2 supervisor fault within 30 minutes triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '"[B-SUP-FAULT]"', 'supervisor-fault-errors', Severity.SEV2, {
             threshold: 2,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         //
         // Alarms for specific services and error codes.
@@ -418,17 +448,17 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // 2 db locked error within 30 minutes triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '"[B-DB-001]"', 'db-locked-error', Severity.SEV2, {
             threshold: dbLockedErrorThreshold,
-        }, {period: 1800}, "DB locked error 2 times within 30 minutes");
+        }, { period: 1800 }, "DB locked error 2 times within 30 minutes");
 
         // 2 db pool timeout error within 30 minutes triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '"[B-DB-002]"', 'db-pool-timeout-error', Severity.SEV2, {
             threshold: dbLockedErrorThreshold,
-        }, {period: 1800}, "DB pool timeout error 2 times within 30 minutes");
+        }, { period: 1800 }, "DB pool timeout error 2 times within 30 minutes");
 
         // 2 db unexpected error within 30 minutes triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '"[B-DB-500]"', 'db-unexpected-error', Severity.SEV2, {
             threshold: dbLockedErrorThreshold,
-        }, {period: 1800}, "DB unexpected error 2 times within 30 minutes");
+        }, { period: 1800 }, "DB unexpected error 2 times within 30 minutes");
 
         //
         // Storage
@@ -436,7 +466,7 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // 3 http errors (e.g. rate limiting, etc.) within 5 minutes triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '"[B-STR-002]"', 'storage-http-error', Severity.SEV2, {
             threshold: 3,
-        }, {period: 300});
+        }, { period: 300 });
 
         // 2 unexpected storage errors triggers a SEV2 alarm
         this.createErrorCodeAlarm(config, '"[B-STR-500]"', 'storage-unexpected-error', Severity.SEV2, {
@@ -449,27 +479,27 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // 3 event polling errors within 5 minutes in the market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-MM-501]"', 'market-monitor-event-polling-error', Severity.SEV2, {
             threshold: 3,
-        }, {period: 300});
+        }, { period: 300 });
 
         // 10 event polling errors within 30 minutes in the market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-MM-501]"', 'market-monitor-event-polling-error-frequent', Severity.SEV2, {
             threshold: 10,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // 5 log processing errors within 15 minutes in the market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-MM-502]"', 'market-monitor-log-processing-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 900});
+        }, { period: 900 });
 
         // Any 2 unexpected errors within 30 minutes in the market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-MM-500]"', 'market-monitor-unexpected-error', Severity.SEV2, {
             threshold: 2
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // 3 unexpected errors within 5 minutes in the market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-MM-500]"', 'market-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
-        }, {period: 300});
+        }, { period: 300 });
 
         //
         // Chain Monitor
@@ -479,17 +509,17 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // If we see 5 rpc errors within 1 hour in the chain monitor trigger a SEV2 alarm to investigate.
         this.createErrorCodeAlarm(config, '"[B-CHM-400]"', 'chain-monitor-rpc-error', Severity.SEV2, {
             threshold: 5,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         // Any 2 unexpected errors within 30 minutes in the chain monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-CHM-500]"', 'chain-monitor-unexpected-error', Severity.SEV2, {
             threshold: 2,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // 3 unexpected errors within 5 minutes in the chain monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-CHM-500]"', 'chain-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
-        }, {period: 300});
+        }, { period: 300 });
 
         //
         // Off-chain Market Monitor
@@ -498,22 +528,22 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // 10 websocket errors within 1 hour in the off-chain market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error', Severity.SEV2, {
             threshold: 10,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         // 3 websocket errors within 15 minutes in the off-chain market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OMM-001]"', 'off-chain-market-monitor-websocket-error-frequent', Severity.SEV2, {
             threshold: 3,
-        }, {period: 900});
+        }, { period: 900 });
 
         // Any 2 unexpected errors within 30 minutes in the off-chain market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error', Severity.SEV2, {
             threshold: 2,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // 3 unexpected errors within 5 minutes in the off-chain market monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OMM-500]"', 'off-chain-market-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
-        }, {period: 300});
+        }, { period: 300 });
 
         //
         // Order Picker
@@ -521,7 +551,7 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // Any 2 unexpected errors within 30 minutes in the order picker triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OP-500]"', 'order-picker-unexpected-error', Severity.SEV2, {
             threshold: 2,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // Create a metric for errors when fetching images/inputs but don't alarm as could be user error.
         // Note: This is a pattern to match "[B-OP-001]" OR "[B-OP-002]"
@@ -530,12 +560,12 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // 3 unexpected errors within 5 minutes in the order picker triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OP-500]"', 'order-picker-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
-        }, {period: 300});
+        }, { period: 300 });
 
         // 3 rpc errors within 15 minutes in the order picker triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OP-005]"', 'order-picker-rpc-error', Severity.SEV2, {
             threshold: 3,
-        }, {period: 900});
+        }, { period: 900 });
 
         //
         // Order Monitor
@@ -543,12 +573,12 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // Any 2 unexpected errors within 30 minutes in the order monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OM-500]"', 'order-monitor-unexpected-error', Severity.SEV2, {
             threshold: 2,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // 4 unexpected errors within 5 minutes in the order monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OM-500]"', 'order-monitor-unexpected-error-frequent', Severity.SEV2, {
             threshold: 4,
-        }, {period: 300});
+        }, { period: 300 });
 
         // Create metrics for scenarios where we fail to lock an order that we wanted to lock.
         // Don't alarm as this is expected behavior when another prover locked before us.
@@ -560,19 +590,19 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // If we fail to lock an order twice within 2 hours because we don't have enough stake balance, SEV2.
         this.createErrorCodeAlarm(config, '"[B-OM-010]"', 'order-monitor-insufficient-balance', Severity.SEV2, {
             threshold: 2,
-        }, {period: 7200});
+        }, { period: 7200 });
 
         // For Sepolia, we see more tx not confirmed errors than other chains, so we use a higher threshold.
         // Other networks, 3 lock tx not confirmed errors within 1 hour in the order monitor triggers a SEV2 alarm.
         // This may indicate a misconfiguration of the tx timeout config.
         this.createErrorCodeAlarm(config, '"[B-OM-006]"', 'order-monitor-lock-tx-not-confirmed', Severity.SEV2, {
             threshold: config.chainId == ChainId.ETH_SEPOLIA ? 10 : 3,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         // 3 rpc errors within 15 minutes in the order monitor triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-OM-011]"', 'order-monitor-rpc-error', Severity.SEV2, {
             threshold: 3,
-        }, {period: 900});
+        }, { period: 900 });
 
         //
         // Prover
@@ -580,39 +610,39 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // Any 2 unexpected errors within 30 minutes in the prover triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-PRO-500]"', 'prover-unexpected-error', Severity.SEV2, {
             threshold: serviceUnexpectedErrorThreshold,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // 3 unexpected errors within 5 minutes in the prover triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-PRO-500]"', 'prover-unexpected-error-frequent', Severity.SEV2, {
             threshold: serviceUnexpectedErrorThresholdSev1,
-        }, {period: 300});
+        }, { period: 300 });
 
         // 2 proving failed errors within 30 minutes in the prover triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-PRO-501]"', 'prover-proving-failed', Severity.SEV2, {
             threshold: 2,
-        }, {period: 1800}, "Proving with retries failed 2 times within 30 minutes");
+        }, { period: 1800 }, "Proving with retries failed 2 times within 30 minutes");
 
         // Aggregator
         //
         // 2 batch failure to compress within 2 hours triggers a SEV2 alarm. This indicates a fault with the prover.
         this.createErrorCodeAlarm(config, '"[B-AGG-400]"', 'aggregator-compression-error', Severity.SEV2, {
             threshold: 2,
-        }, {period: 7200});
+        }, { period: 7200 });
 
         // Any 2 unexpected errors within 30 minutes in the aggregator triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-AGG-500]"', 'aggregator-unexpected-error', Severity.SEV2, {
             threshold: serviceUnexpectedErrorThreshold,
-        }, {period: 1800});
+        }, { period: 1800 });
 
         // 3 unexpected errors within 5 minutes in the aggregator triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-AGG-500]"', 'aggregator-unexpected-error-frequent', Severity.SEV2, {
             threshold: serviceUnexpectedErrorThresholdSev1,
-        }, {period: 300});
+        }, { period: 300 });
 
         // An edge case to expire in the aggregator, also indicates that a slashed order.
         this.createErrorCodeAlarm(config, '"[B-AGG-600]"', 'aggregator-order-expired', Severity.SEV2, {
             threshold: 2,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         //
         // Proving engine
@@ -630,14 +660,14 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // Note this gets logged multiple times per batch submission due to retries, so we use a higher threshold.
         this.createErrorCodeAlarm(config, '"[B-SUB-001]"', 'submitter-requests-expired-before-submission', Severity.SEV2, {
             threshold: 4,
-        }, {period: 3600}, "All requests in a batch expired before submission twice in an hour");
+        }, { period: 3600 }, "All requests in a batch expired before submission twice in an hour");
 
         // Two cases where some requests in a batch expired before submission triggers a SEV2 alarm.
         // Typically this is due to proving/aggregating/submitting taking longer than expected.
         // Note this gets logged multiple times per batch submission due to retries, so we use a higher threshold.
         this.createErrorCodeAlarm(config, '"[B-SUB-005]"', 'submitter-some-requests-expired-before-submission', Severity.SEV2, {
             threshold: 4,
-        }, {period: 3600}, "Some requests in a batch expired before submission twice in an hour");
+        }, { period: 3600 }, "Some requests in a batch expired before submission twice in an hour");
 
         // Any 3 market errors triggers a SEV2 alarm. Note we occasionally see these errors and on retry they
         // succeed, so we alert on 3
@@ -650,12 +680,12 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // Note this gets logged multiple times per batch submission due to retries, so we use a higher threshold.
         this.createErrorCodeAlarm(config, '"[B-SUB-003]"', 'submitter-batch-submission-txn-timeout', Severity.SEV2, {
             threshold: 4,
-        }, {period: 7200});
+        }, { period: 7200 });
 
         // 2 failures to submit a batch within 1 hour for any reason in the submitter triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-SUB-004]"', 'submitter-batch-submission-failure', Severity.SEV2, {
             threshold: 2,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         // 5 (10 on Sepolia since tx confirmation issues happen more frequently) individual txn confirmation
         // errors within 1 hour in the submitter triggers a SEV2 alarm.
@@ -666,7 +696,7 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
             threshold: config.chainId == ChainId.ETH_SEPOLIA ? 20 : 5,
             evaluationPeriods: config.chainId == ChainId.ETH_SEPOLIA ? 2 : 1,
             datapointsToAlarm: config.chainId == ChainId.ETH_SEPOLIA ? 2 : 1,
-        }, {period: 3600});
+        }, { period: 3600 });
 
         // Any 1 unexpected error in the submitter triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-SUB-500]"', 'submitter-unexpected-error', Severity.SEV2);
@@ -674,7 +704,7 @@ export class ManagerMetricAlarmComponent extends MetricAlarmComponent {
         // 3 unexpected errors within 5 minutes in the submitter triggers a SEV2 alarm.
         this.createErrorCodeAlarm(config, '"[B-SUB-500]"', 'submitter-unexpected-error-frequent', Severity.SEV2, {
             threshold: 3,
-        }, {period: 300});
+        }, { period: 300 });
 
         //
         // Utils
