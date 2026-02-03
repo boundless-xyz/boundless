@@ -420,17 +420,19 @@ pub trait OrderPricingContext {
         image_url: &str,
         predicate: &crate::contracts::RequestPredicate,
     ) -> Result<String, OrderPricingError> {
-        upload_image_with_downloader(self.prover(), image_url, predicate, self.downloader().as_ref())
-            .await
-            .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
+        upload_image_with_downloader(
+            self.prover(),
+            image_url,
+            predicate,
+            self.downloader().as_ref(),
+        )
+        .await
+        .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
     }
 
     /// Upload input data to the prover (from inline data or URL) using the downloader.
     #[cfg(feature = "prover_utils")]
-    async fn upload_input(
-        &self,
-        order: &OrderRequest,
-    ) -> Result<String, OrderPricingError> {
+    async fn upload_input(&self, order: &OrderRequest) -> Result<String, OrderPricingError> {
         let is_priority = self.is_priority_requestor(&order.request.client_address());
         upload_input_with_downloader(
             self.prover(),

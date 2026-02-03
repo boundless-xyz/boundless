@@ -47,13 +47,13 @@ use crate::{
     price_provider::{
         MarketPricing, MarketPricingConfigBuilder, PriceProviderArc, StandardPriceProvider,
     },
+    prover_utils::local_executor::LocalExecutor,
     request_builder::{
         FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, ParameterizationMode,
         PreflightLayer, RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder,
         StandardRequestBuilder, StandardRequestBuilderBuilderError, StorageLayer,
         StorageLayerConfigBuilder,
     },
-    prover_utils::local_executor::LocalExecutor,
     storage::{
         StandardDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
         StorageUploaderConfig,
@@ -434,7 +434,10 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
                 self.uploader.clone(),
                 self.storage_layer_config.build()?,
             ))
-            .preflight_layer(PreflightLayer::new(LocalExecutor::default(), Some(downloader.clone())))
+            .preflight_layer(PreflightLayer::new(
+                LocalExecutor::default(),
+                Some(downloader.clone()),
+            ))
             .offer_layer(
                 OfferLayer::new(provider.clone(), self.offer_layer_config.build()?)
                     .with_price_provider(price_provider),

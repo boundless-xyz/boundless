@@ -127,7 +127,10 @@ where
     type Output = RequestParams;
     type Error = anyhow::Error;
 
-    async fn process_with(mut self, layer: &PreflightLayer<D>) -> Result<Self::Output, Self::Error> {
+    async fn process_with(
+        mut self,
+        layer: &PreflightLayer<D>,
+    ) -> Result<Self::Output, Self::Error> {
         if self.cycles.is_some() && self.journal.is_some() {
             self = layer.ensure_image_id(self).await?;
             layer.fill_executor_cache_if_ready(&self).await;
@@ -140,10 +143,8 @@ where
         let request_input = self.require_request_input().context("failed to preflight request")?;
 
         // Fetch program and input
-        let downloader = layer
-            .downloader
-            .as_ref()
-            .context("cannot preflight URL request without downloader")?;
+        let downloader =
+            layer.downloader.as_ref().context("cannot preflight URL request without downloader")?;
         let program = downloader.download(program_url.as_str()).await?;
         let env = layer.fetch_env(request_input).await?;
         // Use env.stdin directly - this matches what the pricing logic uses for hashing

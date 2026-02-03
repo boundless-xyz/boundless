@@ -759,7 +759,8 @@ mod tests {
             .build();
         let config = test_config();
         let downloader = downloader_from_config(&config).await;
-        let result = resolve_image_id(&existing_id, "http://dev.null/elf", &cache, &downloader).await;
+        let result =
+            resolve_image_id(&existing_id, "http://dev.null/elf", &cache, &downloader).await;
         assert!(result.is_ok());
         let (image_id, downloaded_image) = result.unwrap();
         assert_eq!(image_id, existing_id);
