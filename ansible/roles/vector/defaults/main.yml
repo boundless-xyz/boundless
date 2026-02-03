@@ -58,3 +58,10 @@ vector_filesystem_mountpoints_excludes: []  # Exclude specific mountpoint patter
 # CloudWatch Metrics configuration
 # Metrics will be published to CloudWatch Metrics with this namespace
 vector_cloudwatch_metrics_namespace: "Boundless/SystemMetrics"
+
+# Bento process and container tracking (gauges: bento_active 0|1, bento_containers count)
+vector_track_bento_process: true
+vector_bento_process_interval_secs: 60
+
+# Log error metrics (counter: bento_log_errors, incremented per ERROR line in journald)
+vector_track_log_errors: true
