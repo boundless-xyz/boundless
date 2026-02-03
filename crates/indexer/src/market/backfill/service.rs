@@ -12,17 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::db::market::IndexerDb;
-use crate::market::{
-    time_boundaries::{
-        get_day_start, get_hour_start, get_month_start, get_next_day, get_next_hour,
-        get_next_month, get_next_week, get_week_start,
+use crate::{
+    db::market::IndexerDb,
+    market::{
+        time_boundaries::{
+            get_day_start, get_hour_start, get_month_start, get_next_day, get_next_hour,
+            get_next_month, get_next_week, get_week_start,
+        },
+        IndexerService, ServiceError,
     },
-    IndexerService, ServiceError,
 };
-use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::B256;
-use alloy::providers::Provider;
+use alloy::{
+    network::{AnyNetwork, Ethereum},
+    primitives::B256,
+    providers::Provider,
+};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -1365,8 +1369,7 @@ mod tests {
 
     #[test]
     fn test_chunk_hourly_range_non_boundary_end() {
-        use crate::market::time_boundaries::get_hour_start;
-        use crate::market::time_boundaries::get_next_hour;
+        use crate::market::time_boundaries::{get_hour_start, get_next_hour};
 
         // Test: start=0 (aligned), end=9000 (30 minutes into hour 2)
         // The function should align end_ts to hour boundary

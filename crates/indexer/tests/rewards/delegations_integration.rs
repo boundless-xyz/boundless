@@ -15,7 +15,7 @@
 use super::common;
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_vote_delegations_by_epoch() {
     let db = common::setup_test_db().await;
 
@@ -48,7 +48,7 @@ async fn test_vote_delegations_by_epoch() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_reward_delegations_by_epoch() {
     let db = common::setup_test_db().await;
 
@@ -85,7 +85,7 @@ async fn test_reward_delegations_by_epoch() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_vote_delegation_aggregates() {
     let db = common::setup_test_db().await;
 
@@ -108,7 +108,7 @@ async fn test_vote_delegation_aggregates() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_reward_delegation_aggregates() {
     let db = common::setup_test_db().await;
 

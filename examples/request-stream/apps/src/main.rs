@@ -45,7 +45,8 @@ use alloy::{
 use anyhow::{Context, Result};
 use boundless_market::{
     contracts::{RequestId, RequestInput},
-    Client, Deployment, StorageProvider, StorageProviderConfig,
+    storage::StorageUploaderConfig,
+    Client, Deployment,
 };
 use clap::Parser;
 use futures::{Stream, StreamExt};
@@ -82,9 +83,9 @@ struct Args {
     /// Number of blocks to include in each request.
     #[clap(long, default_value_t = 2)]
     blocks_per_request: u64,
-    /// Configuration for the StorageProvider to use for uploading programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
+    storage_config: StorageUploaderConfig,
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
 }
@@ -318,7 +319,8 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url) // Ethereum RPC endpoint
         .with_deployment(args.deployment) // Contract addresses (optional, uses defaults if not provided)
-        .with_storage_provider_config(&args.storage_config)? // Where to upload programs/inputs
+        .with_uploader_config(&args.storage_config)
+        .await? // Where to upload programs/inputs
         .with_private_key(args.private_key.clone()) // Your wallet for signing transactions
         .build()
         .await?;
@@ -327,18 +329,14 @@ async fn run(args: Args) -> Result<()> {
     // Step 2: Upload the Program
     // ============================================================================
     // Before submitting a request, you need to make the program available to provers.
-    // The program is uploaded to your configured storage provider (e.g., S3, IPFS, local file server).
+    // The program is uploaded to your configured uploader (e.g., S3, IPFS, local file server).
     // Provers will download the program from this URL when they pick up your request.
     //
     // **Note**: In production, you might want to:
     // - Upload the program once and reuse the URL
     // - Use content-addressed storage (hash-based URLs) for caching
     // - Verify the program hash matches what you expect
-    let program_url = if let Some(storage_provider) = &client.storage_provider {
-        storage_provider.upload_program(ECHO_ELF).await.context("failed to upload program")?
-    } else {
-        anyhow::bail!("Storage provider is required to upload the program");
-    };
+    let program_url = client.upload_program(ECHO_ELF).await.context("failed to upload program")?;
 
     // ============================================================================
     // Step 3: Create the Event Stream
@@ -458,7 +456,7 @@ mod tests {
     use super::*;
     use alloy::node_bindings::Anvil;
     use boundless_market::contracts::hit_points::default_allowance;
-    use boundless_market::storage::StorageProviderType;
+    use boundless_market::storage::StorageUploaderType;
     use boundless_test_utils::market::create_test_ctx;
     use broker::test_utils::BrokerBuilder;
     use test_log::test;
@@ -488,8 +486,8 @@ mod tests {
                 rpc_url: anvil.endpoint_url(),
                 private_key: ctx.customer_signer,
                 blocks_per_request: 2, // Use default value for testing
-                storage_config: StorageProviderConfig::builder()
-                    .storage_provider(StorageProviderType::Mock)
+                storage_config: StorageUploaderConfig::builder()
+                    .storage_uploader(StorageUploaderType::Mock)
                     .build()
                     .unwrap(),
                 deployment: Some(ctx.deployment),
@@ -550,12 +548,13 @@ mod tests {
         let client = Client::builder()
             .with_rpc_url(anvil.endpoint_url())
             .with_deployment(Some(ctx.deployment))
-            .with_storage_provider_config(
-                &StorageProviderConfig::builder()
-                    .storage_provider(StorageProviderType::Mock)
+            .with_uploader_config(
+                &StorageUploaderConfig::builder()
+                    .storage_uploader(StorageUploaderType::Mock)
                     .build()
                     .unwrap(),
-            )?
+            )
+            .await?
             .build()
             .await?;
 
