@@ -98,9 +98,9 @@ serde_json = { workspace = true }
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
 guest-util = { workspace = true }
+temp-env = { version = "0.3.6", features = ["async_closure"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
-temp-env = { version = "0.3.6", features = ["async_closure"] }
 
 [[example]]
 name = "submit_echo"
