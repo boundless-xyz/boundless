@@ -1200,7 +1200,8 @@ pub mod test_utils {
     };
     use tempfile::NamedTempFile;
     use url::Url;
-
+    use boundless_market::price_oracle::Amount;
+    use boundless_market::price_oracle::config::PriceValue;
     use crate::config::ConfigWatcher;
     use crate::{config::Config, Args, Broker};
 
@@ -1219,9 +1220,12 @@ pub mod test_utils {
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-            config.market.min_mcycle_price = "0.00001".into();
+            config.market.min_mcycle_price = Amount::parse("0.00001 ETH").unwrap();
             config.batcher.min_batch_size = 1;
             config.market.min_deadline = 30;
+            // Use static prices for tests to avoid needing real price sources
+            config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+            config.price_oracle.zkc_usd = PriceValue::Static(1.0);
             config.write(config_file.path()).await.unwrap();
 
             let args = Args {

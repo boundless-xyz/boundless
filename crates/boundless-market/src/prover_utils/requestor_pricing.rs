@@ -38,6 +38,7 @@ use super::{
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
+use crate::price_oracle::{Amount, Asset};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
 
@@ -171,7 +172,7 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 
     tracing::debug!("Using market price for preflight: {}", format_ether(min_mcycle_price));
     MarketConf {
-        min_mcycle_price: format_ether(min_mcycle_price),
+        min_mcycle_price: Amount::new(min_mcycle_price, Asset::ETH),
         // Note: collateral cycle price is not available, so ignore this price check during preflight
         min_mcycle_price_collateral_token: "0".to_string(),
         ..MarketConf::default()

@@ -49,6 +49,8 @@ use tempfile::NamedTempFile;
 use tokio::{task::JoinSet, time::Duration};
 use tracing_test::traced_test;
 use url::Url;
+use boundless_market::price_oracle::Amount;
+use boundless_market::price_oracle::config::PriceValue;
 
 fn is_dev_mode() -> bool {
     std::env::var("RISC0_DEV_MODE")
@@ -119,10 +121,13 @@ async fn new_config_with_min_deadline(min_batch_size: u32, min_deadline: u64) ->
     }
     config.prover.status_poll_ms = 1000;
     config.prover.req_retry_count = 3;
-    config.market.min_mcycle_price = "0.00001".into();
+    config.market.min_mcycle_price = Amount::parse("0.00001 ETH").unwrap();
     config.market.min_mcycle_price_collateral_token = "0.0".into();
     config.market.min_deadline = min_deadline;
     config.batcher.min_batch_size = min_batch_size;
+    // Use static prices for tests to avoid needing real price sources
+    config.price_oracle.eth_usd = PriceValue::Static(2500.0);
+    config.price_oracle.zkc_usd = PriceValue::Static(1.0);
     config.write(config_file.path()).await.unwrap();
     config_file
 }

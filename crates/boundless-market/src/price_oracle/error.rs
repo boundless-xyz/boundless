@@ -1,5 +1,5 @@
 use thiserror::Error;
-use crate::price_oracle::TradingPair;
+use super::TradingPair;
 
 /// Price oracle error types
 #[derive(Error, Debug)]

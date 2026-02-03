@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::dynamic_gas_filler::PriorityMode;
-use crate::price_oracle::PriceOracleConfig;
+use crate::price_oracle::{Amount, Asset, PriceOracleConfig};
 
 pub mod defaults {
     use super::PriorityMode;
@@ -232,17 +232,28 @@ impl Default for OrderCommitmentPriority {
     }
 }
 
+/// Deserialize Amount with validation that asset is USD or ETH
+fn deserialize_mcycle_price<'de, D>(deserializer: D) -> Result<Amount, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ETH]).map_err(serde::de::Error::custom)
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
 pub struct MarketConf {
-    /// Mega-cycle price, denominated in the native token (e.g. ETH).
+    /// Minimum price per mega-cycle. Must include asset: "0.00001 USD" or "0.00000001 ETH"
     ///
-    /// This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
+    /// If USD, converted to target token at runtime via price oracle.
+    ///
+    /// This price is multiplied by the number of mega-cycles (i.e. million RISC-V cycles) that the requested
     /// execution took, as calculated by running the request in preflight. This is one of the inputs to
     /// decide the minimum price to accept for a request.
-    #[serde(alias = "mcycle_price")]
-    pub min_mcycle_price: String,
+    #[serde(alias = "mcycle_price", deserialize_with = "deserialize_mcycle_price")]
+    pub min_mcycle_price: Amount,
     /// Mega-cycle price, denominated in the Boundless collateral token.
     ///
     /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
@@ -444,7 +455,7 @@ impl Default for MarketConf {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
-            min_mcycle_price: "0.00001".to_string(),
+            min_mcycle_price: Amount::parse("0.02 USD").expect("Amount should be parsable"),
             min_mcycle_price_collateral_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),

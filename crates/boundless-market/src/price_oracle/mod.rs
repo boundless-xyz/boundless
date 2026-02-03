@@ -3,6 +3,8 @@ use alloy::primitives::U256;
 use alloy_primitives::I256;
 use chrono::DateTime;
 
+/// Asset and amount types for USD-based pricing
+pub mod asset;
 /// Configuration types for price oracle
 pub mod config;
 /// Error types for price oracle
@@ -18,6 +20,7 @@ mod manager;
 #[cfg(test)]
 mod integration_tests;
 
+pub use asset::{Amount, Asset, ParseAmountError, ConversionError, convert_asset_value};
 pub use config::PriceOracleConfig;
 pub use error::PriceOracleError;
 pub use composite_oracle::CompositeOracle;
@@ -75,7 +78,7 @@ impl PriceQuote {
 
     /// Convert scaled U256 price to f64 USD value
     pub fn price_to_f64(&self) -> f64 {
-        self.price.to::<u128>() as f64 / 10u64.pow(SCALE_DECIMALS) as f64
+        self.price.to::<u128>() as f64 / 10u64.pow(PRICE_QUOTE_DECIMALS) as f64
     }
 
     /// Convert timestamp to human-readable string
@@ -119,7 +122,8 @@ pub trait PriceSource: PriceOracle + Send + Sync {
     fn name(&self) -> &'static str;
 }
 
-const SCALE_DECIMALS: u32 = 8;
+/// Standard decimal places for price quotes (Chainlink standard)
+pub const PRICE_QUOTE_DECIMALS: u32 = 8;
 
 /// Scale a floating-point price to U256 with fixed decimals
 pub fn scale_price_from_f64(price: f64) -> Result<U256, PriceOracleError> {
@@ -128,7 +132,7 @@ pub fn scale_price_from_f64(price: f64) -> Result<U256, PriceOracleError> {
         return Err(PriceOracleError::InvalidPrice(format!("price data is infinite: {}", price)));
     }
 
-    let price_scaled = (price * 10u64.pow(SCALE_DECIMALS) as f64).round() as u128;
+    let price_scaled = (price * 10u64.pow(PRICE_QUOTE_DECIMALS) as f64).round() as u128;
 
     Ok(U256::from(price_scaled))
 }
@@ -143,13 +147,13 @@ pub fn scale_price_from_i256(price: I256, decimals: u32) -> Result<U256, PriceOr
         .try_into()
         .map_err(|_| PriceOracleError::InvalidPrice(format!("conversion failed: {}", price)))?;
 
-    let price = match decimals.cmp(&SCALE_DECIMALS) {
+    let price = match decimals.cmp(&PRICE_QUOTE_DECIMALS) {
         std::cmp::Ordering::Equal => price_raw,
         std::cmp::Ordering::Less => {
-            price_raw * U256::from(10u64.pow(SCALE_DECIMALS - decimals))
+            price_raw * U256::from(10u64.pow(PRICE_QUOTE_DECIMALS - decimals))
         }
         std::cmp::Ordering::Greater => {
-            price_raw / U256::from(10u64.pow(decimals - SCALE_DECIMALS))
+            price_raw / U256::from(10u64.pow(decimals - PRICE_QUOTE_DECIMALS))
         }
     };
 

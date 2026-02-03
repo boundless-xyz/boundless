@@ -2,7 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
-use crate::price_oracle::{CachedPriceOracle, PriceOracle, PriceOracleError, PriceQuote, TradingPair};
+use alloy::primitives::U256;
+use super::asset::{Amount, Asset, convert_asset_value, ConversionError};
+use super::{CachedPriceOracle, PriceOracle, PriceOracleError, PriceQuote, TradingPair};
 
 /// Container for per-pair price oracles
 #[derive(Clone)]
@@ -39,6 +41,29 @@ impl PriceOracleManager {
             TradingPair::EthUsd => self.eth_usd.get_price().await,
             TradingPair::ZkcUsd => self.zkc_usd.get_price().await,
         }
+    }
+
+    /// Convert an Amount to a target asset using current prices.
+    ///
+    /// Supported conversions: USD↔ETH, USD↔ZKC
+    /// Returns error for unsupported pairs (e.g., ETH<->ZKC)
+    pub async fn convert(&self, amount: &Amount, target: Asset) -> Result<Amount, ConversionError> {
+        if amount.asset == target {
+            return Ok(amount.clone());
+        }
+
+        let price = match (amount.asset, target) {
+            (Asset::USD, Asset::ETH) | (Asset::ETH, Asset::USD) => {
+                self.get_price(TradingPair::EthUsd).await?.price
+            }
+            (Asset::USD, Asset::ZKC) | (Asset::ZKC, Asset::USD) => {
+                self.get_price(TradingPair::ZkcUsd).await?.price
+            }
+            _ => return Err(ConversionError::UnsupportedConversion { from:amount.asset, to:target }),
+        };
+
+        let converted_value = convert_asset_value(amount.value, amount.asset, target, price)?;
+        Ok(Amount::new(converted_value, target))
     }
 
     /// Spawn background refresh task for all oracles
@@ -238,6 +263,172 @@ mod tests {
         // The task should have exited with an error
         let result = handle.await?;
         assert!(result.is_err(), "Task should have exited due to stale prices");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_convert_usd_to_eth() -> anyhow::Result<()> {
+        use crate::price_oracle::sources::StaticPriceSource;
+
+        // ETH price = $2000 (200000000000 with 8 decimals)
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(2000.0)
+        )));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(1.0)
+        )));
+        let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
+
+        // Convert 2000 USD to ETH (should be 1 ETH)
+        let usd_amount = Amount::parse("2000 USD")?;
+        let eth_amount = manager.convert(&usd_amount, Asset::ETH).await?;
+
+        assert_eq!(eth_amount.asset, Asset::ETH);
+        assert_eq!(eth_amount.value, U256::from(1_000_000_000_000_000_000u128)); // 1 ETH
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_convert_eth_to_usd() -> anyhow::Result<()> {
+        use crate::price_oracle::sources::StaticPriceSource;
+
+        // ETH price = $2000
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(2000.0)
+        )));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(1.0)
+        )));
+        let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
+
+        // Convert 1 ETH to USD (should be $2000)
+        let eth_amount = Amount::parse("1 ETH")?;
+        let usd_amount = manager.convert(&eth_amount, Asset::USD).await?;
+
+        assert_eq!(usd_amount.asset, Asset::USD);
+        assert_eq!(usd_amount.value, U256::from(2_000_000_000u128)); // $2000 with 6 decimals
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_convert_usd_to_zkc() -> anyhow::Result<()> {
+        use crate::price_oracle::sources::StaticPriceSource;
+
+        // ZKC price = $1.00
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(2000.0)
+        )));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(1.0)
+        )));
+        let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
+
+        // Convert 100 USD to ZKC (should be 100 ZKC)
+        let usd_amount = Amount::parse("100 USD")?;
+        let zkc_amount = manager.convert(&usd_amount, Asset::ZKC).await?;
+
+        assert_eq!(zkc_amount.asset, Asset::ZKC);
+        assert_eq!(zkc_amount.value, U256::from(100_000_000_000_000_000_000u128)); // 100 ZKC
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_convert_zkc_to_usd() -> anyhow::Result<()> {
+        use crate::price_oracle::sources::StaticPriceSource;
+
+        // ZKC price = $1.00
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(2000.0)
+        )));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(1.0)
+        )));
+        let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
+
+        // Convert 100 ZKC to USD (should be $100)
+        let zkc_amount = Amount::parse("100 ZKC")?;
+        let usd_amount = manager.convert(&zkc_amount, Asset::USD).await?;
+
+        assert_eq!(usd_amount.asset, Asset::USD);
+        assert_eq!(usd_amount.value, U256::from(100_000_000u128)); // $100 with 6 decimals
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_convert_same_asset_returns_unchanged() -> anyhow::Result<()> {
+        use crate::price_oracle::sources::StaticPriceSource;
+
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(2000.0)
+        )));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(1.0)
+        )));
+        let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
+
+        // Convert ETH to ETH (should return same amount)
+        let eth_amount = Amount::parse("1.5 ETH")?;
+        let result = manager.convert(&eth_amount, Asset::ETH).await?;
+
+        assert_eq!(result.asset, Asset::ETH);
+        assert_eq!(result.value, eth_amount.value);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_convert_eth_to_zkc_returns_error() -> anyhow::Result<()> {
+        use crate::price_oracle::sources::StaticPriceSource;
+
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(2000.0)
+        )));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(1.0)
+        )));
+        let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
+
+        // Convert ETH to ZKC (should fail - unsupported)
+        let eth_amount = Amount::parse("1 ETH")?;
+        let result = manager.convert(&eth_amount, Asset::ZKC).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConversionError::UnsupportedConversion { from, to } => {
+                assert_eq!(from, Asset::ETH);
+                assert_eq!(to, Asset::ZKC);
+            }
+            _ => panic!("Expected UnsupportedConversion error"),
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_convert_small_amounts() -> anyhow::Result<()> {
+        use crate::price_oracle::sources::StaticPriceSource;
+
+        // ETH price = $2000
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(2000.0)
+        )));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
+            StaticPriceSource::new(1.0)
+        )));
+        let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
+
+        // Convert 0.001 USD to ETH
+        let usd_amount = Amount::parse("0.001 USD")?;
+        let eth_amount = manager.convert(&usd_amount, Asset::ETH).await?;
+
+        assert_eq!(eth_amount.asset, Asset::ETH);
+        // 0.001 USD / 2000 = 0.0000005 ETH = 500000000000 wei
+        assert_eq!(eth_amount.value, U256::from(500_000_000_000u128));
 
         Ok(())
     }
