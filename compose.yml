@@ -86,12 +86,14 @@ x-gpu-prove-agent: &gpu-prove-agent
       "-c",
       "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
     ]
-  # # Uncomment to mount local BLAKE3 Groth16 setup files instead of downloading
-  # volumes:
-  #   - type: bind
-  #     source: ${BLAKE3_GROTH16_SETUP_DIR}
-  #     target: /.blake3_groth16_artifacts/
-  #     read_only: true
+  # When USE_LOCAL_BLAKE3_GROTH16_SETUP=1 the image has no artifacts; set BLAKE3_GROTH16_SETUP_DIR
+  # to the host path containing verify_for_guest_final.zkey and verify_for_guest_graph.bin.
+  # When using Ansible, BLAKE3_GROTH16_SETUP_DIR is set in .env and this dir is populated.
+  volumes:
+    - type: bind
+      source: ${BLAKE3_GROTH16_SETUP_DIR}
+      target: /.blake3_groth16_artifacts/
+      read_only: true
 
 x-broker-common: &broker-common
   restart: always

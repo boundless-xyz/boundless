@@ -81,12 +81,7 @@ async fn run(args: Args) -> Result<()> {
         .new_request()
         .with_program(ECHO_ELF)
         .with_blake3_groth16_proof() // Specify Blake3Groth16 proof
-        .with_stdin(echo_message.clone())
-        .with_offer(
-            OfferParamsBuilder::default()
-                .min_price(parse_ether("0.001")?)
-                .max_price(parse_ether("0.002")?),
-        );
+        .with_stdin(echo_message.clone());
 
     let (request_id, expires_at) = client.submit(request).await?;
 

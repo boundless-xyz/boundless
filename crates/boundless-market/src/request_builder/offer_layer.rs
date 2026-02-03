@@ -505,7 +505,7 @@ where
                 if let Some(cycle_count) = cycle_count {
                     match price_provider.price_percentiles().await {
                         Ok(percentiles) => {
-                            let min = percentiles.p10 * U256::from(cycle_count);
+                            let min = U256::ZERO;
                             let max = percentiles.p99.min(percentiles.p50 * U256::from(2))
                                 * U256::from(cycle_count);
                             tracing::debug!(

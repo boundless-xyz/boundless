@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moka::future::Cache;
+use moka::policy::EvictionPolicy;
 use risc0_zkvm::Receipt;
 use risc0_zkvm::{default_executor, ExecutorEnv, SessionInfo};
 use sha2::{Digest as Sha2Digest, Sha256};
@@ -58,9 +59,18 @@ impl Default for LocalExecutor {
     fn default() -> Self {
         Self {
             state: Arc::new(ExecutorState {
-                inputs: Cache::builder().max_capacity(32).build(),
-                images: Cache::builder().max_capacity(32).build(),
-                executions: Cache::builder().max_capacity(64).build(),
+                inputs: Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .max_capacity(32)
+                    .build(),
+                images: Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .max_capacity(32)
+                    .build(),
+                executions: Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .max_capacity(64)
+                    .build(),
             }),
         }
     }
