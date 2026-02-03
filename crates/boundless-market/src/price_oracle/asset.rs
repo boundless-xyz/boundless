@@ -3,12 +3,12 @@
 //! This module provides types for representing monetary amounts in different assets
 //! (USD, ETH, ZKC) with proper decimal precision.
 
+use crate::price_oracle::PriceOracleError;
+use alloy_primitives::U256;
+use serde::de;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::str::FromStr;
-use alloy_primitives::U256;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde::de;
-use crate::price_oracle::PriceOracleError;
 
 /// Asset types supported in the pricing system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -76,7 +76,7 @@ pub enum ParseAmountError {
         /// The asset that was provided
         Asset,
         /// The list of allowed assets
-        Vec<Asset>
+        Vec<Asset>,
     ),
     /// Too many decimal places for the asset
     #[error("too many decimal places for {asset}: got {got}, max {max}")]
@@ -86,7 +86,7 @@ pub enum ParseAmountError {
         /// Number of decimals provided
         got: usize,
         /// Maximum allowed decimals
-        max: u8
+        max: u8,
     },
 }
 
@@ -144,9 +144,8 @@ pub fn parse_amount_str(s: &str) -> Result<(U256, Asset), ParseAmountError> {
     let s = s.trim();
 
     // Split by whitespace to find asset
-    let (value_str, asset_str) = s
-        .rsplit_once(char::is_whitespace)
-        .ok_or(ParseAmountError::InvalidFormat)?;
+    let (value_str, asset_str) =
+        s.rsplit_once(char::is_whitespace).ok_or(ParseAmountError::InvalidFormat)?;
 
     let asset: Asset = asset_str.trim().parse()?;
     let value = parse_decimal_to_u256(value_str.trim(), asset.decimals(), asset)?;
@@ -184,7 +183,10 @@ pub fn format_amount(value: U256, asset: Asset) -> String {
     }
 
     let formatted = if s.len() <= decimals {
-        format!("0.{:0>width$}", s, width = decimals).trim_end_matches('0').trim_end_matches('.').to_string()
+        format!("0.{:0>width$}", s, width = decimals)
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
     } else {
         let (integer, fraction) = s.split_at(s.len() - decimals);
         let fraction = fraction.trim_end_matches('0');
@@ -222,7 +224,7 @@ pub enum ConversionError {
         /// Source asset
         from: Asset,
         /// Target asset
-        to: Asset
+        to: Asset,
     },
 
     /// Price oracle error while fetching prices
@@ -407,7 +409,7 @@ mod conversion_tests {
     fn test_convert_usd_to_eth() {
         // $2000/ETH, convert 2000 USD to ETH
         let price = U256::from(200_000_000_000u128); // 8 decimals
-        let usd = U256::from(2_000_000_000u128);     // 6 decimals = $2000
+        let usd = U256::from(2_000_000_000u128); // 6 decimals = $2000
 
         let eth = convert_asset_value(usd, Asset::USD, Asset::ETH, price).unwrap();
         assert_eq!(eth, U256::from(1_000_000_000_000_000_000u128)); // 1 ETH
@@ -455,12 +457,8 @@ mod conversion_tests {
 
     #[test]
     fn test_zero_price_returns_error() {
-        let result = convert_asset_value(
-            U256::from(1_000_000u128),
-            Asset::USD,
-            Asset::ETH,
-            U256::ZERO
-        );
+        let result =
+            convert_asset_value(U256::from(1_000_000u128), Asset::USD, Asset::ETH, U256::ZERO);
         assert!(matches!(result, Err(ConversionError::Overflow)));
     }
 

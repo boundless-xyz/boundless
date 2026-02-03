@@ -1,12 +1,17 @@
-use std::sync::Arc;
-use alloy::providers::Provider;
-use alloy_chains::NamedChain;
-use serde::{Deserialize, Serialize, Deserializer};
-use core::time::Duration;
-use crate::price_oracle::{PriceOracleError, AggregationMode, PriceSource, CompositeOracle, WithStalenessCheck, TradingPair, PriceOracle};
 use crate::price_oracle::cached_oracle::CachedPriceOracle;
 use crate::price_oracle::manager::PriceOracleManager;
-use crate::price_oracle::sources::{ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource};
+use crate::price_oracle::sources::{
+    ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource,
+};
+use crate::price_oracle::{
+    AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, PriceSource, TradingPair,
+    WithStalenessCheck,
+};
+use alloy::providers::Provider;
+use alloy_chains::NamedChain;
+use core::time::Duration;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::sync::Arc;
 
 /// Price value configuration: either "auto" for dynamic fetching or a static numeric value
 #[derive(Debug, Clone, PartialEq)]
@@ -32,10 +37,17 @@ impl<'de> Deserialize<'de> for PriceValue {
         if s.to_lowercase() == "auto" {
             Ok(PriceValue::Auto)
         } else {
-            let value = s.parse::<f64>()
-                .map_err(|e| serde::de::Error::custom(format!("Invalid price value '{}': must be 'auto' or a valid number: {}", s, e)))?;
+            let value = s.parse::<f64>().map_err(|e| {
+                serde::de::Error::custom(format!(
+                    "Invalid price value '{}': must be 'auto' or a valid number: {}",
+                    s, e
+                ))
+            })?;
             if !value.is_finite() || value <= 0.0 {
-                return Err(serde::de::Error::custom(format!("Invalid price value '{}': must be >0 and finite", s)));
+                return Err(serde::de::Error::custom(format!(
+                    "Invalid price value '{}': must be >0 and finite",
+                    s
+                )));
             }
             Ok(PriceValue::Static(value))
         }
@@ -53,7 +65,6 @@ impl Serialize for PriceValue {
         }
     }
 }
-
 
 /// Price oracle configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -97,14 +108,9 @@ impl Default for PriceOracleConfig {
             min_sources: 1,
             max_staleness_secs: 300,
             // Enable both Chainlink and CoinGecko by default
-            onchain: Some(OnChainConfig {
-                chainlink: Some(ChainlinkConfig { enabled: true }),
-            }),
+            onchain: Some(OnChainConfig { chainlink: Some(ChainlinkConfig { enabled: true }) }),
             offchain: Some(OffChainConfig {
-                coingecko: Some(CoinGeckoConfig {
-                    enabled: true,
-                    api_key: None,
-                }),
+                coingecko: Some(CoinGeckoConfig { enabled: true, api_key: None }),
                 cmc: None,
             }),
         }
@@ -163,12 +169,27 @@ impl PriceOracleConfig {
         P: Provider + Clone + 'static,
     {
         // Build ETH/USD oracle
-        let eth_usd = self.build_oracle_for_pair(TradingPair::EthUsd, &self.eth_usd, named_chain, provider.clone())?;
+        let eth_usd = self.build_oracle_for_pair(
+            TradingPair::EthUsd,
+            &self.eth_usd,
+            named_chain,
+            provider.clone(),
+        )?;
 
         // Build ZKC/USD oracle
-        let zkc_usd = self.build_oracle_for_pair(TradingPair::ZkcUsd, &self.zkc_usd, named_chain, provider.clone())?;
+        let zkc_usd = self.build_oracle_for_pair(
+            TradingPair::ZkcUsd,
+            &self.zkc_usd,
+            named_chain,
+            provider.clone(),
+        )?;
 
-        Ok(PriceOracleManager::new(eth_usd, zkc_usd, self.refresh_interval_secs, self.max_secs_without_price_update))
+        Ok(PriceOracleManager::new(
+            eth_usd,
+            zkc_usd,
+            self.refresh_interval_secs,
+            self.max_secs_without_price_update,
+        ))
     }
 
     fn build_oracle_for_pair<P>(
@@ -196,12 +217,13 @@ impl PriceOracleConfig {
                     if let Some(ref chainlink_config) = onchain.chainlink {
                         if chainlink_config.enabled && pair == TradingPair::EthUsd {
                             // Chainlink only supports ETH/USD
-                            let chainlink = ChainlinkSource::for_eth_usd(
-                                provider.clone(),
-                                named_chain,
-                            )?;
+                            let chainlink =
+                                ChainlinkSource::for_eth_usd(provider.clone(), named_chain)?;
                             if self.max_staleness_secs > 0 {
-                                sources.push(Arc::new(WithStalenessCheck::new(chainlink, self.max_staleness_secs)));
+                                sources.push(Arc::new(WithStalenessCheck::new(
+                                    chainlink,
+                                    self.max_staleness_secs,
+                                )));
                             } else {
                                 sources.push(Arc::new(chainlink));
                             }
@@ -214,12 +236,13 @@ impl PriceOracleConfig {
                     // CoinGecko
                     if let Some(ref coingecko_config) = offchain.coingecko {
                         if coingecko_config.enabled {
-                            let coingecko = CoinGeckoSource::new(
-                                pair,
-                                Duration::from_secs(self.timeout_secs),
-                            )?;
+                            let coingecko =
+                                CoinGeckoSource::new(pair, Duration::from_secs(self.timeout_secs))?;
                             if self.max_staleness_secs > 0 {
-                                sources.push(Arc::new(WithStalenessCheck::new(coingecko, self.max_staleness_secs)));
+                                sources.push(Arc::new(WithStalenessCheck::new(
+                                    coingecko,
+                                    self.max_staleness_secs,
+                                )));
                             } else {
                                 sources.push(Arc::new(coingecko));
                             }
@@ -235,7 +258,10 @@ impl PriceOracleConfig {
                                 Duration::from_secs(self.timeout_secs),
                             )?;
                             if self.max_staleness_secs > 0 {
-                                sources.push(Arc::new(WithStalenessCheck::new(cmc, self.max_staleness_secs)));
+                                sources.push(Arc::new(WithStalenessCheck::new(
+                                    cmc,
+                                    self.max_staleness_secs,
+                                )));
                             } else {
                                 sources.push(Arc::new(cmc));
                             }
@@ -329,11 +355,7 @@ mod tests {
 
     #[test]
     fn test_price_value_roundtrip() {
-        let values = vec![
-            PriceValue::Auto,
-            PriceValue::Static(1.00),
-            PriceValue::Static(2500.50),
-        ];
+        let values = vec![PriceValue::Auto, PriceValue::Static(1.00), PriceValue::Static(2500.50)];
 
         for original in values {
             let serialized = serde_json::to_string(&original).unwrap();

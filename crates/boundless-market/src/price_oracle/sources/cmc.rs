@@ -1,4 +1,6 @@
-use crate::price_oracle::{scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
+use crate::price_oracle::{
+    scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair,
+};
 use reqwest::Client;
 use serde::Deserialize;
 use std::{collections::HashMap, time::Duration};
@@ -30,19 +32,16 @@ pub struct CoinMarketCapSource {
 
 impl CoinMarketCapSource {
     /// Create a new CoinMarketCap source for a specific trading pair
-    pub fn new(pair: TradingPair, api_key: String, timeout: Duration) -> Result<Self, PriceOracleError> {
+    pub fn new(
+        pair: TradingPair,
+        api_key: String,
+        timeout: Duration,
+    ) -> Result<Self, PriceOracleError> {
         let api_url = Url::parse("https://pro-api.coinmarketcap.com").unwrap();
 
-        let client = Client::builder()
-            .timeout(timeout)
-            .build()?;
+        let client = Client::builder().timeout(timeout).build()?;
 
-        Ok(Self {
-            client,
-            api_url,
-            api_key,
-            pair,
-        })
+        Ok(Self { client, api_url, api_key, pair })
     }
 
     /// Configure the API URL for testing
@@ -51,14 +50,18 @@ impl CoinMarketCapSource {
         self
     }
 
-    async fn fetch_price(&self, path: &str, id: &str, convert: &str) -> Result<PriceQuote, PriceOracleError> {
+    async fn fetch_price(
+        &self,
+        path: &str,
+        id: &str,
+        convert: &str,
+    ) -> Result<PriceQuote, PriceOracleError> {
         let mut url = self.api_url.clone();
         url.set_path(path);
-        url.query_pairs_mut()
-            .append_pair("id", id)
-            .append_pair("convert", convert);
+        url.query_pairs_mut().append_pair("id", id).append_pair("convert", convert);
 
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .header("X-CMC_PRO_API_KEY", &self.api_key)
             .send()
@@ -67,13 +70,13 @@ impl CoinMarketCapSource {
 
         let data: CmcResponse = response.json().await?;
 
-        let coin_data = data.data
-            .get(id)
-            .ok_or_else(|| PriceOracleError::Internal(format!("id {} not found in response", id)))?;
+        let coin_data = data.data.get(id).ok_or_else(|| {
+            PriceOracleError::Internal(format!("id {} not found in response", id))
+        })?;
 
-        let quote = coin_data.quote
-            .get(convert)
-            .ok_or_else(|| PriceOracleError::Internal(format!("currency {} not found in quote", convert)))?;
+        let quote = coin_data.quote.get(convert).ok_or_else(|| {
+            PriceOracleError::Internal(format!("currency {} not found in quote", convert))
+        })?;
 
         let price = scale_price_from_f64(quote.price)?;
 
@@ -96,12 +99,15 @@ impl PriceSource for CoinMarketCapSource {
 impl PriceOracle for CoinMarketCapSource {
     async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
         match self.pair {
-            TradingPair::EthUsd => self.fetch_price("/v2/cryptocurrency/quotes/latest","1027", "USD").await,
-            TradingPair::ZkcUsd => self.fetch_price("/v2/cryptocurrency/quotes/latest","38371", "USD").await,
+            TradingPair::EthUsd => {
+                self.fetch_price("/v2/cryptocurrency/quotes/latest", "1027", "USD").await
+            }
+            TradingPair::ZkcUsd => {
+                self.fetch_price("/v2/cryptocurrency/quotes/latest", "38371", "USD").await
+            }
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -119,9 +125,8 @@ mod tests {
                 .query_param("id", "1027")
                 .query_param("convert", "USD")
                 .header("X-CMC_PRO_API_KEY", "test-api-key");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "data": {
                         "1027": {
                             "quote": {
@@ -132,18 +137,23 @@ mod tests {
                             }
                         }
                     }
-                }));
+                }),
+            );
         });
 
-        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "test-api-key".to_string(), Duration::from_secs(10))
-            .unwrap()
-            .with_api_url(server.base_url().parse().unwrap());
+        let source = CoinMarketCapSource::new(
+            TradingPair::EthUsd,
+            "test-api-key".to_string(),
+            Duration::from_secs(10),
+        )
+        .unwrap()
+        .with_api_url(server.base_url().parse().unwrap());
 
         let quote = source.get_price().await.unwrap();
 
         mock.assert();
         assert_eq!(quote.price, U256::from(250050000000u128)); // 2500.50 * 1e8
-        // Verify timestamp is parsed correctly from ISO 8601
+                                                               // Verify timestamp is parsed correctly from ISO 8601
         assert_eq!(quote.timestamp, 1769688600);
     }
 
@@ -157,9 +167,8 @@ mod tests {
                 .query_param("id", "38371")
                 .query_param("convert", "USD")
                 .header("X-CMC_PRO_API_KEY", "test-api-key");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "data": {
                         "38371": {
                             "quote": {
@@ -170,12 +179,17 @@ mod tests {
                             }
                         }
                     }
-                }));
+                }),
+            );
         });
 
-        let source = CoinMarketCapSource::new(TradingPair::ZkcUsd, "test-api-key".to_string(), Duration::from_secs(10))
-            .unwrap()
-            .with_api_url(server.base_url().parse().unwrap());
+        let source = CoinMarketCapSource::new(
+            TradingPair::ZkcUsd,
+            "test-api-key".to_string(),
+            Duration::from_secs(10),
+        )
+        .unwrap()
+        .with_api_url(server.base_url().parse().unwrap());
 
         let quote = source.get_price().await.unwrap();
 
@@ -189,14 +203,17 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(GET)
-                .path("/v2/cryptocurrency/quotes/latest");
+            when.method(GET).path("/v2/cryptocurrency/quotes/latest");
             then.status(401);
         });
 
-        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "invalid-key".to_string(), Duration::from_secs(10))
-            .unwrap()
-            .with_api_url(server.base_url().parse().unwrap());
+        let source = CoinMarketCapSource::new(
+            TradingPair::EthUsd,
+            "invalid-key".to_string(),
+            Duration::from_secs(10),
+        )
+        .unwrap()
+        .with_api_url(server.base_url().parse().unwrap());
 
         let result = source.get_price().await;
         assert!(result.is_err());
@@ -207,12 +224,9 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(GET)
-                .path("/v2/cryptocurrency/quotes/latest")
-                .query_param("id", "1027");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            when.method(GET).path("/v2/cryptocurrency/quotes/latest").query_param("id", "1027");
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "data": {
                         "1": {
                             "quote": {
@@ -223,12 +237,17 @@ mod tests {
                             }
                         }
                     }
-                }));
+                }),
+            );
         });
 
-        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "test-api-key".to_string(), Duration::from_secs(10))
-            .unwrap()
-            .with_api_url(server.base_url().parse().unwrap());
+        let source = CoinMarketCapSource::new(
+            TradingPair::EthUsd,
+            "test-api-key".to_string(),
+            Duration::from_secs(10),
+        )
+        .unwrap()
+        .with_api_url(server.base_url().parse().unwrap());
 
         let result = source.get_price().await;
         assert!(result.is_err());
@@ -240,12 +259,9 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(GET)
-                .path("/v2/cryptocurrency/quotes/latest")
-                .query_param("id", "1027");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            when.method(GET).path("/v2/cryptocurrency/quotes/latest").query_param("id", "1027");
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "data": {
                         "1027": {
                             "quote": {
@@ -256,12 +272,17 @@ mod tests {
                             }
                         }
                     }
-                }));
+                }),
+            );
         });
 
-        let source = CoinMarketCapSource::new(TradingPair::EthUsd, "test-api-key".to_string(), Duration::from_secs(10))
-            .unwrap()
-            .with_api_url(server.base_url().parse().unwrap());
+        let source = CoinMarketCapSource::new(
+            TradingPair::EthUsd,
+            "test-api-key".to_string(),
+            Duration::from_secs(10),
+        )
+        .unwrap()
+        .with_api_url(server.base_url().parse().unwrap());
 
         let result = source.get_price().await;
         assert!(result.is_err());
@@ -272,10 +293,10 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_eth_price() -> anyhow::Result<()> {
-        let api_key = std::env::var("CMC_API_KEY")
-            .expect("CMC_API_KEY env var required");
+        let api_key = std::env::var("CMC_API_KEY").expect("CMC_API_KEY env var required");
 
-        let source = CoinMarketCapSource::new(TradingPair::EthUsd, api_key, Duration::from_secs(10))?;
+        let source =
+            CoinMarketCapSource::new(TradingPair::EthUsd, api_key, Duration::from_secs(10))?;
 
         let quote = source.get_price().await?;
 
@@ -290,10 +311,10 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_zkc_price() -> anyhow::Result<()> {
-        let api_key = std::env::var("CMC_API_KEY")
-            .expect("CMC_API_KEY env var required");
+        let api_key = std::env::var("CMC_API_KEY").expect("CMC_API_KEY env var required");
 
-        let source = CoinMarketCapSource::new(TradingPair::ZkcUsd, api_key, Duration::from_secs(10))?;
+        let source =
+            CoinMarketCapSource::new(TradingPair::ZkcUsd, api_key, Duration::from_secs(10))?;
 
         let quote = source.get_price().await?;
 

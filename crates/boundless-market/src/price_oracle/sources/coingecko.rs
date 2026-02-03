@@ -1,4 +1,6 @@
-use crate::price_oracle::{scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair};
+use crate::price_oracle::{
+    scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair,
+};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -31,11 +33,7 @@ impl CoinGeckoSource {
             .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .build()?;
 
-        Ok(Self {
-            client,
-            api_url,
-            pair,
-        })
+        Ok(Self { client, api_url, pair })
     }
 
     /// Configure the API URL for testing
@@ -44,7 +42,12 @@ impl CoinGeckoSource {
         self
     }
 
-    async fn fetch_price(&self, path: &str, ids: &str, vs_currencies: &str) -> Result<PriceQuote, PriceOracleError> {
+    async fn fetch_price(
+        &self,
+        path: &str,
+        ids: &str,
+        vs_currencies: &str,
+    ) -> Result<PriceQuote, PriceOracleError> {
         let mut url = self.api_url.clone();
         url.set_path(path);
         url.query_pairs_mut()
@@ -55,8 +58,9 @@ impl CoinGeckoSource {
         let response = self.client.get(url).send().await?.error_for_status()?;
 
         let data: CoinGeckoPriceResponse = response.json().await?;
-        let coin_data = data
-            .get(ids).ok_or_else(|| PriceOracleError::Internal(format!("coin {} not found in response", ids)))?;
+        let coin_data = data.get(ids).ok_or_else(|| {
+            PriceOracleError::Internal(format!("coin {} not found in response", ids))
+        })?;
 
         let price = scale_price_from_f64(coin_data.usd)?;
 
@@ -74,8 +78,12 @@ impl PriceSource for CoinGeckoSource {
 impl PriceOracle for CoinGeckoSource {
     async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
         match self.pair {
-            TradingPair::EthUsd => self.fetch_price("/api/v3/simple/price", "ethereum", "usd").await,
-            TradingPair::ZkcUsd => self.fetch_price("/api/v3/simple/price", "boundless", "usd").await,
+            TradingPair::EthUsd => {
+                self.fetch_price("/api/v3/simple/price", "ethereum", "usd").await
+            }
+            TradingPair::ZkcUsd => {
+                self.fetch_price("/api/v3/simple/price", "boundless", "usd").await
+            }
         }
     }
 }
@@ -96,14 +104,14 @@ mod tests {
                 .query_param("ids", "ethereum")
                 .query_param("vs_currencies", "usd")
                 .query_param("include_last_updated_at", "true");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "ethereum": {
                         "usd": 2500.50,
                         "last_updated_at": 1706547200
                     }
-                }));
+                }),
+            );
         });
 
         let source = CoinGeckoSource::new(TradingPair::EthUsd, Duration::from_secs(10))
@@ -127,14 +135,14 @@ mod tests {
                 .query_param("ids", "boundless")
                 .query_param("vs_currencies", "usd")
                 .query_param("include_last_updated_at", "true");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "boundless": {
                         "usd": 0.123456,
                         "last_updated_at": 1706547300
                     }
-                }));
+                }),
+            );
         });
 
         let source = CoinGeckoSource::new(TradingPair::ZkcUsd, Duration::from_secs(10))
@@ -153,8 +161,7 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(GET)
-                .path("/api/v3/simple/price");
+            when.method(GET).path("/api/v3/simple/price");
             then.status(500);
         });
 
@@ -171,17 +178,15 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(GET)
-                .path("/api/v3/simple/price")
-                .query_param("ids", "ethereum");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            when.method(GET).path("/api/v3/simple/price").query_param("ids", "ethereum");
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "bitcoin": {
                         "usd": 50000.0,
                         "last_updated_at": 1706547200
                     }
-                }));
+                }),
+            );
         });
 
         let source = CoinGeckoSource::new(TradingPair::EthUsd, Duration::from_secs(10))
@@ -197,10 +202,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_eth_price() -> anyhow::Result<()> {
-        let source = CoinGeckoSource::new(
-            TradingPair::EthUsd,
-            Duration::from_secs(10),
-        )?;
+        let source = CoinGeckoSource::new(TradingPair::EthUsd, Duration::from_secs(10))?;
 
         let quote = source.get_price().await?;
 
@@ -216,10 +218,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_api_zkc_price() -> anyhow::Result<()> {
-        let source = CoinGeckoSource::new(
-            TradingPair::ZkcUsd,
-            Duration::from_secs(10),
-        )?;
+        let source = CoinGeckoSource::new(TradingPair::ZkcUsd, Duration::from_secs(10))?;
 
         let quote = source.get_price().await?;
 

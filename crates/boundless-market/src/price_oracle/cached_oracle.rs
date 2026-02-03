@@ -12,10 +12,7 @@ pub struct CachedPriceOracle {
 impl CachedPriceOracle {
     /// Create a new cached price oracle
     pub fn new(oracle: Arc<dyn PriceOracle>) -> Self {
-        Self {
-            oracle,
-            cache: Arc::new(RwLock::new(None)),
-        }
+        Self { oracle, cache: Arc::new(RwLock::new(None)) }
     }
 
     /// Get cached price (non-blocking read)
@@ -28,7 +25,11 @@ impl CachedPriceOracle {
     pub async fn refresh_price(&self) {
         match self.oracle.get_price().await {
             Ok(quote) => {
-                tracing::debug!("Refreshed price: {} (timestamp: {})", quote.price, quote.timestamp);
+                tracing::debug!(
+                    "Refreshed price: {} (timestamp: {})",
+                    quote.price,
+                    quote.timestamp
+                );
                 let mut cache = self.cache.write().await;
                 *cache = Some(quote);
             }
@@ -206,4 +207,3 @@ mod tests {
         assert!(result.is_err());
     }
 }
-

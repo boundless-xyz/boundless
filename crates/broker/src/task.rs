@@ -14,12 +14,12 @@
 
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
+use crate::{config::ConfigLock, errors::CodedError};
 use anyhow::{Context, Result as AnyhowRes};
+use boundless_market::price_oracle::{PriceOracleError, PriceOracleManager};
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use boundless_market::price_oracle::{PriceOracleError, PriceOracleManager};
-use crate::{config::ConfigLock, errors::CodedError};
 
 #[derive(Error, Debug)]
 pub enum SupervisorErr<E: CodedError> {
@@ -219,7 +219,7 @@ impl RetryTask for PriceOracleManager {
         let manager = self.clone();
         Box::pin(async move {
             tracing::info!("Starting price oracle refresh task");
-            manager.start_oracle(cancel_token).await.map_err( |err| match err {
+            manager.start_oracle(cancel_token).await.map_err(|err| match err {
                 PriceOracleError::UpdateTimeout() => SupervisorErr::Fault(err),
                 _ => SupervisorErr::Recover(err),
             })?;

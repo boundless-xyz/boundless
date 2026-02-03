@@ -1,4 +1,6 @@
-use crate::price_oracle::{scale_price_from_i256, PriceOracle, PriceOracleError, PriceQuote, PriceSource};
+use crate::price_oracle::{
+    scale_price_from_i256, PriceOracle, PriceOracleError, PriceQuote, PriceSource,
+};
 use alloy::primitives::{address, Address};
 use alloy::providers::Provider;
 use alloy::sol;
@@ -36,10 +38,18 @@ impl FeedInfo {
 /// Get the Chainlink ETH/USD feed info for a named chain
 fn eth_usd_feed(chain: NamedChain) -> Result<FeedInfo, PriceOracleError> {
     match chain {
-        NamedChain::Mainnet => Ok(FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8)),
-        NamedChain::Sepolia => Ok(FeedInfo::new(address!("0x694AA1769357215DE4FAC081bf1f309aDC325306"), 8)),
-        NamedChain::Base => Ok(FeedInfo::new(address!("0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70"), 8)),
-        NamedChain::BaseSepolia => Ok(FeedInfo::new(address!("0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1"), 8)),
+        NamedChain::Mainnet => {
+            Ok(FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8))
+        }
+        NamedChain::Sepolia => {
+            Ok(FeedInfo::new(address!("0x694AA1769357215DE4FAC081bf1f309aDC325306"), 8))
+        }
+        NamedChain::Base => {
+            Ok(FeedInfo::new(address!("0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70"), 8))
+        }
+        NamedChain::BaseSepolia => {
+            Ok(FeedInfo::new(address!("0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1"), 8))
+        }
         _ => Err(PriceOracleError::Internal(format!("unsupported chain: {:?}", chain))),
     }
 }
@@ -67,10 +77,7 @@ impl<P: Provider + Clone> ChainlinkSource<P> {
     async fn fetch_price(&self) -> Result<PriceQuote, PriceOracleError> {
         let contract = AggregatorV3Interface::new(self.feed.address, &self.provider);
 
-        let round_data = contract
-            .latestRoundData()
-            .call()
-            .await?;
+        let round_data = contract.latestRoundData().call().await?;
 
         let price = scale_price_from_i256(round_data.answer, self.feed.decimals as u32)?;
 
@@ -99,7 +106,7 @@ impl<P: Provider + Clone> PriceOracle for ChainlinkSource<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{U256, I256};
+    use alloy::primitives::{I256, U256};
     use alloy::providers::ProviderBuilder;
     use httpmock::prelude::*;
 
@@ -120,7 +127,8 @@ mod tests {
         let updated_at_u256 = U256::from(updated_at);
         let answered_in_round_u80 = U256::from(answered_in_round);
 
-        let tuple = (round_id_u80, answer_i256, started_at_u256, updated_at_u256, answered_in_round_u80);
+        let tuple =
+            (round_id_u80, answer_i256, started_at_u256, updated_at_u256, answered_in_round_u80);
         let encoded = tuple.abi_encode();
         format!("0x{}", hex::encode(encoded))
     }
@@ -132,27 +140,25 @@ mod tests {
         // Mock the eth_call for latestRoundData
         // ETH price: $2500.50 with 8 decimals = 250050000000
         let encoded = encode_latest_round_data(
-            1234,           // roundId
-            250050000000,   // answer (price with 8 decimals)
-            1706547100,     // startedAt
-            1706547200,     // updatedAt
-            1234,           // answeredInRound
+            1234,         // roundId
+            250050000000, // answer (price with 8 decimals)
+            1706547100,   // startedAt
+            1706547200,   // updatedAt
+            1234,         // answeredInRound
         );
 
         server.mock(|when, then| {
-            when.method(POST)
-                .path("/");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            when.method(POST).path("/");
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": 1,
                     "result": encoded
-                }));
+                }),
+            );
         });
 
-        let provider = ProviderBuilder::new()
-            .connect_http(server.base_url().parse().unwrap());
+        let provider = ProviderBuilder::new().connect_http(server.base_url().parse().unwrap());
 
         let feed = FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8);
         let source = ChainlinkSource::new(provider, feed);
@@ -168,22 +174,20 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(POST)
-                .path("/");
-            then.status(200)
-                .header("content-type", "application/json")
-                .json_body(serde_json::json!({
+            when.method(POST).path("/");
+            then.status(200).header("content-type", "application/json").json_body(
+                serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": 1,
                     "error": {
                         "code": -32000,
                         "message": "execution reverted"
                     }
-                }));
+                }),
+            );
         });
 
-        let provider = ProviderBuilder::new()
-            .connect_http(server.base_url().parse().unwrap());
+        let provider = ProviderBuilder::new().connect_http(server.base_url().parse().unwrap());
 
         let feed = FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8);
         let source = ChainlinkSource::new(provider, feed);

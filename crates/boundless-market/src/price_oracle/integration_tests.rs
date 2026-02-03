@@ -9,8 +9,13 @@
 
 #![cfg(test)]
 
-use crate::price_oracle::{PriceQuote, TradingPair, AggregationMode, config::{PriceOracleConfig, PriceValue, OnChainConfig, OffChainConfig, ChainlinkConfig,
-                                                                             CoinGeckoConfig, CoinMarketCapConfig}};
+use crate::price_oracle::{
+    config::{
+        ChainlinkConfig, CoinGeckoConfig, CoinMarketCapConfig, OffChainConfig, OnChainConfig,
+        PriceOracleConfig, PriceValue,
+    },
+    AggregationMode, PriceQuote, TradingPair,
+};
 use alloy::providers::ProviderBuilder;
 use alloy_chains::NamedChain;
 
@@ -22,8 +27,7 @@ const ZKC_MAX_USD: f64 = 10.0;
 
 /// Get RPC URL from environment or fallback to public RPC
 fn get_rpc_url() -> String {
-    std::env::var("ETH_RPC_URL")
-        .unwrap_or_else(|_| "https://ethereum.publicnode.com".to_string())
+    std::env::var("ETH_RPC_URL").unwrap_or_else(|_| "https://ethereum.publicnode.com".to_string())
 }
 
 /// Get CoinMarketCap API key from environment
@@ -43,21 +47,23 @@ fn assert_price_reasonable(quote: PriceQuote, pair: TradingPair) {
     assert!(
         price_usd >= min && price_usd <= max,
         "{} price ${:.2} out of reasonable range [${:.2}, ${:.2}]",
-        pair_name, price_usd, min, max
+        pair_name,
+        price_usd,
+        min,
+        max
     );
 }
 
 /// Assert timestamp is recent (within max_age_secs)
 fn assert_timestamp_recent(timestamp: u64, max_age_secs: u64) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
     assert!(
         timestamp > now.saturating_sub(max_age_secs),
         "Timestamp {} is too old (now: {}, max age: {}s)",
-        timestamp, now, max_age_secs
+        timestamp,
+        now,
+        max_age_secs
     );
 }
 
@@ -75,24 +81,13 @@ fn build_config(mode: AggregationMode) -> PriceOracleConfig {
         min_sources: 1,
         max_staleness_secs: 3600,
         max_secs_without_price_update: 600,
-        onchain: Some(OnChainConfig {
-            chainlink: Some(ChainlinkConfig {
-                enabled: true,
-            }),
-        }),
+        onchain: Some(OnChainConfig { chainlink: Some(ChainlinkConfig { enabled: true }) }),
         offchain: Some(OffChainConfig {
-            coingecko: Some(CoinGeckoConfig {
-                enabled: true,
-                api_key: None,
-            }),
-            cmc: Some(CoinMarketCapConfig {
-                enabled: true,
-                api_key: cmc_api_key,
-            }),
+            coingecko: Some(CoinGeckoConfig { enabled: true, api_key: None }),
+            cmc: Some(CoinMarketCapConfig { enabled: true, api_key: cmc_api_key }),
         }),
     }
 }
-
 
 #[tokio::test]
 #[ignore] // Requires network and CMC_API_KEY
@@ -190,11 +185,7 @@ async fn test_all_aggregation_modes_price_consistency() -> anyhow::Result<()> {
     let rpc_url = get_rpc_url();
 
     // Test all three modes
-    let modes = [
-        AggregationMode::Priority,
-        AggregationMode::Median,
-        AggregationMode::Average,
-    ];
+    let modes = [AggregationMode::Priority, AggregationMode::Median, AggregationMode::Average];
 
     let mut prices = Vec::new();
 
@@ -217,11 +208,7 @@ async fn test_all_aggregation_modes_price_consistency() -> anyhow::Result<()> {
 
     println!("Price spread: {:.2}% (min: ${:.2}, max: ${:.2})", spread_pct, min_price, max_price);
 
-    assert!(
-        spread_pct < 10.0,
-        "Price spread {:.2}% exceeds 10% threshold",
-        spread_pct
-    );
+    assert!(spread_pct < 10.0, "Price spread {:.2}% exceeds 10% threshold", spread_pct);
 
     Ok(())
 }

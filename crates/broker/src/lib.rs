@@ -874,7 +874,14 @@ where
             .context("Failed to get stake token decimals. Possible RPC error.")?;
 
         let named_chain = NamedChain::try_from(chain_id)?;
-        let price_oracle =  Arc::new(config.lock_all().unwrap().price_oracle.build(named_chain, self.provider.clone()).context("Failed to build price oracle")?);
+        let price_oracle = Arc::new(
+            config
+                .lock_all()
+                .unwrap()
+                .price_oracle
+                .build(named_chain, self.provider.clone())
+                .context("Failed to build price oracle")?,
+        );
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
         let price_oracle_clone = price_oracle.clone();
@@ -1192,20 +1199,20 @@ pub(crate) fn is_dev_mode() -> bool {
 pub mod test_utils {
     use std::sync::Arc;
 
+    use crate::config::ConfigWatcher;
+    use crate::{config::Config, Args, Broker};
     use alloy::network::Ethereum;
     use alloy::providers::{Provider, WalletProvider};
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
+    use boundless_market::price_oracle::config::PriceValue;
+    use boundless_market::price_oracle::Amount;
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_PATH, SET_BUILDER_PATH},
         market::TestCtx,
     };
     use tempfile::NamedTempFile;
     use url::Url;
-    use boundless_market::price_oracle::Amount;
-    use boundless_market::price_oracle::config::PriceValue;
-    use crate::config::ConfigWatcher;
-    use crate::{config::Config, Args, Broker};
 
     pub struct BrokerBuilder<P> {
         args: Args,

@@ -1,30 +1,32 @@
-use std::time::SystemTime;
 use alloy::primitives::U256;
 use alloy_primitives::I256;
 use chrono::DateTime;
+use std::time::SystemTime;
 
 /// Asset and amount types for USD-based pricing
 pub mod asset;
+/// Cached oracle with background refresh
+pub mod cached_oracle;
+/// Composite oracle with aggregation
+pub mod composite_oracle;
 /// Configuration types for price oracle
 pub mod config;
 /// Error types for price oracle
 pub mod error;
-/// Price source implementations
-pub mod sources;
-/// Composite oracle with aggregation
-pub mod composite_oracle;
-/// Cached oracle with background refresh
-pub mod cached_oracle;
-mod manager;
 /// Integration tests (run with --ignored flag)
 #[cfg(test)]
 mod integration_tests;
+mod manager;
+/// Price source implementations
+pub mod sources;
 
-pub use asset::{Amount, Asset, ParseAmountError, ConversionError, convert_asset_value, scale_decimals};
+pub use asset::{
+    convert_asset_value, scale_decimals, Amount, Asset, ConversionError, ParseAmountError,
+};
+pub use cached_oracle::CachedPriceOracle;
+pub use composite_oracle::CompositeOracle;
 pub use config::PriceOracleConfig;
 pub use error::PriceOracleError;
-pub use composite_oracle::CompositeOracle;
-pub use cached_oracle::CachedPriceOracle;
 pub use manager::PriceOracleManager;
 
 /// Trading pair for price queries
@@ -69,10 +71,7 @@ impl PriceQuote {
 
     /// Check if quote is stale (older than max_age_secs)
     pub fn is_stale(&self, max_age_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         now.saturating_sub(self.timestamp) > max_age_secs
     }
 
@@ -161,13 +160,13 @@ pub fn scale_price_from_i256(price: I256, decimals: u32) -> Result<U256, PriceOr
 }
 
 /// Validate that a price quote is not stale
-pub fn validate_freshness(quote: PriceQuote, max_staleness_secs: Option<u64>) -> Result<PriceQuote, PriceOracleError> {
+pub fn validate_freshness(
+    quote: PriceQuote,
+    max_staleness_secs: Option<u64>,
+) -> Result<PriceQuote, PriceOracleError> {
     if let Some(max_age) = max_staleness_secs {
         if quote.is_stale(max_age) {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+            let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
             return Err(PriceOracleError::StalePrice {
                 age_secs: now.saturating_sub(quote.timestamp),
                 max_secs: max_age,
@@ -310,10 +309,7 @@ mod tests {
     // Tests for WithStalenessCheck wrapper
     #[tokio::test]
     async fn test_wrapper_accepts_fresh_price() {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         let quote = PriceQuote::new(U256::from(200000000000u128), now - 10); // 10 seconds old
 
         let source = MockSource { quote };
@@ -325,10 +321,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_wrapper_rejects_stale_price() {
-        let old_timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() - 120; // 2 minutes old
+        let old_timestamp =
+            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() - 120; // 2 minutes old
 
         let quote = PriceQuote::new(U256::from(200000000000u128), old_timestamp);
 
@@ -348,10 +342,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_wrapper_preserves_source_name() {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         let quote = PriceQuote::new(U256::from(200000000000u128), now);
 
         let source = MockSource { quote };

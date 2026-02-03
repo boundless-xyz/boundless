@@ -62,6 +62,7 @@ futures-util = { workspace = true }
 hex = { workspace = true }
 http-cache-reqwest = "0.15.1"
 httpmock = { workspace = true }
+moka = { version = "0.12.12", features = ["future"] }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
 reqwest-middleware = "0.4.1"
@@ -77,13 +78,12 @@ siwe = { version = "0.6", features = ["serde"] }
 tempfile = { workspace = true }
 time = "0.3"
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
 toml = "0.8"
 tower = "0.5"
 tracing = { workspace = true }
 utoipa = { workspace = true }
-moka = { version = "0.12.12", features = ["future"] }
 uuid = { workspace = true }
 
 [build-dependencies]

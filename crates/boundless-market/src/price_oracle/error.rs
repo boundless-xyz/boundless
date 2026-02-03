@@ -1,5 +1,5 @@
-use thiserror::Error;
 use super::TradingPair;
+use thiserror::Error;
 
 /// Price oracle error types
 #[derive(Error, Debug)]
@@ -42,7 +42,7 @@ pub enum PriceOracleError {
         /// Age of the price in seconds
         age_secs: u64,
         /// Maximum allowed age in seconds
-        max_secs: u64
+        max_secs: u64,
     },
 
     /// Configuration error

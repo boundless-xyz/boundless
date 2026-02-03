@@ -1,7 +1,9 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, TradingPair, AggregationMode, PriceSource};
+use crate::price_oracle::{
+    AggregationMode, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair,
+};
+use alloy_primitives::U256;
 use futures::future::join_all;
 use std::sync::Arc;
-use alloy_primitives::U256;
 
 /// Composite oracle that aggregates multiple price sources for a single trading pair
 pub struct CompositeOracle {
@@ -19,12 +21,7 @@ impl CompositeOracle {
         aggregation_mode: AggregationMode,
         min_sources: u8,
     ) -> Self {
-        Self {
-            sources,
-            aggregation_mode,
-            min_sources,
-            pair,
-        }
+        Self { sources, aggregation_mode, min_sources, pair }
     }
 
     /// Fetch sources sequentially for priority mode, returning the first successful result
@@ -34,12 +31,25 @@ impl CompositeOracle {
         for source in &self.sources {
             match source.get_price().await {
                 Ok(quote) => {
-                    tracing::debug!("Priority mode: using {} for {} with price {} => {}. Timestamp: {} => {}", source.name(), self.pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
+                    tracing::debug!(
+                        "Priority mode: using {} for {} with price {} => {}. Timestamp: {} => {}",
+                        source.name(),
+                        self.pair.as_str(),
+                        quote.price,
+                        quote.price_to_f64(),
+                        quote.timestamp,
+                        quote.timestamp_to_human_readable()
+                    );
                     return Ok(quote);
                 }
                 Err(e) => {
                     let error_msg = format!("{}: {}", source.name(), e);
-                    tracing::warn!("Priority mode: {} failed for {}: {}", source.name(), self.pair.as_str(), e);
+                    tracing::warn!(
+                        "Priority mode: {} failed for {}: {}",
+                        source.name(),
+                        self.pair.as_str(),
+                        e
+                    );
                     errors.push(error_msg);
                 }
             }
@@ -61,17 +71,33 @@ impl CompositeOracle {
         join_all(futures).await
     }
 
-    fn aggregate_median_or_average(&self, results: Vec<(usize, Result<PriceQuote, PriceOracleError>)>) -> Result<PriceQuote, PriceOracleError> {
+    fn aggregate_median_or_average(
+        &self,
+        results: Vec<(usize, Result<PriceQuote, PriceOracleError>)>,
+    ) -> Result<PriceQuote, PriceOracleError> {
         // Collect successful results
         let mut successful: Vec<PriceQuote> = Vec::new();
         for (i, result) in results.into_iter() {
             match result {
                 Ok(quote) => {
-                    tracing::debug!("Source {} returned price for {}: {} => {}. Timestamp: {} => {}", self.sources[i].name(), self.pair.as_str(), quote.price, quote.price_to_f64(), quote.timestamp, quote.timestamp_to_human_readable());
+                    tracing::debug!(
+                        "Source {} returned price for {}: {} => {}. Timestamp: {} => {}",
+                        self.sources[i].name(),
+                        self.pair.as_str(),
+                        quote.price,
+                        quote.price_to_f64(),
+                        quote.timestamp,
+                        quote.timestamp_to_human_readable()
+                    );
                     successful.push(quote);
                 }
                 Err(e) => {
-                    tracing::warn!("Source {} failed for {}: {}", self.sources[i].name(), self.pair.as_str(), e);
+                    tracing::warn!(
+                        "Source {} failed for {}: {}",
+                        self.sources[i].name(),
+                        self.pair.as_str(),
+                        e
+                    );
                 }
             }
         }
@@ -95,9 +121,7 @@ impl CompositeOracle {
             }
             AggregationMode::Average => {
                 // Calculate average
-                let sum: u128 = successful.iter()
-                    .map(|q| q.price.to::<u128>())
-                    .sum();
+                let sum: u128 = successful.iter().map(|q| q.price.to::<u128>()).sum();
                 let avg = sum / successful.len() as u128;
                 let timestamp = successful[0].timestamp; // Use first timestamp
                 PriceQuote::new(U256::from(avg), timestamp)
@@ -105,7 +129,15 @@ impl CompositeOracle {
             AggregationMode::Priority => unreachable!("Priority mode handled separately"),
         };
 
-        tracing::debug!("Aggregated price for {} using {:?}: {} => {}. Timestamp: {} => {}", self.pair.as_str(), self.aggregation_mode, aggregated_price.price, aggregated_price.price_to_f64(), aggregated_price.timestamp, aggregated_price.timestamp_to_human_readable());
+        tracing::debug!(
+            "Aggregated price for {} using {:?}: {} => {}. Timestamp: {} => {}",
+            self.pair.as_str(),
+            self.aggregation_mode,
+            aggregated_price.price,
+            aggregated_price.price_to_f64(),
+            aggregated_price.timestamp,
+            aggregated_price.timestamp_to_human_readable()
+        );
         Ok(aggregated_price)
     }
 }
@@ -123,8 +155,6 @@ impl PriceOracle for CompositeOracle {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -155,22 +185,12 @@ mod tests {
         let expected = PriceQuote::new(U256::from(200000000000u128), 1000);
 
         let sources: Vec<Arc<dyn PriceSource>> = vec![
-            Arc::new(MockSource {
-                name: "Failed",
-                result: Err("test error"),
-            }),
-            Arc::new(MockSource {
-                name: "Success",
-                result: Ok(expected.clone()),
-            }),
+            Arc::new(MockSource { name: "Failed", result: Err("test error") }),
+            Arc::new(MockSource { name: "Success", result: Ok(expected.clone()) }),
         ];
 
-        let oracle = CompositeOracle::new(
-            TradingPair::EthUsd,
-            sources,
-            AggregationMode::Priority,
-            1,
-        );
+        let oracle =
+            CompositeOracle::new(TradingPair::EthUsd, sources, AggregationMode::Priority, 1);
 
         let result = oracle.get_price().await?;
         assert_eq!(result, expected);
@@ -195,12 +215,7 @@ mod tests {
             }),
         ];
 
-        let oracle = CompositeOracle::new(
-            TradingPair::EthUsd,
-            sources,
-            AggregationMode::Median,
-            1,
-        );
+        let oracle = CompositeOracle::new(TradingPair::EthUsd, sources, AggregationMode::Median, 1);
 
         let result = oracle.get_price().await?;
 
@@ -227,12 +242,8 @@ mod tests {
             }),
         ];
 
-        let oracle = CompositeOracle::new(
-            TradingPair::EthUsd,
-            sources,
-            AggregationMode::Average,
-            1,
-        );
+        let oracle =
+            CompositeOracle::new(TradingPair::EthUsd, sources, AggregationMode::Average, 1);
 
         let result = oracle.get_price().await?;
 
@@ -242,4 +253,3 @@ mod tests {
         Ok(())
     }
 }
-

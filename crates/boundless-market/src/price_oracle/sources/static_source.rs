@@ -1,4 +1,6 @@
-use crate::price_oracle::{PriceOracle, PriceOracleError, PriceQuote, PriceSource, scale_price_from_f64};
+use crate::price_oracle::{
+    scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource,
+};
 use std::time::SystemTime;
 
 /// A price source that returns a configured static price
@@ -19,10 +21,7 @@ impl PriceOracle for StaticPriceSource {
         let price = scale_price_from_f64(self.price)?;
 
         // Static prices are always considered fresh
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
 
         Ok(PriceQuote::new(price, now))
     }
