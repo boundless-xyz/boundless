@@ -1,0 +1,108 @@
+---
+# Docker: check if image exists (idempotent run).
+- name: Check if Kailua Docker image exists
+  ansible.builtin.command:
+    cmd: docker image inspect {{ kailua_docker_image }}
+  register: kailua_docker_image_check
+  changed_when: false
+  failed_when: false
+  when: kailua_install_method == "docker"
+
+# Docker method: build image from official Dockerfile when image missing (no host Rust/RISC0/Foundry).
+- name: Include Docker build tasks
+  ansible.builtin.include_tasks: docker.yml
+  when:
+    - kailua_install_method == "docker"
+    - kailua_docker_image_check.rc != 0
+
+# Source method: Rust is required for build (include role when not using Docker).
+- name: Include rust role for source build
+  ansible.builtin.include_role:
+    name: rust
+  when:
+    - kailua_install_method == "source"
+    - kailua_install_deps | bool
+
+# Source method: install deps and build on host.
+- name: Include Kailua build and runtime dependencies
+  ansible.builtin.include_tasks: dependencies.yml
+  when:
+    - kailua_install_method == "source"
+    - kailua_install_deps | bool
+
+# Source: check if kailua binary is already installed.
+- name: Check if kailua is already installed (source)
+  ansible.builtin.command:
+    cmd: kailua --version
+  register: kailua_installed_check
+  changed_when: false
+  failed_when: false
+  when: kailua_install_method == "source"
+
+- name: Create temp directory for kailua extract
+  ansible.builtin.file:
+    path: /tmp/kailua-extract
+    state: directory
+    mode: "0755"
+  when:
+    - kailua_install_method == "source"
+    - (kailua_installed_check.rc | default(0)) != 0
+
+- name: Download kailua release tarball
+  ansible.builtin.get_url:
+    url: "{{ kailua_download_url }}"
+    dest: /tmp/kailua-release.tar.gz
+    mode: "0644"
+  when:
+    - kailua_install_method == "source"
+    - (kailua_installed_check.rc | default(0)) != 0
+
+- name: Extract kailua tarball
+  ansible.builtin.unarchive:
+    src: /tmp/kailua-release.tar.gz
+    dest: /tmp/kailua-extract
+    remote_src: true
+  when:
+    - kailua_install_method == "source"
+    - (kailua_installed_check.rc | default(0)) != 0
+
+- name: Compile Kailua from source
+  ansible.builtin.shell: |
+    set -e
+    export PATH="{{ kailua_rust_cargo_bin }}:{{ kailua_build_home }}/.risc0/bin:{{ kailua_build_home }}/.foundry/bin:$PATH"
+    cd /tmp/kailua-extract && cd kailua-* &&
+    cargo build --bin kailua-cli --jobs 1 --release -F disable-dev-mode --locked &&
+    cp target/release/kailua {{ kailua_install_dir }}/kailua
+  args:
+    executable: /bin/bash
+  environment:
+    HOME: "{{ kailua_build_home }}"
+    PATH: "{{ kailua_rust_cargo_bin }}:{{ kailua_build_home }}/.risc0/bin:{{ kailua_build_home }}/.foundry/bin:{{ ansible_env.PATH | default('') }}"
+  when:
+    - kailua_install_method == "source"
+    - (kailua_installed_check.rc | default(0)) != 0
+  register: kailua_compile_result
+  changed_when: kailua_compile_result.rc == 0
+
+- name: Remove kailua temp directory and tarball
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/kailua-extract
+    - /tmp/kailua-release.tar.gz
+  when:
+    - kailua_install_method == "source"
+    - (kailua_installed_check.rc | default(0)) != 0
+
+- name: Write Kailua service file
+  ansible.builtin.template:
+    src: kailua.service.j2
+    dest: /etc/systemd/system/kailua.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart Kailua
+  when: kailua_install_service | bool

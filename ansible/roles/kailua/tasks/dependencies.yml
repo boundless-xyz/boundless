@@ -1,0 +1,77 @@
+---
+# Build and runtime dependencies for Kailua (apt, RISC0, svm-rs, Foundry).
+# Rust is provided by the rust role (see meta/main.yml).
+# AWS CLI is provided by another role (e.g. awscli).
+# Optional: SSM Agent and CloudWatch Agent when kailua_install_aws_ssm_cloudwatch.
+
+- name: Update apt cache and install Kailua build dependencies
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - build-essential
+      - pkg-config
+      - libclang-dev
+      - clang
+      - curl
+      - unzip
+      - libssl-dev
+    state: present
+
+- name: Check if RISC Zero is installed
+  ansible.builtin.stat:
+    path: "{{ kailua_build_home }}/.risc0/bin/rzup"
+  register: kailua_risc0_installed
+
+- name: Download RISC Zero installer
+  ansible.builtin.get_url:
+    url: "https://risczero.com/install"
+    dest: /tmp/risczero-install.sh
+    mode: "0755"
+  when: not kailua_risc0_installed.stat.exists
+
+- name: Install RISC Zero toolchain
+  ansible.builtin.shell: |
+    set -o pipefail
+    bash /tmp/risczero-install.sh
+    {{ kailua_build_home }}/.risc0/bin/rzup install
+  args:
+    creates: "{{ kailua_build_home }}/.risc0/bin/rzup"
+  environment:
+    HOME: "{{ kailua_build_home }}"
+    PATH: "{{ kailua_rust_cargo_bin }}:{{ ansible_env.PATH | default('') }}"
+  when: not kailua_risc0_installed.stat.exists
+
+- name: Install svm-rs and Solidity version
+  ansible.builtin.shell: |
+    {{ kailua_rust_cargo_bin }}/cargo install svm-rs
+    {{ kailua_rust_cargo_bin }}/svm install {{ kailua_svm_version }}
+    {{ kailua_rust_cargo_bin }}/svm use {{ kailua_svm_version }}
+  args:
+    creates: "{{ kailua_rust_cargo_bin }}/svm"
+  environment:
+    HOME: "{{ kailua_build_home }}"
+    PATH: "{{ kailua_rust_cargo_bin }}:{{ ansible_env.PATH | default('') }}"
+
+- name: Check if Foundry is installed
+  ansible.builtin.stat:
+    path: "{{ kailua_build_home }}/.foundry/bin/forge"
+  register: kailua_foundry_installed
+
+- name: Download Foundry installer
+  ansible.builtin.get_url:
+    url: "https://foundry.paradigm.xyz"
+    dest: /tmp/foundry-install.sh
+    mode: "0755"
+  when: not kailua_foundry_installed.stat.exists
+
+- name: Install Foundry toolchain
+  ansible.builtin.shell: |
+    set -o pipefail
+    bash /tmp/foundry-install.sh
+    {{ kailua_build_home }}/.foundry/bin/foundryup
+  args:
+    creates: "{{ kailua_build_home }}/.foundry/bin/forge"
+  environment:
+    HOME: "{{ kailua_build_home }}"
+    PATH: "{{ kailua_rust_cargo_bin }}:{{ kailua_build_home }}/.risc0/bin:{{ ansible_env.PATH | default('') }}"
+  when: not kailua_foundry_installed.stat.exists

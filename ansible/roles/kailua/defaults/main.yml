@@ -1,0 +1,38 @@
+---
+# Install method: "docker" (build and run via Docker, recommended) or "source" (build on host).
+kailua_install_method: "docker"
+
+# Kailua version (GitHub release tag or branch for Docker build).
+kailua_version: "v1.1.9"
+
+# Docker: image name to build/use (e.g. kailua:v1.1.9).
+kailua_docker_image: "kailua:{{ kailua_version }}"
+# Docker: clone repo here to build image (removed after build when kailua_docker_clean_build_dir).
+kailua_docker_build_dir: "/tmp/kailua-build"
+kailua_repo_url: "https://github.com/boundless-xyz/kailua.git"
+# Remove clone dir after building image (saves disk).
+kailua_docker_clean_build_dir: true
+# Docker run: network mode (e.g. "host" for host networking, or "" for bridge).
+kailua_docker_network_mode: ""
+
+# Source method: URL of the release tarball (source). Override for a prebuilt binary.
+kailua_source_archive_url: "https://github.com/boundless-xyz/kailua/archive/refs/tags/{{ kailua_version }}.tar.gz"
+kailua_download_url: "{{ kailua_source_archive_url }}"
+
+# Source method: install binary into this directory.
+kailua_install_dir: "/usr/local/bin"
+
+# Source method: install build/runtime deps (apt, RISC0, svm, Foundry). Rust from rust role.
+kailua_install_deps: true
+kailua_build_home: "{{ ansible_env.HOME | default('/root') }}"
+kailua_rust_cargo_bin: "{{ rust_cargo_bin | default(kailua_build_home + '/.cargo/bin') }}"
+kailua_svm_version: "0.8.24"
+
+# Optional: SSM Agent and CloudWatch Agent (AWS CLI from another role).
+kailua_install_aws_ssm_cloudwatch: false
+kailua_cloudwatch_agent_config: "/tmp/cloudwatch-agent.json"
+
+# Install and enable systemd service.
+kailua_install_service: true
+# Extra args for kailua (e.g. devnet). For Docker the container runs: kailua-cli <args>.
+kailua_service_args: ""
