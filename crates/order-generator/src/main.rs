@@ -29,7 +29,7 @@ use boundless_market::{
     client::{Client, FundingMode},
     deployments::Deployment,
     input::GuestEnv,
-    request_builder::{OfferParams, StandardRequestBuilder},
+    request_builder::StandardRequestBuilder,
     storage::{HttpDownloader, StandardDownloader, StorageDownloader},
     StandardUploader, StorageUploaderConfig,
 };

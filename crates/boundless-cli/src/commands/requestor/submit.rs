@@ -13,22 +13,13 @@
 // limitations under the License.
 
 use crate::display::network_name_from_chain_id;
-use std::{fs::File, io::BufReader, path::PathBuf, time::Duration, time::SystemTime};
+use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
-use alloy::primitives::U256;
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::{FulfillmentData, Offer, Predicate, ProofRequest},
-    request_builder::RequirementParams,
-    storage::StorageDownloader,
-    StorageUploaderConfig,
+    contracts::ProofRequest, request_builder::RequirementParams, StorageUploaderConfig,
 };
 use clap::Args;
-use risc0_zkvm::{
-    compute_image_id, default_executor,
-    sha::{Digest, Digestible},
-    ExecutorEnv, ReceiptClaim, SessionInfo,
-};
 use url::Url;
 
 use crate::{
@@ -140,45 +131,4 @@ impl RequestorSubmit {
 
         Ok(())
     }
-}
-
-/// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
-async fn execute(
-    request: &ProofRequest,
-    downloader: &impl StorageDownloader,
-) -> Result<(Digest, SessionInfo)> {
-    tracing::info!("Fetching program from {}", request.imageUrl);
-    let program = downloader.download(&request.imageUrl).await?;
-    let image_id = compute_image_id(&program)?;
-
-    tracing::debug!("Program image id: {}", image_id);
-
-    let input = match request.input.inputType {
-        boundless_market::contracts::RequestInputType::Inline => {
-            boundless_market::input::GuestEnv::decode(&request.input.data)?.stdin
-        }
-        boundless_market::contracts::RequestInputType::Url => {
-            let input_url =
-                std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
-            tracing::info!("Fetching input from {}", input_url);
-            let input_data = downloader.download(input_url).await?;
-            boundless_market::input::GuestEnv::decode(&input_data)?.stdin
-        }
-        _ => anyhow::bail!("Unsupported input type"),
-    };
-
-    tracing::info!("Starting execution");
-    let start = SystemTime::now();
-    let env = ExecutorEnv::builder().write_slice(&input).build()?;
-    let session_info = default_executor().execute(env, &program)?;
-    let elapsed = SystemTime::now().duration_since(start)?.as_secs_f64();
-
-    tracing::info!("Execution completed in {:.2}s", elapsed);
-    tracing::debug!("Journal: {:?}", hex::encode(&session_info.journal.bytes));
-    tracing::info!(
-        "Total cycles: {}",
-        session_info.segments.iter().map(|s| s.cycles as usize).sum::<usize>()
-    );
-
-    Ok((image_id, session_info))
 }

@@ -311,9 +311,12 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     image_url
                 );
 
-                let image: Vec<u8> = match downloader.download(&image_url).await {
+                let has_downloaded_image = downloaded_image.is_some();
+                let image: Vec<u8> = match image_bytes(downloaded_image, &image_url, &downloader)
+                    .await
+                {
                     Ok(bytes) => {
-                        if downloaded_image.is_some() {
+                        if has_downloaded_image {
                             tracing::trace!(
                                 "Reusing already-downloaded image for cycle count computation request id={}, digest={:x}",
                                 fmt_request_id(request_id),
