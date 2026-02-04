@@ -5,12 +5,9 @@ import { LDistributorPipeline } from "./pipelines/l-distributor";
 import { LIndexerPipeline } from "./pipelines/l-indexer";
 import { LOrderGeneratorPipeline } from "./pipelines/l-order-generator";
 import { LOrderStreamPipeline } from "./pipelines/l-order-stream";
-import { LProverPipeline } from "./pipelines/l-prover";
+import { LProverAnsiblePipeline } from "./pipelines/l-prover-ansible";
 import { LRequestorListsPipeline } from "./pipelines/l-requestor-lists";
 import { LSlasherPipeline } from "./pipelines/l-slasher";
-import { PackerPipeline } from "./pipelines/packer";
-import { ProverClusterPipeline } from "./pipelines/prover-cluster";
-import { PackerNightlyPipeline } from "./pipelines/packer-nightly";
 import { CodePipelineSharedResources } from "./components/codePipelineResources";
 import * as aws from "@pulumi/aws";
 import {
@@ -131,16 +128,6 @@ const lOrderStreamPipeline = new LOrderStreamPipeline("lOrderStreamPipeline", {
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
-const lProverPipeline = new LProverPipeline("lProverPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-})
-
 const lOrderGeneratorPipeline = new LOrderGeneratorPipeline("lOrderGeneratorPipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
@@ -181,54 +168,16 @@ const lRequestorListsPipeline = new LRequestorListsPipeline("lRequestorListsPipe
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
 })
 
-// Packer AMI build pipeline
-const packerPipeline = new PackerPipeline("packerPipeline", {
+// Prover Ansible deployment (SSH + inventory in Secrets Manager; no infra in GitHub)
+const lProverAnsiblePipeline = new LProverAnsiblePipeline("lProverAnsiblePipeline", {
   connection: githubConnection,
   artifactBucket: codePipelineSharedResources.artifactBucket,
   role: codePipelineSharedResources.role,
-  opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
-  serviceAccountIds: {
-    development: BOUNDLESS_DEV_ACCOUNT_ID,
-    staging: BOUNDLESS_STAGING_ACCOUNT_ID,
-    production: BOUNDLESS_PROD_ACCOUNT_ID,
-  },
   githubToken,
   dockerUsername,
   dockerToken,
   slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-});
-
-// Prover cluster deployment pipelines
-const proverClusterPipeline = new ProverClusterPipeline("proverClusterPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  stagingAccountId: BOUNDLESS_STAGING_ACCOUNT_ID,
-  productionAccountId: BOUNDLESS_PROD_ACCOUNT_ID,
-  opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-});
-
-// Nightly build pipeline
-const packerNightlyPipeline = new PackerNightlyPipeline("packerNightlyPipeline", {
-  connection: githubConnection,
-  artifactBucket: codePipelineSharedResources.artifactBucket,
-  role: codePipelineSharedResources.role,
-  opsAccountId: BOUNDLESS_OPS_ACCOUNT_ID,
-  serviceAccountIds: {
-    development: BOUNDLESS_DEV_ACCOUNT_ID,
-    staging: BOUNDLESS_STAGING_ACCOUNT_ID,
-    production: BOUNDLESS_PROD_ACCOUNT_ID,
-  },
-  githubToken,
-  dockerUsername,
-  dockerToken,
-  slackAlertsTopicArn: notifications.slackSNSTopicLaunch.arn,
-});
-
+})
 
 export const bucketName = pulumiStateBucket.bucket.id;
 export const kmsKeyArn = pulumiSecrets.kmsKey.arn;
@@ -236,6 +185,4 @@ export const boundlessAlertsBetaTopicArn = notifications.slackSNSTopic.arn;
 export const boundlessPagerdutyBetaTopicArn = notifications.pagerdutySNSTopic.arn;
 export const boundlessAlertsTopicArnLaunch = notifications.slackSNSTopicLaunch.arn;
 export const boundlessAlertsTopicArnStagingLaunch = notifications.slackSNSTopicStagingLaunch.arn;
-export const packerPipelineName = packerPipeline.pipelineName;
-export const proverClusterStagingPipelineName = proverClusterPipeline.pipelineName;
-export const packerNightlyPipelineName = packerNightlyPipeline.pipelineName;
+export const lProverAnsiblePipelineName = lProverAnsiblePipeline.pipelineName;
