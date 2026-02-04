@@ -67,6 +67,127 @@ impl crate::price_provider::PriceProvider for MockPriceProvider {
     }
 }
 
+#[cfg(feature = "s3")]
+pub use s3::S3Mock;
+
+#[cfg(feature = "s3")]
+mod s3 {
+    use aws_config::{BehaviorVersion, Region, SdkConfig};
+    use aws_sdk_s3::{
+        config::{Credentials, SharedCredentialsProvider},
+        Client as S3Client,
+    };
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use s3s::{
+        auth::SimpleAuth,
+        host::SingleDomain,
+        service::{S3ServiceBuilder, SharedS3Service},
+    };
+    use s3s_fs::FileSystem;
+    use tempfile::TempDir;
+    use tokio::net::TcpListener;
+
+    /// An ephemeral, self-contained S3 mock server for integration testing.
+    pub struct S3Mock {
+        endpoint: String,
+        client: S3Client,
+        server_handle: tokio::task::JoinHandle<()>,
+        _temp_dir: TempDir,
+    }
+
+    impl Drop for S3Mock {
+        fn drop(&mut self) {
+            self.server_handle.abort();
+        }
+    }
+
+    impl S3Mock {
+        /// The default access key ID used by the mock server ("testkey").
+        pub const ACCESS_KEY: &'static str = "testkey";
+        /// The default secret access key used by the mock server ("testsecret").
+        pub const SECRET_KEY: &'static str = "testsecret";
+        /// The default AWS region configured for the client ("us-east-1").
+        pub const REGION: &'static str = "us-east-1";
+        /// The name of the default bucket created on startup ("test-bucket").
+        pub const BUCKET: &'static str = "test-bucket";
+
+        /// Starts a new S3 mock server on a random local IPv4 port.
+        ///
+        /// This initializes a temporary filesystem, spawns the server background task,
+        /// and pre-creates a default bucket named "test-bucket".
+        pub async fn start() -> anyhow::Result<Self> {
+            let temp_dir = TempDir::new()?;
+
+            let service: SharedS3Service = {
+                let fs = FileSystem::new(temp_dir.path()).expect("create s3s-fs");
+                let mut builder = S3ServiceBuilder::new(fs);
+                builder.set_host(SingleDomain::new("localhost")?);
+                builder.set_auth(SimpleAuth::from_single(Self::ACCESS_KEY, Self::SECRET_KEY));
+                builder.build().into_shared()
+            };
+
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let endpoint = format!("http://{}", listener.local_addr()?);
+
+            let server_handle = Self::spawn_server(listener, service);
+
+            let cred = Credentials::new(Self::ACCESS_KEY, Self::SECRET_KEY, None, None, "test");
+            let sdk_config = SdkConfig::builder()
+                .behavior_version(BehaviorVersion::latest())
+                .credentials_provider(SharedCredentialsProvider::new(cred))
+                .region(Region::new(Self::REGION))
+                .endpoint_url(&endpoint)
+                .build();
+
+            let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config);
+            let client = S3Client::from_conf(s3_config_builder.build());
+
+            client.create_bucket().bucket(Self::BUCKET).send().await?;
+
+            Ok(Self { endpoint, client, server_handle, _temp_dir: temp_dir })
+        }
+
+        /// Returns the HTTP URL of the running server (e.g., "http://127.0.0.1:54321").
+        pub fn endpoint(&self) -> &str {
+            &self.endpoint
+        }
+
+        /// Returns a pre-configured AWS S3 client authenticated against this mock server.
+        pub fn client(&self) -> &S3Client {
+            &self.client
+        }
+
+        /// Returns environment variables configured to target this mock server.
+        pub fn env_vars(&self) -> [(String, Option<String>); 4] {
+            [
+                ("AWS_ACCESS_KEY_ID", Some(Self::ACCESS_KEY)),
+                ("AWS_SECRET_ACCESS_KEY", Some(Self::SECRET_KEY)),
+                ("AWS_REGION", Some(Self::REGION)),
+                ("S3_URL", Some(&self.endpoint)),
+            ]
+            .map(|(k, v)| (k.to_string(), v.map(|s| s.to_string())))
+        }
+
+        fn spawn_server(
+            listener: TcpListener,
+            service: SharedS3Service,
+        ) -> tokio::task::JoinHandle<()> {
+            tokio::spawn(async move {
+                let http = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+
+                while let Ok((stream, _)) = listener.accept().await {
+                    let svc = service.clone();
+                    let http = http.clone();
+
+                    tokio::spawn(async move {
+                        let _ = http.serve_connection(TokioIo::new(stream), svc).await;
+                    });
+                }
+            })
+        }
+    }
+}
+
 /// Formats a U256 wei value as ETH string, removing trailing zeros.
 fn format_eth_trimmed(wei: U256) -> String {
     let formatted = format_ether(wei);
