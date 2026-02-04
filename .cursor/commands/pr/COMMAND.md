@@ -1,7 +1,7 @@
 Create/update a pull request for the current changes.
 
 1. Look at the staged, unstaged, and untracked changes with `git diff`
-2. If no changes to examples/ directory, run `just check-main`. Else run `just check`. 
+2. If no changes to examples/ directory, run `just check-main`. Else run `just check`.
    1. If fails, propose fixes and wait for approval
 3. If there are untracked files, do not add them to the commit, but warn the user
 4. Write a clear commit message based on what changed (use commit message style below)
