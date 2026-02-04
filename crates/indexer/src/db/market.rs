@@ -974,15 +974,6 @@ pub trait IndexerDb {
         period_end: u64,
     ) -> Result<U256, DbError>;
 
-    /// Gets market fees for multiple periods in a single query.
-    /// Takes a slice of (period_start, period_end) tuples and returns a HashMap
-    /// mapping each period to its market fees.
-    /// For locked/fulfilled requests: uses lock_price. For other states: uses max_price.
-    async fn get_periods_market_fees(
-        &self,
-        periods: &[(u64, u64)],
-    ) -> Result<HashMap<(u64, u64), U256>, DbError>;
-
     /// Gets request digests using cursor-based pagination.
     /// Returns digests greater than the cursor, ordered by digest value.
     /// Used for backfilling request statuses.
@@ -3708,60 +3699,6 @@ impl IndexerDb for MarketDb {
             })?;
         }
         Ok(total)
-    }
-
-    async fn get_periods_market_fees(
-        &self,
-        periods: &[(u64, u64)],
-    ) -> Result<HashMap<(u64, u64), U256>, DbError> {
-        if periods.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let period_starts: Vec<i64> = periods.iter().map(|(s, _)| *s as i64).collect();
-        let period_ends: Vec<i64> = periods.iter().map(|(_, e)| *e as i64).collect();
-
-        let rows = sqlx::query(
-            "WITH periods AS (
-                SELECT unnest($1::bigint[]) as period_start,
-                       unnest($2::bigint[]) as period_end
-            )
-            SELECT
-                p.period_start,
-                p.period_end,
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN rs.request_status IN ('locked', 'fulfilled') THEN
-                                CAST(NULLIF(rs.lock_price, '') AS NUMERIC)
-                            ELSE
-                                CAST(NULLIF(rs.max_price, '') AS NUMERIC)
-                        END
-                    ),
-                    0
-                )::TEXT AS market_fee
-            FROM periods p
-            LEFT JOIN request_status rs
-                ON rs.created_at >= p.period_start
-                AND rs.created_at < p.period_end
-                AND rs.max_price IS NOT NULL
-            GROUP BY p.period_start, p.period_end",
-        )
-        .bind(&period_starts)
-        .bind(&period_ends)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let mut result = HashMap::new();
-        for row in rows {
-            let period_start: i64 = row.try_get("period_start")?;
-            let period_end: i64 = row.try_get("period_end")?;
-            let market_fee_str: String = row.try_get("market_fee")?;
-            let market_fee = U256::from_str(&market_fee_str).unwrap_or(U256::ZERO);
-            result.insert((period_start as u64, period_end as u64), market_fee);
-        }
-
-        Ok(result)
     }
 
     async fn get_request_digests_paginated(
@@ -6941,89 +6878,5 @@ mod tests {
         // Test with empty array
         let empty_results = db.get_request_params_for_execution(&[]).await.unwrap();
         assert!(empty_results.is_empty());
-    }
-
-    #[sqlx::test(migrations = "./migrations")]
-    async fn test_get_periods_market_fees(pool: sqlx::PgPool) {
-        let test_db = test_db(pool).await;
-        let db: DbObj = test_db.db;
-
-        // Test with empty periods - should return empty map
-        let fees = db.get_periods_market_fees(&[]).await.unwrap();
-        assert!(fees.is_empty());
-
-        // Test with no data - should return zero
-        let fees = db.get_periods_market_fees(&[(0, 1000)]).await.unwrap();
-        assert_eq!(fees.get(&(0, 1000)).copied().unwrap_or_default(), U256::ZERO);
-
-        // Create test statuses with different timestamps and statuses
-        let base_timestamp = 1000u64;
-
-        // Status 1: submitted at timestamp 1000, max_price=1000 (should use max_price)
-        let mut status1 = create_test_status(B256::from([1; 32]), RequestStatusType::Submitted);
-        status1.created_at = base_timestamp;
-        status1.max_price = "1000".to_string();
-        status1.lock_price = None;
-
-        // Status 2: locked at timestamp 1100, max_price=2000, lock_price=1500 (should use lock_price)
-        let mut status2 = create_test_status(B256::from([2; 32]), RequestStatusType::Locked);
-        status2.created_at = base_timestamp + 100;
-        status2.max_price = "2000".to_string();
-        status2.lock_price = Some("1500".to_string());
-
-        // Status 3: fulfilled at timestamp 1200, max_price=3000, lock_price=2500 (should use lock_price)
-        let mut status3 = create_test_status(B256::from([3; 32]), RequestStatusType::Fulfilled);
-        status3.created_at = base_timestamp + 200;
-        status3.max_price = "3000".to_string();
-        status3.lock_price = Some("2500".to_string());
-
-        // Status 4: expired at timestamp 1300, max_price=4000 (should use max_price)
-        let mut status4 = create_test_status(B256::from([4; 32]), RequestStatusType::Expired);
-        status4.created_at = base_timestamp + 300;
-        status4.max_price = "4000".to_string();
-        status4.lock_price = None;
-
-        // Status 5: outside period at timestamp 2000
-        let mut status5 = create_test_status(B256::from([5; 32]), RequestStatusType::Submitted);
-        status5.created_at = 2000;
-        status5.max_price = "5000".to_string();
-
-        db.upsert_request_statuses(&[
-            status1.clone(),
-            status2.clone(),
-            status3.clone(),
-            status4.clone(),
-            status5.clone(),
-        ])
-        .await
-        .unwrap();
-
-        // Test: Single period query [1000, 1500) should include statuses 1-4
-        let fees =
-            db.get_periods_market_fees(&[(base_timestamp, base_timestamp + 500)]).await.unwrap();
-        assert_eq!(
-            fees.get(&(base_timestamp, base_timestamp + 500)).copied().unwrap_or_default(),
-            U256::from(9000)
-        );
-
-        // Test: Batch query multiple periods at once
-        let periods = vec![
-            (base_timestamp, base_timestamp + 150), // should include statuses 1-2 = 2500
-            (base_timestamp + 200, base_timestamp + 400), // should include statuses 3-4 = 6500
-            (1500, 2500),                           // should include only status 5 = 5000
-            (3000, 4000),                           // outside all data = 0
-        ];
-        let fees = db.get_periods_market_fees(&periods).await.unwrap();
-
-        assert_eq!(
-            fees.get(&(base_timestamp, base_timestamp + 150)).copied().unwrap_or_default(),
-            U256::from(2500)
-        );
-        assert_eq!(
-            fees.get(&(base_timestamp + 200, base_timestamp + 400)).copied().unwrap_or_default(),
-            U256::from(6500)
-        );
-        assert_eq!(fees.get(&(1500, 2500)).copied().unwrap_or_default(), U256::from(5000));
-        assert_eq!(fees.get(&(3000, 4000)).copied().unwrap_or_default(), U256::ZERO);
     }
 }
