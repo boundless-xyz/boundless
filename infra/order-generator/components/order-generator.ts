@@ -48,6 +48,7 @@ interface OrderGeneratorArgs {
     scheduleExpression: string;
   };
   indexerUrl: pulumi.Output<string>;
+  useZeth?: boolean;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -224,6 +225,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.oneShotConfig) {
       ogArgs.push(`--count ${args.oneShotConfig.count}`);
+    }
+    if (args.useZeth) {
+      ogArgs.push(`--use-zeth`);
     }
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
