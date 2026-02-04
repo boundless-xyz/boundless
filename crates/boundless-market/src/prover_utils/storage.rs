@@ -15,7 +15,9 @@
 //! URI handling for fetching data from HTTP, S3, and file URLs.
 
 use alloy::primitives::bytes::Buf;
+#[cfg(feature = "s3")]
 use aws_config::retry::RetryConfig;
+#[cfg(feature = "s3")]
 use aws_sdk_s3::{
     config::{ProvideCredentials, SharedCredentialsProvider},
     error::ProvideErrorMetadata,
@@ -27,6 +29,7 @@ use thiserror::Error;
 
 use super::config::MarketConfig;
 
+#[cfg(feature = "s3")]
 const ENV_VAR_ROLE_ARN: &str = "AWS_ROLE_ARN";
 
 /// Returns `true` if the dev mode environment variable is enabled.
@@ -81,6 +84,7 @@ pub enum StorageError {
     Http(String),
 
     /// AWS S3 error.
+    #[cfg(feature = "s3")]
     #[error("AWS S3 error: {0}")]
     S3(String),
 }
@@ -116,6 +120,7 @@ pub async fn fetch_uri_with_config(
             fetch_file(parsed.path(), Some(config.max_file_size)).await
         }
         "http" | "https" => fetch_http(parsed, config).await,
+        #[cfg(feature = "s3")]
         "s3" => fetch_s3(parsed, config).await,
         scheme => Err(StorageError::UnsupportedScheme(scheme.to_string())),
     }
@@ -188,6 +193,7 @@ async fn fetch_http(url: url::Url, config: &MarketConfig) -> Result<Vec<u8>, Sto
 ///
 /// If the `AWS_ROLE_ARN` environment variable is set, it will attempt to assume that
 /// IAM role before accessing S3.
+#[cfg(feature = "s3")]
 async fn fetch_s3(url: url::Url, config: &MarketConfig) -> Result<Vec<u8>, StorageError> {
     let retry_config = if let Some(max_retries) = config.max_fetch_retries {
         RetryConfig::standard().with_max_attempts(max_retries as u32 + 1)

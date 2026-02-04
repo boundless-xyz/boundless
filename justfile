@@ -418,6 +418,17 @@ cargo-update:
     cargo update
     cd examples/counter && cargo update
 
+# Regenerate lockfiles (without bumping versions)
+update-lockfiles:
+    cargo fetch
+    cd bento && cargo fetch
+    cd examples/counter && cargo fetch
+    cd examples/composition && cargo fetch
+    cd examples/counter-with-callback && cargo fetch
+    cd examples/smart-contract-requestor && cargo fetch
+    cd examples/blake3-groth16 && cargo fetch
+    cd examples/request-stream && cargo fetch
+
 # Start the bento service
 bento action="up" env_file="" compose_flags="" detached="true":
     #!/usr/bin/env bash

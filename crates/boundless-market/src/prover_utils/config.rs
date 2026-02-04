@@ -17,6 +17,8 @@
 //! This module contains the configuration types used by provers/brokers when
 //! interacting with the Boundless market.
 
+#![cfg_attr(not(feature = "prover_utils"), allow(dead_code))]
+
 #[cfg(any(feature = "prover_utils", feature = "test-utils"))]
 use std::path::Path;
 use std::{collections::HashSet, path::PathBuf};
