@@ -68,3 +68,15 @@ config:
     secure: v1:ghvpsT1eWQ22F33+:EMpFbZJALPWfvZUYgN0L3my543BcCTMILXuwzZ4Zch0JYWyCwqLcWXa8sGXsNghlKQRWQwUQjo3gGFE1KACtPtum4iMZVeMbyvTIGXRBdis=
   order-generator-base:INDEXER_URL:
     secure: v1:3rJFVGvhgg2ISY0C:JxAroph0jMguR18XNxUkHwWtJn/Ynnglr4OKbbB5/rf6gZxAqXRxNEpki3eR5ZOh+0bIDLWf
+  order-generator-evm-requestor:AUTO_DEPOSIT: "0.015"
+  order-generator-evm-requestor:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-evm-requestor:EXEC_RATE_KHZ: "1000"
+  order-generator-evm-requestor:INTERVAL: "600"
+  order-generator-evm-requestor:INPUT_MAX_MCYCLES: "3000"
+  order-generator-evm-requestor:LOCK_TIMEOUT: "2100"
+  order-generator-evm-requestor:RAMP_UP: "900"
+  order-generator-evm-requestor:RAMP_UP_SECONDS_PER_MCYCLE: "2"
+  order-generator-evm-requestor:SECONDS_PER_MCYCLE: "7"
+  order-generator-evm-requestor:WARN_BALANCE_BELOW: "0.01"
+  order-generator-evm-requestor:PRIVATE_KEY:
+    secure: v1:+q8g0qby20fDIvXt:EuJ7qrjSDM+aAW2zYNwUzj2SKDV8oRuZv4REHXZY2lMPRiR9uP3zELb20x29dHrIKXsCwF+ZQs263ZarnvGxPSMEUhrg0P02U5GXa/a5i3NqHg==

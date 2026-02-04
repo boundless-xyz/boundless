@@ -381,8 +381,9 @@ async fn handle_zeth_request(
     let mut rng = rand::rng();
     let nonce: u32 = rng.random_range(0..=u32::MAX);
     let max_cycles = args.input_max_mcycles.unwrap_or(3000) << 20;
-    let max_iterations = max_cycles.div_ceil(1000000);
+    let max_iterations = max_cycles.div_ceil(1000000000); // ~1B cycles per iteration
     let iterations: u32 = rng.random_range(1..=max_iterations as u32);
+    tracing::info!("Iterations: {}", iterations);
     let env = GuestEnv::builder().write_slice(input).write(&iterations)?.write(&nonce)?.build_env();
     let request = client
         .new_request()
