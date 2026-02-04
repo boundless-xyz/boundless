@@ -17,7 +17,7 @@ blake3-groth16 = [
     "dep:blake3",
     "dep:risc0-circuit-recursion"
 ]
-default = ["s3", "gcs"]
+default = ["s3"]
 s3 = ["dep:aws-sdk-s3", "dep:aws-config"]
 gcs = ["dep:google-cloud-storage", "dep:google-cloud-auth", "dep:google-cloud-gax", "dep:rustls"]
 prover_utils = ["dep:bincode"]
