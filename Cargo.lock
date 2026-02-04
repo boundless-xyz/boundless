@@ -2856,6 +2856,7 @@ dependencies = [
  "risc0-ethereum-contracts",
  "risc0-zkvm",
  "rmp-serde",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
