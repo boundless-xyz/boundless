@@ -1,18 +1,12 @@
 [Unit]
 Description=Kailua
-After=network.target docker.service
-Requires=docker.service
+After=network.target
 
 [Service]
 Type=simple
 User=root
-{% if kailua_install_method == 'docker' %}
-ExecStart=/usr/bin/docker run --rm --name kailua {% if kailua_docker_network_mode | default('') | length > 0 %}--network {{ kailua_docker_network_mode }} {% endif %}{{ kailua_docker_image }} kailua-cli {{ kailua_service_args | default('') }}
-ExecStop=/usr/bin/docker stop kailua
+ExecStart={{ kailua_launcher_path }}
 TimeoutStopSec=30
-{% else %}
-ExecStart={{ kailua_install_dir }}/kailua {{ kailua_service_args | default('') }}
-{% endif %}
 Restart=always
 RestartSec=10
 

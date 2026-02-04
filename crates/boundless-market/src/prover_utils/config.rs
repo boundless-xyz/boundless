@@ -436,6 +436,11 @@ pub struct MarketConf {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
+    /// When true, schedule lock-and-fulfill orders to lock when the offer price is at its highest
+    /// (i.e. at the end of the ramp). When false (default), the broker locks as soon as the price
+    /// meets the configured minimum or waits for the minimum profitable price.
+    #[serde(default)]
+    pub lock_at_highest_price: bool,
 }
 
 impl Default for MarketConf {
@@ -480,6 +485,7 @@ impl Default for MarketConf {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
+            lock_at_highest_price: false,
         }
     }
 }
