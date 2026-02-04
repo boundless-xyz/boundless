@@ -14,8 +14,10 @@
 
 pub mod backfill;
 pub mod caching;
+pub mod epoch_calculator;
 pub mod pricing;
 pub mod service;
 pub mod time_boundaries;
 
+pub use epoch_calculator::{EpochBoundary, EpochCalculator, EPOCH_DURATION};
 pub use service::{IndexerService, IndexerServiceConfig, ServiceError};

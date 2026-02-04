@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod epochs;
-mod market;
-mod provers;
-mod requestors;
+//! Constants and utilities for epoch-based aggregation.
+//! The actual aggregation functions are in their respective modules:
+//! - market.rs for market epoch aggregations
+//! - provers.rs for prover epoch aggregations
+//! - requestors.rs for requestor epoch aggregations
 
-// Re-export the helper function used by backfill service
-pub use market::sum_hourly_aggregates_into_base;
+/// Number of epochs to recompute when running periodic aggregation
+pub const EPOCH_AGGREGATION_RECOMPUTE_COUNT: u64 = 3;

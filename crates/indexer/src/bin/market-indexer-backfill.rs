@@ -22,6 +22,7 @@ use alloy::{
 use anyhow::{bail, Result};
 use boundless_indexer::db::IndexerDb;
 use boundless_indexer::market::backfill::{BackfillMode, BackfillService};
+use boundless_indexer::market::epoch_calculator::DEFAULT_EPOCH0_START_TIME;
 use boundless_indexer::market::service::TransactionFetchStrategy;
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
@@ -83,6 +84,12 @@ struct Args {
     /// Number of blocks to process in each batch (default: 750)
     #[clap(long, env, default_value_t = 750)]
     batch_size: u64,
+
+    /// Unix timestamp when epoch 0 started for epoch-based aggregations.
+    /// Uses ZKC contract epoch logic: epoch = (timestamp - epoch0_start_time) / EPOCH_DURATION
+    /// where EPOCH_DURATION = 2 days (172800 seconds).
+    #[clap(long, env, default_value_t = DEFAULT_EPOCH0_START_TIME)]
+    epoch0_start_time: u64,
 }
 
 #[tokio::main]
@@ -130,7 +137,10 @@ async fn main() -> Result<()> {
         tx_fetch_strategy,
         execution_config: None,
         block_delay: 0,
+        epoch0_start_time: args.epoch0_start_time,
     };
+
+    tracing::info!("Epoch aggregations enabled with epoch0_start_time: {}", args.epoch0_start_time);
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
 

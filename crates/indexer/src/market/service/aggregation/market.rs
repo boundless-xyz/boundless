@@ -17,6 +17,7 @@ use super::super::{
     HOURLY_AGGREGATION_RECOMPUTE_HOURS, MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY,
     SECONDS_PER_HOUR, SECONDS_PER_WEEK, WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
 };
+use super::epochs::EPOCH_AGGREGATION_RECOMPUTE_COUNT;
 use crate::db::market::{AllTimeMarketSummary, IndexerDb, PeriodMarketSummary};
 use crate::market::{
     pricing::compute_percentiles,
@@ -449,8 +450,12 @@ where
         let best_effective_prove_mhz_prover = None;
         let best_effective_prove_mhz_request_id = None;
 
+        let epoch_number_period_start =
+            self.epoch_calculator.get_epoch_for_timestamp(period_start).unwrap_or(0) as i64;
+
         Ok(PeriodMarketSummary {
             period_timestamp: period_start,
+            epoch_number_period_start,
             total_fulfilled,
             unique_provers_locking_requests: unique_provers,
             unique_requesters_submitting_requests: unique_requesters,
@@ -662,6 +667,10 @@ where
                 );
                     AllTimeMarketSummary {
                         period_timestamp: base_timestamp,
+                        epoch_number_period_start: self
+                            .epoch_calculator
+                            .get_epoch_for_timestamp(base_timestamp)
+                            .unwrap_or(0) as i64,
                         total_fulfilled: 0,
                         unique_provers_locking_requests: 0,
                         unique_requesters_submitting_requests: 0,
@@ -718,8 +727,10 @@ where
                 );
             }
 
-            // Update period_timestamp to reflect this hour
+            // Update period_timestamp and epoch_number_period_start to reflect this hour
             cumulative_summary.period_timestamp = hour_ts;
+            cumulative_summary.epoch_number_period_start =
+                self.epoch_calculator.get_epoch_for_timestamp(hour_ts).unwrap_or(0) as i64;
 
             // Query unique counts from DB for all data up to this hour
             cumulative_summary.unique_provers_locking_requests =
@@ -733,6 +744,91 @@ where
         }
 
         tracing::info!("aggregate_all_time_market_data_from completed in {:?}", start.elapsed());
+        Ok(())
+    }
+
+    /// Aggregate epoch-based market data
+    pub(crate) async fn aggregate_epoch_market_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let current_time = self.block_timestamp(to_block).await?;
+        let Some(current_epoch) = self.epoch_calculator.get_epoch_for_timestamp(current_time)
+        else {
+            tracing::debug!(
+                "Current time {} is before epoch 0, skipping epoch market aggregation",
+                current_time
+            );
+            return Ok(());
+        };
+
+        tracing::debug!(
+            "Aggregating epoch market data up to epoch {} (current_time: {})",
+            current_epoch,
+            current_time
+        );
+
+        let start_epoch = current_epoch.saturating_sub(EPOCH_AGGREGATION_RECOMPUTE_COUNT);
+
+        for epoch_num in start_epoch..=current_epoch {
+            let boundary = self.epoch_calculator.get_epoch_boundary(epoch_num);
+            self.aggregate_epoch_market_data_for_epoch(
+                epoch_num,
+                boundary.start_time,
+                boundary.end_time,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Aggregate epoch-based market data for a time range (used by backfill)
+    pub(crate) async fn aggregate_epoch_market_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        for boundary in self.epoch_calculator.iter_epochs(from_time, to_time) {
+            self.aggregate_epoch_market_data_for_epoch(
+                boundary.epoch_number,
+                boundary.start_time,
+                boundary.end_time,
+            )
+            .await?;
+        }
+
+        tracing::debug!(
+            "aggregate_epoch_market_data_from {} to {} completed in {:?}",
+            from_time,
+            to_time,
+            start.elapsed()
+        );
+
+        Ok(())
+    }
+
+    async fn aggregate_epoch_market_data_for_epoch(
+        &self,
+        epoch_num: u64,
+        start_time: u64,
+        end_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        // period_end is exclusive, so add 1 to end_time (which is inclusive)
+        let summary = self.compute_period_summary(start_time, end_time + 1).await?;
+        // period_timestamp already contains start_time from compute_period_summary
+
+        self.db
+            .upsert_epoch_market_summary(summary)
+            .await
+            .with_db_context("upsert_epoch_market_summary")?;
+
+        tracing::debug!("Aggregated epoch {} market data in {:?}", epoch_num, start.elapsed());
+
         Ok(())
     }
 }

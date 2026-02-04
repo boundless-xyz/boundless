@@ -126,6 +126,7 @@ pub enum AggregationGranularity {
     Daily,
     Weekly,
     Monthly,
+    Epoch,
 }
 
 impl Default for AggregationGranularity {
@@ -141,6 +142,7 @@ impl std::fmt::Display for AggregationGranularity {
             Self::Daily => write!(f, "daily"),
             Self::Weekly => write!(f, "weekly"),
             Self::Monthly => write!(f, "monthly"),
+            Self::Epoch => write!(f, "epoch"),
         }
     }
 }
@@ -566,6 +568,9 @@ pub struct MarketAggregateEntry {
 
     /// Total cycles (program + overhead) computed across all fulfilled requests in this period
     pub total_cycles: String,
+
+    /// Epoch number at the start of this period (always populated)
+    pub epoch_number_start: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1080,6 +1085,11 @@ async fn get_market_aggregates_impl(
     // we know there are more results, and we discard the extra item.
     let limit_plus_one = limit_i64 + 1;
 
+    // Handle epoch aggregation separately since it returns a different type
+    if matches!(params.aggregation, AggregationGranularity::Epoch) {
+        return get_epoch_market_aggregates_impl(state, cursor, limit, limit_plus_one, sort).await;
+    }
+
     // Route to appropriate database method based on aggregation type
     let mut summaries = match params.aggregation {
         AggregationGranularity::Hourly => {
@@ -1130,6 +1140,10 @@ async fn get_market_aggregates_impl(
                 )
                 .await?
         }
+        AggregationGranularity::Epoch => {
+            // Handled by early return above
+            unreachable!()
+        }
     };
 
     let has_more = summaries.len() > limit as usize;
@@ -1153,6 +1167,114 @@ async fn get_market_aggregates_impl(
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
 
             // Convert U256 fields to strings (all currency fields are now U256 in struct)
+            let total_fees_locked = summary.total_fees_locked.to_string();
+            let total_collateral_locked = summary.total_collateral_locked.to_string();
+            let total_locked_and_expired_collateral =
+                summary.total_locked_and_expired_collateral.to_string();
+            let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
+            let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
+            let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
+            let p75_lock_price_per_cycle = summary.p75_lock_price_per_cycle.to_string();
+            let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
+            let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
+            let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            // Calculate epoch number at the start of this period
+            let epoch_number_start = state
+                .epoch_calculator
+                .get_epoch_for_timestamp(summary.period_timestamp)
+                .map(|e| e as i64);
+
+            MarketAggregateEntry {
+                chain_id: state.chain_id,
+                timestamp: summary.period_timestamp as i64,
+                timestamp_iso,
+                total_fulfilled: summary.total_fulfilled as i64,
+                unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
+                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests
+                    as i64,
+                total_fees_locked: total_fees_locked.clone(),
+                total_fees_locked_formatted: format_eth(&total_fees_locked),
+                total_collateral_locked: total_collateral_locked.clone(),
+                total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
+                total_locked_and_expired_collateral_formatted: format_zkc(
+                    &total_locked_and_expired_collateral,
+                ),
+                p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
+                p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
+                p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
+                p25_lock_price_per_cycle_formatted: format_eth(&p25_lock_price_per_cycle),
+                p50_lock_price_per_cycle: p50_lock_price_per_cycle.clone(),
+                p50_lock_price_per_cycle_formatted: format_eth(&p50_lock_price_per_cycle),
+                p75_lock_price_per_cycle: p75_lock_price_per_cycle.clone(),
+                p75_lock_price_per_cycle_formatted: format_eth(&p75_lock_price_per_cycle),
+                p90_lock_price_per_cycle: p90_lock_price_per_cycle.clone(),
+                p90_lock_price_per_cycle_formatted: format_eth(&p90_lock_price_per_cycle),
+                p95_lock_price_per_cycle: p95_lock_price_per_cycle.clone(),
+                p95_lock_price_per_cycle_formatted: format_eth(&p95_lock_price_per_cycle),
+                p99_lock_price_per_cycle: p99_lock_price_per_cycle.clone(),
+                p99_lock_price_per_cycle_formatted: format_eth(&p99_lock_price_per_cycle),
+                total_requests_submitted: summary.total_requests_submitted as i64,
+                total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
+                total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
+                total_requests_locked: summary.total_requests_locked as i64,
+                total_requests_slashed: summary.total_requests_slashed as i64,
+                total_expired: summary.total_expired as i64,
+                total_locked_and_expired: summary.total_locked_and_expired as i64,
+                total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
+                locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted: 0.0,
+                total_program_cycles: summary.total_program_cycles.to_string(),
+                total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
+            }
+        })
+        .collect();
+
+    Ok(MarketAggregatesResponse {
+        chain_id: state.chain_id,
+        aggregation: params.aggregation,
+        data,
+        next_cursor,
+        has_more,
+    })
+}
+
+async fn get_epoch_market_aggregates_impl(
+    state: Arc<AppState>,
+    cursor: Option<i64>,
+    limit: u64,
+    limit_plus_one: i64,
+    sort: SortDirection,
+) -> anyhow::Result<MarketAggregatesResponse> {
+    let mut summaries =
+        state.market_db.get_epoch_market_summaries(cursor, limit_plus_one, sort).await?;
+
+    let has_more = summaries.len() > limit as usize;
+    if has_more {
+        summaries.pop();
+    }
+
+    let next_cursor = if has_more && !summaries.is_empty() {
+        let last_summary = summaries.last().unwrap();
+        Some(encode_cursor(last_summary.period_timestamp as i64)?)
+    } else {
+        None
+    };
+
+    let data = summaries
+        .into_iter()
+        .map(|summary| {
+            // period_timestamp is the epoch start time (a timestamp)
+            // Calculate epoch number from timestamp
+            let epoch_number_start = state
+                .epoch_calculator
+                .get_epoch_for_timestamp(summary.period_timestamp)
+                .map(|e| e as i64);
+
+            let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
             let total_fees_locked = summary.total_fees_locked.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
@@ -1208,13 +1330,14 @@ async fn get_market_aggregates_impl(
                 locked_orders_fulfillment_rate_adjusted: 0.0,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
             }
         })
         .collect();
 
     Ok(MarketAggregatesResponse {
         chain_id: state.chain_id,
-        aggregation: params.aggregation,
+        aggregation: AggregationGranularity::Epoch,
         data,
         next_cursor,
         has_more,
@@ -1421,6 +1544,10 @@ async fn get_requestor_aggregates_impl(
         anyhow::bail!("Monthly aggregation is not supported for requestor aggregates");
     }
 
+    if matches!(params.aggregation, AggregationGranularity::Epoch) {
+        anyhow::bail!("Epoch aggregation for requestor aggregates is not yet supported via API. Use epoch aggregation for market aggregates instead.");
+    }
+
     tracing::debug!(
         "Fetching requestor aggregates: address={}, aggregation={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
         address,
@@ -1493,8 +1620,12 @@ async fn get_requestor_aggregates_impl(
                 .await?
         }
         AggregationGranularity::Monthly => {
-            // This should never happen due to validation above, but include for completeness
             anyhow::bail!("Monthly aggregation is not supported");
+        }
+        AggregationGranularity::Epoch => {
+            anyhow::bail!(
+                "Epoch aggregation for requestor aggregates is not yet supported via API"
+            );
         }
     };
 
@@ -1795,6 +1926,10 @@ async fn get_prover_aggregates_impl(
         anyhow::bail!("Monthly aggregation is not supported for prover aggregates");
     }
 
+    if matches!(params.aggregation, AggregationGranularity::Epoch) {
+        anyhow::bail!("Epoch aggregation for prover aggregates is not yet supported via API. Use epoch aggregation for market aggregates instead.");
+    }
+
     tracing::debug!(
         "Fetching prover aggregates: address={}, aggregation={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
         address,
@@ -1863,6 +1998,9 @@ async fn get_prover_aggregates_impl(
         }
         AggregationGranularity::Monthly => {
             anyhow::bail!("Monthly aggregation is not supported");
+        }
+        AggregationGranularity::Epoch => {
+            anyhow::bail!("Epoch aggregation for prover aggregates is not yet supported via API");
         }
     };
 
