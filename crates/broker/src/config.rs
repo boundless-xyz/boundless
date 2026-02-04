@@ -17,6 +17,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::{errors::CodedError, impl_coded_debug};
 use anyhow::{Context, Result};
 use notify::{EventKind, Watcher};
 use thiserror::Error;
@@ -25,12 +26,10 @@ use tokio::{
     time::{timeout, Duration},
 };
 
-use crate::{errors::CodedError, impl_coded_debug};
-
 // Re-export all configuration types from boundless-market
 pub use boundless_market::prover_utils::{
-    config_defaults as defaults, BatcherConfig, Config, MarketConf, OrderCommitmentPriority,
-    OrderPricingPriority, ProverConf,
+    config_defaults as defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
+    OrderPricingPriority, ProverConfig,
 };
 
 #[derive(Error)]

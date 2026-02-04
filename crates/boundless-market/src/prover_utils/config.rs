@@ -31,6 +31,8 @@ use tokio::fs;
 use crate::dynamic_gas_filler::PriorityMode;
 
 pub mod defaults {
+    use url::Url;
+
     use super::PriorityMode;
 
     const ESTIMATED_GROTH16_TIME: u64 = 15;
@@ -91,6 +93,14 @@ pub mod defaults {
 
     pub fn assessor_default_image_url() -> String {
         "https://signal-artifacts.beboundless.xyz/v3/assessor/assessor_guest.bin".to_string()
+    }
+
+    pub const fn max_fetch_retries() -> Option<u8> {
+        Some(2)
+    }
+
+    pub fn ipfs_gateway() -> Option<url::Url> {
+        Some(Url::parse(crate::storage::DEFAULT_IPFS_GATEWAY_URL).unwrap())
     }
 
     pub fn set_builder_default_image_url() -> String {
@@ -234,7 +244,7 @@ impl Default for OrderCommitmentPriority {
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
-pub struct MarketConf {
+pub struct MarketConfig {
     /// Mega-cycle price, denominated in the native token (e.g. ETH).
     ///
     /// This price is multiplied the number of mega-cycles (i.e. million RISC-V cycles) that the requested
@@ -399,6 +409,12 @@ pub struct MarketConf {
     ///
     /// If not set, files will be re-downloaded every time
     pub cache_dir: Option<PathBuf>,
+    /// Optional IPFS gateway URL for fallback when downloading IPFS content
+    ///
+    /// When set, if an HTTP download fails for a URL containing `/ipfs/`,
+    /// the downloader will retry with this gateway.
+    #[serde(default = "defaults::ipfs_gateway")]
+    pub ipfs_gateway_fallback: Option<url::Url>,
     /// Default URL for assessor image
     ///
     /// This URL will be tried first before falling back to the contract URL
@@ -443,7 +459,7 @@ pub struct MarketConf {
     pub lock_at_highest_price: bool,
 }
 
-impl Default for MarketConf {
+impl Default for MarketConfig {
     fn default() -> Self {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
@@ -468,7 +484,7 @@ impl Default for MarketConf {
             gas_priority_mode: defaults::priority_mode(),
             lockin_priority_gas: None,
             max_file_size: defaults::max_file_size(),
-            max_fetch_retries: Some(2),
+            max_fetch_retries: defaults::max_fetch_retries(),
             lockin_gas_estimate: defaults::lockin_gas_estimate(),
             fulfill_gas_estimate: defaults::fulfill_gas_estimate(),
             groth16_verify_gas_estimate: defaults::groth16_verify_gas_estimate(),
@@ -479,6 +495,7 @@ impl Default for MarketConf {
             collateral_balance_error_threshold: None,
             max_concurrent_proofs: defaults::max_concurrent_proofs(),
             cache_dir: None,
+            ipfs_gateway_fallback: defaults::ipfs_gateway(),
             assessor_default_image_url: defaults::assessor_default_image_url(),
             set_builder_default_image_url: defaults::set_builder_default_image_url(),
             max_concurrent_preflights: defaults::max_concurrent_preflights(),
@@ -492,7 +509,7 @@ impl Default for MarketConf {
 
 /// All configuration related to prover (bonsai / Bento) mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ProverConf {
+pub struct ProverConfig {
     /// Number of retries to poll for proving status.
     ///
     /// Provides a little durability for transient failures.
@@ -550,7 +567,7 @@ pub struct ProverConf {
     pub reaper_grace_period_secs: u32,
 }
 
-impl Default for ProverConf {
+impl Default for ProverConfig {
     fn default() -> Self {
         Self {
             status_poll_retry_count: defaults::status_poll_retry_count(),
@@ -633,10 +650,10 @@ impl Default for BatcherConfig {
 pub struct Config {
     /// Market / bidding configurations
     #[serde(default)]
-    pub market: MarketConf,
+    pub market: MarketConfig,
     /// Prover backend configs
     #[serde(default)]
-    pub prover: ProverConf,
+    pub prover: ProverConfig,
     /// Aggregation batch configs
     #[serde(default)]
     pub batcher: BatcherConfig,

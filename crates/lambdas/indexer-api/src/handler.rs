@@ -121,6 +121,34 @@ async fn openapi_yaml() -> impl IntoResponse {
     }
 }
 
+/// Role of an address in the API context, used for validation error messages.
+#[derive(Clone, Copy)]
+pub(crate) enum AddressRole {
+    Requestor,
+    Prover,
+}
+
+impl std::fmt::Display for AddressRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AddressRole::Requestor => write!(f, "requestor"),
+            AddressRole::Prover => write!(f, "prover"),
+        }
+    }
+}
+
+/// Returns a 400 Bad Request response for invalid address input.
+pub(crate) fn bad_request_invalid_address(role: AddressRole, address: &str) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "error": "Bad Request",
+            "message": format!("Invalid {} address: {}", role, address)
+        })),
+    )
+        .into_response()
+}
+
 /// 404 handler
 async fn not_found(uri: Uri) -> impl IntoResponse {
     tracing::warn!(path = %uri.path(), "Endpoint not found");
@@ -142,19 +170,27 @@ pub fn handle_error(err: anyhow::Error) -> impl IntoResponse {
     let error_message = err.to_string().to_lowercase();
 
     // Determine appropriate status code based on error type
-    let (status, message) = if error_message.contains("database")
+    let (status, message): (StatusCode, String) = if error_message.contains("database")
         || error_message.contains("connection")
         || error_message.contains("pool")
     {
-        (StatusCode::SERVICE_UNAVAILABLE, "Database connection error. Please try again later.")
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Database connection error. Please try again later.".into(),
+        )
     } else if error_message.starts_with("no data available")
         || error_message.starts_with("no povw")
         || error_message.contains("does not exist")
     {
-        (StatusCode::NOT_FOUND, "The requested data was not found.")
+        (StatusCode::NOT_FOUND, "The requested data was not found.".into())
+    } else if error_message.contains("invalid") {
+        (StatusCode::BAD_REQUEST, err.to_string())
     } else {
         // For production, return a generic message. In dev, you might want to return the actual error
-        (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred. Please try again later.")
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "An internal error occurred. Please try again later.".into(),
+        )
     };
 
     (

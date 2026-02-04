@@ -8,6 +8,7 @@ export interface IndexerInfraArgs {
   vpcId: pulumi.Output<string>;
   privSubNetIds: pulumi.Output<string[]>;
   rdsPassword: pulumi.Output<string>;
+  isDev: boolean;
 }
 
 export class IndexerShared extends pulumi.ComponentResource {
@@ -30,7 +31,7 @@ export class IndexerShared extends pulumi.ComponentResource {
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
 
-    const { vpcId, privSubNetIds, rdsPassword } = args;
+    const { vpcId, privSubNetIds, rdsPassword, isDev } = args;
     const serviceName = `${args.serviceName}-base`;
 
     this.ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
@@ -154,11 +155,13 @@ export class IndexerShared extends pulumi.ComponentResource {
       policyArn: 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole',
     }, { parent: this });
 
+    const instanceClass = isDev ? 'db.r6g.large' : 'db.r6g.xlarge';
+
     new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-${databaseVersion}`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      instanceClass: 'db.r6g.xlarge',
+      instanceClass: instanceClass,
       identifier: `${serviceName}-aurora-writer-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
@@ -173,7 +176,7 @@ export class IndexerShared extends pulumi.ComponentResource {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      instanceClass: 'db.r6g.xlarge',
+      instanceClass: instanceClass,
       identifier: `${serviceName}-aurora-reader-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,

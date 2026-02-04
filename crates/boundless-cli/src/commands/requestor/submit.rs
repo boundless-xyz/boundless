@@ -17,7 +17,7 @@ use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::ProofRequest, request_builder::RequirementParams, storage::StorageProviderConfig,
+    contracts::ProofRequest, request_builder::RequirementParams, StorageUploaderConfig,
 };
 use clap::Args;
 use url::Url;
@@ -46,9 +46,9 @@ pub struct RequestorSubmit {
     #[clap(long, default_value = "false")]
     pub no_preflight: bool,
 
-    /// Configuration for the StorageProvider to use for uploading programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    pub storage_config: Box<StorageProviderConfig>,
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
+    pub storage_config: Box<StorageUploaderConfig>,
 
     /// Requestor configuration (RPC URL, private key, deployment)
     #[clap(flatten)]
@@ -63,7 +63,8 @@ impl RequestorSubmit {
 
         let client = requestor_config
             .client_builder_with_signer(global_config.tx_timeout)?
-            .with_storage_provider_config(&self.storage_config)?
+            .with_uploader_config(&self.storage_config)
+            .await?
             .with_skip_preflight(self.no_preflight)
             .build()
             .await
