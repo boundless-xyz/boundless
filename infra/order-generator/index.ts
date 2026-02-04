@@ -296,6 +296,7 @@ export = () => {
   } else {
     evmRequestorPrivateKey = evmRequestorConfig.requireSecret('PRIVATE_KEY');
   }
+  const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
   const evmRequestorRampUp = evmRequestorConfig.get('RAMP_UP');
   const evmRequestorLockTimeout = evmRequestorConfig.get('LOCK_TIMEOUT');
@@ -321,7 +322,7 @@ export = () => {
       setVerifierAddr,
       boundlessMarketAddr,
       ipfsGateway,
-      interval: onchainInterval ?? interval,
+      interval: evmRequestorInterval ?? interval,
       lockCollateralRaw,
       rampUp: evmRequestorRampUp,
       inputMaxMCycles: evmRequestorInputMaxMCycles,
