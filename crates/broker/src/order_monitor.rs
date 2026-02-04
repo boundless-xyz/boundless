@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::chain_monitor::ChainHead;
-use crate::OrderRequest;
 use crate::{
-    chain_monitor::ChainMonitorService,
+    chain_monitor::{ChainHead, ChainMonitorService},
     config::{ConfigLock, OrderCommitmentPriority},
     db::DbObj,
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, Order,
+    utils, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
     network::Ethereum,
@@ -32,17 +30,21 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{
-    boundless_market::{BoundlessMarketService, MarketError},
-    IBoundlessMarket::IBoundlessMarketErrors,
-    RequestStatus, TxnErr,
+use boundless_market::{
+    contracts::{
+        boundless_market::{BoundlessMarketService, MarketError},
+        IBoundlessMarket::IBoundlessMarketErrors,
+        RequestStatus, TxnErr,
+    },
+    dynamic_gas_filler::PriorityMode,
+    selector::SupportedSelectors,
 };
-use boundless_market::dynamic_gas_filler::PriorityMode;
-use boundless_market::selector::SupportedSelectors;
 use moka::policy::EvictionPolicy;
 use moka::{future::Cache, Expiry};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -1023,12 +1025,10 @@ pub(crate) mod tests {
     use super::*;
     use crate::OrderStatus;
     use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
-    use alloy::node_bindings::AnvilInstance;
-    use alloy::primitives::{address, Bytes};
     use alloy::{
         network::EthereumWallet,
-        node_bindings::Anvil,
-        primitives::{Address, U256},
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::{address, Address, Bytes, U256},
         providers::{
             fillers::{
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,

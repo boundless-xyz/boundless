@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use alloy::signers::local::PrivateKeySigner;
 use anyhow::Result;
-use boundless_market::{Client, Deployment, StorageProviderConfig};
+use boundless_market::{Client, Deployment, StorageUploaderConfig};
 use clap::Parser;
 use guest_util::ECHO_ELF;
 use tracing_subscriber::EnvFilter;
@@ -32,7 +32,7 @@ struct Args {
     requestor_key: PrivateKeySigner,
 
     #[clap(flatten)]
-    storage_config: StorageProviderConfig,
+    storage_config: StorageUploaderConfig,
 
     #[clap(flatten)]
     deployment: Option<Deployment>,
@@ -48,7 +48,8 @@ async fn main() -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config)?
+        .with_uploader_config(&args.storage_config)
+        .await?
         .with_private_key(args.requestor_key)
         .build()
         .await?;

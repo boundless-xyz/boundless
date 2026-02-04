@@ -11,6 +11,8 @@ publish = false
 release = false
 
 [features]
+# Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
+test-r0vm = []
 
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
@@ -22,8 +24,7 @@ chrono = "0.4"
 clap = { workspace = true, features = ["env"] }
 csv = "1.2"
 futures = { version = "0.3" }
-reqwest = { workspace = true }
-risc0-zkvm = { workspace = true, features = ["std", "default"] }
+risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = [ "any", "postgres", "sqlite", "runtime-tokio", "json", "migrate", "macros", "runtime-tokio-rustls"] }

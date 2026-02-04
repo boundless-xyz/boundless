@@ -36,6 +36,8 @@ prover_minio_host: "minio"
 prover_minio_bucket: workflow
 prover_minio_root_user: admin
 prover_minio_root_pass: password
+# Expire all objects in the workflow bucket older than this many days (MinIO lifecycle)
+prover_minio_work_expiry_days: 7
 
 # Bento configuration
 prover_rust_log: info
@@ -54,8 +56,6 @@ prover_broker_dockerfile: "dockerfiles/broker.prebuilt.dockerfile"
 
 # BLAKE3 Groth16 artifacts URL (required for GPU proving)
 prover_blake3_groth16_url: "https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz"
-# Set to true to use locally mounted artifacts instead of downloading
-prover_use_local_blake3_groth16: true
 # Broker configuration (if enabled)
 prover_private_key: ""
 prover_rpc_url: ""
