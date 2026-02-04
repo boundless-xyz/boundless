@@ -20,7 +20,6 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use boundless_indexer::db::IndexerDb;
 use std::{str::FromStr, sync::Arc};
 use utoipa;
 
@@ -32,7 +31,7 @@ use crate::{
         EpochPoVWSummary, LeaderboardResponse, PaginationParams, PoVWAddressSummary,
         PoVWSummaryStats,
     },
-    utils::{format_cycles, format_eth, format_zkc},
+    utils::{format_cycles, format_zkc},
 };
 
 /// Create PoVW routes
@@ -146,12 +145,6 @@ async fn get_povw_all_epochs_summary_impl(
     let summaries =
         state.rewards_db.get_all_epoch_povw_summaries(params.offset, params.limit).await?;
 
-    // Collect all periods and fetch market fees in a single batch query
-    let periods: Vec<(u64, u64)> =
-        summaries.iter().map(|s| (s.epoch_start_time, s.epoch_end_time)).collect();
-    let market_fees_map =
-        state.market_db.get_periods_market_fees(&periods).await.unwrap_or_default();
-
     // Convert to response format
     let entries: Vec<EpochPoVWSummary> = summaries
         .into_iter()
@@ -160,12 +153,6 @@ async fn get_povw_all_epochs_summary_impl(
             let emissions_str = summary.total_emissions.to_string();
             let capped_str = summary.total_capped_rewards.to_string();
             let uncapped_str = summary.total_uncapped_rewards.to_string();
-            let market_fees = market_fees_map
-                .get(&(summary.epoch_start_time, summary.epoch_end_time))
-                .copied()
-                .unwrap_or_default();
-            let market_fees_str = market_fees.to_string();
-
             EpochPoVWSummary {
                 epoch: summary.epoch,
                 total_work: work_str.clone(),
@@ -179,8 +166,6 @@ async fn get_povw_all_epochs_summary_impl(
                 epoch_start_time: summary.epoch_start_time,
                 epoch_end_time: summary.epoch_end_time,
                 num_participants: summary.num_participants,
-                market_fees: market_fees_str.clone(),
-                market_fees_formatted: format_eth(&market_fees_str),
                 last_updated_at: summary.updated_at,
             }
         })
@@ -231,16 +216,10 @@ async fn get_povw_epoch_summary_impl(
         .await?
         .ok_or_else(|| anyhow::anyhow!("No data available for epoch {}", epoch))?;
 
-    let period = (summary.epoch_start_time, summary.epoch_end_time);
-    let market_fees_map =
-        state.market_db.get_periods_market_fees(&[period]).await.unwrap_or_default();
-    let market_fees = market_fees_map.get(&period).copied().unwrap_or_default();
-
     let work_str = summary.total_work.to_string();
     let emissions_str = summary.total_emissions.to_string();
     let capped_str = summary.total_capped_rewards.to_string();
     let uncapped_str = summary.total_uncapped_rewards.to_string();
-    let market_fees_str = market_fees.to_string();
 
     Ok(EpochPoVWSummary {
         epoch: summary.epoch,
@@ -255,8 +234,6 @@ async fn get_povw_epoch_summary_impl(
         epoch_start_time: summary.epoch_start_time,
         epoch_end_time: summary.epoch_end_time,
         num_participants: summary.num_participants,
-        market_fees: market_fees_str.clone(),
-        market_fees_formatted: format_eth(&market_fees_str),
         last_updated_at: summary.updated_at,
     })
 }
