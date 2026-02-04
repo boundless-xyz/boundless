@@ -25,10 +25,13 @@ mod mock;
 #[cfg(feature = "s3")]
 mod s3;
 
+#[cfg(any(feature = "s3", feature = "gcs"))]
 use std::time::Duration;
 
+#[cfg(any(feature = "s3", feature = "gcs"))]
 use url::Url;
 
+#[cfg(any(feature = "s3", feature = "gcs"))]
 use crate::storage::StorageError;
 
 pub use file::{FileStorageDownloader, FileStorageUploader};
@@ -42,6 +45,7 @@ pub use pinata::PinataStorageUploader;
 pub use s3::{S3StorageDownloader, S3StorageUploader};
 
 /// Verify that a URL is publicly accessible via an unauthenticated HEAD request.
+#[cfg(any(feature = "s3", feature = "gcs"))]
 pub(crate) async fn verify_public_url(url: &Url) -> Result<(), StorageError> {
     tracing::trace!(%url, "verifying public accessibility");
 
