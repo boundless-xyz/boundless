@@ -1,0 +1,11 @@
+# Docker NAT and FORWARD (when Docker daemon has "iptables": false)
+# Allows containers on default bridge (172.17.0.0/16) to reach the internet
+*nat
+:POSTROUTING ACCEPT [0:0]
+-A POSTROUTING -s {{ ufw_docker_subnet | default('172.17.0.0/16') }} ! -o docker0 -j MASQUERADE
+COMMIT
+
+*filter
+-A FORWARD -s {{ ufw_docker_subnet | default('172.17.0.0/16') }} -j ACCEPT
+-A FORWARD -d {{ ufw_docker_subnet | default('172.17.0.0/16') }} -m state --state RELATED,ESTABLISHED -j ACCEPT
+COMMIT

@@ -8,6 +8,7 @@ export interface IndexerInfraArgs {
   vpcId: pulumi.Output<string>;
   privSubNetIds: pulumi.Output<string[]>;
   rdsPassword: pulumi.Output<string>;
+  isDev: boolean;
 }
 
 export class IndexerShared extends pulumi.ComponentResource {
@@ -30,7 +31,7 @@ export class IndexerShared extends pulumi.ComponentResource {
   constructor(name: string, args: IndexerInfraArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:infra', name, opts);
 
-    const { vpcId, privSubNetIds, rdsPassword } = args;
+    const { vpcId, privSubNetIds, rdsPassword, isDev } = args;
     const serviceName = `${args.serviceName}-base`;
 
     this.ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
@@ -137,24 +138,53 @@ export class IndexerShared extends pulumi.ComponentResource {
       storageEncrypted: true,
     }, { parent: this /* protect: true */ });
 
+    // IAM role for RDS Enhanced Monitoring
+    const enhancedMonitoringRole = new aws.iam.Role(`${serviceName}-rds-mon`, {
+      assumeRolePolicy: JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Allow',
+          Principal: { Service: 'monitoring.rds.amazonaws.com' },
+          Action: 'sts:AssumeRole',
+        }],
+      }),
+    }, { parent: this });
+
+    new aws.iam.RolePolicyAttachment(`${serviceName}-rds-mon-pol`, {
+      role: enhancedMonitoringRole.name,
+      policyArn: 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole',
+    }, { parent: this });
+
+    const instanceClass = isDev ? 'db.r6g.large' : 'db.r6g.xlarge';
+
     new aws.rds.ClusterInstance(`${serviceName}-aurora-writer-${databaseVersion}`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      instanceClass: 'db.r6g.large',
+      instanceClass: instanceClass,
       identifier: `${serviceName}-aurora-writer-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
+      performanceInsightsEnabled: true,
+      performanceInsightsRetentionPeriod: 7,
+      monitoringInterval: 60,
+      monitoringRoleArn: enhancedMonitoringRole.arn,
+      applyImmediately: true,
     }, { parent: this /* protect: true */ });
 
     new aws.rds.ClusterInstance(`${serviceName}-aurora-reader-${databaseVersion}`, {
       clusterIdentifier: auroraCluster.id,
       engine: 'aurora-postgresql',
       engineVersion: '17.4',
-      instanceClass: 'db.r6g.xlarge',
+      instanceClass: instanceClass,
       identifier: `${serviceName}-aurora-reader-${databaseVersion}`,
       publiclyAccessible: false,
       dbSubnetGroupName: dbSubnets.name,
+      performanceInsightsEnabled: true,
+      performanceInsightsRetentionPeriod: 7,
+      monitoringInterval: 60,
+      monitoringRoleArn: enhancedMonitoringRole.arn,
+      applyImmediately: true,
     }, { parent: this /* protect: true */ });
 
     // Writer secret: direct connection to Aurora cluster endpoint (for ECS indexer)

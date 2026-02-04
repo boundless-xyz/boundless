@@ -20,16 +20,18 @@ use alloy::{
         utils::{format_units, parse_ether},
         U256,
     },
+    providers::DynProvider,
     signers::local::PrivateKeySigner,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
     client::{Client, FundingMode},
     deployments::Deployment,
     input::GuestEnv,
-    request_builder::OfferParams,
-    storage::{fetch_url, StorageProviderConfig},
+    request_builder::StandardRequestBuilder,
+    storage::{HttpDownloader, StandardDownloader, StorageDownloader},
+    StandardUploader, StorageUploaderConfig,
 };
 use clap::Parser;
 use rand::Rng;
@@ -129,9 +131,9 @@ struct MainArgs {
     #[clap(long, default_value = "false")]
     submit_offchain: bool,
 
-    /// Storage provider to use.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
+    storage_config: StorageUploaderConfig,
 }
 
 #[tokio::main]
@@ -170,20 +172,24 @@ async fn run(args: &MainArgs) -> Result<()> {
         client = client.with_rpc_urls(rpc_urls.clone());
     }
 
-    let client = client
-        .with_storage_provider_config(&args.storage_config)?
+    let mut client = client
+        .with_uploader_config(&args.storage_config)
+        .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
-        .config_offer_layer(|config| {
+        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()));
+
+    if args.submit_offchain {
+        client = client.config_offer_layer(|config| {
             config
                 .min_price_per_cycle(args.min_price_per_mcycle >> 20)
                 .max_price_per_cycle(args.max_price_per_mcycle >> 20)
-        })
-        .with_funding_mode(FundingMode::AvailableBalance)
-        .build()
-        .await?;
+        });
+    }
+
+    let client = client.build().await?;
 
     let ipfs_gateway = args
         .storage_config
@@ -191,23 +197,20 @@ async fn run(args: &MainArgs) -> Result<()> {
         .clone()
         .unwrap_or(Url::parse("https://gateway.pinata.cloud").unwrap());
     // Ensure we have both a program and a program URL.
-    let program = args.program.as_ref().map(std::fs::read).transpose()?;
-    let program_url = match program {
-        Some(ref program) => {
-            let program_url = client.upload_program(program).await?;
+    let (program, program_url) = match args.program.as_ref().map(std::fs::read).transpose()? {
+        Some(program) => {
+            let program_url = client.upload_program(&program).await?;
             tracing::info!("Uploaded program to {}", program_url);
-            program_url
+            (program, program_url)
         }
         None => {
             // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            ipfs_gateway
+            let program_url = ipfs_gateway
                 .join("/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi")
-                .unwrap()
+                .unwrap();
+            let program = HttpDownloader::default().download_url(program_url.clone()).await?;
+            (program, program_url)
         }
-    };
-    let program = match program {
-        None => fetch_url(&program_url).await.context("failed to fetch order generator program")?,
-        Some(program) => program,
     };
 
     let mut i = 0u64;
@@ -235,7 +238,13 @@ async fn run(args: &MainArgs) -> Result<()> {
 
 async fn handle_request(
     args: &MainArgs,
-    client: &Client,
+    client: &Client<
+        DynProvider,
+        StandardUploader,
+        StandardDownloader,
+        StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+        PrivateKeySigner,
+    >,
     program: &[u8],
     program_url: &url::Url,
 ) -> Result<()> {
@@ -253,78 +262,18 @@ async fn handle_request(
     };
     let env = GuestEnv::builder().write(&(input as u64))?.write(&nonce)?.build_env();
 
-    // add 1 minute for each 1M cycles to the original timeout
-    // Use the input directly as the estimated cycle count, since we are using a loop program.
     let m_cycles = input >> 20;
-    let seconds_for_mcycles = args.seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-    let ramp_up_seconds_for_mcycles =
-        args.ramp_up_seconds_per_mcycle.checked_mul(m_cycles as u32).unwrap();
-    let ramp_up = args.ramp_up + ramp_up_seconds_for_mcycles;
-    let lock_timeout = args.lock_timeout + seconds_for_mcycles;
-    tracing::debug!(
-        "m_cycles: {}, seconds_for_mcycles: {}, ramp_up [{} + {}]: {}, lock_timeout [{} + {}]: {}",
-        m_cycles,
-        seconds_for_mcycles,
-        args.ramp_up,
-        ramp_up_seconds_for_mcycles,
-        ramp_up,
-        args.lock_timeout,
-        seconds_for_mcycles,
-        lock_timeout
-    );
-    // Give equal time for provers that are fulfilling after lock expiry to prove.
-    let timeout: u32 = args.timeout + lock_timeout + seconds_for_mcycles;
 
     // Provide journal and cycles in order to skip preflighting, allowing us to send requests faster.
     let journal = Journal::new([input.to_le_bytes(), nonce.to_le_bytes()].concat());
 
-    // Calculate bidding_start timestamp
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-
-    let bidding_start = if let Some(delay) = args.bidding_start_delay {
-        // Use provided delay
-        now + delay
-    } else {
-        // Calculate delay based on execution time using configured execution rate
-        // mcycles * 1000 = kcycles, then divide by exec_rate_khz to get seconds
-        let exec_time_seconds = (m_cycles.saturating_mul(1000)).div_ceil(args.exec_rate_khz);
-        let delay = std::cmp::max(30, exec_time_seconds);
-
-        tracing::debug!(
-            "Calculated bidding_start_delay: {} seconds (based on {} mcycles at {} kHz exec rate)",
-            delay,
-            m_cycles,
-            args.exec_rate_khz
-        );
-
-        now + delay
-    };
-
-    let request = match args.submit_offchain {
-        true => client
-            .new_request()
-            .with_program(program.to_vec())
-            .with_program_url(program_url.clone())?
-            .with_env(env)
-            .with_cycles(input)
-            .with_journal(journal)
-            .with_offer(
-                OfferParams::builder()
-                    .ramp_up_period(ramp_up)
-                    .lock_timeout(lock_timeout)
-                    .timeout(timeout)
-                    .lock_collateral(args.lock_collateral_raw)
-                    .bidding_start(bidding_start),
-            ),
-        // Onchain submission uses the default offer layer config.
-        false => client
-            .new_request()
-            .with_program(program.to_vec())
-            .with_program_url(program_url.clone())?
-            .with_env(env)
-            .with_cycles(input)
-            .with_journal(journal),
-    };
+    let request = client
+        .new_request()
+        .with_program(program.to_vec())
+        .with_program_url(program_url.clone())?
+        .with_env(env)
+        .with_cycles(input)
+        .with_journal(journal);
 
     // Build the request, including preflight, and assigned the remaining fields.
     let request = client.build_request(request).await?;
@@ -397,7 +346,7 @@ mod tests {
     use alloy::{
         node_bindings::Anvil, providers::Provider, rpc::types::Filter, sol_types::SolEvent,
     };
-    use boundless_market::{contracts::IBoundlessMarket, storage::StorageProviderConfig};
+    use boundless_market::contracts::IBoundlessMarket;
     use boundless_test_utils::{guests::LOOP_PATH, market::create_test_ctx};
     use tracing_test::traced_test;
 
@@ -412,7 +361,7 @@ mod tests {
         let args = MainArgs {
             rpc_url: Some(anvil.endpoint_url()),
             rpc_urls: Some(Vec::new()),
-            storage_config: StorageProviderConfig::dev_mode(),
+            storage_config: StorageUploaderConfig::dev_mode(),
             private_key: ctx.customer_signer,
             deployment: Some(ctx.deployment.clone()),
             interval: 1,

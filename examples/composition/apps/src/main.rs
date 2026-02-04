@@ -25,7 +25,7 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use boundless_market::{
-    input::GuestEnv, request_builder::OfferParams, Client, Deployment, StorageProviderConfig,
+    input::GuestEnv, request_builder::OfferParams, Client, Deployment, StorageUploaderConfig,
 };
 use clap::Parser;
 use guest_util::{ECHO_ELF, ECHO_ID, IDENTITY_ELF, IDENTITY_ID};
@@ -55,9 +55,9 @@ struct Args {
     /// Address of the Counter contract.
     #[clap(short, long, env)]
     counter_address: Address,
-    /// Configuration for the StorageProvider to use for uploading programs and inputs.
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    storage_config: StorageProviderConfig,
+    /// Configuration for the uploader used for programs and inputs.
+    #[clap(flatten, next_help_heading = "Storage Uploader")]
+    storage_config: StorageUploaderConfig,
     /// Boundless Market deployment configuration
     #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
     deployment: Option<Deployment>,
@@ -87,7 +87,8 @@ async fn run(args: Args) -> Result<()> {
     let client = Client::builder()
         .with_rpc_url(args.rpc_url)
         .with_deployment(args.deployment)
-        .with_storage_provider_config(&args.storage_config)?
+        .with_uploader_config(&args.storage_config)
+        .await?
         .with_private_key(args.private_key)
         .build()
         .await
@@ -135,8 +136,8 @@ async fn run(args: Args) -> Result<()> {
     let identity_request = client
         .new_request()
         .with_program(IDENTITY_ELF)
-        // Set lock timeout to 20 minutes to allow this example to be run onn slower provers.
-        .with_offer(OfferParams::builder().lock_timeout(1200).timeout(1200))
+        // Set lock timeout to 20 minutes to allow this example to be run on slower provers.
+        .with_offer(OfferParams::builder().lock_timeout(1200).timeout(2400))
         .with_env(GuestEnv::builder().write_frame(&postcard::to_allocvec(&identity_input)?));
 
     // Submit the request to the Boundless market
@@ -199,7 +200,7 @@ mod tests {
         providers::{Provider, ProviderBuilder, WalletProvider},
     };
     use boundless_market::{
-        contracts::hit_points::default_allowance, storage::StorageProviderType,
+        contracts::hit_points::default_allowance, storage::StorageUploaderType,
     };
     use boundless_test_utils::market::{create_test_ctx, TestCtx};
     use broker::test_utils::BrokerBuilder;
@@ -258,8 +259,8 @@ mod tests {
             counter_address,
             rpc_url: anvil.endpoint_url(),
             private_key: ctx.customer_signer,
-            storage_config: StorageProviderConfig::builder()
-                .storage_provider(StorageProviderType::Mock)
+            storage_config: StorageUploaderConfig::builder()
+                .storage_uploader(StorageUploaderType::Mock)
                 .build()
                 .unwrap(),
             deployment: Some(ctx.deployment),

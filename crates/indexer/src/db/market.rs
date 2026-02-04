@@ -1216,7 +1216,13 @@ impl IndexerDb for MarketDb {
                 ));
                 params_count += 5;
             }
-            query.push_str(" ON CONFLICT (tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (tx_hash) DO UPDATE SET
+                    block_number = EXCLUDED.block_number,
+                    from_address = EXCLUDED.from_address,
+                    block_timestamp = EXCLUDED.block_timestamp,
+                    transaction_index = EXCLUDED.transaction_index",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for metadata in chunk {
@@ -1428,7 +1434,32 @@ impl IndexerDb for MarketDb {
                 ));
                 params_count += 24;
             }
-            query.push_str(" ON CONFLICT (request_digest) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_digest) DO UPDATE SET
+                    request_id = EXCLUDED.request_id,
+                    client_address = EXCLUDED.client_address,
+                    predicate_type = EXCLUDED.predicate_type,
+                    predicate_data = EXCLUDED.predicate_data,
+                    callback_address = EXCLUDED.callback_address,
+                    callback_gas_limit = EXCLUDED.callback_gas_limit,
+                    selector = EXCLUDED.selector,
+                    input_type = EXCLUDED.input_type,
+                    input_data = EXCLUDED.input_data,
+                    min_price = EXCLUDED.min_price,
+                    max_price = EXCLUDED.max_price,
+                    lock_collateral = EXCLUDED.lock_collateral,
+                    bidding_start = EXCLUDED.bidding_start,
+                    expires_at = EXCLUDED.expires_at,
+                    lock_end = EXCLUDED.lock_end,
+                    ramp_up_period = EXCLUDED.ramp_up_period,
+                    tx_hash = EXCLUDED.tx_hash,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp,
+                    source = EXCLUDED.source,
+                    image_id = EXCLUDED.image_id,
+                    image_url = EXCLUDED.image_url,
+                    submission_timestamp = EXCLUDED.submission_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (request_digest, request, metadata, source, submission_timestamp) in chunk {
@@ -1543,7 +1574,13 @@ impl IndexerDb for MarketDb {
                 ));
                 params_count += 5;
             }
-            query.push_str(" ON CONFLICT (tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (tx_hash) DO UPDATE SET
+                    prover_address = EXCLUDED.prover_address,
+                    seal = EXCLUDED.seal,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (receipt, metadata) in chunk {
@@ -1625,7 +1662,18 @@ impl IndexerDb for MarketDb {
                 ));
                 params_count += 11;
             }
-            query.push_str(" ON CONFLICT (request_digest, tx_hash) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (request_digest, tx_hash) DO UPDATE SET
+                    request_id = EXCLUDED.request_id,
+                    prover_address = EXCLUDED.prover_address,
+                    claim_digest = EXCLUDED.claim_digest,
+                    fulfillment_data_type = EXCLUDED.fulfillment_data_type,
+                    fulfillment_data = EXCLUDED.fulfillment_data,
+                    seal = EXCLUDED.seal,
+                    block_number = EXCLUDED.block_number,
+                    block_timestamp = EXCLUDED.block_timestamp,
+                    transaction_index = EXCLUDED.transaction_index",
+            );
 
             let mut query_builder = sqlx::query(&query);
             for (fill, prover_address, metadata) in chunk {

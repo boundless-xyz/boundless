@@ -13,13 +13,6 @@ on:
         options: [staging, nightly, release, all]
         default: "nightly"
 
-concurrency:
-  group: prover-deploy-${{ github.event.inputs.target || 'nightly' }}
-  cancel-in-progress: false
-
-permissions:
-  contents: read
-
 jobs:
   staging:
     name: Deploy staging
@@ -34,7 +27,7 @@ jobs:
           ref: main
       - uses: ./.github/actions/deploy-prover
         with:
-          target: staging
+          target: "staging"
           ssh_key: ${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}
           inventory: ${{ secrets.ANSIBLE_INVENTORY }}
 
@@ -51,7 +44,7 @@ jobs:
           ref: main
       - uses: ./.github/actions/deploy-prover
         with:
-          target: nightly
+          target: "production:&nightly"
           ssh_key: ${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}
           inventory: ${{ secrets.ANSIBLE_INVENTORY }}
 
@@ -63,6 +56,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/deploy-prover
         with:
-          target: release
+          target: "production:&release"
           ssh_key: ${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}
           inventory: ${{ secrets.ANSIBLE_INVENTORY }}

@@ -8,8 +8,8 @@ export class PulumiSecrets extends pulumi.ComponentResource {
     name: string,
     args: {
       accountId: string;
-      encryptKmsKeyArns: string[];
-      decryptKmsKeyArns: string[];
+      encryptKmsKeyArns: (string | pulumi.Output<string>)[];
+      decryptKmsKeyArns: (string | pulumi.Output<string>)[];
     },
     opts?: pulumi.ComponentResourceOptions
   ) {
@@ -39,7 +39,10 @@ export class PulumiSecrets extends pulumi.ComponentResource {
       }
     );
 
-    const keyPolicyDoc: aws.iam.PolicyDocument = {
+    const keyPolicyDoc = pulumi.all([
+      pulumi.output(args.encryptKmsKeyArns),
+      pulumi.output(args.decryptKmsKeyArns),
+    ]).apply(([encryptArns, decryptArns]): aws.iam.PolicyDocument => ({
       Id: 'Boundless Secrets Encryption Bucket Key Policy',
       Version: '2012-10-17',
       Statement: [
@@ -62,31 +65,27 @@ export class PulumiSecrets extends pulumi.ComponentResource {
           Resource: '*',
         },
         {
-          Principal: {
-            AWS: args.encryptKmsKeyArns,
-          },
+          Principal: { AWS: encryptArns },
           Effect: 'Allow',
           Action: ['kms:Encrypt', 'kms:ReEncrypt*', 'kms:GenerateDataKey*', 'kms:DescribeKey'],
           Resource: '*',
           Sid: 'Allow principals to encrypt using KMS key',
         },
         {
-          Principal: {
-            AWS: args.decryptKmsKeyArns,
-          },
+          Principal: { AWS: decryptArns },
           Effect: 'Allow',
           Action: ['kms:Decrypt', 'kms:DescribeKey'],
           Resource: '*',
           Sid: 'Allow principals to decrypt using KMS key',
         },
       ],
-    };
+    }));
 
     new aws.kms.KeyPolicy(
       'pulumiSecretsKeyPolicy',
       {
         keyId: pulumiSecretsKey.id,
-        policy: pulumi.jsonStringify(keyPolicyDoc),
+        policy: keyPolicyDoc.apply(p => pulumi.jsonStringify(p)),
       },
       {
         parent: this,

@@ -1,0 +1,34 @@
+---
+# UFW configuration
+
+# Enable UFW
+ufw_enabled: true
+
+# Default policies
+ufw_default_incoming: deny
+ufw_default_outgoing: allow
+
+# SSH port (always allowed)
+ufw_ssh_port: 22
+
+# Additional allowed ports
+ufw_allowed_ports:
+  - { port: 22, proto: tcp, comment: "SSH" }
+
+# Additional allowed ports with rate limiting
+ufw_rate_limited_ports: []
+# Example:
+#   - { port: 22, proto: tcp, comment: "SSH with rate limit" }
+
+# Allow specific IPs/networks
+ufw_allowed_networks: []
+# Example:
+#   - { from: "10.0.0.0/8", port: 5432, proto: tcp, comment: "PostgreSQL from internal" }
+
+# Logging level: off, low, medium, high, full
+ufw_logging: low
+
+# When true, add NAT and FORWARD rules so Docker containers (with daemon "iptables": false) can reach the internet
+ufw_docker_nat_enabled: true
+# Docker default bridge subnet (only used when ufw_docker_nat_enabled is true)
+ufw_docker_subnet: "172.17.0.0/16"

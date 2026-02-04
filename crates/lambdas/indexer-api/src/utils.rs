@@ -12,8 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{utils::format_ether, U256};
+use alloy::primitives::{utils::format_ether, Address, U256};
 use std::str::FromStr;
+
+/// Returns true if the string is a valid Ethereum address.
+///
+/// Accepts both `0x`-prefixed (42 chars) and unprefixed (40 chars) hex formats.
+pub fn is_valid_ethereum_address(s: &str) -> bool {
+    Address::from_str(s).is_ok()
+}
 
 /// Format wei amount to human-readable ZKC
 /// Converts from 18 decimals to ZKC units with full precision
@@ -142,6 +149,23 @@ mod tests {
         assert_eq!(format_cycles("30711723851776"), "30,711,723,851,776 cycles");
         assert_eq!(format_cycles("5000000"), "5,000,000 cycles");
         assert_eq!(format_cycles("0"), "0 cycles");
+    }
+
+    #[test]
+    fn test_is_valid_ethereum_address() {
+        // Valid addresses
+        assert!(is_valid_ethereum_address("0x0000000000000000000000000000000000000000"));
+        assert!(is_valid_ethereum_address("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1"));
+        assert!(is_valid_ethereum_address("0x742d35cc6634c0532925a3b844bc9e7595f0beb1"));
+        assert!(is_valid_ethereum_address("742d35cc6634c0532925a3b844bc9e7595f0beb1"));
+
+        // Invalid addresses
+        assert!(!is_valid_ethereum_address(""));
+        assert!(!is_valid_ethereum_address("0x"));
+        assert!(!is_valid_ethereum_address("0x123")); // too short
+        assert!(!is_valid_ethereum_address("not an address"));
+        assert!(!is_valid_ethereum_address("0x742d35cc6634c0532925a3b844bc9e7595f0beb1zz"));
+        // invalid chars
     }
 
     #[test]

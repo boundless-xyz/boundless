@@ -188,23 +188,17 @@ pub trait ProversDb: IndexerDb {
         prover_address: Address,
     ) -> Result<u64, DbError> {
         let query_str = "SELECT COUNT(DISTINCT client_address) as count 
-            FROM (
-                SELECT DISTINCT rs.client_address
-                FROM request_locked_events rle
-                JOIN request_status rs ON rle.request_digest = rs.request_digest
-                WHERE rle.block_timestamp >= $1 
-                AND rle.block_timestamp < $2
-                AND rle.prover_address = $3
-                
-                UNION
-                
-                SELECT DISTINCT rs.client_address
-                FROM request_fulfilled_events rfe
-                JOIN request_status rs ON rfe.request_digest = rs.request_digest
-                WHERE rfe.block_timestamp >= $1 
-                AND rfe.block_timestamp < $2
-                AND rfe.prover_address = $3
-            ) AS unique_requestors";
+            FROM request_status
+            WHERE (
+                lock_prover_address = $3
+                AND locked_at >= $1
+                AND locked_at < $2
+            )
+            OR (
+                fulfill_prover_address = $3
+                AND fulfilled_at >= $1
+                AND fulfilled_at < $2
+            )";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -523,21 +517,15 @@ pub trait ProversDb: IndexerDb {
         prover_address: Address,
     ) -> Result<u64, DbError> {
         let query_str = "SELECT COUNT(DISTINCT client_address) as count 
-            FROM (
-                SELECT DISTINCT rs.client_address
-                FROM request_locked_events rle
-                JOIN request_status rs ON rle.request_digest = rs.request_digest
-                WHERE rle.block_timestamp < $1
-                AND rle.prover_address = $2
-                
-                UNION
-                
-                SELECT DISTINCT rs.client_address
-                FROM request_fulfilled_events rfe
-                JOIN request_status rs ON rfe.request_digest = rs.request_digest
-                WHERE rfe.block_timestamp < $1
-                AND rfe.prover_address = $2
-            ) AS unique_requestors";
+            FROM request_status
+            WHERE (
+                lock_prover_address = $2
+                AND locked_at < $1
+            )
+            OR (
+                fulfill_prover_address = $2
+                AND fulfilled_at < $1
+            )";
 
         let row = sqlx::query(query_str)
             .bind(end_ts as i64)
@@ -1526,8 +1514,10 @@ async fn get_prover_last_activity_times_impl(
 #[allow(deprecated)]
 mod tests {
     use super::*;
-    use crate::db::market::{RequestStatusType, SlashedStatus};
-    use crate::test_utils::TestDb;
+    use crate::{
+        db::market::{RequestStatusType, SlashedStatus},
+        test_utils::TestDb,
+    };
     use alloy::primitives::{B256, U256};
 
     async fn get_db_url_from_pool(pool: &sqlx::PgPool) -> String {

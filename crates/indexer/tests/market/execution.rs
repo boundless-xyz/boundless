@@ -505,14 +505,13 @@ async fn test_execute_requests_processes_executing_cycle_counts(pool: PgPool) {
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_invalid_request_params(pool: PgPool) {
     // Create the test fixture with 3 requests, which we'll patch with invalid parameters for testing.
-    // Any of input_type, input_data or image_id if empty should trigger a failed request.
+    // Any of input_type or input_data if empty should trigger a failed request.
     // No Bento mocks needed since we fail before API calls
-    let (test_db, digests, mock_server) = setup_test_fixture(pool, None, 3).await;
+    let (test_db, digests, mock_server) = setup_test_fixture(pool, None, 2).await;
 
     // Patch each request with a different invalid field
     patch_request_field(&test_db.pool, &digests[0], "input_type", "").await;
     patch_request_field(&test_db.pool, &digests[1], "input_data", "").await;
-    patch_request_field(&test_db.pool, &digests[2], "image_id", "").await;
 
     // Start the test task for 1 iteration and wait for it to complete
     let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;

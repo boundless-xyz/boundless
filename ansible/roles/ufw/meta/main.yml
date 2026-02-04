@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  author: Boundless
+  description: UFW firewall configuration
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+
+dependencies: []

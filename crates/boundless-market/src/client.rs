@@ -47,14 +47,16 @@ use crate::{
     price_provider::{
         MarketPricing, MarketPricingConfigBuilder, PriceProviderArc, StandardPriceProvider,
     },
+    prover_utils::local_executor::LocalExecutor,
     request_builder::{
         FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, ParameterizationMode,
-        RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder, StandardRequestBuilder,
-        StandardRequestBuilderBuilderError, StorageLayer, StorageLayerConfigBuilder,
+        PreflightLayer, RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder,
+        StandardRequestBuilder, StandardRequestBuilderBuilderError, StorageLayer,
+        StorageLayerConfigBuilder,
     },
     storage::{
-        StandardStorageProvider, StandardStorageProviderError, StorageProvider,
-        StorageProviderConfig,
+        StandardDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
+        StorageUploaderConfig,
     },
     util::NotProvided,
 };
@@ -97,12 +99,13 @@ pub enum FundingMode {
 }
 /// Builder for the [Client] with standard implementations for the required components.
 #[derive(Clone)]
-pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
+pub struct ClientBuilder<U, D, S> {
     deployment: Option<Deployment>,
     rpc_url: Option<Url>,
     rpc_urls: Vec<Url>,
-    signer: Option<Si>,
-    storage_provider: Option<St>,
+    signer: Option<S>,
+    uploader: Option<U>,
+    downloader: Option<D>,
     tx_timeout: Option<std::time::Duration>,
     balance_alerts: Option<BalanceAlertConfig>,
     /// Optional price provider for fetching market prices.
@@ -124,16 +127,23 @@ pub struct ClientBuilder<St = NotProvided, Si = NotProvided> {
     /// [FundingMode::BelowThreshold] can be used to send value only if the balance is below a configurable threshold.
     /// [FundingMode::MinMaxBalance] can be used to maintain a minimum balance by funding requests accordingly.
     pub funding_mode: FundingMode,
+    /// Whether to skip preflight/pricing checks.
+    ///
+    /// If `Some(true)`, preflight checks are skipped.
+    /// If `Some(false)`, preflight checks are run.
+    /// If `None`, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub skip_preflight: Option<bool>,
 }
 
-impl<St, Si> Default for ClientBuilder<St, Si> {
+impl<U, D, S> Default for ClientBuilder<U, D, S> {
     fn default() -> Self {
         Self {
             deployment: None,
             rpc_url: None,
             rpc_urls: Vec::new(),
             signer: None,
-            storage_provider: None,
+            uploader: None,
+            downloader: None,
             tx_timeout: None,
             balance_alerts: None,
             price_provider: None,
@@ -142,11 +152,12 @@ impl<St, Si> Default for ClientBuilder<St, Si> {
             request_id_layer_config: Default::default(),
             request_finalizer_config: Default::default(),
             funding_mode: FundingMode::Always,
+            skip_preflight: None,
         }
     }
 }
 
-impl ClientBuilder {
+impl ClientBuilder<NotProvided, NotProvided, NotProvided> {
     /// Create a new client builder.
     pub fn new() -> Self {
         Self::default()
@@ -168,7 +179,7 @@ pub trait ClientProviderBuilder {
     fn signer_address(&self) -> Option<Address>;
 }
 
-impl<St, Si> ClientBuilder<St, Si> {
+impl<U, D, S> ClientBuilder<U, D, S> {
     /// Collect all RPC URLs by merging rpc_url and rpc_urls.
     /// If both are provided, they are merged into a single list.
     fn collect_rpc_urls(&self) -> Result<Vec<Url>, anyhow::Error> {
@@ -211,9 +222,9 @@ impl<St, Si> ClientBuilder<St, Si> {
     }
 }
 
-impl<St, Si> ClientProviderBuilder for ClientBuilder<St, Si>
+impl<U, D, S> ClientProviderBuilder for ClientBuilder<U, D, S>
 where
-    Si: TxSigner<Signature> + Send + Sync + Clone + 'static,
+    S: TxSigner<Signature> + Send + Sync + Clone + 'static,
 {
     type Error = anyhow::Error;
 
@@ -277,7 +288,7 @@ where
     }
 }
 
-impl<St> ClientProviderBuilder for ClientBuilder<St, NotProvided> {
+impl<U, D> ClientProviderBuilder for ClientBuilder<U, D, NotProvided> {
     type Error = anyhow::Error;
 
     async fn build_provider(&self, rpc_urls: Vec<Url>) -> Result<DynProvider, Self::Error> {
@@ -302,13 +313,35 @@ impl<St> ClientProviderBuilder for ClientBuilder<St, NotProvided> {
     }
 }
 
-impl<St, Si> ClientBuilder<St, Si> {
-    /// Build the client
+impl<U, S> ClientBuilder<U, NotProvided, S> {
+    /// Build the client with the [StandardDownloader].
     pub async fn build(
         self,
-    ) -> Result<Client<DynProvider, St, StandardRequestBuilder<DynProvider, St>, Si>>
+    ) -> Result<
+        Client<
+            DynProvider,
+            U,
+            StandardDownloader,
+            StandardRequestBuilder<DynProvider, U, StandardDownloader>,
+            S,
+        >,
+    >
     where
-        St: Clone,
+        U: Clone,
+        ClientBuilder<U, StandardDownloader, S>: ClientProviderBuilder<Error = anyhow::Error>,
+    {
+        self.with_downloader(StandardDownloader::new().await).build().await
+    }
+}
+
+impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
+    /// Build the client.
+    pub async fn build(
+        self,
+    ) -> Result<Client<DynProvider, U, D, StandardRequestBuilder<DynProvider, U, D>, S>>
+    where
+        U: Clone,
+        D: Clone,
         Self: ClientProviderBuilder<Error = anyhow::Error>,
     {
         let all_urls = self.collect_rpc_urls()?;
@@ -341,6 +374,9 @@ impl<St, Si> ClientBuilder<St, Si> {
             self.signer_address().unwrap_or(Address::ZERO),
         );
 
+        // Safe unwrap: Since D is not NotProvided a downloader must be set
+        let downloader = self.downloader.unwrap();
+
         // Build the order stream client, if a URL was provided.
         let offchain_client = deployment
             .order_stream_url
@@ -357,38 +393,50 @@ impl<St, Si> ClientBuilder<St, Si> {
             .transpose()?;
 
         // Build the price provider - use explicit provider if set, otherwise create from deployment.indexer_url
-        let price_provider: Option<PriceProviderArc> = if let Some(provider) =
-            self.price_provider.clone()
-        {
-            Some(provider)
-        } else if let Some(url_str) = deployment.indexer_url.as_ref() {
-            let url = Url::parse(url_str.as_ref()).with_context(|| {
-                format!("Failed to parse indexer URL from deployment: {}", url_str)
-            })?;
-            let indexer_client = IndexerClient::new(url).with_context(|| {
-                format!("Failed to create indexer client from deployment indexer URL: {}", url_str)
-            })?;
-            let market_pricing = MarketPricing::new(
-                first_rpc_url,
-                MarketPricingConfigBuilder::default()
-                    .deployment(deployment.clone())
-                    .build()
-                    .with_context(|| {
-                        format!(
+        let price_provider: Option<PriceProviderArc> =
+            if let Some(provider) = self.price_provider.clone() {
+                Some(provider)
+            } else {
+                let market_pricing = MarketPricing::new(
+                    first_rpc_url,
+                    MarketPricingConfigBuilder::default()
+                        .deployment(deployment.clone())
+                        .build()
+                        .with_context(|| {
+                            format!(
                             "Failed to build MarketPricingConfig for deployment: {deployment:?}",
                         )
-                    })?,
-            );
-            Some(Arc::new(StandardPriceProvider::new(indexer_client).with_fallback(market_pricing)))
-        } else {
-            None
-        };
+                        })?,
+                );
+                if let Some(url_str) = deployment.indexer_url.as_ref() {
+                    let url = Url::parse(url_str.as_ref()).with_context(|| {
+                        format!("Failed to parse indexer URL from deployment: {}", url_str)
+                    })?;
+                    let indexer_client = IndexerClient::new(url).with_context(|| {
+                        format!(
+                            "Failed to create indexer client from deployment indexer URL: {}",
+                            url_str
+                        )
+                    })?;
+                    Some(Arc::new(
+                        StandardPriceProvider::new(indexer_client).with_fallback(market_pricing),
+                    ))
+                } else {
+                    Some(Arc::new(StandardPriceProvider::<MarketPricing, MarketPricing>::new(
+                        market_pricing,
+                    )))
+                }
+            };
 
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(StorageLayer::new(
-                self.storage_provider.clone(),
+                self.uploader.clone(),
                 self.storage_layer_config.build()?,
+            ))
+            .preflight_layer(PreflightLayer::new(
+                LocalExecutor::default(),
+                Some(downloader.clone()),
             ))
             .offer_layer(
                 OfferLayer::new(provider.clone(), self.offer_layer_config.build()?)
@@ -404,7 +452,8 @@ impl<St, Si> ClientBuilder<St, Si> {
         let mut client = Client {
             boundless_market,
             set_verifier,
-            storage_provider: self.storage_provider,
+            uploader: self.uploader,
+            downloader,
             offchain_client,
             signer: self.signer,
             request_builder: Some(request_builder),
@@ -416,12 +465,18 @@ impl<St, Si> ClientBuilder<St, Si> {
             client = client.with_timeout(timeout);
         }
 
+        if let Some(skip_preflight) = self.skip_preflight {
+            client = client.with_skip_preflight(skip_preflight);
+        }
+
         Ok(client)
     }
+}
 
+impl<U, D, S> ClientBuilder<U, D, S> {
     /// Set the [Deployment] of the Boundless Market that this client will use.
     ///
-    /// If `None`, the builder will attempty to infer the deployment from the chain ID.
+    /// If `None`, the builder will attempt to infer the deployment from the chain ID.
     pub fn with_deployment(self, deployment: impl Into<Option<Deployment>>) -> Self {
         Self { deployment: deployment.into(), ..self }
     }
@@ -439,16 +494,15 @@ impl<St, Si> ClientBuilder<St, Si> {
     /// Set the parameterization mode for the offer layer.
     ///
     /// The parameterization mode is used to define the offering parameters for the request.
-    /// The fulfillment parameterization mode is [ParameterizationMode::fulfillment()], which is the default.
-    /// The latency parameterization mode is [ParameterizationMode::latency()], which is faster and allows for faster fulfillment,
-    /// at the cost of higher prices and lower fulfillment guarantees.
+    /// The default is [ParameterizationMode::fulfillment()], which is conservative and ensures
+    /// more provers can fulfill the request.
     ///
     /// # Example
     /// ```rust
     /// # use boundless_market::Client;
     /// use boundless_market::request_builder::ParameterizationMode;
     ///
-    /// Client::builder().with_parameterization_mode(ParameterizationMode::latency());
+    /// Client::builder().with_parameterization_mode(ParameterizationMode::fulfillment());
     /// ```
     pub fn with_parameterization_mode(self, parameterization_mode: ParameterizationMode) -> Self {
         self.config_offer_layer(|config| config.parameterization_mode(parameterization_mode))
@@ -490,7 +544,7 @@ impl<St, Si> ClientBuilder<St, Si> {
     pub fn with_private_key(
         self,
         private_key: impl Into<PrivateKeySigner>,
-    ) -> ClientBuilder<St, PrivateKeySigner> {
+    ) -> ClientBuilder<U, D, PrivateKeySigner> {
         self.with_signer(private_key.into())
     }
 
@@ -505,12 +559,12 @@ impl<St, Si> ClientBuilder<St, Si> {
     pub fn with_private_key_str(
         self,
         private_key: impl AsRef<str>,
-    ) -> Result<ClientBuilder<St, PrivateKeySigner>, LocalSignerError> {
+    ) -> Result<ClientBuilder<U, D, PrivateKeySigner>, LocalSignerError> {
         Ok(self.with_signer(PrivateKeySigner::from_str(private_key.as_ref())?))
     }
 
     /// Set the signer and wallet.
-    pub fn with_signer<Zi>(self, signer: impl Into<Option<Zi>>) -> ClientBuilder<St, Zi>
+    pub fn with_signer<Zi>(self, signer: impl Into<Option<Zi>>) -> ClientBuilder<U, D, Zi>
     where
         Zi: Signer + Clone + TxSigner<Signature> + Send + Sync + 'static,
     {
@@ -518,7 +572,8 @@ impl<St, Si> ClientBuilder<St, Si> {
         ClientBuilder {
             signer: signer.into(),
             deployment: self.deployment,
-            storage_provider: self.storage_provider,
+            uploader: self.uploader,
+            downloader: self.downloader,
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             tx_timeout: self.tx_timeout,
@@ -529,6 +584,7 @@ impl<St, Si> ClientBuilder<St, Si> {
             request_id_layer_config: self.request_id_layer_config,
             request_finalizer_config: self.request_finalizer_config,
             funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
         }
     }
 
@@ -542,20 +598,18 @@ impl<St, Si> ClientBuilder<St, Si> {
         Self { balance_alerts: config.into(), ..self }
     }
 
-    /// Set the storage provider.
+    /// Set the storage uploader.
     ///
-    /// The returned [ClientBuilder] will be generic over the provider [StorageProvider] type.
-    pub fn with_storage_provider<Z: StorageProvider>(
-        self,
-        storage_provider: Option<Z>,
-    ) -> ClientBuilder<Z, Si> {
+    /// The returned [ClientBuilder] will be generic over the provider [StorageUploader] type.
+    pub fn with_uploader<Z: StorageUploader>(self, uploader: Option<Z>) -> ClientBuilder<Z, D, S> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         ClientBuilder {
-            storage_provider,
             deployment: self.deployment,
             rpc_url: self.rpc_url,
             rpc_urls: self.rpc_urls,
             signer: self.signer,
+            uploader,
+            downloader: self.downloader,
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             price_provider: self.price_provider.clone(),
@@ -564,20 +618,43 @@ impl<St, Si> ClientBuilder<St, Si> {
             storage_layer_config: self.storage_layer_config,
             offer_layer_config: self.offer_layer_config,
             funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
         }
     }
 
-    /// Set the storage provider from the given config
-    pub fn with_storage_provider_config(
+    /// Sets the storage downloader for fetching data from URLs.
+    pub fn with_downloader<Z: StorageDownloader>(self, downloader: Z) -> ClientBuilder<U, Z, S> {
+        // NOTE: We can't use the ..self syntax here because return is not Self.
+        ClientBuilder {
+            deployment: self.deployment,
+            rpc_url: self.rpc_url,
+            rpc_urls: self.rpc_urls,
+            signer: self.signer,
+            uploader: self.uploader,
+            downloader: Some(downloader),
+            tx_timeout: self.tx_timeout,
+            balance_alerts: self.balance_alerts,
+            price_provider: self.price_provider,
+            request_finalizer_config: self.request_finalizer_config,
+            request_id_layer_config: self.request_id_layer_config,
+            storage_layer_config: self.storage_layer_config,
+            offer_layer_config: self.offer_layer_config,
+            funding_mode: self.funding_mode,
+            skip_preflight: self.skip_preflight,
+        }
+    }
+
+    /// Set the storage uploader from the given config
+    pub async fn with_uploader_config(
         self,
-        config: &StorageProviderConfig,
-    ) -> Result<ClientBuilder<StandardStorageProvider, Si>, StandardStorageProviderError> {
-        let storage_provider = match StandardStorageProvider::from_config(config) {
-            Ok(storage_provider) => Some(storage_provider),
-            Err(StandardStorageProviderError::NoProvider) => None,
+        config: &StorageUploaderConfig,
+    ) -> Result<ClientBuilder<StandardUploader, D, S>, StorageError> {
+        let storage_uploader = match StandardUploader::from_config(config).await {
+            Ok(storage_uploader) => Some(storage_uploader),
+            Err(StorageError::NoUploader) => None,
             Err(e) => return Err(e),
         };
-        Ok(self.with_storage_provider(storage_provider))
+        Ok(self.with_uploader(storage_uploader))
     }
 
     /// Set a custom price provider for fetching market prices.
@@ -593,7 +670,7 @@ impl<St, Si> ClientBuilder<St, Si> {
     ///
     /// ```rust
     /// # use boundless_market::client::ClientBuilder;
-    /// # use boundless_market::request_builder::PriceProviderArc;
+    /// # use boundless_market::price_provider::PriceProviderArc;
     /// // Example: Use a custom price provider
     /// // let custom_provider: PriceProviderArc = ...;
     /// // ClientBuilder::new().with_price_provider(Some(custom_provider));
@@ -669,6 +746,15 @@ impl<St, Si> ClientBuilder<St, Si> {
         f(&mut self.request_finalizer_config);
         self
     }
+
+    /// Set whether to skip preflight/pricing checks on the request builder.
+    ///
+    /// If `true`, preflight checks are skipped.
+    /// If `false`, preflight checks are run.
+    /// If not called, falls back to checking the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
+    pub fn with_skip_preflight(self, skip: bool) -> Self {
+        Self { skip_preflight: Some(skip), ..self }
+    }
 }
 
 #[derive(Clone)]
@@ -676,7 +762,8 @@ impl<St, Si> ClientBuilder<St, Si> {
 /// Client for interacting with the boundless market.
 pub struct Client<
     P = DynProvider,
-    St = StandardStorageProvider,
+    U = StandardUploader,
+    D = StandardDownloader,
     R = StandardRequestBuilder,
     Si = PrivateKeySigner,
 > {
@@ -684,10 +771,12 @@ pub struct Client<
     pub boundless_market: BoundlessMarketService<P>,
     /// Set verifier service.
     pub set_verifier: SetVerifierService<P>,
-    /// [StorageProvider] to upload programs and inputs.
+    /// [StandardUploader] to upload programs and inputs.
     ///
     /// If not provided, this client will not be able to upload programs or inputs.
-    pub storage_provider: Option<St>,
+    pub uploader: Option<U>,
+    /// Downloader for fetching data from storage.
+    pub downloader: D,
     /// [OrderStreamClient] to submit requests off-chain.
     ///
     /// If not provided, requests not only be sent onchain via a transaction.
@@ -715,18 +804,28 @@ pub struct Client<
 /// Alias for a [Client] instantiated with the standard implementations provided by this crate.
 pub type StandardClient = Client<
     DynProvider,
-    StandardStorageProvider,
-    StandardRequestBuilder<DynProvider>,
+    StandardUploader,
+    StandardDownloader,
+    StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
     PrivateKeySigner,
 >;
+
+impl<P, U, D, Si> Client<P, U, D, StandardRequestBuilder<P, U, D>, Si> {
+    fn with_skip_preflight(mut self, skip: bool) -> Self {
+        if let Some(ref mut builder) = self.request_builder {
+            builder.skip_preflight = Some(skip);
+        }
+        self
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 /// Client error
 pub enum ClientError {
-    /// Storage provider error
-    #[error("Storage provider error {0}")]
-    StorageProviderError(#[from] StandardStorageProviderError),
+    /// Storage error
+    #[error("Storage error {0}")]
+    StorageError(#[from] StorageError),
     /// Market error
     #[error("Market error {0}")]
     MarketError(#[from] MarketError),
@@ -741,21 +840,23 @@ pub enum ClientError {
     Error(#[from] anyhow::Error),
 }
 
-impl Client<NotProvided, NotProvided, NotProvided, NotProvided> {
+impl Client<NotProvided, NotProvided, NotProvided, NotProvided, NotProvided> {
     /// Create a [ClientBuilder] to construct a [Client].
-    pub fn builder() -> ClientBuilder {
+    pub fn builder() -> ClientBuilder<NotProvided, NotProvided, NotProvided> {
         ClientBuilder::new()
     }
 }
 
-impl<P> Client<P, NotProvided, NotProvided, NotProvided>
+impl<P, D> Client<P, NotProvided, D, NotProvided, NotProvided>
 where
     P: Provider<Ethereum> + 'static + Clone,
+    D: StorageDownloader,
 {
     /// Create a new client
     pub fn new(
         boundless_market: BoundlessMarketService<P>,
         set_verifier: SetVerifierService<P>,
+        downloader: D,
     ) -> Self {
         let boundless_market = boundless_market.clone();
         let set_verifier = set_verifier.clone();
@@ -772,7 +873,8 @@ where
             },
             boundless_market,
             set_verifier,
-            storage_provider: None,
+            uploader: None,
+            downloader,
             offchain_client: None,
             signer: None,
             request_builder: None,
@@ -781,7 +883,46 @@ where
     }
 }
 
-impl<P, St, R, Si> Client<P, St, R, Si>
+/// Computes the funding value to send for a given balance, max price, and funding mode.
+/// Used by [Client::compute_funding_value] and by unit tests.
+fn funding_value_for_balance(balance: U256, max_price: U256, funding_mode: FundingMode) -> U256 {
+    match funding_mode {
+        FundingMode::Always => max_price,
+
+        FundingMode::Never => U256::ZERO,
+
+        FundingMode::AvailableBalance => {
+            if balance < max_price {
+                max_price.saturating_sub(balance)
+            } else {
+                U256::ZERO
+            }
+        }
+
+        FundingMode::BelowThreshold(threshold) => {
+            if balance < threshold || balance < max_price {
+                max(threshold.saturating_sub(balance), max_price.saturating_sub(balance))
+            } else {
+                U256::ZERO
+            }
+        }
+
+        FundingMode::MinMaxBalance { min_balance, max_balance } => {
+            if balance < min_balance || balance < max_price {
+                let topup = if balance < min_balance {
+                    max_balance.saturating_sub(balance)
+                } else {
+                    U256::ZERO
+                };
+                max(topup, max_price.saturating_sub(balance))
+            } else {
+                U256::ZERO
+            }
+        }
+    }
+}
+
+impl<P, St, D, R, Si> Client<P, St, D, R, Si>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
@@ -817,14 +958,6 @@ where
             set_verifier,
             ..self
         }
-    }
-
-    /// Set the storage provider
-    pub fn with_storage_provider(self, storage_provider: St) -> Self
-    where
-        St: StorageProvider,
-    {
-        Self { storage_provider: Some(storage_provider), ..self }
     }
 
     /// Set the offchain client
@@ -865,13 +998,14 @@ where
     ///     .unwrap());
     /// # };
     /// ```
-    pub fn with_signer<Zi>(self, signer: Zi) -> Client<P, St, R, Zi> {
+    pub fn with_signer<Zi>(self, signer: Zi) -> Client<P, St, D, R, Zi> {
         // NOTE: We can't use the ..self syntax here because return is not Self.
         Client {
             signer: Some(signer),
             boundless_market: self.boundless_market,
             set_verifier: self.set_verifier,
-            storage_provider: self.storage_provider,
+            uploader: self.uploader,
+            downloader: self.downloader,
             offchain_client: self.offchain_client,
             request_builder: self.request_builder,
             deployment: self.deployment,
@@ -879,34 +1013,44 @@ where
         }
     }
 
-    /// Upload a program binary to the storage provider.
+    /// Upload a program binary to the storage uploader.
     pub async fn upload_program(&self, program: &[u8]) -> Result<Url, ClientError>
     where
-        St: StorageProvider,
-        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
+        St: StorageUploader,
     {
         Ok(self
-            .storage_provider
+            .uploader
             .as_ref()
-            .context("Storage provider not set")?
+            .context("Storage uploader not set")?
             .upload_program(program)
             .await
             .context("Failed to upload program")?)
     }
 
-    /// Upload input to the storage provider.
+    /// Upload input to the storage uploader.
     pub async fn upload_input(&self, input: &[u8]) -> Result<Url, ClientError>
     where
-        St: StorageProvider,
-        <St as StorageProvider>::Error: std::error::Error + Send + Sync + 'static,
+        St: StorageUploader,
     {
         Ok(self
-            .storage_provider
+            .uploader
             .as_ref()
-            .context("Storage provider not set")?
+            .context("Storage uploader not set")?
             .upload_input(input)
             .await
             .context("Failed to upload input")?)
+    }
+
+    /// Downloads the content at the given URL using the configured downloader.
+    pub async fn download(&self, url: &str) -> Result<Vec<u8>, ClientError>
+    where
+        D: StorageDownloader,
+    {
+        Ok(self
+            .downloader
+            .download(url)
+            .await
+            .with_context(|| format!("Failed to download {}", url))?)
     }
 
     /// Initial parameters that will be used to build a [ProofRequest] using the [RequestBuilder].
@@ -920,7 +1064,13 @@ where
 
     /// Build a proof request from the given parameters.
     ///
-    /// Requires a a [RequestBuilder] to be provided.
+    /// Requires a [RequestBuilder] to be provided. After building, pricing validation
+    /// is run to check if the request will likely be accepted by provers.
+    ///
+    /// If a signer is available on the client, the request will be signed for full validation.
+    /// If no signer is available, pricing validation still runs but without signing.
+    ///
+    /// Pricing checks can be skipped by setting the `BOUNDLESS_IGNORE_PREFLIGHT` environment variable.
     pub async fn build_request<Params>(
         &self,
         params: impl Into<Params>,
@@ -934,72 +1084,58 @@ where
         tracing::debug!("Building request");
         let request = request_builder.build(params).await.map_err(Into::into)?;
         tracing::debug!("Built request with id {:x}", request.id);
+
         Ok(request)
     }
+}
 
+impl<P, U, D, R, Si> Client<P, U, D, R, Si>
+where
+    P: Provider<Ethereum> + 'static + Clone,
+{
     async fn compute_funding_value(
         &self,
         client_address: Address,
         max_price: U256,
     ) -> Result<U256, ClientError> {
         let balance = self.boundless_market.balance_of(client_address).await?;
+        let value = funding_value_for_balance(balance, max_price, self.funding_mode);
 
-        let value = match self.funding_mode {
-            FundingMode::Always => {
-                if balance > max_price.saturating_mul(U256::from(3u8)) {
-                    tracing::warn!(
-                        "Client balance is {} ETH, that is more than 3x the value being sent. \
-                         Consider switching to a different funding mode to avoid overfunding.",
-                        format_ether(balance),
-                    );
-                }
-                max_price
-            }
-
-            FundingMode::Never => U256::ZERO,
-
-            FundingMode::AvailableBalance => {
-                if balance < max_price {
-                    max_price.saturating_sub(balance)
-                } else {
-                    U256::ZERO
-                }
-            }
-
-            FundingMode::BelowThreshold(threshold) => {
+        if value > U256::ZERO {
+            if let FundingMode::BelowThreshold(threshold) = self.funding_mode {
                 if balance < threshold {
-                    let to_send =
-                        max(threshold.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < threshold {} ETH. \
                          Sending additional funds to top up the balance.",
                         format_ether(balance),
                         format_ether(threshold),
                     );
-                    to_send
-                } else {
-                    U256::ZERO
                 }
-            }
-
-            FundingMode::MinMaxBalance { min_balance, max_balance } => {
+            } else if let FundingMode::MinMaxBalance { min_balance, max_balance } =
+                self.funding_mode
+            {
                 if balance < min_balance {
-                    let to_send =
-                        max(max_balance.saturating_sub(balance), max_price.saturating_sub(balance));
                     tracing::warn!(
                         "Client balance is {} ETH < min {} ETH. \
                          Sending {} ETH (max target {}).",
                         format_ether(balance),
                         format_ether(min_balance),
-                        format_ether(to_send),
+                        format_ether(value),
                         format_ether(max_balance),
                     );
-                    to_send
-                } else {
-                    U256::ZERO
                 }
             }
-        };
+        }
+
+        if let FundingMode::Always = self.funding_mode {
+            if balance > max_price.saturating_mul(U256::from(3u8)) {
+                tracing::warn!(
+                    "Client balance is {} ETH, that is more than 3x the value being sent. \
+                     Consider switching to a different funding mode to avoid overfunding.",
+                    format_ether(balance),
+                );
+            }
+        }
 
         Ok(value)
     }
@@ -1220,6 +1356,9 @@ where
         if client_address != signer.address() {
             return Err(MarketError::AddressMismatch(client_address, signer.address()))?;
         };
+
+        request.validate()?;
+
         let max_price = U256::from(request.offer.maxPrice);
         let value = self.compute_funding_value(client_address, max_price).await?;
         if value > 0 {
@@ -1249,6 +1388,24 @@ where
 
     /// Get the [SetInclusionReceipt] for a request.
     ///
+    /// This method fetches the fulfillment data for a request and constructs the set inclusion receipt.
+    ///
+    /// # Parameters
+    ///
+    /// * `request_id` - The unique identifier of the proof request
+    /// * `image_id` - The image ID for the receipt claim
+    /// * `search_to_block` - Optional lower bound for the block search range. The search will go backwards
+    ///   down to this block number. Combined with `search_from_block` to define a specific range.
+    /// * `search_from_block` - Optional upper bound for the block search range. The search starts backwards
+    ///   from this block. Defaults to the latest block if not specified. Set this to a block number near
+    ///   when the request was fulfilled to reduce RPC calls and cost when querying old fulfillments.
+    ///
+    /// # Default Search Behavior
+    ///
+    /// Without explicit block bounds, the onchain search covers blocks according to
+    /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
+    /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -1260,7 +1417,23 @@ where
     ///
     /// async fn fetch_set_inclusion_receipt(request_id: U256, image_id: B256) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>)> {
     ///     let client = ClientBuilder::new().build().await?;
-    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(request_id, image_id).await?;
+    ///
+    ///     // For recent requests
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
+    ///         request_id,
+    ///         image_id,
+    ///         None,
+    ///         None,
+    ///     ).await?;
+    ///
+    ///     // For old requests with explicit block range
+    ///     let (journal, receipt) = client.fetch_set_inclusion_receipt(
+    ///         request_id,
+    ///         image_id,
+    ///         Some(1000000),  // search_to_block
+    ///         Some(1500000),  // search_from_block
+    ///     ).await?;
+    ///
     ///     Ok((journal, receipt))
     /// }
     /// ```
@@ -1268,10 +1441,15 @@ where
         &self,
         request_id: U256,
         image_id: B256,
+        search_to_block: Option<u64>,
+        search_from_block: Option<u64>,
     ) -> Result<(Bytes, SetInclusionReceipt<ReceiptClaim>), ClientError> {
         // TODO(#646): This logic is only correct under the assumption there is a single set
         // verifier.
-        let fulfillment = self.boundless_market.get_request_fulfillment(request_id).await?;
+        let fulfillment = self
+            .boundless_market
+            .get_request_fulfillment(request_id, search_to_block, search_from_block)
+            .await?;
         match fulfillment.data().context("failed to decode fulfillment data")? {
             FulfillmentData::None => Err(ClientError::Error(anyhow!(
                 "No fulfillment data found for set inclusion receipt"
@@ -1297,15 +1475,62 @@ where
     /// onchain uses event logs, and will take more time to find requests that are further in the
     /// past.
     ///
-    /// Providing a `tx_hash` will speed up onchain queries, by fetching the transaction containing
-    /// the request. Providing the `request_digest` allows differentiating between multiple
-    /// requests with the same ID. If set to `None`, the first found request matching the ID will
-    /// be returned.
+    /// # Parameters
+    ///
+    /// * `request_id` - The unique identifier of the proof request
+    /// * `tx_hash` - Optional transaction hash containing the request. Providing this will speed up
+    ///   onchain queries by fetching the transaction directly instead of searching through events.
+    /// * `request_digest` - Optional digest to differentiate between multiple requests with the same ID.
+    ///   If `None`, the first found request matching the ID will be returned.
+    /// * `search_to_block` - Optional lower bound for the block search range. The search will go backwards
+    ///   down to this block number. Combined with `search_from_block` to define a specific range.
+    /// * `search_from_block` - Optional upper bound for the block search range. The search starts backwards
+    ///   from this block. Defaults to the latest block if not specified. Set this to a block number near
+    ///   when the request was submitted to reduce RPC calls and cost when querying old requests.
+    ///
+    /// # Default Search Behavior
+    ///
+    /// Without explicit block bounds, the onchain search covers blocks according to
+    /// EventQueryConfig.block_range and EventQueryConfig.max_iterations.
+    /// Fulfillment events older than this default range will not be found unless you provide explicit `search_to_block` and `search_from_block` parameters.
+    ///
+    /// Providing both bounds overrides the default iteration limit to ensure the full specified range is searched.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use alloy::primitives::U256;
+    /// # use boundless_market::client::ClientBuilder;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ClientBuilder::new().build().await?;
+    ///
+    /// // Query a recent request (no block bounds needed)
+    /// let (request, sig) = client.fetch_proof_request(
+    ///     U256::from(123),
+    ///     None,
+    ///     None,
+    ///     None,
+    ///     None,
+    /// ).await?;
+    ///
+    /// // Query an old request with explicit block range (e.g., blocks 1000000 to 1500000)
+    /// let (request, sig) = client.fetch_proof_request(
+    ///     U256::from(456),
+    ///     None,
+    ///     None,
+    ///     Some(1000000),  // search_to_block (lower bound)
+    ///     Some(1500000),  // search_from_block (upper bound)
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn fetch_proof_request(
         &self,
         request_id: U256,
         tx_hash: Option<B256>,
         request_digest: Option<B256>,
+        search_to_block: Option<u64>,
+        search_from_block: Option<u64>,
     ) -> Result<(ProofRequest, Bytes), ClientError> {
         if let Some(ref order_stream_client) = self.offchain_client {
             tracing::debug!("Querying the order stream for request: 0x{request_id:x} using request_digest {request_digest:?}");
@@ -1332,12 +1557,148 @@ where
         tracing::debug!(
             "Querying the blockchain for request: 0x{request_id:x} using tx_hash {tx_hash:?}"
         );
-        match self.boundless_market.get_submitted_request(request_id, tx_hash).await {
+        match self
+            .boundless_market
+            .get_submitted_request(request_id, tx_hash, search_to_block, search_from_block)
+            .await
+        {
             Ok((proof_request, signature)) => Ok((proof_request, signature)),
-            Err(err @ MarketError::RequestNotFound(_)) => Err(err.into()),
+            Err(err @ MarketError::RequestNotFound(..)) => Err(err.into()),
             err @ Err(_) => err
                 .with_context(|| format!("error querying for 0x{request_id:x} onchain"))
                 .map_err(Into::into),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{funding_value_for_balance, FundingMode};
+    use alloy::primitives::U256;
+
+    #[test]
+    fn funding_always_sends_max_price() {
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(U256::ZERO, max_price, FundingMode::Always),
+            max_price
+        );
+        assert_eq!(
+            funding_value_for_balance(U256::from(100u64), max_price, FundingMode::Always),
+            max_price
+        );
+    }
+
+    #[test]
+    fn funding_never_sends_zero() {
+        let balance = U256::from(5u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(funding_value_for_balance(balance, max_price, FundingMode::Never), U256::ZERO);
+    }
+
+    #[test]
+    fn funding_available_balance_sends_shortfall_when_insufficient() {
+        let balance = U256::from(5u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(balance, max_price, FundingMode::AvailableBalance),
+            U256::from(15u64)
+        );
+    }
+
+    #[test]
+    fn funding_available_balance_sends_zero_when_sufficient() {
+        let balance = U256::from(25u64);
+        let max_price = U256::from(20u64);
+        assert_eq!(
+            funding_value_for_balance(balance, max_price, FundingMode::AvailableBalance),
+            U256::ZERO
+        );
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_above_threshold_below_max_price_sends_shortfall() {
+        // Balance >= threshold but < max_price: must send (max_price - balance) to fund request.
+        let balance = U256::from(15u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::from(5u64), "should send shortfall for this request");
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_below_threshold_sends_max_of_topup_and_shortfall() {
+        let balance = U256::from(5u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::from(15u64)); // max(5, 15) = 15
+    }
+
+    #[test]
+    fn funding_below_threshold_balance_above_max_price_sends_zero() {
+        let balance = U256::from(25u64);
+        let threshold = U256::from(10u64);
+        let max_price = U256::from(20u64);
+
+        let value =
+            funding_value_for_balance(balance, max_price, FundingMode::BelowThreshold(threshold));
+
+        assert_eq!(value, U256::ZERO);
+    }
+
+    #[test]
+    fn funding_min_max_balance_above_min_below_max_price_sends_shortfall() {
+        // Balance >= min_balance but < max_price: must send (max_price - balance) to fund request.
+        let balance = U256::from(15u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::from(5u64), "should send shortfall for this request");
+    }
+
+    #[test]
+    fn funding_min_max_balance_below_min_sends_max_of_topup_and_shortfall() {
+        let balance = U256::from(5u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::from(95u64)); // max(95, 15) = 95
+    }
+
+    #[test]
+    fn funding_min_max_balance_above_max_price_sends_zero() {
+        let balance = U256::from(25u64);
+        let min_balance = U256::from(10u64);
+        let max_balance = U256::from(100u64);
+        let max_price = U256::from(20u64);
+
+        let value = funding_value_for_balance(
+            balance,
+            max_price,
+            FundingMode::MinMaxBalance { min_balance, max_balance },
+        );
+
+        assert_eq!(value, U256::ZERO);
     }
 }

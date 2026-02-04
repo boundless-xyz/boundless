@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::IndexerService;
+use super::{DbResultExt, IndexerService};
 use crate::db::events::EventsDb;
 use crate::db::market::{IndexerDb, TxMetadata};
 use crate::market::ServiceError;
-use ::boundless_market::contracts::{IBoundlessMarket, RequestId};
+use ::boundless_market::contracts::{IBoundlessMarket, ProofRequest, RequestId};
 use ::boundless_market::order_stream_client::SortDirection;
 use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::B256;
+use alloy::primitives::{B256, U256};
 use alloy::providers::Provider;
 use alloy::rpc::types::Log;
 use alloy::sol_types::SolEvent;
 use anyhow::{anyhow, Context};
+use rand::Rng;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -78,7 +79,7 @@ where
     P: Provider<Ethereum> + 'static + Clone,
     ANP: Provider<AnyNetwork> + 'static + Clone,
 {
-    pub(super) async fn process_request_submitted_events(
+    pub async fn process_request_submitted_events(
         &self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -99,8 +100,8 @@ where
 
         tracing::debug!("Found {} request submitted events", logs_len);
 
-        // Collect events and proof requests for batch insert
-        let mut submitted_events = Vec::new();
+        // Collect proof requests for batch insert
+        // Note: submitted_events will be built from deduplicated proof_requests
         let mut proof_requests = Vec::new();
 
         for log in logs {
@@ -137,9 +138,6 @@ where
                 metadata.block_timestamp,
             ));
 
-            // Collect event for batch insert
-            submitted_events.push((request_digest, event.requestId, metadata));
-
             tracing::debug!(
                 "Adding request_digest to touched_requests: 0x{:x} for request: 0x{:x}",
                 request_digest,
@@ -150,12 +148,91 @@ where
 
         // Batch insert all collected proof requests
         if !proof_requests.is_empty() {
-            self.db.add_proof_requests(&proof_requests).await?;
+            tracing::info!("Batch inserting {} onchain proof requests", proof_requests.len());
+
+            // Deduplicate by request_digest, keeping the first occurrence (logs are processed in order)
+            let original_len = proof_requests.len();
+            let mut deduplicated_map: std::collections::HashMap<
+                B256,
+                (ProofRequest, TxMetadata, String, u64),
+            > = std::collections::HashMap::new();
+
+            for (digest, request, metadata, source, submission_ts) in proof_requests.iter() {
+                if let Some((
+                    original_request,
+                    original_metadata,
+                    original_source,
+                    original_submission_ts,
+                )) = deduplicated_map.get(digest)
+                {
+                    // Found a duplicate - log it and skip (keep the first occurrence)
+                    tracing::warn!(
+                        "DEDUPLICATING onchain submitted request_digest: 0x{:x} - keeping first occurrence\n\
+                        ORIGINAL (KEPT): request_id=0x{:x}, tx_hash=0x{:x}, block={}, block_timestamp={}, tx_index={}, source={}, submission_ts={}\n\
+                        DUPLICATE (REMOVED): request_id=0x{:x}, tx_hash=0x{:x}, block={}, block_timestamp={}, tx_index={}, source={}, submission_ts={}",
+                        digest,
+                        original_request.id,
+                        original_metadata.tx_hash,
+                        original_metadata.block_number,
+                        original_metadata.block_timestamp,
+                        original_metadata.transaction_index,
+                        original_source,
+                        original_submission_ts,
+                        request.id,
+                        metadata.tx_hash,
+                        metadata.block_number,
+                        metadata.block_timestamp,
+                        metadata.transaction_index,
+                        source,
+                        submission_ts
+                    );
+                } else {
+                    // First occurrence - store it
+                    deduplicated_map.insert(
+                        *digest,
+                        (request.clone(), *metadata, source.clone(), *submission_ts),
+                    );
+                }
+            }
+
+            let deduplicated_len = deduplicated_map.len();
+            if original_len != deduplicated_len {
+                tracing::info!(
+                    "Deduplicated onchain submitted proof_requests: {} -> {} entries (removed {} duplicates)",
+                    original_len,
+                    deduplicated_len,
+                    original_len - deduplicated_len
+                );
+            }
+
+            // Build final list from the map
+            let mut deduplicated_requests: Vec<(B256, ProofRequest, TxMetadata, String, u64)> =
+                Vec::new();
+            for (digest, (request, metadata, source, submission_ts)) in deduplicated_map {
+                deduplicated_requests.push((digest, request, metadata, source, submission_ts));
+            }
+
+            // Replace proof_requests with deduplicated version
+            proof_requests = deduplicated_requests;
+
+            self.db
+                .add_proof_requests(&proof_requests)
+                .await
+                .with_db_context("add_proof_requests (onchain)")?;
+        }
+
+        // Build submitted_events from deduplicated proof_requests
+        let mut submitted_events: Vec<(B256, U256, TxMetadata)> = Vec::new();
+        for (digest, request, metadata, _, _) in &proof_requests {
+            submitted_events.push((*digest, request.id, *metadata));
         }
 
         // Batch insert all collected events
         if !submitted_events.is_empty() {
-            self.db.add_request_submitted_events(&submitted_events).await?;
+            self.db
+                .add_request_submitted_events(&submitted_events)
+                .await
+                .with_db_context("add_request_submitted_events")?;
         }
 
         tracing::info!(
@@ -170,7 +247,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_request_submitted_offchain(
+    pub async fn process_request_submitted_offchain(
         &self,
         from_block: u64,
         to_block: u64,
@@ -243,7 +320,11 @@ where
                 response.orders.iter().map(|order_data| order_data.order.request_digest).collect();
 
             // Batch check which requests already exist
-            let existing_digests = self.db.has_proof_requests(&request_digests).await?;
+            let existing_digests = self
+                .db
+                .has_proof_requests(&request_digests)
+                .await
+                .with_db_context("has_proof_requests")?;
 
             // Collect proof requests from this batch, skipping existing ones
             let mut batch_proof_requests = Vec::new();
@@ -263,9 +344,13 @@ where
                 let request_id = RequestId::from_lossy(request.id);
                 let created_at = order_data.created_at;
                 let submission_timestamp = created_at.timestamp() as u64;
-                // Off-chain orders have no associated on-chain transaction, so use sentinel values:
-                // tx_hash = B256::ZERO, block_number = 0, block_timestamp = 0, transaction_index = 0
-                let metadata = TxMetadata::new(B256::ZERO, request_id.addr, 0, 0, 0);
+                // Off-chain orders have no associated on-chain transaction.
+                // Generate unique tx_hash: 8 zero bytes prefix (sentinel marker) + 24 random bytes
+                // Required to prevent conflicts in db on insert
+                let mut tx_hash_bytes = [0u8; 32];
+                rand::rng().fill(&mut tx_hash_bytes[8..]);
+                let tx_hash = B256::from(tx_hash_bytes);
+                let metadata = TxMetadata::new(tx_hash, request_id.addr, 0, 0, 0);
 
                 tracing::debug!("Processing request submitted offchain event for request: 0x{:x}, digest: 0x{:x} [block: {}, timestamp: {}]", request.id, request_digest, metadata.block_number, metadata.block_timestamp);
 
@@ -301,7 +386,76 @@ where
         // Batch insert all collected proof requests
         if !all_proof_requests.is_empty() {
             tracing::info!("Batch inserting {} offchain proof requests", all_proof_requests.len());
-            self.db.add_proof_requests(&all_proof_requests).await?;
+
+            // Deduplicate by request_digest, keeping the first occurrence (orders are processed in order)
+            let original_len = all_proof_requests.len();
+            let mut deduplicated_map: std::collections::HashMap<
+                B256,
+                (ProofRequest, TxMetadata, String, u64),
+            > = std::collections::HashMap::new();
+
+            for (digest, request, metadata, source, submission_ts) in all_proof_requests.iter() {
+                if let Some((
+                    original_request,
+                    original_metadata,
+                    original_source,
+                    original_submission_ts,
+                )) = deduplicated_map.get(digest)
+                {
+                    // Found a duplicate - log it and skip (keep the first occurrence)
+                    tracing::warn!(
+                        "DEDUPLICATING offchain submitted request_digest: 0x{:x} - keeping first occurrence\n\
+                        ORIGINAL (KEPT): request_id=0x{:x}, tx_hash=0x{:x}, block={}, block_timestamp={}, tx_index={}, source={}, submission_ts={}\n\
+                        DUPLICATE (REMOVED): request_id=0x{:x}, tx_hash=0x{:x}, block={}, block_timestamp={}, tx_index={}, source={}, submission_ts={}",
+                        digest,
+                        original_request.id,
+                        original_metadata.tx_hash,
+                        original_metadata.block_number,
+                        original_metadata.block_timestamp,
+                        original_metadata.transaction_index,
+                        original_source,
+                        original_submission_ts,
+                        request.id,
+                        metadata.tx_hash,
+                        metadata.block_number,
+                        metadata.block_timestamp,
+                        metadata.transaction_index,
+                        source,
+                        submission_ts
+                    );
+                } else {
+                    // First occurrence - store it
+                    deduplicated_map.insert(
+                        *digest,
+                        (request.clone(), *metadata, source.clone(), *submission_ts),
+                    );
+                }
+            }
+
+            let deduplicated_len = deduplicated_map.len();
+            if original_len != deduplicated_len {
+                tracing::info!(
+                    "Deduplicated offchain proof_requests: {} -> {} entries (removed {} duplicates)",
+                    original_len,
+                    deduplicated_len,
+                    original_len - deduplicated_len
+                );
+            }
+
+            // Build final list from the map
+            let mut deduplicated_requests: Vec<(B256, ProofRequest, TxMetadata, String, u64)> =
+                Vec::new();
+            for (digest, (request, metadata, source, submission_ts)) in deduplicated_map {
+                deduplicated_requests.push((digest, request, metadata, source, submission_ts));
+            }
+
+            // Replace all_proof_requests with deduplicated version
+            all_proof_requests = deduplicated_requests;
+
+            self.db
+                .add_proof_requests(&all_proof_requests)
+                .await
+                .with_db_context("add_proof_requests (offchain)")?;
         }
 
         if total_orders > 0 {
@@ -324,7 +478,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_locked_events(
+    pub async fn process_locked_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -379,7 +533,10 @@ where
 
         // Batch insert all locked events
         if !locked_events.is_empty() {
-            self.db.add_request_locked_events(&locked_events).await?;
+            self.db
+                .add_request_locked_events(&locked_events)
+                .await
+                .with_db_context("add_request_locked_events")?;
         }
 
         tracing::info!(
@@ -390,7 +547,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_proof_delivered_events(
+    pub async fn process_proof_delivered_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -442,12 +599,15 @@ where
 
         // Batch insert all proofs
         if !proofs.is_empty() {
-            self.db.add_proofs(&proofs).await?;
+            self.db.add_proofs(&proofs).await.with_db_context("add_proofs")?;
         }
 
         // Batch insert all proof delivered events
         if !proof_delivered_events.is_empty() {
-            self.db.add_proof_delivered_events(&proof_delivered_events).await?;
+            self.db
+                .add_proof_delivered_events(&proof_delivered_events)
+                .await
+                .with_db_context("add_proof_delivered_events")?;
         }
 
         tracing::info!(
@@ -458,7 +618,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_fulfilled_events(
+    pub async fn process_fulfilled_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -504,7 +664,10 @@ where
 
         // Batch insert all fulfilled events
         if !fulfilled_events.is_empty() {
-            self.db.add_request_fulfilled_events(&fulfilled_events).await?;
+            self.db
+                .add_request_fulfilled_events(&fulfilled_events)
+                .await
+                .with_db_context("add_request_fulfilled_events")?;
         }
 
         tracing::info!(
@@ -515,7 +678,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_slashed_events(
+    pub async fn process_slashed_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -569,7 +732,10 @@ where
 
         // Batch insert all slashed events
         if !slashed_events.is_empty() {
-            self.db.add_prover_slashed_events(&slashed_events).await?;
+            self.db
+                .add_prover_slashed_events(&slashed_events)
+                .await
+                .with_db_context("add_prover_slashed_events")?;
         }
 
         // Batch query all request digests
@@ -591,10 +757,7 @@ where
         Ok(touched_requests)
     }
 
-    pub(super) async fn process_deposit_events(
-        &self,
-        all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    pub async fn process_deposit_events(&self, all_logs: &[Log]) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Filter logs for Deposit events
@@ -633,7 +796,7 @@ where
 
         // Batch insert all deposit events
         if !deposits.is_empty() {
-            self.db.add_deposit_events(&deposits).await?;
+            self.db.add_deposit_events(&deposits).await.with_db_context("add_deposit_events")?;
         }
 
         tracing::info!(
@@ -644,10 +807,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_withdrawal_events(
-        &self,
-        all_logs: &[Log],
-    ) -> Result<(), ServiceError> {
+    pub async fn process_withdrawal_events(&self, all_logs: &[Log]) -> Result<(), ServiceError> {
         let start = std::time::Instant::now();
 
         // Filter logs for Withdrawal events
@@ -686,7 +846,10 @@ where
 
         // Batch insert all withdrawal events
         if !withdrawals.is_empty() {
-            self.db.add_withdrawal_events(&withdrawals).await?;
+            self.db
+                .add_withdrawal_events(&withdrawals)
+                .await
+                .with_db_context("add_withdrawal_events")?;
         }
 
         tracing::info!(
@@ -697,7 +860,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_collateral_deposit_events(
+    pub async fn process_collateral_deposit_events(
         &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
@@ -739,7 +902,10 @@ where
 
         // Batch insert all collateral deposit events
         if !collateral_deposits.is_empty() {
-            self.db.add_collateral_deposit_events(&collateral_deposits).await?;
+            self.db
+                .add_collateral_deposit_events(&collateral_deposits)
+                .await
+                .with_db_context("add_collateral_deposit_events")?;
         }
 
         tracing::info!(
@@ -750,7 +916,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_collateral_withdrawal_events(
+    pub async fn process_collateral_withdrawal_events(
         &self,
         all_logs: &[Log],
     ) -> Result<(), ServiceError> {
@@ -792,7 +958,10 @@ where
 
         // Batch insert all collateral withdrawal events
         if !collateral_withdrawals.is_empty() {
-            self.db.add_collateral_withdrawal_events(&collateral_withdrawals).await?;
+            self.db
+                .add_collateral_withdrawal_events(&collateral_withdrawals)
+                .await
+                .with_db_context("add_collateral_withdrawal_events")?;
         }
 
         tracing::info!(
@@ -803,7 +972,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn process_callback_failed_events(
+    pub async fn process_callback_failed_events(
         &mut self,
         all_logs: &[Log],
     ) -> Result<HashSet<B256>, ServiceError> {
@@ -856,7 +1025,10 @@ where
 
         // Batch insert all callback failed events
         if !callback_failed_events.is_empty() {
-            self.db.add_callback_failed_events(&callback_failed_events).await?;
+            self.db
+                .add_callback_failed_events(&callback_failed_events)
+                .await
+                .with_db_context("add_callback_failed_events")?;
         }
 
         // Batch query all request digests
