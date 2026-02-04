@@ -18,7 +18,7 @@ config:
   distributor:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   distributor:PROVER_ETH_DONATE_THRESHOLD: "20"
   distributor:PROVER_KEYS:
-    secure: v1:eDUhEncXCP2SfDO+:stU3Q2DLqxDbwvUP1ykwN+Gi4BuUU2w5F0l2w9rOUT9QbivAEgXE/VaRjWnyzIfxejuZuSbu5ZPuk6nF5uoCuhxN95PCK6zUJhdNniO8ClgocelNf3xGyBp98cKk/lRvMF/K2yenz0cHEXGpFx5GCP1TYN32a7DGeBdZKZa0qwEEXjK+GnjWTm8fcJxrqYg1yQ==
+    secure: v1:mbVWp2tRfJiosAr0:Icxl+wZPfpur5O/4mmCUhWq6gZpJm3A/FgpL8RsytBj2rz+NaxhGzg06l23E8IBo/6h8FGrZHz98fkbMQH5U/ZiFdF6co0ApCssyY3kgOGw=
   distributor:PROVER_STAKE_DONATE_THRESHOLD: "1500.0"
   distributor:SCHEDULE_MINUTES: "180"
   distributor:SLACK_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-alerts-topic-launch
