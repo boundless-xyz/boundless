@@ -6,9 +6,9 @@ Create/update a pull request for the current changes.
 3. If there are untracked files, do not add them to the commit, but warn the user
 4. Write a clear commit message based on what changed (use commit message style below)
 5. Commit and push to the current branch
-6. Check if an existing PR exists
+6. Check if an existing PR exists. Ignore warnings about GraphQL: Projects (classic) being deprecated.
    1. If not, use `gh pr create --web --title <title> --body <body>` to generate a pull request URL with title/description (use PR Title/Description Guidelines below)
-   2. Else update the description with the new changes
+   2. Else update the description with the new changes.
 7. Return the PR URL when done
 
 # Commit message style
