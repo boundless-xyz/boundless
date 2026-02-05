@@ -135,6 +135,48 @@
           "estimatedMaxInputSizeMB": 10
         }
       }
+    },
+    {
+      "address": "0x371479ca8a23B662f5B08d137BB21A4850861ACA",
+      "chainId": 8453,
+      "name": "KailuaTestValidity",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 5000,
+          "estimatedMcycleCountMax": 6000,
+          "estimatedMaxInputSizeMB": 150
+        }
+      }
+    },
+    {
+      "address": "0x45C667D9293aF3c941810D4B9148C4e875B5CeD6",
+      "chainId": 8453,
+      "name": "LooperTest",
+      "description": "",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 5000,
+          "estimatedMcycleCountMax": 6000,
+          "estimatedMaxInputSizeMB": 150
+        }
+      }
+    },
+    {
+      "address": "0x31DEf5d13d2521ADA03c47E064204692c4e351ec",
+      "chainId": 8453,
+      "name": "KailuaTestFP",
+      "description": "Large proofs but with long timeouts",
+      "tags": [],
+      "extensions": {
+        "requestEstimates": {
+          "estimatedMcycleCountMin": 10000,
+          "estimatedMcycleCountMax": 30000,
+          "estimatedMaxInputSizeMB": 550
+        }
+      }
     }
   ]
 }
