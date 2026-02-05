@@ -71,7 +71,7 @@ hex = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"], optional = true }
 httpmock = { workspace = true, optional = true }
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
+reqwest = { workspace = true, features = ["json", "multipart", "stream", "rustls"] }
 reqwest-middleware = "0.5"
 reqwest-retry = "0.9"
 risc0-aggregation = { workspace = true }
