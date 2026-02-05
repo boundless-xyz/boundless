@@ -18,6 +18,7 @@ x-base-environment: &base-environment
   RUST_LOG: ${RUST_LOG:-info}
   RISC0_HOME: /usr/local/risc0
   RUST_BACKTRACE: 1
+  JOIN_STREAM: 1
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
   runtime: ${DOCKER_RUNTIME:-nvidia}
@@ -85,6 +86,27 @@ x-gpu-prove-agent: &gpu-prove-agent
       "/bin/sh",
       "-c",
       "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t prove --redis-ttl $$REDIS_TTL & done; wait",
+    ]
+  # When USE_LOCAL_BLAKE3_GROTH16_SETUP=1 the image has no artifacts; set BLAKE3_GROTH16_SETUP_DIR
+  # to the host path containing verify_for_guest_final.zkey and verify_for_guest_graph.bin.
+  # When using Ansible, BLAKE3_GROTH16_SETUP_DIR is set in .env and this dir is populated.
+  volumes:
+    - type: bind
+      source: ${BLAKE3_GROTH16_SETUP_DIR}
+      target: /.blake3_groth16_artifacts/
+      read_only: true
+
+x-gpu-join-agent: &gpu-join-agent
+  <<: *agent-common
+  environment:
+    <<: *base-environment
+    REDIS_TTL: ${REDIS_TTL:-57600}
+  # Detect GPUs and spawn one agent per GPU, then wait for all
+  entrypoint:
+    [
+      "/bin/sh",
+      "-c",
+      "for gpu in $(nvidia-smi --query-gpu=index --format=csv,noheader,nounits); do CUDA_VISIBLE_DEVICES=$$gpu /app/agent -t join --redis-ttl $$REDIS_TTL & done; wait",
     ]
   # When USE_LOCAL_BLAKE3_GROTH16_SETUP=1 the image has no artifacts; set BLAKE3_GROTH16_SETUP_DIR
   # to the host path containing verify_for_guest_final.zkey and verify_for_guest_graph.bin.
@@ -244,6 +266,15 @@ services:
             - driver: nvidia
               # No device_ids restriction - all GPUs are accessible
               # The entrypoint script will detect and use all available GPUs
+              capabilities: [gpu]
+
+  gpu_join_agent:
+    <<: *gpu-join-agent
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
               capabilities: [gpu]
 
   rest_api:
