@@ -827,11 +827,13 @@ where
             let epoch_count = chunk_end_epoch - chunk_start_epoch + 1;
 
             tracing::info!(
-                "Processing epoch market chunk {}/{}: epochs {} to {} ({} epochs)",
+                "Processing epoch market chunk {}/{}: epochs {} [{}] to {} [{}] ({} epochs)",
                 chunk_idx + 1,
                 total_chunks,
                 chunk_start_epoch,
+                *chunk_start,
                 chunk_end_epoch,
+                *chunk_end,
                 epoch_count
             );
 
