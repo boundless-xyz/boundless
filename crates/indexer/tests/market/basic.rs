@@ -2562,7 +2562,7 @@ async fn test_epoch_aggregation(pool: sqlx::PgPool) {
     let epoch_prover_summaries = fixture
         .test_db
         .db
-        .get_epoch_prover_summaries(prover_address, None, 10, SortDirection::Desc)
+        .get_epoch_prover_summaries(prover_address, None, 10, SortDirection::Desc, None, None)
         .await
         .unwrap();
 
@@ -2591,7 +2591,7 @@ async fn test_epoch_aggregation(pool: sqlx::PgPool) {
     let epoch_requestor_summaries = fixture
         .test_db
         .db
-        .get_epoch_requestor_summaries(requestor_address, None, 10, SortDirection::Desc)
+        .get_epoch_requestor_summaries(requestor_address, None, 10, SortDirection::Desc, None, None)
         .await
         .unwrap();
 
