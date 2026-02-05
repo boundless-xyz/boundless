@@ -11,7 +11,13 @@ const FARGATE_MEMORY = 512;
 interface OrderGeneratorArgs {
   chainId: string;
   stackName: string;
-  privateKey: pulumi.Output<string>;
+  /** Required when not using rotationConfig. */
+  privateKey?: pulumi.Output<string>;
+  /** Use mnemonic + deriveRotationKeys for address rotation. Mutually exclusive with privateKey. */
+  rotationConfig?: {
+    mnemonic: pulumi.Output<string>;
+    deriveRotationKeys: number;
+  };
   pinataJWT: pulumi.Output<string>;
   ethRpcUrl: pulumi.Output<string>;
   image: Image;
@@ -21,12 +27,6 @@ interface OrderGeneratorArgs {
   collateralTokenAddress?: string;
   ipfsGateway: string;
   interval: string;
-  lockCollateralRaw: string;
-  rampUp?: string;
-  minPricePerMCycle: string;
-  maxPricePerMCycle: string;
-  secondsPerMCycle?: string;
-  rampUpSecondsPerMCycle?: string;
   inputMaxMCycles?: string;
   vpcId: pulumi.Output<string>;
   privateSubnetIds: pulumi.Output<string[]>;
@@ -38,9 +38,6 @@ interface OrderGeneratorArgs {
   warnBalanceBelow?: string;
   errorBalanceBelow?: string;
   txTimeout: string;
-  lockTimeout?: string;
-  timeout?: string;
-  execRateKhz?: string;
   oneShotConfig?: {
     // Number of requests to submit.
     count: string;
@@ -59,12 +56,31 @@ export class OrderGenerator extends pulumi.ComponentResource {
     const isStaging = args.stackName.includes('staging');
 
     const offchainConfig = args.offchainConfig;
+    const useRotation = args.rotationConfig !== undefined;
+    if (!useRotation && !args.privateKey) {
+      throw new Error('Either privateKey or rotationConfig must be provided');
+    }
+    if (useRotation && args.privateKey) {
+      throw new Error('privateKey and rotationConfig are mutually exclusive');
+    }
 
-    const privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
-    new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
-      secretId: privateKeySecret.id,
-      secretString: args.privateKey,
-    });
+    let privateKeySecret: aws.secretsmanager.Secret | undefined;
+    if (args.privateKey) {
+      privateKeySecret = new aws.secretsmanager.Secret(`${serviceName}-private-key`);
+      new aws.secretsmanager.SecretVersion(`${serviceName}-private-key-v1`, {
+        secretId: privateKeySecret.id,
+        secretString: args.privateKey,
+      });
+    }
+
+    let mnemonicSecret: aws.secretsmanager.Secret | undefined;
+    if (args.rotationConfig) {
+      mnemonicSecret = new aws.secretsmanager.Secret(`${serviceName}-mnemonic`);
+      new aws.secretsmanager.SecretVersion(`${serviceName}-mnemonic-v1`, {
+        secretId: mnemonicSecret.id,
+        secretString: args.rotationConfig.mnemonic,
+      });
+    }
 
     const pinataJwtSecret = new aws.secretsmanager.Secret(`${serviceName}-pinata-jwt`);
     new aws.secretsmanager.SecretVersion(`${serviceName}-pinata-jwt-v1`, {
@@ -90,15 +106,25 @@ export class OrderGenerator extends pulumi.ComponentResource {
       secretString: args.indexerUrl,
     });
 
-    const secretHash = pulumi
-      .all([args.ethRpcUrl, args.privateKey, offchainConfig?.orderStreamUrl])
-      .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]: [string, string, string | undefined]) => {
-        const hash = crypto.createHash("sha1");
-        hash.update(_ethRpcUrl);
-        hash.update(_privateKey);
-        hash.update(_orderStreamUrl ?? '');
-        return hash.digest("hex");
-      });
+    const secretHash = useRotation
+      ? pulumi
+        .all([args.ethRpcUrl, args.rotationConfig!.mnemonic, offchainConfig?.orderStreamUrl])
+        .apply(([_ethRpcUrl, _mnemonic, _orderStreamUrl]: [string, string, string | undefined]) => {
+          const hash = crypto.createHash("sha1");
+          hash.update(_ethRpcUrl);
+          hash.update(_mnemonic);
+          hash.update(_orderStreamUrl ?? '');
+          return hash.digest("hex");
+        })
+      : pulumi
+        .all([args.ethRpcUrl, args.privateKey!, offchainConfig?.orderStreamUrl])
+        .apply(([_ethRpcUrl, _privateKey, _orderStreamUrl]: [string, string, string | undefined]) => {
+          const hash = crypto.createHash("sha1");
+          hash.update(_ethRpcUrl);
+          hash.update(_privateKey);
+          hash.update(_orderStreamUrl ?? '');
+          return hash.digest("hex");
+        });
 
     const securityGroup = new aws.ec2.SecurityGroup(`${serviceName}-security-group`, {
       name: serviceName,
@@ -121,6 +147,15 @@ export class OrderGenerator extends pulumi.ComponentResource {
       managedPolicyArns: [aws.iam.ManagedPolicy.AmazonECSTaskExecutionRolePolicy],
     });
 
+    const execRoleSecretArns: pulumi.Input<string>[] = [
+      pinataJwtSecret.arn,
+      rpcUrlSecret.arn,
+      orderStreamUrlSecret.arn,
+      indexerUrlSecret.arn,
+    ];
+    if (privateKeySecret) execRoleSecretArns.push(privateKeySecret.arn);
+    if (mnemonicSecret) execRoleSecretArns.push(mnemonicSecret.arn);
+
     const execRolePolicy = new aws.iam.RolePolicy(`${serviceName}-exec`, {
       role: execRole.id,
       policy: {
@@ -129,7 +164,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
           {
             Effect: 'Allow',
             Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-            Resource: [privateKeySecret.arn, pinataJwtSecret.arn, rpcUrlSecret.arn, orderStreamUrlSecret.arn, indexerUrlSecret.arn],
+            Resource: execRoleSecretArns,
           },
         ],
       },
@@ -149,23 +184,20 @@ export class OrderGenerator extends pulumi.ComponentResource {
     ]
 
     let secrets = [
-      {
-        name: 'RPC_URL',
-        valueFrom: rpcUrlSecret.arn,
-      },
-      {
-        name: 'PRIVATE_KEY',
-        valueFrom: privateKeySecret.arn,
-      },
-      {
-        name: 'PINATA_JWT',
-        valueFrom: pinataJwtSecret.arn,
-      },
-      {
-        name: 'INDEXER_URL',
-        valueFrom: indexerUrlSecret.arn,
-      },
+      { name: 'RPC_URL', valueFrom: rpcUrlSecret.arn },
+      { name: 'PINATA_JWT', valueFrom: pinataJwtSecret.arn },
+      { name: 'INDEXER_URL', valueFrom: indexerUrlSecret.arn },
     ];
+    if (privateKeySecret) {
+      secrets.push({ name: 'PRIVATE_KEY', valueFrom: privateKeySecret.arn });
+    }
+    if (mnemonicSecret) {
+      secrets.push({ name: 'MNEMONIC', valueFrom: mnemonicSecret.arn });
+      environment.push({
+        name: 'DERIVE_ROTATION_KEYS',
+        value: String(args.rotationConfig!.deriveRotationKeys),
+      });
+    }
 
     if (args.autoDeposit) {
       environment.push({
@@ -183,9 +215,6 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
     let ogArgs = [
       `--interval ${args.interval}`,
-      `--min ${args.minPricePerMCycle}`,
-      `--max ${args.maxPricePerMCycle}`,
-      `--lock-collateral-raw ${args.lockCollateralRaw}`,
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
       `--tx-timeout ${args.txTimeout}`
@@ -205,30 +234,53 @@ export class OrderGenerator extends pulumi.ComponentResource {
     if (args.inputMaxMCycles) {
       ogArgs.push(`--input-max-mcycles ${args.inputMaxMCycles}`);
     }
-    if (args.lockTimeout) {
-      ogArgs.push(`--lock-timeout ${args.lockTimeout}`);
-    }
-    if (args.timeout) {
-      ogArgs.push(`--timeout ${args.timeout}`);
-    }
-    if (args.rampUp) {
-      ogArgs.push(`--ramp-up ${args.rampUp}`);
-    }
-    if (args.rampUpSecondsPerMCycle) {
-      ogArgs.push(`--ramp-up-seconds-per-mcycle ${args.rampUpSecondsPerMCycle}`);
-    }
-    if (args.secondsPerMCycle) {
-      ogArgs.push(`--seconds-per-mcycle ${args.secondsPerMCycle}`);
-    }
-    if (args.execRateKhz) {
-      ogArgs.push(`--exec-rate-khz ${args.execRateKhz}`);
-    }
     if (args.oneShotConfig) {
       ogArgs.push(`--count ${args.oneShotConfig.count}`);
     }
     if (args.useZeth) {
       ogArgs.push(`--use-zeth`);
     }
+
+    // EFS for persistent rotation state (only when using mnemonic-based rotation)
+    let efsFileSystem: aws.efs.FileSystem | undefined;
+    let efsMountTargets: pulumi.Output<aws.efs.MountTarget[]> | undefined;
+    if (useRotation) {
+      ogArgs.push(`--rotation-state-file /data/rotation-state.json`);
+      efsFileSystem = new aws.efs.FileSystem(`${serviceName}-efs`, {
+        encrypted: true,
+        tags: { Name: serviceName },
+      });
+      efsMountTargets = args.privateSubnetIds.apply((subnetIds: string[]) =>
+        subnetIds.map((subnetId, index) =>
+          new aws.efs.MountTarget(`${serviceName}-efs-mount-${index}`, {
+            fileSystemId: efsFileSystem!.id,
+            subnetId,
+            securityGroups: [securityGroup.id],
+          }, { dependsOn: [efsFileSystem!] })
+        )
+      );
+      new aws.ec2.SecurityGroupRule(`${serviceName}-efs-inbound`, {
+        type: 'ingress',
+        fromPort: 2049,
+        toPort: 2049,
+        protocol: 'tcp',
+        securityGroupId: securityGroup.id,
+        sourceSecurityGroupId: securityGroup.id,
+      });
+    }
+
+    const efsVolume = efsFileSystem
+      ? {
+        name: 'rotation-data',
+        efsVolumeConfiguration: {
+          fileSystemId: efsFileSystem.id,
+          rootDirectory: '/',
+        },
+      }
+      : undefined;
+    const mountPoints = efsVolume
+      ? [{ sourceVolume: 'rotation-data', containerPath: '/data', readOnly: false }]
+      : [];
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });
 
@@ -257,9 +309,14 @@ export class OrderGenerator extends pulumi.ComponentResource {
         scheduleExpression: args.oneShotConfig.scheduleExpression,
       });
 
+      const fargateTaskDeps: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
+      if (efsFileSystem) fargateTaskDeps.push(efsFileSystem);
+      if (efsMountTargets) fargateTaskDeps.push(efsMountTargets);
+
       const fargateTask = new awsx.ecs.FargateTaskDefinition(
         `${serviceName}-task`,
         {
+          volumes: efsVolume ? [efsVolume] : [],
           container: {
             name: serviceName,
             image: args.image.ref,
@@ -272,6 +329,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             ],
             environment,
             secrets,
+            mountPoints,
           },
           logGroup: {
             args: { name: serviceName, retentionInDays: 0 },
@@ -280,7 +338,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             roleArn: execRole.arn,
           },
         },
-        { dependsOn: [execRole, execRolePolicy] }
+        { dependsOn: fargateTaskDeps }
       );
 
       new aws.cloudwatch.EventTarget(`${serviceName}-task-target`, {
@@ -300,6 +358,10 @@ export class OrderGenerator extends pulumi.ComponentResource {
       logDependency = fargateTask;
     } else {
       // Service mode, runs indefinitely
+      const serviceDeps: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
+      if (efsFileSystem) serviceDeps.push(efsFileSystem);
+      if (efsMountTargets) serviceDeps.push(efsMountTargets);
+
       const service = new awsx.ecs.FargateService(
         `${serviceName}-service`,
         {
@@ -310,6 +372,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             subnets: args.privateSubnetIds,
           },
           taskDefinitionArgs: {
+            volumes: efsVolume ? [efsVolume] : [],
             logGroup: {
               args: { name: serviceName, retentionInDays: 0 },
             },
@@ -328,10 +391,11 @@ export class OrderGenerator extends pulumi.ComponentResource {
               ],
               environment,
               secrets,
+              mountPoints,
             },
           },
         },
-        { dependsOn: [execRole, execRolePolicy] }
+        { dependsOn: serviceDeps }
       );
       logDependency = service;
     }

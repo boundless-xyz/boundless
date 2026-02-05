@@ -412,6 +412,11 @@ impl<P: Provider> BoundlessMarketService<P> {
         }
     }
 
+    /// Returns the transaction timeout.
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
     /// Sets the transaction timeout.
     pub fn with_timeout(self, timeout: Duration) -> Self {
         Self { timeout, ..self }
