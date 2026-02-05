@@ -70,6 +70,14 @@ impl PriceOracleManager {
         Ok(Amount::new(converted_value, target))
     }
 
+    /// Refresh all prices from their oracles.
+    pub async fn refresh_all_prices(&self) {
+        tokio::join!(
+            self.eth_usd.refresh_price(),
+            self.zkc_usd.refresh_price(),
+        );
+    }
+
     /// Spawn background refresh task for all oracles
     ///
     /// Returns a join handle that completes when the task is cancelled.

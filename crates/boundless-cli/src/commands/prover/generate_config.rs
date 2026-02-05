@@ -13,12 +13,14 @@
 // limitations under the License.
 
 use std::path::{Path, PathBuf};
-
+use std::sync::Arc;
 use alloy::primitives::utils::format_units;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
+use alloy_chains::NamedChain;
 use anyhow::{bail, Context, Result};
 use boundless_market::indexer_client::IndexerClient;
+use boundless_market::price_oracle::{Amount, Asset, PriceOracleConfig, PriceOracleManager, TradingPair};
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
@@ -29,7 +31,6 @@ use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
 use url::Url;
-
 use super::benchmark::ProverBenchmark;
 use crate::commands::prover::benchmark::BenchmarkResult;
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
@@ -46,7 +47,7 @@ const PRIORITY_REQUESTOR_LIST_XL: &str =
 
 // Default minimum price per mega-cycle in collateral token (ZKC) for fulfilling
 // orders locked by other provers that exceeded their lock timeout
-const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.0005";
+const DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN: &str = "0.0005 ZKC";
 
 mod selection_strings {
     // Benchmark performance options
@@ -59,6 +60,115 @@ mod selection_strings {
     pub const FILE_GENERATE_NEW: &str = "Generate new";
     pub const FILE_CANCEL: &str = "Cancel";
 }
+
+/// Validate and normalize amount input using the same validation as config parsing
+fn validate_amount_input(
+    input: &str,
+    allowed_assets: &[Asset],
+    field_name: &str,
+) -> Result<String> {
+    Amount::parse_with_allowed(input, allowed_assets)
+        .map(|_| input.trim().to_string())
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid {} format: {}. Expected format: '<value> <asset>' where asset is one of: {}",
+                field_name,
+                e,
+                allowed_assets.iter().map(|a| format!("{:?}", a)).collect::<Vec<_>>().join(", ")
+            )
+        })
+}
+
+/// Prompt for amount with validation and retry on invalid input
+fn prompt_validated_amount(
+    prompt_text: &str,
+    default: &str,
+    help_message: &str,
+    allowed_assets: &[Asset],
+    field_name: &str,
+) -> Result<String> {
+    loop {
+        let input = Text::new(prompt_text)
+            .with_default(default)
+            .with_help_message(help_message)
+            .prompt()
+            .context("Failed to get user input")?;
+
+        match validate_amount_input(&input, allowed_assets, field_name) {
+            Ok(validated) => return Ok(validated),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                eprintln!("Please try again.\n");
+            }
+        }
+    }
+}
+
+/// Try to initialize a price oracle for dual-currency display
+/// Returns None if price fetching fails (display will fall back to single currency)
+async fn try_init_price_oracle (
+    rpc_url: &Url,
+    display: &DisplayManager,
+    chain_id: u64,
+) -> Result<Arc<PriceOracleManager>, anyhow::Error> {
+    display.status("Status", "Fetching current market prices...", "yellow");
+
+    let provider = alloy::providers::ProviderBuilder::new().connect(rpc_url.as_ref()).await?;
+
+    // Build price oracle from default config (uses Chainlink on-chain)
+    let config = PriceOracleConfig::default();
+    let named_chain = NamedChain::try_from(chain_id)?;
+
+    let manager = config.build(named_chain, provider)?;
+    manager.refresh_all_prices().await;
+
+    // Fetch initial prices
+    let (eth_result, zkc_result) = tokio::join!(
+        manager.get_price(TradingPair::EthUsd),
+        manager.get_price(TradingPair::ZkcUsd),
+    );
+
+    match (eth_result, zkc_result) {
+        (Ok(eth_quote), Ok(zkc_quote)) => {
+            display.item_colored("ETH/USD", format!("${:.2}", eth_quote.price_to_f64()), "cyan");
+            display.item_colored("ZKC/USD", format!("${:.4}", zkc_quote.price_to_f64()), "cyan");
+
+            Ok(Arc::new(manager))
+        }
+        _ => {
+            Err(anyhow::anyhow!("⚠  Could not fetch prices from price oracle"))
+        }
+    }
+}
+
+/// Format an amount with its USD equivalent (or native equivalent for USD amounts)
+async fn format_amount_with_conversion(
+    amount_str: &str,
+    price_oracle: Option<Arc<PriceOracleManager>>,
+) -> String {
+    let Ok(amount) = Amount::parse(amount_str) else {
+        return amount_str.to_string();
+    };
+
+    let Some(oracle) = price_oracle else {
+        return amount_str.to_string();
+    };
+
+    match amount.asset {
+        Asset::ETH | Asset::ZKC => {
+            if let Ok(usd) = oracle.convert(&amount, Asset::USD).await {
+                format!("{} (~{})", amount_str, usd.format())
+            } else {
+                amount_str.to_string()
+            }
+        }
+        Asset::USD => {
+            // USD amounts show "converted at runtime" since we need context to know target
+            format!("{} (converted at runtime)", amount_str)
+        }
+    }
+}
+
 /// Generate optimized broker.toml and compose.yml configuration files
 #[derive(Args, Clone, Debug)]
 pub struct ProverGenerateConfig {
@@ -374,47 +484,8 @@ impl ProverGenerateConfig {
         display.separator();
         display.step(6, 7, "Collateral Configuration");
 
-        let recommended_collateral = match priority_requestor_lists.len() {
-            1 => boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD,
-            2 => "200",
-            _ => "500",
-        };
-
-        display.note(&format!(
-            "We recommend a max collateral of {} ZKC for your configuration.",
-            recommended_collateral
-        ));
-        display.note("  • 50 ZKC: Recommended for the standard requestor list");
-        display.note("    (lower risk)");
-        display.note("  • 200 ZKC: Recommended for standard + large lists");
-        display.note("    (large orders, higher rewards, higher risk)");
-        display.note("  • 500 ZKC: Recommended for standard + large + XL lists");
-        display.note("    (largest orders, highest rewards, highest risk)");
-        display.note("");
-        display
-            .note("Higher collateral enables higher-reward orders but increases slashing risks.");
-
-        let max_collateral_value = Text::new("Max collateral (ZKC):")
-            .with_default(recommended_collateral)
-            .with_help_message("Press Enter to use recommended value")
-            .prompt()
-            .context("Failed to get max collateral")?;
-
-        let max_collateral = format!("{} ZKC", max_collateral_value);
-        display.item_colored("Max collateral", &max_collateral, "green");
-
-        // Step 7: Pricing Configuration
-        display.separator();
-        display.step(7, 7, "Pricing Configuration");
-
-        display.note("Analyzing recent market prices to determine competitive pricing...");
-        display.note("");
-
         // Get RPC URL for market query
         let rpc_url = self.get_or_prompt_rpc_url(display)?;
-
-        // Validate chain ID to ensure it's Base Mainnet
-        display.status("Status", "Validating RPC connection", "yellow");
         let temp_provider = alloy::providers::ProviderBuilder::new()
             .connect(rpc_url.as_ref())
             .await
@@ -425,6 +496,59 @@ impl ProverGenerateConfig {
             .await
             .context("Failed to query chain ID from RPC provider")?;
 
+        // Initialize price oracle for dual-currency display
+        let price_oracle = match try_init_price_oracle(&rpc_url, display, chain_id).await {
+            Ok(oracle) => Some(oracle),
+            Err(e) => {
+                display.note(&format!("⚠  Price oracle initialization failed: {}", e));
+                display.note("   Collateral and pricing will be shown in single currency only.");
+                None
+            }
+        };
+
+        let recommended_collateral = match priority_requestor_lists.len() {
+            1 => &format!("{} ZKC", boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD),
+            2 => "200 ZKC",
+            _ => "500 ZKC",
+        };
+
+        display.note(&format!(
+            "We recommend a max collateral of {} for your configuration.",
+            recommended_collateral
+        ));
+        // TODO
+        display.note(&format!("  • {}: Recommended for the standard requestor list", format_amount_with_conversion("50 ZKC", price_oracle.clone()).await));
+        display.note("    (lower risk)");
+        display.note(&format!("  • {}: Recommended for standard + large lists", format_amount_with_conversion("200 ZKC", price_oracle.clone()).await));
+        display.note("    (large orders, higher rewards, higher risk)");
+        display.note(&format!("  • {}: Recommended for standard + large + XL lists", format_amount_with_conversion("500 ZKC", price_oracle.clone()).await));
+        display.note("    (largest orders, highest rewards, highest risk)");
+        display.note("");
+        display
+            .note("Higher collateral enables higher-reward orders but increases slashing risks.");
+        display.note("");
+        display.note("You can specify collateral in ZKC or USD:");
+        display.note("  • ZKC: Fixed amount in ZKC (e.g., '200 ZKC')");
+        display.note("  • USD: Amount in USD, converted to ZKC at runtime (e.g., '100 USD')");
+        display.note("");
+
+        let max_collateral = prompt_validated_amount(
+            "Max collateral:",
+            recommended_collateral,
+            "Format: '<value> ZKC' or '<value> USD'",
+            &[Asset::USD, Asset::ZKC],
+            "max_collateral",
+        )?;
+
+        // Step 7: Pricing Configuration
+        display.separator();
+        display.step(7, 7, "Pricing Configuration");
+
+        display.note("Analyzing recent market prices to determine competitive pricing...");
+        display.note("");
+
+        // Validate chain ID to ensure it's Base Mainnet
+        display.status("Status", "Validating RPC connection", "yellow");
         if chain_id != 8453 {
             display.note(&format!("⚠  Detected Chain ID: {}", chain_id));
             display.note(
@@ -493,10 +617,10 @@ impl ProverGenerateConfig {
         let min_mcycle_price = if let Some(pricing) = market_pricing {
             display.note("");
             display.note(&format!(
-                "Recommended minimum price: {} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                format_units(pricing.p25 * U256::from(1_000_000), "ether")?,
-                format_units(pricing.p25 * U256::from(1_000_000), "gwei")?,
-                format_units(pricing.p25, "wei")?
+                "Recommended minimum price: {} / Mcycle",
+                format_amount_with_conversion(
+                    &format!("{} ETH", format_units(pricing.p25 * U256::from(1_000_000), "ether")?),
+                    price_oracle.clone()).await,
             ));
             display.note("");
             display
@@ -509,11 +633,19 @@ impl ProverGenerateConfig {
             display.note("         offer at least 0.00001 ETH for your broker to accept it.");
             display.note("");
 
-            Text::new("Press Enter to accept or enter custom price:")
-                .with_default(&format!("{:.10}", pricing.p25))
-                .with_help_message("You can update this later in broker.toml")
-                .prompt()
-                .context("Failed to get price")?
+            display.note("You can specify the price in ETH or USD:");
+            display.note("  • ETH: Price in ETH per mega-cycle (e.g., '0.00000001 ETH')");
+            display.note("  • USD: Price in USD per mega-cycle, converted to ETH at runtime (e.g., '0.02 USD')");
+            display.note("");
+
+
+            prompt_validated_amount(
+            "Minimum price per Mcycle:",
+            &format!("{:.10}", pricing.p25),
+            "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
+            &[Asset::USD, Asset::ETH],
+            "min_mcycle_price",
+            )?
         } else {
             // Fallback to manual entry if query failed
             Text::new("Minimum price per mcycle (ETH):")
@@ -532,42 +664,26 @@ impl ProverGenerateConfig {
         display.note("they are slashed. A portion of their collateral (in ZKC) becomes available");
         display.note("as a reward for any prover who can fulfill that order in a 'proof race'.");
         display.note("");
-        display.note("The setting below controls the minimum ZKC reward your broker will accept");
-        display.note("to participate in these proof races.");
-        display.note("");
-        display.note("Example: If set to 0.0005 ZKC/Mcycle, a 1000 Mcycle slashed order must");
-        display.note("         offer at least 0.5 ZKC reward for your broker to compete for it.");
-        display.note("");
-        display.note(&format!(
-            "Default minimum price: {} ZKC/Mcycle",
-            DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN
+        display.note("You can specify the price in ZKC or USD:");
+        display.note("  • ZKC: Price in ZKC per mega-cycle (e.g., '0.0005 ZKC')");
+        display.note(
+            "  • USD: Price in USD per mega-cycle, converted to ZKC at runtime (e.g., '0.02 USD')",
+        );
+        display.note(&format!("The recommended price per Mcycle is: {}",
+            format_amount_with_conversion(
+                DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
+                price_oracle.clone(),
+            ).await
         ));
         display.note("");
 
-        let min_mcycle_price_collateral_token =
-            Text::new("Minimum price per Mcycle (in ZKC collateral rewards):")
-                .with_default(DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN)
-                .with_help_message("You can update this later in broker.toml")
-                .prompt()
-                .context("Failed to get collateral token price")?;
-
-        display.item_colored(
-            "Collateral price",
-            format!("{} ZKC/Mcycle", min_mcycle_price_collateral_token),
-            "green",
-        );
-
-        let price_f64 = min_mcycle_price.parse::<f64>().unwrap_or(0.0);
-        display.item_colored(
-            "Min price",
-            format!(
-                "{} ETH/Mcycle ({} Gwei/Mcycle, {:.0} wei/cycle)",
-                min_mcycle_price,
-                price_f64 * 1e9,
-                price_f64 * 1e12
-            ),
-            "green",
-        );
+        let min_mcycle_price_collateral_token = prompt_validated_amount(
+            "Minimum price per Mcycle (collateral rewards):",
+            DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
+            "Format: '<value> ZKC' or '<value> USD'. You can update this later in broker.toml",
+            &[Asset::USD, Asset::ZKC],
+            "min_mcycle_price_collateral_token",
+        )?;
 
         Ok(WizardConfig {
             num_threads,
@@ -836,6 +952,13 @@ impl ProverGenerateConfig {
         Ok(Some(backup_path))
     }
 
+    fn extract_price_value(s: &str) -> (f64, Option<&str>) {
+        let parts: Vec<&str> = s.trim().split_whitespace().collect();
+        let value = parts.first().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        let asset = parts.get(1).copied();
+        (value, asset)
+    }
+
     fn strip_tagged_section(content: &str, opening_tag: &str, closing_tag: &str) -> String {
         if let Some(start) = content.find(opening_tag) {
             if let Some(end) = content[start..].find(closing_tag) {
@@ -980,21 +1103,26 @@ impl ProverGenerateConfig {
                     FileHandlingStrategy::ModifyExisting => {
                         // Get existing price and compare with recommended price
                         let existing_price_str = item.as_str().unwrap_or("0");
-                        let existing_price = existing_price_str.parse::<f64>().unwrap_or(0.0);
-                        let recommended_price =
-                            config.min_mcycle_price.parse::<f64>().unwrap_or(0.0);
+                        let (existing_value, existing_asset) =
+                            Self::extract_price_value(existing_price_str);
+                        let (recommended_value, recommended_asset) =
+                            Self::extract_price_value(&config.min_mcycle_price);
 
-                        if existing_price <= recommended_price && existing_price > 0.0 {
-                            // Existing price is already competitive, don't raise it
-                            display.note("");
-                            display.note(&format!(
-                                "Your min_mcycle_price is already priced competitively at {} ETH/Mcycle. Not modifying.",
-                                existing_price_str
-                            ));
-                            display.note("");
-                            false
+                        // Only compare if same asset, otherwise always update to new format
+                        if existing_asset == recommended_asset && existing_value > 0.0 {
+                            if existing_value <= recommended_value {
+                                display.note("");
+                                display.note(&format!(
+                                    "Your min_mcycle_price ({}) is already competitive. Not modifying.",
+                                    existing_price_str
+                                ));
+                                display.note("");
+                                false
+                            } else {
+                                true
+                            }
                         } else {
-                            // Recommended price is lower (more competitive), update it
+                            // Different assets or legacy format - update to new value
                             true
                         }
                     }
@@ -1004,6 +1132,11 @@ impl ProverGenerateConfig {
                 if should_update {
                     *item = toml_edit::value(config.min_mcycle_price.clone());
                 }
+            }
+
+            // Update min_mcycle_price_collateral_token
+            if let Some(item) = market.get_mut("min_mcycle_price_collateral_token") {
+                *item = toml_edit::value(config.min_mcycle_price_collateral_token.clone());
             }
         }
 

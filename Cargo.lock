@@ -2738,6 +2738,7 @@ name = "boundless-cli"
 version = "1.3.0"
 dependencies = [
  "alloy",
+ "alloy-chains",
  "alloy-node-bindings",
  "anyhow",
  "assert_cmd",
