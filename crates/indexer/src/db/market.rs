@@ -3998,6 +3998,7 @@ impl MarketDb {
         let query_str = format!(
             "SELECT
                 period_timestamp,
+                epoch_number_period_start,
                 total_fulfilled,
                 unique_provers_locking_requests,
                 unique_requesters_submitting_requests,

@@ -569,7 +569,7 @@ pub struct MarketAggregateEntry {
     /// Total cycles (program + overhead) computed across all fulfilled requests in this period
     pub total_cycles: String,
 
-    /// Epoch number at the start of this period (always populated)
+    /// Epoch number at the start of this period (None if timestamp is before epoch 0)
     pub epoch_number_start: Option<i64>,
 }
 
@@ -786,6 +786,9 @@ pub struct RequestorAggregateEntry {
 
     /// Total cycles (program + overhead) computed across all fulfilled requests in this period
     pub total_cycles: String,
+
+    /// Epoch number at the start of this period (None if timestamp is before epoch 0)
+    pub epoch_number_start: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -945,6 +948,9 @@ pub struct ProverAggregateEntry {
     pub p99_lock_price_per_cycle_formatted: String,
     pub total_program_cycles: String,
     pub total_cycles: String,
+
+    /// Epoch number at the start of this period (None if timestamp is before epoch 0)
+    pub epoch_number_start: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1550,10 +1556,6 @@ async fn get_requestor_aggregates_impl(
         anyhow::bail!("Monthly aggregation is not supported for requestor aggregates");
     }
 
-    if matches!(params.aggregation, AggregationGranularity::Epoch) {
-        anyhow::bail!("Epoch aggregation for requestor aggregates is not yet supported via API. Use epoch aggregation for market aggregates instead.");
-    }
-
     tracing::debug!(
         "Fetching requestor aggregates: address={}, aggregation={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
         address,
@@ -1629,9 +1631,17 @@ async fn get_requestor_aggregates_impl(
             anyhow::bail!("Monthly aggregation is not supported");
         }
         AggregationGranularity::Epoch => {
-            anyhow::bail!(
-                "Epoch aggregation for requestor aggregates is not yet supported via API"
-            );
+            state
+                .market_db
+                .get_epoch_requestor_summaries(
+                    requestor_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
         }
     };
 
@@ -1665,6 +1675,14 @@ async fn get_requestor_aggregates_impl(
             let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
             let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
             let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                Some(summary.epoch_number_period_start)
+            } else {
+                None
+            };
 
             RequestorAggregateEntry {
                 chain_id: state.chain_id,
@@ -1709,6 +1727,7 @@ async fn get_requestor_aggregates_impl(
                     .locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
             }
         })
         .collect();
@@ -1938,10 +1957,6 @@ async fn get_prover_aggregates_impl(
         anyhow::bail!("Monthly aggregation is not supported for prover aggregates");
     }
 
-    if matches!(params.aggregation, AggregationGranularity::Epoch) {
-        anyhow::bail!("Epoch aggregation for prover aggregates is not yet supported via API. Use epoch aggregation for market aggregates instead.");
-    }
-
     tracing::debug!(
         "Fetching prover aggregates: address={}, aggregation={}, cursor={:?}, limit={:?}, sort={:?}, before={:?}, after={:?}",
         address,
@@ -2012,7 +2027,17 @@ async fn get_prover_aggregates_impl(
             anyhow::bail!("Monthly aggregation is not supported");
         }
         AggregationGranularity::Epoch => {
-            anyhow::bail!("Epoch aggregation for prover aggregates is not yet supported via API");
+            state
+                .market_db
+                .get_epoch_prover_summaries(
+                    prover_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
         }
     };
 
@@ -2044,6 +2069,14 @@ async fn get_prover_aggregates_impl(
             let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
             let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
             let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                Some(summary.epoch_number_period_start)
+            } else {
+                None
+            };
 
             ProverAggregateEntry {
                 chain_id: state.chain_id,
@@ -2081,6 +2114,7 @@ async fn get_prover_aggregates_impl(
                 p99_lock_price_per_cycle_formatted: format_eth(&p99_lock_price_per_cycle),
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
             }
         })
         .collect();

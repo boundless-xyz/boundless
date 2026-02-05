@@ -738,6 +738,8 @@ pub trait ProversDb: IndexerDb {
         cursor: Option<i64>,
         limit: i64,
         sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
     ) -> Result<Vec<PeriodProverSummary>, DbError> {
         get_prover_summaries_generic(
             self.pool(),
@@ -745,8 +747,8 @@ pub trait ProversDb: IndexerDb {
             cursor,
             limit,
             sort,
-            None,
-            None,
+            before,
+            after,
             "epoch_prover_summary",
         )
         .await
@@ -1134,7 +1136,7 @@ async fn get_prover_summaries_generic(
     bind_count += 1;
     let query_str = format!(
         "SELECT 
-            period_timestamp, prover_address, total_requests_locked, total_requests_fulfilled,
+            period_timestamp, epoch_number_period_start, prover_address, total_requests_locked, total_requests_fulfilled,
             total_unique_requestors, total_fees_earned, total_collateral_locked, total_collateral_slashed,
             total_collateral_earned, total_requests_locked_and_expired, total_requests_locked_and_fulfilled,
             locked_orders_fulfillment_rate, p10_lock_price_per_cycle, p25_lock_price_per_cycle,

@@ -1246,6 +1246,57 @@ async fn test_requestor_aggregates() {
     let result: Result<RequestorAggregatesResponse, _> = env.get(&path).await;
     assert!(result.is_err(), "Monthly aggregation should be rejected");
 
+    // Test epoch aggregation
+    let path = format!(
+        "/v1/market/requestors/{}/aggregates?aggregation=epoch&limit=5",
+        requestor_address
+    );
+    let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "epoch");
+    assert_eq!(response.requestor_address, *requestor_address);
+    assert!(response.data.len() <= 5);
+    assert!(!response.data.is_empty(), "Should have at least one epoch summary");
+
+    let first = response.data.first().unwrap();
+    assert!(
+        first.epoch_number_start.is_some(),
+        "epoch_number_start should be populated for epoch aggregates"
+    );
+    let epoch_number = first.epoch_number_start.unwrap();
+    assert!(epoch_number >= 0, "epoch_number_start should be non-negative: {}", epoch_number);
+
+    // Verify epoch boundaries are respected (epochs are 2 days = 172800 seconds)
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 172800,
+                "Epoch aggregates should have exactly 2 days (172800s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+
+            // Verify epoch numbers are consecutive
+            let prev_epoch = response.data[i - 1].epoch_number_start.unwrap();
+            let curr_epoch = response.data[i].epoch_number_start.unwrap();
+            let epoch_diff = (prev_epoch - curr_epoch).abs();
+            assert_eq!(
+                epoch_diff, 1,
+                "Epoch numbers should be consecutive. Found epochs {} and {}",
+                prev_epoch, curr_epoch
+            );
+        }
+    }
+
+    tracing::info!(
+        "Epoch requestor aggregates test passed: {} entries, first epoch {} at timestamp {}",
+        response.data.len(),
+        epoch_number,
+        first.timestamp
+    );
+
     // Test pagination
     if let Some(cursor) = &response.next_cursor {
         let path = format!(
@@ -1450,6 +1501,55 @@ async fn test_prover_aggregates() {
         format!("/v1/market/provers/{}/aggregates?aggregation=monthly&limit=5", prover_address);
     let result: Result<ProverAggregatesResponse, _> = env.get(&path).await;
     assert!(result.is_err(), "Monthly aggregation should be rejected");
+
+    // Test epoch aggregation
+    let path =
+        format!("/v1/market/provers/{}/aggregates?aggregation=epoch&limit=5", prover_address);
+    let response: ProverAggregatesResponse = env.get(&path).await.unwrap();
+
+    assert_eq!(response.aggregation.to_string(), "epoch");
+    assert_eq!(response.prover_address, *prover_address);
+    assert!(response.data.len() <= 5);
+    assert!(!response.data.is_empty(), "Should have at least one epoch summary");
+
+    let first = response.data.first().unwrap();
+    assert!(
+        first.epoch_number_start.is_some(),
+        "epoch_number_start should be populated for epoch aggregates"
+    );
+    let epoch_number = first.epoch_number_start.unwrap();
+    assert!(epoch_number >= 0, "epoch_number_start should be non-negative: {}", epoch_number);
+
+    // Verify epoch boundaries are respected (epochs are 2 days = 172800 seconds)
+    if response.data.len() >= 2 {
+        for i in 1..response.data.len() {
+            let prev_ts = response.data[i - 1].timestamp;
+            let curr_ts = response.data[i].timestamp;
+            let gap = (prev_ts - curr_ts).abs();
+            assert_eq!(
+                gap, 172800,
+                "Epoch aggregates should have exactly 2 days (172800s) gap between consecutive entries. Found gap: {}s between {} and {}",
+                gap, prev_ts, curr_ts
+            );
+
+            // Verify epoch numbers are consecutive
+            let prev_epoch = response.data[i - 1].epoch_number_start.unwrap();
+            let curr_epoch = response.data[i].epoch_number_start.unwrap();
+            let epoch_diff = (prev_epoch - curr_epoch).abs();
+            assert_eq!(
+                epoch_diff, 1,
+                "Epoch numbers should be consecutive. Found epochs {} and {}",
+                prev_epoch, curr_epoch
+            );
+        }
+    }
+
+    tracing::info!(
+        "Epoch prover aggregates test passed: {} entries, first epoch {} at timestamp {}",
+        response.data.len(),
+        epoch_number,
+        first.timestamp
+    );
 }
 
 #[tokio::test]

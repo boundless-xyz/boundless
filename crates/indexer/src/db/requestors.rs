@@ -535,6 +535,8 @@ pub trait RequestorDb: IndexerDb {
         cursor: Option<i64>,
         limit: i64,
         sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
     ) -> Result<Vec<PeriodRequestorSummary>, DbError> {
         get_requestor_summaries_generic(
             self.pool(),
@@ -542,8 +544,8 @@ pub trait RequestorDb: IndexerDb {
             cursor,
             limit,
             sort,
-            None,
-            None,
+            before,
+            after,
             "epoch_requestor_summary",
         )
         .await
@@ -1515,7 +1517,7 @@ async fn get_requestor_summaries_generic(
     bind_count += 1;
     let query_str = format!(
         "SELECT
-            period_timestamp, requestor_address, total_fulfilled, unique_provers_locking_requests,
+            period_timestamp, epoch_number_period_start, requestor_address, total_fulfilled, unique_provers_locking_requests,
             total_fees_locked, total_collateral_locked, total_locked_and_expired_collateral,
             p10_lock_price_per_cycle, p25_lock_price_per_cycle, p50_lock_price_per_cycle,
             p75_lock_price_per_cycle, p90_lock_price_per_cycle, p95_lock_price_per_cycle, p99_lock_price_per_cycle,
