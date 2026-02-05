@@ -324,6 +324,13 @@ pub struct MarketConfig {
     /// Requests that require a higher collateral amount than this will not be considered.
     #[serde(alias = "max_stake")]
     pub max_collateral: String,
+    /// Lock price ratio (0.0 to 1.0).
+    ///
+    /// Determines what fraction of the order's maxPrice to target when locking.
+    /// For example, 0.8 means lock when the price reaches 80% of maxPrice.
+    /// 1.0 means wait for the full maxPrice.
+    /// If not set, the broker uses the minimum profitable price based on min_mcycle_price.
+    pub lock_price_ratio: Option<f64>,
     /// Optional allow list for customer address.
     ///
     /// If enabled, all requests from clients not in the allow list are skipped.
@@ -476,6 +483,7 @@ impl Default for MarketConfig {
             events_poll_blocks: defaults::events_poll_blocks(),
             events_poll_ms: defaults::events_poll_ms(),
             max_collateral: defaults::MAX_COLLATERAL_STANDARD.to_string(),
+            lock_price_ratio: None,
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),

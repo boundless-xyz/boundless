@@ -930,7 +930,29 @@ pub trait OrderPricingContext {
                 .price_at(now_timestamp())
                 .context("Failed to get current mcycle price")?;
             let (target_mcycle_price, target_timestamp_secs) =
-                if mcycle_price_min >= config_min_mcycle_price {
+                if let Some(lock_price_ratio) = config.lock_price_ratio {
+                    // Use configured lock_price_ratio to determine target price as a fraction of maxPrice
+                    let max_price = U256::from(order.request.offer.maxPrice);
+                    let ratio_bps = (lock_price_ratio * 10000.0) as u64;
+                    let target_price = max_price * U256::from(ratio_bps) / U256::from(10000u64);
+                    tracing::info!(
+                        "Order {order_id} targeting {:.1}% of maxPrice: {} ETH (maxPrice: {} ETH)",
+                        lock_price_ratio * 100.0,
+                        format_ether(target_price),
+                        format_ether(max_price)
+                    );
+
+                    if current_mcycle_price >= target_price {
+                        // Current price already meets or exceeds target, lock ASAP
+                        (target_price, 0)
+                    } else {
+                        let target_time =
+                            order.request.offer.time_at_price(target_price).context(
+                                "Failed to get target price timestamp for lock_price_ratio",
+                            )?;
+                        (target_price, target_time)
+                    }
+                } else if mcycle_price_min >= config_min_mcycle_price {
                     tracing::info!(
                         "Selecting order {order_id} at price {} - ASAP",
                         format_ether(current_mcycle_price)
