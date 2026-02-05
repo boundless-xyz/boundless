@@ -18,7 +18,7 @@ config:
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:pfTxhEjN74NTG5Zk:uqeqk81UF6asWxgfbxYTzL+yhrMfY32xWCvGx+rauPVc/z1jbMHGcHMKVIWhdKuNQx3sgIL7p9C3XrFXxb9IjSv01f02I3aRsPV+OQgUQy5+AsNT9CKGUz2p3vLre+pueTXjNpDcWXzvV3YIdg==
   order-generator-base:INTERVAL: "32"
-  order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
+  order-generator-base:IPFS_GATEWAY_URL: https://gateway.beboundless.cloud
   order-generator-base:LOCK_COLLATERAL_RAW: "15000000000000000000" # 15 ZKC
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: "info,boundless_market=debug"
@@ -53,10 +53,11 @@ config:
   order-generator-onchain:SECONDS_PER_MCYCLE: "7"
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
-  order-generator-random-requestor:INPUT_MAX_MCYCLES: "1500"
+  order-generator-random-requestor:INPUT_MAX_MCYCLES: "200"
   order-generator-random-requestor:MAX_PRICE_PER_MCYCLE: "0.00000004"
   order-generator-random-requestor:SCHEDULE_EXPRESSION: "rate(24 hours)"
   order-generator-random-requestor:COUNT: "10"
+  order-generator-random-requestor:INTERVAL: "600"
   order-generator-random-requestor:LOCK_TIMEOUT: "1800"
   order-generator-random-requestor:TIMEOUT: "1800"
   order-generator-random-requestor:RAMP_UP_SECONDS_PER_MCYCLE: "2"
@@ -67,3 +68,17 @@ config:
     secure: v1:ghvpsT1eWQ22F33+:EMpFbZJALPWfvZUYgN0L3my543BcCTMILXuwzZ4Zch0JYWyCwqLcWXa8sGXsNghlKQRWQwUQjo3gGFE1KACtPtum4iMZVeMbyvTIGXRBdis=
   order-generator-base:INDEXER_URL:
     secure: v1:3rJFVGvhgg2ISY0C:JxAroph0jMguR18XNxUkHwWtJn/Ynnglr4OKbbB5/rf6gZxAqXRxNEpki3eR5ZOh+0bIDLWf
+  order-generator-evm-requestor:AUTO_DEPOSIT: "0.015"
+  order-generator-evm-requestor:ERROR_BALANCE_BELOW: "0.005"
+  order-generator-evm-requestor:EXEC_RATE_KHZ: "1000"
+  order-generator-evm-requestor:INTERVAL: "600"
+  order-generator-evm-requestor:INPUT_MAX_MCYCLES: "3000"
+  order-generator-evm-requestor:MAX_PRICE_PER_MCYCLE: "0.00000003"
+  order-generator-evm-requestor:LOCK_TIMEOUT: "2100"
+  order-generator-evm-requestor:TIMEOUT: "1800"
+  order-generator-evm-requestor:RAMP_UP: "900"
+  order-generator-evm-requestor:RAMP_UP_SECONDS_PER_MCYCLE: "2"
+  order-generator-evm-requestor:SECONDS_PER_MCYCLE: "7"
+  order-generator-evm-requestor:WARN_BALANCE_BELOW: "0.01"
+  order-generator-evm-requestor:PRIVATE_KEY:
+    secure: v1:+q8g0qby20fDIvXt:EuJ7qrjSDM+aAW2zYNwUzj2SKDV8oRuZv4REHXZY2lMPRiR9uP3zELb20x29dHrIKXsCwF+ZQs263ZarnvGxPSMEUhrg0P02U5GXa/a5i3NqHg==
