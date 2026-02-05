@@ -1247,10 +1247,8 @@ async fn test_requestor_aggregates() {
     assert!(result.is_err(), "Monthly aggregation should be rejected");
 
     // Test epoch aggregation
-    let path = format!(
-        "/v1/market/requestors/{}/aggregates?aggregation=epoch&limit=5",
-        requestor_address
-    );
+    let path =
+        format!("/v1/market/requestors/{}/aggregates?aggregation=epoch&limit=5", requestor_address);
     let response: RequestorAggregatesResponse = env.get(&path).await.unwrap();
 
     assert_eq!(response.aggregation.to_string(), "epoch");

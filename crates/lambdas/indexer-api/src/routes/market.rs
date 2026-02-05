@@ -1187,11 +1187,12 @@ async fn get_market_aggregates_impl(
 
             // Use epoch number from DB (populated by aggregation logic)
             // Only include if timestamp is at or after epoch 0 start
-            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
-                Some(summary.epoch_number_period_start)
-            } else {
-                None
-            };
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
 
             MarketAggregateEntry {
                 chain_id: state.chain_id,
@@ -1277,11 +1278,12 @@ async fn get_epoch_market_aggregates_impl(
         .map(|summary| {
             // Use epoch number from DB (populated by aggregation logic)
             // Only include if timestamp is at or after epoch 0 start
-            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
-                Some(summary.epoch_number_period_start)
-            } else {
-                None
-            };
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
 
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
             let total_fees_locked = summary.total_fees_locked.to_string();
@@ -1678,11 +1680,12 @@ async fn get_requestor_aggregates_impl(
 
             // Use epoch number from DB (populated by aggregation logic)
             // Only include if timestamp is at or after epoch 0 start
-            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
-                Some(summary.epoch_number_period_start)
-            } else {
-                None
-            };
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
 
             RequestorAggregateEntry {
                 chain_id: state.chain_id,
@@ -2072,11 +2075,12 @@ async fn get_prover_aggregates_impl(
 
             // Use epoch number from DB (populated by aggregation logic)
             // Only include if timestamp is at or after epoch 0 start
-            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
-                Some(summary.epoch_number_period_start)
-            } else {
-                None
-            };
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
 
             ProverAggregateEntry {
                 chain_id: state.chain_id,
