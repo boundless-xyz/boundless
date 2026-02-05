@@ -294,7 +294,7 @@ export = () => {
   if (isDev && process.env.EVM_REQUESTOR_PRIVATE_KEY) {
     evmRequestorPrivateKey = pulumi.output(process.env.EVM_REQUESTOR_PRIVATE_KEY);
   } else {
-    evmRequestorPrivateKey = evmRequestorConfig.requireSecret('PRIVATE_KEY');
+    evmRequestorPrivateKey = evmRequestorConfig.getSecret('PRIVATE_KEY');
   }
   const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');

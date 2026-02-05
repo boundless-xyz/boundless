@@ -6,7 +6,7 @@ import { getServiceNameV1, Severity } from '../../util';
 import * as crypto from 'crypto';
 
 const FARGATE_CPU = 512;
-const FARGATE_MEMORY = 512;
+const FARGATE_MEMORY = 1024;
 
 interface OrderGeneratorArgs {
   chainId: string;
