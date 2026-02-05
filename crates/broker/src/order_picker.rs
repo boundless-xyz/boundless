@@ -810,10 +810,10 @@ pub(crate) mod tests {
     /// Create a test price oracle with static prices for ETH and ZKC
     fn create_test_price_oracle() -> Arc<PriceOracleManager> {
         let eth_usd = Arc::new(CachedPriceOracle::new(
-            Arc::new(StaticPriceSource::new(2000.0)), // $2000 per ETH
+            Arc::new(StaticPriceSource::new(TradingPair::EthUsd, 2000.0)), // $2000 per ETH
         ));
         let zkc_usd = Arc::new(CachedPriceOracle::new(
-            Arc::new(StaticPriceSource::new(1.0)), // $1 per ZKC
+            Arc::new(StaticPriceSource::new(TradingPair::ZkcUsd, 1.0)), // $1 per ZKC
         ));
         Arc::new(PriceOracleManager::new(
             eth_usd, zkc_usd, 60,  // refresh interval

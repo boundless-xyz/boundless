@@ -120,18 +120,18 @@ async fn try_init_price_oracle (
     let named_chain = NamedChain::try_from(chain_id)?;
 
     let manager = config.build(named_chain, provider)?;
-    manager.refresh_all_prices().await;
+    manager.refresh_all_rates().await;
 
     // Fetch initial prices
     let (eth_result, zkc_result) = tokio::join!(
-        manager.get_price(TradingPair::EthUsd),
-        manager.get_price(TradingPair::ZkcUsd),
+        manager.get_rate(TradingPair::EthUsd),
+        manager.get_rate(TradingPair::ZkcUsd),
     );
 
     match (eth_result, zkc_result) {
         (Ok(eth_quote), Ok(zkc_quote)) => {
-            display.item_colored("ETH/USD", format!("${:.2}", eth_quote.price_to_f64()), "cyan");
-            display.item_colored("ZKC/USD", format!("${:.4}", zkc_quote.price_to_f64()), "cyan");
+            display.item_colored("ETH/USD", format!("${:.2}", eth_quote.rate_to_f64()), "cyan");
+            display.item_colored("ZKC/USD", format!("${:.4}", zkc_quote.rate_to_f64()), "cyan");
 
             Ok(Arc::new(manager))
         }

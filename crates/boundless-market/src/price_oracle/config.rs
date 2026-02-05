@@ -4,8 +4,7 @@ use crate::price_oracle::sources::{
     ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource,
 };
 use crate::price_oracle::{
-    AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, PriceSource, TradingPair,
-    WithStalenessCheck,
+    AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, PriceSource, TradingPair
 };
 use alloy::providers::Provider;
 use alloy_chains::NamedChain;
@@ -86,10 +85,6 @@ pub struct PriceOracleConfig {
     pub aggregation_mode: AggregationMode,
     /// Minimum number of successful sources required
     pub min_sources: u8,
-
-    // TODO: remove this and just use max_secs_without_price_update
-    /// Maximum age in seconds before a price is considered stale
-    pub max_staleness_secs: u64,
     /// On-chain source configuration
     pub onchain: Option<OnChainConfig>,
     /// Off-chain source configuration
@@ -106,7 +101,6 @@ impl Default for PriceOracleConfig {
             timeout_secs: 10,
             aggregation_mode: AggregationMode::Priority,
             min_sources: 1,
-            max_staleness_secs: 300,
             // Enable both Chainlink and CoinGecko by default
             onchain: Some(OnChainConfig { chainlink: Some(ChainlinkConfig { enabled: true }) }),
             offchain: Some(OffChainConfig {
@@ -206,7 +200,7 @@ impl PriceOracleConfig {
         let inner: Arc<dyn PriceOracle> = match price_value {
             PriceValue::Static(price) => {
                 // Static price: use source directly, no composite needed
-                Arc::new(StaticPriceSource::new(*price))
+                Arc::new(StaticPriceSource::new(pair, *price))
             }
             PriceValue::Auto => {
                 // Dynamic pricing: build sources and wrap in CompositeOracle
@@ -219,14 +213,7 @@ impl PriceOracleConfig {
                             // Chainlink only supports ETH/USD
                             let chainlink =
                                 ChainlinkSource::for_eth_usd(provider.clone(), named_chain)?;
-                            if self.max_staleness_secs > 0 {
-                                sources.push(Arc::new(WithStalenessCheck::new(
-                                    chainlink,
-                                    self.max_staleness_secs,
-                                )));
-                            } else {
                                 sources.push(Arc::new(chainlink));
-                            }
                         }
                     }
                 }
@@ -238,14 +225,7 @@ impl PriceOracleConfig {
                         if coingecko_config.enabled {
                             let coingecko =
                                 CoinGeckoSource::new(pair, Duration::from_secs(self.timeout_secs))?;
-                            if self.max_staleness_secs > 0 {
-                                sources.push(Arc::new(WithStalenessCheck::new(
-                                    coingecko,
-                                    self.max_staleness_secs,
-                                )));
-                            } else {
                                 sources.push(Arc::new(coingecko));
-                            }
                         }
                     }
 
@@ -257,14 +237,7 @@ impl PriceOracleConfig {
                                 cmc_config.api_key.clone(),
                                 Duration::from_secs(self.timeout_secs),
                             )?;
-                            if self.max_staleness_secs > 0 {
-                                sources.push(Arc::new(WithStalenessCheck::new(
-                                    cmc,
-                                    self.max_staleness_secs,
-                                )));
-                            } else {
-                                sources.push(Arc::new(cmc));
-                            }
+                            sources.push(Arc::new(cmc));
                         }
                     }
                 }

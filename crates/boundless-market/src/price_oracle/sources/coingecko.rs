@@ -1,5 +1,5 @@
 use crate::price_oracle::{
-    scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair,
+    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
 };
 use reqwest::Client;
 use serde::Deserialize;
@@ -42,12 +42,12 @@ impl CoinGeckoSource {
         self
     }
 
-    async fn fetch_price(
+    async fn fetch_rate(
         &self,
         path: &str,
         ids: &str,
         vs_currencies: &str,
-    ) -> Result<PriceQuote, PriceOracleError> {
+    ) -> Result<ExchangeRate, PriceOracleError> {
         let mut url = self.api_url.clone();
         url.set_path(path);
         url.query_pairs_mut()
@@ -62,9 +62,9 @@ impl CoinGeckoSource {
             PriceOracleError::Internal(format!("coin {} not found in response", ids))
         })?;
 
-        let price = scale_price_from_f64(coin_data.usd)?;
+        let rate = scale_price_from_f64(coin_data.usd)?;
 
-        Ok(PriceQuote::new(price, coin_data.last_updated_at))
+        Ok(ExchangeRate::new(self.pair, rate, coin_data.last_updated_at))
     }
 }
 
@@ -76,13 +76,19 @@ impl PriceSource for CoinGeckoSource {
 
 #[async_trait::async_trait]
 impl PriceOracle for CoinGeckoSource {
-    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
+    fn pair(&self) -> TradingPair {
+        self.pair
+    }
+
+    async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
         match self.pair {
             TradingPair::EthUsd => {
-                self.fetch_price("/api/v3/simple/price", "ethereum", "usd").await
+                self.fetch_rate("/api/v3/simple/price", "ethereum", "usd")
+                    .await
             }
             TradingPair::ZkcUsd => {
-                self.fetch_price("/api/v3/simple/price", "boundless", "usd").await
+                self.fetch_rate("/api/v3/simple/price", "boundless", "usd")
+                    .await
             }
         }
     }
@@ -118,11 +124,12 @@ mod tests {
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price().await.unwrap();
+        let rate = source.get_rate().await.unwrap();
 
         mock.assert();
-        assert_eq!(quote.price, U256::from(250050000000u128)); // 2500.50 * 1e8
-        assert_eq!(quote.timestamp, 1706547200);
+        assert_eq!(rate.pair, TradingPair::EthUsd);
+        assert_eq!(rate.rate, U256::from(250050000000u128)); // 2500.50 * 1e8
+        assert_eq!(rate.timestamp, 1706547200);
     }
 
     #[tokio::test]
@@ -149,11 +156,12 @@ mod tests {
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price().await.unwrap();
+        let rate = source.get_rate().await.unwrap();
 
         mock.assert();
-        assert_eq!(quote.price, U256::from(12345600u128)); // 0.123456 * 1e8
-        assert_eq!(quote.timestamp, 1706547300);
+        assert_eq!(rate.pair, TradingPair::ZkcUsd);
+        assert_eq!(rate.rate, U256::from(12345600u128)); // 0.123456 * 1e8
+        assert_eq!(rate.timestamp, 1706547300);
     }
 
     #[tokio::test]
@@ -169,7 +177,7 @@ mod tests {
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price().await;
+        let result = source.get_rate().await;
         assert!(result.is_err());
     }
 
@@ -193,7 +201,7 @@ mod tests {
             .unwrap()
             .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price().await;
+        let result = source.get_rate().await;
         assert!(result.is_err());
         assert!(matches!(result, Err(PriceOracleError::Internal(_))));
     }
@@ -204,13 +212,14 @@ mod tests {
     async fn test_api_eth_price() -> anyhow::Result<()> {
         let source = CoinGeckoSource::new(TradingPair::EthUsd, Duration::from_secs(10))?;
 
-        let quote = source.get_price().await?;
+        let rate = source.get_rate().await?;
 
-        println!("{:?}", quote);
+        println!("{:?}", rate);
 
         // Sanity check: ETH should be worth something
-        assert!(quote.price > U256::ZERO);
-        assert!(quote.timestamp > 0);
+        assert_eq!(rate.pair, TradingPair::EthUsd);
+        assert!(rate.rate > U256::ZERO);
+        assert!(rate.timestamp > 0);
 
         Ok(())
     }
@@ -220,13 +229,14 @@ mod tests {
     async fn test_api_zkc_price() -> anyhow::Result<()> {
         let source = CoinGeckoSource::new(TradingPair::ZkcUsd, Duration::from_secs(10))?;
 
-        let quote = source.get_price().await?;
+        let rate = source.get_rate().await?;
 
-        println!("{:?}", quote);
+        println!("{:?}", rate);
 
         // Sanity check: ZKC should be worth something
-        assert!(quote.price > U256::ZERO);
-        assert!(quote.timestamp > 0);
+        assert_eq!(rate.pair, TradingPair::ZkcUsd);
+        assert!(rate.rate > U256::ZERO);
+        assert!(rate.timestamp > 0);
 
         Ok(())
     }

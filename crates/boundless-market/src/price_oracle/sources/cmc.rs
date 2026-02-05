@@ -1,5 +1,5 @@
 use crate::price_oracle::{
-    scale_price_from_f64, PriceOracle, PriceOracleError, PriceQuote, PriceSource, TradingPair,
+    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
 };
 use reqwest::Client;
 use serde::Deserialize;
@@ -50,12 +50,12 @@ impl CoinMarketCapSource {
         self
     }
 
-    async fn fetch_price(
+    async fn fetch_rate(
         &self,
         path: &str,
         id: &str,
         convert: &str,
-    ) -> Result<PriceQuote, PriceOracleError> {
+    ) -> Result<ExchangeRate, PriceOracleError> {
         let mut url = self.api_url.clone();
         url.set_path(path);
         url.query_pairs_mut().append_pair("id", id).append_pair("convert", convert);
@@ -78,14 +78,14 @@ impl CoinMarketCapSource {
             PriceOracleError::Internal(format!("currency {} not found in quote", convert))
         })?;
 
-        let price = scale_price_from_f64(quote.price)?;
+        let rate = scale_price_from_f64(quote.price)?;
 
         // Parse ISO 8601 timestamp to unix timestamp
         let timestamp = chrono::DateTime::parse_from_rfc3339(&quote.last_updated)
             .map_err(|e| PriceOracleError::Internal(format!("failed to parse timestamp: {}", e)))?
             .timestamp() as u64;
 
-        Ok(PriceQuote::new(price, timestamp))
+        Ok(ExchangeRate::new(self.pair, rate, timestamp))
     }
 }
 
@@ -97,13 +97,19 @@ impl PriceSource for CoinMarketCapSource {
 
 #[async_trait::async_trait]
 impl PriceOracle for CoinMarketCapSource {
-    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
+    fn pair(&self) -> TradingPair {
+        self.pair
+    }
+
+    async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
         match self.pair {
             TradingPair::EthUsd => {
-                self.fetch_price("/v2/cryptocurrency/quotes/latest", "1027", "USD").await
+                self.fetch_rate("/v2/cryptocurrency/quotes/latest", "1027", "USD")
+                    .await
             }
             TradingPair::ZkcUsd => {
-                self.fetch_price("/v2/cryptocurrency/quotes/latest", "38371", "USD").await
+                self.fetch_rate("/v2/cryptocurrency/quotes/latest", "38371", "USD")
+                    .await
             }
         }
     }
@@ -149,12 +155,13 @@ mod tests {
         .unwrap()
         .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price().await.unwrap();
+        let rate = source.get_rate().await.unwrap();
 
         mock.assert();
-        assert_eq!(quote.price, U256::from(250050000000u128)); // 2500.50 * 1e8
+        assert_eq!(rate.pair, TradingPair::EthUsd);
+        assert_eq!(rate.rate, U256::from(250050000000u128)); // 2500.50 * 1e8
                                                                // Verify timestamp is parsed correctly from ISO 8601
-        assert_eq!(quote.timestamp, 1769688600);
+        assert_eq!(rate.timestamp, 1769688600);
     }
 
     #[tokio::test]
@@ -191,11 +198,12 @@ mod tests {
         .unwrap()
         .with_api_url(server.base_url().parse().unwrap());
 
-        let quote = source.get_price().await.unwrap();
+        let rate = source.get_rate().await.unwrap();
 
         mock.assert();
-        assert_eq!(quote.price, U256::from(12345600u128)); // 0.123456 * 1e8
-        assert_eq!(quote.timestamp, 1769689800);
+        assert_eq!(rate.pair, TradingPair::ZkcUsd);
+        assert_eq!(rate.rate, U256::from(12345600u128)); // 0.123456 * 1e8
+        assert_eq!(rate.timestamp, 1769689800);
     }
 
     #[tokio::test]
@@ -215,7 +223,7 @@ mod tests {
         .unwrap()
         .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price().await;
+        let result = source.get_rate().await;
         assert!(result.is_err());
     }
 
@@ -249,7 +257,7 @@ mod tests {
         .unwrap()
         .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price().await;
+        let result = source.get_rate().await;
         assert!(result.is_err());
         assert!(matches!(result, Err(PriceOracleError::Internal(_))));
     }
@@ -284,7 +292,7 @@ mod tests {
         .unwrap()
         .with_api_url(server.base_url().parse().unwrap());
 
-        let result = source.get_price().await;
+        let result = source.get_rate().await;
         assert!(result.is_err());
         assert!(matches!(result, Err(PriceOracleError::Internal(_))));
     }
@@ -298,12 +306,13 @@ mod tests {
         let source =
             CoinMarketCapSource::new(TradingPair::EthUsd, api_key, Duration::from_secs(10))?;
 
-        let quote = source.get_price().await?;
+        let rate = source.get_rate().await?;
 
-        println!("{:?}", quote);
+        println!("{:?}", rate);
 
-        assert!(quote.price > U256::ZERO);
-        assert!(quote.timestamp > 0);
+        assert_eq!(rate.pair, TradingPair::EthUsd);
+        assert!(rate.rate > U256::ZERO);
+        assert!(rate.timestamp > 0);
 
         Ok(())
     }
@@ -316,12 +325,13 @@ mod tests {
         let source =
             CoinMarketCapSource::new(TradingPair::ZkcUsd, api_key, Duration::from_secs(10))?;
 
-        let quote = source.get_price().await?;
+        let rate = source.get_rate().await?;
 
-        println!("{:?}", quote);
+        println!("{:?}", rate);
 
-        assert!(quote.price > U256::ZERO);
-        assert!(quote.timestamp > 0);
+        assert_eq!(rate.pair, TradingPair::ZkcUsd);
+        assert!(rate.rate > U256::ZERO);
+        assert!(rate.timestamp > 0);
 
         Ok(())
     }

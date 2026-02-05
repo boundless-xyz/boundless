@@ -218,6 +218,15 @@ impl<'de> Deserialize<'de> for Amount {
 /// Conversion error types for Amount conversions
 #[derive(Debug, thiserror::Error)]
 pub enum ConversionError {
+    /// Asset mismatch when converting
+    #[error("asset mismatch: expected {expected}, got {actual}")]
+    AssetMismatch {
+        /// Expected asset
+        expected: Asset,
+        /// Actual asset
+        actual: Asset,
+    },
+
     /// Unsupported conversion between asset types
     #[error("unsupported conversion: {from} -> {to}")]
     UnsupportedConversion {

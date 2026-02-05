@@ -14,7 +14,7 @@ use crate::price_oracle::{
         ChainlinkConfig, CoinGeckoConfig, CoinMarketCapConfig, OffChainConfig, OnChainConfig,
         PriceOracleConfig, PriceValue,
     },
-    AggregationMode, PriceQuote, TradingPair,
+    AggregationMode, ExchangeRate, TradingPair,
 };
 use alloy::providers::ProviderBuilder;
 use alloy_chains::NamedChain;
@@ -36,8 +36,8 @@ fn get_cmc_api_key() -> Option<String> {
 }
 
 /// Assert price is within reasonable bounds for the trading pair
-fn assert_price_reasonable(quote: PriceQuote, pair: TradingPair) {
-    let price_usd = quote.price_to_f64();
+fn assert_price_reasonable(quote: ExchangeRate, pair: TradingPair) {
+    let price_usd = quote.rate_to_f64();
 
     let (min, max, pair_name) = match pair {
         TradingPair::EthUsd => (ETH_MIN_USD, ETH_MAX_USD, "ETH/USD"),
@@ -79,7 +79,6 @@ fn build_config(mode: AggregationMode) -> PriceOracleConfig {
         timeout_secs: 10,
         aggregation_mode: mode,
         min_sources: 1,
-        max_staleness_secs: 3600,
         max_secs_without_price_update: 600,
         onchain: Some(OnChainConfig { chainlink: Some(ChainlinkConfig { enabled: true }) }),
         offchain: Some(OffChainConfig {
@@ -105,14 +104,14 @@ async fn test_composite_priority_mode() -> anyhow::Result<()> {
     let oracles = config.build(NamedChain::Mainnet, provider)?;
 
     // Fetch ETH/USD price
-    let quote = oracles.get_price(TradingPair::EthUsd).await?;
-    println!("Priority mode ETH/USD: ${:.2}", quote.price_to_f64());
+    let quote = oracles.get_rate(TradingPair::EthUsd).await?;
+    println!("Priority mode ETH/USD: ${:.2}", quote.rate_to_f64());
     assert_price_reasonable(quote, TradingPair::EthUsd);
     assert_timestamp_recent(quote.timestamp, 3600);
 
     // Fetch ZKC/USD price
-    let quote_zkc = oracles.get_price(TradingPair::ZkcUsd).await?;
-    println!("Priority mode ZKC/USD: ${:.6}", quote_zkc.price_to_f64());
+    let quote_zkc = oracles.get_rate(TradingPair::ZkcUsd).await?;
+    println!("Priority mode ZKC/USD: ${:.6}", quote_zkc.rate_to_f64());
     assert_price_reasonable(quote_zkc, TradingPair::ZkcUsd);
     assert_timestamp_recent(quote_zkc.timestamp, 3600);
 
@@ -135,14 +134,14 @@ async fn test_composite_median_mode() -> anyhow::Result<()> {
     let oracles = config.build(NamedChain::Mainnet, provider)?;
 
     // Fetch ETH/USD price
-    let quote = oracles.get_price(TradingPair::EthUsd).await?;
-    println!("Median mode ETH/USD: ${:.2}", quote.price_to_f64());
+    let quote = oracles.get_rate(TradingPair::EthUsd).await?;
+    println!("Median mode ETH/USD: ${:.2}", quote.rate_to_f64());
     assert_price_reasonable(quote, TradingPair::EthUsd);
     assert_timestamp_recent(quote.timestamp, 3600);
 
     // Fetch ZKC/USD price
-    let quote_zkc = oracles.get_price(TradingPair::ZkcUsd).await?;
-    println!("Median mode ZKC/USD: ${:.6}", quote_zkc.price_to_f64());
+    let quote_zkc = oracles.get_rate(TradingPair::ZkcUsd).await?;
+    println!("Median mode ZKC/USD: ${:.6}", quote_zkc.rate_to_f64());
     assert_price_reasonable(quote_zkc, TradingPair::ZkcUsd);
     assert_timestamp_recent(quote_zkc.timestamp, 3600);
 
@@ -165,8 +164,8 @@ async fn test_composite_average_mode() -> anyhow::Result<()> {
     let oracles = config.build(NamedChain::Mainnet, provider)?;
 
     // Fetch ETH/USD price
-    let quote = oracles.get_price(TradingPair::EthUsd).await?;
-    println!("Average mode ETH/USD: ${:.2}", quote.price_to_f64());
+    let quote = oracles.get_rate(TradingPair::EthUsd).await?;
+    println!("Average mode ETH/USD: ${:.2}", quote.rate_to_f64());
     assert_price_reasonable(quote, TradingPair::EthUsd);
     assert_timestamp_recent(quote.timestamp, 3600);
 
@@ -194,11 +193,11 @@ async fn test_all_aggregation_modes_price_consistency() -> anyhow::Result<()> {
         let config = build_config(mode);
         let oracles = config.build(NamedChain::Mainnet, provider)?;
 
-        let quote = oracles.get_price(TradingPair::EthUsd).await?;
-        println!("{:?} mode ETH/USD: ${:.2}", mode, quote.price_to_f64());
+        let quote = oracles.get_rate(TradingPair::EthUsd).await?;
+        println!("{:?} mode ETH/USD: ${:.2}", mode, quote.rate_to_f64());
 
         assert_price_reasonable(quote, TradingPair::EthUsd);
-        prices.push(quote.price_to_f64());
+        prices.push(quote.rate_to_f64());
     }
 
     // All prices should be relatively close (within 10% of each other)

@@ -1,5 +1,5 @@
 use crate::price_oracle::{
-    scale_price_from_i256, PriceOracle, PriceOracleError, PriceQuote, PriceSource,
+    scale_price_from_i256, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
 };
 use alloy::primitives::{address, Address};
 use alloy::providers::Provider;
@@ -54,39 +54,48 @@ fn eth_usd_feed(chain: NamedChain) -> Result<FeedInfo, PriceOracleError> {
     }
 }
 
-/// Chainlink price source (ETH/USD only)
+/// Chainlink price source
 pub struct ChainlinkSource<P> {
+    pair: TradingPair,
     provider: P,
     feed: FeedInfo,
 }
 
 impl<P> ChainlinkSource<P> {
-    /// Create a new Chainlink source for ETH/USD with a custom feed
-    pub fn new(provider: P, feed: FeedInfo) -> Self {
-        Self { provider, feed }
+    /// Create a new Chainlink source with a custom feed
+    pub fn new(pair: TradingPair, provider: P, feed: FeedInfo) -> Self {
+        Self {
+            pair,
+            provider,
+            feed,
+        }
     }
 
     /// Create a new Chainlink source for ETH/USD on a named chain
     pub fn for_eth_usd(provider: P, chain: NamedChain) -> Result<Self, PriceOracleError> {
         let feed = eth_usd_feed(chain)?;
-        Ok(Self { provider, feed })
+        Ok(Self {
+            pair: TradingPair::EthUsd,
+            provider,
+            feed,
+        })
     }
 }
 
 impl<P: Provider + Clone> ChainlinkSource<P> {
-    async fn fetch_price(&self) -> Result<PriceQuote, PriceOracleError> {
+    async fn fetch_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
         let contract = AggregatorV3Interface::new(self.feed.address, &self.provider);
 
         let round_data = contract.latestRoundData().call().await?;
 
-        let price = scale_price_from_i256(round_data.answer, self.feed.decimals as u32)?;
+        let rate = scale_price_from_i256(round_data.answer, self.feed.decimals as u32)?;
 
         let timestamp: u64 = round_data
             .updatedAt
             .try_into()
             .map_err(|_| PriceOracleError::Internal("timestamp conversion failed".to_string()))?;
 
-        Ok(PriceQuote::new(price, timestamp))
+        Ok(ExchangeRate::new(self.pair, rate, timestamp))
     }
 }
 
@@ -98,8 +107,12 @@ impl<P: Provider + Clone> PriceSource for ChainlinkSource<P> {
 
 #[async_trait::async_trait]
 impl<P: Provider + Clone> PriceOracle for ChainlinkSource<P> {
-    async fn get_price(&self) -> Result<PriceQuote, PriceOracleError> {
-        self.fetch_price().await
+    fn pair(&self) -> TradingPair {
+        self.pair
+    }
+
+    async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
+        self.fetch_rate().await
     }
 }
 
@@ -161,12 +174,13 @@ mod tests {
         let provider = ProviderBuilder::new().connect_http(server.base_url().parse().unwrap());
 
         let feed = FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8);
-        let source = ChainlinkSource::new(provider, feed);
+        let source = ChainlinkSource::new(TradingPair::EthUsd, provider, feed);
 
-        let quote = source.get_price().await.unwrap();
+        let rate = source.get_rate().await.unwrap();
 
-        assert_eq!(quote.price, U256::from(250050000000u128));
-        assert_eq!(quote.timestamp, 1706547200);
+        assert_eq!(rate.pair, TradingPair::EthUsd);
+        assert_eq!(rate.rate, U256::from(250050000000u128));
+        assert_eq!(rate.timestamp, 1706547200);
     }
 
     #[tokio::test]
@@ -190,9 +204,9 @@ mod tests {
         let provider = ProviderBuilder::new().connect_http(server.base_url().parse().unwrap());
 
         let feed = FeedInfo::new(address!("0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"), 8);
-        let source = ChainlinkSource::new(provider, feed);
+        let source = ChainlinkSource::new(TradingPair::EthUsd, provider, feed);
 
-        let result = source.get_price().await;
+        let result = source.get_rate().await;
         assert!(result.is_err());
     }
 
@@ -206,12 +220,12 @@ mod tests {
 
         let source = ChainlinkSource::for_eth_usd(provider, NamedChain::Mainnet)?;
 
-        let quote = source.get_price().await?;
+        let rate = source.get_rate().await?;
 
-        println!("{:?}", quote);
+        println!("{:?}", rate);
 
-        assert!(quote.price > U256::ZERO);
-        assert!(quote.timestamp > 0);
+        assert!(rate.rate > U256::ZERO);
+        assert!(rate.timestamp > 0);
 
         Ok(())
     }
