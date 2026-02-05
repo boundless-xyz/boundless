@@ -1,0 +1,18 @@
+# Boundless API Reverse Proxy
+# Uses environment variables: {$VAR} or {$VAR:default}
+
+{
+	email {$CADDY_ACME_EMAIL:admin@localhost}
+}
+
+{$CADDY_DOMAIN::80} {
+	# Health check (no auth)
+	handle /health {
+		reverse_proxy {$CADDY_API_HOST:rest_api}:{$CADDY_API_PORT:8081}
+	}
+
+	# API endpoints
+	handle {
+		reverse_proxy {$CADDY_API_HOST:rest_api}:{$CADDY_API_PORT:8081}
+	}
+}

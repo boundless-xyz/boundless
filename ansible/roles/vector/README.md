@@ -1,6 +1,6 @@
 # Vector Role
 
-This Ansible role installs and configures Vector for log shipping to AWS CloudWatch Logs. By default, Vector is installed but **disabled** (service stopped and not enabled at boot).
+This Ansible role installs and configures Vector for log shipping to AWS CloudWatch Logs and system metrics collection to AWS CloudWatch Metrics. By default, Vector is installed, enabled, and started.
 
 ## Requirements
 
@@ -17,8 +17,8 @@ This Ansible role installs and configures Vector for log shipping to AWS CloudWa
 
 ### Service Configuration
 
-- `vector_service_enabled` (default: `false`): Enable Vector service at boot (**disabled by default**)
-- `vector_service_state` (default: `stopped`): Service state (**stopped by default**)
+- `vector_service_enabled` (default: `true`): Enable Vector service at boot
+- `vector_service_state` (default: `started`): Service state (started/stopped)
 
 ### Configuration Paths
 
@@ -65,6 +65,51 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
 
 - `vector_log_level` (default: `"info"`): Vector's own log level
 
+### System Metrics Collection
+
+- `vector_collect_host_metrics` (default: `true`): Enable collection of system metrics (CPU, memory, disk, network)
+- `vector_host_metrics_collectors` (default: `["cpu", "memory", "disk", "filesystem", "load", "network", "process"]`): List of metric collectors to enable
+- `vector_metrics_scrape_interval` (default: `15`): Interval in seconds between metric scrapes
+- `vector_cloudwatch_metrics_namespace` (default: `"Boundless/SystemMetrics"`): CloudWatch Metrics namespace for system metrics
+
+When enabled, Vector collects and ships the following system metrics to CloudWatch Metrics:
+
+- **CPU**: usage, frequency, temperature
+- **Memory**: total, free, used, cached, buffers
+- **Disk**: I/O, space, inodes, read/write operations
+- **Network**: bytes, packets, errors, drops
+- **System**: load average, uptime, processes
+- **Filesystem**: mount points, space, inodes
+
+### Root volume alerting
+
+When `vector_collect_host_metrics` is enabled and the `filesystem` collector is used (default), Vector sends **filesystem\_used\_ratio** (0–1) to CloudWatch Metrics under `vector_cloudwatch_metrics_namespace` (default `Boundless/SystemMetrics`). Root (/) is included by default via `vector_filesystem_mountpoints_includes: ["/"]`.
+
+Infrastructure (e.g. Pulumi prover stacks) can create a CloudWatch alarm on this metric to alert when the root volume is filling up, for example:
+
+- **Metric**: `filesystem_used_ratio`, namespace `Boundless/SystemMetrics`
+- **Dimensions**: `mountpoint="/"`, `host=<instance short hostname, e.g. ip-10-0-0-5>`
+- **Threshold**: e.g. ≥ 0.85 (85%) for 2 consecutive 5-minute periods
+
+### Bento process and container tracking
+
+When `vector_track_bento_process` is enabled (default: `true`), Vector runs scheduled checks and publishes gauges to CloudWatch Metrics:
+
+- **bento\_active**: `1` when the `bento` systemd unit is active, `0` otherwise
+- **bento\_containers**: Number of running Docker containers in the Bento Compose project (`com.docker.compose.project=bento`)
+
+Checks run every `vector_bento_process_interval_secs` seconds (default: 60). Use these metrics for dashboards and alarms (e.g. bento\_active < 1 or bento\_containers below expected).
+
+### Log error metrics
+
+When `vector_track_log_errors` is enabled (default: `true`), Vector counts journald log lines containing `"ERROR"` and publishes a counter to CloudWatch Metrics:
+
+- **bento\_log\_errors**: Incremented by 1 for each ERROR line from the monitored units
+
+Use this metric for error-rate dashboards and alarms (e.g. threshold on Sum over 5 minutes).
+
+**If Vector fails to start** after a deploy (e.g. "Job for vector.service failed"), check `journalctl -xeu vector.service` for the config error. To get Vector running again you can temporarily disable these features in group/host vars: `vector_track_bento_process: false` and/or `vector_track_log_errors: false`. Bento tracking and log error metrics require Vector 0.28+ with exec source and log\_to\_metric support.
+
 ## Dependencies
 
 - **AWS CLI**: Required
@@ -98,24 +143,40 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
    - Monitor systemd journald logs for specified services
    - Extract log messages
    - Ship logs to AWS CloudWatch Logs
+   - Collect system metrics (CPU, memory, disk, network) when enabled
+   - Ship metrics to AWS CloudWatch Metrics when enabled
 4. **Configures Vector environment** (`/etc/default/vector`) with AWS credentials (if provided)
-5. **Manages Vector service** (disabled and stopped by default)
+5. **Manages Vector service** (enabled and started by default)
 
 **Note**: This role does not install AWS CLI. If you need to create CloudWatch log groups automatically, ensure the `awscli` role runs before this role.
 
-## Enabling Vector
+## Metrics Collection
 
-To enable Vector log shipping, set these variables:
+When `vector_collect_host_metrics` is enabled (default: `true`), Vector automatically collects system metrics and publishes them to CloudWatch Metrics under the namespace specified by `vector_cloudwatch_metrics_namespace`.
+
+Metrics are collected every `vector_metrics_scrape_interval` seconds (default: 15s) and include:
+
+- CPU utilization and load average
+- Memory usage (total, free, used, cached)
+- Disk I/O and filesystem usage
+- Network traffic and errors
+- System uptime and process counts
+
+You can view these metrics in the AWS CloudWatch console under **Metrics** → **Boundless/SystemMetrics** (or your custom namespace).
+
+## Service Management
+
+Vector is enabled and started by default. To disable or stop it, override these variables:
 
 ```yaml
-vector_service_enabled: true
-vector_service_state: started
+vector_service_enabled: false
+vector_service_state: stopped
 ```
 
 Or override when running the playbook:
 
 ```bash
-ansible-playbook -i inventory.yml monitoring.yml -e "vector_service_enabled=true" -e "vector_service_state=started"
+ansible-playbook -i inventory.yml monitoring.yml -e "vector_service_enabled=false" -e "vector_service_state=stopped"
 ```
 
 ## AWS Credentials

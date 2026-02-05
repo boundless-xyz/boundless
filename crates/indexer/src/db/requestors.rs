@@ -710,12 +710,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT rle.prover_address) as count 
-            FROM request_locked_events rle
-            JOIN request_status rs ON rle.request_digest = rs.request_digest
-            WHERE rle.block_timestamp >= $1 
-            AND rle.block_timestamp < $2
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(DISTINCT lock_prover_address) as count 
+            FROM request_status
+            WHERE client_address = $3
+            AND locked_at >= $1
+            AND locked_at < $2
+            AND lock_prover_address IS NOT NULL";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -1045,13 +1045,12 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
-            FROM request_status rs
-            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
-            WHERE rs.fulfilled_at >= $1 
-            AND rs.fulfilled_at < $2
-            AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+            FROM request_status
+            WHERE fulfilled_at >= $1 
+            AND fulfilled_at < $2
+            AND locked_at IS NOT NULL
+            AND client_address = $3";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -1070,14 +1069,13 @@ pub trait RequestorDb: IndexerDb {
         period_end: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
-            FROM request_status rs
-            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
-            WHERE rs.expires_at >= $1 
-            AND rs.expires_at < $2
-            AND rs.request_status = 'expired'
-            AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $3";
+        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+            FROM request_status
+            WHERE expires_at >= $1 
+            AND expires_at < $2
+            AND request_status = 'expired'
+            AND locked_at IS NOT NULL
+            AND client_address = $3";
 
         let row = sqlx::query(query_str)
             .bind(period_start as i64)
@@ -1157,11 +1155,11 @@ pub trait RequestorDb: IndexerDb {
         end_ts: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT rle.prover_address) as count 
-            FROM request_locked_events rle
-            JOIN request_status rs ON rle.request_digest = rs.request_digest
-            WHERE rle.block_timestamp < $1
-            AND rs.client_address = $2";
+        let query_str = "SELECT COUNT(DISTINCT lock_prover_address) as count 
+            FROM request_status
+            WHERE client_address = $2
+            AND locked_at < $1
+            AND lock_prover_address IS NOT NULL";
 
         let row = sqlx::query(query_str)
             .bind(end_ts as i64)
@@ -1178,12 +1176,11 @@ pub trait RequestorDb: IndexerDb {
         end_ts: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
-            FROM request_status rs
-            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
-            WHERE rs.fulfilled_at < $1
-            AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $2";
+        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+            FROM request_status
+            WHERE fulfilled_at < $1
+            AND locked_at IS NOT NULL
+            AND client_address = $2";
 
         let row = sqlx::query(query_str)
             .bind(end_ts as i64)
@@ -1200,13 +1197,12 @@ pub trait RequestorDb: IndexerDb {
         end_ts: u64,
         requestor_address: Address,
     ) -> Result<u64, DbError> {
-        let query_str = "SELECT COUNT(DISTINCT (pr.input_data, pr.image_url)) as count 
-            FROM request_status rs
-            JOIN proof_requests pr ON rs.request_digest = pr.request_digest
-            WHERE rs.expires_at < $1
-            AND rs.request_status = 'expired'
-            AND rs.locked_at IS NOT NULL
-            AND rs.client_address = $2";
+        let query_str = "SELECT COUNT(DISTINCT (input_data, image_url)) as count 
+            FROM request_status
+            WHERE expires_at < $1
+            AND request_status = 'expired'
+            AND locked_at IS NOT NULL
+            AND client_address = $2";
 
         let row = sqlx::query(query_str)
             .bind(end_ts as i64)
@@ -1662,7 +1658,7 @@ async fn get_requestor_leaderboard_impl(
     // Cast SUM results to BIGINT to match Rust i64
     let query_str = if cursor_orders.is_some() && cursor_address.is_some() {
         format!(
-            "SELECT 
+            "SELECT
                 requestor_address,
                 SUM(total_requests_submitted)::BIGINT as orders_requested,
                 SUM(total_requests_locked)::BIGINT as orders_locked,
@@ -1683,7 +1679,7 @@ async fn get_requestor_leaderboard_impl(
         )
     } else {
         format!(
-            "SELECT 
+            "SELECT
                 requestor_address,
                 SUM(total_requests_submitted)::BIGINT as orders_requested,
                 SUM(total_requests_locked)::BIGINT as orders_locked,
@@ -1819,7 +1815,7 @@ async fn get_requestor_median_lock_prices_impl(
     let placeholders_str = placeholders.join(", ");
 
     let query_str = format!(
-        "SELECT 
+        "SELECT
             client_address,
             LPAD(
                 ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(lock_price_per_cycle AS NUMERIC)))::TEXT,
@@ -1870,7 +1866,7 @@ async fn get_requestor_last_activity_times_impl(
     let placeholders_str = placeholders.join(", ");
 
     let query_str = format!(
-        "SELECT 
+        "SELECT
             client_address,
             MAX(updated_at) as last_activity
         FROM request_status
@@ -1902,12 +1898,16 @@ async fn get_requestor_last_activity_times_impl(
 #[allow(deprecated)]
 mod tests {
     use super::*;
-    use crate::db::events::EventsDb;
-    use crate::db::market::{
-        HourlyRequestorSummary, MarketDb, RequestStatus, RequestStatusType, SlashedStatus,
-        TxMetadata,
+    use crate::{
+        db::{
+            events::EventsDb,
+            market::{
+                HourlyRequestorSummary, MarketDb, RequestStatus, RequestStatusType, SlashedStatus,
+                TxMetadata,
+            },
+        },
+        test_utils::TestDb,
     };
-    use crate::test_utils::TestDb;
     use alloy::primitives::{Address, Bytes, B256, U256};
     use boundless_market::contracts::{
         Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,

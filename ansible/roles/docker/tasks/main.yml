@@ -108,27 +108,38 @@
       {{ docker_version_output.stdout }}
       Docker Compose plugin is available via 'docker compose' command.
 
-- name: Add NVIDIA Container Toolkit repository
-  ansible.builtin.get_url:
+- name: Fetch NVIDIA Container Toolkit repository list content
+  ansible.builtin.uri:
     url: https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list
+    return_content: true
+  register: nvidia_repo_list_content
+  when: docker_nvidia_enabled | bool
+
+- name: Add NVIDIA Container Toolkit repository
+  ansible.builtin.copy:
+    content: "{{ nvidia_repo_list_content.content }}"
     dest: /tmp/nvidia-container-toolkit.list
     mode: '0644'
+  when: docker_nvidia_enabled | bool and nvidia_repo_list_content.content is defined
 
 - name: Configure NVIDIA Container Toolkit repository with GPG key
   ansible.builtin.replace:
     path: /tmp/nvidia-container-toolkit.list
     regexp: '^deb https://'
     replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://'
+  when: docker_nvidia_enabled | bool and nvidia_repo_list_content.content is defined
 
 - name: Update apt cache after adding NVIDIA repository
   ansible.builtin.apt:
     update_cache: true
+  when: docker_nvidia_enabled | bool
 
 - name: Install NVIDIA Container Toolkit
   ansible.builtin.apt:
     name: nvidia-container-toolkit
     state: present
     update_cache: true
+  when: docker_nvidia_enabled | bool
   tags:
     - docker
     - docker-nvidia
@@ -143,7 +154,7 @@
   notify: Restart docker
   tags:
     - docker
-    - docker-nvidia
+    - docker-config
 
 - name: Clean up NVIDIA Container Toolkit temporary files
   ansible.builtin.file:
@@ -152,6 +163,7 @@
   loop:
     - /tmp/nvidia-container-toolkit.gpg
     - /tmp/nvidia-container-toolkit.list
+  when: docker_nvidia_enabled | bool
   tags:
     - docker
     - docker-nvidia

@@ -12,17 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{
+    config::{GlobalConfig, ProverConfig},
+    config_ext::ProverConfigExt,
+    display::{network_name_from_chain_id, DisplayManager},
+};
 use alloy::primitives::U256;
 use anyhow::{bail, Context, Result};
 use bonsai_sdk::non_blocking::Client as BonsaiClient;
-use boundless_market::{contracts::RequestInputType, input::GuestEnv, storage::fetch_url};
+use boundless_market::{contracts::RequestInputType, input::GuestEnv};
 use clap::Args;
 use risc0_zkvm::compute_image_id;
-use sqlx::{postgres::PgPool, postgres::PgPoolOptions};
-
-use crate::config::{GlobalConfig, ProverConfig};
-use crate::config_ext::ProverConfigExt;
-use crate::display::{network_name_from_chain_id, DisplayManager};
+use sqlx::postgres::{PgPool, PgPoolOptions};
 
 /// Benchmark proof requests
 #[derive(Args, Clone, Debug)]
@@ -30,6 +31,15 @@ pub struct ProverBenchmark {
     /// Proof request ids to benchmark.
     #[arg(long, value_delimiter = ',', required = true)]
     pub request_ids: Vec<U256>,
+
+    /// Lower bound: search events backwards down to this block
+    #[clap(long)]
+    pub search_to_block: Option<u64>,
+
+    /// Upper bound: search events backwards from this block (defaults to latest).
+    /// Set this for old requests to reduce RPC calls and cost
+    #[clap(long)]
+    pub search_from_block: Option<u64>,
 
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
@@ -86,13 +96,21 @@ impl ProverBenchmark {
             display.step(idx + 1, self.request_ids.len(), &format!("Request {:#x}", request_id));
 
             display.status("Status", "Fetching request details", "yellow");
-            let (request, _signature) = client.fetch_proof_request(*request_id, None, None).await?;
+            let (request, _signature) = client
+                .fetch_proof_request(
+                    *request_id,
+                    None,
+                    None,
+                    self.search_to_block,
+                    self.search_from_block,
+                )
+                .await?;
 
             tracing::debug!("Fetched request 0x{:x}", request_id);
             tracing::debug!("Image URL: {}", request.imageUrl);
 
             display.status("Status", "Fetching program and input", "yellow");
-            let elf = fetch_url(&request.imageUrl).await?;
+            let elf = client.download(&request.imageUrl).await?;
 
             tracing::debug!("Processing input");
             let input = match request.input.inputType {
@@ -101,7 +119,7 @@ impl ProverBenchmark {
                     let input_url = std::str::from_utf8(&request.input.data)
                         .context("Input URL is not valid UTF-8")?;
                     tracing::debug!("Fetching input from {}", input_url);
-                    GuestEnv::decode(&fetch_url(input_url).await?)?.stdin
+                    GuestEnv::decode(&client.download(input_url).await?)?.stdin
                 }
                 _ => bail!("Unsupported input type"),
             };

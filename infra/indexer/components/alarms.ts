@@ -29,9 +29,10 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             .toString(16)
             .substring(0, 4);
         const metricName = target ? `${baseMetricName}_${target.address}` : baseMetricName;
+        const metricNameReadable = target ? `${baseMetricName}_${target.name}` : baseMetricName;
         const metricFullName = target ? `${metricName}_${target.name}` : metricName;
         new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricFullName}-${descriptionHash}-${severity}-alarm`, {
-            name: `${serviceName}-${metricName}-${descriptionHash}-${severity}`,
+            name: `${serviceName}-${metricNameReadable}-${descriptionHash}-${severity}`,
             metricQueries: [
                 {
                     id: "a",
@@ -76,8 +77,9 @@ export const buildCreateMetricFns = (serviceName: string, namespace: string, ala
             .toString(16)
             .substring(0, 4);
         const metricName = `success_rate_for_${target.address}_${target.name}`;
+        const metricNameReadable = `success_rate_for_${target.name}`;
         new aws.cloudwatch.MetricAlarm(`${serviceName}-${metricName}-${descriptionHash}-${severity}-alarm`, {
-            name: `${serviceName}-${metricName}-${descriptionHash}-${severity}`,
+            name: `${serviceName}-${metricNameReadable}-${descriptionHash}-${severity}`,
             metricQueries: [
                 {
                     id: "a",

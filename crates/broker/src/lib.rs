@@ -18,7 +18,6 @@ use std::{
     time::SystemTime,
 };
 
-use crate::storage::create_uri_handler;
 use alloy::{
     network::Ethereum,
     primitives::{Address, Bytes, FixedBytes, U256},
@@ -30,8 +29,8 @@ use boundless_market::{
     contracts::{boundless_market::BoundlessMarketService, ProofRequest},
     dynamic_gas_filler::PriorityMode,
     order_stream_client::OrderStreamClient,
-    override_gateway,
     selector::{is_blake3_groth16_selector, is_groth16_selector},
+    storage::StorageDownloader,
     Deployment,
 };
 use chrono::{serde::ts_seconds, DateTime, Utc};
@@ -44,9 +43,9 @@ use risc0_ethereum_contracts::set_verifier::SetVerifierService;
 use risc0_zkvm::sha::Digest;
 pub use rpc_retry_policy::CustomRetryPolicy;
 use serde::{Deserialize, Serialize};
+use storage::ConfigurableDownloader;
 use task::{RetryPolicy, Supervisor};
-use tokio::sync::mpsc;
-use tokio::task::JoinSet;
+use tokio::{sync::mpsc, sync::RwLock, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -109,7 +108,8 @@ pub struct Args {
     /// local prover API (Bento)
     ///
     /// Setting this value toggles using Bento for proving and disables Bonsai
-    #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"])]
+    #[clap(long, env, default_value = "http://localhost:8081", conflicts_with_all = ["bonsai_api_url", "bonsai_api_key"]
+    )]
     pub bento_api_url: Option<Url>,
 
     /// Bonsai API URL
@@ -182,13 +182,10 @@ enum OrderStatus {
     Skipped,
 }
 
-#[derive(Clone, Copy, sqlx::Type, Debug, PartialEq, Serialize, Deserialize)]
-enum FulfillmentType {
-    LockAndFulfill,
-    FulfillAfterLockExpire,
-    // Currently not supported
-    FulfillWithoutLocking,
-}
+pub use boundless_market::prover_utils::{
+    FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
+    OrderRequest, PreflightCache, PreflightCacheKey, PreflightCacheValue, ProveLimitReason,
+};
 
 /// Message sent from MarketMonitor to OrderPicker about order state changes
 #[derive(Debug, Clone)]
@@ -208,118 +205,38 @@ fn format_order_id(
     format!("0x{request_id:x}-{signing_hash}-{fulfillment_type:?}")
 }
 
-/// Order request from the network.
-///
-/// This will turn into an [`Order`] once it is locked or skipped.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct OrderRequest {
-    request: ProofRequest,
-    client_sig: Bytes,
-    fulfillment_type: FulfillmentType,
-    boundless_market_address: Address,
-    chain_id: u64,
-    image_id: Option<String>,
-    input_id: Option<String>,
-    total_cycles: Option<u64>,
-    target_timestamp: Option<u64>,
-    expire_timestamp: Option<u64>,
-    #[serde(skip)]
-    cached_id: OnceLock<String>,
-}
-
-impl OrderRequest {
-    pub fn new(
-        request: ProofRequest,
-        client_sig: Bytes,
-        fulfillment_type: FulfillmentType,
-        boundless_market_address: Address,
-        chain_id: u64,
-    ) -> Self {
-        Self {
-            request,
-            client_sig,
-            fulfillment_type,
-            boundless_market_address,
-            chain_id,
-            image_id: None,
-            input_id: None,
-            total_cycles: None,
-            target_timestamp: None,
-            expire_timestamp: None,
-            cached_id: OnceLock::new(),
-        }
-    }
-
-    // An Order is identified by the request_id, the fulfillment type, and the hash of the proof request.
-    // This structure supports multiple different ProofRequests with the same request_id, and different
-    // fulfillment types.
-    pub fn id(&self) -> String {
-        self.cached_id
-            .get_or_init(|| {
-                let signing_hash = self
-                    .request
-                    .signing_hash(self.boundless_market_address, self.chain_id)
-                    .unwrap();
-                format_order_id(&self.request.id, &signing_hash, &self.fulfillment_type)
-            })
-            .clone()
-    }
-
-    fn to_order(&self, status: OrderStatus) -> Order {
-        Order {
-            boundless_market_address: self.boundless_market_address,
-            chain_id: self.chain_id,
-            fulfillment_type: self.fulfillment_type,
-            request: self.request.clone(),
-            status,
-            client_sig: self.client_sig.clone(),
-            updated_at: Utc::now(),
-            image_id: self.image_id.clone(),
-            input_id: self.input_id.clone(),
-            total_cycles: self.total_cycles,
-            target_timestamp: self.target_timestamp,
-            expire_timestamp: self.expire_timestamp,
-            proving_started_at: None,
-            proof_id: None,
-            compressed_proof_id: None,
-            lock_price: None,
-            error_msg: None,
-            cached_id: OnceLock::new(),
-        }
-    }
-
-    fn to_skipped_order(&self) -> Order {
-        self.to_order(OrderStatus::Skipped)
-    }
-
-    fn to_proving_order(&self, lock_price: U256) -> Order {
-        let mut order = self.to_order(OrderStatus::PendingProving);
-        order.lock_price = Some(lock_price);
-        order.proving_started_at = Some(Utc::now().timestamp().try_into().unwrap());
-        order
-    }
-
-    /// Returns the relevant expiration timestamp for this order based on its fulfillment type.
-    /// - For LockAndFulfill orders: returns lock expiration
-    /// - For FulfillAfterLockExpire/FulfillWithoutLocking orders: returns order expiration
-    pub fn expiry(&self) -> u64 {
-        match self.fulfillment_type {
-            FulfillmentType::LockAndFulfill => self.request.lock_expires_at(),
-            FulfillmentType::FulfillAfterLockExpire => self.request.expires_at(),
-            FulfillmentType::FulfillWithoutLocking => self.request.expires_at(),
-        }
+pub(crate) fn order_from_request(order_request: &OrderRequest, status: OrderStatus) -> Order {
+    Order {
+        boundless_market_address: order_request.boundless_market_address,
+        chain_id: order_request.chain_id,
+        fulfillment_type: order_request.fulfillment_type,
+        request: order_request.request.clone(),
+        status,
+        client_sig: order_request.client_sig.clone(),
+        updated_at: Utc::now(),
+        image_id: order_request.image_id.clone(),
+        input_id: order_request.input_id.clone(),
+        total_cycles: order_request.total_cycles,
+        target_timestamp: order_request.target_timestamp,
+        expire_timestamp: order_request.expire_timestamp,
+        proving_started_at: None,
+        proof_id: None,
+        compressed_proof_id: None,
+        lock_price: None,
+        error_msg: None,
+        cached_id: OnceLock::new(),
     }
 }
 
-impl std::fmt::Display for OrderRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let total_mcycles = if self.total_cycles.is_some() {
-            format!(" ({} mcycles)", self.total_cycles.unwrap() / 1_000_000)
-        } else {
-            "".to_string()
-        };
-        write!(f, "{}{} [{}]", self.id(), total_mcycles, format_expiries(&self.request))
-    }
+pub(crate) fn skipped_order_from_request(order_request: &OrderRequest) -> Order {
+    order_from_request(order_request, OrderStatus::Skipped)
+}
+
+pub(crate) fn proving_order_from_request(order_request: &OrderRequest, lock_price: U256) -> Order {
+    let mut order = order_from_request(order_request, OrderStatus::PendingProving);
+    order.lock_price = Some(lock_price);
+    order.proving_started_at = Some(Utc::now().timestamp().try_into().unwrap());
+    order
 }
 
 /// An Order represents a proof request and a specific method of fulfillment.
@@ -491,7 +408,8 @@ pub struct Broker<P> {
     config_watcher: ConfigWatcher,
     priority_requestors: requestor_monitor::PriorityRequestors,
     allow_requestors: requestor_monitor::AllowRequestors,
-    gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    gas_priority_mode: Arc<RwLock<PriorityMode>>,
+    downloader: ConfigurableDownloader,
 }
 
 impl<P> Broker<P>
@@ -502,7 +420,7 @@ where
         mut args: Args,
         provider: P,
         config_watcher: ConfigWatcher,
-        gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+        gas_priority_mode: Arc<RwLock<PriorityMode>>,
     ) -> Result<Self> {
         let db: DbObj =
             Arc::new(SqliteDb::new(&args.db_url).await.context("Failed to connect to sqlite DB")?);
@@ -527,6 +445,9 @@ where
             requestor_monitor::PriorityRequestors::new(config_watcher.config.clone(), chain_id);
         let allow_requestors =
             requestor_monitor::AllowRequestors::new(config_watcher.config.clone(), chain_id);
+        let downloader = ConfigurableDownloader::new(config_watcher.config.clone())
+            .await
+            .context("Failed to initialize downloader")?;
 
         Ok(Self {
             args,
@@ -536,6 +457,7 @@ where
             priority_requestors,
             allow_requestors,
             gas_priority_mode,
+            downloader,
         })
     }
 
@@ -706,15 +628,7 @@ where
                             image_id,
                             computed_id
                         );
-                        let program = match self.download_image(&contract_url, "contract").await {
-                            Ok(bytes) => bytes,
-                            Err(_) => {
-                                let overridden_url = override_gateway(&contract_url);
-                                tracing::debug!("Retrying with overridden URL: {overridden_url}");
-                                self.download_image(&overridden_url, "gateway fallback").await?
-                            }
-                        };
-                        program
+                        self.download_image(&contract_url, "contract").await?
                     }
                 }
                 Err(e) => {
@@ -723,15 +637,7 @@ where
                         image_label,
                         e
                     );
-                    let program = match self.download_image(&contract_url, "contract").await {
-                        Ok(bytes) => bytes,
-                        Err(_) => {
-                            let overridden_url = override_gateway(&contract_url);
-                            tracing::debug!("Retrying with overridden URL: {overridden_url}");
-                            self.download_image(&overridden_url, "gateway fallback").await?
-                        }
-                    };
-                    program
+                    self.download_image(&contract_url, "contract").await?
                 }
             }
         };
@@ -760,12 +666,9 @@ where
     async fn download_image(&self, url: &str, source_name: &str) -> Result<Vec<u8>> {
         tracing::trace!("Attempting to download image from {}: {}", source_name, url);
 
-        let handler = create_uri_handler(url, &self.config_watcher.config, false)
-            .await
-            .with_context(|| format!("Failed to create handler for {} URL", source_name))?;
-
-        let bytes = handler
-            .fetch()
+        let bytes = self
+            .downloader
+            .download(url)
             .await
             .with_context(|| format!("Failed to download image from {}", source_name))?;
 
@@ -972,6 +875,7 @@ where
             order_state_tx.clone(),
             self.priority_requestors.clone(),
             self.allow_requestors.clone(),
+            self.downloader.clone(),
         ));
         let cloned_config = config.clone();
         let cancel_token = non_critical_cancel_token.clone();
@@ -983,19 +887,16 @@ where
             Ok(())
         });
 
-        let proving_service = Arc::new(
-            proving::ProvingService::new(
-                self.db.clone(),
-                prover.clone(),
-                aggregation_prover.clone(),
-                config.clone(),
-                order_state_tx.clone(),
-                self.priority_requestors.clone(),
-                market.clone(),
-            )
-            .await
-            .context("Failed to initialize proving service")?,
-        );
+        let proving_service = Arc::new(proving::ProvingService::new(
+            self.db.clone(),
+            prover.clone(),
+            aggregation_prover.clone(),
+            config.clone(),
+            order_state_tx.clone(),
+            self.priority_requestors.clone(),
+            market.clone(),
+            self.downloader.clone(),
+        ));
 
         let cloned_config = config.clone();
         let cancel_token = critical_cancel_token.clone();
@@ -1151,12 +1052,12 @@ where
         let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             while non_critical_tasks.join_next().await.is_some() {}
         })
-        .await
-        .map_err(|_| {
-            tracing::warn!(
+            .await
+            .map_err(|_| {
+                tracing::warn!(
                 "Timed out waiting for non-critical tasks to exit; proceeding with critical shutdown"
             );
-        });
+            });
 
         // Phase 2: Wait for committed orders to complete, then cancel critical tasks
         self.shutdown_and_cancel_critical_tasks(critical_cancel_token).await?;
@@ -1259,21 +1160,14 @@ pub(crate) fn is_dev_mode() -> bool {
         .is_some()
 }
 
-/// Returns `true` if the `ALLOW_LOCAL_FILE_STORAGE` environment variable is enabled.
-pub(crate) fn allow_local_file_storage() -> bool {
-    std::env::var("ALLOW_LOCAL_FILE_STORAGE")
-        .ok()
-        .map(|x| x.to_lowercase())
-        .filter(|x| x == "1" || x == "true" || x == "yes")
-        .is_some()
-}
-
 #[cfg(feature = "test-utils")]
 pub mod test_utils {
     use std::sync::Arc;
 
-    use alloy::network::Ethereum;
-    use alloy::providers::{Provider, WalletProvider};
+    use alloy::{
+        network::Ethereum,
+        providers::{Provider, WalletProvider},
+    };
     use anyhow::Result;
     use boundless_market::dynamic_gas_filler::PriorityMode;
     use boundless_test_utils::{
@@ -1283,8 +1177,10 @@ pub mod test_utils {
     use tempfile::NamedTempFile;
     use url::Url;
 
-    use crate::config::ConfigWatcher;
-    use crate::{config::Config, Args, Broker};
+    use crate::{
+        config::{Config, ConfigWatcher},
+        Args, Broker,
+    };
 
     pub struct BrokerBuilder<P> {
         args: Args,
@@ -1301,7 +1197,7 @@ pub mod test_utils {
             let mut config = Config::default();
             config.prover.set_builder_guest_path = Some(SET_BUILDER_PATH.into());
             config.prover.assessor_set_guest_path = Some(ASSESSOR_GUEST_PATH.into());
-            config.market.min_mcycle_price = "0.00001".into();
+            config.market.min_mcycle_price = "0.0".into();
             config.batcher.min_batch_size = 1;
             config.market.min_deadline = 30;
             config.write(config_file.path()).await.unwrap();

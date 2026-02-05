@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::chain_monitor::ChainHead;
-use crate::OrderRequest;
 use crate::{
-    chain_monitor::ChainMonitorService,
+    chain_monitor::{ChainHead, ChainMonitorService},
     config::{ConfigLock, OrderCommitmentPriority},
     db::DbObj,
     errors::CodedError,
     impl_coded_debug, now_timestamp,
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, Order,
+    utils, FulfillmentType, Order, OrderRequest,
 };
 use alloy::{
     network::Ethereum,
@@ -32,16 +30,21 @@ use alloy::{
     providers::{Provider, WalletProvider},
 };
 use anyhow::{Context, Result};
-use boundless_market::contracts::{
-    boundless_market::{BoundlessMarketService, MarketError},
-    IBoundlessMarket::IBoundlessMarketErrors,
-    RequestStatus, TxnErr,
+use boundless_market::{
+    contracts::{
+        boundless_market::{BoundlessMarketService, MarketError},
+        IBoundlessMarket::IBoundlessMarketErrors,
+        RequestStatus, TxnErr,
+    },
+    dynamic_gas_filler::PriorityMode,
+    selector::SupportedSelectors,
 };
-use boundless_market::dynamic_gas_filler::PriorityMode;
-use boundless_market::selector::SupportedSelectors;
+use moka::policy::EvictionPolicy;
 use moka::{future::Cache, Expiry};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -214,8 +217,18 @@ where
             provider,
             prover_addr,
             priced_order_rx: Arc::new(Mutex::new(priced_orders_rx)),
-            lock_and_prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
-            prove_cache: Arc::new(Cache::builder().expire_after(OrderExpiry).build()),
+            lock_and_prove_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .expire_after(OrderExpiry)
+                    .build(),
+            ),
+            prove_cache: Arc::new(
+                Cache::builder()
+                    .eviction_policy(EvictionPolicy::lru())
+                    .expire_after(OrderExpiry)
+                    .build(),
+            ),
             supported_selectors: SupportedSelectors::default(),
             rpc_retry_config,
             gas_priority_mode,
@@ -1011,13 +1024,11 @@ where
 pub(crate) mod tests {
     use super::*;
     use crate::OrderStatus;
-    use crate::{db::SqliteDb, now_timestamp, FulfillmentType};
-    use alloy::node_bindings::AnvilInstance;
-    use alloy::primitives::{address, Bytes};
+    use crate::{db::SqliteDb, now_timestamp, proving_order_from_request, FulfillmentType};
     use alloy::{
         network::EthereumWallet,
-        node_bindings::Anvil,
-        primitives::{Address, U256},
+        node_bindings::{Anvil, AnvilInstance},
+        primitives::{address, Address, Bytes, U256},
         providers::{
             fillers::{
                 BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -1099,19 +1110,15 @@ pub(crate) mod tests {
                 .as_bytes()
                 .into();
 
-            Box::new(OrderRequest {
-                target_timestamp: Some(0),
+            let mut order = OrderRequest::new(
                 request,
-                image_id: None,
-                input_id: None,
-                expire_timestamp: None,
                 client_sig,
                 fulfillment_type,
-                boundless_market_address: self.market_address,
-                chain_id: self.anvil.chain_id(),
-                total_cycles: None,
-                cached_id: Default::default(),
-            })
+                self.market_address,
+                self.anvil.chain_id(),
+            );
+            order.target_timestamp = Some(0);
+            Box::new(order)
         }
     }
 
@@ -1435,7 +1442,7 @@ pub(crate) mod tests {
         let committed_order = ctx
             .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
             .await;
-        let mut committed_order = committed_order.to_proving_order(Default::default());
+        let mut committed_order = proving_order_from_request(&committed_order, Default::default());
         committed_order.status = OrderStatus::Proving;
         committed_order.proving_started_at = Some(current_timestamp);
         ctx.db.add_order(&committed_order).await.unwrap();
@@ -1496,7 +1503,7 @@ pub(crate) mod tests {
         let committed_order = ctx
             .create_test_order(FulfillmentType::LockAndFulfill, current_timestamp, 100, 200)
             .await;
-        let mut committed_order = committed_order.to_proving_order(Default::default());
+        let mut committed_order = proving_order_from_request(&committed_order, Default::default());
         committed_order.status = OrderStatus::Proving;
         committed_order.total_cycles = Some(10_000_000_000_000_000);
         committed_order.proving_started_at = Some(current_timestamp);
@@ -1717,7 +1724,8 @@ pub(crate) mod tests {
                 .create_test_order(FulfillmentType::LockAndFulfill, now_timestamp(), 100, 200)
                 .await;
 
-            let mut committed_order_obj = committed_order.to_proving_order(Default::default());
+            let mut committed_order_obj =
+                proving_order_from_request(&committed_order, Default::default());
             committed_order_obj.status = OrderStatus::Proving;
             committed_order_obj.proving_started_at = Some(now_timestamp());
             ctx.db.add_order(&committed_order_obj).await.unwrap();

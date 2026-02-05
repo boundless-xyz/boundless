@@ -12,18 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::db::market::IndexerDb;
-use crate::market::{
-    time_boundaries::{
-        get_day_start, get_hour_start, get_month_start, get_next_day, get_next_hour,
-        get_next_month, get_next_week, get_week_start,
+use crate::{
+    db::market::IndexerDb,
+    market::{
+        time_boundaries::{
+            get_day_start, get_hour_start, get_month_start, get_next_day, get_next_hour,
+            get_next_month, get_next_week, get_week_start,
+        },
+        IndexerService, ServiceError,
     },
-    IndexerService, ServiceError,
 };
-use alloy::network::{AnyNetwork, Ethereum};
-use alloy::primitives::B256;
-use alloy::providers::Provider;
+use alloy::{
+    network::{AnyNetwork, Ethereum},
+    primitives::B256,
+    providers::Provider,
+};
 use std::collections::HashSet;
+use std::time::Duration;
 
 const DIGEST_BATCH_SIZE: i64 = 5000;
 const STATUS_BATCH_SIZE: usize = 2500;
@@ -157,6 +162,7 @@ fn chunk_monthly_range(
 pub enum BackfillMode {
     StatusesAndAggregates,
     Aggregates,
+    ChainData,
 }
 
 pub struct BackfillService<P, ANP> {
@@ -164,6 +170,7 @@ pub struct BackfillService<P, ANP> {
     pub mode: BackfillMode,
     pub start_block: u64,
     pub end_block: u64,
+    pub chain_data_batch_delay_ms: u64,
 }
 
 impl<P, ANP> BackfillService<P, ANP>
@@ -176,8 +183,9 @@ where
         mode: BackfillMode,
         start_block: u64,
         end_block: u64,
+        chain_data_batch_delay_ms: u64,
     ) -> Self {
-        Self { indexer, mode, start_block, end_block }
+        Self { indexer, mode, start_block, end_block, chain_data_batch_delay_ms }
     }
 
     pub async fn run(&mut self) -> Result<(), ServiceError> {
@@ -198,9 +206,124 @@ where
             BackfillMode::Aggregates => {
                 self.backfill_aggregates().await?;
             }
+            BackfillMode::ChainData => {
+                self.backfill_chain_data().await?;
+            }
         }
 
         tracing::info!("Backfill completed in {:?}", start_time.elapsed());
+        Ok(())
+    }
+
+    async fn backfill_chain_data(&mut self) -> Result<(), ServiceError> {
+        use std::cmp::min;
+
+        let start_time = std::time::Instant::now();
+        tracing::info!(
+            "Starting chain data backfill from block {} to {} (batch_size: {}, delay_ms: {})...",
+            self.start_block,
+            self.end_block,
+            self.indexer.config.batch_size,
+            self.chain_data_batch_delay_ms
+        );
+
+        let batch_size = self.indexer.config.batch_size;
+        let mut from_block = self.start_block;
+        let mut batch_num = 0;
+
+        // Calculate total number of batches for progress reporting
+        let total_blocks = self.end_block.saturating_sub(self.start_block) + 1;
+        let total_batches = total_blocks.div_ceil(batch_size);
+
+        while from_block <= self.end_block {
+            batch_num += 1;
+            let to_block = min(from_block + batch_size - 1, self.end_block);
+            let batch_start = std::time::Instant::now();
+
+            tracing::info!(
+                "=== Chain data backfill batch {}/{}: processing blocks {} to {} ===",
+                batch_num,
+                total_batches,
+                from_block,
+                to_block
+            );
+
+            // Fetch logs from RPC
+            let logs = self.indexer.fetch_logs(from_block, to_block).await?;
+            tracing::info!(
+                "Batch {}: fetched {} logs from blocks {} to {}",
+                batch_num,
+                logs.len(),
+                from_block,
+                to_block
+            );
+
+            // Apply rate limiting delay between batches if configured
+            if self.chain_data_batch_delay_ms > 0 {
+                tracing::info!(
+                    "Applying delay: {}ms before next batch",
+                    self.chain_data_batch_delay_ms
+                );
+                tokio::time::sleep(Duration::from_millis(self.chain_data_batch_delay_ms)).await;
+            }
+
+            if !logs.is_empty() {
+                // Fetch tx metadata for the logs
+                self.indexer.fetch_tx_metadata(&logs, from_block, to_block).await?;
+
+                // Process all events
+                let (submitted_digests, _offchain_digests) = tokio::try_join!(
+                    self.indexer.process_request_submitted_events(&logs),
+                    self.indexer.process_request_submitted_offchain(from_block, to_block)
+                )?;
+
+                let locked_digests = self.indexer.process_locked_events(&logs).await?;
+                let proof_delivered_digests =
+                    self.indexer.process_proof_delivered_events(&logs).await?;
+                let fulfilled_digests = self.indexer.process_fulfilled_events(&logs).await?;
+                let callback_failed_digests =
+                    self.indexer.process_callback_failed_events(&logs).await?;
+                let slashed_digests = self.indexer.process_slashed_events(&logs).await?;
+
+                // Process deposit/withdrawal events
+                tokio::try_join!(
+                    self.indexer.process_deposit_events(&logs),
+                    self.indexer.process_withdrawal_events(&logs),
+                    self.indexer.process_collateral_deposit_events(&logs),
+                    self.indexer.process_collateral_withdrawal_events(&logs)
+                )?;
+
+                let total_touched = submitted_digests.len()
+                    + locked_digests.len()
+                    + proof_delivered_digests.len()
+                    + fulfilled_digests.len()
+                    + callback_failed_digests.len()
+                    + slashed_digests.len();
+
+                tracing::info!(
+                    "Completed chain data backfill batch {}/{} [blocks {} to {}] : processed {} events, touched {} request digests in {:?}",
+                    batch_num, total_batches, from_block, to_block, logs.len(), total_touched, batch_start.elapsed()
+                );
+            } else {
+                tracing::info!(
+                    "Completed chain data backfill batch {}/{} [blocks {} to {}] : no logs found in blocks {} to {} ({:?})",
+                    batch_num, total_batches, from_block, to_block, from_block, to_block, batch_start.elapsed()
+                );
+            }
+
+            // Clear in-memory cache to free memory
+            self.indexer.clear_in_memory_cache();
+
+            from_block = to_block + 1;
+        }
+
+        tracing::info!(
+            "Chain data backfill completed: processed {} batches (blocks {} to {}) in {:?}",
+            batch_num,
+            self.start_block,
+            self.end_block,
+            start_time.elapsed()
+        );
         Ok(())
     }
 
@@ -1246,8 +1369,7 @@ mod tests {
 
     #[test]
     fn test_chunk_hourly_range_non_boundary_end() {
-        use crate::market::time_boundaries::get_hour_start;
-        use crate::market::time_boundaries::get_next_hour;
+        use crate::market::time_boundaries::{get_hour_start, get_next_hour};
 
         // Test: start=0 (aligned), end=9000 (30 minutes into hour 2)
         // The function should align end_ts to hour boundary

@@ -19,7 +19,7 @@ use indexer_api::models::{DelegationPowerEntry, LeaderboardResponse};
 use super::TestEnv;
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_delegations_votes_leaderboard() {
     let env = TestEnv::shared().await;
 
@@ -64,7 +64,7 @@ async fn test_delegations_votes_leaderboard() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_delegations_rewards_leaderboard() {
     let env = TestEnv::shared().await;
 
@@ -109,7 +109,7 @@ async fn test_delegations_rewards_leaderboard() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_delegations_votes_by_epoch() {
     let env = TestEnv::shared().await;
 
@@ -133,7 +133,7 @@ async fn test_delegations_votes_by_epoch() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_delegations_rewards_by_epoch() {
     let env = TestEnv::shared().await;
 
@@ -157,7 +157,7 @@ async fn test_delegations_rewards_by_epoch() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ETH_MAINNET_RPC_URL"]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires ETH_MAINNET_RPC_URL")]
 async fn test_delegations_pagination() {
     let env = TestEnv::shared().await;
 

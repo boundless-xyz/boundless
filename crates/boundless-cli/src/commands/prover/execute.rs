@@ -18,7 +18,7 @@ use alloy::primitives::{B256, U256};
 use anyhow::{bail, Context, Result};
 use boundless_market::{
     contracts::{FulfillmentData, Predicate, ProofRequest},
-    storage::fetch_url,
+    storage::StorageDownloader,
 };
 use clap::Args;
 use risc0_zkvm::{compute_image_id, default_executor, sha::Digest, ExecutorEnv, SessionInfo};
@@ -46,6 +46,15 @@ pub struct ProverExecute {
     #[arg(long, conflicts_with = "request_path", requires = "request_id")]
     pub tx_hash: Option<B256>,
 
+    /// Lower bound: search events backwards down to this block
+    #[clap(long)]
+    pub search_to_block: Option<u64>,
+
+    /// Upper bound: search events backwards from this block (defaults to latest).
+    /// Set this for old requests to reduce RPC calls and cost
+    #[clap(long)]
+    pub search_from_block: Option<u64>,
+
     /// Prover configuration options
     #[clap(flatten, next_help_heading = "Prover")]
     pub prover_config: ProverConfig,
@@ -71,15 +80,22 @@ impl ProverExecute {
             display.item_colored("Request ID", format!("{:#x}", request_id), "cyan");
             display.status("Status", "Fetching request from blockchain", "yellow");
             tracing::debug!("Loading request from blockchain: 0x{:x}", request_id);
-            let (req, _signature) =
-                client.fetch_proof_request(request_id, self.tx_hash, self.request_digest).await?;
+            let (req, _signature) = client
+                .fetch_proof_request(
+                    request_id,
+                    self.tx_hash,
+                    self.request_digest,
+                    self.search_to_block,
+                    self.search_from_block,
+                )
+                .await?;
             req
         } else {
             bail!("execute requires either a request file path or request ID")
         };
 
         display.status("Status", "Starting execution", "yellow");
-        let (image_id, session_info) = execute(&request, &display).await?;
+        let (image_id, session_info) = execute(&request, &client.downloader, &display).await?;
         let journal = session_info.journal.bytes;
         let predicate = Predicate::try_from(request.requirements.predicate.clone())?;
 
@@ -101,10 +117,11 @@ impl ProverExecute {
 /// Execute a proof request using the RISC Zero zkVM executor and returns the image id and session info
 async fn execute(
     request: &ProofRequest,
+    downloader: &impl StorageDownloader,
     display: &DisplayManager,
 ) -> Result<(Digest, SessionInfo)> {
     display.status("Status", "Fetching program", "yellow");
-    let program = fetch_url(&request.imageUrl).await?;
+    let program = downloader.download(&request.imageUrl).await?;
     let image_id = compute_image_id(&program)?;
 
     tracing::debug!("Program image id: {}", image_id);
@@ -117,7 +134,7 @@ async fn execute(
             let input_url =
                 std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
             display.status("Status", "Fetching input", "yellow");
-            let input_data = fetch_url(input_url).await?;
+            let input_data = downloader.download(input_url).await?;
             boundless_market::input::GuestEnv::decode(&input_data)?.stdin
         }
         _ => anyhow::bail!("Unsupported input type"),

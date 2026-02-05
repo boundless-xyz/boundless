@@ -58,7 +58,7 @@ use boundless_market::{
     },
     input::GuestEnv,
     selector::{is_blake3_groth16_selector, is_groth16_selector, SupportedSelectors},
-    storage::fetch_url,
+    storage::StorageDownloader,
     ProofRequest,
 };
 
@@ -127,6 +127,7 @@ pub async fn ensure_prover_has_image(
     expected_image_id: Digest,
     default_url: &str,
     contract_url: &str,
+    downloader: &impl StorageDownloader,
 ) -> Result<()> {
     let image_id_str = expected_image_id.to_string();
 
@@ -139,7 +140,7 @@ pub async fn ensure_prover_has_image(
     }
 
     // Try default URL first, fall back to contract URL
-    let image_bytes = match fetch_url(default_url).await {
+    let image_bytes = match downloader.download(default_url).await {
         Ok(bytes) => {
             let computed_id = compute_image_id(&bytes).with_context(|| {
                 format!("Failed to compute {} image ID from default URL", image_label)
@@ -155,7 +156,7 @@ pub async fn ensure_prover_has_image(
                     expected_image_id,
                     computed_id
                 );
-                fetch_url(contract_url).await.with_context(|| {
+                downloader.download(contract_url).await.with_context(|| {
                     format!("Failed to download {} image from contract URL", image_label)
                 })?
             }
@@ -166,7 +167,7 @@ pub async fn ensure_prover_has_image(
                 image_label,
                 e
             );
-            fetch_url(contract_url).await.with_context(|| {
+            downloader.download(contract_url).await.with_context(|| {
                 format!("Failed to download {} image from contract URL", image_label)
             })?
         }
@@ -216,6 +217,7 @@ pub async fn ensure_prover_has_image(
 /// * `broker::provers::Bonsai` for Bento/Bonsai remote proving
 pub struct OrderFulfiller {
     prover: Arc<dyn Prover + Send + Sync>,
+    downloader: Arc<dyn StorageDownloader + Send + Sync>,
     set_builder_image_id: Digest,
     assessor_image_id: Digest,
     address: Address,
@@ -227,6 +229,7 @@ impl OrderFulfiller {
     /// Creates a new [OrderFulfiller].
     pub fn new(
         prover: Arc<dyn Prover + Send + Sync>,
+        downloader: Arc<dyn StorageDownloader>,
         set_builder_image_id: Digest,
         assessor_image_id: Digest,
         address: Address,
@@ -236,6 +239,7 @@ impl OrderFulfiller {
             SupportedSelectors::default().with_set_builder_image_id(set_builder_image_id);
         Ok(Self {
             prover,
+            downloader,
             set_builder_image_id,
             assessor_image_id,
             address,
@@ -244,12 +248,13 @@ impl OrderFulfiller {
         })
     }
 
-    pub(crate) async fn initialize_from_config<P, St, R, Si>(
+    pub(crate) async fn initialize_from_config<P, St, D, R, Si>(
         prover_config: &config::ProverConfig,
-        client: &boundless_market::Client<P, St, R, Si>,
+        client: &boundless_market::Client<P, St, D, R, Si>,
     ) -> Result<Self>
     where
-        P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
+        P: alloy::providers::Provider + Clone + 'static,
+        D: StorageDownloader + Clone + 'static,
     {
         prover_config.proving_backend.configure_proving_backend_with_health_check().await?;
 
@@ -285,13 +290,15 @@ impl OrderFulfiller {
     }
 
     /// Initialize an OrderFulfiller from a provided Prover instance.
-    pub async fn initialize<P, St, R, Si>(
+    pub async fn initialize<P, St, D, R, Si>(
         prover: Arc<dyn Prover + Send + Sync>,
-        client: &boundless_market::Client<P, St, R, Si>,
+        client: &boundless_market::Client<P, St, D, R, Si>,
     ) -> Result<Self>
     where
         P: alloy::providers::Provider<alloy::network::Ethereum> + Clone + 'static,
+        D: StorageDownloader + Clone + 'static,
     {
+        let downloader = Arc::new(client.downloader.clone());
         let domain = client.boundless_market.eip712_domain().await?;
 
         let (assessor_image_id_bytes, assessor_url) = client.boundless_market.image_info().await?;
@@ -308,6 +315,7 @@ impl OrderFulfiller {
             assessor_image_id,
             ASSESSOR_DEFAULT_IMAGE_URL,
             &assessor_url,
+            &downloader,
         )
         .await?;
 
@@ -318,11 +326,13 @@ impl OrderFulfiller {
             set_builder_image_id,
             SET_BUILDER_DEFAULT_IMAGE_URL,
             &set_builder_url,
+            &downloader,
         )
         .await?;
 
         OrderFulfiller::new(
             prover,
+            downloader,
             set_builder_image_id,
             assessor_image_id,
             client.boundless_market.caller(),
@@ -403,10 +413,11 @@ impl OrderFulfiller {
         tracing::debug!("Fulfilling {} orders", orders.len());
         let orders_jobs = orders.iter().cloned().enumerate().map(move |(idx, (req, sig))| {
             let prover = self.prover.clone();
+            let downloader = self.downloader.clone();
             let supported_selectors = self.supported_selectors.clone();
             async move {
                 // Fetch and upload order image
-                let order_program = fetch_url(&req.imageUrl).await?;
+                let order_program = downloader.download(&req.imageUrl).await?;
                 let order_image_id = compute_image_id(&order_program)?;
                 let order_image_id_str = order_image_id.to_string();
 
@@ -426,11 +437,12 @@ impl OrderFulfiller {
                     RequestInputType::Inline => GuestEnv::decode(&req.input.data)?.stdin,
                     RequestInputType::Url => {
                         GuestEnv::decode(
-                            &fetch_url(
-                                std::str::from_utf8(&req.input.data)
-                                    .context("input url is not utf8")?,
-                            )
-                            .await?,
+                            &downloader
+                                .download(
+                                    std::str::from_utf8(&req.input.data)
+                                        .context("input url is not utf8")?,
+                                )
+                                .await?,
                         )?
                         .stdin
                     }
@@ -635,9 +647,12 @@ mod tests {
             UNSPECIFIED_SELECTOR,
         },
         selector::SelectorExt,
+        storage::StandardDownloader,
     };
-    use boundless_test_utils::guests::{ECHO_ID, ECHO_PATH};
-    use boundless_test_utils::market::create_test_ctx;
+    use boundless_test_utils::{
+        guests::{ECHO_ID, ECHO_PATH},
+        market::create_test_ctx,
+    };
     use std::sync::Arc;
 
     async fn setup_proving_request_and_signature(
@@ -665,12 +680,16 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
     async fn test_fulfill_with_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        let client =
-            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+        let client = boundless_market::Client::new(
+            ctx.customer_market.clone(),
+            ctx.set_verifier.clone(),
+            StandardDownloader::new().await,
+        );
+
         let signer = PrivateKeySigner::random();
         let (request, signature) =
             setup_proving_request_and_signature(&signer, Some(SelectorExt::groth16_latest())).await;
@@ -682,12 +701,16 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
     async fn test_fulfill() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        let client =
-            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+        let client = boundless_market::Client::new(
+            ctx.customer_market.clone(),
+            ctx.set_verifier.clone(),
+            StandardDownloader::new().await,
+        );
+
         let signer = PrivateKeySigner::random();
         let (request, signature) = setup_proving_request_and_signature(&signer, None).await;
         let prover: Arc<dyn Prover + Send + Sync> = Arc::new(BrokerDefaultProver::default());
@@ -698,12 +721,15 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "runs a proof; slow without RISC0_DEV_MODE=1"]
+    #[cfg_attr(not(feature = "test-r0vm"), ignore = "runs a proof; slow without RISC0_DEV_MODE=1")]
     async fn test_fulfill_blake3_groth16_selector() {
         let anvil = Anvil::new().spawn();
         let ctx = create_test_ctx(&anvil).await.unwrap();
-        let client =
-            boundless_market::Client::new(ctx.customer_market.clone(), ctx.set_verifier.clone());
+        let client = boundless_market::Client::new(
+            ctx.customer_market.clone(),
+            ctx.set_verifier.clone(),
+            StandardDownloader::new().await,
+        );
 
         let input = [255u8; 32].to_vec(); // Example output data
         let blake3_claim_digest =

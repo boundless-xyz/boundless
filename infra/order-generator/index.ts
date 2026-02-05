@@ -15,6 +15,7 @@ export = () => {
   const chainId = isDev ? getEnvVar("CHAIN_ID") : baseConfig.require('CHAIN_ID');
   const pinataJWT = isDev ? pulumi.output(getEnvVar("PINATA_JWT")) : baseConfig.requireSecret('PINATA_JWT');
   const ethRpcUrl = isDev ? pulumi.output(getEnvVar("ETH_RPC_URL")) : baseConfig.requireSecret('ETH_RPC_URL');
+  const indexerUrl = isDev ? pulumi.output(getEnvVar("INDEXER_URL")) : baseConfig.requireSecret('INDEXER_URL');
   const orderStreamUrl = isDev
     ? pulumi.output(getEnvVar("ORDER_STREAM_URL"))
     : (baseConfig.getSecret('ORDER_STREAM_URL') || pulumi.output(""));
@@ -161,6 +162,8 @@ export = () => {
       timeout: offchainTimeout,
       secondsPerMCycle: offchainSecondsPerMCycle,
       execRateKhz: offchainExecRateKhz,
+      indexerUrl,
+      useZeth: false,
     });
   }
 
@@ -215,6 +218,8 @@ export = () => {
       lockTimeout: onchainLockTimeout,
       timeout: onchainTimeout,
       execRateKhz: onchainExecRateKhz,
+      indexerUrl,
+      useZeth: false,
     });
   }
 
@@ -276,6 +281,64 @@ export = () => {
         count: randomRequestorCount,
         scheduleExpression: randomRequestorScheduleExpression,
       },
+      indexerUrl,
+      useZeth: false,
+    });
+  }
+
+  const evmRequestorConfig = new pulumi.Config("order-generator-evm-requestor");
+  const evmRequestorAutoDeposit = evmRequestorConfig.get('AUTO_DEPOSIT');
+  const evmRequestorWarnBalanceBelow = evmRequestorConfig.get('WARN_BALANCE_BELOW');
+  const evmRequestorErrorBalanceBelow = evmRequestorConfig.get('ERROR_BALANCE_BELOW');
+  let evmRequestorPrivateKey: pulumi.Output<string> | undefined;
+  if (isDev && process.env.EVM_REQUESTOR_PRIVATE_KEY) {
+    evmRequestorPrivateKey = pulumi.output(process.env.EVM_REQUESTOR_PRIVATE_KEY);
+  } else {
+    evmRequestorPrivateKey = evmRequestorConfig.requireSecret('PRIVATE_KEY');
+  }
+  const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
+  const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
+  const evmRequestorRampUp = evmRequestorConfig.get('RAMP_UP');
+  const evmRequestorLockTimeout = evmRequestorConfig.get('LOCK_TIMEOUT');
+  const evmRequestorTimeout = evmRequestorConfig.get('TIMEOUT');
+  const evmRequestorSecondsPerMCycle = evmRequestorConfig.get('SECONDS_PER_MCYCLE');
+  const evmRequestorRampUpSecondsPerMCycle = evmRequestorConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
+  const evmRequestorExecRateKhz = evmRequestorConfig.get('EXEC_RATE_KHZ');
+  const evmRequestorMaxPricePerMCycle = evmRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
+
+  if (evmRequestorPrivateKey) {
+    const evmRequestorMaxPrice = evmRequestorMaxPricePerMCycle ?? evmRequestorConfig.require('MAX_PRICE_PER_MCYCLE');
+    new OrderGenerator('evm-requestor', {
+      chainId,
+      stackName,
+      autoDeposit: evmRequestorAutoDeposit,
+      warnBalanceBelow: evmRequestorWarnBalanceBelow,
+      errorBalanceBelow: evmRequestorErrorBalanceBelow,
+      privateKey: evmRequestorPrivateKey,
+      pinataJWT,
+      ethRpcUrl,
+      image,
+      logLevel,
+      setVerifierAddr,
+      boundlessMarketAddr,
+      ipfsGateway,
+      interval: evmRequestorInterval ?? interval,
+      lockCollateralRaw,
+      rampUp: evmRequestorRampUp,
+      inputMaxMCycles: evmRequestorInputMaxMCycles,
+      minPricePerMCycle,
+      maxPricePerMCycle: evmRequestorMaxPrice,
+      secondsPerMCycle: evmRequestorSecondsPerMCycle,
+      rampUpSecondsPerMCycle: evmRequestorRampUpSecondsPerMCycle,
+      vpcId,
+      privateSubnetIds,
+      boundlessAlertsTopicArns: alertsTopicArns,
+      txTimeout,
+      lockTimeout: evmRequestorLockTimeout,
+      timeout: evmRequestorTimeout,
+      execRateKhz: evmRequestorExecRateKhz,
+      indexerUrl,
+      useZeth: true,
     });
   }
 };

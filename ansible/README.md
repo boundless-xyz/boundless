@@ -1,16 +1,14 @@
 # Boundless Ansible Setup
 
-Ansible playbooks for deploying Boundless prover infrastructure using Docker Compose.
+Ansible playbooks for deploying Boundless prover and explorer infrastructure using Docker Compose.
 
 ## Overview
 
-This setup deploys the Boundless prover stack using Docker Compose, including:
+This setup deploys:
 
-- NVIDIA drivers and CUDA Toolkit
-- Docker Engine with NVIDIA Container Toolkit
-- Prover services (PostgreSQL, Redis, MinIO, agents, REST API)
-- Optional broker and miner services
-- Vector log shipping to AWS CloudWatch (optional)
+- **Prover nodes**: Bento stack (PostgreSQL, Redis, MinIO, agents, REST API, optional broker/miner)
+- **Explorer nodes**: Same stack plus Caddy for TLS and API-key auth
+- **Supporting roles**: NVIDIA drivers and CUDA Toolkit, Docker Engine (with optional NVIDIA Container Toolkit), UFW firewall, Vector log shipping to AWS CloudWatch
 
 ## Requirements
 
@@ -24,18 +22,21 @@ This setup deploys the Boundless prover stack using Docker Compose, including:
 
 ```
 ansible/
-├── prover.yml             # Main deployment playbook
-├── monitoring.yml         # AWS CLI + Vector log shipping
-├── inventory.yml          # Host inventory (base64 encoded for CI)
-├── ansible.cfg            # Ansible configuration
-├── README.md              # This file
-├── ENV_VARS.md            # Environment variable documentation
+├── prover.yml             # Main deployment playbook (nvidia, docker, prover)
+├── monitoring.yml        # AWS CLI + Vector log shipping
+├── security.yml          # UFW firewall
+├── inventory.yml         # Example inventory (placeholders only; do not commit real data)
+├── inventory.example.yml # Copy of example for reference
+├── ansible.cfg           # Ansible configuration
+├── README.md             # This file
+├── ENV_VARS.md           # Variable reference
 └── roles/
-    ├── awscli/            # AWS CLI v2 installation
-    ├── docker/            # Docker Engine + NVIDIA Container Toolkit
-    ├── nvidia/            # NVIDIA drivers and CUDA Toolkit
-    ├── prover/            # Prover Docker Compose deployment
-    └── vector/            # Vector log shipping to CloudWatch
+    ├── awscli/           # AWS CLI v2
+    ├── docker/           # Docker Engine + optional NVIDIA Container Toolkit
+    ├── nvidia/           # NVIDIA drivers and CUDA Toolkit
+    ├── prover/           # Prover/explorer Docker Compose deployment
+    ├── ufw/              # UFW firewall (optional Docker NAT)
+    └── vector/           # Vector log shipping to CloudWatch
 ```
 
 ## Quick Start
@@ -57,29 +58,50 @@ ansible-playbook -i inventory.yml monitoring.yml
 
 ### Inventory Setup
 
-The inventory file defines hosts and their configuration:
+The inventory uses nested groups and group vars to reduce duplication:
+
+- **all.vars**: `ansible_user`, `prover_version`, `ufw_docker_nat_enabled` (apply to every host)
+- **staging** / **production**: `vector_aws_access_key_id`, `vector_aws_secret_access_key` (for Vector/CloudWatch)
+- **Role groups**: `prover`, `explorer`, `nightly`, `release`, plus chain-ID groups (`8453`, `84532`, `11155111`) for targeting
+
+Hosts live in leaf groups (e.g. `explorer_84532_staging_release`, `prover_8453_production_nightly`). Limit patterns use Ansible group syntax:
+
+```bash
+# All staging hosts
+ansible-playbook -i inventory.yml prover.yml --limit staging
+
+# Staging hosts that are also in the prover group
+ansible-playbook -i inventory.yml prover.yml --limit 'staging:&prover'
+
+# All production nightly provers (same as CI nightly job)
+ansible-playbook -i inventory.yml prover.yml --limit 'production:&nightly'
+```
+
+Example structure (see `inventory.yml` or `inventory.example.yml` for the full example with placeholders):
 
 ```yaml
 ---
 all:
+  vars:
+    ufw_docker_nat_enabled: true
+    ansible_user: ubuntu
+    prover_version: main
   children:
-    nightly:
+    staging:
+      vars:
+        vector_aws_access_key_id: "YOUR_AWS_ACCESS_KEY_ID"
+        vector_aws_secret_access_key: "YOUR_AWS_SECRET_ACCESS_KEY"
+      children: [explorer_84532_staging_release, prover_84532_staging_nightly]
+    # Leaf groups define hosts and host vars
+    explorer_84532_staging_release:
       hosts:
-        127.0.0.1:
-          ansible_user: ubuntu
-          prover_version: main
-          prover_private_key: "0x..."
-          prover_povw_log_id: "0x..."
-          prover_rpc_url: "https://..."
-          prover_postgres_password: "secure_password"
-          prover_minio_root_pass: "secure_password"
-    release:
-      hosts:
-        10.0.0.2:
-          ansible_user: ubuntu
-          prover_version: v1.2.0
-          # ... other variables
+        192.0.2.1:
+          caddy_domain: "execution.staging.example.com"
+          prover_executor_count: 16
+          # ...
 ```
+
+**Do not commit real infrastructure data.** The repo contains only an example inventory with placeholders. Use CI secrets (e.g. `ANSIBLE_INVENTORY` as base64 of your real inventory) or Ansible Vault for deployment.
 
 ## Playbooks
 
@@ -102,38 +124,53 @@ Deploys log shipping to AWS CloudWatch:
 1. **awscli role** - Installs AWS CLI v2
 2. **vector role** - Installs and configures Vector
 
+AWS credentials for Vector are set per environment in inventory (`staging.vars` / `production.vars`). No host-level Vector credentials needed when using these groups.
+
 ```bash
 ansible-playbook -i inventory.yml monitoring.yml
 ```
 
+### security.yml
+
+Configures UFW firewall. When `ufw_docker_nat_enabled` is true (set in `all.vars`), inserts Docker NAT rules so containers can reach the internet when Docker has `iptables: false`.
+
+```bash
+ansible-playbook -i inventory.yml security.yml
+```
+
 ## Configuration Variables
 
-### Prover Configuration
+### Global (all.vars)
 
-Key variables (set in inventory or via `-e`):
+| Variable                 | Description                                                        |
+| ------------------------ | ------------------------------------------------------------------ |
+| `ansible_user`           | SSH user (e.g. `ubuntu`)                                           |
+| `prover_version`         | Git tag/branch to deploy (e.g. `main`)                             |
+| `ufw_docker_nat_enabled` | If true, UFW role adds Docker NAT when Docker iptables is disabled |
 
-| Variable                   | Default      | Description               |
-| -------------------------- | ------------ | ------------------------- |
-| `prover_version`           | `v1.2.0`     | Git tag/branch to deploy  |
-| `prover_dir`               | `/opt/bento` | Deployment directory      |
-| `prover_postgres_password` | `password`   | PostgreSQL password       |
-| `prover_minio_root_pass`   | `password`   | MinIO root password       |
-| `prover_private_key`       | `""`         | Broker private key        |
-| `prover_povw_log_id`       | `""`         | POVW log contract address |
-| `prover_rpc_url`           | `""`         | RPC URL for broker        |
+### Prover / Explorer (host or role defaults)
 
-### Vector Configuration
+| Variable                       | Default      | Description                                                   |
+| ------------------------------ | ------------ | ------------------------------------------------------------- |
+| `prover_dir`                   | `/opt/bento` | Deployment directory                                          |
+| `prover_postgres_password`     | (required)   | PostgreSQL password                                           |
+| `prover_minio_root_pass`       | (required)   | MinIO root password                                           |
+| `prover_private_key`           | `""`         | Broker private key (prover nodes)                             |
+| `prover_povw_log_id`           | `""`         | POVW log contract address                                     |
+| `prover_rpc_urls`              | `""`         | RPC URL(s) for broker                                         |
+| `prover_agent_dockerfile`      | (varies)     | e.g. `dockerfiles/agent.dockerfile` or `agent.cpu.dockerfile` |
+| `prover_docker_compose_invoke` | (varies)     | Services to run (e.g. `exec_agent rest_api caddy`)            |
 
-| Variable                       | Default                     | Description                            |
-| ------------------------------ | --------------------------- | -------------------------------------- |
-| `vector_service_enabled`       | `false`                     | Enable Vector at boot                  |
-| `vector_service_state`         | `stopped`                   | Service state                          |
-| `vector_cloudwatch_log_group`  | `/boundless/bento/hostname` | CloudWatch log group                   |
-| `vector_cloudwatch_region`     | `us-west-2`                 | AWS region                             |
-| `vector_aws_access_key_id`     | `null`                      | AWS access key (if not using IAM role) |
-| `vector_aws_secret_access_key` | `null`                      | AWS secret key (if not using IAM role) |
+Explorer hosts also use Caddy variables (`caddy_domain`, `caddy_acme_email`, `caddy_auth_enabled`, `caddy_api_key`, etc.). See role defaults and `ENV_VARS.md`.
 
-See `ENV_VARS.md` for complete variable documentation.
+### Vector (staging / production group vars)
+
+| Variable                       | Description                               |
+| ------------------------------ | ----------------------------------------- |
+| `vector_aws_access_key_id`     | Set in `staging.vars` / `production.vars` |
+| `vector_aws_secret_access_key` | Set in `staging.vars` / `production.vars` |
+
+Other Vector vars (e.g. `vector_service_enabled`, `vector_cloudwatch_log_group`) have role defaults; see `ENV_VARS.md`.
 
 ## Tags
 
@@ -166,40 +203,45 @@ ansible-playbook -i inventory.yml prover.yml --skip-tags nvidia
 
 ## GitHub Actions Deployment
 
-The repository includes automated deployment via GitHub Actions (`.github/workflows/prover-deploy.yml`).
+Automated deployment is in `.github/workflows/prover-deploy.yml`.
 
-### Host Groups
+### How limits map to inventory groups
 
-- **staging**: Deployed manually for testing (Base Sepolia)
-- **nightly**: Deployed daily at 1am UTC from `main` branch (Base Mainnet)
-- **release**: Deployed manually using official release tags (Base Mainnet)
+| Workflow target | Ansible limit         | Hosts                                                                      |
+| --------------- | --------------------- | -------------------------------------------------------------------------- |
+| **staging**     | `staging`             | Explorer and prover on Base Sepolia (staging)                              |
+| **nightly**     | `production:&nightly` | Production prover nightlies (Base Mainnet, Base Sepolia, Ethereum Sepolia) |
+| **release**     | `production:&release` | Production prover + explorer release groups                                |
+| **all**         | (no limit)            | Staging + production (all playbook hosts)                                  |
 
-### Required Secrets
+### Required secrets
 
-| Secret                    | Description                  |
-| ------------------------- | ---------------------------- |
-| `ANSIBLE_SSH_PRIVATE_KEY` | SSH private key (ed25519)    |
-| `ANSIBLE_INVENTORY`       | Base64-encoded inventory.yml |
+| Secret                    | Description                    |
+| ------------------------- | ------------------------------ |
+| `ANSIBLE_SSH_PRIVATE_KEY` | SSH private key (ed25519)      |
+| `ANSIBLE_INVENTORY`       | Base64-encoded `inventory.yml` |
 
-### Creating the Inventory Secret
+### Creating the inventory secret
+
+Use a **real** inventory file (with your hosts and secrets), not the example in the repo:
 
 ```bash
 cd ansible
-base64 -i inventory.yml | tr -d '\n'
-# Copy output to GitHub secret: ANSIBLE_INVENTORY
+# Use your actual inventory file (e.g. from vault or a private copy)
+base64 -i /path/to/your/inventory.yml | tr -d '\n'
+# Paste output into GitHub secret: ANSIBLE_INVENTORY
 ```
 
-### Manual Deployment
+### Manual run
 
-1. Go to Actions → Prover Deployment
-2. Click "Run workflow"
-3. Select:
-   - **Target**: `staging`, `nightly`, `release`, or `all`
-   - **Playbook**: `prover.yml` or `monitoring.yml`
+1. Actions → Prover Deployment → Run workflow
+2. Choose **Target**: `staging`, `nightly`, `release`, or `all`
+3. Playbook is fixed to `prover.yml` in the workflow; adjust the workflow file to run `monitoring.yml` or `security.yml` if needed.
 
-### Scheduled Deployment
+### Scheduled runs
 
-The nightly host is automatically deployed at 1am UTC from the `main` branch.
+- **Push to main**: runs staging job.
+- **Cron (1am UTC)**: runs nightly job (`production:&nightly`).
 
 ## Service Management
 
@@ -316,10 +358,9 @@ cd /opt/bento && docker compose logs --tail=100
 
 ## Role Documentation
 
-See individual role READMEs for detailed documentation:
-
-- `roles/awscli/README.md` - AWS CLI installation
-- `roles/docker/README.md` - Docker installation
-- `roles/nvidia/README.md` - NVIDIA drivers
-- `roles/prover/README.md` - Prover Docker Compose deployment
-- `roles/vector/README.md` - Vector log shipping
+- `roles/awscli/README.md` - AWS CLI v2
+- `roles/docker/README.md` - Docker Engine and NVIDIA Container Toolkit
+- `roles/nvidia/README.md` - NVIDIA drivers and CUDA
+- `roles/prover/README.md` - Prover/explorer Docker Compose deployment
+- `roles/ufw/README.md` - UFW firewall and optional Docker NAT
+- `roles/vector/README.md` - Vector log shipping to CloudWatch

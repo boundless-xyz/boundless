@@ -22,17 +22,6 @@ use url::Url;
 /// This implementation allows tests to control the price range returned
 /// and simulate failures, making it useful for testing price provider
 /// integration without requiring a real indexer.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # use boundless_test_utils::market::MockPriceProvider;
-/// # use alloy::primitives::U256;
-/// let provider = MockPriceProvider::new(
-///     U256::from(1000u64), // min price
-///     U256::from(5000u64), // max price
-/// );
-/// ```
 pub struct MockPriceProvider {
     price_percentiles: PricePercentiles,
     should_fail: bool,

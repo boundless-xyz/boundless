@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{cmp::min, sync::Arc};
 
 use alloy::{
     node_bindings::Anvil,
@@ -33,7 +33,7 @@ use boundless_market::{
     input::GuestEnv,
     price_provider::{PricePercentiles, PriceProviderArc},
     request_builder::{OfferParams, RequestParams},
-    storage::MockStorageProvider,
+    storage::{HttpDownloader, MockStorageUploader},
     test_helpers::create_mock_indexer_client,
 };
 use boundless_test_utils::{
@@ -179,6 +179,7 @@ async fn test_funding_mode() {
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
+        .with_downloader(HttpDownloader::default())
         .build()
         .await
         .unwrap();
@@ -309,7 +310,8 @@ async fn test_e2e() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve fulfillment data data and seal from the fulfilled request
-    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let fulfillment_result =
+        ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
     let expected_fulfillment_data = FulfillmentData::decode_with_type(
         fulfillment.fulfillmentDataType,
         fulfillment.fulfillmentData.clone(),
@@ -384,7 +386,8 @@ async fn test_e2e_merged_submit_fulfill() {
         .unwrap();
 
     // retrieve fulfillment data  and seal from the fulfilled request
-    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let fulfillment_result =
+        ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
     let expected_fulfillment_data = FulfillmentData::decode_with_type(
         fulfillments[0].fulfillmentDataType,
         fulfillments[0].fulfillmentData.clone(),
@@ -447,7 +450,8 @@ async fn test_e2e_price_and_fulfill_batch() {
         .unwrap();
 
     // retrieve callback data and seal from the fulfilled request
-    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let fulfillment_result =
+        ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
 
     let expected_fulfillment_data = FulfillmentData::decode_with_type(
         fulfillments[0].fulfillmentDataType,
@@ -534,7 +538,7 @@ async fn test_e2e_no_payment() {
 
         // retrieve fulfillment data and seal from the fulfilled request
         let fulfillment_result =
-            ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+            ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
         let expected_fulfillment_data = FulfillmentData::decode_with_type(
             fulfillment.fulfillmentDataType,
             fulfillment.fulfillmentData.clone(),
@@ -571,7 +575,8 @@ async fn test_e2e_no_payment() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve journal and seal from the fulfilled request
-    let _fulfillment = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let _fulfillment =
+        ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
 
     // TODO: Instead of checking that this is the same seal, check if this is some valid seal.
     // When there are multiple fulfillments one order, there will be multiple ProofDelivered
@@ -653,7 +658,8 @@ async fn test_e2e_claim_digest_no_fulfillment_data() {
     assert!(ctx.customer_market.is_fulfilled(request_id).await.unwrap());
 
     // retrieve fulfillment data and seal from the fulfilled request
-    let fulfillment_result = ctx.customer_market.get_request_fulfillment(request_id).await.unwrap();
+    let fulfillment_result =
+        ctx.customer_market.get_request_fulfillment(request_id, None, None).await.unwrap();
     let expected_fulfillment_data = FulfillmentData::decode_with_type(
         fulfillment.fulfillmentDataType,
         fulfillment.fulfillmentData.clone(),
@@ -688,7 +694,7 @@ async fn test_client_builder_with_price_provider() {
     let ctx = create_test_ctx(&anvil).await.unwrap();
 
     // Use a storage provider to avoid URL fetching issues
-    let storage = Arc::new(MockStorageProvider::start());
+    let storage = Arc::new(MockStorageUploader::new());
 
     // Create a mock IndexerClient that returns specific prices
     // This allows us to test the price provider integration without a real indexer
@@ -713,8 +719,9 @@ async fn test_client_builder_with_price_provider() {
         .with_signer(ctx.customer_signer.clone())
         .with_deployment(ctx.deployment.clone())
         .with_rpc_url(Url::parse(&anvil.endpoint()).unwrap())
-        .with_storage_provider(Some(storage.clone()))
+        .with_uploader(Some(storage.clone()))
         .with_price_provider(Some(price_provider))
+        .with_downloader(HttpDownloader::default())
         .build()
         .await
         .unwrap();
@@ -725,6 +732,8 @@ async fn test_client_builder_with_price_provider() {
     // Build the request - price provider should succeed and use mock prices
     let request = client.build_request(request_params).await.unwrap();
     // Verify that prices were set using the mock price provider
-    assert!(request.offer.minPrice > price_percentiles.p10);
-    assert!(request.offer.maxPrice > price_percentiles.p90);
+    assert!(request.offer.minPrice == U256::ZERO);
+    assert!(
+        request.offer.maxPrice >= min(price_percentiles.p99, price_percentiles.p50 * U256::from(2))
+    );
 }

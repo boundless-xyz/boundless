@@ -1,4 +1,4 @@
-import * as pulumi from '@pulumi/pulumi';
+/*import * as pulumi from '@pulumi/pulumi';
 import { getEnvVar, ChainId, getServiceNameV1, getChainId } from "../util";
 import { BentoEC2Broker } from "./components/bentoBroker";
 require('dotenv').config();
@@ -124,3 +124,4 @@ export = () => {
     bentoBroker2UpdateCommandId: bentoBroker2?.updateCommandId ?? undefined,
   }
 };
+*/

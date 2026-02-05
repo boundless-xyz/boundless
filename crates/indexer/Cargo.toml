@@ -10,6 +10,12 @@ publish = false
 [package.metadata.release]
 release = false
 
+[features]
+# Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
+test-r0vm = []
+# Enable this feature to run tests that require RPC URLs (ETH_MAINNET_RPC_URL, etc.)
+test-rpc = []
+
 [[bin]]
 name = "market-indexer"
 path = "src/bin/market-indexer.rs"
@@ -37,6 +43,7 @@ clap = { workspace = true }
 futures-util = { workspace = true }
 hex = { workspace = true }
 log = "0.4"
+moka = { version = "0.12", features = ["future"] }
 rand = { workspace = true }
 risc0-zkvm = { workspace = true, features = ["std"] }
 serde = { workspace = true }
@@ -60,7 +67,7 @@ broker = { workspace = true }
 futures-util = { workspace = true }
 indexer-monitor = { path = "../lambdas/indexer-monitor" }
 order-stream = { workspace = true }
-risc0-zkvm = { workspace = true, features = ["std", "default"] }
+risc0-zkvm = { workspace = true, features = ["std"] }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "json", "migrate", "macros"] }
 test-log = { workspace = true }
 tracing-test = { workspace = true }

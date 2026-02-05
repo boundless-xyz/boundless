@@ -14,6 +14,8 @@ release = false
 test-utils = ["dep:boundless-test-utils"]
 prove = ["blake3_groth16/prove"]
 cuda = ["blake3_groth16/cuda"]
+# Enable this feature to run tests that require r0vm proving (slow without RISC0_DEV_MODE=1)
+test-r0vm = []
 
 [dependencies]
 alloy = { workspace = true, features = [
@@ -32,13 +34,11 @@ anyhow = { workspace = true }
 async-channel = "2.3"
 async-stream = "0.3"
 async-trait = { workspace = true }
-aws-config = { workspace = true }
-aws-sdk-s3 = { workspace = true }
 bincode = { workspace = true }
 blake3_groth16 = { workspace = true }
 bonsai-sdk = { workspace = true }
 boundless-assessor = { workspace = true }
-boundless-market = { workspace = true }
+boundless-market = { workspace = true, features = ["prover_utils"] }
 boundless-test-utils = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 chrono = { workspace = true }
@@ -46,14 +46,11 @@ clap = { workspace = true }
 futures = "0.3"
 futures-util = { workspace = true }
 hex = { workspace = true }
-http-cache-reqwest = "0.15.1"
 moka = { version = "0.12", features = ["future"] }
 notify = "6.1"
 rand = { workspace = true }
 requestor-lists = { path = "../requestor-lists" }
 reqwest = { workspace = true }
-reqwest-middleware = "0.4.1"
-reqwest-retry = "0.7"
 risc0-aggregation = { workspace = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
@@ -63,7 +60,7 @@ sha2 = "0.10"
 sqlx = { workspace = true, features = ["sqlite", "postgres", "runtime-tokio", "json", "migrate", "macros"] }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "signal"] }
 tokio-util = { workspace = true }
 toml = "0.8"
 tower = "0.5"
@@ -74,21 +71,16 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["node-bindings"] }
-aws-smithy-http-client = { version = "1.0", features = ["test-util"] }
-boundless-market = { workspace = true }
+boundless-market = { workspace = true, features = ["test-utils"] }
 broker = { path = ".", features = ["test-utils"] }
 elsa = "1.11"
 hex = { workspace = true }
-http = "1.0"
 httpmock = "0.7"
 proptest = "1.4"
 proptest-derive = "0.5"
 rand = { workspace = true }
-
 risc0-groth16 = { workspace = true, features = ["prove"] }
-risc0-zkvm = { workspace = true, default-features = true }
-serial_test = "3.2"
-temp-env = { version = "0.3", features = ["async_closure"] }
+risc0-zkvm = { workspace = true, features = ["std"] }
 test-log = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing-test = { workspace = true }

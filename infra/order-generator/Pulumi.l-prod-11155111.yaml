@@ -53,3 +53,5 @@ config:
   order-generator-offchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:EXEC_RATE_KHZ: "500"
   order-generator-onchain:INTERVAL: "600"
+  order-generator-base:INDEXER_URL:
+    secure: v1:+nrnPjvFF6klXo5D:cfXy8A3jcOpCYpq5kTrlMK4Ex7eikZY9ZxMZMYruUzijAx9JQchoS4CraplHDnbGjIYityz7
