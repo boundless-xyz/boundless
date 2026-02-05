@@ -10,7 +10,7 @@ config:
   order-generator-base:GH_TOKEN_SECRET:
     secure: v1:b7E6meJxy+d4v/gz:U+bgbXCKPP7mHJNg/unTGAXSkgEJ3BNn0e/1MaMoiha8sE3jvrvgsydkcWWMkfh8u3SPVzAc+cWVWBaWSJeFfvd04ZzP1eFBy5ScCvwSyBrMUTfsK8Ix6UuH3jD08OvEkkFYXL9Yzn6ZhWKceg==
   order-generator-base:INTERVAL: "600"
-  order-generator-base:IPFS_GATEWAY_URL: https://dweb.link
+  order-generator-base:IPFS_GATEWAY_URL: https://gateway.beboundless.cloud
   order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
   order-generator-base:COLLATERAL_TOKEN_ADDRESS: 0x8d4dA4b7938471A919B08F941461b2ed1679d7bb
   order-generator-base:LOCK_TIMEOUT: "900"
