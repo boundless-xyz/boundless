@@ -1179,11 +1179,13 @@ async fn get_market_aggregates_impl(
             let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
             let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
 
-            // Calculate epoch number at the start of this period
-            let epoch_number_start = state
-                .epoch_calculator
-                .get_epoch_for_timestamp(summary.period_timestamp)
-                .map(|e| e as i64);
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                Some(summary.epoch_number_period_start)
+            } else {
+                None
+            };
 
             MarketAggregateEntry {
                 chain_id: state.chain_id,
@@ -1267,12 +1269,13 @@ async fn get_epoch_market_aggregates_impl(
     let data = summaries
         .into_iter()
         .map(|summary| {
-            // period_timestamp is the epoch start time (a timestamp)
-            // Calculate epoch number from timestamp
-            let epoch_number_start = state
-                .epoch_calculator
-                .get_epoch_for_timestamp(summary.period_timestamp)
-                .map(|e| e as i64);
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start = if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                Some(summary.epoch_number_period_start)
+            } else {
+                None
+            };
 
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
             let total_fees_locked = summary.total_fees_locked.to_string();
