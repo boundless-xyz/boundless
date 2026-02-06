@@ -801,17 +801,22 @@ pub(crate) mod tests {
     use boundless_market::price_oracle::{
         sources::StaticPriceSource, Amount, CachedPriceOracle, PriceOracleManager,
     };
-    use boundless_market::{contracts::{
-        Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-    }, price_oracle, selector::SelectorExt, storage::{MockStorageUploader, StorageUploader}};
+    use boundless_market::{
+        contracts::{
+            Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+        },
+        price_oracle,
+        selector::SelectorExt,
+        storage::{MockStorageUploader, StorageUploader},
+    };
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
     };
+    use price_oracle::TradingPair;
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::{sha::Digest, Receipt};
     use tracing_test::traced_test;
-    use price_oracle::TradingPair;
 
     /// Create a test price oracle with static prices for ETH and ZKC
     fn create_test_price_oracle() -> Arc<PriceOracleManager> {
