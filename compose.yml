@@ -366,7 +366,7 @@ services:
     network_mode: host
     environment:
       <<: *base-environment
-      RUST_LOG: ${RUST_LOG:-info}
+      RUST_LOG: "warn"
     entrypoint: /bin/bash -c "while sleep 1; do /app/bento_cli --iter-count 500000; done"
 
   caddy:
