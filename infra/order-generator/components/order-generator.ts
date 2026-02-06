@@ -311,7 +311,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
 
       const fargateTaskDeps: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
       if (efsFileSystem) fargateTaskDeps.push(efsFileSystem);
-      if (efsMountTargets) fargateTaskDeps.push(efsMountTargets);
+      const fargateTaskDependsOn = efsMountTargets
+        ? pulumi.output(efsMountTargets).apply((mounts) => [...fargateTaskDeps, ...mounts])
+        : fargateTaskDeps;
 
       const fargateTask = new awsx.ecs.FargateTaskDefinition(
         `${serviceName}-task`,
@@ -338,7 +340,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             roleArn: execRole.arn,
           },
         },
-        { dependsOn: fargateTaskDeps }
+        { dependsOn: fargateTaskDependsOn }
       );
 
       new aws.cloudwatch.EventTarget(`${serviceName}-task-target`, {
@@ -360,7 +362,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
       // Service mode, runs indefinitely
       const serviceDeps: pulumi.Input<pulumi.Resource>[] = [execRole, execRolePolicy];
       if (efsFileSystem) serviceDeps.push(efsFileSystem);
-      if (efsMountTargets) serviceDeps.push(efsMountTargets);
+      const serviceDependsOn = efsMountTargets
+        ? pulumi.output(efsMountTargets).apply((mounts) => [...serviceDeps, ...mounts])
+        : serviceDeps;
 
       const service = new awsx.ecs.FargateService(
         `${serviceName}-service`,
@@ -395,7 +399,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             },
           },
         },
-        { dependsOn: serviceDeps }
+        { dependsOn: serviceDependsOn }
       );
       logDependency = service;
     }
