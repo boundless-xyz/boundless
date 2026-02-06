@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use anyhow::{Context, Result};
+use boundless_market::dynamic_gas_filler::PriorityMode;
 use thiserror::Error;
 
 use crate::{
@@ -58,6 +59,7 @@ pub(crate) struct ChainHead {
 #[derive(Clone)]
 pub struct ChainMonitorService<P> {
     provider: Arc<P>,
+    gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
     gas_price: watch::Sender<u128>,
     update_notifier: Arc<Notify>,
     next_update: Arc<RwLock<Instant>>,
@@ -65,12 +67,16 @@ pub struct ChainMonitorService<P> {
 }
 
 impl<P: Provider> ChainMonitorService<P> {
-    pub async fn new(provider: Arc<P>) -> Result<Self> {
+    pub async fn new(
+        provider: Arc<P>,
+        gas_priority_mode: Arc<tokio::sync::RwLock<PriorityMode>>,
+    ) -> Result<Self> {
         let (gas_price, _) = watch::channel(0);
         let (head_update, _) = watch::channel(ChainHead { block_number: 0, block_timestamp: 0 });
 
         Ok(Self {
             provider,
+            gas_priority_mode,
             gas_price,
             update_notifier: Arc::new(Notify::new()),
             next_update: Arc::new(RwLock::new(Instant::now())),
@@ -95,7 +101,8 @@ impl<P: Provider> ChainMonitorService<P> {
         }
     }
 
-    /// Returns the gas price (as reported by `eth_gasPrice`) at the latest block.
+    /// Returns the estimated `max_fee_per_gas` using the same EIP-1559 fee estimation
+    /// as [`DynamicGasFiller`](boundless_market::dynamic_gas_filler::DynamicGasFiller).
     /// This triggers an update if enough time has passed.
     pub async fn current_gas_price(&self) -> Result<u128> {
         if Instant::now() > *self.next_update.read().await {
@@ -142,10 +149,11 @@ where
                         // Needs update, lock next update value to avoid unnecessary notifications.
                         let mut next_update = self_clone.next_update.write().await;
 
-                        // Get the lastest block and gas price.
+                        // Get the latest block and estimated max fee per gas.
+                        let priority_mode = self_clone.gas_priority_mode.read().await.clone();
                         let (block_res, gas_price_res) = tokio::join!(
                             self_clone.provider.get_block_by_number(BlockNumberOrTag::Latest),
-                            self_clone.provider.get_gas_price()
+                            priority_mode.estimate_max_fee_per_gas(self_clone.provider.as_ref())
                         );
 
                         let block = block_res
@@ -207,7 +215,9 @@ mod tests {
                 .unwrap(),
         );
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
         tokio::spawn(chain_monitor.spawn(CancellationToken::new()));
 
         let block = chain_monitor.current_block_number().await.unwrap();

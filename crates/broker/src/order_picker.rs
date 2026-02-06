@@ -449,7 +449,7 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128, OrderPickerErr> {
-        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")? as u128)
+        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?)
     }
 
     fn prover(&self) -> &ProverObj {
@@ -771,6 +771,7 @@ pub(crate) mod tests {
         contracts::{
             Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         },
+        dynamic_gas_filler::PriorityMode,
         selector::SelectorExt,
         storage::{MockStorageUploader, StorageUploader},
     };
@@ -982,7 +983,10 @@ pub(crate) mod tests {
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
-            let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+            let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+            let chain_monitor = Arc::new(
+                ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
+            );
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
             let chain_id = provider.get_chain_id().await.unwrap();

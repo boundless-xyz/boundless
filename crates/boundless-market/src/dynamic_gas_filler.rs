@@ -88,7 +88,7 @@ const fn default_custom_dynamic_multiplier_percentage() -> u64 {
 
 impl PriorityMode {
     /// Returns the configuration for this priority mode.
-    fn config(self) -> PriorityModeConfig {
+    fn config(&self) -> PriorityModeConfig {
         match self {
             PriorityMode::Low => PriorityModeConfig {
                 base_fee_multiplier_percentage: DEFAULT_BASE_FEE_MULTIPLIER_PERCENTAGE,
@@ -114,11 +114,38 @@ impl PriorityMode {
                 priority_fee_percentile,
                 dynamic_multiplier_percentage,
             } => PriorityModeConfig {
-                base_fee_multiplier_percentage,
-                priority_fee_multiplier_percentage,
-                priority_fee_percentile,
-                dynamic_multiplier_percentage,
+                base_fee_multiplier_percentage: *base_fee_multiplier_percentage,
+                priority_fee_multiplier_percentage: *priority_fee_multiplier_percentage,
+                priority_fee_percentile: *priority_fee_percentile,
+                dynamic_multiplier_percentage: *dynamic_multiplier_percentage,
             },
+        }
+    }
+
+    /// Estimates `max_fee_per_gas` using the same EIP-1559 fee estimation
+    /// algorithm as [`DynamicGasFiller`] (without the per-pending-tx dynamic
+    /// multiplier). On EIP-1559 chains this is
+    /// `base_fee * base_fee_multiplier + priority_fee * priority_fee_multiplier`.
+    /// Falls back to `eth_gasPrice` on legacy chains.
+    pub async fn estimate_max_fee_per_gas<P: Provider>(
+        &self,
+        provider: &P,
+    ) -> TransportResult<u128> {
+        let config = self.config();
+        let fee_provider = FeeEstimatorProvider::new(
+            provider,
+            config.priority_fee_percentile,
+            config.base_fee_multiplier_percentage,
+            config.priority_fee_multiplier_percentage,
+        );
+        match fee_provider.estimate_eip1559_fees().await {
+            Ok(estimation) => Ok(estimation.max_fee_per_gas),
+            Err(err) => {
+                tracing::debug!(
+                    "DynamicGasFiller: Falling back to eth_gasPrice for legacy chain: {err:?}"
+                );
+                provider.get_gas_price().await
+            }
         }
     }
 }
