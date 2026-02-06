@@ -465,19 +465,19 @@ where
         request_id: &RequestId,
         max_price: U256,
     ) -> anyhow::Result<U256> {
-        let gas_price: u128 = PriorityMode::default()
+        // Use high priority mode to give a buffer for gas price fluctuations.
+        let gas_price: u128 = PriorityMode::High
             .estimate_max_fee_per_gas(&self.provider)
             .await
             .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
-        let adjusted_gas_cost_estimate = U256::from(2) * gas_cost_estimate;
-        let adjusted_max_price = max_price + adjusted_gas_cost_estimate;
+        let adjusted_max_price = max_price + gas_cost_estimate;
         tracing::debug!(
-            "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
+            "Setting a max price of {} ether: {} max_price + {} gas_cost_estimate [gas price: {} gwei]",
             format_units(adjusted_max_price, "ether")?,
             format_units(max_price, "ether")?,
-            format_units(adjusted_gas_cost_estimate, "ether")?,
+            format_units(gas_cost_estimate, "ether")?,
             format_units(U256::from(gas_price), "gwei")?,
         );
         Ok(adjusted_max_price)
