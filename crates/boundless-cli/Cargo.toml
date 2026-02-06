@@ -25,6 +25,7 @@ test-r0vm = []
 
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
+alloy-chains = { workspace = true }
 anyhow = { workspace = true }
 atomicwrites = "0.4.4"
 bincode = { workspace = true }

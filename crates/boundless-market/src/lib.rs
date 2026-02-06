@@ -93,6 +93,10 @@ pub mod blake3_groth16;
 #[cfg(not(target_os = "zkvm"))]
 pub mod price_provider;
 
+/// Module providing price oracle functionality for USD-based pricing.
+#[cfg(not(target_os = "zkvm"))]
+pub mod price_oracle;
+
 /// Selector module implementing utility functions for supported selectors.
 #[cfg(not(target_os = "zkvm"))]
 pub mod selector;

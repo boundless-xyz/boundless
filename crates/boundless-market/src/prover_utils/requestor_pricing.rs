@@ -39,6 +39,7 @@ use super::{
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
+use crate::price_oracle::{Amount, Asset};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
 use crate::storage::{StandardDownloader, StorageDownloader};
@@ -178,9 +179,9 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 
     tracing::debug!("Using market price for preflight: {}", format_ether(min_mcycle_price));
     MarketConfig {
-        min_mcycle_price: format_ether(min_mcycle_price),
+        min_mcycle_price: Amount::new(min_mcycle_price, Asset::ETH),
         // Note: collateral cycle price is not available, so ignore this price check during preflight
-        min_mcycle_price_collateral_token: "0".to_string(),
+        min_mcycle_price_collateral_token: Amount::new(U256::ZERO, Asset::ZKC),
         ..MarketConfig::default()
     }
 }
@@ -285,6 +286,24 @@ where
             .get_gas_price()
             .await
             .map_err(|err| OrderPricingError::RpcErr(Arc::new(err.into())))
+    }
+
+    async fn convert_to_eth(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {
+        if amount.asset == Asset::ETH {
+            return Ok(amount.clone());
+        }
+        Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+            "Price conversion not available (USD pricing requires price oracle)"
+        ))))
+    }
+
+    async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {
+        if amount.asset == Asset::ZKC {
+            return Ok(amount.clone());
+        }
+        Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+            "Price conversion not available (USD pricing requires price oracle)"
+        ))))
     }
 
     fn prover(&self) -> &ProverObj {

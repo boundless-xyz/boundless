@@ -70,6 +70,7 @@ google-cloud-storage = { workspace = true, optional = true }
 hex = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"], optional = true }
 httpmock = { workspace = true, optional = true }
+moka = { version = "0.12.12", features = ["future"] }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart", "stream", "rustls"] }
 reqwest-middleware = "0.5"
@@ -86,11 +87,11 @@ tempfile = { workspace = true }
 time = "0.3"
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
 toml = "0.8"
 tower = "0.5"
 tracing = { workspace = true }
 utoipa = { workspace = true }
-moka = { version = "0.12.12", features = ["future"] }
 uuid = { workspace = true }
 
 [build-dependencies]
@@ -99,6 +100,7 @@ serde_json = { workspace = true }
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
 guest-util = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 

@@ -15,6 +15,7 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
+    price_oracle::{Amount, Asset, PriceOracleManager},
     price_provider::PriceProviderArc,
     request_builder::ParameterizationMode,
     selector::{ProofType, SupportedSelectors},
@@ -29,9 +30,10 @@ use alloy::{
     },
     providers::Provider,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Args;
 use derive_builder::Builder;
+use std::sync::Arc;
 
 pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
 pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
@@ -175,13 +177,19 @@ pub struct OfferLayerConfig {
     #[builder(setter(into), default = "Some(ParameterizationMode::fulfillment())")]
     pub parameterization_mode: Option<ParameterizationMode>,
 
-    /// Minimum price per RISC Zero execution cycle, in wei.
+    /// Minimum price per RISC Zero execution cycle.
+    ///
+    /// Supports USD (e.g., `"0.00001 USD"`) or ETH (e.g., `"0.00000001 ETH"`).
+    /// If USD is specified, it will be converted to ETH at runtime via the price oracle.
     #[builder(setter(into, strip_option), default)]
-    pub min_price_per_cycle: Option<U256>,
+    pub min_price_per_cycle: Option<Amount>,
 
-    /// Maximum price per RISC Zero execution cycle, in wei.
+    /// Maximum price per RISC Zero execution cycle.
+    ///
+    /// Supports USD (e.g., `"0.00001 USD"`) or ETH (e.g., `"0.00000001 ETH"`).
+    /// If USD is specified, it will be converted to ETH at runtime via the price oracle.
     #[builder(setter(into, strip_option), default)]
-    pub max_price_per_cycle: Option<U256>,
+    pub max_price_per_cycle: Option<Amount>,
 
     /// Time in seconds to delay the start of bidding after request creation.
     #[builder(setter(strip_option), default)]
@@ -199,9 +207,12 @@ pub struct OfferLayerConfig {
     #[builder(setter(strip_option), default)]
     pub timeout: Option<u32>,
 
-    /// Lock collateral
+    /// Lock collateral amount.
+    ///
+    /// Supports USD (e.g., `"10 USD"`) or ZKC (e.g., `"20 ZKC"`).
+    /// If USD is specified, it will be converted to ZKC at runtime via the price oracle.
     #[builder(setter(strip_option, into), default)]
-    pub lock_collateral: Option<U256>,
+    pub lock_collateral: Option<Amount>,
 
     /// Estimated gas used when locking a request.
     #[builder(default = "200_000")]
@@ -243,6 +254,10 @@ pub struct OfferLayer<P> {
     /// Optional price provider for fetching market-based prices.
     /// If set, will be used when `OfferParams` doesn't specify prices.
     pub price_provider: Option<PriceProviderArc>,
+
+    /// Optional price oracle manager for USD conversions.
+    /// Required if `OfferLayerConfig` contains USD-denominated amounts.
+    pub price_oracle_manager: Option<Arc<PriceOracleManager>>,
 }
 
 impl<P: Clone> Clone for OfferLayer<P> {
@@ -251,6 +266,7 @@ impl<P: Clone> Clone for OfferLayer<P> {
             provider: self.provider.clone(),
             config: self.config.clone(),
             price_provider: self.price_provider.clone(),
+            price_oracle_manager: self.price_oracle_manager.clone(),
         }
     }
 }
@@ -273,7 +289,12 @@ impl Default for OfferLayerConfig {
 
 impl<P: Clone> From<P> for OfferLayer<P> {
     fn from(provider: P) -> Self {
-        OfferLayer { provider, config: Default::default(), price_provider: None }
+        OfferLayer {
+            provider,
+            config: Default::default(),
+            price_provider: None,
+            price_oracle_manager: None,
+        }
     }
 }
 
@@ -282,15 +303,17 @@ impl<P: Clone> From<P> for OfferLayer<P> {
 /// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
 /// defaults set in the [OfferLayerConfig].
 pub struct OfferParams {
-    /// Minimum price willing to pay for the proof, in wei.
+    /// Minimum price willing to pay for the proof.
+    /// Supports USD (e.g., `"0.00001 USD"`) or ETH (e.g., `"0.00000001 ETH"`).
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
-    pub min_price: Option<U256>,
+    pub min_price: Option<Amount>,
 
-    /// Maximum price willing to pay for the proof, in wei.
+    /// Maximum price willing to pay for the proof.
+    /// Supports USD (e.g., `"0.001 USD"`) or ETH (e.g., `"0.00000001 ETH"`).
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
-    pub max_price: Option<U256>,
+    pub max_price: Option<Amount>,
 
     /// Timestamp when bidding will start for this request.
     #[clap(long)]
@@ -313,18 +336,19 @@ pub struct OfferParams {
     pub timeout: Option<u32>,
 
     /// Amount of the stake token that the prover must stake when locking a request.
+    /// Supports USD (e.g., `"10 USD"`) or ZKC (e.g., `"20 ZKC"`).
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
-    pub lock_collateral: Option<U256>,
+    pub lock_collateral: Option<Amount>,
 }
 
 impl From<Offer> for OfferParams {
     fn from(value: Offer) -> Self {
         Self {
             timeout: Some(value.timeout),
-            min_price: Some(value.minPrice),
-            max_price: Some(value.maxPrice),
-            lock_collateral: Some(value.lockCollateral),
+            min_price: Some(Amount::new(value.minPrice, Asset::ETH)),
+            max_price: Some(Amount::new(value.maxPrice, Asset::ETH)),
+            lock_collateral: Some(Amount::new(value.lockCollateral, Asset::ZKC)),
             lock_timeout: Some(value.lockTimeout),
             bidding_start: Some(value.rampUpStart),
             ramp_up_period: Some(value.rampUpPeriod),
@@ -352,11 +376,12 @@ impl TryFrom<OfferParams> for Offer {
     fn try_from(value: OfferParams) -> Result<Self, Self::Error> {
         Ok(Self {
             timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
-            minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
-            maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
+            minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?.value,
+            maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?.value,
             lockCollateral: value
                 .lock_collateral
-                .ok_or(MissingFieldError::new("lock_collateral"))?,
+                .ok_or(MissingFieldError::new("lock_collateral"))?
+                .value,
             lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
             rampUpStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
             rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
@@ -383,7 +408,7 @@ where
     /// The provider is used to fetch current gas prices for estimating transaction costs,
     /// which are factored into the offer pricing.
     pub fn new(provider: P, config: OfferLayerConfig) -> Self {
-        Self { provider, config, price_provider: None }
+        Self { provider, config, price_provider: None, price_oracle_manager: None }
     }
 
     /// Set the price provider for the [OfferLayer].
@@ -400,6 +425,79 @@ where
     /// A new [OfferLayer] with the price provider set.
     pub fn with_price_provider(self, price_provider: Option<PriceProviderArc>) -> Self {
         Self { price_provider, ..self }
+    }
+
+    /// Set the price oracle manager for USD conversions.
+    ///
+    /// The price oracle manager is required if the `OfferLayerConfig` contains
+    /// USD-denominated amounts for pricing or collateral fields.
+    ///
+    /// # Parameters
+    ///
+    /// * `price_oracle_manager`: The price oracle manager to use.
+    ///
+    /// # Returns
+    ///
+    /// A new [OfferLayer] with the price oracle manager set.
+    pub fn with_price_oracle_manager(
+        self,
+        price_oracle_manager: Option<Arc<PriceOracleManager>>,
+    ) -> Self {
+        Self { price_oracle_manager, ..self }
+    }
+
+    /// Convert a price Amount to ETH (wei).
+    ///
+    /// Returns `None` if the input is `None`.
+    /// Returns the value directly if the amount is already in ETH.
+    /// Converts from USD to ETH using the price oracle if needed.
+    /// Returns an error if:
+    /// - The amount is in USD but no price oracle is configured
+    /// - The amount is in an invalid asset (ZKC not allowed for prices)
+    async fn convert_price_to_eth(&self, amount: Option<&Amount>) -> Result<Option<U256>> {
+        let Some(amount) = amount else { return Ok(None) };
+
+        match amount.asset {
+            Asset::ETH => Ok(Some(amount.value)),
+            Asset::USD => {
+                let oracle = self.price_oracle_manager.as_ref().context(
+                    "Price oracle manager required to convert USD prices to ETH. \
+                     Configure a price oracle using with_price_oracle_manager() or specify prices in ETH.",
+                )?;
+                let eth_amount = oracle.convert(amount, Asset::ETH).await?;
+                Ok(Some(eth_amount.value))
+            }
+            Asset::ZKC => {
+                bail!("ZKC is not valid for price fields. Use USD or ETH.")
+            }
+        }
+    }
+
+    /// Convert a collateral Amount to ZKC.
+    ///
+    /// Returns `None` if the input is `None`.
+    /// Returns the value directly if the amount is already in ZKC.
+    /// Converts from USD to ZKC using the price oracle if needed.
+    /// Returns an error if:
+    /// - The amount is in USD but no price oracle is configured
+    /// - The amount is in an invalid asset (ETH not allowed for collateral)
+    async fn convert_collateral_to_zkc(&self, amount: Option<&Amount>) -> Result<Option<U256>> {
+        let Some(amount) = amount else { return Ok(None) };
+
+        match amount.asset {
+            Asset::ZKC => Ok(Some(amount.value)),
+            Asset::USD => {
+                let oracle = self.price_oracle_manager.as_ref().context(
+                    "Price oracle manager required to convert USD collateral to ZKC. \
+                     Configure a price oracle using with_price_oracle_manager() or specify collateral in ZKC.",
+                )?;
+                let zkc_amount = oracle.convert(amount, Asset::ZKC).await?;
+                Ok(Some(zkc_amount.value))
+            }
+            Asset::ETH => {
+                bail!("ETH is not valid for collateral. Use USD or ZKC.")
+            }
+        }
     }
 
     /// Estimates the maximum gas usage for a proof request.
@@ -496,10 +594,24 @@ where
             &OfferParams,
         ),
     ) -> Result<Self::Output, Self::Error> {
+        // Convert config USD amounts to native tokens if needed
+        let min_price_per_cycle_wei =
+            self.convert_price_to_eth(self.config.min_price_per_cycle.as_ref()).await?;
+        let max_price_per_cycle_wei =
+            self.convert_price_to_eth(self.config.max_price_per_cycle.as_ref()).await?;
+        let lock_collateral_zkc =
+            self.convert_collateral_to_zkc(self.config.lock_collateral.as_ref()).await?;
+
+        // Convert OfferParams USD amounts to native tokens if needed
+        let params_min_price = self.convert_price_to_eth(params.min_price.as_ref()).await?;
+        let params_max_price = self.convert_price_to_eth(params.max_price.as_ref()).await?;
+        let params_lock_collateral =
+            self.convert_collateral_to_zkc(params.lock_collateral.as_ref()).await?;
+
         // Try to use market prices from price provider if prices aren't set in params or config
-        let (market_min_price, market_max_price) = if (params.min_price.is_none()
-            && self.config.min_price_per_cycle.is_none())
-            || (params.max_price.is_none() && self.config.max_price_per_cycle.is_none())
+        let (market_min_price, market_max_price) = if (params_min_price.is_none()
+            && min_price_per_cycle_wei.is_none())
+            || (params_max_price.is_none() && max_price_per_cycle_wei.is_none())
         {
             if let Some(ref price_provider) = self.price_provider {
                 if let Some(cycle_count) = cycle_count {
@@ -536,15 +648,15 @@ where
 
         // Priority: params > config > market > static default
         let min_price = resolve_min_price(
-            params.min_price,
-            self.config.min_price_per_cycle,
+            params_min_price,
+            min_price_per_cycle_wei,
             cycle_count,
             market_min_price,
         );
 
-        let config_max_value = if params.max_price.is_none() {
+        let config_max_value = if params_max_price.is_none() {
             let c = cycle_count.context("cycle count required to set max price in OfferLayer")?;
-            if let Some(per_cycle) = self.config.max_price_per_cycle {
+            if let Some(per_cycle) = max_price_per_cycle_wei {
                 let max_price = per_cycle * U256::from(c);
                 Some(max_price)
             } else {
@@ -555,8 +667,8 @@ where
         };
 
         let max_price =
-            resolve_max_price(params.max_price, config_max_value, market_max_price, cycle_count);
-        let max_price = if params.max_price.is_none() {
+            resolve_max_price(params_max_price, config_max_value, market_max_price, cycle_count);
+        let max_price = if params_max_price.is_none() {
             self.max_price_with_gas(requirements, request_id, max_price).await?
         } else {
             max_price
@@ -613,7 +725,7 @@ where
 
         let chain_id = self.provider.get_chain_id().await?;
         let default_collaterals = default_lock_collateral(chain_id);
-        let lock_collateral = self.config.lock_collateral.unwrap_or(default_collaterals.default);
+        let lock_collateral = lock_collateral_zkc.unwrap_or(default_collaterals.default);
 
         let offer = Offer {
             minPrice: min_price,
@@ -622,7 +734,7 @@ where
             rampUpPeriod: params.ramp_up_period.unwrap_or(ramp_up_period),
             lockTimeout: params.lock_timeout.unwrap_or(lock_timeout),
             timeout: params.timeout.unwrap_or(timeout),
-            lockCollateral: params.lock_collateral.unwrap_or(lock_collateral),
+            lockCollateral: params_lock_collateral.unwrap_or(lock_collateral),
         };
 
         if let Some(cycle_count) = cycle_count {

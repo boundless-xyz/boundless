@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+cuda = ["risc0-zkvm/cuda"]
+
 [dependencies]
 alloy = { workspace = true }
 anyhow = { workspace = true }
@@ -21,6 +24,3 @@ boundless-market = { workspace = true, features = ["test-utils"] }
 boundless-test-utils = { workspace = true }
 broker = { workspace = true, features = ["test-utils"] }
 test-log = "0.2"
-
-[features]
-cuda = ["risc0-zkvm/cuda"]
