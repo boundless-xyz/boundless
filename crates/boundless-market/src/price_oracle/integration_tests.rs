@@ -21,8 +21,6 @@
 //!   cargo test -p boundless-market price_oracle::integration_tests -- --ignored --test-threads=1 --nocapture
 //! ```
 
-#![cfg(test)]
-
 use crate::price_oracle::{
     config::{
         ChainlinkConfig, CoinGeckoConfig, CoinMarketCapConfig, OffChainConfig, OnChainConfig,

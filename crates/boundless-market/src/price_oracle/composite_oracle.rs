@@ -193,7 +193,7 @@ mod tests {
         }
 
         async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
-            self.result.clone().map_err(|s| PriceOracleError::InvalidPrice(s.to_string()))
+            self.result.map_err(|s| PriceOracleError::InvalidPrice(s.to_string()))
         }
     }
 

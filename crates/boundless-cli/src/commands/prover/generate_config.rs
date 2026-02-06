@@ -965,7 +965,7 @@ impl ProverGenerateConfig {
     }
 
     fn extract_price_value(s: &str) -> (f64, Option<&str>) {
-        let parts: Vec<&str> = s.trim().split_whitespace().collect();
+        let parts: Vec<&str> = s.split_whitespace().collect();
         let value = parts.first().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
         let asset = parts.get(1).copied();
         (value, asset)

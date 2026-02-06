@@ -27,18 +27,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::Arc;
 
 /// Price value configuration: either "auto" for dynamic fetching or a static numeric value
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum PriceValue {
     /// Fetch price dynamically from configured sources
+    #[default]
     Auto,
     /// Use a static price value
     Static(f64),
-}
-
-impl Default for PriceValue {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl<'de> Deserialize<'de> for PriceValue {

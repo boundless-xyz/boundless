@@ -44,21 +44,16 @@ pub use exchange_rate::{
 pub use manager::PriceOracleManager;
 
 /// Aggregation mode for composite oracle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AggregationMode {
     /// First successful source wins
     Priority,
     /// Median of all successful sources
+    #[default]
     Median,
     /// Average of all successful sources
     Average,
-}
-
-impl Default for AggregationMode {
-    fn default() -> Self {
-        Self::Median
-    }
 }
 
 /// Price oracle trait - each instance is dedicated to one trading pair
