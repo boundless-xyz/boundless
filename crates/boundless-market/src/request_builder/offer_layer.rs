@@ -15,6 +15,7 @@
 use super::{Adapt, Layer, MissingFieldError, RequestParams};
 use crate::{
     contracts::{Offer, RequestId, Requirements},
+    dynamic_gas_filler::PriorityMode,
     price_provider::PriceProviderArc,
     request_builder::ParameterizationMode,
     selector::{ProofType, SupportedSelectors},
@@ -464,10 +465,13 @@ where
         request_id: &RequestId,
         max_price: U256,
     ) -> anyhow::Result<U256> {
-        let gas_price: u128 = self.provider.get_gas_price().await?;
+        let gas_price: u128 = PriorityMode::default()
+            .estimate_max_fee_per_gas(&self.provider)
+            .await
+            .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
-        let adjusted_gas_cost_estimate = gas_cost_estimate + gas_cost_estimate;
+        let adjusted_gas_cost_estimate = U256::from(2) * gas_cost_estimate;
         let adjusted_max_price = max_price + adjusted_gas_cost_estimate;
         tracing::debug!(
             "Setting a max price of {} ether: {} max_price + {} (2x) gas_cost_estimate [gas price: {} gwei]",
