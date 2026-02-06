@@ -35,6 +35,7 @@ deployment_secrets.toml
 
 # Ignore broker config file(s)
 *broker*.toml
+ansible/inventory.yml
 
 # Cargo
 target/
