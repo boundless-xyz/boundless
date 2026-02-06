@@ -1,3 +1,17 @@
+// Copyright 2026 Boundless Foundation, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Asset and amount types for USD-based pricing.
 //!
 //! This module provides types for representing monetary amounts in different assets
@@ -61,7 +75,7 @@ impl fmt::Display for Asset {
 /// Errors that can occur when parsing an amount string
 #[derive(Debug, thiserror::Error)]
 pub enum ParseAmountError {
-    /// Invalid format, expected '<value> <asset>'
+    /// Invalid format, expected '\<value\> \<asset\>'
     #[error("invalid format: expected '<value> <ASSET>' (e.g., '1.12 USD' (up to 6 decimals), '1.500012 ETH' (up to 18 decimals))")]
     InvalidFormat,
     /// Unknown asset type
@@ -138,7 +152,7 @@ impl fmt::Display for Amount {
 
 /// Parse an amount string into a value and asset
 ///
-/// Format: "<value> <asset>" (e.g., "1.5 ETH", "100 USD")
+/// Format: "\<value\> \<asset\>" (e.g., "1.5 ETH", "100 USD")
 /// Plain numbers without asset specification are NOT supported and will return an error.
 pub fn parse_amount_str(s: &str) -> Result<(U256, Asset), ParseAmountError> {
     let s = s.trim();

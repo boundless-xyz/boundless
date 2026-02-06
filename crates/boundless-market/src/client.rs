@@ -700,7 +700,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
 
     /// Set the price oracle manager for USD conversions in [OfferLayer].
     ///
-    /// The price oracle manager is required if [OfferLayerConfig] contains USD-denominated
+    /// The price oracle manager is required if [crate::request_builder::OfferLayerConfig] contains USD-denominated
     /// amounts for pricing or collateral fields. If USD amounts are specified without a
     /// price oracle manager, an error will be returned during request submission.
     ///
