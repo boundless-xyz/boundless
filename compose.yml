@@ -7,6 +7,18 @@ name: bento
 #   nvidia-smi --list-gpus
 
 # Anchors:
+# Requires the Loki Docker driver plugin on the host:
+#   docker plugin install grafana/loki-docker-driver:3.4.3 --alias loki --grant-all-permissions
+x-loki-logging: &loki-logging
+  driver: loki
+  options:
+    loki-url: "http://localhost:3100/loki/api/v1/push"
+    loki-retries: "2"
+    loki-timeout: "1s"
+    mode: "non-blocking"
+    max-buffer-size: "5m"
+    labels: "com.docker.compose.service"
+
 x-base-environment: &base-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-worker}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-taskdb}
   REDIS_URL: redis://${REDIS_HOST:-redis}:6379
@@ -21,6 +33,7 @@ x-base-environment: &base-environment
   POVW_LOG_ID: ${REWARD_ADDRESS:-${POVW_LOG_ID:-}}
 x-agent-common: &agent-common
   runtime: ${DOCKER_RUNTIME:-nvidia}
+  logging: *loki-logging
   build:
     context: .
     dockerfile: ${AGENT_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
@@ -97,6 +110,7 @@ x-gpu-prove-agent: &gpu-prove-agent
 
 x-broker-common: &broker-common
   restart: always
+  logging: *loki-logging
   depends_on:
     rest_api:
       condition: service_healthy
@@ -182,6 +196,21 @@ services:
       timeout: 5s
       retries: 5
 
+  loki:
+    image: ${LOKI_IMG:-grafana/loki:3.4.3}
+    restart: always
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --output-document=- http://localhost:3100/ready | grep -q ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   grafana:
     image: ${GRAFANA_IMG:-grafana/grafana:11.0.0}
     restart: unless-stopped
@@ -205,6 +234,7 @@ services:
       - postgres
       - redis
       - minio
+      - loki
 
   exec_agent:
     <<: *exec-agent-common
@@ -247,6 +277,7 @@ services:
               capabilities: [gpu]
 
   rest_api:
+    logging: *loki-logging
     build:
       context: .
       dockerfile: ${REST_API_DOCKERFILE:-dockerfiles/rest_api.prebuilt.dockerfile}
@@ -310,6 +341,7 @@ services:
   #   entrypoint: /app/broker --db-url 'sqlite:///db/broker2.db' --config-file /app/broker.toml --bento-api-url http://localhost:8081
 
   miner:
+    logging: *loki-logging
     build:
       context: .
       dockerfile: ${BENTO_CLI_DOCKERFILE:-dockerfiles/agent.prebuilt.dockerfile}
@@ -353,6 +385,7 @@ volumes:
   redis-data:
   postgres-data:
   minio-data:
+  loki-data:
   grafana-data:
   broker-data:
   caddy-data:
