@@ -17,6 +17,7 @@ use super::super::{
     MONTHLY_AGGREGATION_RECOMPUTE_MONTHS, SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_WEEK,
     WEEKLY_AGGREGATION_RECOMPUTE_WEEKS,
 };
+use super::epochs::EPOCH_AGGREGATION_RECOMPUTE_COUNT;
 use crate::db::ProversDb;
 use crate::market::{
     pricing::compute_percentiles,
@@ -457,6 +458,10 @@ where
                             tracing::debug!("No previous all-time prover aggregate for {:?}, initializing with zeros", prover);
                             crate::db::market::AllTimeProverSummary {
                                 period_timestamp: actual_start_hour,
+                                epoch_number_period_start: self
+                                    .epoch_calculator
+                                    .get_epoch_for_timestamp(actual_start_hour)
+                                    .unwrap_or(0) as i64,
                                 prover_address: prover,
                                 total_requests_locked: 0,
                                 total_requests_fulfilled: 0,
@@ -505,6 +510,10 @@ where
                             }
 
                             cumulative_summary.period_timestamp = hour_ts;
+                            cumulative_summary.epoch_number_period_start = self
+                                .epoch_calculator
+                                .get_epoch_for_timestamp(hour_ts)
+                                .unwrap_or(0) as i64;
 
                             cumulative_summary.total_unique_requestors = service.db
                                 .get_all_time_prover_unique_requestors(hour_ts + 1, prover)
@@ -746,8 +755,12 @@ where
             }
         }
 
+        let epoch_number_period_start =
+            self.epoch_calculator.get_epoch_for_timestamp(period_start).unwrap_or(0) as i64;
+
         Ok(PeriodProverSummary {
             period_timestamp: period_start,
+            epoch_number_period_start,
             prover_address,
             total_requests_locked,
             total_requests_fulfilled,
@@ -773,5 +786,116 @@ where
             best_effective_prove_mhz,
             best_effective_prove_mhz_request_id,
         })
+    }
+
+    /// Aggregate epoch-based prover data
+    pub(crate) async fn aggregate_epoch_prover_data(
+        &self,
+        to_block: u64,
+    ) -> Result<(), ServiceError> {
+        let current_time = self.block_timestamp(to_block).await?;
+        let Some(current_epoch) = self.epoch_calculator.get_epoch_for_timestamp(current_time)
+        else {
+            tracing::debug!(
+                "Current time {} is before epoch 0, skipping epoch prover aggregation",
+                current_time
+            );
+            return Ok(());
+        };
+
+        let start_epoch = current_epoch.saturating_sub(EPOCH_AGGREGATION_RECOMPUTE_COUNT);
+
+        for epoch_num in start_epoch..=current_epoch {
+            let boundary = self.epoch_calculator.get_epoch_boundary(epoch_num);
+            self.aggregate_epoch_prover_data_for_epoch(
+                epoch_num,
+                boundary.start_time,
+                boundary.end_time,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Aggregate epoch-based prover data for a time range (used by backfill)
+    pub(crate) async fn aggregate_epoch_prover_data_from(
+        &self,
+        from_time: u64,
+        to_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        for boundary in self.epoch_calculator.iter_epochs(from_time, to_time) {
+            self.aggregate_epoch_prover_data_for_epoch(
+                boundary.epoch_number,
+                boundary.start_time,
+                boundary.end_time,
+            )
+            .await?;
+        }
+
+        tracing::debug!(
+            "aggregate_epoch_prover_data_from {} to {} completed in {:?}",
+            from_time,
+            to_time,
+            start.elapsed()
+        );
+
+        Ok(())
+    }
+
+    async fn aggregate_epoch_prover_data_for_epoch(
+        &self,
+        epoch_num: u64,
+        start_time: u64,
+        end_time: u64,
+    ) -> Result<(), ServiceError> {
+        let start = std::time::Instant::now();
+
+        let provers =
+            self.db.get_active_prover_addresses_in_period(start_time, end_time + 1).await?;
+
+        if provers.is_empty() {
+            tracing::debug!("No active provers in epoch {}", epoch_num);
+            return Ok(());
+        }
+
+        tracing::debug!("Processing {} provers for epoch {}", provers.len(), epoch_num);
+
+        let chunks = chunk_provers(&provers, PROVER_CHUNK_SIZE);
+
+        for chunk in chunks {
+            let futures = chunk.iter().map(|prover| {
+                self.compute_and_upsert_epoch_prover_summary(start_time, end_time, *prover)
+            });
+            try_join_all(futures).await?;
+        }
+
+        tracing::debug!(
+            "Aggregated epoch {} prover data for {} provers in {:?}",
+            epoch_num,
+            provers.len(),
+            start.elapsed()
+        );
+
+        Ok(())
+    }
+
+    async fn compute_and_upsert_epoch_prover_summary(
+        &self,
+        start_time: u64,
+        end_time: u64,
+        prover: Address,
+    ) -> Result<(), ServiceError> {
+        let summary = self.compute_period_prover_summary(start_time, end_time + 1, prover).await?;
+        // period_timestamp already contains start_time from compute_period_prover_summary
+
+        self.db
+            .upsert_epoch_prover_summary(summary)
+            .await
+            .with_db_context("upsert_epoch_prover_summary")?;
+
+        Ok(())
     }
 }
