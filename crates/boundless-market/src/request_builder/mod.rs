@@ -1085,7 +1085,10 @@ mod tests {
                 test_ctx.customer_provider.clone(),
                 OfferLayerConfig::builder()
                     .ramp_up_period(27)
-                    .lock_collateral(parse_ether("10").unwrap())
+                    .lock_collateral(crate::price_oracle::Amount::new(
+                        parse_ether("10").unwrap(),
+                        crate::price_oracle::Asset::ZKC,
+                    ))
                     .build()?,
             ))
             .request_id_layer(market)

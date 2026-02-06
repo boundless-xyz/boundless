@@ -111,6 +111,9 @@ pub struct ClientBuilder<U, D, S> {
     /// Optional price provider for fetching market prices.
     /// If set, takes precedence over the indexer URL from [Deployment]. Allows using any [PriceProviderArc] implementation.
     price_provider: Option<PriceProviderArc>,
+    /// Optional price oracle manager for USD conversions in [OfferLayer].
+    /// Required if [OfferLayerConfig] contains USD-denominated amounts.
+    price_oracle_manager: Option<Arc<crate::price_oracle::PriceOracleManager>>,
     /// Configuration builder for [OfferLayer], part of [StandardRequestBuilder].
     pub offer_layer_config: OfferLayerConfigBuilder,
     /// Configuration builder for [StorageLayer], part of [StandardRequestBuilder].
@@ -147,6 +150,7 @@ impl<U, D, S> Default for ClientBuilder<U, D, S> {
             tx_timeout: None,
             balance_alerts: None,
             price_provider: None,
+            price_oracle_manager: None,
             offer_layer_config: Default::default(),
             storage_layer_config: Default::default(),
             request_id_layer_config: Default::default(),
@@ -448,7 +452,8 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
             ))
             .offer_layer(
                 OfferLayer::new(provider.clone(), self.offer_layer_config.build()?)
-                    .with_price_provider(price_provider),
+                    .with_price_provider(price_provider)
+                    .with_price_oracle_manager(self.price_oracle_manager.clone()),
             )
             .request_id_layer(RequestIdLayer::new(
                 boundless_market.clone(),
@@ -587,6 +592,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             price_provider: self.price_provider.clone(),
+            price_oracle_manager: self.price_oracle_manager.clone(),
             offer_layer_config: self.offer_layer_config,
             storage_layer_config: self.storage_layer_config,
             request_id_layer_config: self.request_id_layer_config,
@@ -621,6 +627,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             price_provider: self.price_provider.clone(),
+            price_oracle_manager: self.price_oracle_manager.clone(),
             request_finalizer_config: self.request_finalizer_config,
             request_id_layer_config: self.request_id_layer_config,
             storage_layer_config: self.storage_layer_config,
@@ -691,14 +698,41 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         self
     }
 
+    /// Set the price oracle manager for USD conversions in [OfferLayer].
+    ///
+    /// The price oracle manager is required if [OfferLayerConfig] contains USD-denominated
+    /// amounts for pricing or collateral fields. If USD amounts are specified without a
+    /// price oracle manager, an error will be returned during request submission.
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use boundless_market::client::ClientBuilder;
+    /// # use boundless_market::price_oracle::PriceOracleManager;
+    /// # use std::sync::Arc;
+    /// // Example: Configure price oracle manager for USD conversions
+    /// // let oracle_manager: Arc<PriceOracleManager> = ...;
+    /// // ClientBuilder::new().with_price_oracle_manager(Some(oracle_manager));
+    /// ```
+    pub fn with_price_oracle_manager(
+        mut self,
+        price_oracle_manager: impl Into<Option<Arc<crate::price_oracle::PriceOracleManager>>>,
+    ) -> Self {
+        self.price_oracle_manager = price_oracle_manager.into();
+        self
+    }
+
     /// Modify the [OfferLayer] configuration used in the [StandardRequestBuilder].
     ///
     /// ```rust
     /// # use boundless_market::client::ClientBuilder;
+    /// use boundless_market::price_oracle::{Amount, Asset};
     /// use alloy::primitives::utils::parse_units;
     ///
     /// ClientBuilder::new().config_offer_layer(|config| config
-    ///     .max_price_per_cycle(parse_units("0.1", "gwei").unwrap())
+    ///     .max_price_per_cycle(Amount::new(
+    ///         parse_units("0.1", "gwei").unwrap(),
+    ///         Asset::ETH
+    ///     ))
     ///     .ramp_up_period(36)
     ///     .lock_timeout(120)
     ///     .timeout(300)
