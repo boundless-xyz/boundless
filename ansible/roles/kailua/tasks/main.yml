@@ -1,5 +1,6 @@
 ---
 - name: Install Kailua binary from release (source)
+  when: kailua_install_method == "source"
   block:
     - name: Download Kailua binary
       ansible.builtin.get_url:
@@ -17,18 +18,6 @@
       ansible.builtin.file:
         path: "/tmp/{{ kailua_archive }}"
         state: absent
-  when: kailua_install_method == "source"
-
-- name: Write Kailua launcher script
-  ansible.builtin.template:
-    src: kailua_launcher.sh.j2
-    dest: "{{ kailua_launcher_path }}"
-    owner: root
-    group: root
-    mode: "0755"
-  when: kailua_install_service | bool and kailua_install_method == "source"
-  notify:
-    - Restart Kailua
 
 - name: Write Kailua service file
   ansible.builtin.template:
