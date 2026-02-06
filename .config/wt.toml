@@ -1,0 +1,4 @@
+# Configuration for https://worktrunk.dev/
+[post-start]
+# Prevents full cold start by copying ignored files to the new worktree etc.
+copy = "wt step copy-ignored"
