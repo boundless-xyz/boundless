@@ -46,7 +46,6 @@ target/
 .claude
 **/CLAUDE.md
 **/AGENTS.md
-.cursor
 .codex
 
 infra/**/build
