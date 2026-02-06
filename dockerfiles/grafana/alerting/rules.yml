@@ -14,7 +14,7 @@ groups:
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: 'count_over_time({compose_service="broker"} |~ "ERROR" [5m])'
               refId: A
@@ -57,7 +57,7 @@ groups:
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: 'count_over_time({compose_service="broker"} |~ "\\[B-BAL-STK\\]" [5m])'
               refId: A
@@ -100,7 +100,7 @@ groups:
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: 'count_over_time({compose_service="broker"} |~ "\\[B-BAL-ETH\\]" [5m])'
               refId: A
@@ -143,7 +143,7 @@ groups:
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: 'count_over_time({compose_service="broker"} |~ "FATAL STAKE AT RISK" [5m])'
               refId: A
@@ -186,7 +186,7 @@ groups:
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: 'count_over_time({compose_service="broker"} |~ "Insufficient balance for committed orders" [5m])'
               refId: A
@@ -229,7 +229,7 @@ groups:
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: 'count_over_time({compose_service="broker"} |~ "Batch submission failed|has reached max submission attempts" [5m])'
               refId: A
@@ -272,7 +272,7 @@ groups:
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: 'count_over_time({compose_service="broker"} |~ "failed to prove after" [5m])'
               refId: A
