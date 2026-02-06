@@ -36,7 +36,7 @@ use boundless_market::{
         RequestId, RequestInput, Requirements,
     },
     selector::{is_blake3_groth16_selector, is_groth16_selector, ProofType},
-    storage::{MockStorageProvider, StorageProvider},
+    storage::{MockStorageUploader, StorageUploader},
     Deployment,
 };
 use boundless_test_utils::{
@@ -219,7 +219,7 @@ async fn simple_e2e() {
     .unwrap();
 
     // Provide URL for ECHO program
-    let storage = MockStorageProvider::start();
+    let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
@@ -298,7 +298,7 @@ async fn simple_e2e_with_callback() {
     .unwrap();
 
     // Provide URL for ECHO program
-    let storage = MockStorageProvider::start();
+    let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order with callback
@@ -385,7 +385,7 @@ async fn e2e_fulfill_after_lock_expiry() {
     .unwrap();
 
     // Provide URL for ECHO program
-    let storage = MockStorageProvider::start();
+    let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
@@ -461,7 +461,7 @@ async fn e2e_with_selector() {
     .unwrap();
 
     // Provide URL for ECHO program
-    let storage = MockStorageProvider::start();
+    let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
@@ -530,7 +530,7 @@ async fn e2e_with_blake3_groth16_selector() {
     .await
     .unwrap();
     // Provide URL for ECHO program
-    let storage = MockStorageProvider::start();
+    let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     // Submit an order
@@ -568,7 +568,10 @@ async fn e2e_with_blake3_groth16_selector() {
 
 #[tokio::test]
 #[traced_test]
-#[ignore = "runs a proof; requires BONSAI if RISC0_DEV_MODE=FALSE"]
+#[cfg_attr(
+    not(feature = "test-r0vm"),
+    ignore = "runs a proof; requires BONSAI if RISC0_DEV_MODE=FALSE"
+)]
 async fn e2e_with_multiple_requests() {
     // Setup anvil
     let anvil = Anvil::new().spawn();
@@ -601,7 +604,7 @@ async fn e2e_with_multiple_requests() {
     .unwrap();
 
     // Provide URL for ECHO program
-    let storage = MockStorageProvider::start();
+    let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap().to_string();
 
     // Submit the first order
@@ -697,7 +700,7 @@ async fn e2e_with_claim_digest_match() {
     .unwrap();
 
     // Provide URL for ECHO program
-    let storage = MockStorageProvider::start();
+    let storage = MockStorageUploader::new();
     let image_url = storage.upload_program(ECHO_ELF).await.unwrap();
 
     let input_bytes = vec![0x41, 0x41, 0x41, 0x41];

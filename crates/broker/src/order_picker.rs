@@ -16,17 +16,17 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::now_timestamp;
 use crate::{
     chain_monitor::ChainMonitorService,
-    config::{ConfigLock, MarketConf},
+    config::{ConfigLock, MarketConfig},
     db::DbObj,
     errors::CodedError,
+    now_timestamp,
     provers::ProverObj,
     requestor_monitor::{AllowRequestors, PriorityRequestors},
     task::{RetryRes, RetryTask, SupervisorErr},
-    utils, FulfillmentType, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
-    OrderRequest, OrderStateChange, PreflightCache,
+    utils, ConfigurableDownloader, FulfillmentType, OrderPricingContext, OrderPricingError,
+    OrderPricingOutcome, OrderRequest, OrderStateChange, PreflightCache,
 };
 use alloy::{
     network::Ethereum,
@@ -38,13 +38,15 @@ use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
     selector::SupportedSelectors,
+    storage::StorageDownloader,
 };
-use moka::future::Cache;
-use moka::policy::EvictionPolicy;
-use tokio::sync::{broadcast, mpsc, Mutex};
-use tokio::task::JoinSet;
+use moka::{future::Cache, policy::EvictionPolicy};
+use tokio::{
+    sync::{broadcast, mpsc, Mutex},
+    task::JoinSet,
+};
 use tokio_util::sync::CancellationToken;
-use OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
+use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -91,6 +93,7 @@ pub struct OrderPicker<P> {
     order_state_tx: broadcast::Sender<OrderStateChange>,
     priority_requestors: PriorityRequestors,
     allow_requestors: AllowRequestors,
+    downloader: ConfigurableDownloader,
     price_oracle: Arc<PriceOracleManager>,
 }
 
@@ -112,6 +115,7 @@ where
         order_state_tx: broadcast::Sender<OrderStateChange>,
         priority_requestors: PriorityRequestors,
         allow_requestors: AllowRequestors,
+        downloader: ConfigurableDownloader,
         price_oracle: Arc<PriceOracleManager>,
     ) -> Self {
         let market = BoundlessMarketService::new_for_broker(
@@ -148,6 +152,7 @@ where
             order_state_tx,
             priority_requestors,
             allow_requestors,
+            downloader,
             price_oracle,
         }
     }
@@ -265,7 +270,7 @@ impl<P> OrderPricingContext for OrderPicker<P>
 where
     P: Provider<Ethereum> + 'static + Clone + WalletProvider,
 {
-    fn market_config(&self) -> Result<MarketConf, OrderPickerErr> {
+    fn market_config(&self) -> Result<MarketConfig, OrderPickerErr> {
         let config = self.config.lock_all().context("Failed to read config")?;
         Ok(config.market.clone())
     }
@@ -413,6 +418,8 @@ where
             .map_err(|err| OrderPickerErr::RpcErr(Arc::new(err.into())))?;
 
         if order_gas_cost > order.request.offer.maxPrice && !lock_expired {
+            // Cannot check the gas cost for lock expired orders where the reward is a fraction of the collateral
+            // TODO: This can be added once we have a price feed for the collateral token in gas tokens
             return Ok(Some(Skip {
                 reason: format!(
                     "estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
@@ -479,6 +486,10 @@ where
 
     fn prover(&self) -> &ProverObj {
         &self.prover
+    }
+
+    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
+        Arc::new(self.downloader.clone())
     }
 }
 
@@ -797,14 +808,14 @@ pub(crate) mod tests {
             Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         },
         selector::SelectorExt,
+        storage::{MockStorageUploader, StorageUploader},
     };
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
     };
     use risc0_ethereum_contracts::selector::Selector;
-    use risc0_zkvm::sha::Digest;
-    use risc0_zkvm::Receipt;
+    use risc0_zkvm::{sha::Digest, Receipt};
     use tracing_test::traced_test;
 
     /// Create a test price oracle with static prices for ETH and ZKC
@@ -826,7 +837,7 @@ pub(crate) mod tests {
         anvil: AnvilInstance,
         pub(crate) picker: OrderPicker<P>,
         boundless_market: BoundlessMarketService<Arc<P>>,
-        storage_provider: MockStorageProvider,
+        uploader: MockStorageUploader,
         db: DbObj,
         provider: Arc<P>,
         priced_orders_rx: mpsc::Receiver<Box<OrderRequest>>,
@@ -869,8 +880,7 @@ pub(crate) mod tests {
         }
 
         pub(crate) async fn generate_next_order(&self, params: OrderParams) -> Box<OrderRequest> {
-            let image_url =
-                self.storage_provider.upload_program(ECHO_ELF).await.unwrap().to_string();
+            let image_url = self.uploader.upload_program(ECHO_ELF).await.unwrap().to_string();
             let image_id = Digest::from(ECHO_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
@@ -907,8 +917,7 @@ pub(crate) mod tests {
             params: OrderParams,
             cycles: u64,
         ) -> Box<OrderRequest> {
-            let image_url =
-                self.storage_provider.upload_program(LOOP_ELF).await.unwrap().to_string();
+            let image_url = self.uploader.upload_program(LOOP_ELF).await.unwrap().to_string();
             let image_id = Digest::from(LOOP_ID);
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
@@ -1018,7 +1027,7 @@ pub(crate) mod tests {
                 );
             }
 
-            let storage_provider = MockStorageProvider::start();
+            let storage_uploader = MockStorageUploader::new();
 
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
@@ -1029,6 +1038,7 @@ pub(crate) mod tests {
             let chain_id = provider.get_chain_id().await.unwrap();
             let priority_requestors = PriorityRequestors::new(config.clone(), chain_id);
             let allow_requestors = AllowRequestors::new(config.clone(), chain_id);
+            let downloader = ConfigurableDownloader::new(config.clone()).await.unwrap();
 
             const TEST_CHANNEL_CAPACITY: usize = 50;
             let (_new_order_tx, new_order_rx) = mpsc::channel(TEST_CHANNEL_CAPACITY);
@@ -1048,6 +1058,7 @@ pub(crate) mod tests {
                 order_state_tx,
                 priority_requestors,
                 allow_requestors,
+                downloader,
                 create_test_price_oracle(),
             );
 
@@ -1055,7 +1066,7 @@ pub(crate) mod tests {
                 anvil,
                 picker,
                 boundless_market,
-                storage_provider,
+                uploader: storage_uploader,
                 db,
                 provider,
                 priced_orders_rx,
@@ -1416,7 +1427,8 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        let order = ctx.generate_next_order(Default::default()).await;
+        let order =
+            ctx.generate_next_order(OrderParams { order_index: 1, ..Default::default() }).await;
         let order_id = order.id();
 
         let _request_id =
@@ -1436,7 +1448,8 @@ pub(crate) mod tests {
         pricing_task.abort();
 
         // Send a new order when picker task is down.
-        let new_order = ctx.generate_next_order(Default::default()).await;
+        let new_order =
+            ctx.generate_next_order(OrderParams { order_index: 2, ..Default::default() }).await;
         let new_order_id = new_order.id();
         ctx.new_order_tx.send(new_order).await.unwrap();
 
@@ -2484,7 +2497,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_eth_higher_than_collateral() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.001 ETH").unwrap(); // 0.01 ETH per mcycle
         market_config.min_mcycle_price_collateral_token = Amount::parse("10 ZKC").unwrap(); // 10 collateral tokens per mcycle
         market_config.max_mcycle_limit = 8000;
@@ -2526,7 +2539,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_collateral_higher_than_eth_exposes_bug() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.1 ETH").unwrap(); // 0.1 ETH per mcycle (expensive)
         market_config.min_mcycle_price_collateral_token = Amount::parse("1 ZKC").unwrap(); // 1 collateral token per mcycle (cheaper)
         market_config.max_mcycle_limit = 8000;
@@ -2577,7 +2590,7 @@ pub(crate) mod tests {
     #[traced_test]
     #[tokio::test]
     async fn test_calculate_exec_limits_fulfill_after_expire_collateral_only() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.0134 ETH").unwrap(); // Won't be used for FulfillAfterLockExpire
         market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC").unwrap(); // 0.1 collateral per mcycle
         market_config.max_mcycle_limit = 8000;
@@ -2624,7 +2637,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_max_mcycle_cap() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH").unwrap();
         market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC").unwrap();
         market_config.max_mcycle_limit = 20; // 20 mcycle limit
@@ -2664,7 +2677,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_calculate_exec_limits_priority_requestor_unlimited() {
         let priority_address = address!("1234567890123456789012345678901234567890");
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH").unwrap();
         market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC").unwrap();
         market_config.max_mcycle_limit = 5; // Low limit normally
@@ -2706,7 +2719,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_timing_constraints() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH").unwrap();
         market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC").unwrap();
         market_config.max_mcycle_limit = 8000;
@@ -2748,7 +2761,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_zero_collateral_price_unlimited() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH").unwrap();
         market_config.min_mcycle_price_collateral_token = Amount::parse("0 ZKC").unwrap(); // Zero collateral price
         market_config.max_mcycle_limit = u64::MAX;
@@ -2785,7 +2798,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_very_short_deadline() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0.01 ETH").unwrap();
         market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC").unwrap();
         market_config.max_mcycle_limit = 8000;
@@ -2805,10 +2818,10 @@ pub(crate) mod tests {
         let order = ctx
             .generate_next_order(OrderParams {
                 fulfillment_type: FulfillmentType::LockAndFulfill,
-                max_price: parse_ether("1.0").unwrap(), // High price
-                lock_collateral: parse_collateral_tokens("10.0"), // High collateral
-                lock_timeout: 1,                        // 1 second lock timeout (very short!)
-                timeout: 2,                             // 2 second order timeout
+                max_price: parse_ether("1.0").unwrap(),
+                lock_collateral: parse_collateral_tokens("10.0"),
+                lock_timeout: 1,
+                timeout: 2,
                 ..Default::default()
             })
             .await;
@@ -2825,7 +2838,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_calculate_exec_limits_zero_mcycle_price_unlimited() {
-        let mut market_config = MarketConf::default();
+        let mut market_config = MarketConfig::default();
         market_config.min_mcycle_price = Amount::parse("0 ETH").unwrap(); // Zero ETH price
         market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC").unwrap();
         market_config.max_mcycle_limit = u64::MAX;

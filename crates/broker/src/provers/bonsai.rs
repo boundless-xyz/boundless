@@ -24,7 +24,7 @@ use risc0_zkvm::Receipt;
 use sqlx::{self, Postgres, Transaction};
 
 use super::{ExecutorResp, ProofResult, Prover, ProverError};
-use crate::config::ProverConf;
+use crate::config::ProverConfig;
 use crate::{
     config::ConfigLock,
     futures_retry::{retry, retry_only_with_context, retry_with_context},
@@ -95,7 +95,7 @@ impl Bonsai {
     pub async fn compress(
         client: &BonsaiClient,
         receipt: &Receipt,
-        cfg: &ProverConf,
+        cfg: &ProverConfig,
     ) -> Result<Receipt, ProverError> {
         let receipt_bytes = bincode::serialize(receipt).unwrap();
         let session_id = retry::<String, ProverError, _, _>(

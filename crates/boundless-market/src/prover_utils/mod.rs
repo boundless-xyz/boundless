@@ -20,11 +20,11 @@ pub(crate) mod requestor_pricing;
 pub mod storage;
 
 #[cfg(not(feature = "prover_utils"))]
-pub use config::MarketConf;
+pub use config::MarketConfig;
 #[cfg(feature = "prover_utils")]
 pub use config::{
-    defaults as config_defaults, BatcherConfig, Config, MarketConf, OrderCommitmentPriority,
-    OrderPricingPriority, ProverConf,
+    defaults as config_defaults, BatcherConfig, Config, MarketConfig, OrderCommitmentPriority,
+    OrderPricingPriority, ProverConfig,
 };
 
 use crate::{
@@ -34,6 +34,7 @@ use crate::{
     input::GuestEnv,
     price_oracle::{scale_decimals, Amount},
     selector::{is_blake3_groth16_selector, SupportedSelectors},
+    storage::StorageDownloader,
     util::now_timestamp,
 };
 use alloy::{
@@ -290,15 +291,15 @@ pub struct PreflightCacheKey {
 /// Cache for preflight results to avoid duplicate computations.
 pub type PreflightCache = Arc<Cache<PreflightCacheKey, PreflightCacheValue>>;
 
-/// Upload an image to the prover.
+/// Upload an image to the prover using the provided downloader.
 ///
 /// This is a standalone function (not a trait method) so it can be called from inside
 /// async closures like `try_get_with` without capturing `&self`.
-async fn upload_image_standalone(
+async fn upload_image_with_downloader(
     prover: &ProverObj,
     image_url: &str,
     predicate: &crate::contracts::RequestPredicate,
-    market_config: &MarketConf,
+    downloader: &(dyn StorageDownloader + Send + Sync),
 ) -> anyhow::Result<String> {
     let predicate = Predicate::try_from(predicate.clone()).context("Failed to parse predicate")?;
 
@@ -313,7 +314,10 @@ async fn upload_image_standalone(
     }
 
     tracing::debug!("Fetching program from URI {image_url}");
-    let image_data = storage::fetch_uri_with_config(image_url, market_config).await?;
+    let image_data = downloader
+        .download(image_url)
+        .await
+        .with_context(|| format!("Failed to fetch image URI: {image_url}"))?;
 
     let image_id =
         risc0_zkvm::compute_image_id(&image_data).context("Failed to compute image ID")?;
@@ -337,15 +341,18 @@ async fn upload_image_standalone(
     Ok(image_id_str)
 }
 
-/// Upload input data to the prover (from inline data or URL).
+/// Upload input data to the prover (from inline data or URL) using the provided downloader.
 ///
 /// This is a standalone function (not a trait method) so it can be called from inside
 /// async closures like `try_get_with` without capturing `&self`.
-async fn upload_input_standalone(
+///
+/// If `is_priority_requestor` is true, size limits are bypassed when fetching from URLs.
+async fn upload_input_with_downloader(
     prover: &ProverObj,
     input_type: crate::contracts::RequestInputType,
     input_data: &Bytes,
-    market_config: &MarketConf,
+    downloader: &(dyn StorageDownloader + Send + Sync),
+    is_priority_requestor: bool,
 ) -> anyhow::Result<String> {
     match input_type {
         crate::contracts::RequestInputType::Inline => {
@@ -357,7 +364,12 @@ async fn upload_input_standalone(
                 std::str::from_utf8(input_data).context("input url is not valid utf8")?;
 
             tracing::debug!("Fetching input from URI {input_url}");
-            let raw_input = storage::fetch_uri_with_config(input_url, market_config).await?;
+            let raw_input = if is_priority_requestor {
+                downloader.download_with_limit(input_url, usize::MAX).await
+            } else {
+                downloader.download(input_url).await
+            }
+            .with_context(|| format!("Failed to fetch input URI: {input_url}"))?;
 
             let stdin =
                 GuestEnv::decode(&raw_input).context("Failed to decode input from URL")?.stdin;
@@ -373,7 +385,7 @@ async fn upload_input_standalone(
 /// Context required by order pricing.
 #[allow(async_fn_in_trait)]
 pub trait OrderPricingContext {
-    fn market_config(&self) -> Result<MarketConf, OrderPricingError>;
+    fn market_config(&self) -> Result<MarketConfig, OrderPricingError>;
     fn supported_selectors(&self) -> &SupportedSelectors;
     fn preflight_cache(&self) -> &PreflightCache;
     fn collateral_token_decimals(&self) -> u8;
@@ -414,37 +426,49 @@ pub trait OrderPricingContext {
     /// Access to the prover for preflight operations.
     fn prover(&self) -> &ProverObj;
 
-    /// Fetch data from a URI. Default implementation supports HTTP/HTTPS and S3 schemes.
-    /// Uses the market config for size limits, retries, caching, and file:// support.
+    /// Access to the downloader for fetching images and inputs.
+    /// Returns an Arc so it can be cloned into async closures.
+    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync>;
+
+    /// Fetch data from a URI using the downloader.
     #[cfg(feature = "prover_utils")]
     async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, OrderPricingError> {
-        storage::fetch_uri_with_config(url, &self.market_config()?)
+        self.downloader()
+            .download(url)
             .await
             .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e.into())))
     }
 
-    /// Upload an image from a URL to the prover.
+    /// Upload an image from a URL to the prover using the downloader.
     #[cfg(feature = "prover_utils")]
     async fn upload_image(
         &self,
         image_url: &str,
         predicate: &crate::contracts::RequestPredicate,
     ) -> Result<String, OrderPricingError> {
-        upload_image_standalone(self.prover(), image_url, predicate, &self.market_config()?)
-            .await
-            .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
+        upload_image_with_downloader(
+            self.prover(),
+            image_url,
+            predicate,
+            self.downloader().as_ref(),
+        )
+        .await
+        .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))
     }
 
-    /// Upload input data to the prover (from inline data or URL).
+    /// Upload input data to the prover (from inline data or URL) using the downloader.
     #[cfg(feature = "prover_utils")]
-    async fn upload_input(
-        &self,
-        input_type: crate::contracts::RequestInputType,
-        input_data: &Bytes,
-    ) -> Result<String, OrderPricingError> {
-        upload_input_standalone(self.prover(), input_type, input_data, &self.market_config()?)
-            .await
-            .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))
+    async fn upload_input(&self, order: &OrderRequest) -> Result<String, OrderPricingError> {
+        let is_priority = self.is_priority_requestor(&order.request.client_address());
+        upload_input_with_downloader(
+            self.prover(),
+            order.request.input.inputType,
+            &order.request.input.data,
+            self.downloader().as_ref(),
+            is_priority,
+        )
+        .await
+        .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))
     }
 
     /// Execute preflight for an order.
@@ -458,13 +482,14 @@ pub trait OrderPricingContext {
 
         // Clone all data needed inside the closure
         let prover = self.prover().clone();
-        let market_config = self.market_config()?;
+        let downloader = self.downloader();
         let cache = self.preflight_cache().clone();
         let image_url = order.request.imageUrl.clone();
         let predicate = order.request.requirements.predicate.clone();
         let input_type = order.request.input.inputType;
         let input_data = order.request.input.data.clone();
         let order_id_clone = order_id.clone();
+        let is_priority = self.is_priority_requestor(&order.request.client_address());
 
         // Multiple concurrent calls of this coalesce into a single execution.
         // https://docs.rs/moka/latest/moka/future/struct.Cache.html#concurrent-calls-on-the-same-key
@@ -474,15 +499,15 @@ pub trait OrderPricingContext {
                     "Starting preflight execution of {order_id_clone} with limit of {exec_limit_cycles} cycles"
                 );
 
-                // Upload image from URL
+                // Upload image from URL using downloader
                 let image_id =
-                    upload_image_standalone(&prover, &image_url, &predicate, &market_config)
+                    upload_image_with_downloader(&prover, &image_url, &predicate, downloader.as_ref())
                         .await
                         .map_err(|e| OrderPricingError::FetchImageErr(Arc::new(e)))?;
 
-                // Upload input
+                // Upload input using downloader
                 let input_id =
-                    upload_input_standalone(&prover, input_type, &input_data, &market_config)
+                    upload_input_with_downloader(&prover, input_type, &input_data, downloader.as_ref(), is_priority)
                         .await
                         .map_err(|e| OrderPricingError::FetchInputErr(Arc::new(e)))?;
 
@@ -1199,7 +1224,7 @@ fn format_expiries(request: &ProofRequest) -> String {
 }
 
 async fn estimate_gas_to_fulfill(
-    config: &MarketConf,
+    config: &MarketConfig,
     supported_selectors: &SupportedSelectors,
     request: &ProofRequest,
 ) -> anyhow::Result<u64> {
@@ -1233,7 +1258,7 @@ async fn estimate_gas_to_fulfill(
 /// Gas allocated to verifying a smart contract signature. Copied from BoundlessMarket.sol.
 const ERC1271_MAX_GAS_FOR_CHECK: u64 = 100000;
 
-async fn estimate_gas_to_lock(config: &MarketConf, order: &OrderRequest) -> anyhow::Result<u64> {
+async fn estimate_gas_to_lock(config: &MarketConfig, order: &OrderRequest) -> anyhow::Result<u64> {
     let mut estimate = config.lockin_gas_estimate;
 
     if order.request.is_smart_contract_signed() {

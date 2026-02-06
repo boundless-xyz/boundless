@@ -13,10 +13,13 @@
 // limitations under the License.
 
 use super::{Adapt, RequestParams};
-use crate::contracts::{RequestInput, RequestInputType};
-use crate::input::GuestEnv;
-use crate::prover_utils::local_executor::LocalExecutor;
-use crate::storage::fetch_url;
+use crate::{
+    contracts::{RequestInput, RequestInputType},
+    input::GuestEnv,
+    prover_utils::local_executor::LocalExecutor,
+    storage::StorageDownloader,
+    NotProvided,
+};
 use anyhow::{bail, ensure, Context};
 
 /// A layer that performs preflight execution of the guest program.
@@ -32,24 +35,30 @@ use anyhow::{bail, ensure, Context};
 /// Uses a LocalExecutor for execution, which deduplicates executions by
 /// content-addressing (same program + input = same result returned from cache).
 #[non_exhaustive]
-#[derive(Clone, Default)]
-pub struct PreflightLayer {
+#[derive(Clone)]
+pub struct PreflightLayer<D> {
     executor: LocalExecutor,
+    /// The downloader used to fetch programs and inputs from URLs.
+    downloader: Option<D>,
 }
 
-impl PreflightLayer {
-    /// Create a new preflight layer with a shared executor.
-    ///
-    /// The executor can be shared with other components (like pricing checks)
-    /// to avoid redundant executions.
-    pub fn with_executor(executor: LocalExecutor) -> Self {
-        Self { executor }
+impl<D> Default for PreflightLayer<D> {
+    fn default() -> Self {
+        Self { executor: LocalExecutor::default(), downloader: None }
+    }
+}
+
+impl<D> PreflightLayer<D>
+where
+    D: StorageDownloader,
+{
+    /// Creates a new [PreflightLayer] with the given executor and downloader.
+    pub fn new(executor: LocalExecutor, downloader: Option<D>) -> Self {
+        Self { executor, downloader }
     }
 
     /// Get a clone of the executor used by this layer.
-    ///
-    /// This can be used to share the executor with other components.
-    pub fn executor(&self) -> LocalExecutor {
+    pub fn executor_cloned(&self) -> LocalExecutor {
         self.executor.clone()
     }
 
@@ -57,10 +66,14 @@ impl PreflightLayer {
         let env = match input.inputType {
             RequestInputType::Inline => GuestEnv::decode(&input.data)?,
             RequestInputType::Url => {
+                let downloader = self
+                    .downloader
+                    .as_ref()
+                    .context("cannot preflight URL input without downloader")?;
                 let input_url =
                     std::str::from_utf8(&input.data).context("Input URL is not valid UTF-8")?;
                 tracing::info!("Fetching input from {}", input_url);
-                GuestEnv::decode(&fetch_url(input_url).await?)?
+                GuestEnv::decode(&downloader.download(input_url).await?)?
             }
             _ => bail!("Unsupported input type"),
         };
@@ -76,7 +89,11 @@ impl PreflightLayer {
             Ok(bytes) => bytes.to_vec(),
             Err(_) => {
                 let url = params.require_program_url()?;
-                fetch_url(url.as_str()).await?
+                let downloader = self
+                    .downloader
+                    .as_ref()
+                    .context("cannot fetch program URL without downloader")?;
+                downloader.download(url.as_str()).await?
             }
         };
         let image_id = risc0_zkvm::compute_image_id(&program)?;
@@ -103,24 +120,32 @@ impl PreflightLayer {
     }
 }
 
-impl Adapt<PreflightLayer> for RequestParams {
+impl<D> Adapt<PreflightLayer<D>> for RequestParams
+where
+    D: StorageDownloader,
+{
     type Output = RequestParams;
     type Error = anyhow::Error;
 
-    async fn process_with(mut self, layer: &PreflightLayer) -> Result<Self::Output, Self::Error> {
-        tracing::trace!("Processing {self:?} with PreflightLayer");
-
+    async fn process_with(
+        mut self,
+        layer: &PreflightLayer<D>,
+    ) -> Result<Self::Output, Self::Error> {
         if self.cycles.is_some() && self.journal.is_some() {
             self = layer.ensure_image_id(self).await?;
             layer.fill_executor_cache_if_ready(&self).await;
             return Ok(self);
         }
 
+        tracing::trace!("Processing {self:?} with PreflightLayer");
+
         let program_url = self.require_program_url().context("failed to preflight request")?;
         let request_input = self.require_request_input().context("failed to preflight request")?;
 
         // Fetch program and input
-        let program = fetch_url(program_url).await?;
+        let downloader =
+            layer.downloader.as_ref().context("cannot preflight URL request without downloader")?;
+        let program = downloader.download(program_url.as_str()).await?;
         let env = layer.fetch_env(request_input).await?;
         // Use env.stdin directly - this matches what the pricing logic uses for hashing
         let input_bytes = env.stdin;
@@ -148,5 +173,21 @@ impl Adapt<PreflightLayer> for RequestParams {
         }
 
         Ok(self.with_cycles(cycles).with_journal(journal).with_image_id(image_id))
+    }
+}
+
+impl Adapt<PreflightLayer<NotProvided>> for RequestParams {
+    type Output = RequestParams;
+    type Error = anyhow::Error;
+
+    async fn process_with(
+        self,
+        _: &PreflightLayer<NotProvided>,
+    ) -> Result<Self::Output, Self::Error> {
+        if self.cycles.is_some() && self.journal.is_some() {
+            return Ok(self);
+        }
+
+        bail!("cannot preflight program without downloader")
     }
 }

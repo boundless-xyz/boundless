@@ -15,7 +15,9 @@
 //! URI handling for fetching data from HTTP, S3, and file URLs.
 
 use alloy::primitives::bytes::Buf;
+#[cfg(feature = "s3")]
 use aws_config::retry::RetryConfig;
+#[cfg(feature = "s3")]
 use aws_sdk_s3::{
     config::{ProvideCredentials, SharedCredentialsProvider},
     error::ProvideErrorMetadata,
@@ -25,8 +27,9 @@ use futures_util::StreamExt;
 use std::env;
 use thiserror::Error;
 
-use super::config::MarketConf;
+use super::config::MarketConfig;
 
+#[cfg(feature = "s3")]
 const ENV_VAR_ROLE_ARN: &str = "AWS_ROLE_ARN";
 
 /// Returns `true` if the dev mode environment variable is enabled.
@@ -81,6 +84,7 @@ pub enum StorageError {
     Http(String),
 
     /// AWS S3 error.
+    #[cfg(feature = "s3")]
     #[error("AWS S3 error: {0}")]
     S3(String),
 }
@@ -91,7 +95,7 @@ pub enum StorageError {
 /// use [`fetch_uri_with_config`] instead.
 #[allow(unused)]
 pub async fn fetch_uri(uri: &str) -> Result<Vec<u8>, StorageError> {
-    fetch_uri_with_config(uri, &MarketConf::default()).await
+    fetch_uri_with_config(uri, &MarketConfig::default()).await
 }
 
 /// Fetch data from a URI with the given market configuration.
@@ -102,7 +106,7 @@ pub async fn fetch_uri(uri: &str) -> Result<Vec<u8>, StorageError> {
 /// - `file://` URLs (only if `RISC0_DEV_MODE` or `ALLOW_LOCAL_FILE_STORAGE` env var is set)
 pub async fn fetch_uri_with_config(
     uri: &str,
-    config: &MarketConf,
+    config: &MarketConfig,
 ) -> Result<Vec<u8>, StorageError> {
     let parsed = url::Url::parse(uri)?;
 
@@ -116,6 +120,7 @@ pub async fn fetch_uri_with_config(
             fetch_file(parsed.path(), Some(config.max_file_size)).await
         }
         "http" | "https" => fetch_http(parsed, config).await,
+        #[cfg(feature = "s3")]
         "s3" => fetch_s3(parsed, config).await,
         scheme => Err(StorageError::UnsupportedScheme(scheme.to_string())),
     }
@@ -136,8 +141,7 @@ async fn fetch_file(path: &str, max_size: Option<usize>) -> Result<Vec<u8>, Stor
 }
 
 /// Fetch data from an HTTP/HTTPS URL.
-async fn fetch_http(url: url::Url, config: &MarketConf) -> Result<Vec<u8>, StorageError> {
-    use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
+async fn fetch_http(url: url::Url, config: &MarketConfig) -> Result<Vec<u8>, StorageError> {
     use reqwest_middleware::ClientBuilder;
     use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 
@@ -146,18 +150,6 @@ async fn fetch_http(url: url::Url, config: &MarketConf) -> Result<Vec<u8>, Stora
     }
 
     let mut builder = ClientBuilder::new(reqwest::Client::new());
-
-    // Add caching middleware if configured
-    if let Some(ref cache_dir) = config.cache_dir {
-        tokio::fs::create_dir_all(cache_dir).await?;
-        let manager = CACacheManager { path: cache_dir.clone() };
-        let cache_middleware = Cache(HttpCache {
-            mode: CacheMode::ForceCache,
-            manager,
-            options: HttpCacheOptions::default(),
-        });
-        builder = builder.with(cache_middleware);
-    }
 
     // Add retry middleware if configured
     if let Some(max_retries) = config.max_fetch_retries {
@@ -201,7 +193,8 @@ async fn fetch_http(url: url::Url, config: &MarketConf) -> Result<Vec<u8>, Stora
 ///
 /// If the `AWS_ROLE_ARN` environment variable is set, it will attempt to assume that
 /// IAM role before accessing S3.
-async fn fetch_s3(url: url::Url, config: &MarketConf) -> Result<Vec<u8>, StorageError> {
+#[cfg(feature = "s3")]
+async fn fetch_s3(url: url::Url, config: &MarketConfig) -> Result<Vec<u8>, StorageError> {
     let retry_config = if let Some(max_retries) = config.max_fetch_retries {
         RetryConfig::standard().with_max_attempts(max_retries as u32 + 1)
     } else {

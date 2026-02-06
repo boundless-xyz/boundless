@@ -34,7 +34,7 @@ use moka::policy::EvictionPolicy;
 use super::local_executor::LocalExecutor;
 use super::prover::ProverObj;
 use super::{
-    FulfillmentType, MarketConf, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
+    FulfillmentType, MarketConfig, OrderPricingContext, OrderPricingError, OrderPricingOutcome,
     OrderRequest, PreflightCache,
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
@@ -42,6 +42,7 @@ use crate::contracts::ProofRequest;
 use crate::price_oracle::{Amount, Asset};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
+use crate::storage::{StandardDownloader, StorageDownloader};
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
@@ -84,12 +85,16 @@ where
     // Build market config, using price provider if available
     let market_config = build_market_config(price_provider).await;
 
+    // Create a standard downloader for fetching images and inputs
+    let downloader = Arc::new(StandardDownloader::new().await);
+
     let pricing_context = RequestorPricingContext::new(
         provider.clone(),
         collateral_token_decimals,
         market_config,
         preflight_cache,
         Arc::new(executor),
+        downloader,
     );
 
     let mut result_cycle_count = None;
@@ -159,9 +164,9 @@ where
     Ok(result_cycle_count)
 }
 
-async fn build_market_config(price_provider: Option<PriceProviderArc>) -> MarketConf {
+async fn build_market_config(price_provider: Option<PriceProviderArc>) -> MarketConfig {
     let Some(provider) = price_provider else {
-        return MarketConf::default();
+        return MarketConfig::default();
     };
 
     let min_mcycle_price = match provider.price_percentiles().await {
@@ -173,11 +178,11 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
     };
 
     tracing::debug!("Using market price for preflight: {}", format_ether(min_mcycle_price));
-    MarketConf {
+    MarketConfig {
         min_mcycle_price: Amount::new(min_mcycle_price, Asset::ETH),
         // Note: collateral cycle price is not available, so ignore this price check during preflight
         min_mcycle_price_collateral_token: Amount::new(U256::ZERO, Asset::ZKC),
-        ..MarketConf::default()
+        ..MarketConfig::default()
     }
 }
 
@@ -189,10 +194,11 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
 pub struct RequestorPricingContext<P> {
     provider: Arc<P>,
     prover: ProverObj,
-    market_config: MarketConf,
+    market_config: MarketConfig,
     supported_selectors: SupportedSelectors,
     preflight_cache: PreflightCache,
     collateral_token_decimals: u8,
+    downloader: Arc<StandardDownloader>,
 }
 
 impl<P> RequestorPricingContext<P>
@@ -203,9 +209,10 @@ where
     pub fn new(
         provider: Arc<P>,
         collateral_token_decimals: u8,
-        market_config: MarketConf,
+        market_config: MarketConfig,
         preflight_cache: PreflightCache,
         prover: ProverObj,
+        downloader: Arc<StandardDownloader>,
     ) -> Self {
         Self {
             provider,
@@ -214,6 +221,7 @@ where
             supported_selectors: SupportedSelectors::default(),
             preflight_cache,
             collateral_token_decimals,
+            downloader,
         }
     }
 }
@@ -222,7 +230,7 @@ impl<P> OrderPricingContext for RequestorPricingContext<P>
 where
     P: Provider<Ethereum> + 'static + Clone,
 {
-    fn market_config(&self) -> Result<MarketConf, OrderPricingError> {
+    fn market_config(&self) -> Result<MarketConfig, OrderPricingError> {
         Ok(self.market_config.clone())
     }
 
@@ -300,5 +308,9 @@ where
 
     fn prover(&self) -> &ProverObj {
         &self.prover
+    }
+
+    fn downloader(&self) -> Arc<dyn StorageDownloader + Send + Sync> {
+        self.downloader.clone()
     }
 }
