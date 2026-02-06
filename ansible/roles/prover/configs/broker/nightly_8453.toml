@@ -8,6 +8,10 @@ priority_requestor_lists = [
     "https://requestors.boundless.network/boundless-recommended-priority-list.large.json",
 ]
 max_collateral = "200"
+balance_warn_threshold = "0.05"
+balance_error_threshold = "0.01"
+collateral_balance_warn_threshold = "100"
+collateral_balance_error_threshold = "50"
 max_concurrent_preflights = 4
 max_concurrent_proofs = 2
 max_journal_bytes = 20000
