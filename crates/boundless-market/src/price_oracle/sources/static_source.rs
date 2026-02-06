@@ -26,10 +26,7 @@ impl PriceOracle for StaticPriceSource {
         let rate = scale_price_from_f64(self.price)?;
 
         // Static prices are always considered fresh
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
 
         Ok(ExchangeRate::new(self.pair, rate, now))
     }

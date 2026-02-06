@@ -4,7 +4,7 @@ use crate::price_oracle::sources::{
     ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource,
 };
 use crate::price_oracle::{
-    AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, PriceSource, TradingPair
+    AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, PriceSource, TradingPair,
 };
 use alloy::providers::Provider;
 use alloy_chains::NamedChain;
@@ -213,7 +213,7 @@ impl PriceOracleConfig {
                             // Chainlink only supports ETH/USD
                             let chainlink =
                                 ChainlinkSource::for_eth_usd(provider.clone(), named_chain)?;
-                                sources.push(Arc::new(chainlink));
+                            sources.push(Arc::new(chainlink));
                         }
                     }
                 }
@@ -225,7 +225,7 @@ impl PriceOracleConfig {
                         if coingecko_config.enabled {
                             let coingecko =
                                 CoinGeckoSource::new(pair, Duration::from_secs(self.timeout_secs))?;
-                                sources.push(Arc::new(coingecko));
+                            sources.push(Arc::new(coingecko));
                         }
                     }
 

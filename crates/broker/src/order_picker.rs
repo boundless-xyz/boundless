@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 use crate::{
     chain_monitor::ChainMonitorService,
     config::{ConfigLock, MarketConfig},
@@ -37,8 +38,7 @@ use anyhow::{Context, Result};
 use boundless_market::price_oracle::{Amount, Asset};
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
-    selector::SupportedSelectors,
-    storage::StorageDownloader,
+    selector::SupportedSelectors, storage::StorageDownloader,
 };
 use moka::{future::Cache, policy::EvictionPolicy};
 use tokio::{
@@ -46,7 +46,6 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
-use crate::OrderPricingOutcome::{Lock, ProveAfterLockExpire, Skip};
 
 const MIN_CAPACITY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -802,14 +801,9 @@ pub(crate) mod tests {
     use boundless_market::price_oracle::{
         sources::StaticPriceSource, Amount, CachedPriceOracle, PriceOracleManager,
     };
-    use boundless_market::storage::{MockStorageProvider, StorageProvider};
-    use boundless_market::{
-        contracts::{
-            Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
-        },
-        selector::SelectorExt,
-        storage::{MockStorageUploader, StorageUploader},
-    };
+    use boundless_market::{contracts::{
+        Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
+    }, price_oracle, selector::SelectorExt, storage::{MockStorageUploader, StorageUploader}};
     use boundless_test_utils::{
         guests::{ASSESSOR_GUEST_ID, ASSESSOR_GUEST_PATH, ECHO_ELF, ECHO_ID, LOOP_ELF, LOOP_ID},
         market::{deploy_boundless_market, deploy_hit_points},
@@ -817,6 +811,7 @@ pub(crate) mod tests {
     use risc0_ethereum_contracts::selector::Selector;
     use risc0_zkvm::{sha::Digest, Receipt};
     use tracing_test::traced_test;
+    use price_oracle::TradingPair;
 
     /// Create a test price oracle with static prices for ETH and ZKC
     fn create_test_price_oracle() -> Arc<PriceOracleManager> {

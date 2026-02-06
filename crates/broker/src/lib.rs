@@ -1186,8 +1186,6 @@ pub(crate) fn is_dev_mode() -> bool {
 pub mod test_utils {
     use std::sync::Arc;
 
-    use crate::config::ConfigWatcher;
-    use crate::{config::Config, Args, Broker};
     use alloy::{
         network::Ethereum,
         providers::{Provider, WalletProvider},

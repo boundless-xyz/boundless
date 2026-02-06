@@ -104,12 +104,10 @@ impl PriceOracle for CoinMarketCapSource {
     async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
         match self.pair {
             TradingPair::EthUsd => {
-                self.fetch_rate("/v2/cryptocurrency/quotes/latest", "1027", "USD")
-                    .await
+                self.fetch_rate("/v2/cryptocurrency/quotes/latest", "1027", "USD").await
             }
             TradingPair::ZkcUsd => {
-                self.fetch_rate("/v2/cryptocurrency/quotes/latest", "38371", "USD")
-                    .await
+                self.fetch_rate("/v2/cryptocurrency/quotes/latest", "38371", "USD").await
             }
         }
     }
@@ -160,7 +158,7 @@ mod tests {
         mock.assert();
         assert_eq!(rate.pair, TradingPair::EthUsd);
         assert_eq!(rate.rate, U256::from(250050000000u128)); // 2500.50 * 1e8
-                                                               // Verify timestamp is parsed correctly from ISO 8601
+                                                             // Verify timestamp is parsed correctly from ISO 8601
         assert_eq!(rate.timestamp, 1769688600);
     }
 

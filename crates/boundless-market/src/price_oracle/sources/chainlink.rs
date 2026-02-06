@@ -64,21 +64,13 @@ pub struct ChainlinkSource<P> {
 impl<P> ChainlinkSource<P> {
     /// Create a new Chainlink source with a custom feed
     pub fn new(pair: TradingPair, provider: P, feed: FeedInfo) -> Self {
-        Self {
-            pair,
-            provider,
-            feed,
-        }
+        Self { pair, provider, feed }
     }
 
     /// Create a new Chainlink source for ETH/USD on a named chain
     pub fn for_eth_usd(provider: P, chain: NamedChain) -> Result<Self, PriceOracleError> {
         let feed = eth_usd_feed(chain)?;
-        Ok(Self {
-            pair: TradingPair::EthUsd,
-            provider,
-            feed,
-        })
+        Ok(Self { pair: TradingPair::EthUsd, provider, feed })
     }
 }
 

@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use super::benchmark::ProverBenchmark;
+use crate::commands::prover::benchmark::BenchmarkResult;
+use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
+use crate::config_file::Config;
+use crate::display::{obscure_url, DisplayManager};
 use alloy::primitives::utils::format_units;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
 use alloy_chains::NamedChain;
 use anyhow::{bail, Context, Result};
 use boundless_market::indexer_client::IndexerClient;
-use boundless_market::price_oracle::{Amount, Asset, PriceOracleConfig, PriceOracleManager, TradingPair};
+use boundless_market::price_oracle::{
+    Amount, Asset, PriceOracleConfig, PriceOracleManager, TradingPair,
+};
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
@@ -30,12 +35,9 @@ use boundless_market::{
 use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use url::Url;
-use super::benchmark::ProverBenchmark;
-use crate::commands::prover::benchmark::BenchmarkResult;
-use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
-use crate::config_file::Config;
-use crate::display::{obscure_url, DisplayManager};
 
 // Priority requestor list URLs
 const PRIORITY_REQUESTOR_LIST_STANDARD: &str =
@@ -106,7 +108,7 @@ fn prompt_validated_amount(
 
 /// Try to initialize a price oracle for dual-currency display
 /// Returns None if price fetching fails (display will fall back to single currency)
-async fn try_init_price_oracle (
+async fn try_init_price_oracle(
     rpc_url: &Url,
     display: &DisplayManager,
     chain_id: u64,
@@ -123,10 +125,8 @@ async fn try_init_price_oracle (
     manager.refresh_all_rates().await;
 
     // Fetch initial prices
-    let (eth_result, zkc_result) = tokio::join!(
-        manager.get_rate(TradingPair::EthUsd),
-        manager.get_rate(TradingPair::ZkcUsd),
-    );
+    let (eth_result, zkc_result) =
+        tokio::join!(manager.get_rate(TradingPair::EthUsd), manager.get_rate(TradingPair::ZkcUsd),);
 
     match (eth_result, zkc_result) {
         (Ok(eth_quote), Ok(zkc_quote)) => {
@@ -135,9 +135,7 @@ async fn try_init_price_oracle (
 
             Ok(Arc::new(manager))
         }
-        _ => {
-            Err(anyhow::anyhow!("⚠  Could not fetch prices from price oracle"))
-        }
+        _ => Err(anyhow::anyhow!("⚠  Could not fetch prices from price oracle")),
     }
 }
 
@@ -507,7 +505,10 @@ impl ProverGenerateConfig {
         };
 
         let recommended_collateral = match priority_requestor_lists.len() {
-            1 => &format!("{} ZKC", boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD),
+            1 => &format!(
+                "{} ZKC",
+                boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
+            ),
             2 => "200 ZKC",
             _ => "500 ZKC",
         };
@@ -516,12 +517,20 @@ impl ProverGenerateConfig {
             "We recommend a max collateral of {} for your configuration.",
             recommended_collateral
         ));
-        // TODO
-        display.note(&format!("  • {}: Recommended for the standard requestor list", format_amount_with_conversion("50 ZKC", price_oracle.clone()).await));
+        display.note(&format!(
+            "  • {}: Recommended for the standard requestor list",
+            format_amount_with_conversion("50 ZKC", price_oracle.clone()).await
+        ));
         display.note("    (lower risk)");
-        display.note(&format!("  • {}: Recommended for standard + large lists", format_amount_with_conversion("200 ZKC", price_oracle.clone()).await));
+        display.note(&format!(
+            "  • {}: Recommended for standard + large lists",
+            format_amount_with_conversion("200 ZKC", price_oracle.clone()).await
+        ));
         display.note("    (large orders, higher rewards, higher risk)");
-        display.note(&format!("  • {}: Recommended for standard + large + XL lists", format_amount_with_conversion("500 ZKC", price_oracle.clone()).await));
+        display.note(&format!(
+            "  • {}: Recommended for standard + large + XL lists",
+            format_amount_with_conversion("500 ZKC", price_oracle.clone()).await
+        ));
         display.note("    (largest orders, highest rewards, highest risk)");
         display.note("");
         display
@@ -620,7 +629,9 @@ impl ProverGenerateConfig {
                 "Recommended minimum price: {} / Mcycle",
                 format_amount_with_conversion(
                     &format!("{} ETH", format_units(pricing.p25 * U256::from(1_000_000), "ether")?),
-                    price_oracle.clone()).await,
+                    price_oracle.clone()
+                )
+                .await,
             ));
             display.note("");
             display
@@ -638,13 +649,12 @@ impl ProverGenerateConfig {
             display.note("  • USD: Price in USD per mega-cycle, converted to ETH at runtime (e.g., '0.02 USD')");
             display.note("");
 
-
             prompt_validated_amount(
-            "Minimum price per Mcycle:",
-            &format!("{:.10}", pricing.p25),
-            "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
-            &[Asset::USD, Asset::ETH],
-            "min_mcycle_price",
+                "Minimum price per Mcycle:",
+                &format!("{:.10}", pricing.p25),
+                "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
+                &[Asset::USD, Asset::ETH],
+                "min_mcycle_price",
             )?
         } else {
             // Fallback to manual entry if query failed
@@ -669,11 +679,13 @@ impl ProverGenerateConfig {
         display.note(
             "  • USD: Price in USD per mega-cycle, converted to ZKC at runtime (e.g., '0.02 USD')",
         );
-        display.note(&format!("The recommended price per Mcycle is: {}",
+        display.note(&format!(
+            "The recommended price per Mcycle is: {}",
             format_amount_with_conversion(
                 DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
                 price_oracle.clone(),
-            ).await
+            )
+            .await
         ));
         display.note("");
 

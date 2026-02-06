@@ -82,13 +82,9 @@ impl PriceOracle for CoinGeckoSource {
 
     async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
         match self.pair {
-            TradingPair::EthUsd => {
-                self.fetch_rate("/api/v3/simple/price", "ethereum", "usd")
-                    .await
-            }
+            TradingPair::EthUsd => self.fetch_rate("/api/v3/simple/price", "ethereum", "usd").await,
             TradingPair::ZkcUsd => {
-                self.fetch_rate("/api/v3/simple/price", "boundless", "usd")
-                    .await
+                self.fetch_rate("/api/v3/simple/price", "boundless", "usd").await
             }
         }
     }

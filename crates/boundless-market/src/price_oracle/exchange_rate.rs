@@ -87,13 +87,9 @@ impl ExchangeRate {
         Ok(Amount::new(converted, self.pair.quote()))
     }
 
-
     /// Check if rate is stale (older than max_age_secs)
     pub fn is_stale(&self, max_age_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         now.saturating_sub(self.timestamp) > max_age_secs
     }
 
@@ -112,15 +108,11 @@ impl ExchangeRate {
     }
 }
 
-
 /// Scale a floating-point price to U256 with fixed decimals
 pub fn scale_price_from_f64(price: f64) -> Result<U256, PriceOracleError> {
     // Validate the price
     if !price.is_finite() || price < 0.0 {
-        return Err(PriceOracleError::InvalidPrice(format!(
-            "price data is infinite: {}",
-            price
-        )));
+        return Err(PriceOracleError::InvalidPrice(format!("price data is infinite: {}", price)));
     }
 
     let price_scaled = (price * 10u64.pow(PRICE_QUOTE_DECIMALS) as f64).round() as u128;
@@ -131,10 +123,7 @@ pub fn scale_price_from_f64(price: f64) -> Result<U256, PriceOracleError> {
 /// Scale an I256 price to U256 with fixed decimals
 pub fn scale_price_from_i256(price: I256, decimals: u32) -> Result<U256, PriceOracleError> {
     if price <= I256::ZERO {
-        return Err(PriceOracleError::InvalidPrice(format!(
-            "non-positive: {}",
-            price
-        )));
+        return Err(PriceOracleError::InvalidPrice(format!("non-positive: {}", price)));
     }
 
     let price_raw: U256 = price

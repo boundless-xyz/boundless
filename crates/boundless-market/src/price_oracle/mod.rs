@@ -25,8 +25,7 @@ pub use composite_oracle::CompositeOracle;
 pub use config::PriceOracleConfig;
 pub use error::PriceOracleError;
 pub use exchange_rate::{
-    ExchangeRate, TradingPair, PRICE_QUOTE_DECIMALS, scale_price_from_f64,
-    scale_price_from_i256,
+    scale_price_from_f64, scale_price_from_i256, ExchangeRate, TradingPair, PRICE_QUOTE_DECIMALS,
 };
 pub use manager::PriceOracleManager;
 

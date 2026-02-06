@@ -46,11 +46,7 @@ impl PriceOracleManager {
     ///
     /// Supported conversions: USD↔ETH, USD↔ZKC
     /// Returns error for unsupported pairs (e.g., ETH<->ZKC)
-    pub async fn convert(
-        &self,
-        amount: &Amount,
-        target: Asset,
-    ) -> Result<Amount, ConversionError> {
+    pub async fn convert(&self, amount: &Amount, target: Asset) -> Result<Amount, ConversionError> {
         if amount.asset == target {
             return Ok(amount.clone());
         }
@@ -203,14 +199,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_spawn_refresh_task_periodic_refresh() -> anyhow::Result<()> {
-        let eth_oracle = Arc::new(MockOracle::new(
-            TradingPair::EthUsd,
-            U256::from(200000000000u128),
-        ));
-        let zkc_oracle = Arc::new(MockOracle::new(
-            TradingPair::ZkcUsd,
-            U256::from(100000000u128),
-        ));
+        let eth_oracle =
+            Arc::new(MockOracle::new(TradingPair::EthUsd, U256::from(200000000000u128)));
+        let zkc_oracle = Arc::new(MockOracle::new(TradingPair::ZkcUsd, U256::from(100000000u128)));
 
         let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
         let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
@@ -260,14 +251,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_spawn_refresh_task_exits_on_stale_cache() -> anyhow::Result<()> {
-        let eth_oracle = Arc::new(MockOracle::new(
-            TradingPair::EthUsd,
-            U256::from(200000000000u128),
-        ));
-        let zkc_oracle = Arc::new(MockOracle::new(
-            TradingPair::ZkcUsd,
-            U256::from(100000000u128),
-        ));
+        let eth_oracle =
+            Arc::new(MockOracle::new(TradingPair::EthUsd, U256::from(200000000000u128)));
+        let zkc_oracle = Arc::new(MockOracle::new(TradingPair::ZkcUsd, U256::from(100000000u128)));
 
         let eth_cached = Arc::new(CachedPriceOracle::new(eth_oracle.clone()));
         let zkc_cached = Arc::new(CachedPriceOracle::new(zkc_oracle.clone()));
@@ -303,12 +289,14 @@ mod tests {
         use crate::price_oracle::sources::StaticPriceSource;
 
         // ETH price = $2000 (200000000000 with 8 decimals)
-        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::EthUsd, 2000.0),
-        )));
-        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::ZkcUsd, 1.0),
-        )));
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::EthUsd,
+            2000.0,
+        ))));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::ZkcUsd,
+            1.0,
+        ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 2000 USD to ETH (should be 1 ETH)
@@ -316,10 +304,7 @@ mod tests {
         let eth_amount = manager.convert(&usd_amount, Asset::ETH).await?;
 
         assert_eq!(eth_amount.asset, Asset::ETH);
-        assert_eq!(
-            eth_amount.value,
-            U256::from(1_000_000_000_000_000_000u128)
-        ); // 1 ETH
+        assert_eq!(eth_amount.value, U256::from(1_000_000_000_000_000_000u128)); // 1 ETH
 
         Ok(())
     }
@@ -329,12 +314,14 @@ mod tests {
         use crate::price_oracle::sources::StaticPriceSource;
 
         // ETH price = $2000
-        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::EthUsd, 2000.0),
-        )));
-        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::ZkcUsd, 1.0),
-        )));
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::EthUsd,
+            2000.0,
+        ))));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::ZkcUsd,
+            1.0,
+        ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 1 ETH to USD (should be $2000)
@@ -352,12 +339,14 @@ mod tests {
         use crate::price_oracle::sources::StaticPriceSource;
 
         // ZKC price = $1.00
-        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::EthUsd, 2000.0),
-        )));
-        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::ZkcUsd, 1.0),
-        )));
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::EthUsd,
+            2000.0,
+        ))));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::ZkcUsd,
+            1.0,
+        ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 100 USD to ZKC (should be 100 ZKC)
@@ -365,10 +354,7 @@ mod tests {
         let zkc_amount = manager.convert(&usd_amount, Asset::ZKC).await?;
 
         assert_eq!(zkc_amount.asset, Asset::ZKC);
-        assert_eq!(
-            zkc_amount.value,
-            U256::from(100_000_000_000_000_000_000u128)
-        ); // 100 ZKC
+        assert_eq!(zkc_amount.value, U256::from(100_000_000_000_000_000_000u128)); // 100 ZKC
 
         Ok(())
     }
@@ -378,12 +364,14 @@ mod tests {
         use crate::price_oracle::sources::StaticPriceSource;
 
         // ZKC price = $1.00
-        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::EthUsd, 2000.0),
-        )));
-        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::ZkcUsd, 1.0),
-        )));
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::EthUsd,
+            2000.0,
+        ))));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::ZkcUsd,
+            1.0,
+        ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 100 ZKC to USD (should be $100)
@@ -400,12 +388,14 @@ mod tests {
     async fn test_convert_same_asset_returns_unchanged() -> anyhow::Result<()> {
         use crate::price_oracle::sources::StaticPriceSource;
 
-        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::EthUsd, 2000.0),
-        )));
-        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::ZkcUsd, 1.0),
-        )));
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::EthUsd,
+            2000.0,
+        ))));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::ZkcUsd,
+            1.0,
+        ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert ETH to ETH (should return same amount)
@@ -422,12 +412,14 @@ mod tests {
     async fn test_convert_eth_to_zkc_returns_error() -> anyhow::Result<()> {
         use crate::price_oracle::sources::StaticPriceSource;
 
-        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::EthUsd, 2000.0),
-        )));
-        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::ZkcUsd, 1.0),
-        )));
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::EthUsd,
+            2000.0,
+        ))));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::ZkcUsd,
+            1.0,
+        ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert ETH to ZKC (should fail - unsupported)
@@ -451,12 +443,14 @@ mod tests {
         use crate::price_oracle::sources::StaticPriceSource;
 
         // ETH price = $2000
-        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::EthUsd, 2000.0),
-        )));
-        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(
-            StaticPriceSource::new(TradingPair::ZkcUsd, 1.0),
-        )));
+        let eth_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::EthUsd,
+            2000.0,
+        ))));
+        let zkc_oracle = Arc::new(CachedPriceOracle::new(Arc::new(StaticPriceSource::new(
+            TradingPair::ZkcUsd,
+            1.0,
+        ))));
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 0.001 USD to ETH
