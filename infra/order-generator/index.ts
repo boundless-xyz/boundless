@@ -35,8 +35,6 @@ export = () => {
   const boundlessPagerdutyTopicArn = baseConfig.get('PAGERDUTY_ALERTS_TOPIC_ARN');
   const alertsTopicArns = [boundlessAlertsTopicArn, boundlessPagerdutyTopicArn].filter(Boolean) as string[];
   const interval = baseConfig.get('INTERVAL') || '60';
-  const lockCollateralRaw = baseConfig.get('LOCK_COLLATERAL_RAW') || '15000000000000000000';
-  const minPricePerMCycle = baseConfig.get('MIN_PRICE_PER_MCYCLE') || '0';
   const txTimeout = baseConfig.get('TX_TIMEOUT') || '180';
 
   const imageName = getServiceNameV1(stackName, `order-generator`);
@@ -119,17 +117,9 @@ export = () => {
     offchainPrivateKey = offchainConfig.requireSecret('PRIVATE_KEY');
   }
   const offchainInputMaxMCycles = offchainConfig.get('INPUT_MAX_MCYCLES') ?? "1000";
-  const offchainRampUp = offchainConfig.get('RAMP_UP');
-  const offchainLockTimeout = offchainConfig.get('LOCK_TIMEOUT');
-  const offchainTimeout = offchainConfig.get('TIMEOUT');
-  const offchainSecondsPerMCycle = offchainConfig.get('SECONDS_PER_MCYCLE');
-  const offchainRampUpSecondsPerMCycle = offchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const offchainInterval = offchainConfig.get('INTERVAL');
-  const offchainExecRateKhz = offchainConfig.get('EXEC_RATE_KHZ');
-  const offchainMaxPricePerMCycle = offchainConfig.get('MAX_PRICE_PER_MCYCLE');
 
   if (offchainPrivateKey) {
-    const offchainMaxPrice = offchainMaxPricePerMCycle ?? offchainConfig.require('MAX_PRICE_PER_MCYCLE');
     new OrderGenerator('offchain', {
       chainId,
       stackName,
@@ -148,20 +138,11 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: offchainInterval ?? interval,
-      lockCollateralRaw,
-      minPricePerMCycle,
-      maxPricePerMCycle: offchainMaxPrice,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
       inputMaxMCycles: offchainInputMaxMCycles,
-      rampUp: offchainRampUp,
-      rampUpSecondsPerMCycle: offchainRampUpSecondsPerMCycle,
-      lockTimeout: offchainLockTimeout,
-      timeout: offchainTimeout,
-      secondsPerMCycle: offchainSecondsPerMCycle,
-      execRateKhz: offchainExecRateKhz,
       indexerUrl,
       useZeth: false,
     });
@@ -178,17 +159,9 @@ export = () => {
     onchainPrivateKey = onchainConfig.requireSecret('PRIVATE_KEY');
   }
   const onchainInputMaxMCycles = onchainConfig.get('INPUT_MAX_MCYCLES');
-  const onchainRampUp = onchainConfig.get('RAMP_UP');
-  const onchainLockTimeout = onchainConfig.get('LOCK_TIMEOUT');
-  const onchainTimeout = onchainConfig.get('TIMEOUT');
-  const onchainSecondsPerMCycle = onchainConfig.get('SECONDS_PER_MCYCLE');
-  const onchainRampUpSecondsPerMCycle = onchainConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
   const onchainInterval = onchainConfig.get('INTERVAL');
-  const onchainExecRateKhz = onchainConfig.get('EXEC_RATE_KHZ');
-  const onchainMaxPricePerMCycle = onchainConfig.get('MAX_PRICE_PER_MCYCLE');
 
   if (onchainPrivateKey) {
-    const onchainMaxPrice = onchainMaxPricePerMCycle ?? onchainConfig.require('MAX_PRICE_PER_MCYCLE');
     new OrderGenerator('onchain', {
       chainId,
       stackName,
@@ -204,20 +177,11 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: onchainInterval ?? interval,
-      lockCollateralRaw,
-      rampUp: onchainRampUp,
       inputMaxMCycles: onchainInputMaxMCycles,
-      minPricePerMCycle,
-      maxPricePerMCycle: onchainMaxPrice,
-      secondsPerMCycle: onchainSecondsPerMCycle,
-      rampUpSecondsPerMCycle: onchainRampUpSecondsPerMCycle,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
-      lockTimeout: onchainLockTimeout,
-      timeout: onchainTimeout,
-      execRateKhz: onchainExecRateKhz,
       indexerUrl,
       useZeth: false,
     });
@@ -225,14 +189,27 @@ export = () => {
 
   const randomRequestorConfig = new pulumi.Config("order-generator-random-requestor");
   let randomRequestorPrivateKey: pulumi.Output<string> | undefined;
+  let randomRequestorMnemonic: pulumi.Output<string> | undefined;
+  let randomRequestorDeriveRotationKeys: number | undefined;
   if (isDev && process.env.RANDOM_REQUESTOR_PRIVATE_KEY) {
     randomRequestorPrivateKey = pulumi.output(process.env.RANDOM_REQUESTOR_PRIVATE_KEY);
+  } else if (isDev && process.env.RANDOM_REQUESTOR_MNEMONIC && process.env.RANDOM_REQUESTOR_DERIVE_ROTATION_KEYS) {
+    randomRequestorMnemonic = pulumi.output(process.env.RANDOM_REQUESTOR_MNEMONIC);
+    const parsed = parseInt(process.env.RANDOM_REQUESTOR_DERIVE_ROTATION_KEYS, 10);
+    randomRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   } else {
-    // We only deploy the random requestor on some networks, so we don't require private key.
     randomRequestorPrivateKey = randomRequestorConfig.getSecret('PRIVATE_KEY');
+    randomRequestorMnemonic = randomRequestorConfig.getSecret('MNEMONIC');
+    const n = randomRequestorConfig.get('DERIVE_ROTATION_KEYS');
+    const parsed = n ? parseInt(n, 10) : NaN;
+    randomRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   }
 
-  if (randomRequestorPrivateKey) {
+  const randomRequestorUsesRotation =
+    !!randomRequestorMnemonic && !!randomRequestorDeriveRotationKeys && randomRequestorDeriveRotationKeys >= 2;
+  const randomRequestorDeploy = randomRequestorPrivateKey || randomRequestorUsesRotation;
+
+  if (randomRequestorDeploy) {
     const randomRequestorInterval = randomRequestorConfig.get('INTERVAL') ?? "180";
     const randomRequestorCount = randomRequestorConfig.get('COUNT') ?? "1";
     const randomRequestorScheduleExpression = randomRequestorConfig.get('SCHEDULE_EXPRESSION') ?? "rate(24 hours)";
@@ -240,18 +217,13 @@ export = () => {
     const randomRequestorWarnBalanceBelow = randomRequestorConfig.get('WARN_BALANCE_BELOW');
     const randomRequestorErrorBalanceBelow = randomRequestorConfig.get('ERROR_BALANCE_BELOW');
     const randomRequestorInputMaxMCycles = randomRequestorConfig.get('INPUT_MAX_MCYCLES');
-    const randomRequestorRampUp = randomRequestorConfig.get('RAMP_UP');
-    const randomRequestorLockTimeout = randomRequestorConfig.get('LOCK_TIMEOUT');
-    const randomRequestorTimeout = randomRequestorConfig.get('TIMEOUT');
-    const randomRequestorSecondsPerMCycle = randomRequestorConfig.get('SECONDS_PER_MCYCLE');
-    const randomRequestorRampUpSecondsPerMCycle = randomRequestorConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
-    const randomRequestorExecRateKhz = randomRequestorConfig.get('EXEC_RATE_KHZ');
-    const randomRequestorMaxPricePerMCycle = randomRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
 
     new OrderGenerator('random-requestor', {
       chainId,
       stackName,
-      privateKey: randomRequestorPrivateKey,
+      ...(randomRequestorUsesRotation
+        ? { rotationConfig: { mnemonic: randomRequestorMnemonic!, deriveRotationKeys: randomRequestorDeriveRotationKeys! } }
+        : { privateKey: randomRequestorPrivateKey! }),
       pinataJWT,
       ethRpcUrl,
       autoDeposit: randomRequestorAutoDeposit,
@@ -263,20 +235,11 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: randomRequestorInterval,
-      lockCollateralRaw,
-      rampUp: randomRequestorRampUp,
       inputMaxMCycles: randomRequestorInputMaxMCycles,
-      minPricePerMCycle,
-      maxPricePerMCycle: randomRequestorMaxPricePerMCycle ?? minPricePerMCycle,
-      secondsPerMCycle: randomRequestorSecondsPerMCycle,
-      rampUpSecondsPerMCycle: randomRequestorRampUpSecondsPerMCycle,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
-      lockTimeout: randomRequestorLockTimeout,
-      timeout: randomRequestorTimeout,
-      execRateKhz: randomRequestorExecRateKhz,
       oneShotConfig: {
         count: randomRequestorCount,
         scheduleExpression: randomRequestorScheduleExpression,
@@ -291,30 +254,37 @@ export = () => {
   const evmRequestorWarnBalanceBelow = evmRequestorConfig.get('WARN_BALANCE_BELOW');
   const evmRequestorErrorBalanceBelow = evmRequestorConfig.get('ERROR_BALANCE_BELOW');
   let evmRequestorPrivateKey: pulumi.Output<string> | undefined;
+  let evmRequestorMnemonic: pulumi.Output<string> | undefined;
+  let evmRequestorDeriveRotationKeys: number | undefined;
   if (isDev && process.env.EVM_REQUESTOR_PRIVATE_KEY) {
     evmRequestorPrivateKey = pulumi.output(process.env.EVM_REQUESTOR_PRIVATE_KEY);
+  } else if (isDev && process.env.EVM_REQUESTOR_MNEMONIC && process.env.EVM_REQUESTOR_DERIVE_ROTATION_KEYS) {
+    evmRequestorMnemonic = pulumi.output(process.env.EVM_REQUESTOR_MNEMONIC);
+    const parsed = parseInt(process.env.EVM_REQUESTOR_DERIVE_ROTATION_KEYS, 10);
+    evmRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   } else {
     evmRequestorPrivateKey = evmRequestorConfig.getSecret('PRIVATE_KEY');
+    evmRequestorMnemonic = evmRequestorConfig.getSecret('MNEMONIC');
+    const n = evmRequestorConfig.get('DERIVE_ROTATION_KEYS');
+    const parsed = n ? parseInt(n, 10) : NaN;
+    evmRequestorDeriveRotationKeys = Number.isInteger(parsed) && parsed >= 2 ? parsed : undefined;
   }
+  const evmRequestorUsesRotation =
+    !!evmRequestorMnemonic && !!evmRequestorDeriveRotationKeys && evmRequestorDeriveRotationKeys >= 2;
+  const evmRequestorDeploy = evmRequestorPrivateKey || evmRequestorUsesRotation;
   const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
-  const evmRequestorRampUp = evmRequestorConfig.get('RAMP_UP');
-  const evmRequestorLockTimeout = evmRequestorConfig.get('LOCK_TIMEOUT');
-  const evmRequestorTimeout = evmRequestorConfig.get('TIMEOUT');
-  const evmRequestorSecondsPerMCycle = evmRequestorConfig.get('SECONDS_PER_MCYCLE');
-  const evmRequestorRampUpSecondsPerMCycle = evmRequestorConfig.get('RAMP_UP_SECONDS_PER_MCYCLE');
-  const evmRequestorExecRateKhz = evmRequestorConfig.get('EXEC_RATE_KHZ');
-  const evmRequestorMaxPricePerMCycle = evmRequestorConfig.get('MAX_PRICE_PER_MCYCLE');
 
-  if (evmRequestorPrivateKey) {
-    const evmRequestorMaxPrice = evmRequestorMaxPricePerMCycle ?? evmRequestorConfig.require('MAX_PRICE_PER_MCYCLE');
+  if (evmRequestorDeploy) {
     new OrderGenerator('evm-requestor', {
       chainId,
       stackName,
       autoDeposit: evmRequestorAutoDeposit,
       warnBalanceBelow: evmRequestorWarnBalanceBelow,
       errorBalanceBelow: evmRequestorErrorBalanceBelow,
-      privateKey: evmRequestorPrivateKey,
+      ...(evmRequestorUsesRotation
+        ? { rotationConfig: { mnemonic: evmRequestorMnemonic!, deriveRotationKeys: evmRequestorDeriveRotationKeys! } }
+        : { privateKey: evmRequestorPrivateKey! }),
       pinataJWT,
       ethRpcUrl,
       image,
@@ -323,20 +293,11 @@ export = () => {
       boundlessMarketAddr,
       ipfsGateway,
       interval: evmRequestorInterval ?? interval,
-      lockCollateralRaw,
-      rampUp: evmRequestorRampUp,
       inputMaxMCycles: evmRequestorInputMaxMCycles,
-      minPricePerMCycle,
-      maxPricePerMCycle: evmRequestorMaxPrice,
-      secondsPerMCycle: evmRequestorSecondsPerMCycle,
-      rampUpSecondsPerMCycle: evmRequestorRampUpSecondsPerMCycle,
       vpcId,
       privateSubnetIds,
       boundlessAlertsTopicArns: alertsTopicArns,
       txTimeout,
-      lockTimeout: evmRequestorLockTimeout,
-      timeout: evmRequestorTimeout,
-      execRateKhz: evmRequestorExecRateKhz,
       indexerUrl,
       useZeth: true,
     });

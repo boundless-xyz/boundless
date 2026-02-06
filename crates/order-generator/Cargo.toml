@@ -13,7 +13,9 @@ release = false
 [features]
 
 [dependencies]
-alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local"] }
+alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "signer-mnemonic"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 anyhow = { workspace = true }
 boundless-market = { workspace = true }
 clap = { workspace = true, features = ["env"] }
@@ -26,4 +28,3 @@ url = { workspace = true }
 
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
-tracing-test = { workspace = true }
