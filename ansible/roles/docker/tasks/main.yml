@@ -144,6 +144,23 @@
     - docker
     - docker-nvidia
 
+- name: Install Loki Docker logging driver plugin
+  ansible.builtin.shell: |
+    set -o pipefail
+    if docker plugin ls --format '{{ '{{' }}.Name{{ '}}' }}' | grep -q loki; then
+      echo "already installed"
+    else
+      docker plugin install grafana/loki-docker-driver:3.4.3 --alias loki --grant-all-permissions
+      echo "installed"
+    fi
+  args:
+    executable: /bin/bash
+  register: docker_loki_plugin_result
+  changed_when: "'installed' == docker_loki_plugin_result.stdout_lines[-1]"
+  tags:
+    - docker
+    - docker-loki
+
 - name: Configure Docker daemon
   ansible.builtin.template:
     src: daemon.json.j2

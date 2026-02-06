@@ -1,0 +1,14 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: pagerduty
+    receivers:
+      - uid: pagerduty-receiver
+        type: pagerduty
+        settings:
+          integrationKey: $PAGERDUTY_INTEGRATION_KEY
+          severity: warning
+          class: broker
+          component: boundless
+        disableResolveMessage: false
