@@ -26,6 +26,7 @@ use boundless_indexer::db::{
     market::{RequestStatusType, SlashedStatus, SortDirection},
     IndexerDb, ProversDb, RequestorDb,
 };
+use boundless_indexer::market::epoch_calculator::EpochCalculator;
 use boundless_market::contracts::{
     boundless_market::FulfillmentTx, Offer, Predicate, ProofRequest, RequestId, RequestInput,
     Requirements,
@@ -2464,6 +2465,155 @@ async fn test_prover_aggregation(pool: sqlx::PgPool) {
         "All-time should include at least this test's fulfillment"
     );
     assert!(all_time.total_fees_earned > U256::ZERO, "All-time should show fees earned");
+
+    cli_process.kill().unwrap();
+}
+
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+#[ignore = "Generates a proof. Slow without RISC0_DEV_MODE=1"]
+async fn test_epoch_aggregation(pool: sqlx::PgPool) {
+    let fixture = new_market_test_fixture(pool).await.unwrap();
+
+    // Get current block timestamp and set epoch0_start_time to make current time fall in epoch 0
+    let now = get_latest_block_timestamp(&fixture.ctx.customer_provider).await;
+    let epoch0_start_time = now - 100; // Start epoch 0 100 seconds ago
+
+    tracing::info!(
+        "Starting epoch aggregation test at timestamp: {}, epoch0_start_time: {}",
+        now,
+        epoch0_start_time
+    );
+
+    let mut cli_process = IndexerCliBuilder::new(
+        fixture.test_db.db_url.clone(),
+        fixture.anvil.endpoint_url().to_string(),
+        fixture.ctx.deployment.boundless_market_address.to_string(),
+    )
+    .start_block("0")
+    .epoch0_start_time(epoch0_start_time)
+    .spawn()
+    .unwrap();
+
+    // Create, submit, lock, and fulfill request
+    let collateral_amount = U256::from(1000);
+    let (request, client_sig) = create_order_with_collateral(
+        &fixture.ctx.customer_signer,
+        fixture.ctx.customer_signer.address(),
+        1,
+        fixture.ctx.deployment.boundless_market_address,
+        fixture.anvil.chain_id(),
+        now,
+        collateral_amount,
+    )
+    .await;
+
+    submit_request_with_deposit(&fixture.ctx, &request, client_sig.clone()).await.unwrap();
+
+    lock_and_fulfill_request_with_collateral(
+        &fixture.ctx,
+        &fixture.prover,
+        &request,
+        client_sig.clone(),
+    )
+    .await
+    .unwrap();
+
+    wait_for_indexer(&fixture.ctx.customer_provider, &fixture.test_db.pool).await;
+
+    // Verify epoch market summary was created
+    // Uses period_timestamp to store epoch_number
+    let epoch_summaries =
+        fixture.test_db.db.get_epoch_market_summaries(None, 10, SortDirection::Desc).await.unwrap();
+
+    tracing::info!("Found {} epoch market summaries", epoch_summaries.len());
+
+    assert!(!epoch_summaries.is_empty(), "Expected at least one epoch market summary");
+
+    // Verify the first epoch summary has data
+    let first_summary = &epoch_summaries[0];
+    tracing::info!(
+        "Epoch {} (period_timestamp) summary: total_fulfilled={}, total_requests_locked={}",
+        first_summary.period_timestamp,
+        first_summary.total_fulfilled,
+        first_summary.total_requests_locked
+    );
+
+    // Verify epoch data is correctly populated
+    // period_timestamp stores the epoch start time (Unix timestamp), not epoch number
+    // epoch_number_period_start is calculated from period_timestamp using EpochCalculator
+    // Use the same epoch0_start_time that was passed to the indexer
+    let epoch_calculator = EpochCalculator::new(epoch0_start_time);
+    let expected_epoch_number = epoch_calculator
+        .get_epoch_for_timestamp(first_summary.period_timestamp as u64)
+        .unwrap_or(0) as i64;
+
+    assert_eq!(
+        first_summary.epoch_number_period_start, expected_epoch_number,
+        "epoch_number_period_start should match calculated epoch number"
+    );
+    assert!(
+        first_summary.total_requests_locked >= 1,
+        "Epoch should have at least 1 locked request"
+    );
+    assert!(first_summary.total_fulfilled >= 1, "Epoch should have at least 1 fulfilled request");
+
+    // Verify epoch prover summary was created
+    let prover_address = fixture.ctx.prover_signer.address();
+    let epoch_prover_summaries = fixture
+        .test_db
+        .db
+        .get_epoch_prover_summaries(prover_address, None, 10, SortDirection::Desc, None, None)
+        .await
+        .unwrap();
+
+    tracing::info!("Found {} epoch prover summaries", epoch_prover_summaries.len());
+    assert!(!epoch_prover_summaries.is_empty(), "Expected at least one epoch prover summary");
+
+    let prover_summary = &epoch_prover_summaries[0];
+    let prover_expected_epoch = epoch_calculator
+        .get_epoch_for_timestamp(prover_summary.period_timestamp as u64)
+        .unwrap_or(0) as i64;
+    assert_eq!(
+        prover_summary.epoch_number_period_start, prover_expected_epoch,
+        "Prover epoch_number_period_start should match calculated epoch number"
+    );
+    assert!(
+        prover_summary.total_requests_locked >= 1,
+        "Prover should have at least 1 locked request in epoch"
+    );
+    assert!(
+        prover_summary.total_requests_fulfilled >= 1,
+        "Prover should have at least 1 fulfilled request in epoch"
+    );
+
+    // Verify epoch requestor summary was created
+    let requestor_address = fixture.ctx.customer_signer.address();
+    let epoch_requestor_summaries = fixture
+        .test_db
+        .db
+        .get_epoch_requestor_summaries(requestor_address, None, 10, SortDirection::Desc, None, None)
+        .await
+        .unwrap();
+
+    tracing::info!("Found {} epoch requestor summaries", epoch_requestor_summaries.len());
+    assert!(!epoch_requestor_summaries.is_empty(), "Expected at least one epoch requestor summary");
+
+    let requestor_summary = &epoch_requestor_summaries[0];
+    let requestor_expected_epoch = epoch_calculator
+        .get_epoch_for_timestamp(requestor_summary.period_timestamp as u64)
+        .unwrap_or(0) as i64;
+    assert_eq!(
+        requestor_summary.epoch_number_period_start, requestor_expected_epoch,
+        "Requestor epoch_number_period_start should match calculated epoch number"
+    );
+    assert!(
+        requestor_summary.total_requests_submitted >= 1,
+        "Requestor should have at least 1 submitted request in epoch"
+    );
+    assert!(
+        requestor_summary.total_fulfilled >= 1,
+        "Requestor should have at least 1 fulfilled request in epoch"
+    );
 
     cli_process.kill().unwrap();
 }
