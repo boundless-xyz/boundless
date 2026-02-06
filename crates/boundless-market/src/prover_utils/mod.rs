@@ -929,41 +929,30 @@ pub trait OrderPricingContext {
                 .offer
                 .price_at(now_timestamp())
                 .context("Failed to get current mcycle price")?;
-            let (target_mcycle_price, target_timestamp_secs) = if config.lock_at_highest_price {
-                let time_at_max = order
-                    .request
-                    .offer
-                    .time_at_price(U256::from(order.request.offer.maxPrice))
-                    .context("Failed to get time at max price for lock_at_highest_price")?;
-                tracing::info!(
-                    "Selecting order {order_id} at highest price {} - lock at timestamp {}",
-                    format_ether(mcycle_price_max),
-                    time_at_max
-                );
-                (mcycle_price_max, time_at_max)
-            } else if mcycle_price_min >= config_min_mcycle_price {
-                tracing::info!(
-                    "Selecting order {order_id} at price {} - ASAP",
-                    format_ether(current_mcycle_price)
-                );
-                (mcycle_price_min, 0) // Schedule the lock ASAP
-            } else {
-                let target_min_price = config_min_mcycle_price
-                    .saturating_mul(U256::from(cycle_count))
-                    .div_ceil(ONE_MILLION)
-                    + order_gas_cost;
-                tracing::debug!(
-                    "Order {order_id} minimum profitable price: {} ETH",
-                    format_ether(target_min_price)
-                );
+            let (target_mcycle_price, target_timestamp_secs) =
+                if mcycle_price_min >= config_min_mcycle_price {
+                    tracing::info!(
+                        "Selecting order {order_id} at price {} - ASAP",
+                        format_ether(current_mcycle_price)
+                    );
+                    (mcycle_price_min, 0) // Schedule the lock ASAP
+                } else {
+                    let target_min_price = config_min_mcycle_price
+                        .saturating_mul(U256::from(cycle_count))
+                        .div_ceil(ONE_MILLION)
+                        + order_gas_cost;
+                    tracing::debug!(
+                        "Order {order_id} minimum profitable price: {} ETH",
+                        format_ether(target_min_price)
+                    );
 
-                let target_time = order
-                    .request
-                    .offer
-                    .time_at_price(target_min_price)
-                    .context("Failed to get target price timestamp")?;
-                (target_min_price, target_time)
-            };
+                    let target_time = order
+                        .request
+                        .offer
+                        .time_at_price(target_min_price)
+                        .context("Failed to get target price timestamp")?;
+                    (target_min_price, target_time)
+                };
 
             let expiry_secs =
                 order.request.offer.rampUpStart + order.request.offer.lockTimeout as u64;
