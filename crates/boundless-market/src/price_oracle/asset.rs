@@ -148,6 +148,14 @@ impl fmt::Display for Amount {
     }
 }
 
+impl FromStr for Amount {
+    type Err = ParseAmountError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 // ============ Parsing helpers ============
 
 /// Parse an amount string into a value and asset

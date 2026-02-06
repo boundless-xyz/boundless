@@ -110,8 +110,14 @@ pub struct MainArgs {
 pub async fn run(args: &MainArgs) -> Result<()> {
     let bench_file = File::open(&args.bench)?;
     let bench: Bench = serde_json::from_reader(bench_file)?;
-    let min_price_per_cycle = parse_ether(&bench.min_price_per_mcycle)? >> 20;
-    let max_price_per_cycle = parse_ether(&bench.max_price_per_mcycle)? >> 20;
+    let min_price_per_cycle = boundless_market::price_oracle::Amount::new(
+        parse_ether(&bench.min_price_per_mcycle)? >> 20,
+        boundless_market::price_oracle::Asset::ETH,
+    );
+    let max_price_per_cycle = boundless_market::price_oracle::Amount::new(
+        parse_ether(&bench.max_price_per_mcycle)? >> 20,
+        boundless_market::price_oracle::Asset::ETH,
+    );
 
     let private_key = args.private_key.clone();
     let wallet = EthereumWallet::from(private_key.clone());
@@ -229,10 +235,10 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                 .with_env(env.clone())
                 .with_offer(
                     OfferParams::builder()
-                        .lock_collateral(parse_units(
-                            &bench.lockin_stake,
-                            collateral_token_decimals,
-                        )?)
+                        .lock_collateral(boundless_market::price_oracle::Amount::new(
+                            parse_units(&bench.lockin_stake, collateral_token_decimals)?.into(),
+                            boundless_market::price_oracle::Asset::ZKC,
+                        ))
                         .ramp_up_period(bench.ramp_up)
                         .timeout(bench.timeout)
                         .lock_timeout(bench.lock_timeout),

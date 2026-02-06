@@ -650,6 +650,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
             tx_timeout: self.tx_timeout,
             balance_alerts: self.balance_alerts,
             price_provider: self.price_provider,
+            price_oracle_manager: self.price_oracle_manager,
             request_finalizer_config: self.request_finalizer_config,
             request_id_layer_config: self.request_id_layer_config,
             storage_layer_config: self.storage_layer_config,

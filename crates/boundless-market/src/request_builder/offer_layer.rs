@@ -303,15 +303,17 @@ impl<P: Clone> From<P> for OfferLayer<P> {
 /// A partial [Offer], with all the fields as optional. Used in the [OfferLayer] to override
 /// defaults set in the [OfferLayerConfig].
 pub struct OfferParams {
-    /// Minimum price willing to pay for the proof, in wei.
+    /// Minimum price willing to pay for the proof.
+    /// Supports USD (e.g., `"0.00001 USD"`) or ETH (e.g., `"0.00000001 ETH"`).
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
-    pub min_price: Option<U256>,
+    pub min_price: Option<Amount>,
 
-    /// Maximum price willing to pay for the proof, in wei.
+    /// Maximum price willing to pay for the proof.
+    /// Supports USD (e.g., `"0.001 USD"`) or ETH (e.g., `"0.00000001 ETH"`).
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
-    pub max_price: Option<U256>,
+    pub max_price: Option<Amount>,
 
     /// Timestamp when bidding will start for this request.
     #[clap(long)]
@@ -334,18 +336,19 @@ pub struct OfferParams {
     pub timeout: Option<u32>,
 
     /// Amount of the stake token that the prover must stake when locking a request.
+    /// Supports USD (e.g., `"10 USD"`) or ZKC (e.g., `"20 ZKC"`).
     #[clap(long)]
     #[builder(setter(strip_option, into), default)]
-    pub lock_collateral: Option<U256>,
+    pub lock_collateral: Option<Amount>,
 }
 
 impl From<Offer> for OfferParams {
     fn from(value: Offer) -> Self {
         Self {
             timeout: Some(value.timeout),
-            min_price: Some(value.minPrice),
-            max_price: Some(value.maxPrice),
-            lock_collateral: Some(value.lockCollateral),
+            min_price: Some(Amount::new(value.minPrice, Asset::ETH)),
+            max_price: Some(Amount::new(value.maxPrice, Asset::ETH)),
+            lock_collateral: Some(Amount::new(value.lockCollateral, Asset::ZKC)),
             lock_timeout: Some(value.lockTimeout),
             bidding_start: Some(value.rampUpStart),
             ramp_up_period: Some(value.rampUpPeriod),
@@ -373,11 +376,12 @@ impl TryFrom<OfferParams> for Offer {
     fn try_from(value: OfferParams) -> Result<Self, Self::Error> {
         Ok(Self {
             timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
-            minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?,
-            maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?,
+            minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?.value,
+            maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?.value,
             lockCollateral: value
                 .lock_collateral
-                .ok_or(MissingFieldError::new("lock_collateral"))?,
+                .ok_or(MissingFieldError::new("lock_collateral"))?
+                .value,
             lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
             rampUpStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
             rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
@@ -590,21 +594,24 @@ where
             &OfferParams,
         ),
     ) -> Result<Self::Output, Self::Error> {
-        // Convert USD amounts to native tokens if needed
-        let min_price_per_cycle_wei = self
-            .convert_price_to_eth(self.config.min_price_per_cycle.as_ref())
-            .await?;
-        let max_price_per_cycle_wei = self
-            .convert_price_to_eth(self.config.max_price_per_cycle.as_ref())
-            .await?;
-        let lock_collateral_zkc = self
-            .convert_collateral_to_zkc(self.config.lock_collateral.as_ref())
-            .await?;
+        // Convert config USD amounts to native tokens if needed
+        let min_price_per_cycle_wei =
+            self.convert_price_to_eth(self.config.min_price_per_cycle.as_ref()).await?;
+        let max_price_per_cycle_wei =
+            self.convert_price_to_eth(self.config.max_price_per_cycle.as_ref()).await?;
+        let lock_collateral_zkc =
+            self.convert_collateral_to_zkc(self.config.lock_collateral.as_ref()).await?;
+
+        // Convert OfferParams USD amounts to native tokens if needed
+        let params_min_price = self.convert_price_to_eth(params.min_price.as_ref()).await?;
+        let params_max_price = self.convert_price_to_eth(params.max_price.as_ref()).await?;
+        let params_lock_collateral =
+            self.convert_collateral_to_zkc(params.lock_collateral.as_ref()).await?;
 
         // Try to use market prices from price provider if prices aren't set in params or config
-        let (market_min_price, market_max_price) = if (params.min_price.is_none()
+        let (market_min_price, market_max_price) = if (params_min_price.is_none()
             && min_price_per_cycle_wei.is_none())
-            || (params.max_price.is_none() && max_price_per_cycle_wei.is_none())
+            || (params_max_price.is_none() && max_price_per_cycle_wei.is_none())
         {
             if let Some(ref price_provider) = self.price_provider {
                 if let Some(cycle_count) = cycle_count {
@@ -641,13 +648,13 @@ where
 
         // Priority: params > config > market > static default
         let min_price = resolve_min_price(
-            params.min_price,
+            params_min_price,
             min_price_per_cycle_wei,
             cycle_count,
             market_min_price,
         );
 
-        let config_max_value = if params.max_price.is_none() {
+        let config_max_value = if params_max_price.is_none() {
             let c = cycle_count.context("cycle count required to set max price in OfferLayer")?;
             if let Some(per_cycle) = max_price_per_cycle_wei {
                 let max_price = per_cycle * U256::from(c);
@@ -660,8 +667,8 @@ where
         };
 
         let max_price =
-            resolve_max_price(params.max_price, config_max_value, market_max_price, cycle_count);
-        let max_price = if params.max_price.is_none() {
+            resolve_max_price(params_max_price, config_max_value, market_max_price, cycle_count);
+        let max_price = if params_max_price.is_none() {
             self.max_price_with_gas(requirements, request_id, max_price).await?
         } else {
             max_price
@@ -727,7 +734,7 @@ where
             rampUpPeriod: params.ramp_up_period.unwrap_or(ramp_up_period),
             lockTimeout: params.lock_timeout.unwrap_or(lock_timeout),
             timeout: params.timeout.unwrap_or(timeout),
-            lockCollateral: params.lock_collateral.unwrap_or(lock_collateral),
+            lockCollateral: params_lock_collateral.unwrap_or(lock_collateral),
         };
 
         if let Some(cycle_count) = cycle_count {
