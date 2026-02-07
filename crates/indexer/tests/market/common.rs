@@ -135,6 +135,7 @@ pub struct IndexerCliBuilder {
     batch_size: Option<String>,
     tx_fetch_strategy: Option<String>,
     order_stream_url: Option<String>,
+    epoch0_start_time: Option<String>,
 }
 
 impl IndexerCliBuilder {
@@ -150,6 +151,7 @@ impl IndexerCliBuilder {
             batch_size: None,
             tx_fetch_strategy: None,
             order_stream_url: None,
+            epoch0_start_time: None,
         }
     }
 
@@ -189,6 +191,12 @@ impl IndexerCliBuilder {
 
     pub fn order_stream_url(mut self, url: &str) -> Self {
         self.order_stream_url = Some(url.to_string());
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn epoch0_start_time(mut self, epoch0_start_time: u64) -> Self {
+        self.epoch0_start_time = Some(epoch0_start_time.to_string());
         self
     }
 
@@ -234,6 +242,11 @@ impl IndexerCliBuilder {
         if let Some(url) = self.order_stream_url {
             args.push("--order-stream-url".to_string());
             args.push(url);
+        }
+
+        if let Some(epoch0) = self.epoch0_start_time {
+            args.push("--epoch0-start-time".to_string());
+            args.push(epoch0);
         }
 
         println!("{} {:?}", exe_path, args);
@@ -907,6 +920,11 @@ pub async fn get_all_time_summaries(
     rows.into_iter()
         .map(|row| AllTimeMarketSummary {
             period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+            epoch_number_period_start: row
+                .try_get::<Option<i64>, _>("epoch_number_period_start")
+                .ok()
+                .flatten()
+                .unwrap_or(0),
             total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
             unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests")
                 as u64,
