@@ -449,7 +449,7 @@ where
     }
 
     async fn current_gas_price(&self) -> Result<u128, OrderPickerErr> {
-        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")? as u128)
+        Ok(self.chain_monitor.current_gas_price().await.context("Failed to get gas price")?)
     }
 
     fn prover(&self) -> &ProverObj {
@@ -771,6 +771,7 @@ pub(crate) mod tests {
         contracts::{
             Callback, Offer, Predicate, ProofRequest, RequestId, RequestInput, Requirements,
         },
+        dynamic_gas_filler::PriorityMode,
         selector::SelectorExt,
         storage::{MockStorageUploader, StorageUploader},
     };
@@ -982,7 +983,10 @@ pub(crate) mod tests {
             let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
             let config = self.config.unwrap_or_default();
             let prover: ProverObj = self.prover.unwrap_or_else(|| Arc::new(DefaultProver::new()));
-            let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+            let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+            let chain_monitor = Arc::new(
+                ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap(),
+            );
             tokio::spawn(chain_monitor.spawn(Default::default()));
 
             let chain_id = provider.get_chain_id().await.unwrap();
@@ -1110,8 +1114,8 @@ pub(crate) mod tests {
 
         let order = ctx
             .generate_next_order(OrderParams {
-                min_price: parse_ether("0.0005").unwrap(),
-                max_price: parse_ether("0.0010").unwrap(),
+                min_price: parse_ether("0.00015").unwrap(),
+                max_price: parse_ether("0.0003").unwrap(),
                 ..Default::default()
             })
             .await;
@@ -1138,9 +1142,10 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        // NOTE: Values currently adjusted ad hoc to be between the two thresholds
+        // (basic lock+fulfill gas cost and groth16 lock+fulfill gas cost).
+        let min_price = parse_ether("0.0006").unwrap();
+        let max_price = parse_ether("0.0006").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1196,9 +1201,10 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.0013").unwrap();
-        let max_price = parse_ether("0.0013").unwrap();
+        // NOTE: Values currently adjusted ad hoc to be between the two thresholds
+        // (basic lock+fulfill gas cost and callback lock+fulfill gas cost).
+        let min_price = parse_ether("0.00059").unwrap();
+        let max_price = parse_ether("0.00059").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1218,7 +1224,7 @@ pub(crate) mod tests {
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.target_timestamp, Some(0));
 
-        // Order does not have high enough price when groth16 is used.
+        // Order does not have high enough price when a callback is used.
         let mut order = ctx
             .generate_next_order(OrderParams {
                 order_index: 2,
@@ -1256,9 +1262,10 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds.
-        let min_price = parse_ether("0.00125").unwrap();
-        let max_price = parse_ether("0.00125").unwrap();
+        // NOTE: Values currently adjusted ad hoc to be between the two thresholds
+        // (basic lock+fulfill gas cost and smart contract lock+fulfill gas cost).
+        let min_price = parse_ether("0.00056").unwrap();
+        let max_price = parse_ether("0.00056").unwrap();
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1279,7 +1286,7 @@ pub(crate) mod tests {
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
         assert_eq!(priced.target_timestamp, Some(0));
 
-        // Order does not have high enough price when groth16 is used.
+        // Order does not have high enough price when smart contract signature is used.
         let mut order = ctx
             .generate_next_order(OrderParams {
                 order_index: 2,

@@ -697,6 +697,7 @@ mod tests {
             AssessorReceipt, FulfillmentData, FulfillmentDataType, Offer, Predicate, ProofRequest,
             RequestInput, RequestInputType, Requirements,
         },
+        dynamic_gas_filler::PriorityMode,
         input::GuestEnv,
     };
     use boundless_test_utils::{
@@ -762,7 +763,9 @@ mod tests {
 
         // tx_receipt.inner.logs().into_iter().map(|log| Ok((decode_log(&log)?, log))).collect()
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
         tokio::spawn(chain_monitor.spawn(Default::default()));
 
         let (order_tx, mut order_rx) = mpsc::channel(16);
@@ -790,7 +793,9 @@ mod tests {
 
         provider.anvil_mine(Some(10), Some(2)).await.unwrap();
 
-        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        let gas_priority_mode = Arc::new(tokio::sync::RwLock::new(PriorityMode::default()));
+        let chain_monitor =
+            Arc::new(ChainMonitorService::new(provider.clone(), gas_priority_mode).await.unwrap());
         tokio::spawn(chain_monitor.spawn(Default::default()));
         let (order_tx, _order_rx) = mpsc::channel(16);
         let db: DbObj = Arc::new(SqliteDb::new("sqlite::memory:").await.unwrap());
