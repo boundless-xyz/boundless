@@ -12,3 +12,19 @@ contactPoints:
           class: broker
           component: boundless
         disableResolveMessage: false
+  - orgId: 1
+    name: slack
+    receivers:
+      - uid: slack-receiver
+        type: slack
+        settings:
+          url: $SLACK_WEBHOOK_URL
+          title: |
+            {{ `{{ .CommonLabels.alertname }}` }}
+          text: |
+            {{ `{{ range .Alerts }}` }}
+            *{{ `{{ .Labels.alertname }}` }}* - {{ `{{ .Labels.severity }}` }}
+            {{ `{{ .Annotations.summary }}` }}
+            {{ `{{ .Annotations.description }}` }}
+            {{ `{{ end }}` }}
+        disableResolveMessage: false

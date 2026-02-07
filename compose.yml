@@ -203,7 +203,8 @@ services:
       - "3100:3100"
     volumes:
       - loki-data:/loki
-    command: -config.file=/etc/loki/local-config.yaml
+      - ./dockerfiles/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+    command: -config.file=/etc/loki/loki-config.yaml
     healthcheck:
       test:
         [
@@ -231,6 +232,7 @@ services:
       - POSTGRES_PASS=${POSTGRES_PASSWORD:-password}
       - GF_INSTALL_PLUGINS=frser-sqlite-datasource
       - PAGERDUTY_INTEGRATION_KEY=${PAGERDUTY_INTEGRATION_KEY:-placeholder}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/placeholder}
       - GF_UNIFIED_ALERTING_ENABLED=true
     volumes:
       - ./dockerfiles/grafana:/etc/grafana/provisioning/

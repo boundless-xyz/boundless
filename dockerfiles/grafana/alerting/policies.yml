@@ -10,8 +10,16 @@ policies:
       - receiver: pagerduty
         matchers:
           - severity = critical
-        continue: false
+        continue: true
       - receiver: pagerduty
+        matchers:
+          - severity = warning
+        continue: true
+      - receiver: slack
+        matchers:
+          - severity = critical
+        continue: false
+      - receiver: slack
         matchers:
           - severity = warning
         continue: false
