@@ -1,0 +1,25 @@
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: grafana-default-email
+    group_by:
+      - grafana_folder
+      - alertname
+    routes:
+      - receiver: pagerduty
+        matchers:
+          - severity = critical
+        continue: true
+      - receiver: pagerduty
+        matchers:
+          - severity = warning
+        continue: true
+      - receiver: slack
+        matchers:
+          - severity = critical
+        continue: false
+      - receiver: slack
+        matchers:
+          - severity = warning
+        continue: false

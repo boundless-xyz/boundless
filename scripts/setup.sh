@@ -338,6 +338,20 @@ EOF
     success "Docker configured to use NVIDIA runtime by default."
 }
 
+# Function to install the Loki Docker logging driver plugin
+install_loki_docker_driver() {
+    if docker plugin ls --format '{{.Name}}' 2>/dev/null | grep -q 'loki'; then
+        info "Loki Docker logging driver is already installed. Skipping."
+        return
+    fi
+
+    info "Installing Loki Docker logging driver plugin..."
+    {
+        docker plugin install grafana/loki-docker-driver:3.4.3 --alias loki --grant-all-permissions
+    } >> "$LOG_FILE" 2>&1
+    success "Loki Docker logging driver installed successfully."
+}
+
 # Function to install protobuf-compiler
 install_protobuf() {
     info "Installing protobuf compiler..."
@@ -402,6 +416,9 @@ install_nvidia_container_toolkit
 
 # Configure Docker to use NVIDIA runtime
 configure_docker_nvidia
+
+# Install Loki Docker logging driver plugin
+install_loki_docker_driver
 
 # Install Rust
 install_rust
