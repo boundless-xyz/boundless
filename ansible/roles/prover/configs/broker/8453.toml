@@ -24,6 +24,10 @@ allow_client_addresses = [
     "0x787134c5461170dd0743f97beb4a322b179babc2",
 ]
 max_collateral = "200"
+balance_warn_threshold = "0.05"
+balance_error_threshold = "0.01"
+collateral_balance_warn_threshold = "100"
+collateral_balance_error_threshold = "50"
 max_concurrent_preflights = 4
 max_concurrent_proofs = 2
 max_journal_bytes = 20000
