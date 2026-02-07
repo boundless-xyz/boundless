@@ -461,6 +461,12 @@ bento action="up" env_file="" compose_flags="" detached="true":
             exit 1
         fi
 
+        # Ensure the Loki Docker logging driver plugin is installed
+        if ! docker plugin ls --format '{{{{.Name}}}}' 2>/dev/null | grep -q loki; then
+            echo "Installing Loki Docker logging driver plugin..."
+            docker plugin install grafana/loki-docker-driver:3.4.3 --alias loki --grant-all-permissions
+        fi
+
         echo "Starting Docker Compose services"
         if [ -n "{{env_file}}" ]; then
             echo "Using environment file: {{env_file}}"
