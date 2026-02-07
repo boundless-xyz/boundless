@@ -3,7 +3,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: broker-alerts
-    folder: Broker
+    folder: Broker Alerts
     interval: 5m
     rules:
       - uid: broker-error-spike
@@ -309,7 +309,7 @@ groups:
 
   - orgId: 1
     name: bento-alerts
-    folder: Bento
+    folder: Bento Alerts
     interval: 5m
     rules:
       - uid: bento-exec-error-spike
