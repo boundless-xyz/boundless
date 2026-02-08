@@ -160,6 +160,14 @@ impl<U, D, S> Default for ClientBuilder<U, D, S> {
 impl ClientBuilder<NotProvided, NotProvided, NotProvided> {
     /// Create a new client builder.
     pub fn new() -> Self {
+        // When GCS feature is enabled, install aws-lc-rs as the default crypto provider.
+        // This is needed because GCS deps use aws-lc-rs while alloy uses ring.
+        // Without this, rustls panics when both providers are compiled in.
+        #[cfg(feature = "gcs")]
+        {
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        }
+
         Self::default()
     }
 }

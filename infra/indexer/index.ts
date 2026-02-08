@@ -68,6 +68,7 @@ export = () => {
     vpcId,
     privSubNetIds,
     rdsPassword,
+    isDev,
   });
 
   let marketIndexer: MarketIndexer | undefined;

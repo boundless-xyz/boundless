@@ -95,10 +95,20 @@ impl S3StorageUploader {
         let presigned = config.s3_presigned.unwrap_or(true); // default: use presigned
         let public_url = config.s3_public_url.unwrap_or(false); // default: s3:// URL
 
-        // Use explicit credentials from config if provided
+        // Use explicit credentials from config if provided (both must be set together)
         let credentials = match (&config.aws_access_key_id, &config.aws_secret_access_key) {
             (Some(access_key), Some(secret_key)) => Some((access_key.clone(), secret_key.clone())),
-            _ => None,
+            (Some(_), None) => {
+                return Err(StorageError::MissingConfig(
+                    "aws_secret_access_key required when aws_access_key_id is set",
+                ))
+            }
+            (None, Some(_)) => {
+                return Err(StorageError::MissingConfig(
+                    "aws_access_key_id required when aws_secret_access_key is set",
+                ))
+            }
+            (None, None) => None,
         };
 
         Self::new(

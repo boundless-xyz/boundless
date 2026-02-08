@@ -6,7 +6,7 @@ import { getServiceNameV1, Severity } from '../../util';
 import * as crypto from 'crypto';
 
 const FARGATE_CPU = 512;
-const FARGATE_MEMORY = 512;
+const FARGATE_MEMORY = 1024;
 
 interface OrderGeneratorArgs {
   chainId: string;
@@ -48,6 +48,7 @@ interface OrderGeneratorArgs {
     scheduleExpression: string;
   };
   indexerUrl: pulumi.Output<string>;
+  useZeth?: boolean;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -224,6 +225,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.oneShotConfig) {
       ogArgs.push(`--count ${args.oneShotConfig.count}`);
+    }
+    if (args.useZeth) {
+      ogArgs.push(`--use-zeth`);
     }
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });

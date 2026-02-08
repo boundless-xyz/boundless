@@ -145,6 +145,8 @@ test-db action="setup":
 # Run all formatting and linting checks
 check: check-links check-license check-format check-clippy
 
+check-main: check-format-main check-clippy-main check-license check-links
+
 # Check links in markdown files
 check-links:
     @echo "Checking links in markdown files..."
@@ -152,12 +154,11 @@ check-links:
 
 # Check licenses
 check-license:
+    @echo "Checking licenses..."
     @python license-check.py
 
 # Check code formatting
-check-format:
-    cargo sort --workspace --check
-    cargo fmt --all --check
+check-format: check-format-main
     cd examples/counter && cargo sort --workspace --check
     cd examples/counter && cargo fmt --all --check
     cd examples/smart-contract-requestor && cargo sort --workspace --check
@@ -173,11 +174,12 @@ check-format:
     dprint check
     forge fmt --check
 
-# Run Cargo clippy
-check-clippy:
-    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
-    cargo clippy --workspace --all-targets
+check-format-main:
+    cargo sort --workspace --check
+    cargo fmt --all --check
 
+# Run Cargo clippy for main workspace and all examples
+check-clippy: check-clippy-main
     cd examples/counter && forge build && \
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
@@ -197,6 +199,11 @@ check-clippy:
     cargo clippy --workspace --all-targets
 
     cd examples/blake3-groth16 && \
+    RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
+    cargo clippy --workspace --all-targets
+
+# Check Cargo clippy for the main workspace
+check-clippy-main:
     RUSTFLAGS=-Dwarnings RISC0_SKIP_BUILD=1 RISC0_SKIP_BUILD_KERNELS=1 \
     cargo clippy --workspace --all-targets
 
@@ -417,6 +424,17 @@ localnet action="up": check-deps
 cargo-update:
     cargo update
     cd examples/counter && cargo update
+
+# Regenerate lockfiles (without bumping versions)
+update-lockfiles:
+    cargo fetch
+    cd bento && cargo fetch
+    cd examples/counter && cargo fetch
+    cd examples/composition && cargo fetch
+    cd examples/counter-with-callback && cargo fetch
+    cd examples/smart-contract-requestor && cargo fetch
+    cd examples/blake3-groth16 && cargo fetch
+    cd examples/request-stream && cargo fetch
 
 # Start the bento service
 bento action="up" env_file="" compose_flags="" detached="true":

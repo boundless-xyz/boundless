@@ -83,32 +83,32 @@ pub struct StorageUploaderConfig {
     pub s3_bucket: Option<String>,
     /// S3 endpoint URL (optional, for S3-compatible services like MinIO)
     #[cfg(feature = "s3")]
-    #[arg(long, env, requires("s3_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option, into), default)]
     pub s3_url: Option<String>,
     /// AWS access key (optional, uses AWS default credential chain if not set)
     #[cfg(feature = "s3")]
-    #[arg(long, env, requires("s3_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option, into), default)]
     pub aws_access_key_id: Option<String>,
     /// AWS secret key (required if aws_access_key_id is set)
     #[cfg(feature = "s3")]
-    #[arg(long, env, requires = "aws_access_key_id")]
+    #[arg(long, env)]
     #[builder(setter(strip_option, into), default)]
     pub aws_secret_access_key: Option<String>,
     /// AWS region (optional, can be inferred from environment)
     #[cfg(feature = "s3")]
-    #[arg(long, env, requires("s3_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option, into), default)]
     pub aws_region: Option<String>,
     /// Use presigned URLs for S3 (default: true)
     #[cfg(feature = "s3")]
-    #[arg(long, env, requires("s3_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option), default)]
     pub s3_presigned: Option<bool>,
     /// Return public HTTPS URLs instead of s3:// or presigned URLs (requires bucket to be public)
     #[cfg(feature = "s3")]
-    #[arg(long, env, requires("s3_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option), default)]
     pub s3_public_url: Option<bool>,
 
@@ -120,17 +120,17 @@ pub struct StorageUploaderConfig {
     pub gcs_bucket: Option<String>,
     /// GCS endpoint URL (optional, for emulators like fake-gcs-server)
     #[cfg(feature = "gcs")]
-    #[arg(long, env, requires("gcs_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option), default)]
     pub gcs_url: Option<String>,
     /// GCS service account credentials JSON (optional, uses ADC if not set)
     #[cfg(feature = "gcs")]
-    #[arg(long, env, requires("gcs_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option, into), default)]
     pub gcs_credentials_json: Option<String>,
     /// Return public HTTPS URLs instead of gs:// URLs (requires bucket to be publicly readable)
     #[cfg(feature = "gcs")]
-    #[arg(long, env, requires("gcs_bucket"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option), default)]
     pub gcs_public_url: Option<bool>,
 
@@ -140,11 +140,11 @@ pub struct StorageUploaderConfig {
     #[builder(setter(strip_option, into), default)]
     pub pinata_jwt: Option<String>,
     /// Pinata API URL
-    #[arg(long, env, requires("pinata_jwt"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option), default)]
     pub pinata_api_url: Option<Url>,
     /// Pinata gateway URL
-    #[arg(long, env, requires("pinata_jwt"))]
+    #[arg(long, env)]
     #[builder(setter(strip_option), default)]
     pub ipfs_gateway_url: Option<Url>,
 

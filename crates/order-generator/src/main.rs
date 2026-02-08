@@ -109,7 +109,7 @@ struct MainArgs {
     program: Option<PathBuf>,
     /// The cycle count to drive the loop.
     ///
-    /// If unspecified, defaults to a random value between 1_000_000 and 1_000_000_000
+    /// If unspecified, defaults to a random value between 10_000_000 and 1_000_000_000
     /// with a step of 1_000_000.
     #[clap(long, env = "CYCLE_COUNT")]
     input: Option<u64>,
@@ -134,6 +134,10 @@ struct MainArgs {
     /// Configuration for the uploader used for programs and inputs.
     #[clap(flatten, next_help_heading = "Storage Uploader")]
     storage_config: StorageUploaderConfig,
+
+    /// Whether to use the Zeth guest.
+    #[clap(long, default_value = "false")]
+    use_zeth: bool,
 }
 
 #[tokio::main]
@@ -172,24 +176,16 @@ async fn run(args: &MainArgs) -> Result<()> {
         client = client.with_rpc_urls(rpc_urls.clone());
     }
 
-    let mut client = client
+    let client = client
         .with_uploader_config(&args.storage_config)
         .await?
         .with_deployment(args.deployment.clone())
         .with_private_key(args.private_key.clone())
         .with_balance_alerts(balance_alerts)
         .with_timeout(Some(Duration::from_secs(args.tx_timeout)))
-        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()));
-
-    if args.submit_offchain {
-        client = client.config_offer_layer(|config| {
-            config
-                .min_price_per_cycle(args.min_price_per_mcycle >> 20)
-                .max_price_per_cycle(args.max_price_per_mcycle >> 20)
-        });
-    }
-
-    let client = client.build().await?;
+        .with_funding_mode(FundingMode::BelowThreshold(parse_ether("0.01").unwrap()))
+        .build()
+        .await?;
 
     let ipfs_gateway = args
         .storage_config
@@ -197,19 +193,37 @@ async fn run(args: &MainArgs) -> Result<()> {
         .clone()
         .unwrap_or(Url::parse("https://gateway.pinata.cloud").unwrap());
     // Ensure we have both a program and a program URL.
-    let (program, program_url) = match args.program.as_ref().map(std::fs::read).transpose()? {
+    let (program, program_url, input) = match args
+        .program
+        .as_ref()
+        .map(std::fs::read)
+        .transpose()?
+    {
         Some(program) => {
             let program_url = client.upload_program(&program).await?;
             tracing::info!("Uploaded program to {}", program_url);
-            (program, program_url)
+            (program, program_url, None)
         }
         None => {
-            // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
-            let program_url = ipfs_gateway
-                .join("/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi")
-                .unwrap();
+            let (program_url, input) = match args.use_zeth {
+                true => {
+                    let program_url = ipfs_gateway
+                        // A build of the zeth guest, which simply iterate block validation until the iterations are reached.
+                        .join("/ipfs/bafybeidxu26oi63himx2hn5vbhmwc3t6rabqmkpl4i7nl7daucvcvq6cge")
+                        .unwrap();
+                    let input = HttpDownloader::default().download_url(ipfs_gateway.join("/ipfs/bafybeiac26qnu67cqlklukxdtr5cvovbdss4dx64ywi2yx53mw3ykwmufe").unwrap()).await?;
+                    (program_url, Some(input))
+                }
+                false => (
+                    ipfs_gateway
+                        // A build of the loop guest, which simply loop until reaching the cycle count it reads from inputs and commits to it.
+                        .join("/ipfs/bafkreicmwk3xlxbozbp5h63xyywocc7dltt376hn4mnmhk7ojqdcbrkqzi")
+                        .unwrap(),
+                    None,
+                ),
+            };
             let program = HttpDownloader::default().download_url(program_url.clone()).await?;
-            (program, program_url)
+            (program, program_url, input)
         }
     };
 
@@ -220,9 +234,19 @@ async fn run(args: &MainArgs) -> Result<()> {
                 break;
             }
         }
-        if let Err(e) = handle_request(args, &client, &program, &program_url).await {
+        if let Err(e) = match args.use_zeth {
+            true => {
+                if let Some(input) = input.as_ref() {
+                    handle_zeth_request(args, &client, &program, &program_url, input).await
+                } else {
+                    let error_msg = "Zeth input is not provided".to_string();
+                    tracing::error!("Request failed: {error_msg}");
+                    return Err(anyhow::anyhow!(error_msg));
+                }
+            }
+            false => handle_loop_request(args, &client, &program, &program_url).await,
+        } {
             let error_msg = format!("{e:?}");
-            // Check if this is a transaction confirmation error
             if error_msg.contains("Transaction confirmation error") {
                 tracing::error!("[B-OG-CONF] Transaction confirmation error: {e:?}");
             } else {
@@ -236,7 +260,7 @@ async fn run(args: &MainArgs) -> Result<()> {
     Ok(())
 }
 
-async fn handle_request(
+async fn handle_loop_request(
     args: &MainArgs,
     client: &Client<
         DynProvider,
@@ -255,7 +279,7 @@ async fn handle_request(
         None => {
             // Generate a random input.
             let max = args.input_max_mcycles.unwrap_or(1000);
-            let input: u64 = rand::rng().random_range(1..=max) << 20;
+            let input: u64 = rand::rng().random_range(10..=max) << 20;
             tracing::debug!("Generated random cycle count: {}", input);
             input
         }
@@ -283,6 +307,97 @@ async fn handle_request(
     tracing::info!(
         "{} Mcycles count {} min_price in ether {} max_price in ether",
         m_cycles,
+        format_units(request.offer.minPrice, "ether")?,
+        format_units(request.offer.maxPrice, "ether")?
+    );
+
+    let submit_offchain = args.submit_offchain;
+
+    // Check balance and auto-deposit if needed for both onchain and offchain submissions
+    if let Some(auto_deposit) = args.auto_deposit {
+        let market = client.boundless_market.clone();
+        let caller = client.caller();
+        let balance = market.balance_of(caller).await?;
+        tracing::info!(
+            "Caller {} has balance {} ETH on market {}. Auto-deposit threshold is {} ETH",
+            caller,
+            format_units(balance, "ether")?,
+            client.deployment.boundless_market_address,
+            format_units(auto_deposit, "ether")?
+        );
+        if balance < auto_deposit {
+            tracing::info!(
+                "Balance {} ETH is below auto-deposit threshold {} ETH, depositing...",
+                format_units(balance, "ether")?,
+                format_units(auto_deposit, "ether")?
+            );
+            match market.deposit(auto_deposit).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Successfully deposited {} ETH",
+                        format_units(auto_deposit, "ether")?
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to auto deposit ETH: {e:?}");
+                }
+            }
+        }
+    }
+
+    let (request_id, _) = if submit_offchain {
+        client.submit_request_offchain(&request).await?
+    } else {
+        client.submit_request_onchain(&request).await?
+    };
+
+    if submit_offchain {
+        tracing::info!(
+            "Request 0x{request_id:x} submitted offchain to {}",
+            client.deployment.order_stream_url.clone().unwrap()
+        );
+    } else {
+        tracing::info!(
+            "Request 0x{request_id:x} submitted onchain to {}",
+            client.deployment.boundless_market_address,
+        );
+    }
+    Ok(())
+}
+
+async fn handle_zeth_request(
+    args: &MainArgs,
+    client: &Client<
+        DynProvider,
+        StandardUploader,
+        StandardDownloader,
+        StandardRequestBuilder<DynProvider, StandardUploader, StandardDownloader>,
+        PrivateKeySigner,
+    >,
+    program: &[u8],
+    program_url: &url::Url,
+    input: &[u8],
+) -> Result<()> {
+    let mut rng = rand::rng();
+    let nonce: u32 = rng.random_range(0..=u32::MAX);
+    let max_cycles = args.input_max_mcycles.unwrap_or(3000) << 20;
+    let max_iterations = max_cycles.div_ceil(1000000000); // ~1B cycles per iteration
+    let iterations: u32 = rng.random_range(1..=max_iterations as u32);
+    tracing::info!("Iterations: {}", iterations);
+    let env = GuestEnv::builder().write_slice(input).write(&iterations)?.write(&nonce)?.build_env();
+    let request = client
+        .new_request()
+        .with_program(program.to_vec())
+        .with_program_url(program_url.clone())?
+        .with_env(env);
+
+    // Build the request, including preflight, and assigned the remaining fields.
+    let request = client.build_request(request).await?;
+
+    tracing::info!("Request: {:?}", request);
+
+    tracing::info!(
+        "{} min_price in ether {} max_price in ether",
         format_units(request.offer.minPrice, "ether")?,
         format_units(request.offer.maxPrice, "ether")?
     );
@@ -384,6 +499,7 @@ mod tests {
             auto_deposit: None,
             tx_timeout: 45,
             submit_offchain: false,
+            use_zeth: false,
         };
 
         run(&args).await.unwrap();

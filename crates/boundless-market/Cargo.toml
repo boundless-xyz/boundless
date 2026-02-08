@@ -13,10 +13,13 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-blake3-groth16 = ["dep:blake3", "dep:risc0-circuit-recursion"]
-default = ["s3", "gcs"]
+blake3-groth16 = [
+    "dep:blake3",
+    "dep:risc0-circuit-recursion"
+]
+default = ["s3"]
 s3 = ["dep:aws-sdk-s3", "dep:aws-config"]
-gcs = ["dep:google-cloud-storage", "dep:google-cloud-auth", "dep:google-cloud-gax"]
+gcs = ["dep:google-cloud-storage", "dep:google-cloud-auth", "dep:google-cloud-gax", "dep:rustls"]
 prover_utils = ["dep:bincode"]
 test-utils = ["dep:httpmock", "dep:hyper-util", "dep:s3s", "dep:s3s-fs"]
 
@@ -65,11 +68,12 @@ google-cloud-auth = { workspace = true, optional = true }
 google-cloud-gax = { workspace = true, optional = true }
 google-cloud-storage = { workspace = true, optional = true }
 hex = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"], optional = true }
 httpmock = { workspace = true, optional = true }
 hyper-util = { version = "0.1", optional = true, features = ["server-auto", "tokio"] }
 moka = { version = "0.12.12", features = ["future"] }
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
+reqwest = { workspace = true, features = ["json", "multipart", "stream", "rustls"] }
 reqwest-middleware = "0.5"
 reqwest-retry = "0.9"
 risc0-aggregation = { workspace = true }
