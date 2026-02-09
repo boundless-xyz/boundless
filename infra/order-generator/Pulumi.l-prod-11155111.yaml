@@ -55,3 +55,5 @@ config:
   order-generator-onchain:INTERVAL: "600"
   order-generator-base:INDEXER_URL:
     secure: v1:+nrnPjvFF6klXo5D:cfXy8A3jcOpCYpq5kTrlMK4Ex7eikZY9ZxMZMYruUzijAx9JQchoS4CraplHDnbGjIYityz7
+  order-generator-load-test:PRIVATE_KEY:
+    secure: v1:bW54F1/kSy1V3R01:L1Xy88iABW6zQ1L9eNiljHGtLeBfydj9sxe3n5uccaXA2IvKq4IrcFk5wM4/OtyLzAjmwoT412270P1Vo488ep3MHdsnAqeyGSGLzsxt/BU=
