@@ -31,6 +31,7 @@ where
         &self,
         req: crate::db::market::RequestComprehensive,
         current_timestamp: u64,
+        base_fee_map: &HashMap<u64, Option<u128>>,
     ) -> crate::db::market::RequestStatus {
         use crate::db::market::RequestStatus;
 
@@ -67,7 +68,8 @@ where
         let updated_at = current_timestamp;
 
         // Compute lock price and lock price per cycle if request was locked
-        let (lock_price, lock_price_per_cycle) = if let Some(locked_at) = req.locked_at {
+        let (lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle) =
+            if let Some(locked_at) = req.locked_at {
             let min_price = U256::from_str(&req.min_price).ok();
             let max_price = U256::from_str(&req.max_price).ok();
 
@@ -95,12 +97,60 @@ where
                     None
                 };
 
-                (Some(lock_price_str), lock_price_per_cycle_str)
+                // Compute fixed_cost and variable_cost_per_cycle
+                let (fixed_cost_str, variable_cost_per_cycle_str) = if let Some(lock_block) =
+                    req.lock_block
+                {
+                    let base_fee = base_fee_map
+                        .get(&lock_block)
+                        .copied()
+                        .flatten();
+                    if let Some(base_fee) = base_fee {
+                        let gas_estimate = U256::from(
+                            boundless_market::prover_utils::config::defaults::lockin_gas_estimate()
+                                + boundless_market::prover_utils::config::defaults::fulfill_gas_estimate()
+                                + boundless_market::prover_utils::config::defaults::groth16_verify_gas_estimate(),
+                        );
+                        let fixed_cost = gas_estimate * U256::from(base_fee);
+                        let fixed_cost_padded =
+                            format!("{:0>78}", fixed_cost.to_string());
+
+                        let variable_cost_per_cycle_padded =
+                            if let Some(program_cycles) = req.program_cycles {
+                                if program_cycles > 0 {
+                                    let variable_total = if lock_price_u256 > fixed_cost {
+                                        lock_price_u256 - fixed_cost
+                                    } else {
+                                        U256::ZERO
+                                    };
+                                    let vcp = variable_total / U256::from(program_cycles);
+                                    Some(format!("{:0>78}", vcp.to_string()))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+
+                        (Some(fixed_cost_padded), variable_cost_per_cycle_padded)
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                };
+
+                (
+                    Some(lock_price_str),
+                    lock_price_per_cycle_str,
+                    fixed_cost_str,
+                    variable_cost_per_cycle_str,
+                )
             } else {
-                (None, None)
+                (None, None, None, None)
             }
         } else {
-            (None, None)
+            (None, None, None, None)
         };
 
         // Compute effective_prove_mhz: proving speed performance from the requestor's perspective
@@ -205,6 +255,8 @@ where
             cycle_status: req.cycle_status,
             lock_price,
             lock_price_per_cycle,
+            fixed_cost,
+            variable_cost_per_cycle,
             submit_tx_hash: req.submit_tx_hash,
             lock_tx_hash: req.lock_tx_hash,
             fulfill_tx_hash: req.fulfill_tx_hash,
@@ -256,10 +308,21 @@ where
         let requests_with_events = self.db.get_requests_comprehensive(&request_digests).await?;
         tracing::info!("get_requests_comprehensive completed in {:?} [queried with {} digests, {} requests found]", start_get_requests_comprehensive.elapsed(), request_digests.len(), requests_with_events.len());
 
+        // Fetch base fees for all lock blocks
+        let lock_blocks: HashSet<u64> = requests_with_events
+            .iter()
+            .filter_map(|req| req.lock_block)
+            .collect();
+        let mut base_fee_map: HashMap<u64, Option<u128>> = HashMap::new();
+        for &block_num in &lock_blocks {
+            let base_fee = self.db.get_block_base_fee(block_num).await?;
+            base_fee_map.insert(block_num, base_fee);
+        }
+
         let start_compute_request_status = std::time::Instant::now();
         let mut request_statuses: Vec<_> = requests_with_events
             .into_iter()
-            .map(|req| self.compute_request_status(req, current_timestamp))
+            .map(|req| self.compute_request_status(req, current_timestamp, &base_fee_map))
             .collect();
 
         let cycle_counts = self.db.get_cycle_counts(&request_digests).await?;

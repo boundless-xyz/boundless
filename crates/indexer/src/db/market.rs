@@ -254,6 +254,8 @@ pub struct PeriodRequestorSummary {
     pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -312,6 +314,8 @@ pub struct AllTimeRequestorSummary {
     pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -460,6 +464,8 @@ pub struct RequestStatus {
     pub cycle_status: Option<String>,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
+    pub fixed_cost: Option<String>,
+    pub variable_cost_per_cycle: Option<String>,
     pub submit_tx_hash: Option<B256>,
     pub lock_tx_hash: Option<B256>,
     pub fulfill_tx_hash: Option<B256>,
@@ -540,6 +546,7 @@ pub struct LockPricingData {
     pub lock_timestamp: u64,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
+    pub fixed_cost: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -608,8 +615,9 @@ pub trait IndexerDb {
     async fn get_last_aggregation_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_aggregation_block(&self, block_numb: u64) -> Result<(), DbError>;
 
-    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
+    async fn add_blocks(&self, blocks: &[(u64, u64, Option<u128>)]) -> Result<(), DbError>;
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
+    async fn get_block_base_fee(&self, block_numb: u64) -> Result<Option<u128>, DbError>;
 
     async fn add_txs(&self, metadata_list: &[TxMetadata]) -> Result<(), DbError>;
 
@@ -1131,7 +1139,7 @@ impl IndexerDb for MarketDb {
         Ok(())
     }
 
-    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError> {
+    async fn add_blocks(&self, blocks: &[(u64, u64, Option<u128>)]) -> Result<(), DbError> {
         if blocks.is_empty() {
             return Ok(());
         }
@@ -1146,7 +1154,8 @@ impl IndexerDb for MarketDb {
             let mut query = String::from(
                 "INSERT INTO blocks (
                     block_number,
-                    block_timestamp
+                    block_timestamp,
+                    base_fee
                 ) VALUES ",
             );
 
@@ -1155,15 +1164,24 @@ impl IndexerDb for MarketDb {
                 if i > 0 {
                     query.push_str(", ");
                 }
-                query.push_str(&format!("(${}, ${})", params_count + 1, params_count + 2));
-                params_count += 2;
+                query.push_str(&format!(
+                    "(${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3
+                ));
+                params_count += 3;
             }
-            query.push_str(" ON CONFLICT (block_number) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (block_number) DO UPDATE SET base_fee = COALESCE(EXCLUDED.base_fee, blocks.base_fee)",
+            );
 
             let mut query_builder = sqlx::query(&query);
-            for (block_number, block_timestamp) in chunk {
-                query_builder =
-                    query_builder.bind(*block_number as i64).bind(*block_timestamp as i64);
+            for (block_number, block_timestamp, base_fee) in chunk {
+                query_builder = query_builder
+                    .bind(*block_number as i64)
+                    .bind(*block_timestamp as i64)
+                    .bind(base_fee.map(|f| f.to_string()));
             }
 
             query_builder.execute(&mut *tx).await?;
@@ -1182,6 +1200,20 @@ impl IndexerDb for MarketDb {
         if let Some(row) = result {
             let block_timestamp: i64 = row.get(0);
             Ok(Some(block_timestamp as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_block_base_fee(&self, block_numb: u64) -> Result<Option<u128>, DbError> {
+        let result = sqlx::query("SELECT base_fee FROM blocks WHERE block_number = $1")
+            .bind(block_numb as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = result {
+            let base_fee_str: Option<String> = row.try_get("base_fee").ok().flatten();
+            Ok(base_fee_str.and_then(|s| s.parse::<u128>().ok()))
         } else {
             Ok(None)
         }
@@ -2268,7 +2300,7 @@ impl IndexerDb for MarketDb {
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
                     program_cycles, total_cycles,
                     peak_prove_mhz_v2, effective_prove_mhz_v2, prover_effective_prove_mhz, cycle_status,
-                    lock_price, lock_price_per_cycle,
+                    lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
@@ -2281,7 +2313,7 @@ impl IndexerDb for MarketDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2291,9 +2323,10 @@ impl IndexerDb for MarketDb {
                     params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
                     params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45,
-                    params_count + 46, params_count + 47, params_count + 48, params_count + 49
+                    params_count + 46, params_count + 47, params_count + 48, params_count + 49, params_count + 50,
+                    params_count + 51
                 ));
-                params_count += 49;
+                params_count += 51;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2323,6 +2356,8 @@ impl IndexerDb for MarketDb {
                     cycle_status = EXCLUDED.cycle_status,
                     lock_price = EXCLUDED.lock_price,
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
+                    fixed_cost = EXCLUDED.fixed_cost,
+                    variable_cost_per_cycle = EXCLUDED.variable_cost_per_cycle,
                     fulfill_journal = EXCLUDED.fulfill_journal,
                     fulfill_seal = EXCLUDED.fulfill_seal",
             );
@@ -2369,6 +2404,8 @@ impl IndexerDb for MarketDb {
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
                     .bind(&status.lock_price_per_cycle)
+                    .bind(&status.fixed_cost)
+                    .bind(&status.variable_cost_per_cycle)
                     .bind(status.submit_tx_hash.map(|h| h.to_string()))
                     .bind(status.lock_tx_hash.map(|h| h.to_string()))
                     .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
@@ -3496,6 +3533,7 @@ impl IndexerDb for MarketDb {
                 lock_timestamp: lock_timestamp as u64,
                 lock_price,
                 lock_price_per_cycle,
+                fixed_cost: None,
             });
         }
 
@@ -4483,6 +4521,8 @@ impl MarketDb {
             cycle_status: row.try_get("cycle_status").ok(),
             lock_price: row.try_get("lock_price").ok(),
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
+            fixed_cost: row.try_get("fixed_cost").ok().flatten(),
+            variable_cost_per_cycle: row.try_get("variable_cost_per_cycle").ok().flatten(),
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -5523,6 +5563,8 @@ mod tests {
             cycle_status: None,
             lock_price: None,
             lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,

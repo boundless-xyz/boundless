@@ -427,10 +427,25 @@ where
                 let requests_comprehensive =
                     self.indexer.db.get_requests_comprehensive(&digest_set).await?;
 
+                // Fetch base fees for lock blocks
+                let lock_blocks: std::collections::HashSet<u64> = requests_comprehensive
+                    .iter()
+                    .filter_map(|req| req.lock_block)
+                    .collect();
+                let mut base_fee_map: std::collections::HashMap<u64, Option<u128>> =
+                    std::collections::HashMap::new();
+                for &block_num in &lock_blocks {
+                    let base_fee = self.indexer.db.get_block_base_fee(block_num).await?;
+                    base_fee_map.insert(block_num, base_fee);
+                }
+
                 // Compute statuses
                 let request_statuses: Vec<_> = requests_comprehensive
                     .into_iter()
-                    .map(|req| self.indexer.compute_request_status(req, current_timestamp))
+                    .map(|req| {
+                        self.indexer
+                            .compute_request_status(req, current_timestamp, &base_fee_map)
+                    })
                     .collect();
 
                 // Upsert statuses

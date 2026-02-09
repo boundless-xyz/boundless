@@ -320,6 +320,14 @@ pub struct RequestorLeaderboardEntry {
     pub median_lock_price_per_cycle: Option<String>,
     /// Median lock price per cycle (formatted for display)
     pub median_lock_price_per_cycle_formatted: Option<String>,
+    /// Median fixed cost (gas cost) per request (as string in wei)
+    pub median_fixed_cost: String,
+    /// Median fixed cost (formatted for display)
+    pub median_fixed_cost_formatted: String,
+    /// Median variable cost (proving cost) per cycle (as string in wei)
+    pub median_variable_cost_per_cycle: String,
+    /// Median variable cost per cycle (formatted for display)
+    pub median_variable_cost_per_cycle_formatted: String,
     /// Acceptance rate (locked / (locked + not_locked_and_expired)) as percentage
     pub acceptance_rate: f32,
     /// Locked order fulfillment rate (locked and fulfilled / (locked and fulfilled + locked and expired)) as percentage
@@ -878,6 +886,18 @@ pub struct RequestorCumulativeEntry {
 
     /// Total cycles (program + overhead) computed across all fulfilled requests (cumulative)
     pub total_cycles: String,
+
+    /// Total fixed cost (gas cost) across all locked requests (cumulative, as string in wei)
+    pub total_fixed_cost: String,
+
+    /// Total fixed cost (formatted for display)
+    pub total_fixed_cost_formatted: String,
+
+    /// Total variable cost (proving cost) across all locked requests (cumulative, as string in wei)
+    pub total_variable_cost: String,
+
+    /// Total variable cost (formatted for display)
+    pub total_variable_cost_formatted: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1894,6 +1914,12 @@ async fn get_requestor_cumulatives_impl(
                     .locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                total_fixed_cost: summary.total_fixed_cost.to_string(),
+                total_fixed_cost_formatted: format_eth(&summary.total_fixed_cost.to_string()),
+                total_variable_cost: summary.total_variable_cost.to_string(),
+                total_variable_cost_formatted: format_eth(
+                    &summary.total_variable_cost.to_string(),
+                ),
             }
         })
         .collect();
@@ -2885,9 +2911,13 @@ async fn list_requestors_impl(
     // Get addresses for batch queries
     let addresses: Vec<Address> = entries.iter().map(|e| e.requestor_address).collect();
 
-    // Fetch median lock prices and last activity times in batch
+    // Fetch median lock prices, median fixed/variable costs, and last activity times in batch
     let median_prices =
         state.market_db.get_requestor_median_lock_prices(&addresses, start_ts, end_ts).await?;
+    let median_fixed_costs =
+        state.market_db.get_requestor_median_fixed_costs(&addresses, start_ts, end_ts).await?;
+    let median_variable_costs =
+        state.market_db.get_requestor_median_variable_costs(&addresses, start_ts, end_ts).await?;
     let last_activities = state.market_db.get_requestor_last_activity_times(&addresses).await?;
 
     // Build response entries
@@ -2895,6 +2925,8 @@ async fn list_requestors_impl(
         .into_iter()
         .map(|entry| {
             let median = median_prices.get(&entry.requestor_address).cloned();
+            let median_fc = median_fixed_costs.get(&entry.requestor_address).cloned();
+            let median_vc = median_variable_costs.get(&entry.requestor_address).cloned();
             let last_activity = last_activities
                 .get(&entry.requestor_address)
                 .cloned()
@@ -2913,6 +2945,18 @@ async fn list_requestors_impl(
                 cycles_requested_formatted: format_cycles(entry.cycles_requested),
                 median_lock_price_per_cycle: median.map(|m| m.to_string()),
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
+                median_fixed_cost: median_fc
+                    .map(|m| m.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                median_fixed_cost_formatted: median_fc
+                    .map(|m| format_eth(&m.to_string()))
+                    .unwrap_or_else(|| format_eth("0")),
+                median_variable_cost_per_cycle: median_vc
+                    .map(|m| m.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                median_variable_cost_per_cycle_formatted: median_vc
+                    .map(|m| format_eth(&m.to_string()))
+                    .unwrap_or_else(|| format_eth("0")),
                 acceptance_rate: entry.acceptance_rate,
                 locked_order_fulfillment_rate: entry.locked_order_fulfillment_rate,
                 locked_orders_fulfillment_rate_adjusted: entry

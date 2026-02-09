@@ -542,6 +542,8 @@ where
                                     locked_orders_fulfillment_rate_adjusted: 0.0,
                                     total_program_cycles: alloy::primitives::U256::ZERO,
                                     total_cycles: alloy::primitives::U256::ZERO,
+                                    total_fixed_cost: alloy::primitives::U256::ZERO,
+                                    total_variable_cost: alloy::primitives::U256::ZERO,
                                     best_peak_prove_mhz: 0.0,
                                     best_peak_prove_mhz_prover: None,
                                     best_peak_prove_mhz_request_id: None,
@@ -572,6 +574,8 @@ where
                                 cumulative_summary.total_fees_locked += summary.total_fees_locked;
                                 cumulative_summary.total_collateral_locked += summary.total_collateral_locked;
                                 cumulative_summary.total_locked_and_expired_collateral += summary.total_locked_and_expired_collateral;
+                                cumulative_summary.total_fixed_cost += summary.total_fixed_cost;
+                                cumulative_summary.total_variable_cost += summary.total_variable_cost;
 
                                 // Update best metrics
                                 if summary.best_peak_prove_mhz > cumulative_summary.best_peak_prove_mhz {
@@ -801,6 +805,7 @@ where
         };
 
         let mut total_fees = alloy::primitives::U256::ZERO;
+        let mut total_fixed_cost = alloy::primitives::U256::ZERO;
         let mut prices_per_cycle: Vec<alloy::primitives::Uint<256, 4>> = Vec::new();
 
         for lock in locks {
@@ -839,6 +844,12 @@ where
 
             total_fees += price;
 
+            if let Some(fixed_cost_str) = &lock.fixed_cost {
+                if let Ok(fc) = alloy::primitives::U256::from_str(fixed_cost_str) {
+                    total_fixed_cost += fc;
+                }
+            }
+
             if let Some(price_per_cycle_str) = &lock.lock_price_per_cycle {
                 if let Ok(price_per_cycle) = alloy::primitives::U256::from_str(price_per_cycle_str)
                 {
@@ -864,6 +875,12 @@ where
                 })?;
             total_locked_and_expired_collateral += lock_collateral;
         }
+
+        let total_variable_cost = if total_fees > total_fixed_cost {
+            total_fees - total_fixed_cost
+        } else {
+            alloy::primitives::U256::ZERO
+        };
 
         let percentiles = if !prices_per_cycle.is_empty() {
             let mut sorted_prices = prices_per_cycle;
@@ -911,6 +928,8 @@ where
             locked_orders_fulfillment_rate_adjusted,
             total_program_cycles,
             total_cycles,
+            total_fixed_cost,
+            total_variable_cost,
             best_peak_prove_mhz,
             best_peak_prove_mhz_prover,
             best_peak_prove_mhz_request_id,

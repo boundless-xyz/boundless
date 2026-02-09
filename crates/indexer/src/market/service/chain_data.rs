@@ -102,16 +102,18 @@ where
             Some(ts) => ts,
             None => {
                 tracing::debug!("Block timestamp not found in DB for block {}", block_number);
-                let ts = self
+                let block = self
                     .boundless_market
                     .instance()
                     .provider()
                     .get_block_by_number(BlockNumberOrTag::Number(block_number))
                     .await?
-                    .context(anyhow!("Failed to get block by number: {}", block_number))?
-                    .header
-                    .timestamp;
-                self.db.add_blocks(&[(block_number, ts)]).await?;
+                    .context(anyhow!("Failed to get block by number: {}", block_number))?;
+                let ts = block.header.timestamp;
+                let base_fee = block.header.base_fee_per_gas;
+                self.db
+                    .add_blocks(&[(block_number, ts, base_fee.map(|f| f as u128))])
+                    .await?;
                 ts
             }
         };
@@ -356,17 +358,22 @@ where
                 for (block_num, block_result) in block_results {
                     if let Some(block) = block_result {
                         let ts = block.header.timestamp;
+                        let base_fee = block.header.base_fee_per_gas.map(|f| f as u128);
                         self.block_num_to_timestamp.insert(block_num, ts);
+                        self.block_num_to_base_fee.insert(block_num, base_fee);
                     }
                 }
             }
         }
 
         // Batch insert all fetched blocks into database
-        let blocks_to_insert: Vec<(u64, u64)> = self
+        let blocks_to_insert: Vec<(u64, u64, Option<u128>)> = self
             .block_num_to_timestamp
             .iter()
-            .map(|(&block_num, &timestamp)| (block_num, timestamp))
+            .map(|(&block_num, &timestamp)| {
+                let base_fee = self.block_num_to_base_fee.get(&block_num).copied().flatten();
+                (block_num, timestamp, base_fee)
+            })
             .collect();
         if !blocks_to_insert.is_empty() {
             self.db.add_blocks(&blocks_to_insert).await?;
@@ -476,17 +483,22 @@ where
                 for (block_num, block_result) in block_results {
                     if let Some(block) = block_result {
                         let ts = block.header.timestamp;
+                        let base_fee = block.header.base_fee_per_gas.map(|f| f as u128);
                         self.block_num_to_timestamp.insert(block_num, ts);
+                        self.block_num_to_base_fee.insert(block_num, base_fee);
                     }
                 }
             }
         }
 
         // Batch insert all fetched blocks into database
-        let blocks_to_insert: Vec<(u64, u64)> = self
+        let blocks_to_insert: Vec<(u64, u64, Option<u128>)> = self
             .block_num_to_timestamp
             .iter()
-            .map(|(&block_num, &timestamp)| (block_num, timestamp))
+            .map(|(&block_num, &timestamp)| {
+                let base_fee = self.block_num_to_base_fee.get(&block_num).copied().flatten();
+                (block_num, timestamp, base_fee)
+            })
             .collect();
         if !blocks_to_insert.is_empty() {
             self.db.add_blocks(&blocks_to_insert).await?;
