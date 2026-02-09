@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      { "command": "cargo fmt --all" },
+      { "command": "dprint fmt" }
+    ]
+  }
+}
