@@ -90,18 +90,18 @@ fn test_skill_install_with_path() {
     assert!(skill_content.contains("boundless rewards"));
 }
 
-/// Test that echo-request skill installs all 7 files correctly.
+/// Test that first-request skill installs all 7 files correctly.
 #[test]
-fn test_skill_install_echo_request_with_path() {
+fn test_skill_install_first_request_with_path() {
     let tmp_dir = TempDir::new().unwrap();
-    let install_path = tmp_dir.path().join("test-echo");
+    let install_path = tmp_dir.path().join("test-first-request");
 
     let mut cmd = cli_cmd().unwrap();
 
     cmd.args([
         "skill",
         "install",
-        "boundless-echo-request",
+        "first-request",
         "--path",
         install_path.to_str().unwrap(),
     ])
@@ -111,18 +111,18 @@ fn test_skill_install_echo_request_with_path() {
     .stdout(contains("installed successfully"));
 
     // Verify all 7 files were created.
-    let skill_dir = install_path.join("boundless-echo-request");
+    let skill_dir = install_path.join("first-request");
     assert!(skill_dir.join("SKILL.md").exists());
     assert!(skill_dir.join("scripts/check-prerequisites.sh").exists());
     assert!(skill_dir.join("scripts/discover-programs.sh").exists());
-    assert!(skill_dir.join("examples/echo-request.yaml").exists());
+    assert!(skill_dir.join("examples/request.yaml").exists());
     assert!(skill_dir.join("references/cli-reference.md").exists());
-    assert!(skill_dir.join("references/echo-explainer.md").exists());
+    assert!(skill_dir.join("references/guest-program-explainer.md").exists());
     assert!(skill_dir.join("references/troubleshooting.md").exists());
 
-    // Verify SKILL.md contains expected echo-request content.
+    // Verify SKILL.md contains expected first-request content.
     let skill_content = std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
-    assert!(skill_content.contains("echo"));
+    assert!(skill_content.contains("first"));
 }
 
 /// Test that --all installs both skills.
@@ -154,17 +154,17 @@ fn test_skill_install_all_with_path() {
     );
     assert!(
         install_path
-            .join("boundless-echo-request/SKILL.md")
+            .join("first-request/SKILL.md")
             .exists()
     );
     assert!(
         install_path
-            .join("boundless-echo-request/scripts/check-prerequisites.sh")
+            .join("first-request/scripts/check-prerequisites.sh")
             .exists()
     );
     assert!(
         install_path
-            .join("boundless-echo-request/examples/echo-request.yaml")
+            .join("first-request/examples/request.yaml")
             .exists()
     );
 }
@@ -179,7 +179,7 @@ fn test_skill_install_list() {
         .assert()
         .success()
         .stdout(contains("boundless-overview"))
-        .stdout(contains("boundless-echo-request"))
+        .stdout(contains("first-request"))
         .stdout(contains("Boundless CLI overview"))
         .stdout(contains("Guided walkthrough"));
 }
@@ -204,7 +204,7 @@ fn test_skill_install_invalid_name() {
     .failure()
     .stderr(contains("Unknown skill 'nonexistent-skill'"))
     .stderr(contains("boundless-overview"))
-    .stderr(contains("boundless-echo-request"));
+    .stderr(contains("first-request"));
 }
 
 /// Test that running skill install twice overwrites cleanly.

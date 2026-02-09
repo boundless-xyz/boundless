@@ -1,11 +1,11 @@
 ---
-name: boundless-echo-request
-description: Guides a developer through requesting their first ZK proof on the Boundless market using the echo program. Triggers include "request a ZK proof", "try Boundless", "submit an echo proof", "first proof", "prove something on Boundless", "set up Boundless CLI", "hello world ZK proof".
+name: first-request
+description: Guides a developer through submitting their first ZK proof on the Boundless market. Triggers include "first request", "first proof", "try Boundless", "submit a proof", "request a ZK proof", "prove something on Boundless", "set up Boundless CLI", "hello world ZK proof".
 ---
 
-# Boundless Echo Proof Request
+# Your First Proof Request
 
-Walk the developer through submitting their first zero-knowledge proof request on the Boundless market using the echo program — the simplest possible ZK proof.
+Walk the developer through discovering a recently fulfilled proof request on the Boundless market and replaying it to get their first proof fulfilled.
 
 ## Important: This Costs Real Money
 
@@ -18,13 +18,18 @@ Boundless runs on **Base Mainnet**. Every transaction uses real ETH on Base.
 
 Make sure the developer understands this before proceeding. If they want to experiment without cost, point them to the [Boundless SDK examples](https://github.com/boundless-xyz/boundless/tree/main/examples) which can run against a local test environment.
 
-## What the Echo Program Does
+## How This Works
 
-The echo program is the simplest possible zkVM guest. It reads stdin bytes and commits them unchanged to the journal — proving "I ran this program and it produced this output."
+Rather than hardcoding a specific program, this skill discovers a recently fulfilled request from the Boundless market and replays it:
 
-The proof statement: *"The echo program (identified by its image ID) was executed with input X and produced journal output X."*
+1. **Query the Boundless indexer** for recently fulfilled proof requests
+2. **Pick one** with an accessible IPFS program URL and known-good inputs
+3. **Replay it** — submit a new request with the same program and input
+4. **Guaranteed to work** — if provers fulfilled it recently, they can handle it again
 
-For a deeper explanation of guest programs, journals, seals, and the echo source code, see `references/echo-explainer.md`.
+This approach avoids version-compatibility issues and always uses a program that current provers support.
+
+For a deeper explanation of guest programs, journals, seals, and how proofs work, see `references/guest-program-explainer.md`.
 
 ## Quick Command Reference
 
@@ -38,7 +43,7 @@ For a deeper explanation of guest programs, journals, seals, and the echo source
 | Deposit | `boundless requestor deposit 0.005` |
 | Check deposit | `boundless requestor balance` |
 | Discover programs | `bash scripts/discover-programs.sh` (from this skill's directory) |
-| Submit echo proof | `boundless requestor submit --program-url <URL> --input-file <INPUT_FILE> --wait` |
+| Submit proof request | `boundless requestor submit --program-url <URL> --input-file <INPUT_FILE> --wait` |
 | Check status | `boundless requestor status <REQUEST_ID>` |
 | Get proof | `boundless requestor get-proof <REQUEST_ID>` |
 
@@ -49,7 +54,7 @@ For full CLI docs, see `references/cli-reference.md`.
 Run the prerequisite checker to verify the developer has the required tools:
 
 ```bash
-bash /path/to/boundless-echo-request/scripts/check-prerequisites.sh
+bash /path/to/first-request/scripts/check-prerequisites.sh
 ```
 
 **Required tools:**
@@ -144,7 +149,7 @@ The wizard prompts for:
 1. **Network** — select Base Mainnet
 2. **RPC URL** — Base mainnet RPC endpoint. Public: `https://mainnet.base.org`. For better reliability, use Alchemy or Infura with a free Base RPC key.
 3. **Private key** — the wallet private key from Phase 2
-4. **Storage provider** (optional) — Pinata for IPFS uploads. If the developer has a Pinata account, enter the JWT. Otherwise skip — not needed for echo since we use a pre-uploaded program URL.
+4. **Storage provider** (optional) — Pinata for IPFS uploads. If the developer has a Pinata account, enter the JWT. Otherwise skip — not needed since we use a pre-uploaded program URL from the discovery script.
 
 Configuration is stored in `~/.boundless/`. To verify:
 
@@ -159,7 +164,7 @@ export REQUESTOR_RPC_URL="https://mainnet.base.org"
 export REQUESTOR_PRIVATE_KEY="0x..."
 ```
 
-## Phase 6: Submit the Echo Proof Request
+## Phase 6: Submit Your First Proof Request
 
 This is the core step. The developer submits a proof request to the Boundless market.
 
@@ -184,7 +189,7 @@ Rather than hardcoding a program URL (which breaks when risc0-zkvm versions chan
 Run the discovery script:
 
 ```bash
-bash /path/to/boundless-echo-request/scripts/discover-programs.sh
+bash /path/to/first-request/scripts/discover-programs.sh
 ```
 
 This queries the Boundless indexer API, filters for recently fulfilled requests with accessible IPFS program URLs, and outputs the 5 smallest (cheapest/fastest) verified options.
@@ -222,19 +227,10 @@ We replay the original request's input exactly — this ensures the program rece
 1. **Broadcast** — the request is submitted on-chain to the Boundless Market contract on Base
 2. **Auction** — a reverse Dutch auction starts. Price ramps from the minimum up to the maximum over the ramp-up period
 3. **Lock** — a prover bids and locks the request, posting collateral
-4. **Prove** — the prover executes the echo program inside the zkVM and generates a proof
+4. **Prove** — the prover executes the guest program inside the zkVM and generates a proof
 5. **Fulfill** — the proof is submitted on-chain, verified by the market contract, and the prover is paid
 
 The `--wait` flag blocks until fulfillment, polling every 5 seconds. This typically takes 1–5 minutes.
-
-**If using the YAML approach instead:**
-
-```bash
-# Copy and edit the example — requires a known program URL and input
-cp /path/to/boundless-echo-request/examples/echo-request.yaml ./my-request.yaml
-# Fill in imageUrl and input data from discover-programs.sh output, then:
-boundless requestor submit-file my-request.yaml --wait
-```
 
 ### SDK Code (Educational Context)
 
@@ -266,7 +262,7 @@ The SDK's `.submit()` attempts offchain submission first, falling back to on-cha
 
 When the request is fulfilled, the CLI prints the fulfillment data and seal.
 
-**Journal** — the public output from the echo program. It should match the input string exactly (as bytes). This is the "echoed" data that was proven.
+**Journal** — the public output from the guest program. Since we replayed a request with the same input, the journal should match the output from the original request.
 
 **Seal** — the cryptographic proof. Smart contracts use this to verify the computation on-chain.
 
@@ -284,7 +280,7 @@ boundless requestor verify-proof <REQUEST_ID>
 
 ### Understanding the Output
 
-The journal bytes, decoded as UTF-8, should exactly match the input string. That's the echo — the proof says "this program ran and produced this output," and since the program just echoes stdin, the output equals the input.
+The journal bytes contain the output committed by the guest program during execution. Since we replayed a previously fulfilled request with the same program and input, the journal should match the original — confirming that the proof lifecycle worked end to end.
 
 ## Status Reference
 
@@ -299,10 +295,9 @@ If using `boundless requestor status <REQUEST_ID>`:
 
 ## Additional Resources
 
-- `references/echo-explainer.md` — deep dive on the echo program, ZK concepts, and building the ELF locally
+- `references/guest-program-explainer.md` — deep dive on guest programs, ZK concepts, and building an ELF locally
 - `references/cli-reference.md` — full Boundless CLI requestor command reference
 - `references/troubleshooting.md` — common errors and fixes
-- `examples/echo-request.yaml` — YAML config for `submit-file` approach
 - [Boundless Docs](https://docs.boundless.network)
 - [Boundless GitHub](https://github.com/boundless-xyz/boundless)
 - [RISC Zero Developer Docs](https://dev.risczero.com)

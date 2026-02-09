@@ -65,36 +65,36 @@ const SKILLS: &[Skill] = &[
         ],
     },
     Skill {
-        name: "boundless-echo-request",
+        name: "first-request",
         description: "Guided walkthrough: submit your first ZK proof on Boundless",
         files: &[
             (
                 "SKILL.md",
-                include_str!("../../../skill/boundless-echo-request/SKILL.md"),
+                include_str!("../../../skill/first-request/SKILL.md"),
             ),
             (
                 "scripts/check-prerequisites.sh",
-                include_str!("../../../skill/boundless-echo-request/scripts/check-prerequisites.sh"),
+                include_str!("../../../skill/first-request/scripts/check-prerequisites.sh"),
             ),
             (
                 "scripts/discover-programs.sh",
-                include_str!("../../../skill/boundless-echo-request/scripts/discover-programs.sh"),
+                include_str!("../../../skill/first-request/scripts/discover-programs.sh"),
             ),
             (
-                "examples/echo-request.yaml",
-                include_str!("../../../skill/boundless-echo-request/examples/echo-request.yaml"),
+                "examples/request.yaml",
+                include_str!("../../../skill/first-request/examples/request.yaml"),
             ),
             (
                 "references/cli-reference.md",
-                include_str!("../../../skill/boundless-echo-request/references/cli-reference.md"),
+                include_str!("../../../skill/first-request/references/cli-reference.md"),
             ),
             (
-                "references/echo-explainer.md",
-                include_str!("../../../skill/boundless-echo-request/references/echo-explainer.md"),
+                "references/guest-program-explainer.md",
+                include_str!("../../../skill/first-request/references/guest-program-explainer.md"),
             ),
             (
                 "references/troubleshooting.md",
-                include_str!("../../../skill/boundless-echo-request/references/troubleshooting.md"),
+                include_str!("../../../skill/first-request/references/troubleshooting.md"),
             ),
         ],
     },
@@ -157,7 +157,7 @@ const TOOL_FORMATS: &[ToolFormat] = &[
 /// Install Boundless skill files for AI coding tools
 #[derive(Args, Clone, Debug)]
 pub struct SkillInstall {
-    /// Name of the skill to install (e.g., boundless-overview, boundless-echo-request)
+    /// Name of the skill to install (e.g., boundless-overview, first-request)
     #[arg()]
     skill_name: Option<String>,
 

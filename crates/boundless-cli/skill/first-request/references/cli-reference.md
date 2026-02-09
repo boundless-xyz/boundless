@@ -128,7 +128,7 @@ boundless requestor submit-file request.yaml --wait
 | `-o, --offchain` | Submit offchain |
 | `--no-preflight` | Skip preflight checks |
 
-See `examples/echo-request.yaml` for the YAML format.
+See `examples/request.yaml` for the YAML format.
 
 ### `boundless requestor status <REQUEST_ID> [EXPIRES_AT]`
 

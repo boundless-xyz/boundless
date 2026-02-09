@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check prerequisites for Boundless echo proof request
+# Check prerequisites for Boundless first proof request
 set -euo pipefail
 
 # Add common tool install paths
@@ -41,7 +41,7 @@ check_optional() {
 }
 
 printf "\n"
-printf "${BOLD}Boundless Echo Proof — Prerequisite Check${NC}\n"
+printf "${BOLD}Boundless First Request — Prerequisite Check${NC}\n"
 printf "===========================================\n"
 printf "\n"
 

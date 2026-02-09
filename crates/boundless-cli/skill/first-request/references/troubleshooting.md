@@ -1,4 +1,4 @@
-# Troubleshooting — Boundless Echo Proof
+# Troubleshooting — Boundless First Request
 
 ## Common Errors
 
@@ -7,7 +7,7 @@
 | `insufficient funds` | Wallet ETH balance too low for gas + deposit | Fund wallet on Base via bridge.base.org or CEX withdrawal |
 | `execution reverted` on deposit | Trying to deposit more ETH than wallet holds | Check balance with `cast balance <addr> --rpc-url <rpc>` |
 | `RequestHasExpired` | Proof request timed out before a prover fulfilled it | Increase `--timeout` and `--max-price` to attract provers |
-| `program too large` | ELF binary exceeds 50MB limit | Ensure you're using the correct echo program URL |
+| `program too large` | ELF binary exceeds 50MB limit | Ensure you're using a valid program URL from the discovery script |
 | `connection refused` / `transport error` | RPC endpoint unreachable | Verify `REQUESTOR_RPC_URL` is correct and the provider is online |
 | `invalid Pinata JWT` | Bad or expired Pinata token | Regenerate JWT at app.pinata.cloud/keys |
 | `no provers available` | No provers currently serving requests | Wait and retry — prover availability fluctuates. Increase `--max-price` |
@@ -59,7 +59,7 @@ The Boundless market is an auction. If your offer price is too low, provers may 
 
 ### Request fulfilled but journal is empty
 
-The echo program commits whatever stdin it receives. If the journal is empty, the input was empty.
+The guest program commits whatever stdin it receives. If the journal is empty, the input was empty.
 
 **Fix:** Ensure `--input` has a non-empty value, or check the `data` field in your YAML.
 

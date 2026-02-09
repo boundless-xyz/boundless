@@ -1,10 +1,10 @@
-# Echo proof request for `boundless requestor submit-file`
+# Proof request template for `boundless requestor submit-file`
 #
 # Usage:
-#   boundless requestor submit-file echo-request.yaml --wait
+#   boundless requestor submit-file request.yaml --wait
 #
-# This submits an echo proof request to the Boundless Market.
-# The echo program reads stdin and commits it to the journal unchanged.
+# This submits a proof request to the Boundless Market.
+# The guest program reads stdin and commits results to the journal.
 
 id: 0  # Auto-assigned by the market
 

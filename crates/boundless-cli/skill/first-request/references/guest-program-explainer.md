@@ -1,4 +1,4 @@
-# The Echo Program: Simplest ZK Proof
+# Guest Programs: Understanding What You're Proving
 
 ## What is a Guest Program?
 
@@ -11,9 +11,9 @@ The architecture has two sides:
 
 The guest program is compiled to a RISC-V ELF binary. This binary has a deterministic **image ID** — a cryptographic hash of the program. The image ID is what gets verified on-chain: it proves that *this specific program* produced the output.
 
-## The Echo Source Code
+## A Minimal Guest Program
 
-The echo program is the simplest possible guest. It reads stdin and writes it unchanged to the journal:
+Here's the simplest possible guest program. It reads stdin and writes it unchanged to the journal:
 
 ```rust
 use std::io::Read;
@@ -34,11 +34,13 @@ That's it — ~6 lines of logic. Here's what each part does:
 1. `env::stdin()` — reads the input bytes that the host (requestor) provided.
 2. `env::commit_slice()` — writes data to the **journal**, which is the public output of the proof. Anything committed to the journal is visible to verifiers.
 
-The proof statement this creates is: *"I ran the echo program (identified by its image ID) with some input, and it produced this journal output."* Since echo just copies input to output, the journal will match the input exactly.
+The proof statement this creates is: *"I ran this program (identified by its image ID) with some input, and it produced this journal output."*
 
-## Why This Matters
+Real guest programs do more interesting things — validate signatures, check Merkle proofs, run ML inference — but the structure is always the same: read input, compute, commit output.
 
-The echo program seems trivial, but it demonstrates the full Boundless proof lifecycle:
+## The Boundless Proof Lifecycle
+
+Every proof request on Boundless follows the same flow, regardless of guest program complexity:
 
 1. **You submit a request** with a program URL and input data
 2. **A prover picks it up** from the Boundless market
@@ -46,24 +48,23 @@ The echo program seems trivial, but it demonstrates the full Boundless proof lif
 4. **The proof is verified** on-chain by the Boundless market contract
 5. **You receive** the journal (output) and seal (proof)
 
-This is the same flow used for complex programs — fraud proofs, identity verification, private computation. The echo program just makes the flow easy to understand.
+This is the same flow used for complex programs — fraud proofs, identity verification, private computation. Simple programs just make the flow easy to understand.
 
 ## Journal vs. Seal
 
 When your proof request is fulfilled, you get two things:
 
-- **Journal** — the public output bytes committed by `env::commit_slice()`. For the echo program, this is your input string echoed back. The journal is what your application logic cares about.
+- **Journal** — the public output bytes committed by `env::commit_slice()`. The journal is what your application logic cares about.
 - **Seal** — the cryptographic proof that the computation ran correctly. This is what smart contracts verify on-chain. You don't need to inspect it directly.
 
 Together, the journal and seal say: *"This program with image ID X produced output Y, and here's the cryptographic proof."*
 
-## Using Echo in the Boundless SDK
+## Using the Boundless SDK
 
-The counter example from the Boundless repo shows how the SDK submits an echo request programmatically:
+The counter example from the Boundless repo shows how the SDK submits a proof request programmatically:
 
 ```rust
 use boundless_market::Client;
-use guest_util::ECHO_ELF;
 
 // Build the Boundless client
 let client = Client::builder()
@@ -74,8 +75,8 @@ let client = Client::builder()
 
 // Create and submit a proof request
 let request = client.new_request()
-    .with_program(ECHO_ELF)
-    .with_stdin(echo_message.as_bytes());
+    .with_program_url(program_url)?
+    .with_stdin(&input_bytes);
 
 let (request_id, expires_at) = client.submit(request).await?;
 
@@ -89,11 +90,11 @@ let fulfillment = client
     .await?;
 ```
 
-The CLI's `submit` command does the same thing under the hood — it takes a `--program-url` pointing to the pre-built echo ELF on IPFS and `--input` for the stdin bytes.
+The CLI's `submit` command does the same thing under the hood — it takes a `--program-url` pointing to a pre-built ELF on IPFS and `--input-file` for the stdin bytes.
 
-## Building the Echo ELF Locally (Advanced)
+## Building a Guest Program Locally (Advanced)
 
-If you want to build the echo program yourself:
+If you want to build a guest program yourself:
 
 ```bash
 # Clone the Boundless repo
@@ -103,7 +104,7 @@ cd boundless
 # Install the RISC Zero toolchain
 rzup install
 
-# Build the echo guest program
+# Build a guest program (e.g., the echo guest)
 cargo build -p echo --target riscv32im-risc0-zkvm-elf --release
 
 # The ELF binary is at:
