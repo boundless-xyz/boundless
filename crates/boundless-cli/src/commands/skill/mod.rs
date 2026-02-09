@@ -12,13 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for the Boundless CLI.
+//! Commands for managing AI tool skill files.
 
-mod rewards;
-mod skill;
+mod install;
 
-// Include the actual tests
-#[path = "rewards/mining.rs"]
-mod mining;
-#[path = "skill/install.rs"]
-mod skill_install;
+pub use install::SkillInstall;
+
+use clap::Subcommand;
+
+use crate::config::GlobalConfig;
+
+/// Commands for managing AI tool skill files
+#[derive(Subcommand, Clone, Debug)]
+pub enum SkillCommands {
+    /// Install Boundless skill files for AI coding tools
+    Install(SkillInstall),
+}
+
+impl SkillCommands {
+    /// Run the command
+    pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
+        match self {
+            Self::Install(cmd) => cmd.run(global_config).await,
+        }
+    }
+}

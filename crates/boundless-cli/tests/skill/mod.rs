@@ -12,13 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Integration tests for the Boundless CLI.
+//! Integration tests for skill commands.
 
-mod rewards;
-mod skill;
-
-// Include the actual tests
-#[path = "rewards/mining.rs"]
-mod mining;
-#[path = "skill/install.rs"]
-mod skill_install;
+/// Helper to create a Command for the boundless CLI
+pub fn cli_cmd() -> anyhow::Result<assert_cmd::Command> {
+    Ok(assert_cmd::Command::cargo_bin("boundless")?)
+}
