@@ -811,6 +811,7 @@ pub trait IndexerDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        status: Option<RequestStatusType>,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError>;
 
     async fn get_requests_by_request_id(
@@ -3196,37 +3197,72 @@ impl IndexerDb for MarketDb {
         cursor: Option<RequestCursor>,
         limit: u32,
         sort_by: RequestSortField,
+        status: Option<RequestStatusType>,
     ) -> Result<(Vec<RequestStatus>, Option<RequestCursor>), DbError> {
         let sort_field = match sort_by {
             RequestSortField::UpdatedAt => "updated_at",
             RequestSortField::CreatedAt => "created_at",
         };
 
-        let rows = if let Some(c) = &cursor {
-            let query_str = format!(
-                "SELECT * FROM request_status
-                 WHERE {} < $1 OR ({} = $1 AND request_digest < $2)
-                 ORDER BY {} DESC, request_digest DESC
-                 LIMIT $3",
-                sort_field, sort_field, sort_field
-            );
-            sqlx::query(&query_str)
-                .bind(c.timestamp as i64)
-                .bind(&c.request_digest)
-                .bind(limit as i64)
-                .fetch_all(&self.pool)
-                .await?
-        } else {
-            let query_str = format!(
-                "SELECT * FROM request_status
-                 ORDER BY {} DESC, request_digest DESC
-                 LIMIT $1",
-                sort_field
-            );
-            sqlx::query(&query_str).bind(limit as i64).fetch_all(&self.pool).await?
+        let rows = match (&cursor, &status) {
+            (Some(c), Some(s)) => {
+                let query_str = format!(
+                    "SELECT * FROM request_status
+                     WHERE request_status = $1
+                       AND ({} < $2 OR ({} = $2 AND request_digest < $3))
+                     ORDER BY {} DESC, request_digest DESC
+                     LIMIT $4",
+                    sort_field, sort_field, sort_field
+                );
+                sqlx::query(&query_str)
+                    .bind(s.to_string())
+                    .bind(c.timestamp as i64)
+                    .bind(&c.request_digest)
+                    .bind(limit as i64)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (Some(c), None) => {
+                let query_str = format!(
+                    "SELECT * FROM request_status
+                     WHERE {} < $1 OR ({} = $1 AND request_digest < $2)
+                     ORDER BY {} DESC, request_digest DESC
+                     LIMIT $3",
+                    sort_field, sort_field, sort_field
+                );
+                sqlx::query(&query_str)
+                    .bind(c.timestamp as i64)
+                    .bind(&c.request_digest)
+                    .bind(limit as i64)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (None, Some(s)) => {
+                let query_str = format!(
+                    "SELECT * FROM request_status
+                     WHERE request_status = $1
+                     ORDER BY {} DESC, request_digest DESC
+                     LIMIT $2",
+                    sort_field
+                );
+                sqlx::query(&query_str)
+                    .bind(s.to_string())
+                    .bind(limit as i64)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (None, None) => {
+                let query_str = format!(
+                    "SELECT * FROM request_status
+                     ORDER BY {} DESC, request_digest DESC
+                     LIMIT $1",
+                    sort_field
+                );
+                sqlx::query(&query_str).bind(limit as i64).fetch_all(&self.pool).await?
+            }
         };
-        let mut results = Vec::new();
 
+        let mut results = Vec::new();
         for row in rows {
             results.push(self.row_to_request_status(&row)?);
         }
@@ -3237,7 +3273,7 @@ impl IndexerDb for MarketDb {
                     RequestSortField::UpdatedAt => r.updated_at,
                     RequestSortField::CreatedAt => r.created_at,
                 };
-                RequestCursor { timestamp, request_digest: r.request_digest.to_string() }
+                RequestCursor { timestamp, request_digest: format!("{:x}", r.request_digest) }
             })
         } else {
             None
@@ -5553,6 +5589,192 @@ mod tests {
             .unwrap();
 
         assert_eq!(count, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_list_requests_with_status_filter(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db;
+
+        let base_ts = 1700000000u64;
+
+        // Create requests with different statuses
+        let mut status1 = create_test_status(B256::from([1; 32]), RequestStatusType::Submitted);
+        status1.created_at = base_ts;
+        status1.updated_at = base_ts;
+
+        let mut status2 = create_test_status(B256::from([2; 32]), RequestStatusType::Locked);
+        status2.created_at = base_ts + 100;
+        status2.updated_at = base_ts + 100;
+        status2.lock_prover_address = Some(Address::from([0xAA; 20]));
+        status2.locked_at = Some(base_ts + 100);
+
+        let mut status3 = create_test_status(B256::from([3; 32]), RequestStatusType::Fulfilled);
+        status3.created_at = base_ts + 200;
+        status3.updated_at = base_ts + 200;
+        status3.fulfill_prover_address = Some(Address::from([0xBB; 20]));
+        status3.fulfilled_at = Some(base_ts + 200);
+
+        let mut status4 = create_test_status(B256::from([4; 32]), RequestStatusType::Expired);
+        status4.created_at = base_ts + 300;
+        status4.updated_at = base_ts + 300;
+
+        let mut status5 = create_test_status(B256::from([5; 32]), RequestStatusType::Submitted);
+        status5.created_at = base_ts + 400;
+        status5.updated_at = base_ts + 400;
+
+        db.upsert_request_statuses(&[
+            status1.clone(),
+            status2.clone(),
+            status3.clone(),
+            status4.clone(),
+            status5.clone(),
+        ])
+        .await
+        .unwrap();
+
+        // Filter by Submitted status
+        let (results, _) = db
+            .list_requests(
+                None,
+                10,
+                RequestSortField::CreatedAt,
+                Some(RequestStatusType::Submitted),
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.request_status == RequestStatusType::Submitted));
+
+        // Filter by Locked status
+        let (results, _) = db
+            .list_requests(None, 10, RequestSortField::CreatedAt, Some(RequestStatusType::Locked))
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].request_status, RequestStatusType::Locked);
+
+        // Filter by Fulfilled status
+        let (results, _) = db
+            .list_requests(
+                None,
+                10,
+                RequestSortField::CreatedAt,
+                Some(RequestStatusType::Fulfilled),
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].request_status, RequestStatusType::Fulfilled);
+
+        // Filter by Expired status
+        let (results, _) = db
+            .list_requests(None, 10, RequestSortField::CreatedAt, Some(RequestStatusType::Expired))
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].request_status, RequestStatusType::Expired);
+
+        // No filter (all statuses)
+        let (results, _) =
+            db.list_requests(None, 10, RequestSortField::CreatedAt, None).await.unwrap();
+        assert_eq!(results.len(), 5);
+
+        // Filter with pagination - get page 1
+        let (page1, cursor1) = db
+            .list_requests(None, 1, RequestSortField::CreatedAt, Some(RequestStatusType::Submitted))
+            .await
+            .unwrap();
+        assert_eq!(page1.len(), 1, "Page 1 should have 1 result");
+        assert!(cursor1.is_some(), "Page 1 should have a cursor");
+
+        // Get page 2
+        let (page2, cursor2) = db
+            .list_requests(
+                cursor1,
+                1,
+                RequestSortField::CreatedAt,
+                Some(RequestStatusType::Submitted),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page2.len(), 1, "Page 2 should have 1 result");
+
+        // Get page 3 - should be empty
+        let (page3, cursor3) = db
+            .list_requests(
+                cursor2,
+                1,
+                RequestSortField::CreatedAt,
+                Some(RequestStatusType::Submitted),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page3.len(), 0, "Page 3 should be empty");
+        assert!(cursor3.is_none(), "Page 3 should have no cursor");
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_list_requests_pagination_same_timestamp(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db;
+
+        let same_ts = 1700000000u64;
+
+        // Use digests whose first hex char is > '0' to trigger the cursor formatting bug.
+        // When the cursor uses 0x-prefixed hex (B256::to_string()), the SQL string comparison
+        // "request_digest < '0x3030...'" incorrectly excludes digests starting with '1' or '2'
+        // because '1' > '0' and '2' > '0' in ASCII, making them appear "greater" than the cursor.
+        let mut status_a = create_test_status(B256::from([0x10; 32]), RequestStatusType::Submitted);
+        status_a.created_at = same_ts;
+        status_a.updated_at = same_ts;
+
+        let mut status_b = create_test_status(B256::from([0x20; 32]), RequestStatusType::Submitted);
+        status_b.created_at = same_ts;
+        status_b.updated_at = same_ts;
+
+        let mut status_c = create_test_status(B256::from([0x30; 32]), RequestStatusType::Submitted);
+        status_c.created_at = same_ts;
+        status_c.updated_at = same_ts;
+
+        db.upsert_request_statuses(&[status_a.clone(), status_b.clone(), status_c.clone()])
+            .await
+            .unwrap();
+
+        // Paginate through all 3 records one at a time
+        let mut all_digests = Vec::new();
+        let mut cursor = None;
+
+        for page_num in 1..=4 {
+            let (results, next_cursor) =
+                db.list_requests(cursor, 1, RequestSortField::CreatedAt, None).await.unwrap();
+
+            if results.is_empty() {
+                assert!(
+                    next_cursor.is_none(),
+                    "Page {}: empty results should have no cursor",
+                    page_num
+                );
+                break;
+            }
+
+            for r in &results {
+                all_digests.push(r.request_digest);
+            }
+            cursor = next_cursor;
+        }
+
+        assert_eq!(
+            all_digests.len(),
+            3,
+            "Should retrieve all 3 records via pagination, got {} (digests: {:?})",
+            all_digests.len(),
+            all_digests
+        );
+
+        // Verify all 3 distinct digests were returned
+        let unique: std::collections::HashSet<_> = all_digests.iter().collect();
+        assert_eq!(unique.len(), 3, "All 3 records should be unique");
     }
 
     #[sqlx::test(migrations = "./migrations")]

@@ -715,6 +715,62 @@ async fn test_market_requests_pagination() {
 
 #[tokio::test]
 #[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
+async fn test_market_requests_pagination_completeness() {
+    let env = TestEnv::market().await;
+
+    // Fetch all requests in one go with a large limit
+    let all: RequestListResponse = env.get("/v1/market/requests?limit=500").await.unwrap();
+    let total_count = all.data.len();
+    tracing::info!("Total requests: {}", total_count);
+    assert!(total_count > 0, "Need at least some requests for this test");
+
+    let all_digests: std::collections::HashSet<String> =
+        all.data.iter().map(|r| r.request_digest.clone()).collect();
+
+    // Paginate through with limit=1 and collect all digests
+    let mut paginated_digests = Vec::new();
+    let mut cursor: Option<String> = None;
+    let max_pages = total_count + 5;
+
+    for _ in 0..max_pages {
+        let url = match &cursor {
+            Some(c) => format!("/v1/market/requests?limit=1&cursor={}", c),
+            None => "/v1/market/requests?limit=1".to_string(),
+        };
+        let page: RequestListResponse = env.get(&url).await.unwrap();
+
+        for r in &page.data {
+            paginated_digests.push(r.request_digest.clone());
+        }
+
+        if !page.has_more {
+            break;
+        }
+        cursor = page.next_cursor;
+    }
+
+    let paginated_set: std::collections::HashSet<String> =
+        paginated_digests.iter().cloned().collect();
+
+    assert_eq!(
+        paginated_digests.len(),
+        paginated_set.len(),
+        "Pagination should not return duplicate records"
+    );
+
+    assert_eq!(
+        paginated_set.len(),
+        all_digests.len(),
+        "Paginating one-by-one should return the same number of records as a bulk fetch. \
+         Got {} via pagination vs {} via bulk. Missing: {:?}",
+        paginated_set.len(),
+        all_digests.len(),
+        all_digests.difference(&paginated_set).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(not(feature = "test-rpc"), ignore = "Requires BASE_MAINNET_RPC_URL")]
 async fn test_market_requests_sorting() {
     let env = TestEnv::market().await;
 

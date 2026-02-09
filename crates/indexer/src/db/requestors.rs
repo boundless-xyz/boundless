@@ -251,7 +251,7 @@ pub trait RequestorDb: IndexerDb {
                     RequestSortField::UpdatedAt => r.updated_at,
                     RequestSortField::CreatedAt => r.created_at,
                 };
-                RequestCursor { timestamp, request_digest: r.request_digest.to_string() }
+                RequestCursor { timestamp, request_digest: format!("{:x}", r.request_digest) }
             })
         } else {
             None
