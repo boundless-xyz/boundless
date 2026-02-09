@@ -1,0 +1,40 @@
+# Echo proof request for `boundless requestor submit-file`
+#
+# Usage:
+#   boundless requestor submit-file echo-request.yaml --wait
+#
+# This submits an echo proof request to the Boundless Market.
+# The echo program reads stdin and commits it to the journal unchanged.
+
+id: 0  # Auto-assigned by the market
+
+# Program URL: get a current one by running: bash scripts/discover-programs.sh
+# Use the image_url from the selected request.
+imageUrl: "<PROGRAM_URL_FROM_DISCOVER_SCRIPT>"
+
+# Input: use the input_data from the same request chosen above.
+# The discover script outputs hex-encoded input data for each request.
+input:
+  inputType: Inline
+  data: "<INPUT_DATA_HEX_FROM_DISCOVER_SCRIPT>"
+
+# Requirements: no callback, default proof type
+requirements:
+  imageId: "0000000000000000000000000000000000000000000000000000000000000000"  # Auto-filled by preflight
+  predicate:
+    predicateType: PrefixMatch
+    data: ""
+  callback:
+    addr: "0x0000000000000000000000000000000000000000"
+    gasLimit: 0
+  selector: "00000000"
+
+# Offer: reverse Dutch auction pricing
+offer:
+  minPrice: 100000000000000      # 0.0001 ETH — starting price
+  maxPrice: 2000000000000000     # 0.002 ETH  — max price
+  rampUpStart: 0                 # Auto-assigned (current timestamp)
+  rampUpPeriod: 300              # 5 min ramp from min to max price
+  timeout: 3600                  # 1 hour before request expires
+  lockTimeout: 2700              # 45 min for prover to deliver after locking
+  lockCollateral: 5000000000000000000  # 5 ETH prover collateral

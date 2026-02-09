@@ -17,18 +17,88 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Args;
 use colored::Colorize;
 use inquire::Select;
 
 use crate::config::GlobalConfig;
 
-// Skill file contents embedded at compile time.
-const SKILL_MD: &str = include_str!("../../../skill/SKILL.md");
-const ARCHITECTURE_MD: &str = include_str!("../../../skill/references/architecture.md");
-const CLI_REFERENCE_MD: &str = include_str!("../../../skill/references/cli-reference.md");
-const CONVENTIONS_MD: &str = include_str!("../../../skill/references/conventions.md");
+/// A skill definition with embedded file contents.
+struct Skill {
+    /// Unique name for this skill (used as directory name).
+    name: &'static str,
+    /// Short description of what this skill provides.
+    description: &'static str,
+    /// Files to install: (relative_path, content).
+    files: &'static [(&'static str, &'static str)],
+}
+
+impl fmt::Display for Skill {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} - {}", self.name, self.description)
+    }
+}
+
+/// All available skills embedded at compile time.
+const SKILLS: &[Skill] = &[
+    Skill {
+        name: "boundless-overview",
+        description: "Boundless CLI overview, architecture, and conventions",
+        files: &[
+            (
+                "SKILL.md",
+                include_str!("../../../skill/boundless-overview/SKILL.md"),
+            ),
+            (
+                "references/architecture.md",
+                include_str!("../../../skill/boundless-overview/references/architecture.md"),
+            ),
+            (
+                "references/cli-reference.md",
+                include_str!("../../../skill/boundless-overview/references/cli-reference.md"),
+            ),
+            (
+                "references/conventions.md",
+                include_str!("../../../skill/boundless-overview/references/conventions.md"),
+            ),
+        ],
+    },
+    Skill {
+        name: "boundless-echo-request",
+        description: "Guided walkthrough: submit your first ZK proof on Boundless",
+        files: &[
+            (
+                "SKILL.md",
+                include_str!("../../../skill/boundless-echo-request/SKILL.md"),
+            ),
+            (
+                "scripts/check-prerequisites.sh",
+                include_str!("../../../skill/boundless-echo-request/scripts/check-prerequisites.sh"),
+            ),
+            (
+                "scripts/discover-programs.sh",
+                include_str!("../../../skill/boundless-echo-request/scripts/discover-programs.sh"),
+            ),
+            (
+                "examples/echo-request.yaml",
+                include_str!("../../../skill/boundless-echo-request/examples/echo-request.yaml"),
+            ),
+            (
+                "references/cli-reference.md",
+                include_str!("../../../skill/boundless-echo-request/references/cli-reference.md"),
+            ),
+            (
+                "references/echo-explainer.md",
+                include_str!("../../../skill/boundless-echo-request/references/echo-explainer.md"),
+            ),
+            (
+                "references/troubleshooting.md",
+                include_str!("../../../skill/boundless-echo-request/references/troubleshooting.md"),
+            ),
+        ],
+    },
+];
 
 /// Supported AI tool formats and their install paths.
 #[derive(Clone, Debug)]
@@ -48,45 +118,57 @@ impl fmt::Display for ToolFormat {
 const TOOL_FORMATS: &[ToolFormat] = &[
     ToolFormat {
         name: "Claude Code",
-        description: "Claude Code skill format (.claude/skills/boundless)",
-        local_dir: ".claude/skills/boundless",
-        global_dir: ".claude/skills/boundless",
+        description: "Claude Code skill format (.claude/skills)",
+        local_dir: ".claude/skills",
+        global_dir: ".claude/skills",
     },
     ToolFormat {
         name: "OpenCode",
-        description: "OpenCode AI skill format (.opencode/skills/boundless)",
-        local_dir: ".opencode/skills/boundless",
-        global_dir: ".opencode/skills/boundless",
+        description: "OpenCode AI skill format (.opencode/skills)",
+        local_dir: ".opencode/skills",
+        global_dir: ".opencode/skills",
     },
     ToolFormat {
         name: "Codex",
-        description: "Codex skill format (.codex/skills/boundless)",
-        local_dir: ".codex/skills/boundless",
-        global_dir: ".codex/skills/boundless",
+        description: "Codex skill format (.codex/skills)",
+        local_dir: ".codex/skills",
+        global_dir: ".codex/skills",
     },
     ToolFormat {
         name: "GitHub Copilot",
-        description: "GitHub Copilot instructions (.github/skills/boundless)",
-        local_dir: ".github/skills/boundless",
-        global_dir: ".copilot/skills/boundless",
+        description: "GitHub Copilot instructions (.github/skills)",
+        local_dir: ".github/skills",
+        global_dir: ".copilot/skills",
     },
     ToolFormat {
         name: "Cursor",
-        description: "Cursor AI skill format (.cursor/skills/boundless)",
-        local_dir: ".cursor/skills/boundless",
-        global_dir: ".cursor/skills/boundless",
+        description: "Cursor AI skill format (.cursor/skills)",
+        local_dir: ".cursor/skills",
+        global_dir: ".cursor/skills",
     },
     ToolFormat {
         name: "Windsurf",
-        description: "Windsurf skill format (.windsurf/skills/boundless)",
-        local_dir: ".windsurf/skills/boundless",
-        global_dir: ".windsurf/skills/boundless",
+        description: "Windsurf skill format (.windsurf/skills)",
+        local_dir: ".windsurf/skills",
+        global_dir: ".windsurf/skills",
     },
 ];
 
 /// Install Boundless skill files for AI coding tools
 #[derive(Args, Clone, Debug)]
 pub struct SkillInstall {
+    /// Name of the skill to install (e.g., boundless-overview, boundless-echo-request)
+    #[arg()]
+    skill_name: Option<String>,
+
+    /// Install all available skills
+    #[arg(long)]
+    all: bool,
+
+    /// List available skills without installing
+    #[arg(long)]
+    list: bool,
+
     /// Install to the home directory instead of the current directory
     #[arg(long, short = 'g')]
     global: bool,
@@ -99,7 +181,50 @@ pub struct SkillInstall {
 impl SkillInstall {
     /// Run the skill install command.
     pub async fn run(&self, _global_config: &GlobalConfig) -> Result<()> {
-        let install_dir = if let Some(ref path) = self.path {
+        // Handle --list: print available skills and return.
+        if self.list {
+            println!();
+            println!("{}", "Available skills:".bold());
+            println!();
+            for skill in SKILLS {
+                println!("  {} {}", skill.name.bold(), format!("- {}", skill.description).dimmed());
+            }
+            println!();
+            return Ok(());
+        }
+
+        // Determine which skills to install.
+        let skills_to_install: Vec<&Skill> = if self.all {
+            SKILLS.iter().collect()
+        } else if let Some(ref name) = self.skill_name {
+            let skill = SKILLS.iter().find(|s| s.name == name.as_str());
+            match skill {
+                Some(s) => vec![s],
+                None => {
+                    let available: Vec<&str> = SKILLS.iter().map(|s| s.name).collect();
+                    bail!(
+                        "Unknown skill '{}'. Available skills: {}",
+                        name,
+                        available.join(", ")
+                    );
+                }
+            }
+        } else {
+            // Interactive selection.
+            let options: Vec<String> = SKILLS.iter().map(|s| s.to_string()).collect();
+            let selection = Select::new("Select a skill to install:", options)
+                .prompt()
+                .context("Failed to get skill selection")?;
+            // Find the skill by matching the display string.
+            let skill = SKILLS
+                .iter()
+                .find(|s| s.to_string() == selection)
+                .context("Failed to find selected skill")?;
+            vec![skill]
+        };
+
+        // Resolve the base install directory (without skill name).
+        let base_dir = if let Some(ref path) = self.path {
             path.clone()
         } else {
             let format = Select::new(
@@ -119,47 +244,58 @@ impl SkillInstall {
             }
         };
 
-        // Create directory structure
-        let refs_dir = install_dir.join("references");
-        std::fs::create_dir_all(&refs_dir)
-            .with_context(|| format!("Failed to create directory: {}", refs_dir.display()))?;
+        // Install each skill.
+        for skill in &skills_to_install {
+            let install_dir = base_dir.join(skill.name);
 
-        // Write skill files
-        let files: &[(&str, &str)] = &[
-            ("SKILL.md", SKILL_MD),
-            ("references/architecture.md", ARCHITECTURE_MD),
-            ("references/cli-reference.md", CLI_REFERENCE_MD),
-            ("references/conventions.md", CONVENTIONS_MD),
-        ];
+            // Collect all subdirectories needed.
+            for (rel_path, _) in skill.files {
+                if let Some(parent) = std::path::Path::new(rel_path).parent() {
+                    if !parent.as_os_str().is_empty() {
+                        let dir = install_dir.join(parent);
+                        std::fs::create_dir_all(&dir)
+                            .with_context(|| format!("Failed to create directory: {}", dir.display()))?;
+                    }
+                }
+            }
+            // Ensure the base install dir exists even if all files are at root level.
+            std::fs::create_dir_all(&install_dir)
+                .with_context(|| format!("Failed to create directory: {}", install_dir.display()))?;
 
-        for (name, content) in files {
-            let file_path = install_dir.join(name);
-            std::fs::write(&file_path, content)
-                .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
+            // Write all files.
+            for (rel_path, content) in skill.files {
+                let file_path = install_dir.join(rel_path);
+                std::fs::write(&file_path, content)
+                    .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
+            }
+
+            // Print success message.
+            println!();
+            println!(
+                "{} Skill '{}' installed successfully!",
+                "✓".green().bold(),
+                skill.name
+            );
+            println!();
+
+            // Show relative path if possible, otherwise absolute.
+            let display_path = if let Ok(cwd) = std::env::current_dir() {
+                install_dir
+                    .strip_prefix(&cwd)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| install_dir.display().to_string())
+            } else {
+                install_dir.display().to_string()
+            };
+
+            println!("  {}: {}", "Location".bold(), display_path);
+            println!();
+            println!("  {}:", "Files installed".bold());
+            for (name, _) in skill.files {
+                println!("    {} {}", "•".dimmed(), name);
+            }
+            println!();
         }
-
-        // Print success message
-        println!();
-        println!("{} Boundless skill installed successfully!", "✓".green().bold());
-        println!();
-
-        // Show relative path if possible, otherwise absolute
-        let display_path = if let Ok(cwd) = std::env::current_dir() {
-            install_dir
-                .strip_prefix(&cwd)
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| install_dir.display().to_string())
-        } else {
-            install_dir.display().to_string()
-        };
-
-        println!("  {}: {}", "Location".bold(), display_path);
-        println!();
-        println!("  {}:", "Files installed".bold());
-        for (name, _) in files {
-            println!("    {} {}", "•".dimmed(), name);
-        }
-        println!();
 
         Ok(())
     }
