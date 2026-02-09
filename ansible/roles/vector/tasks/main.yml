@@ -110,7 +110,9 @@
         regexp: '^AWS_SHARED_CREDENTIALS_FILE='
         line: "AWS_SHARED_CREDENTIALS_FILE={{ vector_aws_credentials_file }}"
         create: true
-        mode: '0644'
+        owner: root
+        group: root
+        mode: '0600'
       notify: Restart Vector service
 
 - name: Configure AWS environment variables (if specified)
@@ -129,7 +131,9 @@
         regexp: '^{{ item.regexp }}'
         line: "{{ item.line }}"
         create: true
-        mode: '0644'
+        owner: root
+        group: root
+        mode: '0600'
       loop:
         - regexp: '^AWS_ACCESS_KEY_ID='
           line: "AWS_ACCESS_KEY_ID={{ vector_aws_access_key_id }}"
@@ -138,6 +142,7 @@
         - regexp: '^AWS_DEFAULT_REGION='
           line: "AWS_DEFAULT_REGION={{ vector_cloudwatch_region }}"
       notify: Restart Vector service
+      no_log: true
 
 - name: Ensure Vector service is configured
   ansible.builtin.systemd:
