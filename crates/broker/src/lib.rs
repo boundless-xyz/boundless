@@ -217,6 +217,7 @@ pub(crate) fn order_from_request(order_request: &OrderRequest, status: OrderStat
         image_id: order_request.image_id.clone(),
         input_id: order_request.input_id.clone(),
         total_cycles: order_request.total_cycles,
+        journal_bytes: order_request.journal_bytes,
         target_timestamp: order_request.target_timestamp,
         expire_timestamp: order_request.expire_timestamp,
         proving_started_at: None,
@@ -270,6 +271,9 @@ struct Order {
     /// Total cycles
     /// Populated after initial pricing in order picker
     total_cycles: Option<u64>,
+    /// Journal size in bytes. Populated after preflight.
+    #[serde(default)]
+    journal_bytes: Option<usize>,
     /// Locking status target UNIX timestamp
     target_timestamp: Option<u64>,
     /// When proving was commenced at
@@ -1242,6 +1246,61 @@ pub mod test_utils {
                 self.config_file,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    /// Ensures existing DB rows (serialized without journal_bytes) deserialize correctly.
+    #[test]
+    fn journal_bytes_backwards_compat() {
+        use boundless_market::contracts::{
+            Offer, Predicate, RequestId, RequestInput, Requirements,
+        };
+        use risc0_zkvm::sha::Digest;
+
+        let request = ProofRequest::new(
+            RequestId::new(Address::ZERO, 0),
+            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+            "",
+            RequestInput::inline(Bytes::new()),
+            Offer::default(),
+        );
+
+        // Create an Order and serialize it to JSON.
+        let order = Order {
+            boundless_market_address: Address::ZERO,
+            chain_id: 1,
+            fulfillment_type: FulfillmentType::LockAndFulfill,
+            request,
+            status: OrderStatus::PendingProving,
+            updated_at: Utc::now(),
+            total_cycles: Some(1000),
+            journal_bytes: Some(42),
+            target_timestamp: None,
+            proving_started_at: None,
+            image_id: None,
+            input_id: None,
+            proof_id: None,
+            compressed_proof_id: None,
+            expire_timestamp: None,
+            client_sig: Bytes::new(),
+            lock_price: None,
+            error_msg: None,
+            cached_id: OnceLock::new(),
+        };
+        let json = serde_json::to_string(&order).unwrap();
+
+        // Remove journal_bytes from the JSON to simulate an old DB row.
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value.as_object_mut().unwrap().remove("journal_bytes");
+        let json_without_field = serde_json::to_string(&value).unwrap();
+
+        // Deserialize and verify journal_bytes defaults to None.
+        let deserialized: Order = serde_json::from_str(&json_without_field).unwrap();
+        assert!(deserialized.journal_bytes.is_none());
     }
 }
 

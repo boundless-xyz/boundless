@@ -109,6 +109,7 @@ pub(crate) async fn estimate_gas_to_fulfill(
     config: &ConfigLock,
     supported_selectors: &SupportedSelectors,
     request: &ProofRequest,
+    journal_bytes: Option<usize>,
 ) -> Result<u64> {
     let (base, groth16, journal_gas_per_byte, max_journal_bytes) = {
         let config = config.lock_all().context("Failed to read config")?;
@@ -120,11 +121,13 @@ pub(crate) async fn estimate_gas_to_fulfill(
         )
     };
 
+    let journal_size = journal_bytes.unwrap_or(max_journal_bytes);
+
     let mut estimate = base;
 
     // Add gas for journal calldata when the predicate requires journal submission.
     if request.requirements.predicate.predicateType != PredicateType::ClaimDigestMatch {
-        estimate += max_journal_bytes as u64 * journal_gas_per_byte;
+        estimate += journal_size as u64 * journal_gas_per_byte;
     }
 
     // Add gas for orders that make use of the callbacks feature.

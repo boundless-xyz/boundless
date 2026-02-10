@@ -182,8 +182,10 @@ where
                     max_mcycle_price,
                     current_mcycle_price,
                     config_min_mcycle_price,
+                    journal_len,
                 }) => {
                     order.total_cycles = Some(total_cycles);
+                    order.journal_bytes = Some(journal_len);
                     order.target_timestamp = Some(target_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);
 
@@ -210,7 +212,9 @@ where
                     expiry_secs,
                     mcycle_price,
                     config_min_mcycle_price,
+                    journal_len,
                 }) => {
+                    order.journal_bytes = Some(journal_len);
                     tracing::info!("Setting order {order_id} to prove after lock expiry at {lock_expire_timestamp_secs} (projected price: {} ZKC/Mcycle, config min price: {} ZKC/Mcycle)", self.format_collateral(mcycle_price), self.format_collateral(config_min_mcycle_price));
                     order.total_cycles = Some(total_cycles);
                     order.target_timestamp = Some(lock_expire_timestamp_secs);
@@ -371,9 +375,13 @@ where
             .await
             .map_err(|err| OrderPickerErr::UnexpectedErr(Arc::new(err.into())))?
         {
-            let gas_estimate =
-                utils::estimate_gas_to_fulfill(config, &self.supported_selectors, &order.request)
-                    .await?;
+            let gas_estimate = utils::estimate_gas_to_fulfill(
+                config,
+                &self.supported_selectors,
+                &order.request,
+                order.journal_bytes,
+            )
+            .await?;
             gas += gas_estimate;
         }
         tracing::debug!("Total gas estimate to fulfill pending orders: {}", gas);
@@ -748,6 +756,7 @@ pub(crate) mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::config::defaults;
     use crate::{
         chain_monitor::ChainMonitorService,
         db::SqliteDb,
@@ -1135,6 +1144,37 @@ pub(crate) mod tests {
         assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
     }
 
+    const PINNED_BASE_FEE: u128 = 1_000_000_000;
+
+    /// Pin Anvil's base fee to a known value. Call this before any transaction
+    /// or gas price query to ensure deterministic gas pricing. This is to avoid flakiness with
+    /// tests given the base fee adjustment per block.
+    async fn pin_base_fee<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
+        ctx: &PickerTestCtx<P>,
+    ) {
+        ctx.provider.anvil_set_next_block_base_fee_per_gas(PINNED_BASE_FEE).await.unwrap();
+    }
+
+    /// Compute a price between the gas cost of a base order and the gas cost of
+    /// an enhanced order (with `extra_gas` additional gas units). Uses the chain
+    /// monitor's gas price after pinning the Anvil base fee for deterministic
+    /// results.
+    async fn gas_midpoint_price<P: Provider<Ethereum> + WalletProvider + Clone + 'static>(
+        ctx: &PickerTestCtx<P>,
+        extra_gas: u64,
+    ) -> U256 {
+        // Pin and mine a block so the chain monitor picks up the stable base fee.
+        pin_base_fee(ctx).await;
+        ctx.provider.anvil_mine(Some(1), None).await.unwrap();
+
+        let gas_price = ctx.picker.current_gas_price().await.unwrap();
+        // Base gas: lock (200k) + fulfill (400k) = 600k.
+        // Use the midpoint (50%) for maximum margin on both sides.
+        let base_gas: u64 = 600_000;
+        let target_gas = base_gas + extra_gas / 2;
+        U256::from(gas_price) * U256::from(target_gas)
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn skip_price_less_than_gas_costs_groth16() {
@@ -1144,10 +1184,11 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds
-        // (basic lock+fulfill gas cost and groth16 lock+fulfill gas cost).
-        let min_price = parse_ether("0.0006").unwrap();
-        let max_price = parse_ether("0.0006").unwrap();
+        // Compute a price between the base gas cost and the groth16 gas cost.
+        // Groth16 adds 250k gas units on top of the base 600k.
+        let price = gas_midpoint_price(&ctx, 250_000).await;
+        let min_price = price;
+        let max_price = price;
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1159,9 +1200,11 @@ pub(crate) mod tests {
             })
             .await;
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
         let priced = ctx.priced_orders_rx.try_recv().unwrap();
@@ -1181,9 +1224,11 @@ pub(crate) mod tests {
         order.request.requirements.selector =
             FixedBytes::from(SelectorExt::groth16_latest() as u32);
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let order_id = order.id();
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
@@ -1203,10 +1248,11 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds
-        // (basic lock+fulfill gas cost and callback lock+fulfill gas cost).
-        let min_price = parse_ether("0.00059").unwrap();
-        let max_price = parse_ether("0.00059").unwrap();
+        // Compute a price between the base gas cost and the callback gas cost.
+        // The callback adds 200k gas units on top of the base 600k.
+        let price = gas_midpoint_price(&ctx, 200_000).await;
+        let min_price = price;
+        let max_price = price;
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1217,9 +1263,11 @@ pub(crate) mod tests {
                 ..Default::default()
             })
             .await;
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
@@ -1242,9 +1290,11 @@ pub(crate) mod tests {
             gasLimit: U96::from(200_000),
         };
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let order_id = order.id();
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
@@ -1264,10 +1314,11 @@ pub(crate) mod tests {
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
-        // NOTE: Values currently adjusted ad hoc to be between the two thresholds
-        // (basic lock+fulfill gas cost and smart contract lock+fulfill gas cost).
-        let min_price = parse_ether("0.00056").unwrap();
-        let max_price = parse_ether("0.00056").unwrap();
+        // Compute a price between the base gas cost and the smart contract signature gas cost.
+        // Smart contract signature adds 100k gas units to the lock (ERC1271 check).
+        let price = gas_midpoint_price(&ctx, 100_000).await;
+        let min_price = price;
+        let max_price = price;
 
         // Order should have high enough price with the default selector.
         let order = ctx
@@ -1279,9 +1330,11 @@ pub(crate) mod tests {
             })
             .await;
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(locked);
 
@@ -1301,9 +1354,11 @@ pub(crate) mod tests {
         order.request.id =
             RequestId::try_from(order.request.id).unwrap().set_smart_contract_signed_flag().into();
 
+        pin_base_fee(&ctx).await;
         let _request_id =
             ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
 
+        pin_base_fee(&ctx).await;
         let order_id = order.id();
         let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
         assert!(!locked);
@@ -1478,21 +1533,13 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn use_gas_to_fulfill_estimate_from_config() {
-        let fulfill_gas = 123_456u64;
-        let journal_gas_per_byte = 26u64;
-        let max_journal_bytes = 10_000usize;
+        let fulfill_gas = defaults::fulfill_gas_estimate();
+        let journal_gas_per_byte = defaults::fulfill_journal_gas_per_byte();
         let config = ConfigLock::default();
         {
             let mut w = config.load_write().unwrap();
             w.market.min_mcycle_price = "0.0000001".into();
-            w.market.fulfill_gas_estimate = fulfill_gas;
-            w.market.fulfill_journal_gas_per_byte = journal_gas_per_byte;
-            w.market.max_journal_bytes = max_journal_bytes;
         }
-
-        // Orders use PrefixMatch, so journal gas applies.
-        let expected_per_order =
-            fulfill_gas + max_journal_bytes as u64 * journal_gas_per_byte;
 
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -1502,6 +1549,9 @@ pub(crate) mod tests {
 
         // Simulate order being locked
         let order = ctx.priced_orders_rx.try_recv().unwrap();
+        // Use the actual journal size from preflight (now persisted on the order).
+        let journal_bytes = order.journal_bytes.unwrap();
+        let expected_per_order = fulfill_gas + journal_bytes as u64 * journal_gas_per_byte;
         ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
 
         assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), expected_per_order);
@@ -1515,7 +1565,10 @@ pub(crate) mod tests {
         ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
 
         // gas estimate stacks (until estimates factor in bundling)
-        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * expected_per_order);
+        assert_eq!(
+            ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(),
+            2 * expected_per_order
+        );
     }
 
     #[tokio::test]

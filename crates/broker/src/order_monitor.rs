@@ -624,6 +624,7 @@ where
                         &self.config,
                         &self.supported_selectors,
                         &order.request,
+                        order.journal_bytes,
                     )
                     .await?,
                 ),
@@ -634,6 +635,7 @@ where
                     &self.config,
                     &self.supported_selectors,
                     &order.request,
+                    order.journal_bytes,
                 )
                 .await?,
             )
@@ -683,6 +685,7 @@ where
                     &self.config,
                     &self.supported_selectors,
                     &order.request,
+                    order.journal_bytes,
                 )
             }))
             .await?
