@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
+use boundless_indexer::market::epoch_calculator::DEFAULT_EPOCH0_START_TIME;
 use boundless_indexer::market::service::{IndexerServiceExecutionConfig, TransactionFetchStrategy};
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
@@ -80,6 +81,11 @@ struct MainArgs {
     /// to be scheduled for execution.
     #[clap(long, default_value = "3")]
     execution_interval: u64,
+    /// Unix timestamp when epoch 0 started for epoch-based aggregations.
+    /// Uses ZKC contract epoch logic: epoch = (timestamp - epoch0_start_time) / EPOCH_DURATION
+    /// where EPOCH_DURATION = 2 days (172800 seconds).
+    #[clap(long, env, default_value_t = DEFAULT_EPOCH0_START_TIME)]
+    epoch0_start_time: u64,
     /// Bento API execution configuration. All fields in this group require bento_api_url to be set.
     #[clap(flatten)]
     bento_config: BentoExecutionConfig,
@@ -170,7 +176,10 @@ async fn main() -> Result<()> {
         tx_fetch_strategy,
         execution_config,
         block_delay: args.block_delay,
+        epoch0_start_time: args.epoch0_start_time,
     };
+
+    tracing::info!("Epoch aggregations enabled with epoch0_start_time: {}", args.epoch0_start_time);
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
 

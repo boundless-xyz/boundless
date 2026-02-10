@@ -1,0 +1,32 @@
+---
+- name: Install Kailua binary from release (source)
+  when: kailua_install_method == "source"
+  block:
+    - name: Download Kailua binary
+      ansible.builtin.get_url:
+        url: "{{ kailua_download_url }}"
+        dest: "/tmp/{{ kailua_archive }}"
+        mode: "0644"
+
+    - name: Extract Kailua binary
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ kailua_archive }}"
+        dest: "{{ kailua_install_dir }}"
+        mode: "0755"
+
+    - name: Remove Kailua archive
+      ansible.builtin.file:
+        path: "/tmp/{{ kailua_archive }}"
+        state: absent
+
+- name: Write Kailua service file
+  ansible.builtin.template:
+    src: kailua.service.j2
+    dest: /etc/systemd/system/kailua.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: kailua_install_service | bool
+  notify:
+    - Reload systemd
+    - Restart Kailua

@@ -151,6 +151,7 @@ pub struct TxMetadata {
 #[derive(Debug, Clone)]
 pub struct PeriodMarketSummary {
     pub period_timestamp: u64,
+    pub epoch_number_period_start: i64,
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
     pub unique_requesters_submitting_requests: u64,
@@ -189,10 +190,14 @@ pub type HourlyMarketSummary = PeriodMarketSummary;
 pub type DailyMarketSummary = PeriodMarketSummary;
 pub type WeeklyMarketSummary = PeriodMarketSummary;
 pub type MonthlyMarketSummary = PeriodMarketSummary;
+pub type EpochMarketSummary = PeriodMarketSummary;
+pub type EpochProverSummary = PeriodProverSummary;
+pub type EpochRequestorSummary = PeriodRequestorSummary;
 
 #[derive(Debug, Clone)]
 pub struct AllTimeMarketSummary {
     pub period_timestamp: u64,
+    pub epoch_number_period_start: i64,
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
     pub unique_requesters_submitting_requests: u64,
@@ -222,6 +227,7 @@ pub struct AllTimeMarketSummary {
 #[derive(Debug, Clone)]
 pub struct PeriodRequestorSummary {
     pub period_timestamp: u64,
+    pub epoch_number_period_start: i64,
     pub requestor_address: Address,
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
@@ -286,6 +292,7 @@ pub type MonthlyRequestorSummary = PeriodRequestorSummary;
 #[derive(Debug, Clone)]
 pub struct AllTimeRequestorSummary {
     pub period_timestamp: u64,
+    pub epoch_number_period_start: i64,
     pub requestor_address: Address,
     pub total_fulfilled: u64,
     pub unique_provers_locking_requests: u64,
@@ -344,6 +351,7 @@ pub struct ProverLeaderboardEntry {
 #[derive(Debug, Clone)]
 pub struct PeriodProverSummary {
     pub period_timestamp: u64,
+    pub epoch_number_period_start: i64,
     pub prover_address: Address,
     pub total_requests_locked: u64,
     pub total_requests_fulfilled: u64,
@@ -393,6 +401,7 @@ pub type MonthlyProverSummary = PeriodProverSummary;
 #[derive(Debug, Clone)]
 pub struct AllTimeProverSummary {
     pub period_timestamp: u64,
+    pub epoch_number_period_start: i64,
     pub prover_address: Address,
     pub total_requests_locked: u64,
     pub total_requests_fulfilled: u64,
@@ -696,6 +705,16 @@ pub trait IndexerDb {
         before: Option<i64>,
         after: Option<i64>,
     ) -> Result<Vec<MonthlyMarketSummary>, DbError>;
+
+    async fn upsert_epoch_market_summary(&self, summary: EpochMarketSummary)
+        -> Result<(), DbError>;
+
+    async fn get_epoch_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+    ) -> Result<Vec<EpochMarketSummary>, DbError>;
 
     async fn upsert_all_time_market_summary(
         &self,
@@ -1859,6 +1878,7 @@ impl IndexerDb for MarketDb {
         sqlx::query(
             "INSERT INTO all_time_market_summary (
                 period_timestamp,
+                epoch_number_period_start,
                 total_fulfilled,
                 unique_provers_locking_requests,
                 unique_requesters_submitting_requests,
@@ -1884,8 +1904,9 @@ impl IndexerDb for MarketDb {
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CAST($24 AS DOUBLE PRECISION), CAST($25 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CAST($25 AS DOUBLE PRECISION), CAST($26 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
+                epoch_number_period_start = EXCLUDED.epoch_number_period_start,
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
                 unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
@@ -1913,6 +1934,7 @@ impl IndexerDb for MarketDb {
                 updated_at = CURRENT_TIMESTAMP",
         )
         .bind(summary.period_timestamp as i64)
+        .bind(summary.epoch_number_period_start)
         .bind(summary.total_fulfilled as i64)
         .bind(summary.unique_provers_locking_requests as i64)
         .bind(summary.unique_requesters_submitting_requests as i64)
@@ -1987,6 +2009,11 @@ impl IndexerDb for MarketDb {
 
         Ok(Some(AllTimeMarketSummary {
             period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+            epoch_number_period_start: row
+                .try_get::<Option<i64>, _>("epoch_number_period_start")
+                .ok()
+                .flatten()
+                .unwrap_or(0),
             total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
             unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests")
                 as u64,
@@ -2086,6 +2113,11 @@ impl IndexerDb for MarketDb {
 
         Ok(Some(AllTimeMarketSummary {
             period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+            epoch_number_period_start: row
+                .try_get::<Option<i64>, _>("epoch_number_period_start")
+                .ok()
+                .flatten()
+                .unwrap_or(0),
             total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
             unique_provers_locking_requests: row.get::<i64, _>("unique_provers_locking_requests")
                 as u64,
@@ -2209,6 +2241,23 @@ impl IndexerDb for MarketDb {
 
         let min_ts: Option<i64> = row.try_get("min_ts").ok();
         Ok(min_ts.map(|ts| ts as u64))
+    }
+
+    async fn upsert_epoch_market_summary(
+        &self,
+        summary: PeriodMarketSummary,
+    ) -> Result<(), DbError> {
+        self.upsert_market_summary_generic(summary, "epoch_market_summary").await
+    }
+
+    async fn get_epoch_market_summaries(
+        &self,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+    ) -> Result<Vec<PeriodMarketSummary>, DbError> {
+        self.get_market_summaries_generic(cursor, limit, sort, None, None, "epoch_market_summary")
+            .await
     }
 
     async fn upsert_request_statuses(&self, statuses: &[RequestStatus]) -> Result<(), DbError> {
@@ -3849,6 +3898,7 @@ impl MarketDb {
         let query_str = format!(
             "INSERT INTO {} (
                 period_timestamp,
+                epoch_number_period_start,
                 total_fulfilled,
                 unique_provers_locking_requests,
                 unique_requesters_submitting_requests,
@@ -3881,8 +3931,9 @@ impl MarketDb {
                 best_peak_prove_mhz_v2,
                 best_effective_prove_mhz_v2,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, CAST($31 AS DOUBLE PRECISION), CAST($32 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, CAST($32 AS DOUBLE PRECISION), CAST($33 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp) DO UPDATE SET
+                epoch_number_period_start = EXCLUDED.epoch_number_period_start,
                 total_fulfilled = EXCLUDED.total_fulfilled,
                 unique_provers_locking_requests = EXCLUDED.unique_provers_locking_requests,
                 unique_requesters_submitting_requests = EXCLUDED.unique_requesters_submitting_requests,
@@ -3920,6 +3971,7 @@ impl MarketDb {
 
         sqlx::query(&query_str)
             .bind(summary.period_timestamp as i64)
+            .bind(summary.epoch_number_period_start)
             .bind(summary.total_fulfilled as i64)
             .bind(summary.unique_provers_locking_requests as i64)
             .bind(summary.unique_requesters_submitting_requests as i64)
@@ -4014,6 +4066,7 @@ impl MarketDb {
         let query_str = format!(
             "SELECT
                 period_timestamp,
+                epoch_number_period_start,
                 total_fulfilled,
                 unique_provers_locking_requests,
                 unique_requesters_submitting_requests,
@@ -4075,6 +4128,11 @@ impl MarketDb {
             .into_iter()
             .map(|row| PeriodMarketSummary {
                 period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+                epoch_number_period_start: row
+                    .try_get::<Option<i64>, _>("epoch_number_period_start")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0),
                 total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
                 unique_provers_locking_requests: row
                     .get::<i64, _>("unique_provers_locking_requests")
@@ -4233,6 +4291,7 @@ impl MarketDb {
         let query_str = format!(
             "SELECT
                 period_timestamp,
+                epoch_number_period_start,
                 total_fulfilled,
                 unique_provers_locking_requests,
                 unique_requesters_submitting_requests,
@@ -4287,6 +4346,11 @@ impl MarketDb {
             .into_iter()
             .map(|row| AllTimeMarketSummary {
                 period_timestamp: row.get::<i64, _>("period_timestamp") as u64,
+                epoch_number_period_start: row
+                    .try_get::<Option<i64>, _>("epoch_number_period_start")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0),
                 total_fulfilled: row.get::<i64, _>("total_fulfilled") as u64,
                 unique_provers_locking_requests: row
                     .get::<i64, _>("unique_provers_locking_requests")
@@ -4893,6 +4957,7 @@ mod tests {
         for i in 0..10u64 {
             let summary = PeriodMarketSummary {
                 period_timestamp: (base_timestamp + (i as i64 * hour_in_seconds)) as u64,
+                epoch_number_period_start: 0,
                 total_fulfilled: i,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
@@ -5077,6 +5142,7 @@ mod tests {
         for i in 0..5u64 {
             let summary = DailyMarketSummary {
                 period_timestamp: (base_timestamp + (i as i64 * day_in_seconds)) as u64,
+                epoch_number_period_start: 0,
                 total_fulfilled: i * 10,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
@@ -5134,6 +5200,7 @@ mod tests {
         for i in 0..4u64 {
             let summary = WeeklyMarketSummary {
                 period_timestamp: (base_timestamp + (i as i64 * week_in_seconds)) as u64,
+                epoch_number_period_start: 0,
                 total_fulfilled: i * 100,
                 unique_provers_locking_requests: i * 20,
                 unique_requesters_submitting_requests: i * 30,
@@ -5195,6 +5262,7 @@ mod tests {
             let i = i as u64;
             let summary = MonthlyMarketSummary {
                 period_timestamp: *timestamp,
+                epoch_number_period_start: 0,
                 total_fulfilled: i * 1000,
                 unique_provers_locking_requests: i * 200,
                 unique_requesters_submitting_requests: i * 300,
@@ -5254,6 +5322,7 @@ mod tests {
         for i in 0..3u64 {
             let summary = AllTimeMarketSummary {
                 period_timestamp: (base_timestamp + (i as i64 * 3600)) as u64,
+                epoch_number_period_start: 0,
                 total_fulfilled: i * 10,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
@@ -5307,6 +5376,7 @@ mod tests {
         for i in 0..5u64 {
             let summary = AllTimeMarketSummary {
                 period_timestamp: (base_timestamp + (i as i64 * 3600)) as u64,
+                epoch_number_period_start: 0,
                 total_fulfilled: i * 10,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,
@@ -5368,6 +5438,7 @@ mod tests {
         for i in 0..10u64 {
             let summary = DailyMarketSummary {
                 period_timestamp: (base_timestamp + (i as i64 * day_in_seconds)) as u64,
+                epoch_number_period_start: 0,
                 total_fulfilled: i,
                 unique_provers_locking_requests: i * 2,
                 unique_requesters_submitting_requests: i * 3,

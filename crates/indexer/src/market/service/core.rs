@@ -443,6 +443,11 @@ where
     service.aggregate_weekly_prover_data(to_block).await?;
     service.aggregate_all_time_prover_data(to_block).await?;
 
+    // Epoch-based aggregations
+    service.aggregate_epoch_market_data(to_block).await?;
+    service.aggregate_epoch_prover_data(to_block).await?;
+    service.aggregate_epoch_requestor_data(to_block).await?;
+
     service.db.set_last_aggregation_block(to_block).await?;
     tracing::info!("Aggregation completed up to block {} (timestamp: {})", to_block, to_timestamp);
     tracing::info!(

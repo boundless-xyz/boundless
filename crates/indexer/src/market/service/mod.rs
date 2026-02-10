@@ -30,7 +30,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     db::{market::MarketDb, DbError, DbObj, TxMetadata},
-    market::caching::CacheStorage,
+    market::{caching::CacheStorage, epoch_calculator::EpochCalculator},
 };
 use ::boundless_market::contracts::{
     boundless_market::{BoundlessMarketService, MarketError},
@@ -157,6 +157,8 @@ pub struct IndexerService<P, ANP> {
     pub cache_storage: Option<Arc<dyn CacheStorage>>,
     // Chain ID for cache keys
     pub chain_id: u64,
+    // Epoch calculator for epoch-based aggregations
+    pub epoch_calculator: EpochCalculator,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -177,6 +179,8 @@ pub struct IndexerServiceConfig {
     pub tx_fetch_strategy: TransactionFetchStrategy,
     pub execution_config: Option<IndexerServiceExecutionConfig>,
     pub block_delay: u64,
+    /// Epoch 0 start time for epoch-based aggregations
+    pub epoch0_start_time: u64,
 }
 
 #[derive(Clone)]
@@ -242,6 +246,8 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             None
         };
 
+        let epoch_calculator = EpochCalculator::new(config.epoch0_start_time);
+
         Ok(Self {
             boundless_market,
             provider,
@@ -255,6 +261,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             order_stream_client: None,
             cache_storage,
             chain_id,
+            epoch_calculator,
         })
     }
 
@@ -318,6 +325,8 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             None
         };
 
+        let epoch_calculator = EpochCalculator::new(config.epoch0_start_time);
+
         Ok(Self {
             boundless_market,
             any_network_provider,
@@ -331,6 +340,7 @@ impl IndexerService<ProviderWallet, AnyNetworkProvider> {
             order_stream_client,
             cache_storage,
             chain_id,
+            epoch_calculator,
         })
     }
 }
