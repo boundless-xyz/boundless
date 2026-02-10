@@ -1478,12 +1478,21 @@ pub(crate) mod tests {
     #[tokio::test]
     #[traced_test]
     async fn use_gas_to_fulfill_estimate_from_config() {
-        let fulfill_gas = 123_456;
+        let fulfill_gas = 123_456u64;
+        let journal_gas_per_byte = 26u64;
+        let max_journal_bytes = 10_000usize;
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = "0.0000001".into();
-            config.load_write().unwrap().market.fulfill_gas_estimate = fulfill_gas;
+            let mut w = config.load_write().unwrap();
+            w.market.min_mcycle_price = "0.0000001".into();
+            w.market.fulfill_gas_estimate = fulfill_gas;
+            w.market.fulfill_journal_gas_per_byte = journal_gas_per_byte;
+            w.market.max_journal_bytes = max_journal_bytes;
         }
+
+        // Orders use PrefixMatch, so journal gas applies.
+        let expected_per_order =
+            fulfill_gas + max_journal_bytes as u64 * journal_gas_per_byte;
 
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
@@ -1495,7 +1504,7 @@ pub(crate) mod tests {
         let order = ctx.priced_orders_rx.try_recv().unwrap();
         ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
 
-        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), fulfill_gas);
+        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), expected_per_order);
 
         // add another order
         let order =
@@ -1506,7 +1515,7 @@ pub(crate) mod tests {
         ctx.db.insert_accepted_request(&order, order.request.offer.minPrice).await.unwrap();
 
         // gas estimate stacks (until estimates factor in bundling)
-        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * fulfill_gas);
+        assert_eq!(ctx.picker.estimate_gas_to_fulfill_pending().await.unwrap(), 2 * expected_per_order);
     }
 
     #[tokio::test]
