@@ -935,6 +935,8 @@ pub(crate) mod tests {
         ) -> PickerTestCtx<impl Provider + WalletProvider + Clone + 'static> {
             let anvil = Anvil::new()
                 .args(["--balance", &format!("{}", self.initial_signer_eth.unwrap_or(10000))])
+                .arg("--block-base-fee-per-gas")
+                .arg("1000000000") // 1 gwei
                 .spawn();
             let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
             let provider = Arc::new(
