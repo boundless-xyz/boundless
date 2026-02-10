@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::price_oracle::{
-    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
+    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, TradingPair,
 };
 use reqwest::Client;
 use serde::Deserialize;
@@ -103,12 +103,6 @@ impl CoinMarketCapSource {
     }
 }
 
-impl PriceSource for CoinMarketCapSource {
-    fn name(&self) -> &'static str {
-        "CoinMarketCap"
-    }
-}
-
 #[async_trait::async_trait]
 impl PriceOracle for CoinMarketCapSource {
     fn pair(&self) -> TradingPair {
@@ -124,6 +118,10 @@ impl PriceOracle for CoinMarketCapSource {
                 self.fetch_rate("/v2/cryptocurrency/quotes/latest", "38371", "USD").await
             }
         }
+    }
+
+    fn name(&self) -> String {
+        format!("CoinMarketCapSource({})", self.pair)
     }
 }
 

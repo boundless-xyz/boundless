@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::price_oracle::{
-    AggregationMode, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
+    AggregationMode, ExchangeRate, PriceOracle, PriceOracleError, TradingPair,
 };
 use alloy_primitives::U256;
 use futures::future::join_all;
@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 /// Composite oracle that aggregates multiple price sources for a single trading pair
 pub struct CompositeOracle {
-    sources: Vec<Arc<dyn PriceSource>>,
+    sources: Vec<Arc<dyn PriceOracle>>,
     aggregation_mode: AggregationMode,
     min_sources: u8,
     pair: TradingPair,
@@ -31,7 +31,7 @@ impl CompositeOracle {
     /// Create a new composite oracle for a specific trading pair
     pub fn new(
         pair: TradingPair,
-        sources: Vec<Arc<dyn PriceSource>>,
+        sources: Vec<Arc<dyn PriceOracle>>,
         aggregation_mode: AggregationMode,
         min_sources: u8,
     ) -> Self {
@@ -172,6 +172,12 @@ impl PriceOracle for CompositeOracle {
             }
         }
     }
+    fn name(&self) -> String {
+        format!(
+            "CompositeOracle: {}",
+            self.sources.iter().map(|s| s.name()).collect::<Vec<_>>().join(", ")
+        )
+    }
 }
 
 #[cfg(test)]
@@ -195,11 +201,9 @@ mod tests {
         async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
             self.result.map_err(|s| PriceOracleError::InvalidPrice(s.to_string()))
         }
-    }
 
-    impl PriceSource for MockSource {
-        fn name(&self) -> &'static str {
-            self.name
+        fn name(&self) -> String {
+            self.name.to_string()
         }
     }
 
@@ -207,7 +211,7 @@ mod tests {
     async fn test_priority_mode() -> anyhow::Result<()> {
         let expected = ExchangeRate::new(TradingPair::EthUsd, U256::from(200000000000u128), 1000);
 
-        let sources: Vec<Arc<dyn PriceSource>> = vec![
+        let sources: Vec<Arc<dyn PriceOracle>> = vec![
             Arc::new(MockSource {
                 name: "Failed",
                 pair: TradingPair::EthUsd,
@@ -231,7 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_median_mode() -> anyhow::Result<()> {
-        let sources: Vec<Arc<dyn PriceSource>> = vec![
+        let sources: Vec<Arc<dyn PriceOracle>> = vec![
             Arc::new(MockSource {
                 name: "Source1",
                 pair: TradingPair::EthUsd,
@@ -273,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_average_mode() -> anyhow::Result<()> {
-        let sources: Vec<Arc<dyn PriceSource>> = vec![
+        let sources: Vec<Arc<dyn PriceOracle>> = vec![
             Arc::new(MockSource {
                 name: "Source1",
                 pair: TradingPair::EthUsd,

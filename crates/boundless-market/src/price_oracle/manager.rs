@@ -98,6 +98,7 @@ impl PriceOracleManager {
     ) -> Result<(), PriceOracleError> {
         tracing::info!("Price oracle refresh task started (interval: {}s)", self.refresh_interval);
 
+        // with ::interval the first tick completes immediately so we refresh right away.
         let mut ticker = tokio::time::interval(Duration::from_secs(self.refresh_interval));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -208,6 +209,10 @@ mod tests {
             let rate = *self.rate.lock().await;
 
             Ok(ExchangeRate::new(self.pair, rate, 1000))
+        }
+
+        fn name(&self) -> String {
+            format!("MockOracle({:?})", self.pair)
         }
     }
 

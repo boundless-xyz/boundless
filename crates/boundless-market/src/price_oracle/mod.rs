@@ -64,10 +64,7 @@ pub trait PriceOracle: Send + Sync {
 
     /// Get the current exchange rate
     async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError>;
-}
 
-/// Trait for price sources - each instance is dedicated to one trading pair
-pub trait PriceSource: PriceOracle + Send + Sync {
-    /// Returns the name of this price source
-    fn name(&self) -> &'static str;
+    /// Returns the name of this price oracle
+    fn name(&self) -> String;
 }

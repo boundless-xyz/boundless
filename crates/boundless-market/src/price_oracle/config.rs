@@ -18,7 +18,7 @@ use crate::price_oracle::sources::{
     ChainlinkSource, CoinGeckoSource, CoinMarketCapSource, StaticPriceSource,
 };
 use crate::price_oracle::{
-    AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, PriceSource, TradingPair,
+    AggregationMode, CompositeOracle, PriceOracle, PriceOracleError, TradingPair,
 };
 use alloy::providers::Provider;
 use alloy_chains::NamedChain;
@@ -213,7 +213,7 @@ impl PriceOracleConfig {
             }
             PriceValue::Auto => {
                 // Dynamic pricing: build sources and wrap in CompositeOracle
-                let mut sources: Vec<Arc<dyn PriceSource>> = Vec::new();
+                let mut sources: Vec<Arc<dyn PriceOracle>> = Vec::new();
 
                 // On-chain sources
                 if let Some(ref onchain) = self.onchain {

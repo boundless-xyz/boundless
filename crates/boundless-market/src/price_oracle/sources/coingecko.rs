@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::price_oracle::{
-    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
+    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, TradingPair,
 };
 use reqwest::Client;
 use serde::Deserialize;
@@ -82,12 +82,6 @@ impl CoinGeckoSource {
     }
 }
 
-impl PriceSource for CoinGeckoSource {
-    fn name(&self) -> &'static str {
-        "CoinGecko"
-    }
-}
-
 #[async_trait::async_trait]
 impl PriceOracle for CoinGeckoSource {
     fn pair(&self) -> TradingPair {
@@ -101,6 +95,10 @@ impl PriceOracle for CoinGeckoSource {
                 self.fetch_rate("/api/v3/simple/price", "boundless", "usd").await
             }
         }
+    }
+
+    fn name(&self) -> String {
+        format!("CoinGeckoPriceSource({})", self.pair)
     }
 }
 

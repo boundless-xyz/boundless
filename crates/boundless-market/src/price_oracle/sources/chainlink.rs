@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::price_oracle::{
-    scale_price_from_i256, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
+    scale_price_from_i256, ExchangeRate, PriceOracle, PriceOracleError, TradingPair,
 };
 use alloy::primitives::{address, Address};
 use alloy::providers::Provider;
@@ -105,12 +105,6 @@ impl<P: Provider + Clone> ChainlinkSource<P> {
     }
 }
 
-impl<P: Provider + Clone> PriceSource for ChainlinkSource<P> {
-    fn name(&self) -> &'static str {
-        "Chainlink"
-    }
-}
-
 #[async_trait::async_trait]
 impl<P: Provider + Clone> PriceOracle for ChainlinkSource<P> {
     fn pair(&self) -> TradingPair {
@@ -119,6 +113,10 @@ impl<P: Provider + Clone> PriceOracle for ChainlinkSource<P> {
 
     async fn get_rate(&self) -> Result<ExchangeRate, PriceOracleError> {
         self.fetch_rate().await
+    }
+
+    fn name(&self) -> String {
+        format!("ChainlinkSource({})", self.pair)
     }
 }
 

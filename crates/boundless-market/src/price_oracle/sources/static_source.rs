@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::price_oracle::{
-    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, PriceSource, TradingPair,
+    scale_price_from_f64, ExchangeRate, PriceOracle, PriceOracleError, TradingPair,
 };
 use std::time::SystemTime;
 
@@ -44,11 +44,9 @@ impl PriceOracle for StaticPriceSource {
 
         Ok(ExchangeRate::new(self.pair, rate, now))
     }
-}
 
-impl PriceSource for StaticPriceSource {
-    fn name(&self) -> &'static str {
-        "static"
+    fn name(&self) -> String {
+        format!("StaticPriceSource({})", self.pair).to_string()
     }
 }
 

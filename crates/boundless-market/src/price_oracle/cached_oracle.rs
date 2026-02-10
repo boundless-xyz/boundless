@@ -76,6 +76,10 @@ impl PriceOracle for CachedPriceOracle {
         *cache = Some(rate);
         Ok(rate)
     }
+
+    fn name(&self) -> String {
+        format!("CachedPriceOracle: {}", self.oracle.name())
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +135,10 @@ mod tests {
 
             let rate = *self.rate.lock().await;
             Ok(ExchangeRate::new(self.pair, rate, 1000))
+        }
+
+        fn name(&self) -> String {
+            "MockOracle".to_string()
         }
     }
 
