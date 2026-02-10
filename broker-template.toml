@@ -112,7 +112,6 @@ zkc_usd = "auto"
 
 # Advanced options (usually don't need to be changed)
 # refresh_interval_secs = 60          # How often to refresh cached prices
-# max_staleness_secs = 300            # Max age before price is considered stale
 # timeout_secs = 10                   # HTTP/RPC timeout for price fetching
 # aggregation_mode = "priority"       # How to combine sources: "priority", "median", or "average"
 # min_sources = 1                     # Minimum successful sources required

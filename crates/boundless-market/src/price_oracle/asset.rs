@@ -166,8 +166,12 @@ pub fn parse_amount_str(s: &str) -> Result<(U256, Asset), ParseAmountError> {
     let s = s.trim();
 
     // Split by whitespace to find asset
-    let (value_str, asset_str) =
-        s.rsplit_once(char::is_whitespace).ok_or(ParseAmountError::InvalidFormat)?;
+    let split = s.split_whitespace().collect::<Vec<_>>();
+    if split.len() != 2 {
+        return Err(ParseAmountError::InvalidFormat);
+    }
+    let value_str = split[0];
+    let asset_str = split[1];
 
     let asset: Asset = asset_str.trim().parse()?;
     let value = parse_decimal_to_u256(value_str.trim(), asset.decimals(), asset)?;
@@ -265,6 +269,10 @@ pub enum ConversionError {
     /// Arithmetic overflow during conversion
     #[error("arithmetic overflow during conversion")]
     Overflow,
+
+    /// Division by zero during conversion
+    #[error("division by zero during conversion")]
+    DivisionByZero,
 }
 
 // ============ Price Conversion ============
@@ -303,7 +311,7 @@ pub fn convert_asset_value(
             .checked_mul(scale)
             .ok_or(ConversionError::Overflow)?
             .checked_div(price)
-            .ok_or(ConversionError::Overflow)
+            .ok_or(ConversionError::DivisionByZero)
     } else if from_decimals > to_decimals {
         // Converting from higher to lower decimals (ETH/ZKC → USD)
         // scale = 10^(from_decimals - to_decimals + price_decimals)
@@ -313,7 +321,7 @@ pub fn convert_asset_value(
             .checked_mul(price)
             .ok_or(ConversionError::Overflow)?
             .checked_div(scale)
-            .ok_or(ConversionError::Overflow)
+            .ok_or(ConversionError::DivisionByZero)
     } else {
         // Same decimals - shouldn't happen with our current asset set
         // But handle it generically: just apply price scaling
@@ -321,7 +329,7 @@ pub fn convert_asset_value(
             .checked_mul(price)
             .ok_or(ConversionError::Overflow)?
             .checked_div(U256::from(10u128).pow(U256::from(price_decimals)))
-            .ok_or(ConversionError::Overflow)
+            .ok_or(ConversionError::DivisionByZero)
     }
 }
 
@@ -490,7 +498,7 @@ mod conversion_tests {
     fn test_zero_price_returns_error() {
         let result =
             convert_asset_value(U256::from(1_000_000u128), Asset::USD, Asset::ETH, U256::ZERO);
-        assert!(matches!(result, Err(ConversionError::Overflow)));
+        assert!(matches!(result, Err(ConversionError::DivisionByZero)));
     }
 
     #[test]
