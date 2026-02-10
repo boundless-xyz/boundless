@@ -222,3 +222,83 @@ npm run build
 cd ..
 pulumi up
 ```
+
+# Redrive Lambda (manual redrive of failed cycle counts)
+
+## Overview
+
+The market indexer runs cycle-count execution (Bento) for requests. Rows in `cycle_counts` move through `PENDING` -> `EXECUTING` -> `COMPLETED` or `FAILED`. Failed rows are not retried automatically. The **redrive Lambda** lets you reset `FAILED` (and optionally stuck `EXECUTING`) rows back to `PENDING` so the indexer picks them up again on its next run.
+
+The Lambda runs inside the VPC with writer DB access. It is invoked manually (no schedule).
+
+## Dry run mode
+
+With `"dry_run": true`, the Lambda:
+
+- Uses the same filters (lookback window, optional requestor, optional stuck EXECUTING).
+- Queries which rows would be redriven and **logs** their `request_id`s (same log output as a real run).
+- **Does not run any UPDATEs**; the database is unchanged.
+- Returns a response like `"Dry run: would redrive N row(s)"`.
+
+Use dry run to see how many rows and which request IDs would be affected before performing a real redrive.
+
+## Getting the Lambda function name
+
+The function name is derived from the Pulumi stack and indexer service name, e.g. `l-prod-84532-indexer-redrive-lambda`. List functions:
+
+```bash
+aws lambda list-functions --query 'Functions[?contains(FunctionName, `redrive`)].FunctionName' --output text
+```
+
+## Payload parameters
+
+| Parameter                 | Required | Description                                                                                           |
+| ------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `lookback_days`           | Yes      | Only consider requests with `request_status.created_at` in the last N days.                           |
+| `requestor`               | No       | If set, only redrive requests for this client address (e.g. `"0x..."`).                               |
+| `include_stuck_executing` | No       | If `true`, also reset rows in `EXECUTING` that have not been updated in over 1 hour. Default `false`. |
+| `dry_run`                 | No       | If `true`, only log what would be redriven and do not update the DB. Default `false`.                 |
+
+## Example invocations
+
+Dry run: see what would be redriven in the last 3 days (no DB changes):
+
+```bash
+aws lambda invoke \
+  --function-name <redrive-lambda-name> \
+  --payload '{"lookback_days": 3, "dry_run": true}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json && cat response.json
+```
+
+Redrive all failed requests in the last 3 days:
+
+```bash
+aws lambda invoke \
+  --function-name <redrive-lambda-name> \
+  --payload '{"lookback_days": 3}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json && cat response.json
+```
+
+Redrive only failed requests for a specific requestor in the last 3 days:
+
+```bash
+aws lambda invoke \
+  --function-name <redrive-lambda-name> \
+  --payload '{"requestor": "0xABC...", "lookback_days": 3}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json && cat response.json
+```
+
+Redrive failed and stuck EXECUTING (stuck > 1 hour) in the last 7 days:
+
+```bash
+aws lambda invoke \
+  --function-name <redrive-lambda-name> \
+  --payload '{"lookback_days": 7, "include_stuck_executing": true}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json && cat response.json
+```
+
+Response shape: `{"redriven_count": N, "message": "Redrove N row(s)"}` (or dry run: `"Dry run: would redrive N row(s)"`). CloudWatch Logs for the invocation contain the list of `request_id`s that were (or would be) redriven.
