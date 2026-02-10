@@ -466,6 +466,8 @@ pub struct RequestStatus {
     pub lock_price_per_cycle: Option<String>,
     pub fixed_cost: Option<String>,
     pub variable_cost_per_cycle: Option<String>,
+    pub lock_base_fee: Option<String>,
+    pub fulfill_base_fee: Option<String>,
     pub submit_tx_hash: Option<B256>,
     pub lock_tx_hash: Option<B256>,
     pub fulfill_tx_hash: Option<B256>,
@@ -4523,6 +4525,8 @@ impl MarketDb {
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
             fixed_cost: row.try_get("fixed_cost").ok().flatten(),
             variable_cost_per_cycle: row.try_get("variable_cost_per_cycle").ok().flatten(),
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -4613,6 +4617,29 @@ mod tests {
 
         let db_block = db.get_last_block().await.unwrap().unwrap();
         assert_eq!(block_numb, db_block);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_block_base_fee(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db;
+
+        // Insert a block with a base_fee
+        db.add_blocks(&[(100, 1234567890, Some(30_000_000_000u128))]).await.unwrap();
+        // Insert a block without a base_fee
+        db.add_blocks(&[(101, 1234567891, None)]).await.unwrap();
+
+        // Verify block 100 returns the expected base_fee
+        let base_fee = db.get_block_base_fee(100).await.unwrap();
+        assert_eq!(base_fee, Some(30_000_000_000u128));
+
+        // Verify block 101 (inserted with None) returns None
+        let base_fee = db.get_block_base_fee(101).await.unwrap();
+        assert_eq!(base_fee, None);
+
+        // Verify non-existent block returns None
+        let base_fee = db.get_block_base_fee(999).await.unwrap();
+        assert_eq!(base_fee, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -5565,6 +5592,8 @@ mod tests {
             lock_price_per_cycle: None,
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
@@ -5587,7 +5616,12 @@ mod tests {
         let db: DbObj = test_db.db;
 
         let digest = B256::from([1; 32]);
-        let status = create_test_status(digest, RequestStatusType::Submitted);
+        let mut status = create_test_status(digest, RequestStatusType::Locked);
+        status.locked_at = Some(1234567900);
+        status.lock_block = Some(200);
+        status.lock_prover_address = Some(Address::from([5; 20]));
+        status.fixed_cost = Some("500".to_string());
+        status.variable_cost_per_cycle = Some("10".to_string());
 
         db.upsert_request_statuses(std::slice::from_ref(&status)).await.unwrap();
 
@@ -5597,9 +5631,14 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.get::<String, _>("request_status"), "submitted");
+        assert_eq!(result.get::<String, _>("request_status"), "locked");
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
         assert_eq!(result.get::<String, _>("source"), "onchain");
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), Some("500".to_string()));
+        assert_eq!(
+            result.get::<Option<String>, _>("variable_cost_per_cycle"),
+            Some("10".to_string())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -5612,11 +5651,22 @@ mod tests {
 
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
+        // Verify cost fields are None initially
+        let result = sqlx::query("SELECT * FROM request_status WHERE request_digest = $1")
+            .bind(format!("{:x}", digest))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), None);
+        assert_eq!(result.get::<Option<String>, _>("variable_cost_per_cycle"), None);
+
         status.request_status = RequestStatusType::Locked;
         status.locked_at = Some(1234567900);
         status.lock_block = Some(200);
         status.lock_prover_address = Some(Address::from([5; 20]));
         status.lock_tx_hash = Some(B256::from([3; 32]));
+        status.fixed_cost = Some("750".to_string());
+        status.variable_cost_per_cycle = Some("25".to_string());
 
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
@@ -5630,6 +5680,11 @@ mod tests {
         assert_eq!(result.get::<Option<i64>, _>("locked_at"), Some(1234567900));
         assert_eq!(result.get::<Option<i64>, _>("lock_block"), Some(200));
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), Some("750".to_string()));
+        assert_eq!(
+            result.get::<Option<String>, _>("variable_cost_per_cycle"),
+            Some("25".to_string())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]

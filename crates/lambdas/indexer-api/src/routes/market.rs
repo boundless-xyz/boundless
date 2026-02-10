@@ -320,14 +320,14 @@ pub struct RequestorLeaderboardEntry {
     pub median_lock_price_per_cycle: Option<String>,
     /// Median lock price per cycle (formatted for display)
     pub median_lock_price_per_cycle_formatted: Option<String>,
-    /// Median fixed cost (gas cost) per request (as string in wei)
-    pub median_fixed_cost: String,
-    /// Median fixed cost (formatted for display)
-    pub median_fixed_cost_formatted: String,
-    /// Median variable cost (proving cost) per cycle (as string in wei)
-    pub median_variable_cost_per_cycle: String,
-    /// Median variable cost per cycle (formatted for display)
-    pub median_variable_cost_per_cycle_formatted: String,
+    /// P50 fixed cost (gas cost) per request (as string in wei)
+    pub p50_fixed_cost: String,
+    /// P50 fixed cost (formatted for display)
+    pub p50_fixed_cost_formatted: String,
+    /// P50 variable cost (proving cost) per cycle (as string in wei)
+    pub p50_variable_cost_per_cycle: String,
+    /// P50 variable cost per cycle (formatted for display)
+    pub p50_variable_cost_per_cycle_formatted: String,
     /// Acceptance rate (locked / (locked + not_locked_and_expired)) as percentage
     pub acceptance_rate: f32,
     /// Locked order fulfillment rate (locked and fulfilled / (locked and fulfilled + locked and expired)) as percentage
@@ -2405,6 +2405,18 @@ pub struct RequestStatusResponse {
     pub lock_price_per_cycle: Option<String>,
     /// Lock price per cycle (formatted)
     pub lock_price_per_cycle_formatted: Option<String>,
+    /// Fixed cost (gas cost) for this request (as string in wei)
+    pub fixed_cost: Option<String>,
+    /// Fixed cost (formatted for display)
+    pub fixed_cost_formatted: Option<String>,
+    /// Variable cost per cycle (proving cost) for this request (as string in wei)
+    pub variable_cost_per_cycle: Option<String>,
+    /// Variable cost per cycle (formatted for display)
+    pub variable_cost_per_cycle_formatted: Option<String>,
+    /// Base fee per gas at lock block (wei, for debugging)
+    pub lock_base_fee: Option<String>,
+    /// Base fee per gas at fulfill block (wei, for debugging)
+    pub fulfill_base_fee: Option<String>,
     /// Ramp up start timestamp
     pub ramp_up_start: i64,
     /// Ramp up start timestamp (ISO 8601)
@@ -2521,6 +2533,12 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         lock_price_formatted: status.lock_price.as_ref().map(|p| format_eth(p)),
         lock_price_per_cycle: status.lock_price_per_cycle.clone(),
         lock_price_per_cycle_formatted: status.lock_price_per_cycle.as_ref().map(|p| format_eth(p)),
+        fixed_cost: status.fixed_cost.clone(),
+        fixed_cost_formatted: status.fixed_cost.as_ref().map(|c| format_eth(c)),
+        variable_cost_per_cycle: status.variable_cost_per_cycle.clone(),
+        variable_cost_per_cycle_formatted: status.variable_cost_per_cycle.as_ref().map(|c| format_eth(c)),
+        lock_base_fee: status.lock_base_fee,
+        fulfill_base_fee: status.fulfill_base_fee,
         ramp_up_start,
         ramp_up_start_iso: format_timestamp_iso(ramp_up_start),
         ramp_up_period: status.ramp_up_period as i64,
@@ -2911,13 +2929,13 @@ async fn list_requestors_impl(
     // Get addresses for batch queries
     let addresses: Vec<Address> = entries.iter().map(|e| e.requestor_address).collect();
 
-    // Fetch median lock prices, median fixed/variable costs, and last activity times in batch
+    // Fetch median lock prices, p50 fixed/variable costs, and last activity times in batch
     let median_prices =
         state.market_db.get_requestor_median_lock_prices(&addresses, start_ts, end_ts).await?;
-    let median_fixed_costs =
-        state.market_db.get_requestor_median_fixed_costs(&addresses, start_ts, end_ts).await?;
-    let median_variable_costs =
-        state.market_db.get_requestor_median_variable_costs(&addresses, start_ts, end_ts).await?;
+    let p50_fixed_costs =
+        state.market_db.get_requestor_p50_fixed_costs(&addresses, start_ts, end_ts).await?;
+    let p50_variable_costs =
+        state.market_db.get_requestor_p50_variable_costs(&addresses, start_ts, end_ts).await?;
     let last_activities = state.market_db.get_requestor_last_activity_times(&addresses).await?;
 
     // Build response entries
@@ -2925,8 +2943,8 @@ async fn list_requestors_impl(
         .into_iter()
         .map(|entry| {
             let median = median_prices.get(&entry.requestor_address).cloned();
-            let median_fc = median_fixed_costs.get(&entry.requestor_address).cloned();
-            let median_vc = median_variable_costs.get(&entry.requestor_address).cloned();
+            let p50_fc = p50_fixed_costs.get(&entry.requestor_address).cloned();
+            let p50_vc = p50_variable_costs.get(&entry.requestor_address).cloned();
             let last_activity = last_activities
                 .get(&entry.requestor_address)
                 .cloned()
@@ -2945,16 +2963,16 @@ async fn list_requestors_impl(
                 cycles_requested_formatted: format_cycles(entry.cycles_requested),
                 median_lock_price_per_cycle: median.map(|m| m.to_string()),
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
-                median_fixed_cost: median_fc
+                p50_fixed_cost: p50_fc
                     .map(|m| m.to_string())
                     .unwrap_or_else(|| "0".to_string()),
-                median_fixed_cost_formatted: median_fc
+                p50_fixed_cost_formatted: p50_fc
                     .map(|m| format_eth(&m.to_string()))
                     .unwrap_or_else(|| format_eth("0")),
-                median_variable_cost_per_cycle: median_vc
+                p50_variable_cost_per_cycle: p50_vc
                     .map(|m| m.to_string())
                     .unwrap_or_else(|| "0".to_string()),
-                median_variable_cost_per_cycle_formatted: median_vc
+                p50_variable_cost_per_cycle_formatted: p50_vc
                     .map(|m| format_eth(&m.to_string()))
                     .unwrap_or_else(|| format_eth("0")),
                 acceptance_rate: entry.acceptance_rate,

@@ -315,6 +315,29 @@ async fn test_market_requests_list() {
         //     );
         // }
 
+        // Cost fields (optional - may be None for submitted-only requests)
+        if let Some(ref fc) = first.fixed_cost {
+            assert!(!fc.is_empty(), "fixed_cost should not be empty if Some");
+        }
+        if let Some(ref fc_fmt) = first.fixed_cost_formatted {
+            assert!(!fc_fmt.is_empty(), "fixed_cost_formatted should not be empty if Some");
+        }
+        if let Some(ref vc) = first.variable_cost_per_cycle {
+            assert!(!vc.is_empty(), "variable_cost_per_cycle should not be empty if Some");
+        }
+        if let Some(ref vc_fmt) = first.variable_cost_per_cycle_formatted {
+            assert!(
+                !vc_fmt.is_empty(),
+                "variable_cost_per_cycle_formatted should not be empty if Some"
+            );
+        }
+        if let Some(ref lbf) = first.lock_base_fee {
+            assert!(!lbf.is_empty(), "lock_base_fee should not be empty if Some");
+        }
+        if let Some(ref fbf) = first.fulfill_base_fee {
+            assert!(!fbf.is_empty(), "fulfill_base_fee should not be empty if Some");
+        }
+
         // Transaction hashes
         if let Some(ref tx_hash) = first.submit_tx_hash {
             assert!(tx_hash.starts_with("0x"), "submit_tx_hash should start with 0x: {}", tx_hash);
@@ -1336,6 +1359,22 @@ async fn test_requestor_cumulatives() {
     assert_eq!(first_entry.requestor_address, *requestor_address);
     assert!(!first_entry.timestamp_iso.is_empty());
     assert!(!first_entry.total_fees_locked_formatted.is_empty());
+
+    // Verify cost fields
+    assert!(!first_entry.total_fixed_cost.is_empty(), "total_fixed_cost should not be empty");
+    assert!(
+        !first_entry.total_fixed_cost_formatted.is_empty(),
+        "total_fixed_cost_formatted should not be empty"
+    );
+    assert!(
+        !first_entry.total_variable_cost.is_empty(),
+        "total_variable_cost should not be empty"
+    );
+    assert!(
+        !first_entry.total_variable_cost_formatted.is_empty(),
+        "total_variable_cost_formatted should not be empty"
+    );
+
     // Verify fulfillment rate fields exist and are valid
     assert!(
         first_entry.locked_orders_fulfillment_rate >= 0.0
@@ -1690,6 +1729,21 @@ async fn test_requestor_leaderboard() {
         assert!(
             !first.cycles_requested_formatted.is_empty(),
             "cycles_requested_formatted should not be empty"
+        );
+
+        // P50 cost fields
+        assert!(!first.p50_fixed_cost.is_empty(), "p50_fixed_cost should not be empty");
+        assert!(
+            !first.p50_fixed_cost_formatted.is_empty(),
+            "p50_fixed_cost_formatted should not be empty"
+        );
+        assert!(
+            !first.p50_variable_cost_per_cycle.is_empty(),
+            "p50_variable_cost_per_cycle should not be empty"
+        );
+        assert!(
+            !first.p50_variable_cost_per_cycle_formatted.is_empty(),
+            "p50_variable_cost_per_cycle_formatted should not be empty"
         );
 
         // Timestamps

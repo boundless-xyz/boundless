@@ -1326,25 +1326,25 @@ pub trait RequestorDb: IndexerDb {
         get_requestor_last_activity_times_impl(self.pool(), requestor_addresses).await
     }
 
-    // Get median fixed cost for a list of requestors in a time period
-    async fn get_requestor_median_fixed_costs(
+    // Get p50 fixed cost for a list of requestors in a time period
+    async fn get_requestor_p50_fixed_costs(
         &self,
         requestor_addresses: &[Address],
         start_ts: u64,
         end_ts: u64,
     ) -> Result<std::collections::HashMap<Address, U256>, DbError> {
-        get_requestor_median_fixed_costs_impl(self.pool(), requestor_addresses, start_ts, end_ts)
+        get_requestor_p50_fixed_costs_impl(self.pool(), requestor_addresses, start_ts, end_ts)
             .await
     }
 
-    // Get median variable cost per cycle for a list of requestors in a time period
-    async fn get_requestor_median_variable_costs(
+    // Get p50 variable cost per cycle for a list of requestors in a time period
+    async fn get_requestor_p50_variable_costs(
         &self,
         requestor_addresses: &[Address],
         start_ts: u64,
         end_ts: u64,
     ) -> Result<std::collections::HashMap<Address, U256>, DbError> {
-        get_requestor_median_variable_costs_impl(self.pool(), requestor_addresses, start_ts, end_ts)
+        get_requestor_p50_variable_costs_impl(self.pool(), requestor_addresses, start_ts, end_ts)
             .await
     }
 }
@@ -1999,7 +1999,7 @@ async fn get_requestor_last_activity_times_impl(
     Ok(result)
 }
 
-async fn get_requestor_median_fixed_costs_impl(
+async fn get_requestor_p50_fixed_costs_impl(
     pool: &PgPool,
     requestor_addresses: &[Address],
     start_ts: u64,
@@ -2019,7 +2019,7 @@ async fn get_requestor_median_fixed_costs_impl(
             LPAD(
                 ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(fixed_cost AS NUMERIC)))::TEXT,
                 78, '0'
-            ) as median_fixed_cost
+            ) as p50_fixed_cost
         FROM request_status
         WHERE locked_at >= $1 AND locked_at < $2
           AND client_address IN ({})
@@ -2039,10 +2039,10 @@ async fn get_requestor_median_fixed_costs_impl(
     let mut result = std::collections::HashMap::new();
     for row in rows {
         let addr_str: String = row.try_get("client_address")?;
-        let median_str: String = row.try_get("median_fixed_cost")?;
+        let p50_str: String = row.try_get("p50_fixed_cost")?;
         if let Ok(addr) = Address::from_str(&addr_str) {
-            if let Ok(median) = padded_string_to_u256(&median_str) {
-                result.insert(addr, median);
+            if let Ok(p50) = padded_string_to_u256(&p50_str) {
+                result.insert(addr, p50);
             }
         }
     }
@@ -2050,7 +2050,7 @@ async fn get_requestor_median_fixed_costs_impl(
     Ok(result)
 }
 
-async fn get_requestor_median_variable_costs_impl(
+async fn get_requestor_p50_variable_costs_impl(
     pool: &PgPool,
     requestor_addresses: &[Address],
     start_ts: u64,
@@ -2070,7 +2070,7 @@ async fn get_requestor_median_variable_costs_impl(
             LPAD(
                 ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(variable_cost_per_cycle AS NUMERIC)))::TEXT,
                 78, '0'
-            ) as median_variable_cost
+            ) as p50_variable_cost
         FROM request_status
         WHERE locked_at >= $1 AND locked_at < $2
           AND client_address IN ({})
@@ -2090,10 +2090,10 @@ async fn get_requestor_median_variable_costs_impl(
     let mut result = std::collections::HashMap::new();
     for row in rows {
         let addr_str: String = row.try_get("client_address")?;
-        let median_str: String = row.try_get("median_variable_cost")?;
+        let p50_str: String = row.try_get("p50_variable_cost")?;
         if let Ok(addr) = Address::from_str(&addr_str) {
-            if let Ok(median) = padded_string_to_u256(&median_str) {
-                result.insert(addr, median);
+            if let Ok(p50) = padded_string_to_u256(&p50_str) {
+                result.insert(addr, p50);
             }
         }
     }
@@ -2247,6 +2247,8 @@ mod tests {
                 lock_price_per_cycle: Some("30".to_string()),
                 fixed_cost: None,
                 variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::from([0x01; 32])),
                 lock_tx_hash: Some(B256::from([0x02; 32])),
                 fulfill_tx_hash: if i < 3 { Some(B256::from([0x03; 32])) } else { None },
@@ -2346,8 +2348,8 @@ mod tests {
             locked_orders_fulfillment_rate_adjusted: 0.625,
             total_program_cycles: U256::from(50_000_000_000u64),
             total_cycles: U256::from(50_790_000_000u64),
-            total_fixed_cost: U256::ZERO,
-            total_variable_cost: U256::ZERO,
+            total_fixed_cost: U256::from(5000),
+            total_variable_cost: U256::from(3000),
             best_peak_prove_mhz: 1500.0,
             best_peak_prove_mhz_prover: Some("0x1234".to_string()),
             best_peak_prove_mhz_request_id: Some(U256::from(123)),
@@ -2367,6 +2369,8 @@ mod tests {
         assert_eq!(results[0].requestor_address, requestor);
         assert_eq!(results[0].total_fulfilled, 5);
         assert_eq!(results[0].total_program_cycles, U256::from(50_000_000_000u64));
+        assert_eq!(results[0].total_fixed_cost, U256::from(5000));
+        assert_eq!(results[0].total_variable_cost, U256::from(3000));
 
         let mut updated = summary.clone();
         updated.total_fulfilled = 10;
@@ -2410,8 +2414,8 @@ mod tests {
             locked_orders_fulfillment_rate_adjusted: 0.909,
             total_program_cycles: U256::from(500_000_000_000u64),
             total_cycles: U256::from(507_900_000_000u64),
-            total_fixed_cost: U256::ZERO,
-            total_variable_cost: U256::ZERO,
+            total_fixed_cost: U256::from(50000),
+            total_variable_cost: U256::from(30000),
             best_peak_prove_mhz: 2000.0,
             best_peak_prove_mhz_prover: Some("0xaaa".to_string()),
             best_peak_prove_mhz_request_id: Some(U256::from(999)),
@@ -2433,6 +2437,8 @@ mod tests {
             "Should have 20 secondary fulfillments"
         );
         assert_eq!(result.total_program_cycles, U256::from(500_000_000_000u64));
+        assert_eq!(result.total_fixed_cost, U256::from(50000));
+        assert_eq!(result.total_variable_cost, U256::from(30000));
 
         let mut updated = summary.clone();
         updated.total_fulfilled = 200;
@@ -2893,6 +2899,8 @@ mod tests {
             lock_price_per_cycle: Some("30".to_string()),
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::from([0xA2; 32])),
             lock_tx_hash: Some({
                 let mut bytes = [0xA2; 32];
@@ -2993,6 +3001,8 @@ mod tests {
             lock_price_per_cycle: Some("30".to_string()),
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::from([0xA3; 32])),
             lock_tx_hash: Some({
                 let mut bytes = [0xA3; 32];
@@ -3099,6 +3109,8 @@ mod tests {
             lock_price_per_cycle: Some("30".to_string()),
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::from([0xA4; 32])),
             lock_tx_hash: Some({
                 let mut bytes = [0xA4; 32];
@@ -3206,6 +3218,8 @@ mod tests {
             lock_price_per_cycle: None,
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::from([0xA5; 32])),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
@@ -3302,6 +3316,8 @@ mod tests {
             lock_price_per_cycle: Some("30".to_string()),
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::from([0xA6; 32])),
             lock_tx_hash: Some({
                 let mut bytes = [0xA6; 32];
@@ -3382,6 +3398,8 @@ mod tests {
             lock_price_per_cycle: Some("30".to_string()),
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::from([0xA6; 32])),
             lock_tx_hash: Some({
                 let mut bytes = [0xA6; 32];
@@ -3549,6 +3567,8 @@ mod tests {
                 lock_price_per_cycle: None,
                 fixed_cost: None,
                 variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::ZERO),
                 lock_tx_hash: None,
                 fulfill_tx_hash: None,
@@ -3605,6 +3625,8 @@ mod tests {
             lock_price_per_cycle: None,
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
@@ -3734,6 +3756,8 @@ mod tests {
                 lock_price_per_cycle: Some("30".to_string()),
                 fixed_cost: None,
                 variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::from([0x01; 32])),
                 lock_tx_hash: Some(B256::from([0x02; 32])),
                 fulfill_tx_hash: Some(B256::from([0x03; 32])),
@@ -3938,6 +3962,8 @@ mod tests {
                 lock_price_per_cycle: Some("30".to_string()),
                 fixed_cost: None,
                 variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::from([0x01; 32])),
                 lock_tx_hash: Some(B256::from([0x02; 32])),
                 fulfill_tx_hash: if i < 3 { Some(B256::from([0x03; 32])) } else { None },
@@ -4084,6 +4110,8 @@ mod tests {
                 lock_price_per_cycle: Some("30".to_string()),
                 fixed_cost: None,
                 variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::from([0x01; 32])),
                 lock_tx_hash: Some(B256::from([0x02; 32])),
                 fulfill_tx_hash: None,
@@ -4402,6 +4430,8 @@ mod tests {
                 lock_price_per_cycle: Some("30".to_string()),
                 fixed_cost: None,
                 variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::from([0x01; 32])),
                 lock_tx_hash: Some(B256::from([0x02; 32])),
                 fulfill_tx_hash: if fulfilled_at.is_some() {
@@ -5240,6 +5270,8 @@ mod tests {
             lock_price_per_cycle: Some(lock_price_per_cycle.to_string()),
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: Some(B256::from([0x02; 32])),
             fulfill_tx_hash: None,
@@ -5359,6 +5391,8 @@ mod tests {
             lock_price_per_cycle: None,
             fixed_cost: None,
             variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
@@ -5422,5 +5456,117 @@ mod tests {
             .unwrap();
 
         assert!(results.is_empty());
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_p50_fixed_and_variable_costs(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db = &test_db.db;
+
+        let client = Address::from([0x01; 20]);
+        let prover = Address::from([0xAA; 20]);
+        let base_ts = 1700000000u64;
+
+        // Create request statuses with varying fixed_cost and variable_cost_per_cycle
+        // Fixed costs: 100, 200, 300, 400 -> median = 250
+        // Variable costs: 10, 20, 30, 40 -> median = 25
+        let mut statuses = Vec::new();
+        for i in 0..4u8 {
+            let mut digest_bytes = [0u8; 32];
+            digest_bytes[0] = i + 1;
+            let digest = B256::from(digest_bytes);
+            let fixed_cost = U256::from(100 * (i as u64 + 1));
+            let variable_cost = U256::from(10 * (i as u64 + 1));
+            statuses.push(RequestStatus {
+                request_digest: digest,
+                request_id: U256::from(i as u64),
+                request_status: RequestStatusType::Locked,
+                slashed_status: SlashedStatus::NotApplicable,
+                source: "onchain".to_string(),
+                client_address: client,
+                lock_prover_address: Some(prover),
+                fulfill_prover_address: None,
+                created_at: base_ts,
+                updated_at: base_ts + 100,
+                locked_at: Some(base_ts + 100),
+                fulfilled_at: None,
+                slashed_at: None,
+                lock_prover_delivered_proof_at: None,
+                submit_block: Some(100),
+                lock_block: Some(101),
+                fulfill_block: None,
+                slashed_block: None,
+                min_price: "1000".to_string(),
+                max_price: "2000".to_string(),
+                lock_collateral: "100".to_string(),
+                ramp_up_start: base_ts,
+                ramp_up_period: 10,
+                expires_at: base_ts + 10000,
+                lock_end: base_ts + 5000,
+                slash_recipient: None,
+                slash_transferred_amount: None,
+                slash_burned_amount: None,
+                program_cycles: None,
+                total_cycles: None,
+                peak_prove_mhz: None,
+                effective_prove_mhz: None,
+                prover_effective_prove_mhz: None,
+                cycle_status: None,
+                lock_price: Some("1500".to_string()),
+                lock_price_per_cycle: Some("30".to_string()),
+                fixed_cost: Some(u256_to_padded_string(fixed_cost)),
+                variable_cost_per_cycle: Some(u256_to_padded_string(variable_cost)),
+                lock_base_fee: None,
+                fulfill_base_fee: None,
+                submit_tx_hash: Some(B256::ZERO),
+                lock_tx_hash: Some(B256::ZERO),
+                fulfill_tx_hash: None,
+                slash_tx_hash: None,
+                image_id: "test".to_string(),
+                image_url: None,
+                selector: "test".to_string(),
+                predicate_type: "digest_match".to_string(),
+                predicate_data: "0x00".to_string(),
+                input_type: "inline".to_string(),
+                input_data: "0x00".to_string(),
+                fulfill_journal: None,
+                fulfill_seal: None,
+            });
+        }
+
+        db.upsert_request_statuses(&statuses).await.unwrap();
+
+        // Query p50 fixed costs
+        let p50_fixed = db
+            .get_requestor_p50_fixed_costs(&[client], base_ts, base_ts + 200)
+            .await
+            .unwrap();
+        assert_eq!(p50_fixed.len(), 1);
+        // Median of [100, 200, 300, 400] = 250
+        assert_eq!(*p50_fixed.get(&client).unwrap(), U256::from(250));
+
+        // Query p50 variable costs
+        let p50_variable = db
+            .get_requestor_p50_variable_costs(&[client], base_ts, base_ts + 200)
+            .await
+            .unwrap();
+        assert_eq!(p50_variable.len(), 1);
+        // Median of [10, 20, 30, 40] = 25
+        assert_eq!(*p50_variable.get(&client).unwrap(), U256::from(25));
+
+        // Query with non-existent address returns empty
+        let unknown = Address::from([0xFF; 20]);
+        let p50_empty = db
+            .get_requestor_p50_fixed_costs(&[unknown], base_ts, base_ts + 200)
+            .await
+            .unwrap();
+        assert!(p50_empty.is_empty());
+
+        // Query with empty addresses returns empty
+        let p50_no_addr = db
+            .get_requestor_p50_fixed_costs(&[], base_ts, base_ts + 200)
+            .await
+            .unwrap();
+        assert!(p50_no_addr.is_empty());
     }
 }

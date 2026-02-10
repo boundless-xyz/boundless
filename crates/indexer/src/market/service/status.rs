@@ -68,7 +68,7 @@ where
         let updated_at = current_timestamp;
 
         // Compute lock price and lock price per cycle if request was locked
-        let (lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle) =
+        let (lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle, lock_base_fee_str, fulfill_base_fee_str) =
             if let Some(locked_at) = req.locked_at {
             let min_price = U256::from_str(&req.min_price).ok();
             let max_price = U256::from_str(&req.max_price).ok();
@@ -98,46 +98,56 @@ where
                 };
 
                 // Compute fixed_cost and variable_cost_per_cycle
-                let (fixed_cost_str, variable_cost_per_cycle_str) = if let Some(lock_block) =
-                    req.lock_block
-                {
-                    let base_fee = base_fee_map
-                        .get(&lock_block)
-                        .copied()
-                        .flatten();
-                    if let Some(base_fee) = base_fee {
-                        let gas_estimate = U256::from(
-                            boundless_market::prover_utils::config::defaults::lockin_gas_estimate()
-                                + boundless_market::prover_utils::config::defaults::fulfill_gas_estimate()
-                                + boundless_market::prover_utils::config::defaults::groth16_verify_gas_estimate(),
-                        );
-                        let fixed_cost = gas_estimate * U256::from(base_fee);
-                        let fixed_cost_padded =
-                            format!("{:0>78}", fixed_cost.to_string());
+                // Lock gas uses lock block base fee; fulfill+verify gas uses fulfill block base fee
+                let lock_base_fee = req.lock_block
+                    .and_then(|b| base_fee_map.get(&b).copied().flatten());
+                let fulfill_base_fee = req.fulfill_block
+                    .and_then(|b| base_fee_map.get(&b).copied().flatten());
+                let (fixed_cost_str, variable_cost_per_cycle_str) = {
 
-                        let variable_cost_per_cycle_padded =
-                            if let Some(program_cycles) = req.program_cycles {
-                                if program_cycles > 0 {
-                                    let variable_total = if lock_price_u256 > fixed_cost {
-                                        lock_price_u256 - fixed_cost
+                    match (lock_base_fee, fulfill_base_fee) {
+                        (Some(lock_bf), Some(fulfill_bf)) => {
+                            let lock_gas = U256::from(
+                                boundless_market::prover_utils::config::defaults::lockin_gas_estimate(),
+                            ) * U256::from(lock_bf);
+                            // Only add groth16_verify_gas_estimate if the proof is Groth16 type
+                            let groth16_gas = alloy::primitives::FixedBytes::<4>::from_str(&req.selector)
+                                .ok()
+                                .filter(|sel| {
+                                    boundless_market::selector::is_groth16_selector(*sel)
+                                        || boundless_market::selector::is_blake3_groth16_selector(*sel)
+                                })
+                                .map(|_| boundless_market::prover_utils::config::defaults::groth16_verify_gas_estimate())
+                                .unwrap_or(0);
+                            let fulfill_gas = U256::from(
+                                boundless_market::prover_utils::config::defaults::fulfill_gas_estimate()
+                                    + groth16_gas,
+                            ) * U256::from(fulfill_bf);
+                            let fixed_cost = lock_gas + fulfill_gas;
+                            let fixed_cost_padded =
+                                format!("{:0>78}", fixed_cost.to_string());
+
+                            let variable_cost_per_cycle_padded =
+                                if let Some(program_cycles) = req.program_cycles {
+                                    if program_cycles > 0 {
+                                        let variable_total = if lock_price_u256 > fixed_cost {
+                                            lock_price_u256 - fixed_cost
+                                        } else {
+                                            U256::ZERO
+                                        };
+                                        let vcp = variable_total / U256::from(program_cycles);
+                                        Some(format!("{:0>78}", vcp.to_string()))
                                     } else {
-                                        U256::ZERO
-                                    };
-                                    let vcp = variable_total / U256::from(program_cycles);
-                                    Some(format!("{:0>78}", vcp.to_string()))
+                                        None
+                                    }
                                 } else {
                                     None
-                                }
-                            } else {
-                                None
-                            };
+                                };
 
-                        (Some(fixed_cost_padded), variable_cost_per_cycle_padded)
-                    } else {
-                        (None, None)
+                            (Some(fixed_cost_padded), variable_cost_per_cycle_padded)
+                        }
+                        _ => (None, None),
                     }
-                } else {
-                    (None, None)
                 };
 
                 (
@@ -145,12 +155,14 @@ where
                     lock_price_per_cycle_str,
                     fixed_cost_str,
                     variable_cost_per_cycle_str,
+                    lock_base_fee.map(|f| f.to_string()),
+                    fulfill_base_fee.map(|f| f.to_string()),
                 )
             } else {
-                (None, None, None, None)
+                (None, None, None, None, None, None)
             }
         } else {
-            (None, None, None, None)
+            (None, None, None, None, None, None)
         };
 
         // Compute effective_prove_mhz: proving speed performance from the requestor's perspective
@@ -257,6 +269,8 @@ where
             lock_price_per_cycle,
             fixed_cost,
             variable_cost_per_cycle,
+            lock_base_fee: lock_base_fee_str,
+            fulfill_base_fee: fulfill_base_fee_str,
             submit_tx_hash: req.submit_tx_hash,
             lock_tx_hash: req.lock_tx_hash,
             fulfill_tx_hash: req.fulfill_tx_hash,
@@ -308,13 +322,13 @@ where
         let requests_with_events = self.db.get_requests_comprehensive(&request_digests).await?;
         tracing::info!("get_requests_comprehensive completed in {:?} [queried with {} digests, {} requests found]", start_get_requests_comprehensive.elapsed(), request_digests.len(), requests_with_events.len());
 
-        // Fetch base fees for all lock blocks
-        let lock_blocks: HashSet<u64> = requests_with_events
+        // Fetch base fees for all lock and fulfill blocks
+        let cost_blocks: HashSet<u64> = requests_with_events
             .iter()
-            .filter_map(|req| req.lock_block)
+            .flat_map(|req| req.lock_block.into_iter().chain(req.fulfill_block))
             .collect();
         let mut base_fee_map: HashMap<u64, Option<u128>> = HashMap::new();
-        for &block_num in &lock_blocks {
+        for &block_num in &cost_blocks {
             let base_fee = self.db.get_block_base_fee(block_num).await?;
             base_fee_map.insert(block_num, base_fee);
         }
