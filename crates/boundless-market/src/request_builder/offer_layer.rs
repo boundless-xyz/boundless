@@ -472,6 +472,9 @@ where
             .map_err(|err| anyhow::anyhow!("Failed to estimate gas price: {err:?}"))?;
         let gas_cost_estimate =
             self.estimate_gas_cost_upper_bound(requirements, request_id, gas_price)?;
+
+        // Use 2x the gas cost estimate to account for gas price fluctuations.
+        let gas_cost_estimate = U256::from(2) * gas_cost_estimate;
         let adjusted_max_price = max_price + gas_cost_estimate;
         tracing::debug!(
             "Setting a max price of {} ether: {} max_price + {} gas_cost_estimate [gas price: {} gwei]",
