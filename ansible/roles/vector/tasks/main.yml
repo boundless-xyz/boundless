@@ -70,7 +70,9 @@
     regexp: '^VECTOR_LOG='
     line: "VECTOR_LOG={{ vector_log_level }}"
     create: true
-    mode: '0644'
+    owner: root
+    group: root
+    mode: '0600'
   notify: Restart Vector service
   tags:
     - vector

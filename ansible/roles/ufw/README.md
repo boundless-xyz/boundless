@@ -4,16 +4,16 @@ This Ansible role installs and configures UFW (Uncomplicated Firewall) on Ubuntu
 
 ## Features
 
-* Install UFW
-* Configure default policies (deny incoming, allow outgoing)
-* Allow specific ports
-* Rate limit ports (e.g., SSH brute-force protection)
-* Allow specific networks/IPs
-* Configure logging level
+- Install UFW
+- Configure default policies (deny incoming, allow outgoing)
+- Allow specific ports
+- Rate limit ports (e.g., SSH brute-force protection)
+- Allow specific networks/IPs
+- Configure logging level
 
 ## Requirements
 
-* Ubuntu 22.04 or 24.04
+- Ubuntu 22.04 or 24.04
 
 ## Role Variables
 
@@ -41,7 +41,7 @@ When the Docker daemon has `"iptables": false` (e.g. to avoid conflicts with UFW
 
 | Variable                 | Default         | Description                                   |
 | ------------------------ | --------------- | --------------------------------------------- |
-| `ufw_docker_nat_enabled` | `false`         | Add NAT and FORWARD for Docker default bridge |
+| `ufw_docker_nat_enabled` | `true`          | Add NAT and FORWARD for Docker default bridge |
 | `ufw_docker_subnet`      | `172.17.0.0/16` | Docker default bridge subnet                  |
 
 Set `ufw_docker_nat_enabled: true` for hosts that run Docker with `iptables: false` and need container internet access.
@@ -130,12 +130,7 @@ sudo tail -f /var/log/ufw.log
 
 ## Tags
 
-* `ufw` - All UFW tasks
-* `ufw-install` - Installation only
-* `ufw-config` - Configuration only
-* `ufw-rules` - Firewall rules only
-* `ufw-enable` - Enable UFW
-* `ufw-disable` - Disable UFW
+The role tasks currently do not define dedicated Ansible tags.
 
 ## Dependencies
 

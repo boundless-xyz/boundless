@@ -23,20 +23,23 @@ This setup deploys:
 ```
 ansible/
 ├── prover.yml             # Main deployment playbook (nvidia, docker, prover)
-├── monitoring.yml        # AWS CLI + Vector log shipping
-├── security.yml          # UFW firewall
-├── inventory.yml         # Example inventory (placeholders only; do not commit real data)
-├── inventory.example.yml # Copy of example for reference
-├── ansible.cfg           # Ansible configuration
-├── README.md             # This file
-├── ENV_VARS.md           # Variable reference
+├── monitoring.yml         # AWS CLI + Vector log shipping
+├── security.yml           # UFW firewall
+├── test-prover.yml        # bento-cli prover smoke test
+├── kailua.yml             # Kailua installer/service playbook
+├── inventory.yml          # Runtime inventory (do not commit real data)
+├── INVENTORY.md           # Inventory and secret-management guidance
+├── ansible.cfg            # Ansible configuration
+├── README.md              # This file
+├── ENV_VARS.md            # Variable reference
 └── roles/
-    ├── awscli/           # AWS CLI v2
-    ├── docker/           # Docker Engine + optional NVIDIA Container Toolkit
-    ├── nvidia/           # NVIDIA drivers and CUDA Toolkit
-    ├── prover/           # Prover/explorer Docker Compose deployment
-    ├── ufw/              # UFW firewall (optional Docker NAT)
-    └── vector/           # Vector log shipping to CloudWatch
+    ├── awscli/            # AWS CLI v2
+    ├── docker/            # Docker Engine + optional NVIDIA Container Toolkit
+    ├── kailua/            # Kailua binary + systemd launcher
+    ├── nvidia/            # NVIDIA drivers and CUDA Toolkit
+    ├── prover/            # Prover/explorer Docker Compose deployment
+    ├── ufw/               # UFW firewall (optional Docker NAT)
+    └── vector/            # Vector log shipping to CloudWatch
 ```
 
 ## Quick Start
@@ -54,6 +57,15 @@ ansible-playbook -i inventory.yml prover.yml --limit 127.0.0.1
 
 # Deploy monitoring (Vector + AWS CLI)
 ansible-playbook -i inventory.yml monitoring.yml
+
+# Configure UFW
+ansible-playbook -i inventory.yml security.yml
+
+# Run prover smoke test
+ansible-playbook -i inventory.yml test-prover.yml
+
+# Deploy Kailua
+ansible-playbook -i inventory.yml kailua.yml
 ```
 
 ### Inventory Setup
@@ -77,7 +89,7 @@ ansible-playbook -i inventory.yml prover.yml --limit 'staging:&prover'
 ansible-playbook -i inventory.yml prover.yml --limit 'production:&nightly'
 ```
 
-Example structure (see `inventory.yml` or `inventory.example.yml` for the full example with placeholders):
+Example structure:
 
 ```yaml
 ---
@@ -101,7 +113,9 @@ all:
           # ...
 ```
 
-**Do not commit real infrastructure data.** The repo contains only an example inventory with placeholders. Use CI secrets (e.g. `ANSIBLE_INVENTORY` as base64 of your real inventory) or Ansible Vault for deployment.
+**Do not commit real infrastructure data.** Keep production inventory in a
+secure secret store and inject it in CI/CD (for example, `ANSIBLE_INVENTORY`
+as base64). See `INVENTORY.md` for details.
 
 ## Playbooks
 
@@ -136,6 +150,22 @@ Configures UFW firewall. When `ufw_docker_nat_enabled` is true (set in `all.vars
 
 ```bash
 ansible-playbook -i inventory.yml security.yml
+```
+
+### test-prover.yml
+
+Installs `bento-cli` from a release bundle and runs a prover smoke test:
+
+```bash
+ansible-playbook -i inventory.yml test-prover.yml
+```
+
+### kailua.yml
+
+Installs and configures the Kailua service:
+
+```bash
+ansible-playbook -i inventory.yml kailua.yml
 ```
 
 ## Configuration Variables
@@ -201,47 +231,14 @@ ansible-playbook -i inventory.yml prover.yml --skip-tags nvidia
 | `awscli`        | AWS CLI installation            |
 | `vector`        | Vector log shipping             |
 
-## GitHub Actions Deployment
+## GitHub Actions Checks
 
-Automated deployment is in `.github/workflows/prover-deploy.yml`.
+CI checks are defined in `.github/workflows/ansible.yml` (repo root). Current
+jobs run:
 
-### How limits map to inventory groups
-
-| Workflow target | Ansible limit         | Hosts                                                                      |
-| --------------- | --------------------- | -------------------------------------------------------------------------- |
-| **staging**     | `staging`             | Explorer and prover on Base Sepolia (staging)                              |
-| **nightly**     | `production:&nightly` | Production prover nightlies (Base Mainnet, Base Sepolia, Ethereum Sepolia) |
-| **release**     | `production:&release` | Production prover + explorer release groups                                |
-| **all**         | (no limit)            | Staging + production (all playbook hosts)                                  |
-
-### Required secrets
-
-| Secret                    | Description                    |
-| ------------------------- | ------------------------------ |
-| `ANSIBLE_SSH_PRIVATE_KEY` | SSH private key (ed25519)      |
-| `ANSIBLE_INVENTORY`       | Base64-encoded `inventory.yml` |
-
-### Creating the inventory secret
-
-Use a **real** inventory file (with your hosts and secrets), not the example in the repo:
-
-```bash
-cd ansible
-# Use your actual inventory file (e.g. from vault or a private copy)
-base64 -i /path/to/your/inventory.yml | tr -d '\n'
-# Paste output into GitHub secret: ANSIBLE_INVENTORY
-```
-
-### Manual run
-
-1. Actions → Prover Deployment → Run workflow
-2. Choose **Target**: `staging`, `nightly`, `release`, or `all`
-3. Playbook is fixed to `prover.yml` in the workflow; adjust the workflow file to run `monitoring.yml` or `security.yml` if needed.
-
-### Scheduled runs
-
-- **Push to main**: runs staging job.
-- **Cron (1am UTC)**: runs nightly job (`production:&nightly`).
+- `ansible-lint`
+- syntax checks for `prover.yml` and `monitoring.yml`
+- YAML validation for `ansible/**/*.yml`
 
 ## Service Management
 
@@ -360,6 +357,7 @@ cd /opt/bento && docker compose logs --tail=100
 
 - `roles/awscli/README.md` - AWS CLI v2
 - `roles/docker/README.md` - Docker Engine and NVIDIA Container Toolkit
+- `roles/kailua/README.md` - Kailua deployment and service launcher
 - `roles/nvidia/README.md` - NVIDIA drivers and CUDA
 - `roles/prover/README.md` - Prover/explorer Docker Compose deployment
 - `roles/ufw/README.md` - UFW firewall and optional Docker NAT
