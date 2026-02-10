@@ -19,7 +19,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum PriceOracleError {
     /// All price sources failed for a trading pair
-    #[error("All price sources failed for {pair:?}")]
+    #[error("{code} All price sources failed for {pair:?}", code = self.code())]
     AllSourcesFailed {
         /// The trading pair that failed
         pair: TradingPair,
@@ -28,7 +28,7 @@ pub enum PriceOracleError {
     },
 
     /// Insufficient sources succeeded to meet minimum threshold
-    #[error("Insufficient sources for {pair:?}: got {got}, need {need}")]
+    #[error("{code} Insufficient sources for {pair:?}: got {got}, need {need}", code = self.code())]
     InsufficientSources {
         /// The trading pair
         pair: TradingPair,
@@ -39,19 +39,19 @@ pub enum PriceOracleError {
     },
 
     /// RPC error from on-chain source
-    #[error("RPC error: {0}")]
+    #[error("{code} RPC error: {0}", code = self.code())]
     RpcError(#[from] alloy::contract::Error),
 
     /// HTTP error from off-chain source
-    #[error("HTTP error: {0}")]
+    #[error("{code} HTTP error: {0}", code = self.code())]
     HttpError(#[from] reqwest::Error),
 
     /// Invalid price data received
-    #[error("Invalid price data: {0}")]
+    #[error("{code} Invalid price data: {0}", code = self.code())]
     InvalidPrice(String),
 
     /// Stale price data
-    #[error("Stale price data: age {age_secs}s exceeds max {max_secs}s")]
+    #[error("{code} Stale price data: age {age_secs}s exceeds max {max_secs}s", code = self.code())]
     StalePrice {
         /// Age of the price in seconds
         age_secs: u64,
@@ -60,14 +60,31 @@ pub enum PriceOracleError {
     },
 
     /// Configuration error
-    #[error("Configuration error: {0}")]
+    #[error("{code} Configuration error: {0}", code = self.code())]
     ConfigError(String),
 
     /// Internal error
-    #[error("Internal error: {0}")]
+    #[error("{code} Internal error: {0}", code = self.code())]
     Internal(String),
 
     /// Price oracle could not be updated for too long
-    #[error("Price oracle could not be updated for too long, shutting down. Please make sure it is correctly configured or set static prices in the config.")]
+    #[error("{code} Price oracle could not be updated for too long, shutting down. Please make sure it is correctly configured or set static prices in the config.", code = self.code())]
     UpdateTimeout(),
+}
+
+impl PriceOracleError {
+    /// Returns the error code for this error variant
+    pub fn code(&self) -> &str {
+        match self {
+            PriceOracleError::AllSourcesFailed { .. } => "[B-PO-001]",
+            PriceOracleError::InsufficientSources { .. } => "[B-PO-002]",
+            PriceOracleError::RpcError(_) => "[B-PO-003]",
+            PriceOracleError::HttpError(_) => "[B-PO-004]",
+            PriceOracleError::InvalidPrice(_) => "[B-PO-005]",
+            PriceOracleError::StalePrice { .. } => "[B-PO-006]",
+            PriceOracleError::ConfigError(_) => "[B-PO-007]",
+            PriceOracleError::Internal(_) => "[B-PO-008]",
+            PriceOracleError::UpdateTimeout() => "[B-PO-009]",
+        }
+    }
 }

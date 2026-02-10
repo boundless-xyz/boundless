@@ -230,17 +230,7 @@ impl RetryTask for PriceOracleManager {
 
 impl CodedError for PriceOracleError {
     fn code(&self) -> &str {
-        match self {
-            PriceOracleError::AllSourcesFailed { .. } => "[B-PO-001]",
-            PriceOracleError::InsufficientSources { .. } => "[B-PO-002]",
-            PriceOracleError::RpcError(_) => "[B-PO-003]",
-            PriceOracleError::HttpError(_) => "[B-PO-004]",
-            PriceOracleError::InvalidPrice(_) => "[B-PO-005]",
-            PriceOracleError::StalePrice { .. } => "[B-PO-006]",
-            PriceOracleError::ConfigError(_) => "[B-PO-007]",
-            PriceOracleError::Internal(_) => "[B-PO-008]",
-            PriceOracleError::UpdateTimeout() => "[B-PO-009]",
-        }
+        PriceOracleError::code(self)
     }
 }
 
