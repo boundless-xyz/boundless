@@ -1827,6 +1827,8 @@ async fn get_requestor_leaderboard_impl(
             requestor_address,
             orders_requested: orders_requested as u64,
             orders_locked: orders_locked as u64,
+            orders_fulfilled: fulfilled as u64,
+            orders_expired: expired as u64,
             cycles_requested,
             median_lock_price_per_cycle: None,
             acceptance_rate,
