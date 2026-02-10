@@ -814,6 +814,7 @@ pub(crate) mod tests {
         pub(crate) bidding_start: u64,
         pub(crate) lock_timeout: u32,
         pub(crate) timeout: u32,
+        pub(crate) request_input: Option<Vec<u8>>,
     }
 
     impl Default for OrderParams {
@@ -827,6 +828,7 @@ pub(crate) mod tests {
                 bidding_start: now_timestamp(),
                 lock_timeout: 900,
                 timeout: 1200,
+                request_input: None,
             }
         }
     }
@@ -845,14 +847,12 @@ pub(crate) mod tests {
             let chain_id = self.provider.get_chain_id().await.unwrap();
             let boundless_market_address = self.boundless_market.instance().address();
 
+            let input_bytes = params.request_input.unwrap_or(vec![0x41, 0x41, 0x41, 0x41]);
             let request = ProofRequest::new(
                 RequestId::new(self.provider.default_signer_address(), params.order_index),
                 Requirements::new(Predicate::prefix_match(image_id, Bytes::default())),
                 image_url,
-                RequestInput::builder()
-                    .write_slice(&[0x41, 0x41, 0x41, 0x41])
-                    .build_inline()
-                    .unwrap(),
+                RequestInput::builder().write_slice(&input_bytes).build_inline().unwrap(),
                 Offer {
                     minPrice: params.min_price,
                     maxPrice: params.max_price,
@@ -1367,6 +1367,70 @@ pub(crate) mod tests {
         assert_eq!(db_order.status, OrderStatus::Skipped);
 
         assert!(logs_contain("estimated") && logs_contain("lock and fulfill order"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn skip_price_less_than_gas_costs_large_journal() {
+        let config = ConfigLock::default();
+        {
+            config.load_write().unwrap().market.min_mcycle_price = "0.00000000001".into();
+        }
+        let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
+
+        let large_journal_gas = 10_000u64 * 26;
+        let price = gas_midpoint_price(&ctx, large_journal_gas).await;
+        let min_price = price;
+        let max_price = price;
+
+        // Empty journal order should be accepted (gas cost is below the price).
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 1,
+                min_price,
+                max_price,
+                request_input: Some(vec![]),
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(locked);
+        let priced = ctx.priced_orders_rx.try_recv().unwrap();
+        assert_eq!(priced.target_timestamp, Some(0));
+
+        // Large journal order should be rejected (journal calldata gas pushes cost above the price).
+        let order = ctx
+            .generate_next_order(OrderParams {
+                order_index: 2,
+                min_price,
+                max_price,
+                request_input: Some(vec![0x41; 10_000]),
+                ..Default::default()
+            })
+            .await;
+
+        pin_base_fee(&ctx).await;
+        let _request_id =
+            ctx.boundless_market.submit_request(&order.request, &ctx.signer(0)).await.unwrap();
+
+        pin_base_fee(&ctx).await;
+        let order_id = order.id();
+        let locked = ctx.picker.price_order_and_update_state(order, CancellationToken::new()).await;
+        assert!(!locked);
+
+        let db_order = ctx.db.get_order(&order_id).await.unwrap().unwrap();
+        assert_eq!(db_order.status, OrderStatus::Skipped);
+
+        assert!(
+            logs_contain("estimated gas cost to lock and fulfill order of")
+                && logs_contain("exceeds max price")
+        );
     }
 
     #[tokio::test]

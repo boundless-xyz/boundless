@@ -839,6 +839,17 @@ pub trait OrderPricingContext {
             order_gas_cost += U256::from(gas_price) * U256::from(journal_gas);
         }
 
+        // Re-check gas cost now that journal calldata gas is included.
+        if order_gas_cost > U256::from(order.request.offer.maxPrice) && !lock_expired {
+            return Ok(Skip {
+                reason: format!(
+                    "estimated gas cost to lock and fulfill order of {} exceeds max price of {}",
+                    format_ether(order_gas_cost),
+                    format_ether(order.request.offer.maxPrice)
+                ),
+            });
+        }
+
         // Validate the predicates:
         let predicate = Predicate::try_from(order.request.requirements.predicate.clone())
             .map_err(|e| OrderPricingError::RequestError(Arc::new(e.into())))?;
