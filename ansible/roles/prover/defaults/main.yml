@@ -40,7 +40,7 @@ prover_minio_root_pass: password
 prover_minio_work_expiry_days: 7
 
 # Bento configuration
-prover_rust_log: info
+prover_rust_log: "info,broker=debug,boundless_market=debug"
 prover_risc0_home: "/usr/local/risc0"
 prover_segment_size: 20
 prover_risc0_keccak_po2: 17

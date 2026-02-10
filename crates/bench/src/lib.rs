@@ -26,7 +26,8 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, Result};
 use boundless_indexer::{
-    market::service::TransactionFetchStrategy, IndexerService, IndexerServiceConfig,
+    market::{epoch_calculator::DEFAULT_EPOCH0_START_TIME, service::TransactionFetchStrategy},
+    IndexerService, IndexerServiceConfig,
 };
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
@@ -205,6 +206,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                         tx_fetch_strategy: TransactionFetchStrategy::BlockReceipts,
                         execution_config: None,
                         block_delay: 0,
+                        epoch0_start_time: DEFAULT_EPOCH0_START_TIME,
                     },
                 )
                 .await?;

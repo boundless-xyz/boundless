@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart Kailua
+  ansible.builtin.systemd:
+    name: kailua
+    state: restarted
