@@ -331,12 +331,11 @@ impl MarketPricing {
         Self { rpc_url, config }
     }
 
-    // Get a list of known requestors for the deployment.
+    // Get a list of known requestors for the given chain ID.
     // This is used to filter the market events for pricing.
-    fn known_requestors(&self) -> Option<RequestorMap> {
-        let deployment = self.config.deployment.as_ref()?;
-        match deployment.market_chain_id {
-            Some(11155111) => Some(RequestorMap::new(hash_map::HashMap::from([
+    fn known_requestors_for_chain(chain_id: u64) -> Option<RequestorMap> {
+        match chain_id {
+            11155111 => Some(RequestorMap::new(hash_map::HashMap::from([
                 (
                     address!("0xc197ebe12c7bcf1d9f3b415342bdbc795425335c"),
                     RequestorType::OrderGenerator,
@@ -346,7 +345,7 @@ impl MarketPricing {
                     RequestorType::OrderGenerator,
                 ),
             ]))),
-            Some(8453) => Some(RequestorMap::new(hash_map::HashMap::from([
+            8453 => Some(RequestorMap::new(hash_map::HashMap::from([
                 (
                     address!("0xc197ebe12c7bcf1d9f3b415342bdbc795425335c"),
                     RequestorType::OrderGenerator,
@@ -357,7 +356,7 @@ impl MarketPricing {
                 ),
                 (address!("0x734df7809c4ef94da037449c287166d114503198"), RequestorType::Signal),
             ]))),
-            Some(84532) => Some(RequestorMap::new(hash_map::HashMap::from([
+            84532 => Some(RequestorMap::new(hash_map::HashMap::from([
                 (
                     address!("0xc197ebe12c7bcf1d9f3b415342bdbc795425335c"),
                     RequestorType::OrderGenerator,
@@ -373,10 +372,8 @@ impl MarketPricing {
 
     /// Query market prices from the Boundless Market.
     async fn query_market_pricing(self) -> Result<PricePercentiles> {
-        let Some(requestor_list) = self.known_requestors() else {
-            bail!("No known requestors for deployment");
-        };
-        // Build market client
+        // Build market client. If no deployment is configured, the client builder
+        // will resolve it from the chain ID via the RPC.
         let timeout = self.config.timeout;
         let client = ClientBuilder::new()
             .with_rpc_url(self.rpc_url.clone())
@@ -385,6 +382,20 @@ impl MarketPricing {
             .build()
             .await
             .context("Failed to create market client")?;
+
+        // Resolve the chain ID from the deployment config or from the RPC.
+        let chain_id = match self.config.deployment.as_ref().and_then(|d| d.market_chain_id) {
+            Some(id) => id,
+            None => client
+                .provider()
+                .get_chain_id()
+                .await
+                .context("Failed to query chain ID from RPC for market pricing")?,
+        };
+
+        let Some(requestor_list) = Self::known_requestors_for_chain(chain_id) else {
+            bail!("No known requestors for chain ID {chain_id}");
+        };
 
         // Get current block and calculate range
         let current_block = client.provider().get_block_number().await?;
