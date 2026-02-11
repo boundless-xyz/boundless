@@ -24,7 +24,7 @@ interface OrderGeneratorArgs {
   lockCollateralRaw: string;
   rampUp?: string;
   minPricePerMCycle: string;
-  maxPricePerMCycle: string;
+  maxPricePerMCycle?: string;
   secondsPerMCycle?: string;
   rampUpSecondsPerMCycle?: string;
   inputMaxMCycles?: string;
@@ -49,6 +49,7 @@ interface OrderGeneratorArgs {
   };
   indexerUrl: pulumi.Output<string>;
   useZeth?: boolean;
+  maxPriceCap?: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -184,12 +185,14 @@ export class OrderGenerator extends pulumi.ComponentResource {
     let ogArgs = [
       `--interval ${args.interval}`,
       `--min ${args.minPricePerMCycle}`,
-      `--max ${args.maxPricePerMCycle}`,
       `--lock-collateral-raw ${args.lockCollateralRaw}`,
       `--set-verifier-address ${args.setVerifierAddr}`,
       `--boundless-market-address ${args.boundlessMarketAddr}`,
       `--tx-timeout ${args.txTimeout}`
     ]
+    if (args.maxPricePerMCycle) {
+      ogArgs.push(`--max ${args.maxPricePerMCycle}`);
+    }
     if (args.collateralTokenAddress) {
       ogArgs.push(`--collateral-token-address ${args.collateralTokenAddress}`);
     }
@@ -228,6 +231,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.useZeth) {
       ogArgs.push(`--use-zeth`);
+    }
+    if (args.maxPriceCap) {
+      ogArgs.push(`--max-price-cap ${args.maxPriceCap}`);
     }
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, { name: serviceName });

@@ -22,6 +22,9 @@ export interface RewardsIndexerArgs {
 }
 
 export class RewardsIndexer extends pulumi.ComponentResource {
+  public readonly image: docker_build.Image;
+  public readonly service: awsx.ecs.FargateService;
+
   constructor(name: string, args: RewardsIndexerArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:rewards', name, opts);
 
@@ -57,7 +60,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       };
     }
 
-    const rewardsImage = new docker_build.Image(`${serviceName}-rewards-img`, {
+    this.image = new docker_build.Image(`${serviceName}-rewards-img`, {
       tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-${dockerTag}`],
       context: {
         location: dockerDir,
@@ -104,7 +107,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
 
     const rewardsServiceLogGroup = `${serviceName}-rewards-service-v2`;
 
-    const rewardsService = new awsx.ecs.FargateService(`${serviceName}-rewards-service`, {
+    this.service = new awsx.ecs.FargateService(`${serviceName}-rewards-service`, {
       name: `${serviceName}-rewards-service`,
       cluster: infra.cluster.arn,
       networkConfiguration: {
@@ -118,6 +121,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         rollback: false,
       },
       forceNewDeployment: true,
+      continueBeforeSteadyState: false,
       enableExecuteCommand: true,
       taskDefinitionArgs: {
         logGroup: {
@@ -131,7 +135,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-rewards`,
-          image: rewardsImage.ref,
+          image: this.image.ref,
           cpu: 512,
           memory: 256,
           essential: true,
@@ -212,7 +216,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: `"ERROR "`,
-    }, { parent: this, dependsOn: [rewardsService] });
+    }, { parent: this, dependsOn: [this.service] });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-error-alarm`, {
       name: `${serviceName}-rewards-log-err`,
@@ -248,7 +252,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: 'FATAL',
-    }, { parent: this, dependsOn: [rewardsService] });
+    }, { parent: this, dependsOn: [this.service] });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-rewards-fatal-alarm`, {
       name: `${serviceName}-rewards-log-fatal`,
