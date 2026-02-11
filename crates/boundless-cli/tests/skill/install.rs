@@ -59,21 +59,15 @@ fn test_skill_install_with_path() {
 
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args([
-        "skill",
-        "install",
-        "boundless-overview",
-        "--path",
-        install_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .assert()
-    .success()
-    .stdout(contains("installed successfully"))
-    .stdout(contains("SKILL.md"))
-    .stdout(contains("references/architecture.md"))
-    .stdout(contains("references/cli-reference.md"))
-    .stdout(contains("references/conventions.md"));
+    cmd.args(["skill", "install", "boundless-overview", "--path", install_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .assert()
+        .success()
+        .stdout(contains("installed successfully"))
+        .stdout(contains("SKILL.md"))
+        .stdout(contains("references/architecture.md"))
+        .stdout(contains("references/cli-reference.md"))
+        .stdout(contains("references/conventions.md"));
 
     // Verify files were created under the skill name subdirectory.
     let skill_dir = install_path.join("boundless-overview");
@@ -98,17 +92,11 @@ fn test_skill_install_first_request_with_path() {
 
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args([
-        "skill",
-        "install",
-        "first-request",
-        "--path",
-        install_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .assert()
-    .success()
-    .stdout(contains("installed successfully"));
+    cmd.args(["skill", "install", "first-request", "--path", install_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .assert()
+        .success()
+        .stdout(contains("installed successfully"));
 
     // Verify all 8 files were created.
     let skill_dir = install_path.join("first-request");
@@ -134,46 +122,20 @@ fn test_skill_install_all_with_path() {
 
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args([
-        "skill",
-        "install",
-        "--all",
-        "--path",
-        install_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .assert()
-    .success()
-    .stdout(contains("installed successfully"));
+    cmd.args(["skill", "install", "--all", "--path", install_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .assert()
+        .success()
+        .stdout(contains("installed successfully"));
 
     // Verify all skill directories exist with their files.
     assert!(install_path.join("boundless-overview/SKILL.md").exists());
-    assert!(
-        install_path
-            .join("boundless-overview/references/architecture.md")
-            .exists()
-    );
-    assert!(
-        install_path
-            .join("first-request/SKILL.md")
-            .exists()
-    );
-    assert!(
-        install_path
-            .join("first-request/scripts/check-prerequisites.sh")
-            .exists()
-    );
-    assert!(
-        install_path
-            .join("first-request/examples/request.yaml")
-            .exists()
-    );
+    assert!(install_path.join("boundless-overview/references/architecture.md").exists());
+    assert!(install_path.join("first-request/SKILL.md").exists());
+    assert!(install_path.join("first-request/scripts/check-prerequisites.sh").exists());
+    assert!(install_path.join("first-request/examples/request.yaml").exists());
     assert!(install_path.join("contributing-skills/SKILL.md").exists());
-    assert!(
-        install_path
-            .join("contributing-skills/references/registration-guide.md")
-            .exists()
-    );
+    assert!(install_path.join("contributing-skills/references/registration-guide.md").exists());
 }
 
 /// Test that --list prints available skills without installing.
@@ -201,19 +163,13 @@ fn test_skill_install_invalid_name() {
 
     let mut cmd = cli_cmd().unwrap();
 
-    cmd.args([
-        "skill",
-        "install",
-        "nonexistent-skill",
-        "--path",
-        install_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .assert()
-    .failure()
-    .stderr(contains("Unknown skill 'nonexistent-skill'"))
-    .stderr(contains("boundless-overview"))
-    .stderr(contains("first-request"));
+    cmd.args(["skill", "install", "nonexistent-skill", "--path", install_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .assert()
+        .failure()
+        .stderr(contains("Unknown skill 'nonexistent-skill'"))
+        .stderr(contains("boundless-overview"))
+        .stderr(contains("first-request"));
 }
 
 /// Test that running skill install twice overwrites cleanly.
@@ -224,34 +180,18 @@ fn test_skill_install_idempotent() {
 
     // Install once.
     let mut cmd = cli_cmd().unwrap();
-    cmd.args([
-        "skill",
-        "install",
-        "boundless-overview",
-        "--path",
-        install_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .assert()
-    .success();
+    cmd.args(["skill", "install", "boundless-overview", "--path", install_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .assert()
+        .success();
 
     // Install again - should succeed without error.
     let mut cmd = cli_cmd().unwrap();
-    cmd.args([
-        "skill",
-        "install",
-        "boundless-overview",
-        "--path",
-        install_path.to_str().unwrap(),
-    ])
-    .env("NO_COLOR", "1")
-    .assert()
-    .success()
-    .stdout(contains("installed successfully"));
+    cmd.args(["skill", "install", "boundless-overview", "--path", install_path.to_str().unwrap()])
+        .env("NO_COLOR", "1")
+        .assert()
+        .success()
+        .stdout(contains("installed successfully"));
 
-    assert!(
-        install_path
-            .join("boundless-overview/SKILL.md")
-            .exists()
-    );
+    assert!(install_path.join("boundless-overview/SKILL.md").exists());
 }

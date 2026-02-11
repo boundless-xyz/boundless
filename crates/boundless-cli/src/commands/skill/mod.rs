@@ -14,8 +14,10 @@
 
 //! Commands for managing AI tool skill files.
 
+mod dev;
 mod install;
 
+pub use dev::SkillDev;
 pub use install::SkillInstall;
 
 use clap::Subcommand;
@@ -27,6 +29,9 @@ use crate::config::GlobalConfig;
 pub enum SkillCommands {
     /// Install Boundless skill files for AI coding tools
     Install(SkillInstall),
+
+    /// Symlink skill source files for live development (no recompile needed)
+    Dev(SkillDev),
 }
 
 impl SkillCommands {
@@ -34,6 +39,7 @@ impl SkillCommands {
     pub async fn run(&self, global_config: &GlobalConfig) -> anyhow::Result<()> {
         match self {
             Self::Install(cmd) => cmd.run(global_config).await,
+            Self::Dev(cmd) => cmd.run(global_config).await,
         }
     }
 }

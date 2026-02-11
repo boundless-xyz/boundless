@@ -46,10 +46,7 @@ const SKILLS: &[Skill] = &[
         name: "boundless-overview",
         description: "Boundless CLI overview, architecture, and conventions",
         files: &[
-            (
-                "SKILL.md",
-                include_str!("../../../skill/boundless-overview/SKILL.md"),
-            ),
+            ("SKILL.md", include_str!("../../../skill/boundless-overview/SKILL.md")),
             (
                 "references/architecture.md",
                 include_str!("../../../skill/boundless-overview/references/architecture.md"),
@@ -68,10 +65,7 @@ const SKILLS: &[Skill] = &[
         name: "first-request",
         description: "Guided walkthrough: submit your first ZK proof on Boundless",
         files: &[
-            (
-                "SKILL.md",
-                include_str!("../../../skill/first-request/SKILL.md"),
-            ),
+            ("SKILL.md", include_str!("../../../skill/first-request/SKILL.md")),
             (
                 "scripts/check-prerequisites.sh",
                 include_str!("../../../skill/first-request/scripts/check-prerequisites.sh"),
@@ -106,10 +100,7 @@ const SKILLS: &[Skill] = &[
         name: "contributing-skills",
         description: "How to create, test, and ship new Boundless CLI skills",
         files: &[
-            (
-                "SKILL.md",
-                include_str!("../../../skill/contributing-skills/SKILL.md"),
-            ),
+            ("SKILL.md", include_str!("../../../skill/contributing-skills/SKILL.md")),
             (
                 "references/registration-guide.md",
                 include_str!("../../../skill/contributing-skills/references/registration-guide.md"),
@@ -226,11 +217,7 @@ impl SkillInstall {
                 Some(s) => vec![s],
                 None => {
                     let available: Vec<&str> = SKILLS.iter().map(|s| s.name).collect();
-                    bail!(
-                        "Unknown skill '{}'. Available skills: {}",
-                        name,
-                        available.join(", ")
-                    );
+                    bail!("Unknown skill '{}'. Available skills: {}", name, available.join(", "));
                 }
             }
         } else {
@@ -251,19 +238,15 @@ impl SkillInstall {
         let base_dir = if let Some(ref path) = self.path {
             path.clone()
         } else {
-            let format = Select::new(
-                "Select AI tool format:",
-                TOOL_FORMATS.to_vec(),
-            )
-            .prompt()
-            .context("Failed to get tool format selection")?;
+            let format = Select::new("Select AI tool format:", TOOL_FORMATS.to_vec())
+                .prompt()
+                .context("Failed to get tool format selection")?;
 
             if self.global {
                 let home = dirs::home_dir().context("Failed to get home directory")?;
                 home.join(format.global_dir)
             } else {
-                let cwd =
-                    std::env::current_dir().context("Failed to get current directory")?;
+                let cwd = std::env::current_dir().context("Failed to get current directory")?;
                 cwd.join(format.local_dir)
             }
         };
@@ -277,14 +260,16 @@ impl SkillInstall {
                 if let Some(parent) = std::path::Path::new(rel_path).parent() {
                     if !parent.as_os_str().is_empty() {
                         let dir = install_dir.join(parent);
-                        std::fs::create_dir_all(&dir)
-                            .with_context(|| format!("Failed to create directory: {}", dir.display()))?;
+                        std::fs::create_dir_all(&dir).with_context(|| {
+                            format!("Failed to create directory: {}", dir.display())
+                        })?;
                     }
                 }
             }
             // Ensure the base install dir exists even if all files are at root level.
-            std::fs::create_dir_all(&install_dir)
-                .with_context(|| format!("Failed to create directory: {}", install_dir.display()))?;
+            std::fs::create_dir_all(&install_dir).with_context(|| {
+                format!("Failed to create directory: {}", install_dir.display())
+            })?;
 
             // Write all files.
             for (rel_path, content) in skill.files {
@@ -295,11 +280,7 @@ impl SkillInstall {
 
             // Print success message.
             println!();
-            println!(
-                "{} Skill '{}' installed successfully!",
-                "✓".green().bold(),
-                skill.name
-            );
+            println!("{} Skill '{}' installed successfully!", "✓".green().bold(), skill.name);
             println!();
 
             // Show relative path if possible, otherwise absolute.

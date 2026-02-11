@@ -1,9 +1,9 @@
-# Boundless CLI Skill
+---
+name: boundless-overview
+description: Context for working with the Boundless decentralized ZK proof marketplace. Triggers include "Boundless", "ZK proof marketplace", "boundless CLI", "proof request", "requestor", "prover", "zkVM".
+---
 
-- **name**: boundless
-- **version**: 1.0.0
-- **description**: Context for working with the Boundless decentralized ZK proof marketplace
-- **author**: Boundless Foundation
+# Boundless CLI Skill
 
 ## Overview
 
