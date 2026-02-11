@@ -14,6 +14,7 @@ members = [
     "crates/indexer",
     "crates/lambdas/indexer-api",
     "crates/lambdas/indexer-monitor",
+    "crates/lambdas/indexer-redrive",
     "crates/order-generator",
     "crates/order-stream",
     "crates/povw",
