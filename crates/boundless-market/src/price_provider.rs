@@ -134,6 +134,10 @@ impl<D: PriceProvider + Clone + Send + 'static, F: PriceProvider + Clone + Send 
                 Ok(price_percentiles) => Ok(price_percentiles),
                 Err(e) => {
                     if let Some(fallback_provider) = fallback {
+                        tracing::warn!(
+                            "Failed to fetch market prices from default provider: {:#}",
+                            e
+                        );
                         // Await the fallback future, moving it into the async block
                         let fallback_fut = fallback_provider.price_percentiles();
                         fallback_fut.await
