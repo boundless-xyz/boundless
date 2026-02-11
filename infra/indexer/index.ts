@@ -3,6 +3,7 @@ import { IndexerShared } from './components/indexer-infra';
 import { MarketIndexer } from './components/market-indexer';
 import { RewardsIndexer } from './components/rewards-indexer';
 import { MonitorLambda } from './components/monitor-lambda';
+import { RedriveLambda } from './components/redrive-lambda';
 import { IndexerApi } from './components/indexer-api';
 import { getEnvVar, getServiceNameV1 } from '../util';
 
@@ -157,6 +158,13 @@ export = () => {
       boundlessAlertsTopicArns: alertsTopicArns,
       serviceMetricsNamespace,
       marketMetricsNamespace,
+    }, { parent: infra, dependsOn: sharedDependencies });
+
+    new RedriveLambda(indexerServiceName, {
+      privSubNetIds: privSubNetIds,
+      dbUrlSecret: infra.dbUrlSecret,
+      indexerSgId: infra.indexerSecurityGroup.id,
+      rustLogLevel: rustLogIndexer,
     }, { parent: infra, dependsOn: sharedDependencies });
   }
 

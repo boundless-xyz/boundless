@@ -135,6 +135,7 @@ pub enum AggregationGranularity {
     Daily,
     Weekly,
     Monthly,
+    Epoch,
 }
 
 impl Default for AggregationGranularity {
@@ -150,6 +151,7 @@ impl std::fmt::Display for AggregationGranularity {
             Self::Daily => write!(f, "daily"),
             Self::Weekly => write!(f, "weekly"),
             Self::Monthly => write!(f, "monthly"),
+            Self::Epoch => write!(f, "epoch"),
         }
     }
 }
@@ -319,6 +321,12 @@ pub struct RequestorLeaderboardEntry {
     pub orders_requested: u64,
     /// Total orders locked in the period
     pub orders_locked: u64,
+    /// Total orders fulfilled (locked orders that were successfully proved)
+    pub orders_fulfilled: u64,
+    /// Total orders expired (locked orders that expired without fulfillment)
+    pub orders_expired: u64,
+    /// Total orders that expired without ever being locked
+    pub orders_not_locked_and_expired: u64,
     /// Total cycles requested (as string)
     pub cycles_requested: String,
     /// Total cycles requested (formatted for display)
@@ -327,6 +335,14 @@ pub struct RequestorLeaderboardEntry {
     pub median_lock_price_per_cycle: Option<String>,
     /// Median lock price per cycle (formatted for display)
     pub median_lock_price_per_cycle_formatted: Option<String>,
+    /// P50 fixed cost (gas cost) per request (as string in wei)
+    pub p50_fixed_cost: String,
+    /// P50 fixed cost (formatted for display)
+    pub p50_fixed_cost_formatted: String,
+    /// P50 variable cost (proving cost) per cycle (as string in wei)
+    pub p50_variable_cost_per_cycle: String,
+    /// P50 variable cost per cycle (formatted for display)
+    pub p50_variable_cost_per_cycle_formatted: String,
     /// Acceptance rate (locked / (locked + not_locked_and_expired)) as percentage
     pub acceptance_rate: f32,
     /// Locked order fulfillment rate (locked and fulfilled / (locked and fulfilled + locked and expired)) as percentage
@@ -575,6 +591,9 @@ pub struct MarketAggregateEntry {
 
     /// Total cycles (program + overhead) computed across all fulfilled requests in this period
     pub total_cycles: String,
+
+    /// Epoch number at the start of this period (None if timestamp is before epoch 0)
+    pub epoch_number_start: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -790,6 +809,9 @@ pub struct RequestorAggregateEntry {
 
     /// Total cycles (program + overhead) computed across all fulfilled requests in this period
     pub total_cycles: String,
+
+    /// Epoch number at the start of this period (None if timestamp is before epoch 0)
+    pub epoch_number_start: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -879,6 +901,18 @@ pub struct RequestorCumulativeEntry {
 
     /// Total cycles (program + overhead) computed across all fulfilled requests (cumulative)
     pub total_cycles: String,
+
+    /// Total fixed cost (gas cost) across all locked requests (cumulative, as string in wei)
+    pub total_fixed_cost: String,
+
+    /// Total fixed cost (formatted for display)
+    pub total_fixed_cost_formatted: String,
+
+    /// Total variable cost (proving cost) across all locked requests (cumulative, as string in wei)
+    pub total_variable_cost: String,
+
+    /// Total variable cost (formatted for display)
+    pub total_variable_cost_formatted: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -949,6 +983,9 @@ pub struct ProverAggregateEntry {
     pub p99_lock_price_per_cycle_formatted: String,
     pub total_program_cycles: String,
     pub total_cycles: String,
+
+    /// Epoch number at the start of this period (None if timestamp is before epoch 0)
+    pub epoch_number_start: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1089,6 +1126,11 @@ async fn get_market_aggregates_impl(
     // we know there are more results, and we discard the extra item.
     let limit_plus_one = limit_i64 + 1;
 
+    // Handle epoch aggregation separately since it returns a different type
+    if matches!(params.aggregation, AggregationGranularity::Epoch) {
+        return get_epoch_market_aggregates_impl(state, cursor, limit, limit_plus_one, sort).await;
+    }
+
     // Route to appropriate database method based on aggregation type
     let mut summaries = match params.aggregation {
         AggregationGranularity::Hourly => {
@@ -1139,6 +1181,10 @@ async fn get_market_aggregates_impl(
                 )
                 .await?
         }
+        AggregationGranularity::Epoch => {
+            // Handled by early return above
+            unreachable!()
+        }
     };
 
     let has_more = summaries.len() > limit as usize;
@@ -1162,6 +1208,119 @@ async fn get_market_aggregates_impl(
             let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
 
             // Convert U256 fields to strings (all currency fields are now U256 in struct)
+            let total_fees_locked = summary.total_fees_locked.to_string();
+            let total_collateral_locked = summary.total_collateral_locked.to_string();
+            let total_locked_and_expired_collateral =
+                summary.total_locked_and_expired_collateral.to_string();
+            let p10_lock_price_per_cycle = summary.p10_lock_price_per_cycle.to_string();
+            let p25_lock_price_per_cycle = summary.p25_lock_price_per_cycle.to_string();
+            let p50_lock_price_per_cycle = summary.p50_lock_price_per_cycle.to_string();
+            let p75_lock_price_per_cycle = summary.p75_lock_price_per_cycle.to_string();
+            let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
+            let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
+            let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
+
+            MarketAggregateEntry {
+                chain_id: state.chain_id,
+                timestamp: summary.period_timestamp as i64,
+                timestamp_iso,
+                total_fulfilled: summary.total_fulfilled as i64,
+                unique_provers_locking_requests: summary.unique_provers_locking_requests as i64,
+                unique_requesters_submitting_requests: summary.unique_requesters_submitting_requests
+                    as i64,
+                total_fees_locked: total_fees_locked.clone(),
+                total_fees_locked_formatted: format_eth(&total_fees_locked),
+                total_collateral_locked: total_collateral_locked.clone(),
+                total_collateral_locked_formatted: format_zkc(&total_collateral_locked),
+                total_locked_and_expired_collateral: total_locked_and_expired_collateral.clone(),
+                total_locked_and_expired_collateral_formatted: format_zkc(
+                    &total_locked_and_expired_collateral,
+                ),
+                p10_lock_price_per_cycle: p10_lock_price_per_cycle.clone(),
+                p10_lock_price_per_cycle_formatted: format_eth(&p10_lock_price_per_cycle),
+                p25_lock_price_per_cycle: p25_lock_price_per_cycle.clone(),
+                p25_lock_price_per_cycle_formatted: format_eth(&p25_lock_price_per_cycle),
+                p50_lock_price_per_cycle: p50_lock_price_per_cycle.clone(),
+                p50_lock_price_per_cycle_formatted: format_eth(&p50_lock_price_per_cycle),
+                p75_lock_price_per_cycle: p75_lock_price_per_cycle.clone(),
+                p75_lock_price_per_cycle_formatted: format_eth(&p75_lock_price_per_cycle),
+                p90_lock_price_per_cycle: p90_lock_price_per_cycle.clone(),
+                p90_lock_price_per_cycle_formatted: format_eth(&p90_lock_price_per_cycle),
+                p95_lock_price_per_cycle: p95_lock_price_per_cycle.clone(),
+                p95_lock_price_per_cycle_formatted: format_eth(&p95_lock_price_per_cycle),
+                p99_lock_price_per_cycle: p99_lock_price_per_cycle.clone(),
+                p99_lock_price_per_cycle_formatted: format_eth(&p99_lock_price_per_cycle),
+                total_requests_submitted: summary.total_requests_submitted as i64,
+                total_requests_submitted_onchain: summary.total_requests_submitted_onchain as i64,
+                total_requests_submitted_offchain: summary.total_requests_submitted_offchain as i64,
+                total_requests_locked: summary.total_requests_locked as i64,
+                total_requests_slashed: summary.total_requests_slashed as i64,
+                total_expired: summary.total_expired as i64,
+                total_locked_and_expired: summary.total_locked_and_expired as i64,
+                total_locked_and_fulfilled: summary.total_locked_and_fulfilled as i64,
+                total_secondary_fulfillments: summary.total_secondary_fulfillments as i64,
+                locked_orders_fulfillment_rate: summary.locked_orders_fulfillment_rate,
+                locked_orders_fulfillment_rate_adjusted: 0.0,
+                total_program_cycles: summary.total_program_cycles.to_string(),
+                total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
+            }
+        })
+        .collect();
+
+    Ok(MarketAggregatesResponse {
+        chain_id: state.chain_id,
+        aggregation: params.aggregation,
+        data,
+        next_cursor,
+        has_more,
+    })
+}
+
+async fn get_epoch_market_aggregates_impl(
+    state: Arc<AppState>,
+    cursor: Option<i64>,
+    limit: u64,
+    limit_plus_one: i64,
+    sort: SortDirection,
+) -> anyhow::Result<MarketAggregatesResponse> {
+    let mut summaries =
+        state.market_db.get_epoch_market_summaries(cursor, limit_plus_one, sort).await?;
+
+    let has_more = summaries.len() > limit as usize;
+    if has_more {
+        summaries.pop();
+    }
+
+    let next_cursor = if has_more && !summaries.is_empty() {
+        let last_summary = summaries.last().unwrap();
+        Some(encode_cursor(last_summary.period_timestamp as i64)?)
+    } else {
+        None
+    };
+
+    let data = summaries
+        .into_iter()
+        .map(|summary| {
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
+
+            let timestamp_iso = format_timestamp_iso(summary.period_timestamp as i64);
             let total_fees_locked = summary.total_fees_locked.to_string();
             let total_collateral_locked = summary.total_collateral_locked.to_string();
             let total_locked_and_expired_collateral =
@@ -1217,13 +1376,14 @@ async fn get_market_aggregates_impl(
                 locked_orders_fulfillment_rate_adjusted: 0.0,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
             }
         })
         .collect();
 
     Ok(MarketAggregatesResponse {
         chain_id: state.chain_id,
-        aggregation: params.aggregation,
+        aggregation: AggregationGranularity::Epoch,
         data,
         next_cursor,
         has_more,
@@ -1505,8 +1665,20 @@ async fn get_requestor_aggregates_impl(
                 .await?
         }
         AggregationGranularity::Monthly => {
-            // This should never happen due to validation above, but include for completeness
             anyhow::bail!("Monthly aggregation is not supported");
+        }
+        AggregationGranularity::Epoch => {
+            state
+                .market_db
+                .get_epoch_requestor_summaries(
+                    requestor_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
         }
     };
 
@@ -1540,6 +1712,15 @@ async fn get_requestor_aggregates_impl(
             let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
             let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
             let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
 
             RequestorAggregateEntry {
                 chain_id: state.chain_id,
@@ -1584,6 +1765,7 @@ async fn get_requestor_aggregates_impl(
                     .locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
             }
         })
         .collect();
@@ -1747,6 +1929,10 @@ async fn get_requestor_cumulatives_impl(
                     .locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                total_fixed_cost: summary.total_fixed_cost.to_string(),
+                total_fixed_cost_formatted: format_eth(&summary.total_fixed_cost.to_string()),
+                total_variable_cost: summary.total_variable_cost.to_string(),
+                total_variable_cost_formatted: format_eth(&summary.total_variable_cost.to_string()),
             }
         })
         .collect();
@@ -1882,6 +2068,19 @@ async fn get_prover_aggregates_impl(
         AggregationGranularity::Monthly => {
             anyhow::bail!("Monthly aggregation is not supported");
         }
+        AggregationGranularity::Epoch => {
+            state
+                .market_db
+                .get_epoch_prover_summaries(
+                    prover_address,
+                    cursor,
+                    limit_plus_one,
+                    sort,
+                    params.before,
+                    params.after,
+                )
+                .await?
+        }
     };
 
     let has_more = summaries.len() > limit as usize;
@@ -1912,6 +2111,15 @@ async fn get_prover_aggregates_impl(
             let p90_lock_price_per_cycle = summary.p90_lock_price_per_cycle.to_string();
             let p95_lock_price_per_cycle = summary.p95_lock_price_per_cycle.to_string();
             let p99_lock_price_per_cycle = summary.p99_lock_price_per_cycle.to_string();
+
+            // Use epoch number from DB (populated by aggregation logic)
+            // Only include if timestamp is at or after epoch 0 start
+            let epoch_number_start =
+                if summary.period_timestamp >= state.epoch_calculator.epoch0_start_time() {
+                    Some(summary.epoch_number_period_start)
+                } else {
+                    None
+                };
 
             ProverAggregateEntry {
                 chain_id: state.chain_id,
@@ -1949,6 +2157,7 @@ async fn get_prover_aggregates_impl(
                 p99_lock_price_per_cycle_formatted: format_eth(&p99_lock_price_per_cycle),
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                epoch_number_start,
             }
         })
         .collect();
@@ -2209,6 +2418,18 @@ pub struct RequestStatusResponse {
     pub lock_price_per_cycle: Option<String>,
     /// Lock price per cycle (formatted)
     pub lock_price_per_cycle_formatted: Option<String>,
+    /// Fixed cost (gas cost) for this request (as string in wei)
+    pub fixed_cost: Option<String>,
+    /// Fixed cost (formatted for display)
+    pub fixed_cost_formatted: Option<String>,
+    /// Variable cost per cycle (proving cost) for this request (as string in wei)
+    pub variable_cost_per_cycle: Option<String>,
+    /// Variable cost per cycle (formatted for display)
+    pub variable_cost_per_cycle_formatted: Option<String>,
+    /// Base fee per gas at lock block (wei, for debugging)
+    pub lock_base_fee: Option<String>,
+    /// Base fee per gas at fulfill block (wei, for debugging)
+    pub fulfill_base_fee: Option<String>,
     /// Ramp up start timestamp
     pub ramp_up_start: i64,
     /// Ramp up start timestamp (ISO 8601)
@@ -2325,6 +2546,15 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         lock_price_formatted: status.lock_price.as_ref().map(|p| format_eth(p)),
         lock_price_per_cycle: status.lock_price_per_cycle.clone(),
         lock_price_per_cycle_formatted: status.lock_price_per_cycle.as_ref().map(|p| format_eth(p)),
+        fixed_cost: status.fixed_cost.clone(),
+        fixed_cost_formatted: status.fixed_cost.as_ref().map(|c| format_eth(c)),
+        variable_cost_per_cycle: status.variable_cost_per_cycle.clone(),
+        variable_cost_per_cycle_formatted: status
+            .variable_cost_per_cycle
+            .as_ref()
+            .map(|c| format_eth(c)),
+        lock_base_fee: status.lock_base_fee,
+        fulfill_base_fee: status.fulfill_base_fee,
         ramp_up_start,
         ramp_up_start_iso: format_timestamp_iso(ramp_up_start),
         ramp_up_period: status.ramp_up_period as i64,
@@ -2715,9 +2945,13 @@ async fn list_requestors_impl(
     // Get addresses for batch queries
     let addresses: Vec<Address> = entries.iter().map(|e| e.requestor_address).collect();
 
-    // Fetch median lock prices and last activity times in batch
+    // Fetch median lock prices, p50 fixed/variable costs, and last activity times in batch
     let median_prices =
         state.market_db.get_requestor_median_lock_prices(&addresses, start_ts, end_ts).await?;
+    let p50_fixed_costs =
+        state.market_db.get_requestor_p50_fixed_costs(&addresses, start_ts, end_ts).await?;
+    let p50_variable_costs =
+        state.market_db.get_requestor_p50_variable_costs(&addresses, start_ts, end_ts).await?;
     let last_activities = state.market_db.get_requestor_last_activity_times(&addresses).await?;
 
     // Build response entries
@@ -2725,6 +2959,8 @@ async fn list_requestors_impl(
         .into_iter()
         .map(|entry| {
             let median = median_prices.get(&entry.requestor_address).cloned();
+            let p50_fc = p50_fixed_costs.get(&entry.requestor_address).cloned();
+            let p50_vc = p50_variable_costs.get(&entry.requestor_address).cloned();
             let last_activity = last_activities
                 .get(&entry.requestor_address)
                 .cloned()
@@ -2739,10 +2975,23 @@ async fn list_requestors_impl(
                 requestor_address: format!("{:#x}", entry.requestor_address),
                 orders_requested: entry.orders_requested,
                 orders_locked: entry.orders_locked,
+                orders_fulfilled: entry.orders_fulfilled,
+                orders_expired: entry.orders_expired,
+                orders_not_locked_and_expired: entry.orders_not_locked_and_expired,
                 cycles_requested: entry.cycles_requested.to_string(),
                 cycles_requested_formatted: format_cycles(entry.cycles_requested),
                 median_lock_price_per_cycle: median.map(|m| m.to_string()),
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
+                p50_fixed_cost: p50_fc.map(|m| m.to_string()).unwrap_or_else(|| "0".to_string()),
+                p50_fixed_cost_formatted: p50_fc
+                    .map(|m| format_eth(&m.to_string()))
+                    .unwrap_or_else(|| format_eth("0")),
+                p50_variable_cost_per_cycle: p50_vc
+                    .map(|m| m.to_string())
+                    .unwrap_or_else(|| "0".to_string()),
+                p50_variable_cost_per_cycle_formatted: p50_vc
+                    .map(|m| format_eth(&m.to_string()))
+                    .unwrap_or_else(|| format_eth("0")),
                 acceptance_rate: entry.acceptance_rate,
                 locked_order_fulfillment_rate: entry.locked_order_fulfillment_rate,
                 locked_orders_fulfillment_rate_adjusted: entry

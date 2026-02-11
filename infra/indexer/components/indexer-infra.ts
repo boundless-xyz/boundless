@@ -194,6 +194,16 @@ export class IndexerShared extends pulumi.ComponentResource {
     const rdsUser = 'indexer';
 
     const rdsDbName = `indexer${databaseVersion}`;
+    const enhancedMonitoringRole = new aws.iam.Role(`${serviceName}-rds-mon`, {
+      assumeRolePolicy: JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Allow',
+          Principal: { Service: 'monitoring.rds.amazonaws.com' },
+          Action: 'sts:AssumeRole',
+        }],
+      }),
+    }, { parent: this });
 
     const auroraCluster = new aws.rds.Cluster(`${serviceName}-aurora-${databaseVersion}`, {
       engine: 'aurora-postgresql',
@@ -208,19 +218,9 @@ export class IndexerShared extends pulumi.ComponentResource {
       dbSubnetGroupName: dbSubnets.name,
       vpcSecurityGroupIds: [rdsSecurityGroup.id],
       storageEncrypted: true,
+      monitoringInterval: 60,
+      monitoringRoleArn: enhancedMonitoringRole.arn,
     }, { parent: this /* protect: true */ });
-
-    // IAM role for RDS Enhanced Monitoring
-    const enhancedMonitoringRole = new aws.iam.Role(`${serviceName}-rds-mon`, {
-      assumeRolePolicy: JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [{
-          Effect: 'Allow',
-          Principal: { Service: 'monitoring.rds.amazonaws.com' },
-          Action: 'sts:AssumeRole',
-        }],
-      }),
-    }, { parent: this });
 
     new aws.iam.RolePolicyAttachment(`${serviceName}-rds-mon-pol`, {
       role: enhancedMonitoringRole.name,

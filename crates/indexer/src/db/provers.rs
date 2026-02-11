@@ -443,6 +443,7 @@ pub trait ProversDb: IndexerDb {
                 lock_timestamp: lock_timestamp as u64,
                 lock_price,
                 lock_price_per_cycle,
+                fixed_cost: None,
             });
         }
 
@@ -565,12 +566,20 @@ pub trait ProversDb: IndexerDb {
         upsert_prover_summary_generic(self.pool(), summary, "monthly_prover_summary").await
     }
 
+    async fn upsert_epoch_prover_summary(
+        &self,
+        summary: PeriodProverSummary,
+    ) -> Result<(), DbError> {
+        upsert_prover_summary_generic(self.pool(), summary, "epoch_prover_summary").await
+    }
+
     async fn upsert_all_time_prover_summary(
         &self,
         summary: AllTimeProverSummary,
     ) -> Result<(), DbError> {
         let query_str = "INSERT INTO all_time_prover_summary (
                 period_timestamp,
+                epoch_number_period_start,
                 prover_address,
                 total_requests_locked,
                 total_requests_fulfilled,
@@ -589,8 +598,9 @@ pub trait ProversDb: IndexerDb {
                 best_peak_prove_mhz,
                 best_effective_prove_mhz,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CAST($17 AS DOUBLE PRECISION), CAST($18 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CAST($18 AS DOUBLE PRECISION), CAST($19 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
             ON CONFLICT (period_timestamp, prover_address) DO UPDATE SET
+                epoch_number_period_start = EXCLUDED.epoch_number_period_start,
                 total_requests_locked = EXCLUDED.total_requests_locked,
                 total_requests_fulfilled = EXCLUDED.total_requests_fulfilled,
                 total_unique_requestors = EXCLUDED.total_unique_requestors,
@@ -611,6 +621,7 @@ pub trait ProversDb: IndexerDb {
 
         sqlx::query(query_str)
             .bind(summary.period_timestamp as i64)
+            .bind(summary.epoch_number_period_start)
             .bind(format!("{:x}", summary.prover_address))
             .bind(summary.total_requests_locked as i64)
             .bind(summary.total_requests_fulfilled as i64)
@@ -718,6 +729,28 @@ pub trait ProversDb: IndexerDb {
             before,
             after,
             "monthly_prover_summary",
+        )
+        .await
+    }
+
+    async fn get_epoch_prover_summaries(
+        &self,
+        prover_address: Address,
+        cursor: Option<i64>,
+        limit: i64,
+        sort: SortDirection,
+        before: Option<i64>,
+        after: Option<i64>,
+    ) -> Result<Vec<PeriodProverSummary>, DbError> {
+        get_prover_summaries_generic(
+            self.pool(),
+            prover_address,
+            cursor,
+            limit,
+            sort,
+            before,
+            after,
+            "epoch_prover_summary",
         )
         .await
     }
@@ -832,6 +865,8 @@ impl<T: IndexerDb + Send + Sync> ProversDb for T {}
 
 fn parse_period_prover_summary_row(row: &PgRow) -> Result<PeriodProverSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
+    let epoch_number_period_start: i64 =
+        row.try_get::<Option<i64>, _>("epoch_number_period_start").ok().flatten().unwrap_or(0);
     let prover_address_str: String = row.try_get("prover_address")?;
     let prover_address = Address::from_str(&prover_address_str)
         .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid prover address: {}", e)))?;
@@ -867,6 +902,7 @@ fn parse_period_prover_summary_row(row: &PgRow) -> Result<PeriodProverSummary, D
 
     Ok(PeriodProverSummary {
         period_timestamp: period_timestamp as u64,
+        epoch_number_period_start,
         prover_address,
         total_requests_locked: total_requests_locked as u64,
         total_requests_fulfilled: total_requests_fulfilled as u64,
@@ -898,6 +934,8 @@ fn parse_period_prover_summary_row(row: &PgRow) -> Result<PeriodProverSummary, D
 
 fn parse_all_time_prover_summary_row(row: &PgRow) -> Result<AllTimeProverSummary, DbError> {
     let period_timestamp: i64 = row.try_get("period_timestamp")?;
+    let epoch_number_period_start: i64 =
+        row.try_get::<Option<i64>, _>("epoch_number_period_start").ok().flatten().unwrap_or(0);
     let prover_address_str: String = row.try_get("prover_address")?;
     let prover_address = Address::from_str(&prover_address_str)
         .map_err(|e| DbError::Error(anyhow::anyhow!("Invalid prover address: {}", e)))?;
@@ -926,6 +964,7 @@ fn parse_all_time_prover_summary_row(row: &PgRow) -> Result<AllTimeProverSummary
 
     Ok(AllTimeProverSummary {
         period_timestamp: period_timestamp as u64,
+        epoch_number_period_start,
         prover_address,
         total_requests_locked: total_requests_locked as u64,
         total_requests_fulfilled: total_requests_fulfilled as u64,
@@ -956,6 +995,7 @@ async fn upsert_prover_summary_generic(
     let query_str = format!(
         "INSERT INTO {} (
             period_timestamp,
+            epoch_number_period_start,
             prover_address,
             total_requests_locked,
             total_requests_fulfilled,
@@ -981,8 +1021,9 @@ async fn upsert_prover_summary_generic(
             best_peak_prove_mhz,
             best_effective_prove_mhz,
             updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CAST($24 AS DOUBLE PRECISION), CAST($25 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, CAST($25 AS DOUBLE PRECISION), CAST($26 AS DOUBLE PRECISION), CURRENT_TIMESTAMP)
         ON CONFLICT (period_timestamp, prover_address) DO UPDATE SET
+            epoch_number_period_start = EXCLUDED.epoch_number_period_start,
             total_requests_locked = EXCLUDED.total_requests_locked,
             total_requests_fulfilled = EXCLUDED.total_requests_fulfilled,
             total_unique_requestors = EXCLUDED.total_unique_requestors,
@@ -1012,6 +1053,7 @@ async fn upsert_prover_summary_generic(
 
     sqlx::query(&query_str)
         .bind(summary.period_timestamp as i64)
+        .bind(summary.epoch_number_period_start)
         .bind(format!("{:x}", summary.prover_address))
         .bind(summary.total_requests_locked as i64)
         .bind(summary.total_requests_fulfilled as i64)
@@ -1095,7 +1137,7 @@ async fn get_prover_summaries_generic(
     bind_count += 1;
     let query_str = format!(
         "SELECT 
-            period_timestamp, prover_address, total_requests_locked, total_requests_fulfilled,
+            period_timestamp, epoch_number_period_start, prover_address, total_requests_locked, total_requests_fulfilled,
             total_unique_requestors, total_fees_earned, total_collateral_locked, total_collateral_slashed,
             total_collateral_earned, total_requests_locked_and_expired, total_requests_locked_and_fulfilled,
             locked_orders_fulfillment_rate, p10_lock_price_per_cycle, p25_lock_price_per_cycle,
@@ -1590,6 +1632,10 @@ mod tests {
                 cycle_status: None,
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("100".to_string()),
+                fixed_cost: None,
+                variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::ZERO),
                 lock_tx_hash: Some(B256::from([0x01; 32])),
                 fulfill_tx_hash: None,
@@ -1646,6 +1692,10 @@ mod tests {
                 cycle_status: Some("COMPLETED".to_string()),
                 lock_price: Some("1500".to_string()),
                 lock_price_per_cycle: Some("100".to_string()),
+                fixed_cost: None,
+                variable_cost_per_cycle: None,
+                lock_base_fee: None,
+                fulfill_base_fee: None,
                 submit_tx_hash: Some(B256::ZERO),
                 lock_tx_hash: Some(B256::from([0x01; 32])),
                 fulfill_tx_hash: Some(B256::from([0x02; 32])),
@@ -1701,6 +1751,10 @@ mod tests {
             cycle_status: Some("COMPLETED".to_string()),
             lock_price: Some("1500".to_string()),
             lock_price_per_cycle: Some("100".to_string()),
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: Some(B256::from([0x03; 32])),
             fulfill_tx_hash: Some(B256::from([0x04; 32])),
@@ -1755,6 +1809,10 @@ mod tests {
             cycle_status: Some("COMPLETED".to_string()),
             lock_price: None,
             lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: Some(B256::from([0x05; 32])),
@@ -1861,6 +1919,7 @@ mod tests {
         // Create hourly summaries for 3 provers with different fees earned
         let summary1 = HourlyProverSummary {
             period_timestamp: period_ts,
+            epoch_number_period_start: 0,
             prover_address: prover1,
             total_requests_locked: 50,
             total_requests_fulfilled: 45,
@@ -1958,6 +2017,7 @@ mod tests {
         // Create summaries for two hours
         let summary1 = HourlyProverSummary {
             period_timestamp: hour1,
+            epoch_number_period_start: 0,
             prover_address: prover,
             total_requests_locked: 10,
             total_requests_fulfilled: 8,
@@ -2062,6 +2122,10 @@ mod tests {
             cycle_status: None,
             lock_price: Some(u256_to_padded_string(lock_price_per_cycle)),
             lock_price_per_cycle: Some(u256_to_padded_string(lock_price_per_cycle)),
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: Some(B256::ZERO),
             fulfill_tx_hash: None,

@@ -18,6 +18,7 @@ use boundless_indexer::db::{
     market::{DbObj as MarketDbObj, MarketDb},
     rewards::{RewardsDb, RewardsDbObj},
 };
+use boundless_indexer::market::epoch_calculator::EpochCalculator;
 use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
 
@@ -27,6 +28,7 @@ pub struct AppState {
     pub market_db: MarketDbObj,
     pub efficiency_db: EfficiencyDbObj,
     pub chain_id: u64,
+    pub epoch_calculator: EpochCalculator,
 }
 
 impl AppState {
@@ -57,6 +59,8 @@ impl AppState {
 
         tracing::info!("Database connection established");
 
-        Ok(Self { rewards_db, market_db, efficiency_db, chain_id })
+        let epoch_calculator = EpochCalculator::with_default();
+
+        Ok(Self { rewards_db, market_db, efficiency_db, chain_id, epoch_calculator })
     }
 }

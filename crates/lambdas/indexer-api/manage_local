@@ -78,6 +78,7 @@ usage() {
     echo "      --end-block BLOCK         Block to end backfill at (default: latest indexed)"
     echo "      --cache-dir DIR           Directory for cache file storage"
     echo "      --tx-fetch-strategy STR   'block-receipts' or 'tx-by-hash' (default: block-receipts)"
+    echo "      --chain-data-batch-delay-ms MS  Delay in milliseconds between batches during chain_data backfill (default: 1000)"
     echo ""
     echo "  run-market-efficiency-indexer"
     echo "    Run market-efficiency-indexer to compute market efficiency metrics"
@@ -438,6 +439,7 @@ run_market_backfill() {
     local cache_dir=""
     local tx_fetch_strategy="block-receipts"
     local lookback_blocks=""
+    local chain_data_batch_delay_ms=""
 
     # Parse named arguments
     while [[ $# -gt 0 ]]; do
@@ -449,6 +451,7 @@ run_market_backfill() {
             --cache-dir) cache_dir="$2"; shift 2 ;;
             --tx-fetch-strategy) tx_fetch_strategy="$2"; shift 2 ;;
             --lookback-blocks) lookback_blocks="$2"; shift 2 ;;
+            --chain-data-batch-delay-ms) chain_data_batch_delay_ms="$2"; shift 2 ;;
             -h|--help) usage ;;
             *) echo -e "${RED}Unknown option: $1${NC}"; usage ;;
         esac
@@ -531,6 +534,9 @@ run_market_backfill() {
         echo "Cache directory: $cache_dir"
     fi
     echo "Transaction fetch strategy: $tx_fetch_strategy"
+    if [ ! -z "$chain_data_batch_delay_ms" ]; then
+        echo "Chain data batch delay: ${chain_data_batch_delay_ms}ms"
+    fi
     echo ""
 
     # Build command with required and optional parameters
@@ -552,6 +558,9 @@ run_market_backfill() {
     fi
     if [ ! -z "$cache_uri" ]; then
         cmd="$cmd --cache-uri \"$cache_uri\""
+    fi
+    if [ ! -z "$chain_data_batch_delay_ms" ]; then
+        cmd="$cmd --chain-data-batch-delay-ms $chain_data_batch_delay_ms"
     fi
 
     # Run the backfill

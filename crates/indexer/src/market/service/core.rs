@@ -280,6 +280,7 @@ where
     pub fn clear_in_memory_cache(&mut self) {
         self.tx_hash_to_metadata.clear();
         self.block_num_to_timestamp.clear();
+        self.block_num_to_base_fee.clear();
     }
 
     /// Process cycle count updates that occurred between the last processed block and the current block timestamp.
@@ -442,6 +443,11 @@ where
     service.aggregate_daily_prover_data(to_block).await?;
     service.aggregate_weekly_prover_data(to_block).await?;
     service.aggregate_all_time_prover_data(to_block).await?;
+
+    // Epoch-based aggregations
+    service.aggregate_epoch_market_data(to_block).await?;
+    service.aggregate_epoch_prover_data(to_block).await?;
+    service.aggregate_epoch_requestor_data(to_block).await?;
 
     service.db.set_last_aggregation_block(to_block).await?;
     tracing::info!("Aggregation completed up to block {} (timestamp: {})", to_block, to_timestamp);
