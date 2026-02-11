@@ -2315,7 +2315,7 @@ impl IndexerDb for MarketDb {
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
                     program_cycles, total_cycles,
                     peak_prove_mhz_v2, effective_prove_mhz_v2, prover_effective_prove_mhz, cycle_status,
-                    lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle,
+                    lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle, lock_base_fee, fulfill_base_fee,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
@@ -2328,7 +2328,7 @@ impl IndexerDb for MarketDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2339,9 +2339,9 @@ impl IndexerDb for MarketDb {
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
                     params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45,
                     params_count + 46, params_count + 47, params_count + 48, params_count + 49, params_count + 50,
-                    params_count + 51
+                    params_count + 51, params_count + 52, params_count + 53
                 ));
-                params_count += 51;
+                params_count += 53;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2373,6 +2373,8 @@ impl IndexerDb for MarketDb {
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
                     fixed_cost = EXCLUDED.fixed_cost,
                     variable_cost_per_cycle = EXCLUDED.variable_cost_per_cycle,
+                    lock_base_fee = EXCLUDED.lock_base_fee,
+                    fulfill_base_fee = EXCLUDED.fulfill_base_fee,
                     fulfill_journal = EXCLUDED.fulfill_journal,
                     fulfill_seal = EXCLUDED.fulfill_seal",
             );
@@ -2421,6 +2423,8 @@ impl IndexerDb for MarketDb {
                     .bind(&status.lock_price_per_cycle)
                     .bind(&status.fixed_cost)
                     .bind(&status.variable_cost_per_cycle)
+                    .bind(&status.lock_base_fee)
+                    .bind(&status.fulfill_base_fee)
                     .bind(status.submit_tx_hash.map(|h| h.to_string()))
                     .bind(status.lock_tx_hash.map(|h| h.to_string()))
                     .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
@@ -4624,8 +4628,8 @@ impl MarketDb {
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
             fixed_cost: row.try_get("fixed_cost").ok().flatten(),
             variable_cost_per_cycle: row.try_get("variable_cost_per_cycle").ok().flatten(),
-            lock_base_fee: None,
-            fulfill_base_fee: None,
+            lock_base_fee: row.try_get("lock_base_fee").ok().flatten(),
+            fulfill_base_fee: row.try_get("fulfill_base_fee").ok().flatten(),
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -5721,6 +5725,8 @@ mod tests {
         status.lock_prover_address = Some(Address::from([5; 20]));
         status.fixed_cost = Some("500".to_string());
         status.variable_cost_per_cycle = Some("10".to_string());
+        status.lock_base_fee = Some("1000000000".to_string());
+        status.fulfill_base_fee = Some("2000000000".to_string());
 
         db.upsert_request_statuses(std::slice::from_ref(&status)).await.unwrap();
 
@@ -5737,6 +5743,14 @@ mod tests {
         assert_eq!(
             result.get::<Option<String>, _>("variable_cost_per_cycle"),
             Some("10".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("lock_base_fee"),
+            Some("1000000000".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("fulfill_base_fee"),
+            Some("2000000000".to_string())
         );
     }
 
@@ -5758,6 +5772,8 @@ mod tests {
             .unwrap();
         assert_eq!(result.get::<Option<String>, _>("fixed_cost"), None);
         assert_eq!(result.get::<Option<String>, _>("variable_cost_per_cycle"), None);
+        assert_eq!(result.get::<Option<String>, _>("lock_base_fee"), None);
+        assert_eq!(result.get::<Option<String>, _>("fulfill_base_fee"), None);
 
         status.request_status = RequestStatusType::Locked;
         status.locked_at = Some(1234567900);
@@ -5766,6 +5782,8 @@ mod tests {
         status.lock_tx_hash = Some(B256::from([3; 32]));
         status.fixed_cost = Some("750".to_string());
         status.variable_cost_per_cycle = Some("25".to_string());
+        status.lock_base_fee = Some("3000000000".to_string());
+        status.fulfill_base_fee = Some("4000000000".to_string());
 
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
@@ -5783,6 +5801,14 @@ mod tests {
         assert_eq!(
             result.get::<Option<String>, _>("variable_cost_per_cycle"),
             Some("25".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("lock_base_fee"),
+            Some("3000000000".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("fulfill_base_fee"),
+            Some("4000000000".to_string())
         );
     }
 
