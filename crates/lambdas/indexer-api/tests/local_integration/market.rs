@@ -1703,6 +1703,35 @@ async fn test_requestor_leaderboard() {
             first.orders_requested > 0,
             "orders_requested should be positive for active requestors"
         );
+
+        // orders_fulfilled and orders_expired should not exceed orders_locked
+        assert!(
+            first.orders_fulfilled <= first.orders_locked,
+            "orders_fulfilled ({}) should not exceed orders_locked ({})",
+            first.orders_fulfilled,
+            first.orders_locked
+        );
+        assert!(
+            first.orders_expired <= first.orders_locked,
+            "orders_expired ({}) should not exceed orders_locked ({})",
+            first.orders_expired,
+            first.orders_locked
+        );
+        assert!(
+            first.orders_fulfilled + first.orders_expired <= first.orders_locked,
+            "orders_fulfilled ({}) + orders_expired ({}) should not exceed orders_locked ({})",
+            first.orders_fulfilled,
+            first.orders_expired,
+            first.orders_locked
+        );
+        assert!(
+            first.orders_not_locked_and_expired + first.orders_locked <= first.orders_requested,
+            "orders_not_locked_and_expired ({}) + orders_locked ({}) should not exceed orders_requested ({})",
+            first.orders_not_locked_and_expired,
+            first.orders_locked,
+            first.orders_requested
+        );
+
         assert!(
             first.acceptance_rate >= 0.0 && first.acceptance_rate <= 100.0,
             "acceptance_rate should be 0-100: {}",
@@ -1909,9 +1938,11 @@ async fn test_requestor_leaderboard_periods() {
             );
 
             tracing::info!(
-                "Top requestor for 'all': addr={}, orders={}, cycles={}, acceptance={}%, fulfillment={}%",
+                "Top requestor for 'all': addr={}, orders={}, fulfilled={}, expired={}, cycles={}, acceptance={}%, fulfillment={}%",
                 first.requestor_address,
                 first.orders_requested,
+                first.orders_fulfilled,
+                first.orders_expired,
                 first.cycles_requested_formatted,
                 first.acceptance_rate,
                 first.locked_order_fulfillment_rate
@@ -1960,6 +1991,38 @@ async fn test_requestor_leaderboard_periods() {
             entry.requestor_address
         );
 
+        // orders_fulfilled and orders_expired should not exceed orders_locked
+        assert!(
+            entry.orders_fulfilled <= entry.orders_locked,
+            "Requestor {} orders_fulfilled ({}) should not exceed orders_locked ({})",
+            entry.requestor_address,
+            entry.orders_fulfilled,
+            entry.orders_locked
+        );
+        assert!(
+            entry.orders_expired <= entry.orders_locked,
+            "Requestor {} orders_expired ({}) should not exceed orders_locked ({})",
+            entry.requestor_address,
+            entry.orders_expired,
+            entry.orders_locked
+        );
+        assert!(
+            entry.orders_fulfilled + entry.orders_expired <= entry.orders_locked,
+            "Requestor {} orders_fulfilled ({}) + orders_expired ({}) should not exceed orders_locked ({})",
+            entry.requestor_address,
+            entry.orders_fulfilled,
+            entry.orders_expired,
+            entry.orders_locked
+        );
+        assert!(
+            entry.orders_not_locked_and_expired + entry.orders_locked <= entry.orders_requested,
+            "Requestor {} orders_not_locked_and_expired ({}) + orders_locked ({}) should not exceed orders_requested ({})",
+            entry.requestor_address,
+            entry.orders_not_locked_and_expired,
+            entry.orders_locked,
+            entry.orders_requested
+        );
+
         // Cycles may be zero locally, but should be parseable
         let _cycles: u128 = entry.cycles_requested.parse().expect("cycles should be numeric");
 
@@ -1990,9 +2053,11 @@ async fn test_requestor_leaderboard_periods() {
         );
 
         tracing::info!(
-            "Requestor {}: orders={}, cycles={}, acceptance={}%, fulfillment={}%",
+            "Requestor {}: orders={}, fulfilled={}, expired={}, cycles={}, acceptance={}%, fulfillment={}%",
             entry.requestor_address,
             entry.orders_requested,
+            entry.orders_fulfilled,
+            entry.orders_expired,
             entry.cycles_requested_formatted,
             entry.acceptance_rate,
             entry.locked_order_fulfillment_rate
