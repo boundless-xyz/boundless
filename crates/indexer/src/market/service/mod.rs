@@ -195,6 +195,9 @@ pub struct IndexerServiceExecutionConfig {
     pub max_concurrent_executing: u32,
     pub max_status_queries: u32,
     pub max_iterations: u32,
+    pub max_retries: u32,
+    pub retry_base_delay_secs: u64,
+    pub retry_max_delay_secs: u64,
 }
 
 impl IndexerService<ProviderWallet, AnyNetworkProvider> {
