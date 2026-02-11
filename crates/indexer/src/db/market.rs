@@ -565,6 +565,8 @@ pub struct RequestWithId {
     /// if its sent from our known order stream api. This can cause us to not find the request id for some requests.
     pub request_id: Option<U256>,
     pub request_digest: B256,
+    /// Number of retries attempted so far (for RETRY_PENDING rows); 0 for PENDING.
+    pub retry_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -575,6 +577,7 @@ pub struct ExecutionWithId {
     pub request_id: Option<U256>,
     pub request_digest: B256,
     pub session_uuid: String,
+    pub retry_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -773,9 +776,12 @@ pub trait IndexerDb {
         to_timestamp: u64,
     ) -> Result<HashSet<B256>, DbError>;
 
-    /// Get request digests with request IDs for cycle counts in status PENDING
-    async fn get_cycle_counts_pending(&self, limit: u32)
-        -> Result<HashSet<RequestWithId>, DbError>;
+    /// Get request digests with request IDs for cycle counts in status PENDING, or RETRY_PENDING with retry_after <= now_secs
+    async fn get_cycle_counts_pending(
+        &self,
+        limit: u32,
+        now_secs: u64,
+    ) -> Result<HashSet<RequestWithId>, DbError>;
 
     /// Get request digests with request IDs and session UUID for cycle counts in status EXECUTING
     async fn get_cycle_counts_executing(
@@ -798,8 +804,15 @@ pub trait IndexerDb {
     /// Update cycle status for failed cycle counts
     async fn set_cycle_counts_failed(&self, request_digests: &[B256]) -> Result<(), DbError>;
 
-    /// Return counts of cycle_counts rows in status 'PENDING', 'EXECUTING', and 'FAILED'
-    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError>;
+    /// Update cycle status to RETRY_PENDING for the given requests.
+    /// Each update contains (request_digest, last_error, retry_after_timestamp).
+    async fn set_cycle_counts_retry_pending(
+        &self,
+        updates: &[(B256, String, u64)],
+    ) -> Result<(), DbError>;
+
+    /// Return counts of cycle_counts rows in status 'PENDING', 'EXECUTING', 'FAILED', and 'RETRY_PENDING'
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32, u32), DbError>;
 
     /// Get input_type, input_data, and client_address from proof_requests for the given request digests
     async fn get_request_inputs(
@@ -2579,15 +2592,21 @@ impl IndexerDb for MarketDb {
     async fn get_cycle_counts_pending(
         &self,
         limit: u32,
+        now_secs: u64,
     ) -> Result<HashSet<RequestWithId>, DbError> {
-        let query = "SELECT cc.request_digest, pr.request_id
+        let query = "SELECT cc.request_digest, pr.request_id, COALESCE(cc.retry_count, 0) AS retry_count
                      FROM cycle_counts cc
                      LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
-                     WHERE cc.cycle_status = 'PENDING'
+                     WHERE (cc.cycle_status = 'PENDING')
+                        OR (cc.cycle_status = 'RETRY_PENDING' AND (cc.retry_after IS NULL OR cc.retry_after <= $2))
                      ORDER BY cc.updated_at DESC
                      LIMIT $1";
 
-        let rows = sqlx::query(query).bind(limit as i64).fetch_all(self.pool()).await?;
+        let rows = sqlx::query(query)
+            .bind(limit as i64)
+            .bind(now_secs as i64)
+            .fetch_all(self.pool())
+            .await?;
 
         let mut requests = HashSet::new();
         for row in rows {
@@ -2602,7 +2621,12 @@ impl IndexerDb for MarketDb {
             let request_id: Option<U256> = row
                 .try_get::<Option<String>, _>("request_id")?
                 .and_then(|s| U256::from_str_radix(&s, 16).ok());
-            requests.insert(RequestWithId { request_id, request_digest: digest });
+            let retry_count: i32 = row.try_get("retry_count")?;
+            requests.insert(RequestWithId {
+                request_id,
+                request_digest: digest,
+                retry_count: retry_count as u32,
+            });
         }
 
         Ok(requests)
@@ -2612,7 +2636,7 @@ impl IndexerDb for MarketDb {
         &self,
         limit: u32,
     ) -> Result<HashSet<ExecutionWithId>, DbError> {
-        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id
+        let query = "SELECT cc.request_digest, cc.session_uuid, pr.request_id, COALESCE(cc.retry_count, 0) AS retry_count
                      FROM cycle_counts cc
                      LEFT JOIN proof_requests pr ON cc.request_digest = pr.request_digest
                      WHERE cc.cycle_status = 'EXECUTING'
@@ -2635,10 +2659,12 @@ impl IndexerDb for MarketDb {
             let request_id: Option<U256> = row
                 .try_get::<Option<String>, _>("request_id")?
                 .and_then(|s| U256::from_str_radix(&s, 16).ok());
+            let retry_count: i32 = row.try_get("retry_count")?;
             execution_info.insert(ExecutionWithId {
                 request_id,
                 request_digest: digest,
                 session_uuid,
+                retry_count: retry_count as u32,
             });
         }
 
@@ -2752,11 +2778,78 @@ impl IndexerDb for MarketDb {
         Ok(())
     }
 
-    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32), DbError> {
+    async fn set_cycle_counts_retry_pending(
+        &self,
+        updates: &[(B256, String, u64)],
+    ) -> Result<(), DbError> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+
+        let current_timestamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        let mut tx = self.pool.begin().await?;
+
+        // 3 params per row (retry_after, last_error, request_digest) + 1 shared (updated_at)
+        const BATCH_SIZE: usize = 10;
+        for chunk in updates.chunks(BATCH_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 2; // $1 is reserved for updated_at
+
+            for (i, _) in chunk.iter().enumerate() {
+                if i == 0 {
+                    values_clauses.push(format!(
+                        "(${}::bigint, ${}::text, ${}::text)",
+                        param_idx,
+                        param_idx + 1,
+                        param_idx + 2,
+                    ));
+                } else {
+                    values_clauses.push(format!(
+                        "(${}, ${}, ${})",
+                        param_idx,
+                        param_idx + 1,
+                        param_idx + 2,
+                    ));
+                }
+                param_idx += 3;
+            }
+
+            let query = format!(
+                "UPDATE cycle_counts
+                 SET cycle_status = 'RETRY_PENDING',
+                     retry_count = COALESCE(retry_count, 0) + 1,
+                     retry_after = batch.retry_after,
+                     last_error = batch.last_error,
+                     updated_at = $1,
+                     session_uuid = NULL
+                 FROM (VALUES {}) AS batch(retry_after, last_error, request_digest)
+                 WHERE cycle_counts.request_digest = batch.request_digest",
+                values_clauses.join(", ")
+            );
+
+            let mut query_builder = sqlx::query(&query).bind(current_timestamp as i64);
+            for (request_digest, last_error, retry_after) in chunk {
+                query_builder = query_builder
+                    .bind(*retry_after as i64)
+                    .bind(last_error)
+                    .bind(format!("{:x}", request_digest));
+            }
+
+            query_builder.execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn count_cycle_counts_by_status(&self) -> Result<(u32, u32, u32, u32), DbError> {
         let query = "SELECT
                      COUNT(*) FILTER (WHERE cycle_status = 'PENDING') AS pending_count,
                      COUNT(*) FILTER (WHERE cycle_status = 'EXECUTING') AS executing_count,
-                     COUNT(*) FILTER (WHERE cycle_status = 'FAILED') AS failed_count
+                     COUNT(*) FILTER (WHERE cycle_status = 'FAILED') AS failed_count,
+                     COUNT(*) FILTER (WHERE cycle_status = 'RETRY_PENDING') AS retry_pending_count
                      FROM cycle_counts";
 
         let query_builder = sqlx::query(query);
@@ -2764,8 +2857,14 @@ impl IndexerDb for MarketDb {
         let pending_count: i64 = row.get("pending_count");
         let executing_count: i64 = row.get("executing_count");
         let failed_count: i64 = row.get("failed_count");
+        let retry_pending_count: i64 = row.get("retry_pending_count");
 
-        Ok((pending_count as u32, executing_count as u32, failed_count as u32))
+        Ok((
+            pending_count as u32,
+            executing_count as u32,
+            failed_count as u32,
+            retry_pending_count as u32,
+        ))
     }
 
     async fn get_request_inputs(
@@ -6697,7 +6796,9 @@ mod tests {
             .setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING", "COMPLETED"])
             .await;
 
-        let pending = db.get_cycle_counts_pending(10).await.unwrap();
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let pending = db.get_cycle_counts_pending(10, now).await.unwrap();
         assert_eq!(pending.len(), 2);
         assert!(pending
             .iter()
@@ -6707,7 +6808,7 @@ mod tests {
             .any(|r| r.request_id == Some(requests[1].id) && r.request_digest == digests[1]));
         assert!(!pending.iter().any(|r| r.request_id == Some(requests[2].id)));
 
-        assert_eq!(db.get_cycle_counts_pending(1).await.unwrap().len(), 1);
+        assert_eq!(db.get_cycle_counts_pending(1, now).await.unwrap().len(), 1);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -7025,10 +7126,12 @@ mod tests {
         let db: DbObj = test_db.db.clone();
 
         // Test with empty DB - should return 0 of each
-        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        let (pending, executing, failed, retry_pending) =
+            db.count_cycle_counts_by_status().await.unwrap();
         assert_eq!(pending, 0);
         assert_eq!(executing, 0);
         assert_eq!(failed, 0);
+        assert_eq!(retry_pending, 0);
 
         let requests = vec![
             generate_request(1, &Address::ZERO),
@@ -7055,10 +7158,100 @@ mod tests {
             .await;
 
         // Count cycle count statuses
-        let (pending, executing, failed) = db.count_cycle_counts_by_status().await.unwrap();
+        let (pending, executing, failed, retry_pending) =
+            db.count_cycle_counts_by_status().await.unwrap();
         assert_eq!(pending, 3);
         assert_eq!(executing, 2);
         assert_eq!(failed, 1);
+        assert_eq!(retry_pending, 0);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_set_cycle_counts_retry_pending(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        // Use 15 items to exercise multi-batch (BATCH_SIZE = 10)
+        let count = 15;
+        let requests: Vec<_> =
+            (1..=count).map(|i| generate_request(i as u32, &Address::ZERO)).collect();
+        let digests: Vec<_> = (1..=count).map(|i| B256::from([i as u8; 32])).collect();
+        let statuses: Vec<&str> = vec!["PENDING"; count];
+        test_db.setup_requests_and_cycles(&digests, &requests, &statuses).await;
+
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let retry_after_ts = now + 900;
+
+        let updates: Vec<_> = digests
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (*d, format!("error {}", i), retry_after_ts))
+            .collect();
+        db.set_cycle_counts_retry_pending(&updates).await.unwrap();
+
+        for (i, digest) in digests.iter().enumerate() {
+            let row = sqlx::query(
+                "SELECT cycle_status, retry_count, retry_after, last_error FROM cycle_counts WHERE request_digest = $1",
+            )
+            .bind(format!("{:x}", digest))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+            assert_eq!(row.get::<String, _>("cycle_status"), "RETRY_PENDING");
+            assert_eq!(row.get::<i32, _>("retry_count"), 1);
+            let retry_after: i64 = row.get("retry_after");
+            assert_eq!(retry_after, retry_after_ts as i64);
+            let err: String = row.get("last_error");
+            assert_eq!(err, format!("error {}", i));
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[traced_test]
+    async fn test_get_cycle_counts_pending_includes_retry_pending(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db.clone();
+
+        let requests = vec![
+            generate_request(1, &Address::ZERO),
+            generate_request(2, &Address::ZERO),
+            generate_request(3, &Address::ZERO),
+        ];
+        let digests = vec![B256::from([1; 32]), B256::from([2; 32]), B256::from([3; 32])];
+        test_db
+            .setup_requests_and_cycles(
+                &digests,
+                &requests,
+                &["PENDING", "RETRY_PENDING", "RETRY_PENDING"],
+            )
+            .await;
+
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        sqlx::query(
+            "UPDATE cycle_counts SET retry_after = $1, retry_count = 1 WHERE request_digest = $2",
+        )
+        .bind((now - 60) as i64)
+        .bind(format!("{:x}", digests[1]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE cycle_counts SET retry_after = $1, retry_count = 1 WHERE request_digest = $2",
+        )
+        .bind((now + 3600) as i64)
+        .bind(format!("{:x}", digests[2]))
+        .execute(&test_db.pool)
+        .await
+        .unwrap();
+
+        let pending = db.get_cycle_counts_pending(10, now).await.unwrap();
+        assert_eq!(pending.len(), 2);
+        assert!(pending.iter().any(|r| r.request_digest == digests[0]));
+        assert!(pending.iter().any(|r| r.request_digest == digests[1]));
+        assert!(!pending.iter().any(|r| r.request_digest == digests[2]));
     }
 
     #[sqlx::test(migrations = "./migrations")]
