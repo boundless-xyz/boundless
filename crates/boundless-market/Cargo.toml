@@ -21,7 +21,7 @@ default = ["s3"]
 s3 = ["dep:aws-sdk-s3", "dep:aws-config"]
 gcs = ["dep:google-cloud-storage", "dep:google-cloud-auth", "dep:google-cloud-gax", "dep:rustls"]
 prover_utils = ["dep:bincode"]
-test-utils = ["dep:httpmock"]
+test-utils = ["dep:httpmock", "dep:hyper-util", "dep:s3s", "dep:s3s-fs"]
 
 [dependencies]
 alloy-chains = { workspace = true }
@@ -56,8 +56,8 @@ aws-config = { workspace = true, optional = true, features = ["behavior-version-
 aws-sdk-s3 = { workspace = true, optional = true }
 blake3 = { version = "1.5.0", optional = true }
 borsh = { workspace = true, features = ["derive"] }
-bytes = "1.11"
 bytemuck = { workspace = true }
+bytes = "1.11"
 chrono = { workspace = true }
 clap = { workspace = true }
 dashmap = "6"
@@ -70,6 +70,8 @@ google-cloud-storage = { workspace = true, optional = true }
 hex = { workspace = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"], optional = true }
 httpmock = { workspace = true, optional = true }
+hyper-util = { version = "0.1", optional = true, features = ["server-auto", "tokio"] }
+moka = { version = "0.12.12", features = ["future"] }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "multipart", "stream", "rustls"] }
 reqwest-middleware = "0.5"
@@ -80,6 +82,8 @@ risc0-circuit-recursion = { workspace = true, optional = true }
 risc0-ethereum-contracts = { workspace = true, features = ["unstable"] }
 risc0-zkvm = { workspace = true, features = ["std", "client"] }
 rmp-serde = { workspace = true }
+s3s = { version = "0.11", optional = true }
+s3s-fs = { version = "0.11", optional = true }
 serde_json = { workspace = true }
 siwe = { version = "0.6", features = ["serde"] }
 tempfile = { workspace = true }
@@ -90,7 +94,6 @@ toml = "0.8"
 tower = "0.5"
 tracing = { workspace = true }
 utoipa = { workspace = true }
-moka = { version = "0.12.12", features = ["future"] }
 uuid = { workspace = true }
 
 [build-dependencies]
@@ -99,6 +102,7 @@ serde_json = { workspace = true }
 [dev-dependencies]
 boundless-test-utils = { workspace = true }
 guest-util = { workspace = true }
+temp-env = { version = "0.3.6", features = ["async_closure"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 
