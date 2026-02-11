@@ -2790,22 +2790,53 @@ impl IndexerDb for MarketDb {
 
         let mut tx = self.pool.begin().await?;
 
-        for (request_digest, last_error, retry_after) in updates {
-            let query = "UPDATE cycle_counts
+        // 3 params per row (retry_after, last_error, request_digest) + 1 shared (updated_at)
+        const BATCH_SIZE: usize = 10;
+        for chunk in updates.chunks(BATCH_SIZE) {
+            let mut values_clauses = Vec::new();
+            let mut param_idx = 2; // $1 is reserved for updated_at
+
+            for (i, _) in chunk.iter().enumerate() {
+                if i == 0 {
+                    values_clauses.push(format!(
+                        "(${}::bigint, ${}::text, ${}::text)",
+                        param_idx,
+                        param_idx + 1,
+                        param_idx + 2,
+                    ));
+                } else {
+                    values_clauses.push(format!(
+                        "(${}, ${}, ${})",
+                        param_idx,
+                        param_idx + 1,
+                        param_idx + 2,
+                    ));
+                }
+                param_idx += 3;
+            }
+
+            let query = format!(
+                "UPDATE cycle_counts
                  SET cycle_status = 'RETRY_PENDING',
                      retry_count = COALESCE(retry_count, 0) + 1,
-                     retry_after = $1,
-                     last_error = $2,
-                     updated_at = $3,
+                     retry_after = batch.retry_after,
+                     last_error = batch.last_error,
+                     updated_at = $1,
                      session_uuid = NULL
-                 WHERE request_digest = $4";
-            sqlx::query(query)
-                .bind(*retry_after as i64)
-                .bind(last_error)
-                .bind(current_timestamp as i64)
-                .bind(format!("{:x}", request_digest))
-                .execute(&mut *tx)
-                .await?;
+                 FROM (VALUES {}) AS batch(retry_after, last_error, request_digest)
+                 WHERE cycle_counts.request_digest = batch.request_digest",
+                values_clauses.join(", ")
+            );
+
+            let mut query_builder = sqlx::query(&query).bind(current_timestamp as i64);
+            for (request_digest, last_error, retry_after) in chunk {
+                query_builder = query_builder
+                    .bind(*retry_after as i64)
+                    .bind(last_error)
+                    .bind(format!("{:x}", request_digest));
+            }
+
+            query_builder.execute(&mut *tx).await?;
         }
 
         tx.commit().await?;
@@ -6919,19 +6950,23 @@ mod tests {
         let test_db = test_db(pool).await;
         let db: DbObj = test_db.db.clone();
 
-        let requests =
-            vec![generate_request(1, &Address::ZERO), generate_request(2, &Address::ZERO)];
-        let digests = vec![B256::from([1; 32]), B256::from([2; 32])];
-        test_db.setup_requests_and_cycles(&digests, &requests, &["PENDING", "PENDING"]).await;
+        // Use 15 items to exercise multi-batch (BATCH_SIZE = 10)
+        let count = 15;
+        let requests: Vec<_> =
+            (1..=count).map(|i| generate_request(i as u32, &Address::ZERO)).collect();
+        let digests: Vec<_> = (1..=count).map(|i| B256::from([i as u8; 32])).collect();
+        let statuses: Vec<&str> = vec!["PENDING"; count];
+        test_db.setup_requests_and_cycles(&digests, &requests, &statuses).await;
 
         let now =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let retry_after_ts = now + 900;
 
-        let updates = vec![
-            (digests[0], "error one".to_string(), retry_after_ts),
-            (digests[1], "error two".to_string(), retry_after_ts),
-        ];
+        let updates: Vec<_> = digests
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (*d, format!("error {}", i), retry_after_ts))
+            .collect();
         db.set_cycle_counts_retry_pending(&updates).await.unwrap();
 
         for (i, digest) in digests.iter().enumerate() {
@@ -6947,7 +6982,7 @@ mod tests {
             let retry_after: i64 = row.get("retry_after");
             assert_eq!(retry_after, retry_after_ts as i64);
             let err: String = row.get("last_error");
-            assert_eq!(err, if i == 0 { "error one" } else { "error two" });
+            assert_eq!(err, format!("error {}", i));
         }
     }
 
