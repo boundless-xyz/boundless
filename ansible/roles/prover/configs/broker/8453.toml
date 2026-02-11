@@ -6,7 +6,7 @@ peak_prove_khz = 8000
 priority_requestor_lists = [
     "https://requestors.boundless.network/boundless-recommended-priority-list.standard.json",
 ]
-allow_client_addresses = [
+allow_requestor_lists = [
     "https://requestors.boundless.network/boundless-allowed-list.json"
 ]
 max_collateral = "200"
