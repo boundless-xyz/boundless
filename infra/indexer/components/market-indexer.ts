@@ -1,7 +1,5 @@
-import * as fs from 'fs';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
-import * as docker_build from '@pulumi/docker-build';
 import * as pulumi from '@pulumi/pulumi';
 import { IndexerShared } from './indexer-infra';
 import { Severity } from '../../util';
@@ -9,17 +7,12 @@ import { Severity } from '../../util';
 export interface MarketIndexerArgs {
   infra: IndexerShared;
   privSubNetIds: pulumi.Output<string[]>;
-  ciCacheSecret?: pulumi.Output<string>;
-  githubTokenSecret?: pulumi.Output<string>;
-  dockerDir: string;
-  dockerTag: string;
   boundlessAddress: string;
   ethRpcUrl: pulumi.Output<string>;
   logsEthRpcUrl?: pulumi.Output<string>;
   startBlock: string;
   serviceMetricsNamespace: string;
   boundlessAlertsTopicArns?: string[];
-  dockerRemoteBuilder?: string;
   orderStreamUrl?: pulumi.Output<string>;
   orderStreamApiKey?: pulumi.Output<string>;
   bentoApiUrl?: pulumi.Output<string>;
@@ -40,17 +33,12 @@ export class MarketIndexer extends pulumi.ComponentResource {
     const {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       boundlessAddress,
       ethRpcUrl,
       logsEthRpcUrl,
       startBlock,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns,
-      dockerRemoteBuilder,
       orderStreamUrl,
       orderStreamApiKey,
       bentoApiUrl,
@@ -64,64 +52,8 @@ export class MarketIndexer extends pulumi.ComponentResource {
 
     const serviceName = name;
 
-    let buildSecrets: Record<string, pulumi.Input<string>> = {};
-    if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
-      buildSecrets = {
-        ci_cache_creds: cacheFileData,
-      };
-    }
-    if (githubTokenSecret !== undefined) {
-      buildSecrets = {
-        ...buildSecrets,
-        githubTokenSecret,
-      };
-    }
-
-    const marketImage = new docker_build.Image(`${serviceName}-market-img-${infra.databaseVersion}`, {
-      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}-${infra.databaseVersion}`],
-      context: {
-        location: dockerDir,
-      },
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/market-indexer.dockerfile`,
-      },
-      builder: dockerRemoteBuilder
-        ? {
-          name: dockerRemoteBuilder,
-        }
-        : undefined,
-      buildArgs: {
-        S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache`,
-          },
-        },
-      ],
-      registries: [
-        {
-          address: infra.ecrRepository.repository.repositoryUrl,
-          password: infra.ecrAuthToken.apply((authToken) => authToken.password),
-          username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
-        },
-      ],
-    }, { parent: this });
+    // Use the unified indexer image from shared infrastructure
+    const indexerImage = infra.indexerImage;
 
     const serviceLogGroupName = `${serviceName}-service`;
     const serviceLogGroup = pulumi.output(aws.cloudwatch.getLogGroup({
@@ -157,7 +89,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-market-${infra.databaseVersion}`,
-          image: marketImage.ref,
+          image: indexerImage.ref,
           cpu: 2048,
           memory: 2048,
           essential: true,
@@ -165,6 +97,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
             initProcessEnabled: true,
           },
           command: [
+            './market-indexer',
             '--rpc-url',
             ethRpcUrl,
             ...(logsEthRpcUrl ? ['--logs-rpc-url', logsEthRpcUrl] : []),
@@ -224,20 +157,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
     }, { parent: this, dependsOn: [infra.taskRole, infra.taskRolePolicyAttachment] });
 
     // Backfill infrastructure
-    // Build backfill Docker image
-    const backfillImage = new docker_build.Image(`${serviceName}-backfill-img-${infra.databaseVersion}`, {
-      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-backfill-${dockerTag}-${infra.databaseVersion}`],
-      context: { location: dockerDir },
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: { location: `${dockerDir}/dockerfiles/market-indexer-backfill.dockerfile` },
-      builder: dockerRemoteBuilder ? { name: dockerRemoteBuilder } : undefined,
-      buildArgs: { S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache' },
-      secrets: buildSecrets,
-      cacheFrom: [{ registry: { ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
-      cacheTo: [{ registry: { mode: docker_build.CacheMode.Max, imageManifest: true, ociMediaTypes: true, ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:cache` } }],
-      registries: [{ address: infra.ecrRepository.repository.repositoryUrl, password: infra.ecrAuthToken.apply(t => t.password), username: infra.ecrAuthToken.apply(t => t.userName) }],
-    }, { parent: this });
+    // Uses the same unified indexer image with './market-indexer-backfill' command
 
     // Create dedicated log group for backfill
     const backfillLogGroupName = `${serviceName}-backfill`;
@@ -264,7 +184,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       },
     }, { parent: this });
 
-    // Create backfill task definition
+    // Create backfill task definition using the unified indexer image
     const backfillContainerName = `${serviceName}-backfill-${infra.databaseVersion}`;
     const backfillTaskDef = new awsx.ecs.FargateTaskDefinition(`${serviceName}-backfill-task-${infra.databaseVersion}`, {
       family: `${serviceName}-market-backfill-${infra.databaseVersion}`,
@@ -273,7 +193,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       taskRole: { roleArn: infra.taskRole.arn },
       container: {
         name: backfillContainerName,
-        image: backfillImage.ref,
+        image: indexerImage.ref,
         cpu: 2048,
         memory: 2048,
         essential: true,

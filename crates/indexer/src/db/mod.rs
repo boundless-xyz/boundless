@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod efficiency;
 pub mod events;
 pub mod market;
 pub mod provers;
@@ -20,7 +21,12 @@ pub mod rewards;
 
 use thiserror::Error;
 
-// Re-export common types from market module
+// Re-export common types
+pub use efficiency::{
+    EfficiencyAggregate, EfficiencyDb, EfficiencyDbImpl, EfficiencyDbObj, EfficiencySummary,
+    MarketEfficiencyDaily, MarketEfficiencyHourly, MarketEfficiencyOrder, MoreProfitableSample,
+    RequestForEfficiency,
+};
 pub use events::EventsDb;
 pub use market::{
     AllTimeProverSummary, AllTimeRequestorSummary, DailyProverSummary, DailyRequestorSummary,

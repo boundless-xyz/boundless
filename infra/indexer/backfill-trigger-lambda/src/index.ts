@@ -160,8 +160,9 @@ export const handler: Handler<BackfillEvent, BackfillResponse> = async (
     };
   }
 
-  // Build command
+  // Build command - prepend binary name since unified image has no entrypoint
   const command: string[] = [
+    './market-indexer-backfill',
     '--mode', mode,
     '--rpc-url', process.env.RPC_URL!,
     '--boundless-market-address', process.env.BOUNDLESS_ADDRESS!,

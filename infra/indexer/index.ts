@@ -69,6 +69,11 @@ export = () => {
     privSubNetIds,
     rdsPassword,
     isDev,
+    dockerDir,
+    dockerTag,
+    ciCacheSecret,
+    githubTokenSecret,
+    dockerRemoteBuilder,
   });
 
   let marketIndexer: MarketIndexer | undefined;
@@ -99,16 +104,11 @@ export = () => {
     marketIndexer = new MarketIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       boundlessAddress,
       ethRpcUrl,
       startBlock,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
-      dockerRemoteBuilder,
       orderStreamUrl,
       orderStreamApiKey,
       logsEthRpcUrl,
@@ -119,7 +119,7 @@ export = () => {
       backfillChainDataBlocks,
       chainDataBatchDelayMs,
       backfillBatchSize,
-    }, { parent: infra, dependsOn: [infra, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.indexerImage, infra.cacheBucket, infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion] });
   }
 
   let rewardsIndexer: RewardsIndexer | undefined;
@@ -127,18 +127,13 @@ export = () => {
     rewardsIndexer = new RewardsIndexer(indexerServiceName, {
       infra,
       privSubNetIds,
-      ciCacheSecret,
-      githubTokenSecret,
-      dockerDir,
-      dockerTag,
       ethRpcUrl,
       vezkcAddress,
       zkcAddress,
       povwAccountingAddress,
       serviceMetricsNamespace,
       boundlessAlertsTopicArns: alertsTopicArns,
-      dockerRemoteBuilder,
-    }, { parent: infra, dependsOn: [infra, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
+    }, { parent: infra, dependsOn: [infra, infra.indexerImage, infra.dbUrlSecret, infra.dbUrlSecretVersion] });
   }
 
   const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];

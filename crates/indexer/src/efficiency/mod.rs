@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod db;
-pub mod efficiency;
-pub mod market;
-pub mod rewards;
-pub mod test_utils;
+mod service;
 
-// Re-export for backwards compatibility
-pub use market::service::TransactionFetchStrategy;
-pub use market::{IndexerService, IndexerServiceConfig, ServiceError};
+pub use service::{MarketEfficiencyService, MarketEfficiencyServiceConfig};

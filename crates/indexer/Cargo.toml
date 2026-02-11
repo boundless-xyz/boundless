@@ -24,6 +24,10 @@ path = "src/bin/market-indexer.rs"
 name = "rewards-indexer"
 path = "src/bin/rewards-indexer.rs"
 
+[[bin]]
+name = "market-efficiency-indexer"
+path = "src/bin/market-efficiency-indexer.rs"
+
 [dependencies]
 alloy = { workspace = true, features = ["network", "node-bindings", "rpc-types", "providers", "transports", "sol-types", "contract", "signers", "signer-local", "serde"] }
 anyhow = { workspace = true }

@@ -79,12 +79,29 @@ usage() {
     echo "      --cache-dir DIR           Directory for cache file storage"
     echo "      --tx-fetch-strategy STR   'block-receipts' or 'tx-by-hash' (default: block-receipts)"
     echo ""
+    echo "  run-market-efficiency-indexer"
+    echo "    Run market-efficiency-indexer to compute market efficiency metrics"
+    echo ""
+    echo "    Required:"
+    echo "      --database URL             PostgreSQL URL (e.g., 'postgres://user:pass@host:port/db')"
+    echo ""
+    echo "    Optional:"
+    echo "      --interval SECONDS         Interval between runs in seconds (default: 3600)"
+    echo "      --lookback-days DAYS       Number of days to fetch requests for (default: 3)"
+    echo "      --start-time TIMESTAMP     Unix timestamp to start from (for one-shot run)"
+    echo "      --end-time TIMESTAMP       Unix timestamp to end at (for one-shot run)"
+    echo "      --retries NUM              Number of retries before quitting on error (default: 3)"
+    echo ""
     echo "  Examples:"
     echo "    ./manage_local run-market-indexer --database postgres://user:pass@host:5432/db --start-block 7200 --end-block 40697700 --batch-size 9999 --cache-dir ./cache"
     echo ""
     echo "    ./manage_local run-market-backfill --database postgres://... --mode chain_data --start-block 12345"
     echo ""
     echo "    ./manage_local run-market-backfill --database postgres://... --mode chain_data --lookback-blocks 1000 --end-block 20000"
+    echo ""
+    echo "    ./manage_local run-market-efficiency-indexer --database postgres://... --lookback-days 7"
+    echo ""
+    echo "    ./manage_local run-market-efficiency-indexer --database postgres://... --start-time 1700000000 --end-time 1700100000"
     echo ""
     echo "Environment variables (Rewards Indexer):"
     echo "  ZKC_RPC_URL                        Required: Ethereum RPC endpoint for ZKC/veZKC"
@@ -166,6 +183,11 @@ build_binaries() {
     if [ "$1" == "market-backfill" ] || [ "$1" == "both" ]; then
         echo "Building market-indexer-backfill..."
         cargo build -p boundless-indexer --bin market-indexer-backfill
+    fi
+
+    if [ "$1" == "market-efficiency-indexer" ] || [ "$1" == "both" ]; then
+        echo "Building market-efficiency-indexer..."
+        cargo build -p boundless-indexer --bin market-efficiency-indexer
     fi
 
     cd - > /dev/null || exit 1
@@ -547,6 +569,101 @@ run_market_backfill() {
     fi
 }
 
+# Function to run market efficiency indexer
+run_market_efficiency_indexer() {
+    local database=""
+    local interval=""
+    local lookback_days=""
+    local start_time=""
+    local end_time=""
+    local retries=""
+
+    # Parse named arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --database) database="$2"; shift 2 ;;
+            --interval) interval="$2"; shift 2 ;;
+            --lookback-days) lookback_days="$2"; shift 2 ;;
+            --start-time) start_time="$2"; shift 2 ;;
+            --end-time) end_time="$2"; shift 2 ;;
+            --retries) retries="$2"; shift 2 ;;
+            -h|--help) usage ;;
+            *) echo -e "${RED}Unknown option: $1${NC}"; usage ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [ -z "$database" ]; then
+        echo -e "${RED}Error: --database is required${NC}"
+        usage
+    fi
+
+    # Validate start-time and end-time are used together
+    if [ ! -z "$start_time" ] && [ -z "$end_time" ]; then
+        echo -e "${RED}Error: --end-time is required when --start-time is provided${NC}"
+        usage
+    fi
+    if [ ! -z "$end_time" ] && [ -z "$start_time" ]; then
+        echo -e "${RED}Error: --start-time is required when --end-time is provided${NC}"
+        usage
+    fi
+
+    local db_input="$database"
+
+    local db_url=""
+    if [[ "$db_input" =~ ^postgres(ql)?:// ]]; then
+        db_url="$db_input"
+        echo -e "${GREEN}Using PostgreSQL database${NC}"
+    else
+        echo -e "${RED}Error: Expected a PostgreSQL URL (postgres://...)${NC}"
+        exit 1
+    fi
+
+    # Build the binary
+    build_binaries "market-efficiency-indexer"
+
+    echo -e "${GREEN}Running market-efficiency-indexer...${NC}"
+    echo "Database: $db_url"
+    if [ ! -z "$interval" ]; then
+        echo "Interval: $interval seconds"
+    fi
+    if [ ! -z "$lookback_days" ]; then
+        echo "Lookback days: $lookback_days"
+    fi
+    if [ ! -z "$start_time" ] && [ ! -z "$end_time" ]; then
+        echo "Time range: $start_time to $end_time (one-shot mode)"
+    fi
+    if [ ! -z "$retries" ]; then
+        echo "Retries: $retries"
+    fi
+    echo ""
+
+    # Build command with required and optional parameters
+    local cmd="../../../target/debug/market-efficiency-indexer"
+    cmd="$cmd --db \"$db_url\""
+
+    if [ ! -z "$interval" ]; then
+        cmd="$cmd --interval $interval"
+    fi
+    if [ ! -z "$lookback_days" ]; then
+        cmd="$cmd --lookback-days $lookback_days"
+    fi
+    if [ ! -z "$start_time" ]; then
+        cmd="$cmd --start-time $start_time"
+    fi
+    if [ ! -z "$end_time" ]; then
+        cmd="$cmd --end-time $end_time"
+    fi
+    if [ ! -z "$retries" ]; then
+        cmd="$cmd --retries $retries"
+    fi
+
+    # Run the indexer
+    DATABASE_URL="$db_url" \
+    RUST_LOG="$RUST_LOG" \
+    eval "$cmd"
+}
+
 # Function to run API
 run_api() {
     local port=""
@@ -616,6 +733,9 @@ case "$COMMAND" in
         ;;
     run-market-backfill)
         run_market_backfill "$@"
+        ;;
+    run-market-efficiency-indexer)
+        run_market_efficiency_indexer "$@"
         ;;
     run-api)
         run_api "$@"
