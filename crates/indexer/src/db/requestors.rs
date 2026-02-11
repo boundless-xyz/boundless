@@ -1890,6 +1890,9 @@ async fn get_requestor_leaderboard_impl(
             requestor_address,
             orders_requested: orders_requested as u64,
             orders_locked: orders_locked as u64,
+            orders_fulfilled: fulfilled as u64,
+            orders_expired: expired as u64,
+            orders_not_locked_and_expired: not_locked_and_expired as u64,
             cycles_requested,
             median_lock_price_per_cycle: None,
             acceptance_rate,
@@ -5109,10 +5112,13 @@ mod tests {
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].requestor_address, requestor1);
         assert_eq!(results[0].orders_requested, 100);
+        assert_eq!(results[0].orders_not_locked_and_expired, 1); // total_expired(2) - locked_and_expired(1)
         assert_eq!(results[1].requestor_address, requestor2);
         assert_eq!(results[1].orders_requested, 50);
+        assert_eq!(results[1].orders_not_locked_and_expired, 1);
         assert_eq!(results[2].requestor_address, requestor3);
         assert_eq!(results[2].orders_requested, 25);
+        assert_eq!(results[2].orders_not_locked_and_expired, 1);
 
         // Test pagination with cursor
         let results_page1 = db
@@ -5195,6 +5201,7 @@ mod tests {
         summary2.total_requests_locked = 15;
         summary2.total_locked_and_fulfilled = 10;
         summary2.total_locked_and_expired = 2;
+        summary2.total_expired = 3;
         summary2.total_cycles = U256::from(300_000_000u64);
 
         db.upsert_hourly_requestor_summary(summary1).await.unwrap();
@@ -5216,6 +5223,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].orders_requested, 50); // 30 + 20
         assert_eq!(results[0].orders_locked, 40); // 25 + 15
+        assert_eq!(results[0].orders_not_locked_and_expired, 1); // (1+3) - (1+2) = 4 - 3 = 1
         assert_eq!(results[0].cycles_requested, U256::from(850_000_000u64)); // 550M + 300M
 
         // Locked order fulfillment rate: (20+10) / ((20+10) + (1+2)) = 30/33 = 90.9%
