@@ -68,8 +68,14 @@ where
         let updated_at = current_timestamp;
 
         // Compute lock price and lock price per cycle if request was locked
-        let (lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle, lock_base_fee_str, fulfill_base_fee_str) =
-            if let Some(locked_at) = req.locked_at {
+        let (
+            lock_price,
+            lock_price_per_cycle,
+            fixed_cost,
+            variable_cost_per_cycle,
+            lock_base_fee_str,
+            fulfill_base_fee_str,
+        ) = if let Some(locked_at) = req.locked_at {
             let min_price = U256::from_str(&req.min_price).ok();
             let max_price = U256::from_str(&req.max_price).ok();
 
@@ -99,12 +105,11 @@ where
 
                 // Compute fixed_cost and variable_cost_per_cycle
                 // Lock gas uses lock block base fee; fulfill+verify gas uses fulfill block base fee
-                let lock_base_fee = req.lock_block
-                    .and_then(|b| base_fee_map.get(&b).copied().flatten());
-                let fulfill_base_fee = req.fulfill_block
-                    .and_then(|b| base_fee_map.get(&b).copied().flatten());
+                let lock_base_fee =
+                    req.lock_block.and_then(|b| base_fee_map.get(&b).copied().flatten());
+                let fulfill_base_fee =
+                    req.fulfill_block.and_then(|b| base_fee_map.get(&b).copied().flatten());
                 let (fixed_cost_str, variable_cost_per_cycle_str) = {
-
                     match (lock_base_fee, fulfill_base_fee) {
                         (Some(lock_bf), Some(fulfill_bf)) => {
                             let lock_gas = U256::from(
@@ -124,8 +129,7 @@ where
                                     + groth16_gas,
                             ) * U256::from(fulfill_bf);
                             let fixed_cost = lock_gas + fulfill_gas;
-                            let fixed_cost_padded =
-                                format!("{:0>78}", fixed_cost.to_string());
+                            let fixed_cost_padded = format!("{:0>78}", fixed_cost.to_string());
 
                             let variable_cost_per_cycle_padded =
                                 if let Some(program_cycles) = req.program_cycles {

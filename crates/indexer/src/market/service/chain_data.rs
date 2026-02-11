@@ -111,9 +111,7 @@ where
                     .context(anyhow!("Failed to get block by number: {}", block_number))?;
                 let ts = block.header.timestamp;
                 let base_fee = block.header.base_fee_per_gas;
-                self.db
-                    .add_blocks(&[(block_number, ts, base_fee.map(|f| f as u128))])
-                    .await?;
+                self.db.add_blocks(&[(block_number, ts, base_fee.map(|f| f as u128))]).await?;
                 ts
             }
         };

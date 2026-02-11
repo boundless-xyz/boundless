@@ -443,8 +443,7 @@ where
                 let request_statuses: Vec<_> = requests_comprehensive
                     .into_iter()
                     .map(|req| {
-                        self.indexer
-                            .compute_request_status(req, current_timestamp, &base_fee_map)
+                        self.indexer.compute_request_status(req, current_timestamp, &base_fee_map)
                     })
                     .collect();
 

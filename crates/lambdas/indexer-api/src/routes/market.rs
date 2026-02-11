@@ -1917,9 +1917,7 @@ async fn get_requestor_cumulatives_impl(
                 total_fixed_cost: summary.total_fixed_cost.to_string(),
                 total_fixed_cost_formatted: format_eth(&summary.total_fixed_cost.to_string()),
                 total_variable_cost: summary.total_variable_cost.to_string(),
-                total_variable_cost_formatted: format_eth(
-                    &summary.total_variable_cost.to_string(),
-                ),
+                total_variable_cost_formatted: format_eth(&summary.total_variable_cost.to_string()),
             }
         })
         .collect();
@@ -2536,7 +2534,10 @@ fn convert_request_status(status: RequestStatus, chain_id: u64) -> RequestStatus
         fixed_cost: status.fixed_cost.clone(),
         fixed_cost_formatted: status.fixed_cost.as_ref().map(|c| format_eth(c)),
         variable_cost_per_cycle: status.variable_cost_per_cycle.clone(),
-        variable_cost_per_cycle_formatted: status.variable_cost_per_cycle.as_ref().map(|c| format_eth(c)),
+        variable_cost_per_cycle_formatted: status
+            .variable_cost_per_cycle
+            .as_ref()
+            .map(|c| format_eth(c)),
         lock_base_fee: status.lock_base_fee,
         fulfill_base_fee: status.fulfill_base_fee,
         ramp_up_start,
@@ -2963,9 +2964,7 @@ async fn list_requestors_impl(
                 cycles_requested_formatted: format_cycles(entry.cycles_requested),
                 median_lock_price_per_cycle: median.map(|m| m.to_string()),
                 median_lock_price_per_cycle_formatted: median.map(|m| format_eth(&m.to_string())),
-                p50_fixed_cost: p50_fc
-                    .map(|m| m.to_string())
-                    .unwrap_or_else(|| "0".to_string()),
+                p50_fixed_cost: p50_fc.map(|m| m.to_string()).unwrap_or_else(|| "0".to_string()),
                 p50_fixed_cost_formatted: p50_fc
                     .map(|m| format_eth(&m.to_string()))
                     .unwrap_or_else(|| format_eth("0")),

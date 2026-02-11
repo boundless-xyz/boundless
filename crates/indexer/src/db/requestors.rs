@@ -1333,8 +1333,7 @@ pub trait RequestorDb: IndexerDb {
         start_ts: u64,
         end_ts: u64,
     ) -> Result<std::collections::HashMap<Address, U256>, DbError> {
-        get_requestor_p50_fixed_costs_impl(self.pool(), requestor_addresses, start_ts, end_ts)
-            .await
+        get_requestor_p50_fixed_costs_impl(self.pool(), requestor_addresses, start_ts, end_ts).await
     }
 
     // Get p50 variable cost per cycle for a list of requestors in a time period
@@ -5537,36 +5536,28 @@ mod tests {
         db.upsert_request_statuses(&statuses).await.unwrap();
 
         // Query p50 fixed costs
-        let p50_fixed = db
-            .get_requestor_p50_fixed_costs(&[client], base_ts, base_ts + 200)
-            .await
-            .unwrap();
+        let p50_fixed =
+            db.get_requestor_p50_fixed_costs(&[client], base_ts, base_ts + 200).await.unwrap();
         assert_eq!(p50_fixed.len(), 1);
         // Median of [100, 200, 300, 400] = 250
         assert_eq!(*p50_fixed.get(&client).unwrap(), U256::from(250));
 
         // Query p50 variable costs
-        let p50_variable = db
-            .get_requestor_p50_variable_costs(&[client], base_ts, base_ts + 200)
-            .await
-            .unwrap();
+        let p50_variable =
+            db.get_requestor_p50_variable_costs(&[client], base_ts, base_ts + 200).await.unwrap();
         assert_eq!(p50_variable.len(), 1);
         // Median of [10, 20, 30, 40] = 25
         assert_eq!(*p50_variable.get(&client).unwrap(), U256::from(25));
 
         // Query with non-existent address returns empty
         let unknown = Address::from([0xFF; 20]);
-        let p50_empty = db
-            .get_requestor_p50_fixed_costs(&[unknown], base_ts, base_ts + 200)
-            .await
-            .unwrap();
+        let p50_empty =
+            db.get_requestor_p50_fixed_costs(&[unknown], base_ts, base_ts + 200).await.unwrap();
         assert!(p50_empty.is_empty());
 
         // Query with empty addresses returns empty
-        let p50_no_addr = db
-            .get_requestor_p50_fixed_costs(&[], base_ts, base_ts + 200)
-            .await
-            .unwrap();
+        let p50_no_addr =
+            db.get_requestor_p50_fixed_costs(&[], base_ts, base_ts + 200).await.unwrap();
         assert!(p50_no_addr.is_empty());
     }
 }

@@ -1366,10 +1366,7 @@ async fn test_requestor_cumulatives() {
         !first_entry.total_fixed_cost_formatted.is_empty(),
         "total_fixed_cost_formatted should not be empty"
     );
-    assert!(
-        !first_entry.total_variable_cost.is_empty(),
-        "total_variable_cost should not be empty"
-    );
+    assert!(!first_entry.total_variable_cost.is_empty(), "total_variable_cost should not be empty");
     assert!(
         !first_entry.total_variable_cost_formatted.is_empty(),
         "total_variable_cost_formatted should not be empty"
