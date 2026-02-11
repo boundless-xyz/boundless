@@ -33,6 +33,8 @@ export interface MarketIndexerArgs {
 
 export class MarketIndexer extends pulumi.ComponentResource {
   public readonly backfillLambdaName: pulumi.Output<string>;
+  public readonly image: docker_build.Image;
+  public readonly service: awsx.ecs.FargateService;
 
   constructor(name: string, args: MarketIndexerArgs, opts?: pulumi.ComponentResourceOptions) {
     super('indexer:market', name, opts);
@@ -78,7 +80,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       };
     }
 
-    const marketImage = new docker_build.Image(`${serviceName}-market-img-${infra.databaseVersion}`, {
+    this.image = new docker_build.Image(`${serviceName}-market-img-${infra.databaseVersion}`, {
       tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:market-${dockerTag}-${infra.databaseVersion}`],
       context: {
         location: dockerDir,
@@ -134,7 +136,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
       }, { parent: this });
     }));
 
-    const marketService = new awsx.ecs.FargateService(`${serviceName}-market-indexer-${infra.databaseVersion}`, {
+    this.service = new awsx.ecs.FargateService(`${serviceName}-market-indexer-${infra.databaseVersion}`, {
       name: `${serviceName}-market-indexer-${infra.databaseVersion}`,
       cluster: infra.cluster.arn,
       networkConfiguration: {
@@ -148,6 +150,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         rollback: false,
       },
       forceNewDeployment: true,
+      continueBeforeSteadyState: false,
       enableExecuteCommand: true,
       taskDefinitionArgs: {
         logGroup: {
@@ -157,7 +160,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-market-${infra.databaseVersion}`,
-          image: marketImage.ref,
+          image: this.image.ref,
           cpu: 2048,
           memory: 2048,
           essential: true,
@@ -455,7 +458,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: `"ERROR "`,
-    }, { parent: this, dependsOn: [marketService] });
+    }, { parent: this, dependsOn: [this.service] });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-market-error-alarm-${Severity.SEV2}`, {
       name: `${serviceName}-market-log-err-${Severity.SEV2}`,
@@ -492,7 +495,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: 'FATAL',
-    }, { parent: this, dependsOn: [marketService] });
+    }, { parent: this, dependsOn: [this.service] });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-market-fatal-alarm-${Severity.SEV2}`, {
       name: `${serviceName}-market-log-fatal-${Severity.SEV2}`,
@@ -529,7 +532,7 @@ export class MarketIndexer extends pulumi.ComponentResource {
         defaultValue: '0',
       },
       pattern: 'panicked',
-    }, { parent: this, dependsOn: [marketService] });
+    }, { parent: this, dependsOn: [this.service] });
 
     new aws.cloudwatch.MetricAlarm(`${serviceName}-market-panicked-alarm-${Severity.SEV2}`, {
       name: `${serviceName}-market-log-panicked-${Severity.SEV2}`,
