@@ -112,6 +112,15 @@ struct BentoExecutionConfig {
     /// Max number of executing requests queried for status on each iteration of the execution task
     #[clap(long, default_value = "30", requires = "bento_api_url")]
     max_status_queries: u32,
+    /// Max number of scheduled retries (with backoff) before marking a cycle count as FAILED
+    #[clap(long, default_value = "5", requires = "bento_api_url")]
+    max_retries: u32,
+    /// Base delay in seconds for exponential backoff between retries
+    #[clap(long, default_value = "900", requires = "bento_api_url")]
+    retry_base_delay_secs: u64,
+    /// Max delay in seconds for exponential backoff (cap)
+    #[clap(long, default_value = "14400", requires = "bento_api_url")]
+    retry_max_delay_secs: u64,
 }
 
 #[tokio::main]
@@ -151,6 +160,9 @@ async fn main() -> Result<()> {
             max_concurrent_executing: args.bento_config.max_concurrent_executing,
             max_status_queries: args.bento_config.max_status_queries,
             max_iterations: 0,
+            max_retries: args.bento_config.max_retries,
+            retry_base_delay_secs: args.bento_config.retry_base_delay_secs,
+            retry_max_delay_secs: args.bento_config.retry_max_delay_secs,
         }),
         _ => None,
     };
