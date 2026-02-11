@@ -246,7 +246,7 @@ pub struct MarketPricing {
 ///
 /// let config = MarketPricingConfig::builder()
 ///     .event_query_chunk_size(100)
-///     .market_price_blocks_to_query(30000)
+///     .market_price_blocks_to_query(500)
 ///     .timeout(std::time::Duration::from_secs(300))
 ///     .build()
 ///     .unwrap();
@@ -262,7 +262,7 @@ pub struct MarketPricingConfig {
     #[builder(default = "100")]
     event_query_chunk_size: u64,
     /// The number of blocks to query for market prices.
-    #[builder(default = "30000")]
+    #[builder(default = "500")]
     market_price_blocks_to_query: u64,
     /// The timeout for the market pricing provider.
     #[builder(default = "std::time::Duration::from_secs(300)")]
@@ -692,7 +692,7 @@ mod tests {
     fn market_pricing_config_default() {
         let config = MarketPricingConfig::default();
         assert_eq!(config.event_query_chunk_size, 100);
-        assert_eq!(config.market_price_blocks_to_query, 30000);
+        assert_eq!(config.market_price_blocks_to_query, 500);
         assert_eq!(config.timeout, std::time::Duration::from_secs(300));
     }
 }
