@@ -18,7 +18,10 @@ use std::{
     pin::Pin,
 };
 
-use alloy::{eips::BlockNumberOrTag, primitives::U256, providers::Provider};
+use alloy::{
+    eips::BlockNumberOrTag, primitives::U256, providers::Provider, rpc::types::Filter,
+    sol_types::SolEvent,
+};
 use alloy_primitives::{address, Address};
 use anyhow::{bail, Context, Result};
 use derive_builder::Builder;
@@ -29,7 +32,7 @@ use url::Url;
 
 use crate::{
     client::ClientBuilder,
-    contracts::RequestInputType,
+    contracts::{IBoundlessMarket, RequestInputType},
     indexer_client::{AggregationGranularity, IndexerClient},
     Deployment, GuestEnv, RequestId, RequestInput,
 };
@@ -405,45 +408,48 @@ impl MarketPricing {
         let current_block = client.provider().get_block_number().await?;
         let start_block = current_block.saturating_sub(self.config.market_price_blocks_to_query);
 
-        // Query RequestLocked events in chunks
+        // Query RequestLocked and RequestFulfilled events together in chunks
+        let market_addr = *client.boundless_market.instance().address();
+        let provider = client.provider();
         let mut locked_logs = Vec::new();
-        let mut chunk_start = start_block;
-        while chunk_start < current_block {
-            let chunk_end = (chunk_start + self.config.event_query_chunk_size).min(current_block);
-
-            let locked_filter = client
-                .boundless_market
-                .instance()
-                .RequestLocked_filter()
-                .from_block(chunk_start)
-                .to_block(chunk_end);
-
-            let mut chunk_logs =
-                locked_filter.query().await.context("Failed to query RequestLocked events")?;
-
-            locked_logs.append(&mut chunk_logs);
-            chunk_start = chunk_end + 1;
-        }
-
-        // Query RequestFulfilled events in chunks
         let mut fulfilled_logs = Vec::new();
         let mut chunk_start = start_block;
         while chunk_start < current_block {
             let chunk_end = (chunk_start + self.config.event_query_chunk_size).min(current_block);
 
-            let fulfilled_filter = client
-                .boundless_market
-                .instance()
-                .RequestFulfilled_filter()
+            let filter = Filter::new()
+                .address(market_addr)
                 .from_block(chunk_start)
-                .to_block(chunk_end);
+                .to_block(chunk_end)
+                .event_signature(vec![
+                    IBoundlessMarket::RequestLocked::SIGNATURE_HASH,
+                    IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
+                ]);
 
-            let mut chunk_logs = fulfilled_filter
-                .query()
-                .await
-                .context("Failed to query RequestFulfilled events")?;
+            let logs = provider.get_logs(&filter).await.context("Failed to query market events")?;
 
-            fulfilled_logs.append(&mut chunk_logs);
+            for log in logs {
+                match log.topic0() {
+                    Some(t) if *t == IBoundlessMarket::RequestLocked::SIGNATURE_HASH => {
+                        match log.log_decode::<IBoundlessMarket::RequestLocked>() {
+                            Ok(res) => locked_logs.push((res.inner.data, log)),
+                            Err(err) => {
+                                tracing::error!("Failed to decode RequestLocked log: {err:?}");
+                            }
+                        }
+                    }
+                    Some(t) if *t == IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH => {
+                        match log.log_decode::<IBoundlessMarket::RequestFulfilled>() {
+                            Ok(res) => fulfilled_logs.push((res.inner.data, log)),
+                            Err(err) => {
+                                tracing::error!("Failed to decode RequestFulfilled log: {err:?}");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             chunk_start = chunk_end + 1;
         }
 
