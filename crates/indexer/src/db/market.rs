@@ -254,6 +254,8 @@ pub struct PeriodRequestorSummary {
     pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -312,6 +314,8 @@ pub struct AllTimeRequestorSummary {
     pub locked_orders_fulfillment_rate_adjusted: f32,
     pub total_program_cycles: U256,
     pub total_cycles: U256,
+    pub total_fixed_cost: U256,
+    pub total_variable_cost: U256,
     pub best_peak_prove_mhz: f64,
     pub best_peak_prove_mhz_prover: Option<String>,
     pub best_peak_prove_mhz_request_id: Option<U256>,
@@ -460,6 +464,10 @@ pub struct RequestStatus {
     pub cycle_status: Option<String>,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
+    pub fixed_cost: Option<String>,
+    pub variable_cost_per_cycle: Option<String>,
+    pub lock_base_fee: Option<String>,
+    pub fulfill_base_fee: Option<String>,
     pub submit_tx_hash: Option<B256>,
     pub lock_tx_hash: Option<B256>,
     pub fulfill_tx_hash: Option<B256>,
@@ -540,6 +548,7 @@ pub struct LockPricingData {
     pub lock_timestamp: u64,
     pub lock_price: Option<String>,
     pub lock_price_per_cycle: Option<String>,
+    pub fixed_cost: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -611,8 +620,9 @@ pub trait IndexerDb {
     async fn get_last_aggregation_block(&self) -> Result<Option<u64>, DbError>;
     async fn set_last_aggregation_block(&self, block_numb: u64) -> Result<(), DbError>;
 
-    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError>;
+    async fn add_blocks(&self, blocks: &[(u64, u64, Option<u128>)]) -> Result<(), DbError>;
     async fn get_block_timestamp(&self, block_numb: u64) -> Result<Option<u64>, DbError>;
+    async fn get_block_base_fee(&self, block_numb: u64) -> Result<Option<u128>, DbError>;
 
     async fn add_txs(&self, metadata_list: &[TxMetadata]) -> Result<(), DbError>;
 
@@ -1144,7 +1154,7 @@ impl IndexerDb for MarketDb {
         Ok(())
     }
 
-    async fn add_blocks(&self, blocks: &[(u64, u64)]) -> Result<(), DbError> {
+    async fn add_blocks(&self, blocks: &[(u64, u64, Option<u128>)]) -> Result<(), DbError> {
         if blocks.is_empty() {
             return Ok(());
         }
@@ -1159,7 +1169,8 @@ impl IndexerDb for MarketDb {
             let mut query = String::from(
                 "INSERT INTO blocks (
                     block_number,
-                    block_timestamp
+                    block_timestamp,
+                    base_fee
                 ) VALUES ",
             );
 
@@ -1168,15 +1179,24 @@ impl IndexerDb for MarketDb {
                 if i > 0 {
                     query.push_str(", ");
                 }
-                query.push_str(&format!("(${}, ${})", params_count + 1, params_count + 2));
-                params_count += 2;
+                query.push_str(&format!(
+                    "(${}, ${}, ${})",
+                    params_count + 1,
+                    params_count + 2,
+                    params_count + 3
+                ));
+                params_count += 3;
             }
-            query.push_str(" ON CONFLICT (block_number) DO NOTHING");
+            query.push_str(
+                " ON CONFLICT (block_number) DO UPDATE SET base_fee = COALESCE(EXCLUDED.base_fee, blocks.base_fee)",
+            );
 
             let mut query_builder = sqlx::query(&query);
-            for (block_number, block_timestamp) in chunk {
-                query_builder =
-                    query_builder.bind(*block_number as i64).bind(*block_timestamp as i64);
+            for (block_number, block_timestamp, base_fee) in chunk {
+                query_builder = query_builder
+                    .bind(*block_number as i64)
+                    .bind(*block_timestamp as i64)
+                    .bind(base_fee.map(|f| f.to_string()));
             }
 
             query_builder.execute(&mut *tx).await?;
@@ -1195,6 +1215,20 @@ impl IndexerDb for MarketDb {
         if let Some(row) = result {
             let block_timestamp: i64 = row.get(0);
             Ok(Some(block_timestamp as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_block_base_fee(&self, block_numb: u64) -> Result<Option<u128>, DbError> {
+        let result = sqlx::query("SELECT base_fee FROM blocks WHERE block_number = $1")
+            .bind(block_numb as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = result {
+            let base_fee_str: Option<String> = row.try_get("base_fee").ok().flatten();
+            Ok(base_fee_str.and_then(|s| s.parse::<u128>().ok()))
         } else {
             Ok(None)
         }
@@ -2281,7 +2315,7 @@ impl IndexerDb for MarketDb {
                     slash_recipient, slash_transferred_amount, slash_burned_amount,
                     program_cycles, total_cycles,
                     peak_prove_mhz_v2, effective_prove_mhz_v2, prover_effective_prove_mhz, cycle_status,
-                    lock_price, lock_price_per_cycle,
+                    lock_price, lock_price_per_cycle, fixed_cost, variable_cost_per_cycle, lock_base_fee, fulfill_base_fee,
                     submit_tx_hash, lock_tx_hash, fulfill_tx_hash, slash_tx_hash,
                     image_id, image_url, selector, predicate_type, predicate_data, input_type, input_data,
                     fulfill_journal, fulfill_seal
@@ -2294,7 +2328,7 @@ impl IndexerDb for MarketDb {
                     query.push_str(", ");
                 }
                 query.push_str(&format!(
-                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), CAST(${} AS DOUBLE PRECISION), ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
                     params_count + 1, params_count + 2, params_count + 3, params_count + 4, params_count + 5,
                     params_count + 6, params_count + 7, params_count + 8, params_count + 9, params_count + 10,
                     params_count + 11, params_count + 12, params_count + 13, params_count + 14, params_count + 15,
@@ -2304,9 +2338,10 @@ impl IndexerDb for MarketDb {
                     params_count + 31, params_count + 32, params_count + 33, params_count + 34, params_count + 35,
                     params_count + 36, params_count + 37, params_count + 38, params_count + 39, params_count + 40,
                     params_count + 41, params_count + 42, params_count + 43, params_count + 44, params_count + 45,
-                    params_count + 46, params_count + 47, params_count + 48, params_count + 49
+                    params_count + 46, params_count + 47, params_count + 48, params_count + 49, params_count + 50,
+                    params_count + 51, params_count + 52, params_count + 53
                 ));
-                params_count += 49;
+                params_count += 53;
             }
             query.push_str(
                 " ON CONFLICT (request_digest) DO UPDATE SET
@@ -2336,6 +2371,10 @@ impl IndexerDb for MarketDb {
                     cycle_status = EXCLUDED.cycle_status,
                     lock_price = EXCLUDED.lock_price,
                     lock_price_per_cycle = EXCLUDED.lock_price_per_cycle,
+                    fixed_cost = EXCLUDED.fixed_cost,
+                    variable_cost_per_cycle = EXCLUDED.variable_cost_per_cycle,
+                    lock_base_fee = EXCLUDED.lock_base_fee,
+                    fulfill_base_fee = EXCLUDED.fulfill_base_fee,
                     fulfill_journal = EXCLUDED.fulfill_journal,
                     fulfill_seal = EXCLUDED.fulfill_seal",
             );
@@ -2382,6 +2421,10 @@ impl IndexerDb for MarketDb {
                     .bind(&status.cycle_status)
                     .bind(&status.lock_price)
                     .bind(&status.lock_price_per_cycle)
+                    .bind(&status.fixed_cost)
+                    .bind(&status.variable_cost_per_cycle)
+                    .bind(&status.lock_base_fee)
+                    .bind(&status.fulfill_base_fee)
                     .bind(status.submit_tx_hash.map(|h| h.to_string()))
                     .bind(status.lock_tx_hash.map(|h| h.to_string()))
                     .bind(status.fulfill_tx_hash.map(|h| h.to_string()))
@@ -3595,6 +3638,7 @@ impl IndexerDb for MarketDb {
                 lock_timestamp: lock_timestamp as u64,
                 lock_price,
                 lock_price_per_cycle,
+                fixed_cost: None,
             });
         }
 
@@ -4582,6 +4626,10 @@ impl MarketDb {
             cycle_status: row.try_get("cycle_status").ok(),
             lock_price: row.try_get("lock_price").ok(),
             lock_price_per_cycle: row.try_get("lock_price_per_cycle").ok(),
+            fixed_cost: row.try_get("fixed_cost").ok().flatten(),
+            variable_cost_per_cycle: row.try_get("variable_cost_per_cycle").ok().flatten(),
+            lock_base_fee: row.try_get("lock_base_fee").ok().flatten(),
+            fulfill_base_fee: row.try_get("fulfill_base_fee").ok().flatten(),
             submit_tx_hash,
             lock_tx_hash,
             fulfill_tx_hash,
@@ -4672,6 +4720,29 @@ mod tests {
 
         let db_block = db.get_last_block().await.unwrap().unwrap();
         assert_eq!(block_numb, db_block);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn test_get_block_base_fee(pool: sqlx::PgPool) {
+        let test_db = test_db(pool).await;
+        let db: DbObj = test_db.db;
+
+        // Insert a block with a base_fee
+        db.add_blocks(&[(100, 1234567890, Some(30_000_000_000u128))]).await.unwrap();
+        // Insert a block without a base_fee
+        db.add_blocks(&[(101, 1234567891, None)]).await.unwrap();
+
+        // Verify block 100 returns the expected base_fee
+        let base_fee = db.get_block_base_fee(100).await.unwrap();
+        assert_eq!(base_fee, Some(30_000_000_000u128));
+
+        // Verify block 101 (inserted with None) returns None
+        let base_fee = db.get_block_base_fee(101).await.unwrap();
+        assert_eq!(base_fee, None);
+
+        // Verify non-existent block returns None
+        let base_fee = db.get_block_base_fee(999).await.unwrap();
+        assert_eq!(base_fee, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -5622,6 +5693,10 @@ mod tests {
             cycle_status: None,
             lock_price: None,
             lock_price_per_cycle: None,
+            fixed_cost: None,
+            variable_cost_per_cycle: None,
+            lock_base_fee: None,
+            fulfill_base_fee: None,
             submit_tx_hash: Some(B256::ZERO),
             lock_tx_hash: None,
             fulfill_tx_hash: None,
@@ -5644,7 +5719,14 @@ mod tests {
         let db: DbObj = test_db.db;
 
         let digest = B256::from([1; 32]);
-        let status = create_test_status(digest, RequestStatusType::Submitted);
+        let mut status = create_test_status(digest, RequestStatusType::Locked);
+        status.locked_at = Some(1234567900);
+        status.lock_block = Some(200);
+        status.lock_prover_address = Some(Address::from([5; 20]));
+        status.fixed_cost = Some("500".to_string());
+        status.variable_cost_per_cycle = Some("10".to_string());
+        status.lock_base_fee = Some("1000000000".to_string());
+        status.fulfill_base_fee = Some("2000000000".to_string());
 
         db.upsert_request_statuses(std::slice::from_ref(&status)).await.unwrap();
 
@@ -5654,9 +5736,22 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.get::<String, _>("request_status"), "submitted");
+        assert_eq!(result.get::<String, _>("request_status"), "locked");
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
         assert_eq!(result.get::<String, _>("source"), "onchain");
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), Some("500".to_string()));
+        assert_eq!(
+            result.get::<Option<String>, _>("variable_cost_per_cycle"),
+            Some("10".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("lock_base_fee"),
+            Some("1000000000".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("fulfill_base_fee"),
+            Some("2000000000".to_string())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -5669,11 +5764,26 @@ mod tests {
 
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
+        // Verify cost fields are None initially
+        let result = sqlx::query("SELECT * FROM request_status WHERE request_digest = $1")
+            .bind(format!("{:x}", digest))
+            .fetch_one(&test_db.pool)
+            .await
+            .unwrap();
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), None);
+        assert_eq!(result.get::<Option<String>, _>("variable_cost_per_cycle"), None);
+        assert_eq!(result.get::<Option<String>, _>("lock_base_fee"), None);
+        assert_eq!(result.get::<Option<String>, _>("fulfill_base_fee"), None);
+
         status.request_status = RequestStatusType::Locked;
         status.locked_at = Some(1234567900);
         status.lock_block = Some(200);
         status.lock_prover_address = Some(Address::from([5; 20]));
         status.lock_tx_hash = Some(B256::from([3; 32]));
+        status.fixed_cost = Some("750".to_string());
+        status.variable_cost_per_cycle = Some("25".to_string());
+        status.lock_base_fee = Some("3000000000".to_string());
+        status.fulfill_base_fee = Some("4000000000".to_string());
 
         db.upsert_request_statuses(&[status.clone()]).await.unwrap();
 
@@ -5687,6 +5797,19 @@ mod tests {
         assert_eq!(result.get::<Option<i64>, _>("locked_at"), Some(1234567900));
         assert_eq!(result.get::<Option<i64>, _>("lock_block"), Some(200));
         assert_eq!(result.get::<String, _>("request_id"), format!("{:x}", status.request_id));
+        assert_eq!(result.get::<Option<String>, _>("fixed_cost"), Some("750".to_string()));
+        assert_eq!(
+            result.get::<Option<String>, _>("variable_cost_per_cycle"),
+            Some("25".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("lock_base_fee"),
+            Some("3000000000".to_string())
+        );
+        assert_eq!(
+            result.get::<Option<String>, _>("fulfill_base_fee"),
+            Some("4000000000".to_string())
+        );
     }
 
     #[sqlx::test(migrations = "./migrations")]
