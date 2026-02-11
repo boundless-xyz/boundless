@@ -1,18 +1,18 @@
-// Latitude Monitoring Stack
+// CloudWatch Monitoring Stack
 //
 // Creates CloudWatch log groups, metric filters, alarms, and a dashboard for
-// Latitude bare-metal nodes. Nodes already ship logs and metrics via Vector
+// bare-metal nodes. Nodes already ship logs and metrics via Vector
 // (ansible role: vector) — this stack owns the AWS-side monitoring resources.
 //
 // Usage:
-//   cd infra/latitude-monitoring
+//   cd infra/cw-monitoring
 //   npm install
 //   pulumi up -s staging     # or: pulumi up -s production
 
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 import { Severity } from "../util";
-import { staging, production, LatitudeNode } from "./nodeConfig";
+import { staging, production, MonitoredNode } from "./nodeConfig";
 import { buildDashboardBody } from "./components/dashboard";
 
 export = () => {
@@ -30,7 +30,7 @@ export = () => {
     const metricsNamespace = config.get("metricsNamespace") || "Boundless/SystemMetrics";
     const logGroupPrefix = config.get("logGroupPrefix") || "/boundless/bento";
     const retentionDays = config.getNumber("logRetentionDays") || 30;
-    const alarmNamespace = `Boundless/Latitude/${stackName}`;
+    const alarmNamespace = `Boundless/CWMonitoring/${stackName}`;
 
     // SNS topics — same pattern used by slasher, indexer, etc.
     const slackTopicArn = config.get("SLACK_ALERTS_TOPIC_ARN");
@@ -52,17 +52,17 @@ export = () => {
     // ── Dashboard ────────────────────────────────────────────────────────
     const dashboardBody = buildDashboardBody(nodes, metricsNamespace, alarmNamespace, logGroupPrefix);
 
-    new aws.cloudwatch.Dashboard(`latitude-${stackName}-dashboard`, {
-        dashboardName: `latitude-${stackName}`,
+    new aws.cloudwatch.Dashboard(`neo-cloud-${stackName}-dashboard`, {
+        dashboardName: `neo-cloud-${stackName}`,
         dashboardBody,
     });
 
     // ── Outputs ──────────────────────────────────────────────────────────
     return {
-        dashboardUrl: `https://us-west-2.console.aws.amazon.com/cloudwatch/home?region=us-west-2#dashboards/dashboard/latitude-${stackName}`,
+        dashboardUrl: `https://us-west-2.console.aws.amazon.com/cloudwatch/home?region=us-west-2#dashboards/dashboard/neo-cloud-${stackName}`,
         nodeCount: nodes.length,
         logGroups: nodes.map(n => `${logGroupPrefix}/${n.hostname}`),
-    };
+    };  
 };
 
 // ── Node monitoring resources ────────────────────────────────────────────────
@@ -76,10 +76,10 @@ interface MonitoringOpts {
     stackName: string;
 }
 
-function createNodeMonitoring(node: LatitudeNode, opts: MonitoringOpts): void {
+function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     const { metricsNamespace, alarmNamespace, logGroupPrefix, retentionDays, alarmActions, stackName } = opts;
     const logGroupName = `${logGroupPrefix}/${node.hostname}`;
-    const prefix = `lat-${stackName}-${node.name}`;
+    const prefix = `neo-cloud-${stackName}-${node.name}`;
 
     // ── Log Group ────────────────────────────────────────────────────────
     // Vector creates the log group on first write, but we want to own it in

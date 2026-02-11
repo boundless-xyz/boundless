@@ -1,8 +1,8 @@
-// Latitude node definitions, derived from ansible/inventory.yml.
+// Node definitions, derived from ansible/inventory.yml.
 // Each node maps to a bare-metal host running Vector, which ships logs and metrics
 // to CloudWatch (log group: /boundless/bento/<hostname>, namespace: Boundless/SystemMetrics).
 
-export interface LatitudeNode {
+export interface MonitoredNode {
     /** Short human-readable name used in resource IDs and alarm names. */
     name: string;
     /** Machine hostname as reported by Vector (ansible_hostname). */
@@ -16,7 +16,7 @@ export interface LatitudeNode {
 }
 
 export interface EnvironmentConfig {
-    nodes: LatitudeNode[];
+    nodes: MonitoredNode[];
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 name: cw-monitoring
-description: CloudWatch monitoring stack for Latitude bare-metal nodes
+description: CloudWatch monitoring stack for bare-metal nodes
 runtime:
   name: nodejs
   options:

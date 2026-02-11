@@ -1,6 +1,6 @@
-import { LatitudeNode } from "../nodeConfig";
+import { MonitoredNode } from "../nodeConfig";
 
-// CloudWatch dashboard JSON builder for Latitude nodes.
+// CloudWatch dashboard JSON builder for monitored nodes.
 // Produces a grid layout: one row of system panels per node, plus a summary row.
 
 const REGION = "us-west-2";
@@ -72,7 +72,7 @@ function logWidget(
 // ── Per-node row (24 columns wide, 6 units tall) ────────────────────────────
 
 function nodeRow(
-    node: LatitudeNode,
+    node: MonitoredNode,
     metricsNamespace: string,
     alarmNamespace: string,
     logGroupPrefix: string,
@@ -142,7 +142,7 @@ function nodeRow(
 // ── Summary row ──────────────────────────────────────────────────────────────
 
 function summaryRow(
-    nodes: LatitudeNode[],
+    nodes: MonitoredNode[],
     metricsNamespace: string,
     yOffset: number,
 ): Widget[] {
@@ -176,7 +176,7 @@ function summaryRow(
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export function buildDashboardBody(
-    nodes: LatitudeNode[],
+    nodes: MonitoredNode[],
     metricsNamespace: string,
     alarmNamespace: string,
     logGroupPrefix: string,
