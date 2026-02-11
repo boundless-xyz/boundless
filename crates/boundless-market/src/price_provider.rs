@@ -249,8 +249,8 @@ pub struct MarketPricing {
 /// use boundless_market::price_provider::MarketPricingConfig;
 ///
 /// let config = MarketPricingConfig::builder()
-///     .event_query_chunk_size(100)
-///     .market_price_blocks_to_query(500)
+///     .event_query_chunk_size(1000)
+///     .market_price_blocks_to_query(1000)
 ///     .timeout(std::time::Duration::from_secs(300))
 ///     .build()
 ///     .unwrap();
@@ -263,10 +263,10 @@ pub struct MarketPricingConfig {
     #[builder(setter(into, strip_option), default)]
     deployment: Option<Deployment>,
     /// The size of the chunk to use for querying events.
-    #[builder(default = "100")]
+    #[builder(default = "1000")]
     event_query_chunk_size: u64,
     /// The number of blocks to query for market prices.
-    #[builder(default = "500")]
+    #[builder(default = "1000")]
     market_price_blocks_to_query: u64,
     /// The timeout for the market pricing provider.
     #[builder(default = "std::time::Duration::from_secs(300)")]
@@ -286,8 +286,8 @@ impl MarketPricingConfig {
     /// use boundless_market::price_provider::{MarketPricingConfig, MarketPricingConfigBuilder};
     ///
     /// let config = MarketPricingConfig::builder()
-    ///     .event_query_chunk_size(100)
-    ///     .market_price_blocks_to_query(30000)
+    ///     .event_query_chunk_size(1000)
+    ///     .market_price_blocks_to_query(1000)
     ///     .timeout(std::time::Duration::from_secs(300))
     ///     .build()
     ///     .unwrap();
@@ -323,8 +323,8 @@ impl MarketPricing {
     /// use url::Url;
     ///
     /// let config = MarketPricingConfig::builder()
-    ///     .event_query_chunk_size(100)
-    ///     .market_price_blocks_to_query(30000)
+    ///     .event_query_chunk_size(1000)
+    ///     .market_price_blocks_to_query(1000)
     ///     .timeout(std::time::Duration::from_secs(300))
     ///     .build()
     ///     .unwrap();
@@ -695,8 +695,8 @@ mod tests {
     #[test]
     fn market_pricing_config_default() {
         let config = MarketPricingConfig::default();
-        assert_eq!(config.event_query_chunk_size, 100);
-        assert_eq!(config.market_price_blocks_to_query, 500);
+        assert_eq!(config.event_query_chunk_size, 1000);
+        assert_eq!(config.market_price_blocks_to_query, 1000);
         assert_eq!(config.timeout, std::time::Duration::from_secs(300));
     }
 }
