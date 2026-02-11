@@ -81,6 +81,10 @@ const SKILLS: &[Skill] = &[
                 include_str!("../../../skill/first-request/scripts/discover-programs.sh"),
             ),
             (
+                "scripts/build-request-yaml.sh",
+                include_str!("../../../skill/first-request/scripts/build-request-yaml.sh"),
+            ),
+            (
                 "examples/request.yaml",
                 include_str!("../../../skill/first-request/examples/request.yaml"),
             ),
@@ -98,15 +102,29 @@ const SKILLS: &[Skill] = &[
             ),
         ],
     },
+    Skill {
+        name: "contributing-skills",
+        description: "How to create, test, and ship new Boundless CLI skills",
+        files: &[
+            (
+                "SKILL.md",
+                include_str!("../../../skill/contributing-skills/SKILL.md"),
+            ),
+            (
+                "references/registration-guide.md",
+                include_str!("../../../skill/contributing-skills/references/registration-guide.md"),
+            ),
+        ],
+    },
 ];
 
 /// Supported AI tool formats and their install paths.
 #[derive(Clone, Debug)]
-struct ToolFormat {
-    name: &'static str,
-    description: &'static str,
-    local_dir: &'static str,
-    global_dir: &'static str,
+pub struct ToolFormat {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub local_dir: &'static str,
+    pub global_dir: &'static str,
 }
 
 impl fmt::Display for ToolFormat {
@@ -115,7 +133,7 @@ impl fmt::Display for ToolFormat {
     }
 }
 
-const TOOL_FORMATS: &[ToolFormat] = &[
+pub const TOOL_FORMATS: &[ToolFormat] = &[
     ToolFormat {
         name: "Claude Code",
         description: "Claude Code skill format (.claude/skills)",
@@ -133,6 +151,12 @@ const TOOL_FORMATS: &[ToolFormat] = &[
         description: "Codex skill format (.codex/skills)",
         local_dir: ".codex/skills",
         global_dir: ".codex/skills",
+    },
+    ToolFormat {
+        name: "Pi",
+        description: "Pi coding agent skill format (.pi/skills)",
+        local_dir: ".pi/skills",
+        global_dir: ".pi/agent/skills",
     },
     ToolFormat {
         name: "GitHub Copilot",

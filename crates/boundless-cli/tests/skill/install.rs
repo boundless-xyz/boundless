@@ -110,11 +110,12 @@ fn test_skill_install_first_request_with_path() {
     .success()
     .stdout(contains("installed successfully"));
 
-    // Verify all 7 files were created.
+    // Verify all 8 files were created.
     let skill_dir = install_path.join("first-request");
     assert!(skill_dir.join("SKILL.md").exists());
     assert!(skill_dir.join("scripts/check-prerequisites.sh").exists());
     assert!(skill_dir.join("scripts/discover-programs.sh").exists());
+    assert!(skill_dir.join("scripts/build-request-yaml.sh").exists());
     assert!(skill_dir.join("examples/request.yaml").exists());
     assert!(skill_dir.join("references/cli-reference.md").exists());
     assert!(skill_dir.join("references/guest-program-explainer.md").exists());
@@ -145,7 +146,7 @@ fn test_skill_install_all_with_path() {
     .success()
     .stdout(contains("installed successfully"));
 
-    // Verify both skill directories exist with their files.
+    // Verify all skill directories exist with their files.
     assert!(install_path.join("boundless-overview/SKILL.md").exists());
     assert!(
         install_path
@@ -167,6 +168,12 @@ fn test_skill_install_all_with_path() {
             .join("first-request/examples/request.yaml")
             .exists()
     );
+    assert!(install_path.join("contributing-skills/SKILL.md").exists());
+    assert!(
+        install_path
+            .join("contributing-skills/references/registration-guide.md")
+            .exists()
+    );
 }
 
 /// Test that --list prints available skills without installing.
@@ -180,8 +187,10 @@ fn test_skill_install_list() {
         .success()
         .stdout(contains("boundless-overview"))
         .stdout(contains("first-request"))
+        .stdout(contains("contributing-skills"))
         .stdout(contains("Boundless CLI overview"))
-        .stdout(contains("Guided walkthrough"));
+        .stdout(contains("Guided walkthrough"))
+        .stdout(contains("create, test, and ship"));
 }
 
 /// Test that an invalid skill name produces a helpful error.

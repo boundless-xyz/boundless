@@ -2,6 +2,23 @@
 
 ## Common Errors
 
+### `boundless requestor submit` hangs with no output (or only AWS IMDS warnings)
+
+**This is the #1 issue.** The `submit` command (not `submit-file`) always runs a preflight execution that spawns `r0vm` as a child process. This executes the guest program locally at 100% CPU and can take 10+ minutes even for small programs (~22M cycles). There is no `--no-preflight` flag on `submit`.
+
+**Fix:** Use `submit-file` instead with `--no-preflight`:
+```bash
+AWS_EC2_METADATA_DISABLED=true boundless requestor submit-file request.yaml --no-preflight
+```
+
+Build the YAML with `scripts/build-request-yaml.sh`. See Phase 6 in SKILL.md.
+
+### AWS IMDS timeout warnings on every command
+
+The CLI's embedded AWS SDK tries to contact the EC2 Instance Metadata Service on startup, causing ~2-4 seconds of timeout warnings on non-EC2 machines.
+
+**Fix:** Set `AWS_EC2_METADATA_DISABLED=true` before any `boundless` command.
+
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `insufficient funds` | Wallet ETH balance too low for gas + deposit | Fund wallet on Base via bridge.base.org or CEX withdrawal |

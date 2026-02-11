@@ -74,6 +74,8 @@ Alias: `boundless requestor deposited-balance`
 
 Submit a proof request with inline parameters — program, input, and offer.
 
+**⚠️ Warning:** This command always runs a preflight execution via `r0vm`, which can take 10+ minutes and appear to hang. There is no `--no-preflight` flag on this command. For faster submission, use `submit-file` with `--no-preflight` instead.
+
 ```bash
 boundless requestor submit \
   --program-url <URL> \
@@ -92,7 +94,6 @@ boundless requestor submit \
 | `--encode-input` | Use `risc0_zkvm::serde` to encode input as `Vec<u8>` |
 | `-w, --wait` | Block until the request is fulfilled |
 | `-o, --offchain` | Submit offchain via order stream (faster, less censorship-resistant) |
-| `--no-preflight` | Skip preflight execution and pricing checks (not recommended) |
 | `--min-price <WEI>` | Minimum offer price in wei |
 | `--max-price <WEI>` | Maximum offer price in wei |
 | `--timeout <SECS>` | Request timeout in seconds (default varies) |
@@ -114,10 +115,10 @@ boundless requestor submit \
 
 ### `boundless requestor submit-file <YAML_FILE>`
 
-Submit a proof request defined in a YAML file.
+Submit a proof request defined in a YAML file. **This is the recommended command** because it supports `--no-preflight` to skip local `r0vm` execution.
 
 ```bash
-boundless requestor submit-file request.yaml --wait
+boundless requestor submit-file request.yaml --no-preflight
 ```
 
 **Flags:**
@@ -126,9 +127,11 @@ boundless requestor submit-file request.yaml --wait
 |------|-------------|
 | `-w, --wait` | Block until fulfilled |
 | `-o, --offchain` | Submit offchain |
-| `--no-preflight` | Skip preflight checks |
+| `--no-preflight` | Skip preflight execution (avoids 10+ minute local `r0vm` run) |
 
 See `examples/request.yaml` for the YAML format.
+
+**Environment tip:** Set `AWS_EC2_METADATA_DISABLED=true` to avoid AWS IMDS timeout warnings on non-EC2 machines.
 
 ### `boundless requestor status <REQUEST_ID> [EXPIRES_AT]`
 
