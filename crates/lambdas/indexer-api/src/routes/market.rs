@@ -316,6 +316,8 @@ pub struct RequestorLeaderboardEntry {
     pub orders_fulfilled: u64,
     /// Total orders expired (locked orders that expired without fulfillment)
     pub orders_expired: u64,
+    /// Total orders that expired without ever being locked
+    pub orders_not_locked_and_expired: u64,
     /// Total cycles requested (as string)
     pub cycles_requested: String,
     /// Total cycles requested (formatted for display)
@@ -2915,6 +2917,7 @@ async fn list_requestors_impl(
                 orders_locked: entry.orders_locked,
                 orders_fulfilled: entry.orders_fulfilled,
                 orders_expired: entry.orders_expired,
+                orders_not_locked_and_expired: entry.orders_not_locked_and_expired,
                 cycles_requested: entry.cycles_requested.to_string(),
                 cycles_requested_formatted: format_cycles(entry.cycles_requested),
                 median_lock_price_per_cycle: median.map(|m| m.to_string()),
