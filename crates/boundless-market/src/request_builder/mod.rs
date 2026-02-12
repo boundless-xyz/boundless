@@ -251,6 +251,7 @@ where
             market_address,
             chain_id,
             price_provider,
+            self.offer_layer.price_oracle_manager.clone(),
         )
         .await
         {

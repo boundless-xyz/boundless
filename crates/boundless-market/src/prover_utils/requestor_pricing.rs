@@ -39,7 +39,7 @@ use super::{
 };
 use crate::contracts::boundless_market::BoundlessMarketService;
 use crate::contracts::ProofRequest;
-use crate::price_oracle::{Amount, Asset};
+use crate::price_oracle::{Amount, Asset, PriceOracleManager};
 use crate::price_provider::PriceProviderArc;
 use crate::selector::SupportedSelectors;
 use crate::storage::{StandardDownloader, StorageDownloader};
@@ -65,6 +65,7 @@ pub async fn requestor_order_preflight<P>(
     market_address: Address,
     chain_id: u64,
     price_provider: Option<PriceProviderArc>,
+    price_oracle: Option<Arc<PriceOracleManager>>,
 ) -> anyhow::Result<Option<u64>>
 where
     P: Provider<Ethereum> + 'static + Clone,
@@ -95,6 +96,7 @@ where
         preflight_cache,
         Arc::new(executor),
         downloader,
+        price_oracle,
     );
 
     let mut result_cycle_count = None;
@@ -199,6 +201,7 @@ pub struct RequestorPricingContext<P> {
     preflight_cache: PreflightCache,
     collateral_token_decimals: u8,
     downloader: Arc<StandardDownloader>,
+    price_oracle: Option<Arc<PriceOracleManager>>,
 }
 
 impl<P> RequestorPricingContext<P>
@@ -213,6 +216,7 @@ where
         preflight_cache: PreflightCache,
         prover: ProverObj,
         downloader: Arc<StandardDownloader>,
+        price_oracle: Option<Arc<PriceOracleManager>>,
     ) -> Self {
         Self {
             provider,
@@ -222,6 +226,7 @@ where
             preflight_cache,
             collateral_token_decimals,
             downloader,
+            price_oracle,
         }
     }
 }
@@ -292,18 +297,34 @@ where
         if amount.asset == Asset::ETH {
             return Ok(amount.clone());
         }
-        Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-            "Price conversion not available (USD pricing requires price oracle)"
-        ))))
+        let oracle = self.price_oracle.as_ref().ok_or_else(|| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Price conversion from {} to ETH not available (requires price oracle)",
+                amount.asset
+            )))
+        })?;
+        oracle.convert(amount, Asset::ETH).await.map_err(|e| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ETH: {}", amount, e
+            )))
+        })
     }
 
     async fn convert_to_zkc(&self, amount: &Amount) -> Result<Amount, OrderPricingError> {
         if amount.asset == Asset::ZKC {
             return Ok(amount.clone());
         }
-        Err(OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-            "Price conversion not available (USD pricing requires price oracle)"
-        ))))
+        let oracle = self.price_oracle.as_ref().ok_or_else(|| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Price conversion from {} to ZKC not available (requires price oracle)",
+                amount.asset
+            )))
+        })?;
+        oracle.convert(amount, Asset::ZKC).await.map_err(|e| {
+            OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
+                "Failed to convert {} to ZKC: {}", amount, e
+            )))
+        })
     }
 
     fn prover(&self) -> &ProverObj {
