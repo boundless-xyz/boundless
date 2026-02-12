@@ -143,7 +143,7 @@ async fn main() -> Result<()> {
         "block-receipts" => TransactionFetchStrategy::BlockReceipts,
         "tx-by-hash" => TransactionFetchStrategy::TransactionByHash,
         _ => bail!(
-            "Invalid tx_fetch_strategy: {}. Use 'block-receipts' or 'tx-by-hash'",
+            "Invalid tx_fetch_strategy: {}. Use 'block-receipts' or 'tx-by-hash'x",
             args.tx_fetch_strategy
         ),
     };

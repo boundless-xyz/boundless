@@ -144,10 +144,10 @@ export = () => {
 
   const sharedDependencies: pulumi.Resource[] = [infra.dbUrlSecret, infra.dbUrlSecretVersion, infra.dbReaderUrlSecret, infra.dbReaderUrlSecretVersion];
   if (marketIndexer) {
-    sharedDependencies.push(marketIndexer, marketIndexer.image, marketIndexer.service);
+    sharedDependencies.push(marketIndexer.image, marketIndexer.service);
   }
   if (rewardsIndexer) {
-    sharedDependencies.push(rewardsIndexer, rewardsIndexer.image, rewardsIndexer.service);
+    sharedDependencies.push(rewardsIndexer.image, rewardsIndexer.service);
   }
 
   if (shouldDeployMarket && marketIndexer) {

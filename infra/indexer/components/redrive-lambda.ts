@@ -96,6 +96,8 @@ export class RedriveLambda extends pulumi.ComponentResource {
         subnetIds: args.privSubNetIds,
         securityGroupIds: [args.indexerSgId],
       },
+    }, {
+      dependsOn: opts?.dependsOn,
     });
     this.lambdaFunction = lambda;
 

@@ -558,6 +558,9 @@ export class MarketIndexer extends pulumi.ComponentResource {
       alarmActions,
     }, { parent: this });
 
-    this.registerOutputs({});
+    this.registerOutputs({
+      imageRef: this.image.ref,
+      serviceUrn: this.service.urn,
+    });
   }
 }
