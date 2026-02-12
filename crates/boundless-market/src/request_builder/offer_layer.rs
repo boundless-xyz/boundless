@@ -39,9 +39,10 @@ pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
 pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
 /// Default min price when not set by params, config, or market (wei).
 pub(crate) const DEFAULT_MIN_PRICE: U256 = U256::ZERO;
-/// Default max price per cycle when not set by params, config, or market (100 Mwei in wei).
+/// Default max price per cycle when not set by params, config, or market
+/// (100 Kwei/cycle in wei to match 100 Gwei/Mcycle ~99th percentile of market as of 2026-02-11).
 pub(crate) fn default_max_price_per_cycle() -> U256 {
-    U256::from(100) * Unit::MWEI.wei_const()
+    U256::from(100) * Unit::KWEI.wei_const()
 }
 
 /// Resolves min price (total) with priority: params > config > market > default (default is per-cycle × cycle_count).
@@ -66,7 +67,12 @@ pub(crate) fn resolve_max_price(
 ) -> U256 {
     params_max.or(config_max).or(market_max).unwrap_or_else(|| {
         // Use at least 1 so zero-cycle offers get a positive default max (fixed costs).
-        let n = cycle_count.map(|c| c.max(1)).unwrap_or(1);
+        let n = if let Some(count) = cycle_count {
+            count.max(1)
+        } else {
+            tracing::warn!("No cycle count provided using static fallback, defaulting to 1");
+            1
+        };
         default_max_price_per_cycle() * U256::from(n)
     })
 }
@@ -637,6 +643,7 @@ where
                         }
                     }
                 } else {
+                    tracing::warn!("No cycle count provided, falling back to default pricing");
                     (None, None)
                 }
             } else {

@@ -23,14 +23,13 @@ config:
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: "info,boundless_market=debug"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
-  order-generator-offchain:MAX_PRICE_PER_MCYCLE: "0.00000003"
-  order-generator-onchain:MAX_PRICE_PER_MCYCLE: "0.00000003"
   order-generator-base:ORDER_STREAM_URL: https://base-mainnet.boundless.network
   order-generator-base:PAGERDUTY_ALERTS_TOPIC_ARN: arn:aws:sns:us-west-2:968153779208:boundless-pagerduty-topic
   order-generator-base:PINATA_JWT:
     secure: v1:wOJUhapOWpVScxx5:9ws7QAOS62UNKJmhQP9tdl1aQosT+BRovdoYv9HYNLApYkx6dzGguK9o/IdNdjzfd2rspTpVyvHX7MlP4LYoPgOf9j3L048G8vTxNZ5g0MqZDS5Rhx+gdmRqj3SRglfOIkD/AEcpCba3GNBmAi5+9x3QXEQerKAKJ4EpLpnez1sJs9WOdTG40YbM54qZlzwbdU/EOsWxAuWKIFnPKwm7CPlNZ2lzmA0PzEgGbG77mhHrafNnuGXHc16iy/lvhEh6Qe13sXHJg+p4U29KAL8HWR+dkNytQLnU3UsPZQcx6QQLSJRFg0PLLlEZ/DEsAAXuqMbRPzAexF2qX65/52JGiv9ite2+zOL8zhfhjbbpVHVrcwcSVB87vpPEiOLIRPrZD8OjjtKBxw9mcBID6ysPZDjCsgXjjAn/WqilS4/m0aUMUnRcC2z+upAByCrWDXoTz5XrTy2wDFvHhtK5v2j/ETv/dXWZcFBpUK7o/5JhJ5NKuiOgNhPaPVo1/HJqQMY8lYArgyRs/8cDd5jbcQZ+dbI/sBYXkCI3Jdtgghk7ZOr22RxSOQZhiptr4fzgX/C6Mp3V2ln/90uY0+BOZUfC+Dqd4nFjWBeaY8NtAfJacAbI83eC9yH+HL0LphRhtjmWgfE2NXjSRv8g1bSsrVUrKh44RsSUjOSMMGJyd7ydXRT4gOUAt3whc01WtTlVzCgEx9OlUYx1IaLXh9kUdotNGGzE6IdUVk+JBlIzQbHwwPCSQ+2oLTMdbRiz/56HvUNFf0ENysCy+17uIpjlKT1i9yJCrEyRPAcBpIl7MPboTwG3a65/yGiqvoMSZrEhKXl8e/HHRPSNQsEhtphEJVNj7MyI17Q0UuIXsd1jjYUEGWBT2GutmHbActlH4As0cRB4HTcBoaJJhtfCzL0Izs04tsqgcKkCyBHh
   order-generator-base:SET_VERIFIER_ADDR: 0x1Ab08498CfF17b9723ED67143A050c8E8c2e3104
   order-generator-base:TX_TIMEOUT: "90"
+  order-generator-offchain:MAX_PRICE_CAP: "0.01"
   order-generator-offchain:AUTO_DEPOSIT: "0.015"
   order-generator-offchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-offchain:EXEC_RATE_KHZ: "1000"
@@ -42,6 +41,7 @@ config:
   order-generator-offchain:SECONDS_PER_MCYCLE: "7"
   order-generator-offchain:TIMEOUT: "1500"
   order-generator-offchain:WARN_BALANCE_BELOW: "0.01"
+  order-generator-onchain:MAX_PRICE_CAP: "0.01"
   order-generator-onchain:AUTO_DEPOSIT: "0.015"
   order-generator-onchain:ERROR_BALANCE_BELOW: "0.005"
   order-generator-onchain:EXEC_RATE_KHZ: "1000"
@@ -53,8 +53,8 @@ config:
   order-generator-onchain:SECONDS_PER_MCYCLE: "7"
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
+  order-generator-random-requestor:MAX_PRICE_CAP: "0.01"
   order-generator-random-requestor:INPUT_MAX_MCYCLES: "200"
-  order-generator-random-requestor:MAX_PRICE_PER_MCYCLE: "0.00000004"
   order-generator-random-requestor:SCHEDULE_EXPRESSION: "rate(24 hours)"
   order-generator-random-requestor:COUNT: "10"
   order-generator-random-requestor:INTERVAL: "600"
@@ -68,12 +68,12 @@ config:
     secure: v1:ghvpsT1eWQ22F33+:EMpFbZJALPWfvZUYgN0L3my543BcCTMILXuwzZ4Zch0JYWyCwqLcWXa8sGXsNghlKQRWQwUQjo3gGFE1KACtPtum4iMZVeMbyvTIGXRBdis=
   order-generator-base:INDEXER_URL:
     secure: v1:3rJFVGvhgg2ISY0C:JxAroph0jMguR18XNxUkHwWtJn/Ynnglr4OKbbB5/rf6gZxAqXRxNEpki3eR5ZOh+0bIDLWf
+  order-generator-evm-requestor:MAX_PRICE_CAP: "0.01"
   order-generator-evm-requestor:AUTO_DEPOSIT: "0.015"
   order-generator-evm-requestor:ERROR_BALANCE_BELOW: "0.005"
   order-generator-evm-requestor:EXEC_RATE_KHZ: "1000"
   order-generator-evm-requestor:INTERVAL: "600"
   order-generator-evm-requestor:INPUT_MAX_MCYCLES: "3000"
-  order-generator-evm-requestor:MAX_PRICE_PER_MCYCLE: "0.00000003"
   order-generator-evm-requestor:LOCK_TIMEOUT: "2100"
   order-generator-evm-requestor:TIMEOUT: "1800"
   order-generator-evm-requestor:RAMP_UP: "900"
