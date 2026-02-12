@@ -21,7 +21,6 @@ use crate::{
 
 use alloy::primitives::U256;
 use rand::seq::SliceRandom;
-use std::cmp::Reverse;
 use std::sync::Arc;
 
 /// Unified priority mode for both pricing and commitment
@@ -82,53 +81,6 @@ fn sort_by_mode<T>(orders: &mut [T], mode: UnifiedPriorityMode)
 where
     T: AsRef<OrderRequest>,
 {
-    fn sort_lock_then_by<T, F>(orders: &mut [T], key: F)
-    where
-        T: AsRef<OrderRequest>,
-        F: Fn(&OrderRequest) -> U256,
-    {
-        orders.sort_by(|a, b| {
-            let a_ref = a.as_ref();
-            let b_ref = b.as_ref();
-            let a_is_expired =
-                matches!(a_ref.fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
-            let b_is_expired =
-                matches!(b_ref.fulfillment_type, FulfillmentType::FulfillAfterLockExpire);
-
-            match (a_is_expired, b_is_expired) {
-                (false, true) => std::cmp::Ordering::Less,
-                (true, false) => std::cmp::Ordering::Greater,
-                (false, false) => {
-                    // Both lockable: order by key descending
-                    let a_key = key(a_ref);
-                    let b_key = key(b_ref);
-                    b_key.cmp(&a_key)
-                }
-                // Expired orders sorted with weighted randomness below.
-                (true, true) => std::cmp::Ordering::Equal,
-            }
-        });
-
-        let expired_start = orders
-            .iter()
-            .position(|order| {
-                matches!(order.as_ref().fulfillment_type, FulfillmentType::FulfillAfterLockExpire)
-            })
-            .unwrap_or(orders.len());
-
-        if expired_start < orders.len() {
-            use rand::Rng;
-            let mut rng = rand::rng();
-
-            // Sort expired orders with weighted randomness, higher values first.
-            orders[expired_start..].sort_by_key(|order| {
-                let value = key(order.as_ref());
-                // Add randomness to ordering relative to the pricing function.
-                Reverse(value.saturating_mul(U256::from(rng.random_range(1..=5))))
-            });
-        }
-    }
-
     let now = crate::now_timestamp();
 
     match mode {
@@ -140,12 +92,13 @@ where
             orders.sort_by_key(|order| order.as_ref().expiry());
         }
         UnifiedPriorityMode::Price => {
-            sort_lock_then_by(orders, |o| total_reward_amount(o, now));
+            orders.sort_by_key(|o| total_reward_amount(o.as_ref(), now));
         }
         UnifiedPriorityMode::CyclePrice => {
-            sort_lock_then_by(orders, |o| {
-                let amount = total_reward_amount(o, now);
-                o.total_cycles
+            orders.sort_by_key(|o| {
+                let amount = total_reward_amount(o.as_ref(), now);
+                o.as_ref()
+                    .total_cycles
                     .and_then(|cycles| amount.checked_div(U256::from(cycles)))
                     .unwrap_or_default()
             });
@@ -155,8 +108,10 @@ where
 
 fn total_reward_amount(order: &OrderRequest, now: u64) -> U256 {
     if matches!(order.fulfillment_type, FulfillmentType::FulfillAfterLockExpire) {
-        order.request.offer.collateral_reward_if_locked_and_not_fulfilled()
+        // Secondary orders: use pre-computed ETH value (ZKC→USD→ETH with discount applied)
+        order.expected_reward_eth.unwrap_or_default()
     } else {
+        // Primary orders: use the current auction price (already in ETH)
         order.request.offer.price_at(now).unwrap_or_default()
     }
 }
@@ -526,6 +481,95 @@ mod tests {
 
         assert_eq!(lock_and_fulfill_count, 3);
         assert_eq!(fulfill_after_expire_count, 3);
+    }
+
+    #[test]
+    fn test_high_value_secondary_order_ranks_above_low_value_primary() {
+        use alloy::primitives::{address, Bytes, U256};
+        use boundless_market::contracts::{
+            Offer, Predicate, ProofRequest, RequestId, RequestInput, RequestInputType, Requirements,
+        };
+        use risc0_zkvm::sha::Digest;
+
+        // Create minimal orders with just the fields we need
+        let base_time = crate::now_timestamp();
+
+        // Create a low-value primary (lockable) order
+        let request_id_1 = RequestId::new(address!("0000000000000000000000000000000000000001"), 1);
+        let request_1 = ProofRequest::new(
+            request_id_1,
+            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+            "http://example.com/image1",
+            RequestInput { inputType: RequestInputType::Inline, data: "".into() },
+            Offer {
+                minPrice: U256::from(100u64),
+                maxPrice: U256::from(200u64),
+                rampUpStart: base_time,
+                lockTimeout: 300,
+                timeout: 600,
+                rampUpPeriod: 1,
+                lockCollateral: U256::from(1000u64),
+            },
+        );
+        let mut low_value_primary = OrderRequest::new(
+            request_1,
+            Bytes::default(),
+            FulfillmentType::LockAndFulfill,
+            address!("0000000000000000000000000000000000000001"),
+            1,
+        );
+        low_value_primary.total_cycles = Some(1_000_000);
+        low_value_primary.target_timestamp = Some(base_time + 300);
+        low_value_primary.expire_timestamp = Some(base_time + 600);
+        low_value_primary.expected_reward_eth = Some(U256::from(100u64)); // Low reward
+
+        // Create a high-value secondary (FulfillAfterLockExpire) order
+        let request_id_2 = RequestId::new(address!("0000000000000000000000000000000000000002"), 2);
+        let request_2 = ProofRequest::new(
+            request_id_2,
+            Requirements::new(Predicate::prefix_match(Digest::ZERO, Bytes::default())),
+            "http://example.com/image2",
+            RequestInput { inputType: RequestInputType::Inline, data: "".into() },
+            Offer {
+                minPrice: U256::from(100u64),
+                maxPrice: U256::from(200u64),
+                rampUpStart: base_time,
+                lockTimeout: 200,
+                timeout: 400,
+                rampUpPeriod: 1,
+                lockCollateral: U256::from(1000u64),
+            },
+        );
+        let mut high_value_secondary = OrderRequest::new(
+            request_2,
+            Bytes::default(),
+            FulfillmentType::FulfillAfterLockExpire,
+            address!("0000000000000000000000000000000000000001"),
+            1,
+        );
+        high_value_secondary.total_cycles = Some(1_000_000);
+        high_value_secondary.target_timestamp = Some(base_time + 200);
+        high_value_secondary.expire_timestamp = Some(base_time + 400);
+        high_value_secondary.expected_reward_eth = Some(U256::from(1000u64)); // High reward
+
+        let mut orders =
+            vec![std::sync::Arc::new(low_value_primary), std::sync::Arc::new(high_value_secondary)];
+
+        // Sort using Price mode
+        sort_orders_by_priority_and_mode(&mut orders, None, OrderCommitmentPriority::Price.into());
+
+        // The high-value secondary order should be first due to higher expected_reward_eth
+        // Verify it's the high value one by checking expected_reward_eth
+        assert_eq!(
+            orders[0].expected_reward_eth,
+            Some(U256::from(1000u64)),
+            "First order should be the high-value secondary order (high expected reward)"
+        );
+        assert_eq!(
+            orders[1].expected_reward_eth,
+            Some(U256::from(100u64)),
+            "Second order should be the low-value primary order"
+        );
     }
 
     #[tokio::test]

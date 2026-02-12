@@ -36,6 +36,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use boundless_market::price_oracle::{Amount, Asset};
+use boundless_market::prover_utils::apply_secondary_fulfillment_discount;
 use boundless_market::{
     contracts::boundless_market::BoundlessMarketService, price_oracle::PriceOracleManager,
     selector::SupportedSelectors, storage::StorageDownloader,
@@ -218,6 +219,29 @@ where
                     order.total_cycles = Some(total_cycles);
                     order.target_timestamp = Some(lock_expire_timestamp_secs);
                     order.expire_timestamp = Some(expiry_secs);
+
+                    // Compute discounted collateral reward, convert ZKC -> USD -> ETH.
+                    // Later used in order prioritization. This value does not change based on time,
+                    // the only variable is the price of ZKC.
+                    let raw_collateral =
+                        order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+                    let config = self.market_config()?;
+                    let discounted = apply_secondary_fulfillment_discount(
+                        raw_collateral,
+                        config.expected_probability_win_secondary_fulfillment,
+                    );
+                    let zkc_amount = Amount::new(discounted, Asset::ZKC);
+                    let usd_amount = self
+                        .price_oracle
+                        .convert(&zkc_amount, Asset::USD)
+                        .await
+                        .unwrap_or(Amount::new(U256::ZERO, Asset::USD));
+                    let eth_amount = self
+                        .price_oracle
+                        .convert(&usd_amount, Asset::ETH)
+                        .await
+                        .unwrap_or(Amount::new(U256::ZERO, Asset::ETH));
+                    order.expected_reward_eth = Some(eth_amount.value);
 
                     self.priced_orders_tx
                         .send(order)
@@ -1838,8 +1862,9 @@ pub(crate) mod tests {
             cfg.market.min_deadline
         };
         {
-            config.load_write().unwrap().market.min_mcycle_price_collateral_token =
-                Amount::parse("1 ZKC").unwrap();
+            let mut cfg = config.load_write().unwrap();
+            cfg.market.min_mcycle_price_collateral_token = Amount::parse("1 ZKC").unwrap();
+            cfg.market.expected_probability_win_secondary_fulfillment = 100;
         }
         let ctx = PickerTestCtxBuilder::default()
             .with_config(config.clone())
@@ -2594,6 +2619,7 @@ pub(crate) mod tests {
         market_config.min_mcycle_price = Amount::parse("0.0134 ETH").unwrap(); // Won't be used for FulfillAfterLockExpire
         market_config.min_mcycle_price_collateral_token = Amount::parse("0.1 ZKC").unwrap(); // 0.1 collateral per mcycle
         market_config.max_mcycle_limit = 8000;
+        market_config.expected_probability_win_secondary_fulfillment = 100;
 
         let ctx = PickerTestCtxBuilder::default()
             .with_config({

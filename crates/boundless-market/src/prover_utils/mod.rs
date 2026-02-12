@@ -61,6 +61,18 @@ use OrderPricingOutcome::Skip;
 
 const ONE_MILLION: U256 = uint!(1_000_000_U256);
 
+/// Apply a percentage discount to a reward value for secondary fulfillment probability.
+///
+/// # Arguments
+/// * `reward` - The full reward amount
+/// * `probability_percent` - Probability of winning (0-100)
+///
+/// # Returns
+/// The discounted reward: `reward * probability_percent / 100`
+pub fn apply_secondary_fulfillment_discount(reward: U256, probability_percent: u32) -> U256 {
+    reward.saturating_mul(U256::from(probability_percent)) / U256::from(100u32)
+}
+
 /// Execution limit reasoning details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProveLimitReason {
@@ -178,6 +190,7 @@ pub struct OrderRequest {
     pub total_cycles: Option<u64>,
     pub target_timestamp: Option<u64>,
     pub expire_timestamp: Option<u64>,
+    pub expected_reward_eth: Option<U256>,
     #[serde(skip)]
     cached_id: OnceLock<String>,
 }
@@ -201,6 +214,7 @@ impl OrderRequest {
             total_cycles: None,
             target_timestamp: None,
             expire_timestamp: None,
+            expected_reward_eth: None,
             cached_id: OnceLock::new(),
         }
     }
@@ -885,7 +899,11 @@ pub trait OrderPricingContext {
         // For lock_expired orders, evaluate based on collateral
         if lock_expired {
             // Reward for the order is a fraction of the collateral once the lock has expired
-            let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let raw_price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let price = apply_secondary_fulfillment_discount(
+                raw_price,
+                config.expected_probability_win_secondary_fulfillment,
+            );
             let mcycle_price_in_collateral_tokens =
                 price.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
 
@@ -1071,7 +1089,15 @@ pub trait OrderPricingContext {
             tracing::info!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
             u64::MAX
         } else {
-            let price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let raw_price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();
+            let price = if is_fulfill_after_lock_expire {
+                apply_secondary_fulfillment_discount(
+                    raw_price,
+                    config.expected_probability_win_secondary_fulfillment,
+                )
+            } else {
+                raw_price
+            };
 
             let initial_collateral_based_limit =
                 (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_collateral_tokens))

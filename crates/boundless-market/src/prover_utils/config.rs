@@ -204,6 +204,10 @@ pub mod defaults {
     pub const fn withdraw() -> bool {
         false
     }
+
+    pub const fn expected_probability_win_secondary_fulfillment() -> u32 {
+        25
+    }
 }
 
 /// Order pricing priority mode for determining which orders to price first
@@ -490,6 +494,10 @@ pub struct MarketConfig {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
+    /// Expected probability (0-100) of winning the secondary fulfillment race.
+    /// Discounts the collateral reward when evaluating profitability and prioritizing orders.
+    #[serde(default = "defaults::expected_probability_win_secondary_fulfillment")]
+    pub expected_probability_win_secondary_fulfillment: u32,
 }
 
 impl Default for MarketConfig {
@@ -535,6 +543,8 @@ impl Default for MarketConfig {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
+            expected_probability_win_secondary_fulfillment:
+                defaults::expected_probability_win_secondary_fulfillment(),
         }
     }
 }

@@ -42,6 +42,12 @@ min_mcycle_price = "0.00001 USD"
 # to fulfill the order is rewarded with the collateral.
 min_mcycle_price_collateral_token = "0.00005 ZKC"
 
+# Expected probability (0-100) of winning the secondary fulfillment race.
+# When an order's lock expires, multiple provers may race to fulfill it.
+# This discounts the expected reward when evaluating profitability and priority.
+# Default: 25
+# expected_probability_win_secondary_fulfillment = 25
+
 # Estimated peak performance of the proving cluster, in kHz.
 #
 # Used to estimate proving capacity and accept only as much work as your prover
