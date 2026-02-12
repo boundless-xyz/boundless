@@ -9,7 +9,7 @@ The architecture has two sides:
 - **Host** — your application code running on a normal computer. It provides inputs to the guest and submits the proof request.
 - **Guest** — code compiled to RISC-V that runs inside the zkVM. It reads inputs, performs computation, and writes outputs to a public **journal**.
 
-The guest program is compiled to a RISC-V ELF binary. This binary has a deterministic **image ID** — a cryptographic hash of the program. The image ID is what gets verified on-chain: it proves that *this specific program* produced the output.
+The guest program is compiled to a RISC-V ELF binary. This binary has a deterministic **image ID** — a cryptographic hash of the program. The image ID is what gets verified on-chain: it proves that _this specific program_ produced the output.
 
 ## A Minimal Guest Program
 
@@ -34,7 +34,7 @@ That's it — ~6 lines of logic. Here's what each part does:
 1. `env::stdin()` — reads the input bytes that the host (requestor) provided.
 2. `env::commit_slice()` — writes data to the **journal**, which is the public output of the proof. Anything committed to the journal is visible to verifiers.
 
-The proof statement this creates is: *"I ran this program (identified by its image ID) with some input, and it produced this journal output."*
+The proof statement this creates is: _"I ran this program (identified by its image ID) with some input, and it produced this journal output."_
 
 Real guest programs do more interesting things — validate signatures, check Merkle proofs, run ML inference — but the structure is always the same: read input, compute, commit output.
 
@@ -57,7 +57,7 @@ When your proof request is fulfilled, you get two things:
 - **Journal** — the public output bytes committed by `env::commit_slice()`. The journal is what your application logic cares about.
 - **Seal** — the cryptographic proof that the computation ran correctly. This is what smart contracts verify on-chain. You don't need to inspect it directly.
 
-Together, the journal and seal say: *"This program with image ID X produced output Y, and here's the cryptographic proof."*
+Together, the journal and seal say: _"This program with image ID X produced output Y, and here's the cryptographic proof."_
 
 ## Using the Boundless SDK
 
@@ -116,5 +116,5 @@ The resulting ELF binary can be uploaded to any public URL (IPFS, S3, etc.) and 
 ## Further Reading
 
 - [Boundless Proof Lifecycle](https://docs.boundless.network/developers/proof-lifecycle)
-- [RISC Zero zkVM Guest Documentation](https://dev.risczero.com/api/zkvm/guest)
+- [RISC Zero zkVM Guest Documentation](https://dev.risczero.com/api/zkvm/guest-code-101)
 - [Boundless SDK Examples](https://github.com/boundless-xyz/boundless/tree/main/examples)

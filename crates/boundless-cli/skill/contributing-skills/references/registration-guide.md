@@ -54,6 +54,7 @@ So `include_str!("../../../skill/my-new-skill/SKILL.md")` resolves correctly.
 ### 3. File Permissions for Scripts
 
 Note that `include_str!()` embeds content as text. When installed, scripts won't automatically be executable. If your skill includes shell scripts that the agent should run, mention in your `SKILL.md` that the agent should either:
+
 - Run them with `bash scripts/my-script.sh` (explicit interpreter), or
 - `chmod +x` them first
 

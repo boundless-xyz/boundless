@@ -33,20 +33,20 @@ For a deeper explanation of guest programs, journals, seals, and how proofs work
 
 ## Quick Command Reference
 
-| Step | Command |
-|------|---------|
-| Check prerequisites | `bash scripts/check-prerequisites.sh` (from this skill's directory) |
-| Create wallet | `cast wallet new` |
-| Check balance | `cast balance <ADDRESS> --rpc-url https://mainnet.base.org` |
-| Install CLI | `cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.2 --bin boundless` |
-| Configure | `boundless requestor setup` |
-| Deposit | `boundless requestor deposit 0.005` |
-| Check deposit | `boundless requestor balance` |
-| Discover programs | `bash scripts/discover-programs.sh` (from this skill's directory) |
-| Build YAML | Use `scripts/build-request-yaml.sh` or build manually (see Phase 6) |
-| Submit proof request | `boundless requestor submit-file request.yaml --no-preflight` |
-| Check status | `boundless requestor status <REQUEST_ID>` |
-| Get proof | `boundless requestor get-proof <REQUEST_ID>` |
+| Step                 | Command                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Check prerequisites  | `bash scripts/check-prerequisites.sh` (from this skill's directory)                                                          |
+| Create wallet        | `cast wallet new`                                                                                                            |
+| Check balance        | `cast balance <ADDRESS> --rpc-url https://mainnet.base.org`                                                                  |
+| Install CLI          | `cargo install --locked --git https://github.com/boundless-xyz/boundless boundless-cli --branch release-1.2 --bin boundless` |
+| Configure            | `boundless requestor setup`                                                                                                  |
+| Deposit              | `boundless requestor deposit 0.005`                                                                                          |
+| Check deposit        | `boundless requestor balance`                                                                                                |
+| Discover programs    | `bash scripts/discover-programs.sh` (from this skill's directory)                                                            |
+| Build YAML           | Use `scripts/build-request-yaml.sh` or build manually (see Phase 6)                                                          |
+| Submit proof request | `boundless requestor submit-file request.yaml --no-preflight`                                                                |
+| Check status         | `boundless requestor status <REQUEST_ID>`                                                                                    |
+| Get proof            | `boundless requestor get-proof <REQUEST_ID>`                                                                                 |
 
 For full CLI docs, see `references/cli-reference.md`.
 
@@ -54,10 +54,10 @@ For full CLI docs, see `references/cli-reference.md`.
 
 There are two submit commands in the CLI:
 
-| Command | Preflight Behavior | Use For This Skill |
-|---------|-------------------|-------------------|
-| `boundless requestor submit` | **Always runs preflight** — spawns `r0vm` locally to execute the guest program. Can hang for 10+ minutes on even small programs. **No `--no-preflight` flag available.** | ❌ Do NOT use |
-| `boundless requestor submit-file` | Has `--no-preflight` flag to skip local execution. Completes in seconds. | ✅ Use this |
+| Command                           | Preflight Behavior                                                                                                                                                       | Use For This Skill |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| `boundless requestor submit`      | **Always runs preflight** — spawns `r0vm` locally to execute the guest program. Can hang for 10+ minutes on even small programs. **No `--no-preflight` flag available.** | ❌ Do NOT use      |
+| `boundless requestor submit-file` | Has `--no-preflight` flag to skip local execution. Completes in seconds.                                                                                                 | ✅ Use this        |
 
 The `submit` command (defined in `submit_offer.rs`) passes the request through `client.build_request()` which invokes the `PreflightLayer`. This layer downloads the program, spawns an `r0vm` child process, and executes the guest program locally to compute cycle counts and journal output. On a typical machine this can run at 100% CPU for 10+ minutes and will appear to hang with no output.
 
@@ -78,6 +78,7 @@ bash /path/to/first-request/scripts/check-prerequisites.sh
 ```
 
 **Required tools:**
+
 - **Rust** (`rustc`, `cargo`) — for building the Boundless CLI
 - **Foundry** (`cast`) — for wallet management and chain interaction
 - **rzup** — RISC Zero toolchain manager
@@ -86,6 +87,7 @@ bash /path/to/first-request/scripts/check-prerequisites.sh
 If anything is missing, the script prints the install command. Wait for the developer to install missing tools before continuing.
 
 **Install commands if needed:**
+
 ```bash
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -130,6 +132,7 @@ The balance needs to cover gas + proof costs. Minimum ~0.005 ETH recommended to 
 If the wallet balance is zero or insufficient, the developer needs to get ETH on Base.
 
 **Options:**
+
 1. **Bridge from Ethereum mainnet**: [bridge.base.org](https://bridge.base.org) — bridge ETH from L1 to Base
 2. **CEX withdrawal**: Withdraw ETH directly to Base from Coinbase, Binance, etc. (select Base network)
 3. **Already have Base ETH**: Transfer from another wallet
@@ -166,6 +169,7 @@ boundless requestor setup
 ```
 
 The wizard prompts for:
+
 1. **Network** — select Base Mainnet
 2. **RPC URL** — Base mainnet RPC endpoint. Public: `https://mainnet.base.org`. For better reliability, use Alchemy or Infura with a free Base RPC key.
 3. **Private key** — the wallet private key from Phase 2
@@ -215,6 +219,7 @@ bash /path/to/first-request/scripts/discover-programs.sh
 This queries the Boundless indexer API, filters for recently fulfilled requests with accessible IPFS program URLs, and outputs the 5 smallest (cheapest/fastest) verified options.
 
 **Present the results to the developer** with these details for each option:
+
 - Program cycles (proxy for complexity/cost)
 - Proof cost (the lock price from when it was last fulfilled)
 - Image ID (first 16 chars)
@@ -227,6 +232,7 @@ Let the developer pick one, or enter a custom program URL if they have one.
 **This is the key step.** We must use `submit-file` with a YAML request to avoid the preflight hang.
 
 Extract from the discovery script's JSON output for the selected request:
+
 - `image_url` — the IPFS URL for the program
 - `image_id` — the 64-char hex image ID
 - `input_data` — the hex-encoded input (with `0x` prefix)
@@ -270,12 +276,12 @@ offer:
 
 **YAML field gotchas (these WILL cause errors if wrong):**
 
-| Field | Requirement | Error if Wrong |
-|-------|-------------|----------------|
-| `offer.rampUpStart` | Must be a **future Unix timestamp** (e.g. `$(date +%s) + 30`). Cannot be `0`. | `offer rampUpStart must be greater than 0` |
-| `requirements.predicate.data` | Must be `0x` + the image ID hex (64 chars). For PrefixMatch with empty prefix, this is just the imageId bytes. Cannot be empty string. | `malformed predicate data` |
-| `requirements.imageId` | The 64-char hex image ID **without** `0x` prefix. | Image ID mismatch errors |
-| `input.data` | Hex-encoded input data **with** `0x` prefix. | Invalid input / empty journal |
+| Field                         | Requirement                                                                                                                            | Error if Wrong                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `offer.rampUpStart`           | Must be a **future Unix timestamp** (e.g. `$(date +%s) + 30`). Cannot be `0`.                                                          | `offer rampUpStart must be greater than 0` |
+| `requirements.predicate.data` | Must be `0x` + the image ID hex (64 chars). For PrefixMatch with empty prefix, this is just the imageId bytes. Cannot be empty string. | `malformed predicate data`                 |
+| `requirements.imageId`        | The 64-char hex image ID **without** `0x` prefix.                                                                                      | Image ID mismatch errors                   |
+| `input.data`                  | Hex-encoded input data **with** `0x` prefix.                                                                                           | Invalid input / empty journal              |
 
 ### Generate the rampUpStart Timestamp
 
@@ -317,12 +323,12 @@ AWS_EC2_METADATA_DISABLED=true boundless requestor status <REQUEST_ID>
 
 Run this every 30–60 seconds. Typical fulfillment takes 1–5 minutes after a prover locks the request.
 
-| Status | Meaning |
-|--------|---------|
-| **Submitted** | Request broadcast, auction running |
-| **Locked** | A prover has committed to fulfilling this request |
-| **Fulfilled** | Proof delivered and verified on-chain ✅ |
-| **Expired** | Request timed out before fulfillment |
+| Status        | Meaning                                           |
+| ------------- | ------------------------------------------------- |
+| **Submitted** | Request broadcast, auction running                |
+| **Locked**    | A prover has committed to fulfilling this request |
+| **Fulfilled** | Proof delivered and verified on-chain ✅          |
+| **Expired**   | Request timed out before fulfillment              |
 
 ### SDK Code (Educational Context)
 
@@ -389,8 +395,9 @@ This outputs timestamps for each lifecycle event: Submitted → Locked → Proof
 ```
 
 Calculate the durations by subtracting timestamps from the timeline:
+
 - **Time to lock** = Locked timestamp − Submitted timestamp
-- **Proving time** = ProofDelivered timestamp − Locked timestamp  
+- **Proving time** = ProofDelivered timestamp − Locked timestamp
 - **Total time** = Fulfilled timestamp − Submitted timestamp
 
 ### Retrieve the Proof

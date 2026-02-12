@@ -62,11 +62,11 @@ description: One-line description. Triggers include "phrase 1", "phrase 2", "phr
 
 ### Optional Subdirectories
 
-| Directory | Purpose |
-|-----------|---------|
-| `references/` | Deep-dive docs, API references, architecture details |
-| `scripts/` | Shell scripts the agent can execute (mark executable) |
-| `examples/` | Example configs, YAML files, code snippets |
+| Directory     | Purpose                                               |
+| ------------- | ----------------------------------------------------- |
+| `references/` | Deep-dive docs, API references, architecture details  |
+| `scripts/`    | Shell scripts the agent can execute (mark executable) |
+| `examples/`   | Example configs, YAML files, code snippets            |
 
 ## Development Workflow
 
@@ -111,6 +111,7 @@ With the symlinks in place, open your AI tool and try triggering the skill:
 4. Iterate on the markdown — changes are live immediately
 
 **Tips for testing:**
+
 - Test with multiple phrasings to verify trigger coverage
 - Verify any scripts are executable and work from the skill directory
 - Check that relative file references (`references/foo.md`, `scripts/bar.sh`) resolve correctly
@@ -165,6 +166,7 @@ cargo test -p boundless-cli --test integration -- skill
 ### Step 7: Submit a PR
 
 Follow the repo's standard PR process. The PR should include:
+
 - New skill files in `crates/boundless-cli/skill/<name>/`
 - Registration in `install.rs`
 - Integration tests
@@ -173,9 +175,11 @@ Follow the repo's standard PR process. The PR should include:
 ## Writing Good Skills
 
 ### Audience
+
 Your reader is an AI coding agent (Claude, GPT, Copilot, etc.), not a human. Write instructions that a language model can follow precisely.
 
 ### Structure
+
 - Start with a clear objective: what does the user want to accomplish?
 - Break the workflow into numbered phases
 - Include exact commands — don't leave things ambiguous
@@ -183,12 +187,15 @@ Your reader is an AI coding agent (Claude, GPT, Copilot, etc.), not a human. Wri
 - Add a quick-reference table of key commands at the top
 
 ### Trigger Phrases
+
 Include diverse trigger phrases in the `description` frontmatter. Think about how a user would ask for this — informal, formal, partial, synonym-based.
 
 ### Error Handling
+
 Document what can go wrong and how to fix it. AI agents are good at troubleshooting if you give them the error patterns and solutions.
 
 ### Keep It Focused
+
 One skill = one workflow or topic area. Don't try to cover everything in one skill. Users should be able to install just the skills they need.
 
 ## Reference Files

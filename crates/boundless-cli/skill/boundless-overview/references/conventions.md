@@ -31,6 +31,7 @@ impl MyCommand {
 ### Command Module Structure
 
 Commands are organized in module directories under `src/commands/`:
+
 ```
 src/commands/
 ├── mod.rs              # Declares all command modules
@@ -52,6 +53,7 @@ Each module's `mod.rs` defines a `#[derive(Subcommand)]` enum and a `run()` meth
 ## Config Loading
 
 Use `load_and_validate()` to merge configuration from multiple sources:
+
 - CLI arguments (highest priority)
 - Environment variables
 - Config file (`~/.boundless/config.toml` + `secrets.toml`)
@@ -74,6 +76,7 @@ display.warning("Something to note");
 ```
 
 For simple colored output without `DisplayManager`, use the `colored` crate:
+
 ```rust
 use colored::Colorize;
 println!("{} Done!", "✓".green().bold());
@@ -89,6 +92,7 @@ println!("{} Done!", "✓".green().bold());
 ## Interactive Prompts
 
 Use `inquire` for interactive user input:
+
 ```rust
 use inquire::{Select, Confirm, Text};
 
@@ -100,6 +104,7 @@ let choice = Select::new("Pick one:", vec!["A", "B", "C"])
 ## License Headers
 
 All source files must include the Apache 2.0 license header:
+
 ```rust
 // Copyright 2026 Boundless Foundation, Inc.
 //

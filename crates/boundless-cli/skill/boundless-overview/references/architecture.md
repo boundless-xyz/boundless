@@ -34,7 +34,9 @@ boundless/
 ## Key Crates
 
 ### `boundless-cli` (this crate)
+
 The main CLI binary. Organized into command modules under `src/commands/`:
+
 - `requestor/` - Requestor commands (submit, status, balance, etc.)
 - `prover/` - Prover commands (fulfill, benchmark, generate-config, etc.)
 - `rewards/` - Rewards commands (stake, mine, claim, etc.)
@@ -42,16 +44,20 @@ The main CLI binary. Organized into command modules under `src/commands/`:
 - `skill/` - AI tool skill file installation
 
 ### `boundless-market`
+
 Client library for interacting with the Boundless market contracts. Contains:
+
 - Contract bindings (generated from Solidity ABIs)
 - `ProofRequest` and `Offer` types
 - Market client for submitting and querying requests
 - Network deployment configurations
 
 ### `broker`
+
 The broker service orchestrates proof fulfillment. It watches for proof requests, manages a proving queue, and submits fulfilled proofs on-chain.
 
 ### `rewards` / `povw`
+
 Proof of Verifiable Work (PoVW) mining and staking rewards system. The `povw` crate handles work claim generation and verification; `rewards` handles on-chain staking and reward distribution.
 
 ## Build Toolchain
@@ -65,6 +71,7 @@ Proof of Verifiable Work (PoVW) mining and staking rewards system. The `povw` cr
 ## Configuration
 
 Configuration is stored in `~/.boundless/`:
+
 - `config.toml` - Public config (selected networks, custom deployments)
 - `secrets.toml` - Private config (RPC URLs, private keys) with 0600 permissions
 
@@ -73,6 +80,7 @@ Each module (requestor, prover, rewards) has its own network selection and crede
 ## Networks
 
 Pre-built network deployments:
+
 - **Base Mainnet** (`base-mainnet`) - Production market
 - **Base Sepolia** (`base-sepolia`) - Market testnet
 - **Ethereum Mainnet** (`eth-mainnet`) - Rewards/staking (L1)

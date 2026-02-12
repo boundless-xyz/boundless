@@ -21,14 +21,14 @@ Walks through configuring network, RPC URL, private key, and storage provider. S
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `REQUESTOR_RPC_URL` | RPC endpoint (e.g. Base mainnet or Sepolia) |
-| `REQUESTOR_PRIVATE_KEY` | Private key for transactions (hex, with or without 0x prefix) |
-| `BOUNDLESS_MARKET_ADDRESS` | Market contract address (optional — has built-in default) |
-| `SET_VERIFIER_ADDRESS` | Verifier contract address (optional — has built-in default) |
-| `TX_TIMEOUT` | Ethereum transaction timeout in seconds |
-| `LOG_LEVEL` | Log level: `error`, `warn`, `info`, `debug`, `trace` |
+| Variable                   | Description                                                   |
+| -------------------------- | ------------------------------------------------------------- |
+| `REQUESTOR_RPC_URL`        | RPC endpoint (e.g. Base mainnet or Sepolia)                   |
+| `REQUESTOR_PRIVATE_KEY`    | Private key for transactions (hex, with or without 0x prefix) |
+| `BOUNDLESS_MARKET_ADDRESS` | Market contract address (optional — has built-in default)     |
+| `SET_VERIFIER_ADDRESS`     | Verifier contract address (optional — has built-in default)   |
+| `TX_TIMEOUT`               | Ethereum transaction timeout in seconds                       |
+| `LOG_LEVEL`                | Log level: `error`, `warn`, `info`, `debug`, `trace`          |
 
 Env vars override values from `~/.boundless/` config. You can also pass them as CLI flags (e.g. `--requestor-rpc-url`, `--requestor-private-key`).
 
@@ -85,33 +85,33 @@ boundless requestor submit \
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--program-url <URL>` | Public URL to the guest program ELF (IPFS, HTTP) |
-| `-p, --program <PATH>` | Local path to guest program ELF (requires storage provider) |
-| `--input <STRING>` | Input string passed as stdin to the guest |
-| `--input-file <PATH>` | Input from a file instead of inline string |
-| `--encode-input` | Use `risc0_zkvm::serde` to encode input as `Vec<u8>` |
-| `-w, --wait` | Block until the request is fulfilled |
-| `-o, --offchain` | Submit offchain via order stream (faster, less censorship-resistant) |
-| `--min-price <WEI>` | Minimum offer price in wei |
-| `--max-price <WEI>` | Maximum offer price in wei |
-| `--timeout <SECS>` | Request timeout in seconds (default varies) |
-| `--lock-timeout <SECS>` | How long a prover can hold the lock |
-| `--ramp-up-period <SECS>` | Duration of price ramp-up from min to max |
-| `--lock-collateral <WEI>` | Collateral a prover must post when locking |
-| `--callback-address <ADDR>` | On-chain callback contract address |
-| `--callback-gas-limit <GAS>` | Gas limit for callback execution |
-| `--proof-type <TYPE>` | `any` (default), `inclusion`, `groth16`, `blake3-groth16` |
+| Flag                         | Description                                                          |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `--program-url <URL>`        | Public URL to the guest program ELF (IPFS, HTTP)                     |
+| `-p, --program <PATH>`       | Local path to guest program ELF (requires storage provider)          |
+| `--input <STRING>`           | Input string passed as stdin to the guest                            |
+| `--input-file <PATH>`        | Input from a file instead of inline string                           |
+| `--encode-input`             | Use `risc0_zkvm::serde` to encode input as `Vec<u8>`                 |
+| `-w, --wait`                 | Block until the request is fulfilled                                 |
+| `-o, --offchain`             | Submit offchain via order stream (faster, less censorship-resistant) |
+| `--min-price <WEI>`          | Minimum offer price in wei                                           |
+| `--max-price <WEI>`          | Maximum offer price in wei                                           |
+| `--timeout <SECS>`           | Request timeout in seconds (default varies)                          |
+| `--lock-timeout <SECS>`      | How long a prover can hold the lock                                  |
+| `--ramp-up-period <SECS>`    | Duration of price ramp-up from min to max                            |
+| `--lock-collateral <WEI>`    | Collateral a prover must post when locking                           |
+| `--callback-address <ADDR>`  | On-chain callback contract address                                   |
+| `--callback-gas-limit <GAS>` | Gas limit for callback execution                                     |
+| `--proof-type <TYPE>`        | `any` (default), `inclusion`, `groth16`, `blake3-groth16`            |
 
 **Storage provider flags** (for `--program` with local ELF):
 
-| Flag | Description |
-|------|-------------|
-| `--storage-uploader <TYPE>` | `pinata` or `s3` |
-| `--pinata-jwt <TOKEN>` | Pinata JWT for IPFS uploads |
-| `--s3-bucket <BUCKET>` | S3 bucket name |
-| `--s3-region <REGION>` | S3 region |
+| Flag                        | Description                 |
+| --------------------------- | --------------------------- |
+| `--storage-uploader <TYPE>` | `pinata` or `s3`            |
+| `--pinata-jwt <TOKEN>`      | Pinata JWT for IPFS uploads |
+| `--s3-bucket <BUCKET>`      | S3 bucket name              |
+| `--s3-region <REGION>`      | S3 region                   |
 
 ### `boundless requestor submit-file <YAML_FILE>`
 
@@ -123,10 +123,10 @@ boundless requestor submit-file request.yaml --no-preflight
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `-w, --wait` | Block until fulfilled |
-| `-o, --offchain` | Submit offchain |
+| Flag             | Description                                                   |
+| ---------------- | ------------------------------------------------------------- |
+| `-w, --wait`     | Block until fulfilled                                         |
+| `-o, --offchain` | Submit offchain                                               |
 | `--no-preflight` | Skip preflight execution (avoids 10+ minute local `r0vm` run) |
 
 See `examples/request.yaml` for the YAML format.
@@ -143,12 +143,12 @@ boundless requestor status 0x1234...
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--timeline` | Show detailed timeline and order parameters |
-| `--search-blocks <N>` | Number of blocks to search backwards (default: 100000) |
-| `--search-to-block <N>` | Lower bound block for event search |
-| `--search-from-block <N>` | Upper bound block for event search |
+| Flag                      | Description                                            |
+| ------------------------- | ------------------------------------------------------ |
+| `--timeline`              | Show detailed timeline and order parameters            |
+| `--search-blocks <N>`     | Number of blocks to search backwards (default: 100000) |
+| `--search-to-block <N>`   | Lower bound block for event search                     |
+| `--search-from-block <N>` | Upper bound block for event search                     |
 
 ### `boundless requestor get-proof <REQUEST_ID>`
 
@@ -159,6 +159,7 @@ boundless requestor get-proof 0x1234...
 ```
 
 Returns JSON with:
+
 - **Fulfillment Data** — image ID, journal bytes, metadata
 - **Seal** — the cryptographic proof
 
