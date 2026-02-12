@@ -319,7 +319,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 2000 USD to ETH (should be 1 ETH)
-        let usd_amount = Amount::parse("2000 USD")?;
+        let usd_amount = Amount::parse("2000 USD", None)?;
         let eth_amount = manager.convert(&usd_amount, Asset::ETH).await?;
 
         assert_eq!(eth_amount.asset, Asset::ETH);
@@ -344,7 +344,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 1 ETH to USD (should be $2000)
-        let eth_amount = Amount::parse("1 ETH")?;
+        let eth_amount = Amount::parse("1 ETH", None)?;
         let usd_amount = manager.convert(&eth_amount, Asset::USD).await?;
 
         assert_eq!(usd_amount.asset, Asset::USD);
@@ -369,7 +369,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 100 USD to ZKC (should be 100 ZKC)
-        let usd_amount = Amount::parse("100 USD")?;
+        let usd_amount = Amount::parse("100 USD", None)?;
         let zkc_amount = manager.convert(&usd_amount, Asset::ZKC).await?;
 
         assert_eq!(zkc_amount.asset, Asset::ZKC);
@@ -394,7 +394,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 100 ZKC to USD (should be $100)
-        let zkc_amount = Amount::parse("100 ZKC")?;
+        let zkc_amount = Amount::parse("100 ZKC", None)?;
         let usd_amount = manager.convert(&zkc_amount, Asset::USD).await?;
 
         assert_eq!(usd_amount.asset, Asset::USD);
@@ -418,7 +418,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert ETH to ETH (should return same amount)
-        let eth_amount = Amount::parse("1.5 ETH")?;
+        let eth_amount = Amount::parse("1.5 ETH", None)?;
         let result = manager.convert(&eth_amount, Asset::ETH).await?;
 
         assert_eq!(result.asset, Asset::ETH);
@@ -442,7 +442,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert ETH to ZKC (should fail - unsupported)
-        let eth_amount = Amount::parse("1 ETH")?;
+        let eth_amount = Amount::parse("1 ETH", None)?;
         let result = manager.convert(&eth_amount, Asset::ZKC).await;
 
         assert!(result.is_err());
@@ -473,7 +473,7 @@ mod tests {
         let manager = PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0);
 
         // Convert 0.001 USD to ETH
-        let usd_amount = Amount::parse("0.001 USD")?;
+        let usd_amount = Amount::parse("0.001 USD", None)?;
         let eth_amount = manager.convert(&usd_amount, Asset::ETH).await?;
 
         assert_eq!(eth_amount.asset, Asset::ETH);

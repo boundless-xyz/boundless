@@ -69,7 +69,7 @@ fn validate_amount_input(
     allowed_assets: &[Asset],
     field_name: &str,
 ) -> Result<String> {
-    Amount::parse_with_allowed(input, allowed_assets)
+    Amount::parse_with_allowed(input, allowed_assets, None)
         .map(|_| input.trim().to_string())
         .map_err(|e| {
             anyhow::anyhow!(
@@ -144,7 +144,7 @@ async fn format_amount_with_conversion(
     amount_str: &str,
     price_oracle: Option<Arc<PriceOracleManager>>,
 ) -> String {
-    let Ok(amount) = Amount::parse(amount_str) else {
+    let Ok(amount) = Amount::parse(amount_str, None) else {
         return amount_str.to_string();
     };
 

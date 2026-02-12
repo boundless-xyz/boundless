@@ -121,15 +121,45 @@ impl Amount {
         Self { value, asset }
     }
 
-    /// Parse from string like "1.5 ETH" or "100 USD"
-    pub fn parse(s: &str) -> Result<Self, ParseAmountError> {
-        let (value, asset) = parse_amount_str(s)?;
+    /// Parse an amount string into a structured Amount.
+    ///
+    /// Format: "\<value\> \[\<asset\>\]" (e.g., "1.5 ETH", "100 USD", "0.001" if default asset is provided)
+    /// Default asset can be provided for plain numbers without asset specifier
+    pub fn parse(s: &str, default: Option<Asset>) -> Result<Self, ParseAmountError> {
+        let s = s.trim();
+
+        // Split by whitespace to find asset
+        let split = s.split_whitespace().collect::<Vec<_>>();
+
+        // Must have at least value
+        if split.is_empty() {
+            return Err(ParseAmountError::InvalidFormat);
+        }
+        let value_str = split[0];
+
+        // Determine asset in order: specified, default, error
+        let asset: Asset = if split.len() == 2 {
+            let asset_str = split[1];
+            asset_str.trim().parse()?
+        } else if let Some(def) = default {
+            def
+        } else {
+            return Err(ParseAmountError::InvalidFormat);
+        };
+
+        let value = parse_decimal_to_u256(value_str.trim(), asset.decimals(), asset)?;
+
         Ok(Self { value, asset })
     }
 
     /// Parse with validation of allowed assets
-    pub fn parse_with_allowed(s: &str, allowed: &[Asset]) -> Result<Self, ParseAmountError> {
-        let amount = Self::parse(s)?;
+    /// Default asset can be provided for plain numbers without asset specifier
+    pub fn parse_with_allowed(
+        s: &str,
+        allowed: &[Asset],
+        default: Option<Asset>,
+    ) -> Result<Self, ParseAmountError> {
+        let amount = Self::parse(s, default)?;
         if !allowed.contains(&amount.asset) {
             return Err(ParseAmountError::AssetNotAllowed(amount.asset, allowed.to_vec()));
         }
@@ -152,31 +182,11 @@ impl FromStr for Amount {
     type Err = ParseAmountError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::parse(s)
+        Self::parse(s, None)
     }
 }
 
 // ============ Parsing helpers ============
-
-/// Parse an amount string into a value and asset
-///
-/// Format: "\<value\> \<asset\>" (e.g., "1.5 ETH", "100 USD")
-/// Plain numbers without asset specification are NOT supported and will return an error.
-pub fn parse_amount_str(s: &str) -> Result<(U256, Asset), ParseAmountError> {
-    let s = s.trim();
-
-    // Split by whitespace to find asset
-    let split = s.split_whitespace().collect::<Vec<_>>();
-    if split.len() != 2 {
-        return Err(ParseAmountError::InvalidFormat);
-    }
-    let value_str = split[0];
-    let asset_str = split[1];
-
-    let asset: Asset = asset_str.trim().parse()?;
-    let value = parse_decimal_to_u256(value_str.trim(), asset.decimals(), asset)?;
-    Ok((value, asset))
-}
 
 fn parse_decimal_to_u256(s: &str, decimals: u8, asset: Asset) -> Result<U256, ParseAmountError> {
     let (integer, fraction) = match s.split_once('.') {
@@ -237,7 +247,7 @@ impl Serialize for Amount {
 impl<'de> Deserialize<'de> for Amount {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        Amount::parse(&s).map_err(de::Error::custom)
+        Amount::parse(&s, None).map_err(de::Error::custom)
     }
 }
 
@@ -369,27 +379,28 @@ mod tests {
 
     #[test]
     fn test_parse_eth() {
-        let amount = Amount::parse("1.5 ETH").unwrap();
+        let amount = Amount::parse("1.5 ETH", None).unwrap();
         assert_eq!(amount.asset, Asset::ETH);
         assert_eq!(amount.value, U256::from(1_500_000_000_000_000_000u128)); // 1.5 ETH in wei
     }
 
     #[test]
     fn test_parse_usd() {
-        let amount = Amount::parse("100 USD").unwrap();
+        let amount = Amount::parse("100 USD", None).unwrap();
         assert_eq!(amount.asset, Asset::USD);
         assert_eq!(amount.value, U256::from(100_000_000u128)); // 100 USD with 6 decimals
     }
 
     #[test]
     fn test_parse_with_allowed_success() {
-        let amount = Amount::parse_with_allowed("1.5 ETH", &[Asset::ETH, Asset::ZKC]).unwrap();
+        let amount =
+            Amount::parse_with_allowed("1.5 ETH", &[Asset::ETH, Asset::ZKC], None).unwrap();
         assert_eq!(amount.asset, Asset::ETH);
     }
 
     #[test]
     fn test_parse_with_allowed_failure() {
-        let result = Amount::parse_with_allowed("1.5 ETH", &[Asset::USD, Asset::ZKC]);
+        let result = Amount::parse_with_allowed("1.5 ETH", &[Asset::USD, Asset::ZKC], None);
         assert!(result.is_err());
         match result.unwrap_err() {
             ParseAmountError::AssetNotAllowed(asset, allowed) => {
@@ -402,20 +413,20 @@ mod tests {
 
     #[test]
     fn test_format_roundtrip() {
-        let amount = Amount::parse("1.5 ETH").unwrap();
+        let amount = Amount::parse("1.5 ETH", None).unwrap();
         assert_eq!(amount.format(), "1.5 ETH");
         assert_eq!(amount.to_string(), "1.5 ETH");
     }
 
     #[test]
     fn test_wei_precision() {
-        let amount = Amount::parse("0.000000000000000001 ETH").unwrap();
+        let amount = Amount::parse("0.000000000000000001 ETH", None).unwrap();
         assert_eq!(amount.value, U256::from(1)); // 1 wei
     }
 
     #[test]
     fn test_usd_precision() {
-        let amount = Amount::parse("0.000001 USD").unwrap();
+        let amount = Amount::parse("0.000001 USD", None).unwrap();
         assert_eq!(amount.value, U256::from(1)); // 1 micro-USD
     }
 
@@ -427,16 +438,19 @@ mod tests {
     }
 
     #[test]
-    fn test_plain_number_fails() {
-        // Plain numbers without asset should fail with clear error
-        let result = Amount::parse("0.0000001");
+    fn test_default() {
+        let result = Amount::parse("0.0000001", Some(Asset::ETH)).unwrap();
+        assert_eq!(result.asset, Asset::ETH);
+        assert_eq!(result.value, U256::from(100_000_000_000_u128)); // 0.0000001 ETH in wei
+
+        let result =
+            Amount::parse_with_allowed("1.5 ETH", &[Asset::ETH, Asset::ZKC], Some(Asset::ETH))
+                .unwrap();
+        assert_eq!(result.asset, Asset::ETH);
+        assert_eq!(result.value, U256::from(1_500_000_000_000_000_000u128)); // 1.5 ETH in wei
+
+        let result = Amount::parse_with_allowed("1.5", &[Asset::ETH, Asset::ZKC], Some(Asset::USD));
         assert!(result.is_err());
-        match result.unwrap_err() {
-            ParseAmountError::InvalidFormat => {
-                // Expected error
-            }
-            _ => panic!("Expected InvalidFormat error"),
-        }
     }
 }
 
