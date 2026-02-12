@@ -5,7 +5,10 @@
 // (ansible role: vector) — this stack owns the AWS-side monitoring resources.
 //
 // Alarm thresholds are tuned per-node in nodeConfig.ts following the same
-// data-driven pattern as infra/indexer/alarmConfig.ts.
+// data-driven pattern as infra/indexer/alarmConfig.ts:
+// - period is always explicit (no hidden defaults)
+// - multi-severity escalation (SEV2 warning → SEV1 page)
+// - descriptions map back to the actual evaluation math
 //
 // Usage:
 //   cd infra/cw-monitoring
@@ -75,7 +78,11 @@ interface MonitoringOpts {
     stackName: string;
 }
 
-/** Resolve AlarmConfig defaults so the spread satisfies MetricAlarmArgs required fields. */
+/**
+ * Resolve AlarmConfig defaults so the spread satisfies MetricAlarmArgs required
+ * fields. Follows the same pattern as indexer/components/alarms.ts —
+ * comparisonOperator and treatMissingData get safe defaults.
+ */
 function withDefaults(ac: AlarmConfig) {
     return {
         ...ac.alarmConfig,
@@ -126,7 +133,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
         pattern: "FATAL",
     });
 
-    // ── Alarms (from nodeConfig) ─────────────────────────────
+    // ── Alarms (data-driven from nodeConfig) ─────────────────────────────
 
     // 1. Bento service down
     for (const ac of node.alarms.bentoDown) {
@@ -138,7 +145,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             metricName: "bento_active",
             dimensions: { host: node.hostname },
             statistic: "Minimum",
-            period: ac.metricConfig?.period ?? 300,
+            period: ac.metricConfig.period,
             ...a,
             alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
             actionsEnabled: true,
@@ -156,7 +163,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             metricName: "bento_containers",
             dimensions: { host: node.hostname },
             statistic: "Minimum",
-            period: ac.metricConfig?.period ?? 300,
+            period: ac.metricConfig.period,
             ...a,
             alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
             actionsEnabled: true,
@@ -173,7 +180,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             namespace: alarmNamespace,
             metricName: `${node.name}-log-errors`,
             statistic: "Sum",
-            period: ac.metricConfig?.period ?? 300,
+            period: ac.metricConfig.period,
             ...a,
             alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
             actionsEnabled: true,
@@ -190,7 +197,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             namespace: alarmNamespace,
             metricName: `${node.name}-log-fatal`,
             statistic: "Sum",
-            period: ac.metricConfig?.period ?? 60,
+            period: ac.metricConfig.period,
             ...a,
             alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
             actionsEnabled: true,
@@ -202,7 +209,6 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     for (const ac of node.alarms.memoryHigh) {
         const h = descHash(ac.description);
         const a = withDefaults(ac);
-        const period = ac.metricConfig?.period ?? 300;
         new aws.cloudwatch.MetricAlarm(`${prefix}-mem-${h}-${ac.severity}`, {
             name: `${prefix}-mem-${h}-${ac.severity}`,
             metricQueries: [
@@ -212,7 +218,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                         namespace: metricsNamespace,
                         metricName: "memory_used_bytes",
                         dimensions: { host: node.hostname },
-                        period,
+                        period: ac.metricConfig.period,
                         stat: "Average",
                     },
                     returnData: false,
@@ -223,7 +229,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                         namespace: metricsNamespace,
                         metricName: "memory_total_bytes",
                         dimensions: { host: node.hostname },
-                        period,
+                        period: ac.metricConfig.period,
                         stat: "Average",
                     },
                     returnData: false,
@@ -247,7 +253,6 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
     for (const ac of node.alarms.diskHigh) {
         const h = descHash(ac.description);
         const a = withDefaults(ac);
-        const period = ac.metricConfig?.period ?? 300;
         new aws.cloudwatch.MetricAlarm(`${prefix}-disk-${h}-${ac.severity}`, {
             name: `${prefix}-disk-${h}-${ac.severity}`,
             metricQueries: [
@@ -257,7 +262,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                         namespace: metricsNamespace,
                         metricName: "filesystem_used_bytes",
                         dimensions: { host: node.hostname, mountpoint: "/" },
-                        period,
+                        period: ac.metricConfig.period,
                         stat: "Average",
                     },
                     returnData: false,
@@ -268,7 +273,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
                         namespace: metricsNamespace,
                         metricName: "filesystem_total_bytes",
                         dimensions: { host: node.hostname, mountpoint: "/" },
-                        period,
+                        period: ac.metricConfig.period,
                         stat: "Average",
                     },
                     returnData: false,

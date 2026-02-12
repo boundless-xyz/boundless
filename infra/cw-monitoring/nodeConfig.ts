@@ -5,6 +5,8 @@
 //
 // Alarm tuning follows the same pattern as infra/indexer/alarmConfig.ts:
 // - Each alarm category is an array: empty = disabled, multiple entries = multi-severity.
+// - `period` is always required — no hidden defaults.
+// - Every description maps back to the actual evaluation math.
 // - Profiles: "prod" = tight thresholds + pages, "nightly" = relaxed error thresholds,
 //   "staging" = relaxed everything.
 
@@ -16,8 +18,9 @@ import * as aws from "@pulumi/aws";
 export type AlarmConfig = {
     severity: Severity;
     description: string;
-    metricConfig?: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric> & {
-        period?: number;
+    metricConfig: Partial<aws.types.input.cloudwatch.MetricAlarmMetricQueryMetric> & {
+        /** Evaluation period in seconds. Required — no hidden defaults. */
+        period: number;
     };
     alarmConfig: Partial<aws.cloudwatch.MetricAlarmArgs> & {
         evaluationPeriods: number;
@@ -68,12 +71,21 @@ export interface MonitoredNode {
 }
 
 // ── Shared alarm presets ─────────────────────────────────────────────────────
-// Reusable building blocks — override per-node as needed.
+// Reusable building blocks. Each alarm is self-documenting: description maps to
+// the actual period × evaluationPeriods × datapointsToAlarm math.
+//
+// Multi-severity escalation: prod alarms use SEV2 as an early warning and SEV1
+// as a page, matching the indexer pattern (e.g. Base mainnet og_offchain).
+
+// ── Bento service down ──────────────────────────────────────────────────────
+// Vector publishes bento_active gauge (0 or 1). Missing data = breaching
+// because the node may have lost connectivity or Vector stopped.
 
 const PROD_BENTO_DOWN: AlarmConfig[] = [
     {
-        severity: Severity.SEV1,
-        description: "bento service down for 10 min",
+        severity: Severity.SEV2,
+        description: "bento service down for 2 consecutive 5-min periods (10 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 2,
             datapointsToAlarm: 2,
@@ -82,12 +94,10 @@ const PROD_BENTO_DOWN: AlarmConfig[] = [
             treatMissingData: "breaching",
         },
     },
-];
-
-const STAGING_BENTO_DOWN: AlarmConfig[] = [
     {
-        severity: Severity.SEV2,
-        description: "bento service down for 30 min",
+        severity: Severity.SEV1,
+        description: "bento service down for 6 consecutive 5-min periods (30 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 6,
             datapointsToAlarm: 6,
@@ -98,13 +108,46 @@ const STAGING_BENTO_DOWN: AlarmConfig[] = [
     },
 ];
 
+// Staging deploys frequently and nodes restart — longer window, lower severity.
+const STAGING_BENTO_DOWN: AlarmConfig[] = [
+    {
+        severity: Severity.SEV2,
+        description: "bento service down for 6 consecutive 5-min periods (30 min)",
+        metricConfig: { period: 300 },
+        alarmConfig: {
+            evaluationPeriods: 6,
+            datapointsToAlarm: 6,
+            threshold: 1,
+            comparisonOperator: "LessThanThreshold",
+            treatMissingData: "breaching",
+        },
+    },
+];
+
+// ── No containers running ───────────────────────────────────────────────────
+// bento_containers = 0 means Docker Compose stack has no running containers
+// despite the service being "active". Same escalation pattern as bentoDown.
+
 const PROD_NO_CONTAINERS: AlarmConfig[] = [
     {
-        severity: Severity.SEV1,
-        description: "no containers running for 10 min",
+        severity: Severity.SEV2,
+        description: "no containers running for 2 consecutive 5-min periods (10 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 2,
             datapointsToAlarm: 2,
+            threshold: 1,
+            comparisonOperator: "LessThanThreshold",
+            treatMissingData: "breaching",
+        },
+    },
+    {
+        severity: Severity.SEV1,
+        description: "no containers running for 6 consecutive 5-min periods (30 min)",
+        metricConfig: { period: 300 },
+        alarmConfig: {
+            evaluationPeriods: 6,
+            datapointsToAlarm: 6,
             threshold: 1,
             comparisonOperator: "LessThanThreshold",
             treatMissingData: "breaching",
@@ -115,7 +158,8 @@ const PROD_NO_CONTAINERS: AlarmConfig[] = [
 const STAGING_NO_CONTAINERS: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "no containers running for 30 min",
+        description: "no containers running for 6 consecutive 5-min periods (30 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 6,
             datapointsToAlarm: 6,
@@ -126,10 +170,15 @@ const STAGING_NO_CONTAINERS: AlarmConfig[] = [
     },
 ];
 
+// ── Log errors ──────────────────────────────────────────────────────────────
+// Counts ERROR lines via CloudWatch log metric filter. notBreaching on missing
+// data — no logs = no errors = OK.
+
 const PROD_LOG_ERRORS: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: ">=20 ERROR lines in 5 min, 2 of 3 periods",
+        description: ">=20 ERROR lines per 5-min period, 2 of 3 periods (15 min window)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 3,
             datapointsToAlarm: 2,
@@ -140,7 +189,8 @@ const PROD_LOG_ERRORS: AlarmConfig[] = [
     },
     {
         severity: Severity.SEV1,
-        description: ">=50 ERROR lines in 5 min for 3 consecutive periods",
+        description: ">=50 ERROR lines per 5-min period for 3 consecutive periods (15 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 3,
             datapointsToAlarm: 3,
@@ -151,11 +201,12 @@ const PROD_LOG_ERRORS: AlarmConfig[] = [
     },
 ];
 
-// Staging is noisy during deploys — higher threshold, lower severity.
+// Staging is noisy during deploys — higher threshold, longer window, SEV2 only.
 const STAGING_LOG_ERRORS: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: ">=50 ERROR lines in 5 min for 6 consecutive periods (30 min)",
+        description: ">=50 ERROR lines per 5-min period for 6 consecutive periods (30 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 6,
             datapointsToAlarm: 6,
@@ -166,10 +217,14 @@ const STAGING_LOG_ERRORS: AlarmConfig[] = [
     },
 ];
 
+// ── Fatal / crash ───────────────────────────────────────────────────────────
+// Any FATAL log is a crash. Prod pages immediately; staging waits for a pattern.
+
 const PROD_LOG_FATAL: AlarmConfig[] = [
     {
         severity: Severity.SEV1,
-        description: "any FATAL log line",
+        description: "any FATAL log line in a 1-min period",
+        metricConfig: { period: 60 },
         alarmConfig: {
             evaluationPeriods: 1,
             datapointsToAlarm: 1,
@@ -180,12 +235,14 @@ const PROD_LOG_FATAL: AlarmConfig[] = [
     },
 ];
 
+// Staging nightlies crash during development — only alert if it's persistent.
 const STAGING_LOG_FATAL: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "FATAL log twice in 1 hour",
+        description: ">=1 FATAL log line in 2 of 12 consecutive 5-min periods (1 hour)",
+        metricConfig: { period: 300 },
         alarmConfig: {
-            evaluationPeriods: 60,
+            evaluationPeriods: 12,
             datapointsToAlarm: 2,
             threshold: 1,
             comparisonOperator: "GreaterThanOrEqualToThreshold",
@@ -194,22 +251,26 @@ const STAGING_LOG_FATAL: AlarmConfig[] = [
     },
 ];
 
+// ── Memory pressure ─────────────────────────────────────────────────────────
+// Metric math: (memory_used_bytes / memory_total_bytes) * 100.
+// Prover nodes routinely use high memory — 90% is a warning, 95% means OOM
+// risk and should page.
+
 const PROD_MEMORY_HIGH: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "memory >90% for 2 of 3 periods (15 min)",
+        description: "memory >90% for 2 of 3 5-min periods (15 min window)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 3,
             datapointsToAlarm: 2,
             threshold: 90,
         },
     },
-];
-
-const STAGING_MEMORY_HIGH: AlarmConfig[] = [
     {
-        severity: Severity.SEV2,
-        description: "memory >95% for 3 consecutive periods (15 min)",
+        severity: Severity.SEV1,
+        description: "memory >95% for 3 consecutive 5-min periods (15 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 3,
             datapointsToAlarm: 3,
@@ -218,10 +279,30 @@ const STAGING_MEMORY_HIGH: AlarmConfig[] = [
     },
 ];
 
+// Staging can run hotter without paging.
+const STAGING_MEMORY_HIGH: AlarmConfig[] = [
+    {
+        severity: Severity.SEV2,
+        description: "memory >95% for 3 consecutive 5-min periods (15 min)",
+        metricConfig: { period: 300 },
+        alarmConfig: {
+            evaluationPeriods: 3,
+            datapointsToAlarm: 3,
+            threshold: 95,
+        },
+    },
+];
+
+// ── Disk pressure ───────────────────────────────────────────────────────────
+// Metric math: (filesystem_used_bytes / filesystem_total_bytes) * 100 on root.
+// Disk fills slowly so 10-min windows are fine. 85% is a heads-up (time to
+// clean up), 95% is critical (node will stall).
+
 const PROD_DISK_HIGH: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "disk >85% for 2 consecutive periods",
+        description: "disk >85% for 2 consecutive 5-min periods (10 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 2,
             datapointsToAlarm: 2,
@@ -230,7 +311,8 @@ const PROD_DISK_HIGH: AlarmConfig[] = [
     },
     {
         severity: Severity.SEV1,
-        description: "disk >95% for 2 consecutive periods",
+        description: "disk >95% for 2 consecutive 5-min periods (10 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 2,
             datapointsToAlarm: 2,
@@ -242,7 +324,8 @@ const PROD_DISK_HIGH: AlarmConfig[] = [
 const STAGING_DISK_HIGH: AlarmConfig[] = [
     {
         severity: Severity.SEV2,
-        description: "disk >90% for 2 consecutive periods",
+        description: "disk >90% for 2 consecutive 5-min periods (10 min)",
+        metricConfig: { period: 300 },
         alarmConfig: {
             evaluationPeriods: 2,
             datapointsToAlarm: 2,
@@ -270,8 +353,8 @@ const ALARM_PROFILES: Record<string, NodeAlarms> = {
         memoryHigh: STAGING_MEMORY_HIGH,
         diskHigh: STAGING_DISK_HIGH,
     },
-    // Nightly builds break more often. Relax error thresholds but still alarm
-    // on infra issues (service down, disk full).
+    // Nightly builds break more often. Relax error/fatal thresholds but still
+    // page on infra issues (service down, disk full, OOM).
     nightly: {
         bentoDown: PROD_BENTO_DOWN,
         noContainers: PROD_NO_CONTAINERS,
