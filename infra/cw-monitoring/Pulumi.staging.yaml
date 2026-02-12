@@ -17,3 +17,4 @@ config:
       role: prover
       chainId: "84532"
       alarmProfile: staging
+      proverType: bento

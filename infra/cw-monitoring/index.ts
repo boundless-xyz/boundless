@@ -17,7 +17,7 @@
 
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
-import { resolveNodes, NodeConfigEntry, MonitoredNode, AlarmConfig } from "./nodeConfig";
+import { resolveNodes, NodeConfigEntry, MonitoredNode, AlarmConfig, LogPatternAlarmConfig } from "./nodeConfig";
 import { buildDashboardBody } from "./components/dashboard";
 
 export = () => {
@@ -108,31 +108,6 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
         retentionInDays: retentionDays,
     });
 
-    // ── Log Metric Filters ───────────────────────────────────────────────
-    new aws.cloudwatch.LogMetricFilter(`${prefix}-error-filter`, {
-        name: `${prefix}-log-errors`,
-        logGroupName: logGroup.name,
-        metricTransformation: {
-            namespace: alarmNamespace,
-            name: `${node.name}-log-errors`,
-            value: "1",
-            defaultValue: "0",
-        },
-        pattern: "ERROR",
-    });
-
-    new aws.cloudwatch.LogMetricFilter(`${prefix}-fatal-filter`, {
-        name: `${prefix}-log-fatal`,
-        logGroupName: logGroup.name,
-        metricTransformation: {
-            namespace: alarmNamespace,
-            name: `${node.name}-log-fatal`,
-            value: "1",
-            defaultValue: "0",
-        },
-        pattern: "FATAL",
-    });
-
     // ── Alarms (data-driven from nodeConfig) ─────────────────────────────
 
     // 1. Bento service down
@@ -171,41 +146,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
         });
     }
 
-    // 3. Log error rate
-    for (const ac of node.alarms.logErrors) {
-        const h = descHash(ac.description);
-        const a = withDefaults(ac);
-        new aws.cloudwatch.MetricAlarm(`${prefix}-log-errors-${h}-${ac.severity}`, {
-            name: `${prefix}-log-errors-${h}-${ac.severity}`,
-            namespace: alarmNamespace,
-            metricName: `${node.name}-log-errors`,
-            statistic: "Sum",
-            period: ac.metricConfig.period,
-            ...a,
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
-            actionsEnabled: true,
-            alarmActions,
-        });
-    }
-
-    // 4. Fatal / crash
-    for (const ac of node.alarms.logFatal) {
-        const h = descHash(ac.description);
-        const a = withDefaults(ac);
-        new aws.cloudwatch.MetricAlarm(`${prefix}-log-fatal-${h}-${ac.severity}`, {
-            name: `${prefix}-log-fatal-${h}-${ac.severity}`,
-            namespace: alarmNamespace,
-            metricName: `${node.name}-log-fatal`,
-            statistic: "Sum",
-            period: ac.metricConfig.period,
-            ...a,
-            alarmDescription: `${ac.severity}: ${ac.description} on ${node.name}`,
-            actionsEnabled: true,
-            alarmActions,
-        });
-    }
-
-    // 5. Memory pressure (metric math)
+    // 3. Memory pressure (metric math)
     for (const ac of node.alarms.memoryHigh) {
         const h = descHash(ac.description);
         const a = withDefaults(ac);
@@ -249,7 +190,7 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
         });
     }
 
-    // 6. Disk pressure (metric math on root /)
+    // 4. Disk pressure (metric math on root /)
     for (const ac of node.alarms.diskHigh) {
         const h = descHash(ac.description);
         const a = withDefaults(ac);
@@ -291,5 +232,58 @@ function createNodeMonitoring(node: MonitoredNode, opts: MonitoringOpts): void {
             actionsEnabled: true,
             alarmActions,
         });
+    }
+
+    // ── Log pattern alarms (broker error codes, etc.) ────────────────────
+    // Each entry creates a log metric filter; entries with `alarm` also
+    // create a CloudWatch alarm. Follows the same pattern as
+    // createProverAlarms() from the ECS prover stack.
+
+    for (const lp of node.alarms.logPatterns) {
+        const severity = lp.alarm?.severity;
+        const filterSuffix = severity ? `${lp.metricName}-${severity}` : lp.metricName;
+        const filterName = `${prefix}-${filterSuffix}`;
+        const metricFullName = `${node.name}-${filterSuffix}`;
+
+        // Metric filter
+        new aws.cloudwatch.LogMetricFilter(`${filterName}-filter`, {
+            name: `${filterName}-filter`,
+            logGroupName: logGroup.name,
+            metricTransformation: {
+                namespace: alarmNamespace,
+                name: metricFullName,
+                value: "1",
+                defaultValue: "0",
+            },
+            pattern: lp.pattern,
+        });
+
+        // Alarm (optional — some patterns are metric-only for dashboards)
+        if (lp.alarm) {
+            const h = descHash(lp.alarm.description);
+            new aws.cloudwatch.MetricAlarm(`${filterName}-${h}-alarm`, {
+                name: `${filterName}-${h}`,
+                metricQueries: [
+                    {
+                        id: "m1",
+                        metric: {
+                            namespace: alarmNamespace,
+                            metricName: metricFullName,
+                            period: lp.alarm.metricConfig.period,
+                            stat: "Sum",
+                        },
+                        returnData: true,
+                    },
+                ],
+                threshold: lp.alarm.alarmConfig.threshold,
+                comparisonOperator: lp.alarm.alarmConfig.comparisonOperator ?? "GreaterThanOrEqualToThreshold",
+                evaluationPeriods: lp.alarm.alarmConfig.evaluationPeriods,
+                datapointsToAlarm: lp.alarm.alarmConfig.datapointsToAlarm,
+                treatMissingData: lp.alarm.alarmConfig.treatMissingData ?? "notBreaching",
+                alarmDescription: `${lp.alarm.severity}: ${lp.alarm.description} on ${node.name}`,
+                actionsEnabled: true,
+                alarmActions,
+            });
+        }
     }
 }

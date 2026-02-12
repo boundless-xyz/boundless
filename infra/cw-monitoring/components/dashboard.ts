@@ -1,4 +1,5 @@
 import { MonitoredNode } from "../nodeConfig";
+import { Severity } from "../../util";
 
 // CloudWatch dashboard JSON builder for monitored nodes.
 // Produces a grid layout: one row of system panels per node, plus a summary row.
@@ -125,12 +126,12 @@ function nodeRow(
         { yAxisLabel: "bytes" },
     ));
 
-    // Log errors
+    // Log errors (Vector bento_log_errors + prover unexpected-errors from log patterns)
     widgets.push(metricWidget(
         "Log Errors",
         [
-            [metricsNamespace, "bento_log_errors", "host", host, { label: "Errors", stat: "Sum" }],
-            [alarmNamespace, `${node.name}-log-errors`, { label: "Filtered Errors", stat: "Sum" }],
+            [metricsNamespace, "bento_log_errors", "host", host, { label: "Errors (Vector)", stat: "Sum" }],
+            [alarmNamespace, `${node.name}-unexpected-errors-${Severity.SEV2}`, { label: "Broker 500s", stat: "Sum" }],
         ],
         18, y, 6, ROW_H,
         { stat: "Sum", period: 300, yAxisLabel: "count" },

@@ -12,6 +12,7 @@
 
 import { Severity } from "../util";
 import * as aws from "@pulumi/aws";
+import { buildProverLogPatterns, ProverType } from "./proverAlarms";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,19 +32,42 @@ export type AlarmConfig = {
     };
 };
 
+/**
+ * Log-pattern alarm: a CloudWatch Logs filter pattern paired with an optional
+ * alarm. When `alarm` is undefined only a metric filter is created (tracking
+ * without alerting). Follows the same pattern as createProverAlarms().
+ */
+export type LogPatternAlarmConfig = {
+    /** CloudWatch Logs filter pattern (e.g. '"[B-MM-500]"'). */
+    pattern: string;
+    /** Metric name used for the filter and alarm. */
+    metricName: string;
+    /** If present, creates an alarm on top of the metric filter. */
+    alarm?: {
+        severity: Severity;
+        description: string;
+        metricConfig: { period: number };
+        alarmConfig: {
+            evaluationPeriods: number;
+            datapointsToAlarm: number;
+            threshold: number;
+            comparisonOperator?: string;
+            treatMissingData?: string;
+        };
+    };
+};
+
 export interface NodeAlarms {
     /** Bento systemd service is down (bento_active < 1). */
     bentoDown: AlarmConfig[];
     /** No Docker containers running (bento_containers < 1). */
     noContainers: AlarmConfig[];
-    /** ERROR lines in CloudWatch log group (from log metric filter). */
-    logErrors: AlarmConfig[];
-    /** FATAL lines in CloudWatch log group. */
-    logFatal: AlarmConfig[];
     /** Memory usage percentage (metric math: used/total). */
     memoryHigh: AlarmConfig[];
     /** Disk usage percentage on root / (metric math: used/total). */
     diskHigh: AlarmConfig[];
+    /** Log-pattern-based alarms (broker error codes, etc.). */
+    logPatterns: LogPatternAlarmConfig[];
 }
 
 /** Raw node shape as defined in Pulumi stack config YAML. */
@@ -54,6 +78,8 @@ export interface NodeConfigEntry {
     chainId: string;
     /** Alarm profile key: "prod" | "nightly" | "staging" */
     alarmProfile: string;
+    /** Prover type — only required for prover nodes. Drives error-code thresholds. */
+    proverType?: ProverType;
 }
 
 /** Resolved node with alarm definitions attached. */
@@ -170,87 +196,6 @@ const STAGING_NO_CONTAINERS: AlarmConfig[] = [
     },
 ];
 
-// ── Log errors ──────────────────────────────────────────────────────────────
-// Counts ERROR lines via CloudWatch log metric filter. notBreaching on missing
-// data — no logs = no errors = OK.
-
-const PROD_LOG_ERRORS: AlarmConfig[] = [
-    {
-        severity: Severity.SEV2,
-        description: ">=20 ERROR lines per 5-min period, 2 of 3 periods (15 min window)",
-        metricConfig: { period: 300 },
-        alarmConfig: {
-            evaluationPeriods: 3,
-            datapointsToAlarm: 2,
-            threshold: 20,
-            comparisonOperator: "GreaterThanOrEqualToThreshold",
-            treatMissingData: "notBreaching",
-        },
-    },
-    {
-        severity: Severity.SEV1,
-        description: ">=50 ERROR lines per 5-min period for 3 consecutive periods (15 min)",
-        metricConfig: { period: 300 },
-        alarmConfig: {
-            evaluationPeriods: 3,
-            datapointsToAlarm: 3,
-            threshold: 50,
-            comparisonOperator: "GreaterThanOrEqualToThreshold",
-            treatMissingData: "notBreaching",
-        },
-    },
-];
-
-// Staging is noisy during deploys — higher threshold, longer window, SEV2 only.
-const STAGING_LOG_ERRORS: AlarmConfig[] = [
-    {
-        severity: Severity.SEV2,
-        description: ">=50 ERROR lines per 5-min period for 6 consecutive periods (30 min)",
-        metricConfig: { period: 300 },
-        alarmConfig: {
-            evaluationPeriods: 6,
-            datapointsToAlarm: 6,
-            threshold: 50,
-            comparisonOperator: "GreaterThanOrEqualToThreshold",
-            treatMissingData: "notBreaching",
-        },
-    },
-];
-
-// ── Fatal / crash ───────────────────────────────────────────────────────────
-// Any FATAL log is a crash. Prod pages immediately; staging waits for a pattern.
-
-const PROD_LOG_FATAL: AlarmConfig[] = [
-    {
-        severity: Severity.SEV1,
-        description: "any FATAL log line in a 1-min period",
-        metricConfig: { period: 60 },
-        alarmConfig: {
-            evaluationPeriods: 1,
-            datapointsToAlarm: 1,
-            threshold: 1,
-            comparisonOperator: "GreaterThanOrEqualToThreshold",
-            treatMissingData: "notBreaching",
-        },
-    },
-];
-
-// Staging nightlies crash during development — only alert if it's persistent.
-const STAGING_LOG_FATAL: AlarmConfig[] = [
-    {
-        severity: Severity.SEV2,
-        description: ">=1 FATAL log line in 2 of 12 consecutive 5-min periods (1 hour)",
-        metricConfig: { period: 300 },
-        alarmConfig: {
-            evaluationPeriods: 12,
-            datapointsToAlarm: 2,
-            threshold: 1,
-            comparisonOperator: "GreaterThanOrEqualToThreshold",
-            treatMissingData: "notBreaching",
-        },
-    },
-];
-
 // ── Memory pressure ─────────────────────────────────────────────────────────
 // Metric math: (memory_used_bytes / memory_total_bytes) * 100.
 // Prover nodes routinely use high memory — 90% is a warning, 95% means OOM
@@ -336,20 +281,19 @@ const STAGING_DISK_HIGH: AlarmConfig[] = [
 
 // ── Alarm profiles ───────────────────────────────────────────────────────────
 
-const ALARM_PROFILES: Record<string, NodeAlarms> = {
+// logPatterns is populated per-node in resolveNodes() based on role + proverType.
+type SystemAlarms = Omit<NodeAlarms, "logPatterns">;
+
+const ALARM_PROFILES: Record<string, SystemAlarms> = {
     prod: {
         bentoDown: PROD_BENTO_DOWN,
         noContainers: PROD_NO_CONTAINERS,
-        logErrors: PROD_LOG_ERRORS,
-        logFatal: PROD_LOG_FATAL,
         memoryHigh: PROD_MEMORY_HIGH,
         diskHigh: PROD_DISK_HIGH,
     },
     staging: {
         bentoDown: STAGING_BENTO_DOWN,
         noContainers: STAGING_NO_CONTAINERS,
-        logErrors: STAGING_LOG_ERRORS,
-        logFatal: STAGING_LOG_FATAL,
         memoryHigh: STAGING_MEMORY_HIGH,
         diskHigh: STAGING_DISK_HIGH,
     },
@@ -358,8 +302,6 @@ const ALARM_PROFILES: Record<string, NodeAlarms> = {
     nightly: {
         bentoDown: PROD_BENTO_DOWN,
         noContainers: PROD_NO_CONTAINERS,
-        logErrors: STAGING_LOG_ERRORS,  // relaxed — nightly is noisy
-        logFatal: STAGING_LOG_FATAL,    // SEV2 not SEV1
         memoryHigh: PROD_MEMORY_HIGH,
         diskHigh: PROD_DISK_HIGH,
     },
@@ -373,19 +315,25 @@ const ALARM_PROFILES: Record<string, NodeAlarms> = {
  */
 export function resolveNodes(entries: NodeConfigEntry[]): MonitoredNode[] {
     return entries.map(e => {
-        const alarms = ALARM_PROFILES[e.alarmProfile];
-        if (!alarms) {
+        const systemAlarms = ALARM_PROFILES[e.alarmProfile];
+        if (!systemAlarms) {
             throw new Error(
                 `Unknown alarmProfile "${e.alarmProfile}" for node "${e.name}". ` +
                 `Valid profiles: ${Object.keys(ALARM_PROFILES).join(", ")}`,
             );
         }
+
+        // Prover nodes get broker error-code alarms; explorers get none.
+        const logPatterns = (e.role === "prover" && e.proverType)
+            ? buildProverLogPatterns(e.proverType, e.chainId)
+            : [];
+
         return {
             name: e.name,
             hostname: e.hostname,
             role: e.role,
             chainId: e.chainId,
-            alarms,
+            alarms: { ...systemAlarms, logPatterns },
         };
     });
 }
