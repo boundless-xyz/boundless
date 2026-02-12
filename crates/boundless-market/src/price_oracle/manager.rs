@@ -28,7 +28,7 @@ pub struct PriceOracleManager {
     pub zkc_usd: Arc<CachedPriceOracle>,
     /// Refresh interval for background price updates
     refresh_interval: u64,
-    /// Maximum time without a successful price update before the refresh task exits
+    /// Maximum time without a successful price update before returning an UpdateTimeout error
     max_time_without_update: u64,
 }
 
@@ -127,7 +127,7 @@ impl PriceOracleManager {
                         if eth_rate.is_none_or(|r| r.is_stale(self.max_time_without_update))
                         || zkc_rate.is_none_or(|r| r.is_stale(self.max_time_without_update)) {
                             tracing::error!(
-                                "Rates haven't been updated for too long (ETH: {}, ZKC: {}), exiting price oracle",
+                                "Rates haven't been updated for too long (ETH: {}, ZKC: {}), returning UpdateTimeout error",
                                 eth_rate.map_or("stale".to_string(), |r| format!("{} @ {}", r.rate, r.timestamp_to_human_readable())),
                                 zkc_rate.map_or("stale".to_string(), |r| format!("{} @ {}", r.rate, r.timestamp_to_human_readable())),
                             );
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn test_spawn_refresh_task_exits_on_stale_cache() -> anyhow::Result<()> {
+    async fn test_refresh_task_returns_error_on_stale_cache() -> anyhow::Result<()> {
         let eth_oracle =
             Arc::new(MockOracle::new(TradingPair::EthUsd, U256::from(200000000000u128)));
         let zkc_oracle = Arc::new(MockOracle::new(TradingPair::ZkcUsd, U256::from(100000000u128)));

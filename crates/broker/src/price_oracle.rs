@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tokio_util::sync::CancellationToken;
-use boundless_market::price_oracle::{PriceOracleError, PriceOracleManager};
 use crate::errors::CodedError;
 use crate::task::{RetryRes, RetryTask, SupervisorErr};
+use boundless_market::price_oracle::{PriceOracleError, PriceOracleManager};
+use tokio_util::sync::CancellationToken;
 
 impl RetryTask for PriceOracleManager {
     type Error = PriceOracleError;
@@ -25,7 +25,10 @@ impl RetryTask for PriceOracleManager {
         Box::pin(async move {
             tracing::info!("Starting price oracle refresh task");
             manager.start_oracle(cancel_token).await.map_err(|err| match err {
-                PriceOracleError::UpdateTimeout() => SupervisorErr::Fault(err),
+                PriceOracleError::UpdateTimeout() => {
+                    tracing::error!("Price oracle could not refresh prices for too long, if this continues consider setting static prices in the config for `eth_usd` and `zkc_usd`: {}", err);
+                    SupervisorErr::Recover(err)
+                },
                 _ => SupervisorErr::Recover(err),
             })?;
             Ok(())

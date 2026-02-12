@@ -68,7 +68,7 @@ pub enum PriceOracleError {
     Internal(String),
 
     /// Price oracle could not be updated for too long
-    #[error("{code} Price oracle could not be updated for too long, shutting down. Please make sure it is correctly configured or set static prices in the config.", code = self.code())]
+    #[error("{code} Price oracle could not be updated for too long. Please make sure it is correctly configured or set static prices in the config.", code = self.code())]
     UpdateTimeout(),
 }
 

@@ -82,8 +82,8 @@ pub struct PriceOracleConfig {
     pub eth_usd: PriceValue,
     /// ZKC/USD price: "auto" for dynamic or a static value like "1.00"
     pub zkc_usd: PriceValue,
-    /// Maximum seconds without a successful price update before prover exits.
-    /// This prevents the system from operating with stale prices when all sources are failing.
+    /// Maximum seconds without a successful price update before an UpdateTimeout error is returned.
+    /// The caller decides what to do with this error (e.g. log it, retry, or exit).
     /// Set to 0 to disable this check.
     pub max_secs_without_price_update: u64,
     /// Refresh interval in seconds
@@ -105,10 +105,10 @@ impl Default for PriceOracleConfig {
         Self {
             eth_usd: PriceValue::Auto,
             zkc_usd: PriceValue::Auto,
-            max_secs_without_price_update: 7200,
+            max_secs_without_price_update: 43200, // 12h
             refresh_interval_secs: 60,
             timeout_secs: 10,
-            aggregation_mode: AggregationMode::Priority,
+            aggregation_mode: AggregationMode::Median,
             min_sources: 1,
             // Enable both Chainlink and CoinGecko by default
             onchain: Some(OnChainConfig { chainlink: Some(ChainlinkConfig { enabled: true }) }),
