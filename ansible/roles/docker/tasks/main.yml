@@ -71,11 +71,10 @@
     - docker
     - docker-install
 
-- name: Ensure Docker service is enabled and started
+- name: Ensure Docker service is enabled
   ansible.builtin.systemd:
     name: docker
     enabled: true
-    state: started
     daemon_reload: true
   tags:
     - docker
@@ -108,6 +107,29 @@
       {{ docker_version_output.stdout }}
       Docker Compose plugin is available via 'docker compose' command.
 
+- name: Ensure APT keyring directory exists for NVIDIA Container Toolkit
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: docker_nvidia_enabled | bool
+
+- name: Download NVIDIA Container Toolkit GPG key
+  ansible.builtin.get_url:
+    url: https://nvidia.github.io/libnvidia-container/gpgkey
+    dest: /tmp/nvidia-container-toolkit.gpg
+    mode: '0644'
+  when: docker_nvidia_enabled | bool
+
+- name: Install NVIDIA Container Toolkit keyring
+  ansible.builtin.command:
+    cmd: gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg /tmp/nvidia-container-toolkit.gpg
+  args:
+    creates: /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  when: docker_nvidia_enabled | bool
+
 - name: Fetch NVIDIA Container Toolkit repository list content
   ansible.builtin.uri:
     url: https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list
@@ -118,13 +140,13 @@
 - name: Add NVIDIA Container Toolkit repository
   ansible.builtin.copy:
     content: "{{ nvidia_repo_list_content.content }}"
-    dest: /tmp/nvidia-container-toolkit.list
+    dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
     mode: '0644'
   when: docker_nvidia_enabled | bool and nvidia_repo_list_content.content is defined
 
 - name: Configure NVIDIA Container Toolkit repository with GPG key
   ansible.builtin.replace:
-    path: /tmp/nvidia-container-toolkit.list
+    path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
     regexp: '^deb https://'
     replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://'
   when: docker_nvidia_enabled | bool and nvidia_repo_list_content.content is defined

@@ -101,14 +101,14 @@ Explorer hosts also use Caddy variables: `caddy_domain`, `caddy_acme_email`, `ca
 
 ### Prover Agent Configuration
 
-| Variable                  | Default            | Description                     |
-| ------------------------- | ------------------ | ------------------------------- |
-| `prover_rust_log`         | `info`             | Rust log level                  |
-| `prover_risc0_home`       | `/usr/local/risc0` | RISC0 home directory            |
-| `prover_segment_size`     | `20`               | Segment size for proving        |
-| `prover_risc0_keccak_po2` | `17`               | Keccak power of 2               |
-| `prover_redis_ttl`        | `57600`            | Redis TTL in seconds (16 hours) |
-| `prover_snark_timeout`    | `180`              | SNARK timeout in seconds        |
+| Variable                  | Default                                    | Description                     |
+| ------------------------- | ------------------------------------------ | ------------------------------- |
+| `prover_rust_log`         | `info,broker=debug,boundless_market=debug` | Rust log level                  |
+| `prover_risc0_home`       | `/usr/local/risc0`                         | RISC0 home directory            |
+| `prover_segment_size`     | `20`                                       | Segment size for proving        |
+| `prover_risc0_keccak_po2` | `17`                                       | Keccak power of 2               |
+| `prover_redis_ttl`        | `57600`                                    | Redis TTL in seconds (16 hours) |
+| `prover_snark_timeout`    | `180`                                      | SNARK timeout in seconds        |
 
 ### Binary Configuration
 
@@ -135,13 +135,13 @@ These variables enable the broker service:
 | `docker_ubuntu_version` | (auto-detected) | Ubuntu version override         |
 | `docker_architecture`   | `amd64`         | CPU architecture                |
 | `docker_users`          | `[]`            | Users to add to docker group    |
-| `docker_nvidia_enabled` | `false`         | Enable NVIDIA Container Toolkit |
+| `docker_nvidia_enabled` | `true`          | Enable NVIDIA Container Toolkit |
 
 ## NVIDIA Role Variables
 
 | Variable                      | Default         | Description               |
 | ----------------------------- | --------------- | ------------------------- |
-| `nvidia_cuda_version`         | `13-0`          | CUDA version to install   |
+| `nvidia_cuda_version`         | `13-1`          | CUDA version to install   |
 | `nvidia_ubuntu_version`       | (auto-detected) | Ubuntu version override   |
 | `nvidia_reboot_after_install` | `false`         | Reboot after installation |
 
@@ -152,8 +152,8 @@ These variables enable the broker service:
 | Variable                 | Default   | Description    |
 | ------------------------ | --------- | -------------- |
 | `vector_install`         | `true`    | Install Vector |
-| `vector_service_enabled` | `false`   | Enable at boot |
-| `vector_service_state`   | `stopped` | Service state  |
+| `vector_service_enabled` | `true`    | Enable at boot |
+| `vector_service_state`   | `started` | Service state  |
 
 ### CloudWatch Configuration
 
@@ -172,6 +172,16 @@ These variables enable the broker service:
 | `vector_aws_access_key_id`        | `null`  | AWS access key ID            |
 | `vector_aws_secret_access_key`    | `null`  | AWS secret access key        |
 
+### Monitoring and Metrics
+
+| Variable                         | Default                            | Description                              |
+| -------------------------------- | ---------------------------------- | ---------------------------------------- |
+| `vector_monitor_services`        | `["bento.service"]`                | Systemd units to ingest from journald    |
+| `vector_host_metrics_collectors` | `["memory", "disk", "filesystem"]` | Enabled host metrics collectors          |
+| `vector_metrics_scrape_interval` | `15`                               | Host metrics scrape interval (seconds)   |
+| `vector_track_bento_process`     | `true`                             | Emit `bento_active` and container gauges |
+| `vector_track_log_errors`        | `true`                             | Emit `bento_log_errors` metric           |
+
 ## AWS CLI Role Variables
 
 | Variable                | Default              | Description                            |
@@ -187,7 +197,7 @@ Used by `security.yml` and the `ufw` role:
 
 | Variable                 | Default  | Description                                                     |
 | ------------------------ | -------- | --------------------------------------------------------------- |
-| `ufw_docker_nat_enabled` | `false`  | If true, add Docker NAT rules when Docker has `iptables: false` |
+| `ufw_docker_nat_enabled` | `true`   | If true, add Docker NAT rules when Docker has `iptables: false` |
 | `ufw_allowed_ports`      | (varies) | List of `{ port, proto, comment }` for UFW allow rules          |
 
 See `roles/ufw/README.md` and `roles/ufw/defaults/main.yml` for full UFW options.
