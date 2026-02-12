@@ -13,11 +13,33 @@
         src: "/tmp/{{ kailua_archive }}"
         dest: "{{ kailua_install_dir }}"
         mode: "0755"
+        remote_src: true
 
     - name: Remove Kailua archive
       ansible.builtin.file:
         path: "/tmp/{{ kailua_archive }}"
         state: absent
+
+- name: Ensure Kailua data directory exists
+  ansible.builtin.file:
+    path: "{{ kailua_demo_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - kailua_install_service | bool
+    - kailua_demo_data_dir | default("") | string | length > 0
+
+- name: Write Kailua launcher script
+  ansible.builtin.template:
+    src: kailua_launcher.sh.j2
+    dest: "{{ kailua_launcher_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: kailua_install_service | bool
+  notify: Restart Kailua
 
 - name: Write Kailua service file
   ansible.builtin.template:
@@ -30,3 +52,11 @@
   notify:
     - Reload systemd
     - Restart Kailua
+
+- name: Ensure Kailua service is enabled and started
+  ansible.builtin.systemd:
+    name: kailua
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: kailua_install_service | bool
