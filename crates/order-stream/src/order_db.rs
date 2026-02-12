@@ -368,9 +368,17 @@ impl OrderDb {
         listener.listen(ORDER_CHANNEL).await?;
 
         Ok(Box::pin(stream! {
-            while let Some(elm) = listener.try_recv().await? {
-                let order: DbOrder = serde_json::from_str(elm.payload())?;
-                yield Ok(order);
+            loop {
+                match listener.recv().await {
+                    Ok(notification) => {
+                        yield serde_json::from_str::<DbOrder>(notification.payload())
+                                .map_err(OrderDbErr::JsonErr);
+                    }
+                    Err(err) => {
+                        yield Err(OrderDbErr::SqlErr(err));
+                        continue;
+                    }
+                }
             }
         }))
     }
@@ -576,6 +584,41 @@ mod tests {
         let order = create_order(U256::from(1)).await;
         let order_id = db.add_order(order).await.unwrap();
         let db_order = task.await.unwrap().unwrap();
+        assert_eq!(db_order.id, order_id);
+    }
+
+    #[sqlx::test]
+    async fn order_stream_recovers_from_invalid_json(pool: PgPool) {
+        let db = Arc::new(OrderDb::from_pool(pool.clone()).await.unwrap());
+
+        let db_copy = db.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let task: JoinHandle<DbOrder> = tokio::spawn(async move {
+            let mut stream = db_copy.order_stream().await.unwrap();
+            tx.send(()).unwrap();
+
+            // First item should be a JSON parse error from the invalid payload
+            let first = stream.next().await.unwrap();
+            assert!(matches!(first, Err(OrderDbErr::JsonErr(_))));
+
+            // Stream should continue — next item should be a valid order
+            stream.next().await.unwrap().unwrap()
+        });
+
+        rx.await.unwrap();
+
+        // Send invalid JSON notification directly
+        sqlx::query("SELECT pg_notify($1, 'not valid json')")
+            .bind(ORDER_CHANNEL)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Then send a valid order through the normal path
+        let order = create_order(U256::from(1)).await;
+        let order_id = db.add_order(order).await.unwrap();
+
+        let db_order = task.await.unwrap();
         assert_eq!(db_order.id, order_id);
     }
 
