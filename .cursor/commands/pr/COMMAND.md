@@ -26,6 +26,7 @@ Create/update a pull request for the current changes.
 Write like a developer talking to their team, not like a language model generating documentation.
 
 ### Structure and tone
+
 - **Be direct and concise** — skip filler phrases like "This PR introduces...", "This change aims to...", "In order to facilitate..."
 - **Lead with what changed and why** — not with a preamble about the problem space
 - **Keep bullet points short** — 1-2 sentences max per bullet. No sub-bullets unless truly needed
@@ -34,7 +35,9 @@ Write like a developer talking to their team, not like a language model generati
 - **Match the tone of a brief Slack message**, not a design doc
 
 ### Banned words and phrases (AI vocabulary tells)
+
 These words appear at dramatically higher rates in AI-generated text and are dead giveaways. Never use them:
+
 - **Puffery:** "pivotal", "crucial role", "cornerstone", "testament to", "represents a significant", "broader landscape"
 - **Fancy verbs:** "leverage" (say "use"), "facilitate" (say "help"), "showcase" (say "show"), "navigate" (say "handle"), "underscore", "foster", "bolster", "spearhead", "harness", "streamline", "delve"
 - **Filler adjectives:** "robust", "comprehensive", "multifaceted", "nuanced", "holistic", "intricate", "seamless"
@@ -42,6 +45,7 @@ These words appear at dramatically higher rates in AI-generated text and are dea
 - **False depth:** "Despite [positive], [subject] faces challenges...", "While [X], it's important to note [Y]..."
 
 ### Plain language replacements
+
 - "addresses" → "fixes"
 - "introduces" → "adds"
 - "has been updated to" → "now does"
@@ -52,6 +56,7 @@ These words appear at dramatically higher rates in AI-generated text and are dea
 - "prior to" → "before"
 
 ### Other AI tells to avoid
+
 - **Rule of three:** don't always list exactly 3 things. Sometimes 2 is enough, sometimes 4 is better
 - **Synonym cycling:** don't avoid repeating a word by using increasingly weird synonyms. Just say "the function" twice instead of "the function" then "the aforementioned utility"
 - **Formulaic structure:** don't make every bullet follow the same grammatical pattern
