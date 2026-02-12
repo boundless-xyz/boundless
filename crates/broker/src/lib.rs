@@ -64,6 +64,7 @@ pub(crate) mod market_monitor;
 pub(crate) mod offchain_market_monitor;
 pub(crate) mod order_monitor;
 pub(crate) mod order_picker;
+mod price_oracle;
 pub(crate) mod prioritization;
 pub mod provers;
 pub(crate) mod proving;

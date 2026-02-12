@@ -16,7 +16,6 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use crate::{config::ConfigLock, errors::CodedError};
 use anyhow::{Context, Result as AnyhowRes};
-use boundless_market::price_oracle::{PriceOracleError, PriceOracleManager};
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -209,28 +208,6 @@ where
         }
 
         Ok(())
-    }
-}
-
-impl RetryTask for PriceOracleManager {
-    type Error = PriceOracleError;
-
-    fn spawn(&self, cancel_token: CancellationToken) -> RetryRes<Self::Error> {
-        let manager = self.clone();
-        Box::pin(async move {
-            tracing::info!("Starting price oracle refresh task");
-            manager.start_oracle(cancel_token).await.map_err(|err| match err {
-                PriceOracleError::UpdateTimeout() => SupervisorErr::Fault(err),
-                _ => SupervisorErr::Recover(err),
-            })?;
-            Ok(())
-        })
-    }
-}
-
-impl CodedError for PriceOracleError {
-    fn code(&self) -> &str {
-        PriceOracleError::code(self)
     }
 }
 
