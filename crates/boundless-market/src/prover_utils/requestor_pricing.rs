@@ -305,7 +305,9 @@ where
         })?;
         oracle.convert(amount, Asset::ETH).await.map_err(|e| {
             OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                "Failed to convert {} to ETH: {}", amount, e
+                "Failed to convert {} to ETH: {}",
+                amount,
+                e
             )))
         })
     }
@@ -322,7 +324,9 @@ where
         })?;
         oracle.convert(amount, Asset::ZKC).await.map_err(|e| {
             OrderPricingError::UnexpectedErr(Arc::new(anyhow::anyhow!(
-                "Failed to convert {} to ZKC: {}", amount, e
+                "Failed to convert {} to ZKC: {}",
+                amount,
+                e
             )))
         })
     }
