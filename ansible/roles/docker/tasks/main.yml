@@ -71,11 +71,10 @@
     - docker
     - docker-install
 
-- name: Ensure Docker service is enabled and started
+- name: Ensure Docker service is enabled
   ansible.builtin.systemd:
     name: docker
     enabled: true
-    state: started
     daemon_reload: true
   tags:
     - docker

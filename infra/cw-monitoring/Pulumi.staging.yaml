@@ -1,8 +1,19 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGcSIv3oIo7pYN0aaqKZEa+AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMzxHIDKwIEDmpofKBAgEQgDuYJIIevnja8rkgflmWXAyjA5EgwV90Ibw41yXTQVyAu9YQa65NRJ1uW20hcO67F6dQJ5BkuZ+N+UJGmw==
 config:
   aws:region: us-west-2
   cw-monitoring:logRetentionDays: "30"
   # Uncomment and set these to enable alarm notifications:
   # cw-monitoring:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-slack-alerts"
   # cw-monitoring:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-pagerduty-alerts"
-secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
-encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAGcSIv3oIo7pYN0aaqKZEa+AAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMzxHIDKwIEDmpofKBAgEQgDuYJIIevnja8rkgflmWXAyjA5EgwV90Ibw41yXTQVyAu9YQa65NRJ1uW20hcO67F6dQJ5BkuZ+N+UJGmw==
+  cw-monitoring:nodes:
+    - name: explorer-84532-staging-release
+      hostname: explorer-84532-staging-release
+      role: explorer
+      chainId: "84532"
+      alarmProfile: staging
+    - name: prover-84532-staging-nightly
+      hostname: prover-84532-staging-nightly
+      role: prover
+      chainId: "84532"
+      alarmProfile: staging

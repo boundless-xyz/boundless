@@ -1,6 +1,34 @@
+secretsprovider: awskms:///arn:aws:kms:us-west-2:968153779208:alias/pulumi-secrets-key
+encryptedkey: AQICAHhnm/1/W7/xeF2uxmXOGjFzOf6jjMX+KgbMb0K+LSCbsAEm6cL2w1KQ2l5udrYEWI8wAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMe2boXqagLxQdwwTkAgEQgDv8D4XcArRKHPlbtaiExgrg8P8fgTc/Po3TX7f+e09NusJGK8rv67X5T/GpKOh4RmMat1B6OKdPbv6wdQ==
 config:
   aws:region: us-west-2
   cw-monitoring:logRetentionDays: "90"
   # Uncomment and set these to enable alarm notifications:
   # cw-monitoring:SLACK_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-slack-alerts"
   # cw-monitoring:PAGERDUTY_ALERTS_TOPIC_ARN: "arn:aws:sns:us-west-2:ACCOUNT:boundless-pagerduty-alerts"
+  cw-monitoring:nodes:
+    - name: explorer-8453-prod-release
+      hostname: explorer-8453-production-release
+      role: explorer
+      chainId: "8453"
+      alarmProfile: prod
+    - name: prover-8453-prod-release
+      hostname: prover-8453-production-release
+      role: prover
+      chainId: "8453"
+      alarmProfile: prod
+    - name: prover-8453-prod-nightly
+      hostname: prover-8453-production-nightly
+      role: prover
+      chainId: "8453"
+      alarmProfile: nightly
+    - name: prover-84532-prod-nightly
+      hostname: prover-84532-production-nightly
+      role: prover
+      chainId: "84532"
+      alarmProfile: nightly
+    - name: prover-11155111-prod-nightly
+      hostname: prover-11155111-production-nightly
+      role: prover
+      chainId: "11155111"
+      alarmProfile: nightly

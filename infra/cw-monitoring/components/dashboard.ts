@@ -87,7 +87,7 @@ function nodeRow(
 
     // Header
     widgets.push(textWidget(
-        `### ${node.name}\n**${node.ip}** | ${node.role} | chain ${node.chainId}`,
+        `### ${node.name}\n${node.role} | chain ${node.chainId}`,
         0, yOffset, 24, 1,
     ));
     const y = yOffset + 1;
