@@ -15,8 +15,6 @@ config:
   order-generator-base:LOCK_COLLATERAL_RAW: "5000000000000000000"
   order-generator-base:LOCK_TIMEOUT: "900"
   order-generator-base:LOG_LEVEL: "info,boundless_market=debug"
-  order-generator-offchain:MAX_PRICE_PER_MCYCLE: "0.00002"
-  order-generator-onchain:MAX_PRICE_PER_MCYCLE: "0.000025"
   order-generator-base:MIN_PRICE_PER_MCYCLE: "0"
   order-generator-base:ORDER_STREAM_URL:
     secure: v1:dkoKx8J2A9Fk5RGH:F+h0kv2xve/0fAUak7a42u4bM/6EnDq2Nv1O1KGchcFp0vOxQj1DNPVGoE9cOssuPCp4kNk5ZO+QFZ15snfVU+iY2NPuphh2px6jdpUL+3g+xqYgf5YolJihRTk=
@@ -55,7 +53,6 @@ config:
   order-generator-random-requestor:PRIVATE_KEY:
     secure: v1:613J8wSpSQteAYHw:l8qQcM5kByXDvi0arJJJ/5QkrSPxlk2HoSdBtnGF0gMyjgb9iM4fydeMT0DfX/58e3fNQae8ka0je2YUOk0fp29nhgn5lTS1jp2F+b36N1s=
   order-generator-random-requestor:INPUT_MAX_MCYCLES: "100"
-  order-generator-random-requestor:MAX_PRICE_PER_MCYCLE: "0.000025"
   order-generator-random-requestor:SCHEDULE_EXPRESSION: "rate(2 hours)"
   order-generator-random-requestor:COUNT: "1"
   order-generator-base:INDEXER_URL:
@@ -65,7 +62,6 @@ config:
   order-generator-evm-requestor:EXEC_RATE_KHZ: "1000"
   order-generator-evm-requestor:INTERVAL: "3600"
   order-generator-evm-requestor:INPUT_MAX_MCYCLES: "1000"
-  order-generator-evm-requestor:MAX_PRICE_PER_MCYCLE: "0.000025"
   order-generator-evm-requestor:LOCK_TIMEOUT: "2100"
   order-generator-evm-requestor:RAMP_UP: "900"
   order-generator-evm-requestor:RAMP_UP_SECONDS_PER_MCYCLE: "2"

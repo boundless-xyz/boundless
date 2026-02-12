@@ -1,8 +1,15 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import { BasePipelineArgs } from "./base";
+import {
+  BOUNDLESS_OPS_ACCOUNT_ID,
+  BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+  BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
+} from "../accountConstants";
+import { ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS } from "../../util";
 
 const APP_NAME = "prover-ansible";
+const CW_APP_NAME = "cw-monitoring";
 const BUILD_TIMEOUT = 30;
 const COMPUTE_TYPE = "BUILD_GENERAL1_MEDIUM";
 
@@ -18,9 +25,9 @@ export interface LProverAnsiblePipelineArgs extends BasePipelineArgs { }
  *
  * Pipeline stages:
  * 1. Source - fetch code from GitHub
- * 2. DeployStaging - deploy to staging environment
- * 3. DeployNightly - deploy to nightly (production:&nightly)
- * 4. DeployProduction - manual approval then deploy to production release (production:&release)
+ * 2. DeployStaging - Ansible deploy to staging + cw-monitoring Pulumi staging stack (parallel)
+ * 3. DeployNightly - Ansible deploy to nightly + cw-monitoring Pulumi production stack (parallel)
+ * 4. DeployProduction - manual approval then Ansible deploy to production release
  */
 export class LProverAnsiblePipeline extends pulumi.ComponentResource {
   public readonly pipelineName: pulumi.Output<string>;
@@ -111,6 +118,114 @@ artifacts:
   files: ['**/*']
 `;
 
+    // ── CloudWatch monitoring Pulumi deployment ─────────────────────────
+    // Deploys the cw-monitoring Pulumi stack (log groups, alarms, dashboard)
+    // alongside the Ansible prover deployment. Assumes cross-account role
+    // to create CloudWatch resources in the target account.
+    const cwBuildSpec = `version: 0.2
+phases:
+  pre_build:
+    commands:
+      - set -e
+      - curl -fsSL https://get.pulumi.com/ | sh -s -- --version 3.193.0
+      - export PATH=$PATH:$HOME/.pulumi/bin
+      - pulumi login --non-interactive "s3://boundless-pulumi-state?region=us-west-2&awssdk=v2"
+  build:
+    commands:
+      - set -e
+      - echo "Assuming deployment role $DEPLOYMENT_ROLE_ARN"
+      - ASSUMED_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --duration-seconds ${ASSUME_ROLE_CHAINED_MAX_SESSION_SECONDS} --role-session-name CWMonitoringDeploy --output text | tail -1)
+      - export AWS_ACCESS_KEY_ID=$(echo $ASSUMED_ROLE | awk '{print $2}')
+      - export AWS_SECRET_ACCESS_KEY=$(echo $ASSUMED_ROLE | awk '{print $4}')
+      - export AWS_SESSION_TOKEN=$(echo $ASSUMED_ROLE | awk '{print $5}')
+      - |
+        CALLER=$(aws sts get-caller-identity --query Arn --output text)
+        echo "Running as $CALLER"
+        if echo "$CALLER" | grep -q "${BOUNDLESS_OPS_ACCOUNT_ID}"; then
+          echo "ERROR: Still using ops account. Assume-role did not take effect."
+          exit 1
+        fi
+      - cd infra/${CW_APP_NAME}
+      - pulumi install
+      - npm run build
+      - echo "DEPLOYING cw-monitoring stack $STACK_NAME"
+      - pulumi stack select $STACK_NAME
+      - pulumi cancel --yes
+      - pulumi refresh --yes
+      - pulumi up --yes
+artifacts:
+  files: ['**/*']
+`;
+
+    const cwStagingBuild = new aws.codebuild.Project(
+      `l-${APP_NAME}-cw-staging-build`,
+      {
+        name: `l-${APP_NAME}-cw-staging-build`,
+        description: "Deploy CloudWatch monitoring alarms (staging)",
+        serviceRole: role.arn,
+        buildTimeout: BUILD_TIMEOUT,
+        environment: {
+          computeType: COMPUTE_TYPE,
+          image: "aws/codebuild/standard:7.0",
+          type: "LINUX_CONTAINER",
+          environmentVariables: [
+            {
+              name: "DEPLOYMENT_ROLE_ARN",
+              type: "PLAINTEXT",
+              value: BOUNDLESS_STAGING_DEPLOYMENT_ROLE_ARN,
+            },
+            {
+              name: "STACK_NAME",
+              type: "PLAINTEXT",
+              value: "staging",
+            },
+          ],
+        },
+        artifacts: { type: "CODEPIPELINE" },
+        source: { type: "CODEPIPELINE", buildspec: cwBuildSpec },
+        tags: {
+          Name: `l-${APP_NAME}-cw-staging`,
+          Component: `l-${APP_NAME}`,
+        },
+      },
+      { parent: this, dependsOn: [role] }
+    );
+
+    const cwProductionBuild = new aws.codebuild.Project(
+      `l-${APP_NAME}-cw-production-build`,
+      {
+        name: `l-${APP_NAME}-cw-production-build`,
+        description: "Deploy CloudWatch monitoring alarms (production)",
+        serviceRole: role.arn,
+        buildTimeout: BUILD_TIMEOUT,
+        environment: {
+          computeType: COMPUTE_TYPE,
+          image: "aws/codebuild/standard:7.0",
+          type: "LINUX_CONTAINER",
+          environmentVariables: [
+            {
+              name: "DEPLOYMENT_ROLE_ARN",
+              type: "PLAINTEXT",
+              value: BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN,
+            },
+            {
+              name: "STACK_NAME",
+              type: "PLAINTEXT",
+              value: "production",
+            },
+          ],
+        },
+        artifacts: { type: "CODEPIPELINE" },
+        source: { type: "CODEPIPELINE", buildspec: cwBuildSpec },
+        tags: {
+          Name: `l-${APP_NAME}-cw-production`,
+          Component: `l-${APP_NAME}`,
+        },
+      },
+      { parent: this, dependsOn: [role] }
+    );
+
+    // ── Ansible deployment ────────────────────────────────────────────────
     const buildProject = new aws.codebuild.Project(
       `l-${APP_NAME}-build`,
       {
@@ -208,6 +323,19 @@ artifacts:
                   ]),
                 },
               },
+              {
+                name: "CWMonitoringStaging",
+                category: "Build",
+                owner: "AWS",
+                provider: "CodeBuild",
+                version: "1",
+                runOrder: 1,
+                inputArtifacts: ["source_output"],
+                outputArtifacts: ["cw_staging_output"],
+                configuration: {
+                  ProjectName: cwStagingBuild.name,
+                },
+              },
             ],
           },
           {
@@ -231,6 +359,19 @@ artifacts:
                       type: "PLAINTEXT",
                     },
                   ]),
+                },
+              },
+              {
+                name: "CWMonitoringProduction",
+                category: "Build",
+                owner: "AWS",
+                provider: "CodeBuild",
+                version: "1",
+                runOrder: 1,
+                inputArtifacts: ["source_output"],
+                outputArtifacts: ["cw_production_output"],
+                configuration: {
+                  ProjectName: cwProductionBuild.name,
                 },
               },
             ],

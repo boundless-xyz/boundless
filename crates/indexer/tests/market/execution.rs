@@ -81,6 +81,9 @@ fn test_config(uri: String, max_iterations: u32) -> IndexerServiceExecutionConfi
         max_concurrent_executing: 10,
         max_status_queries: 10,
         max_iterations,
+        max_retries: 5,
+        retry_base_delay_secs: 1,
+        retry_max_delay_secs: 10,
     }
 }
 
@@ -349,7 +352,10 @@ async fn setup_test_fixture(
     test_db.setup_requests_and_cycles(&digests, &requests, &statuses).await;
 
     // Verify initial state
-    let pending_count = test_db.db.get_cycle_counts_pending(10).await.unwrap().len() as u32;
+    let now_secs =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let pending_count =
+        test_db.db.get_cycle_counts_pending(10, now_secs).await.unwrap().len() as u32;
     assert_eq!(
         pending_count, num_requests,
         "Expected {} pending cycle counts initially",
@@ -362,10 +368,17 @@ async fn setup_test_fixture(
 /// Spawns `execute_requests` in a background task and returns a handle to await completion.
 async fn setup_test_task(db: DbObj, server_uri: String, max_iterations: u32) -> JoinHandle<()> {
     let config = test_config(server_uri, max_iterations);
+    setup_test_task_with_config(db, config).await
+}
+
+/// Spawns `execute_requests` with the given config.
+async fn setup_test_task_with_config(
+    db: DbObj,
+    config: IndexerServiceExecutionConfig,
+) -> JoinHandle<()> {
     let execution_handle = tokio::spawn(async move {
         execute_requests(db, config).await;
     });
-
     execution_handle
 }
 
@@ -521,19 +534,19 @@ async fn test_execute_requests_invalid_request_params(pool: PgPool) {
     verify_request_status(&test_db, &digests, "FAILED").await;
 }
 
-/// Test that a failed execution results in FAILED requests
+/// Test that a failed execution (Bento status FAILED) results in RETRY_PENDING (retryable)
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_failed_execution(pool: PgPool) {
     run_single_iteration_test(
         pool,
         Some(BentoMockConfig { execution_status: "FAILED".to_string(), ..Default::default() }),
         2,
-        "FAILED",
+        "RETRY_PENDING",
     )
     .await;
 }
 
-/// Test that an input decode error results in FAILED requests
+/// Test that an input decode error results in RETRY_PENDING (retryable)
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_input_decode_error(pool: PgPool) {
     // No Bento mocks needed since we fail before API calls
@@ -545,23 +558,22 @@ async fn test_execute_requests_handles_input_decode_error(pool: PgPool) {
     let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
     execution_handle.await.unwrap();
 
-    verify_request_status(&test_db, &digests, "FAILED").await;
+    verify_request_status(&test_db, &digests, "RETRY_PENDING").await;
 }
 
-/// Test that an error when checking if an image exists leaves the requests in the PENDING state
-/// (to be retried on the next iteration)
+/// Test that an error when checking if an image exists moves the request to RETRY_PENDING
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_image_check_error(pool: PgPool) {
     run_single_iteration_test(
         pool,
         Some(BentoMockConfig { fail_image_check: true, ..Default::default() }),
         1,
-        "PENDING",
+        "RETRY_PENDING",
     )
     .await;
 }
 
-/// Test that an image download error results in FAILED requests
+/// Test that an image download error results in RETRY_PENDING (retryable)
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_image_download_error(pool: PgPool) {
     // The Bento API will return that the image doesn't exist, forcing a download
@@ -592,42 +604,41 @@ async fn test_execute_requests_handles_image_download_error(pool: PgPool) {
     let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 1).await;
     execution_handle.await.unwrap();
 
-    verify_request_status(&test_db, &digests, "FAILED").await;
+    verify_request_status(&test_db, &digests, "RETRY_PENDING").await;
 }
 
-/// Test that an input upload error leaves the requests PENDING (to be retried on the next iteration)
+/// Test that an input upload error moves the requests to RETRY_PENDING
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_input_upload_error(pool: PgPool) {
     run_single_iteration_test(
         pool,
         Some(BentoMockConfig { fail_input_upload: true, ..Default::default() }),
         2,
-        "PENDING",
+        "RETRY_PENDING",
     )
     .await;
 }
 
-/// Test that an error in a create session request leaves the requests PENDING (to be retried on the next iteration)
+/// Test that an error in a create session request moves the requests to RETRY_PENDING
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_create_session_error(pool: PgPool) {
     run_single_iteration_test(
         pool,
         Some(BentoMockConfig { fail_create_session: true, ..Default::default() }),
         2,
-        "PENDING",
+        "RETRY_PENDING",
     )
     .await;
 }
 
-/// Test that an error returned by status calls leaves the requests in the EXECUTING state
-/// (to be retried on the next iteration)
+/// Test that an error returned by status calls moves the requests to RETRY_PENDING
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_status_error(pool: PgPool) {
     run_single_iteration_test(
         pool,
         Some(BentoMockConfig { fail_status: true, ..Default::default() }),
         2,
-        "EXECUTING",
+        "RETRY_PENDING",
     )
     .await;
 }
@@ -636,26 +647,26 @@ async fn test_execute_requests_handles_status_error(pool: PgPool) {
 // Edge Case Tests
 // =============================================================================
 
-/// Test that a successful input upload that returns no UUID leaves the requests PENDING (to be retried on the next iteration)
+/// Test that a successful input upload that returns no UUID moves the requests to RETRY_PENDING
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_input_upload_no_uuid(pool: PgPool) {
     run_single_iteration_test(
         pool,
         Some(BentoMockConfig { no_input_uuid: true, ..Default::default() }),
         2,
-        "PENDING",
+        "RETRY_PENDING",
     )
     .await;
 }
 
-/// Test that a successful create session request that returns no UUID leaves the requests PENDING (to be retried on the next iteration)
+/// Test that a successful create session request that returns no UUID moves the requests to RETRY_PENDING
 #[test_log::test(sqlx::test(migrations = "./migrations"))]
 async fn test_execute_requests_handles_create_session_no_uuid(pool: PgPool) {
     run_single_iteration_test(
         pool,
         Some(BentoMockConfig { no_session_uuid: true, ..Default::default() }),
         2,
-        "PENDING",
+        "RETRY_PENDING",
     )
     .await;
 }
@@ -670,4 +681,60 @@ async fn test_execute_requests_handles_no_stats(pool: PgPool) {
         "FAILED",
     )
     .await;
+}
+
+/// Test that a RETRY_PENDING request with retry_after in the past is picked up and can complete successfully
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_retry_pending_pickup(pool: PgPool) {
+    let (test_db, digests, mock_server) = setup_test_fixture(
+        pool,
+        Some(BentoMockConfig {
+            running_responses: 0,
+            execution_status: "SUCCEEDED".to_string(),
+            expected_cycles: 50_000_000,
+            expected_total_cycles: 51_000_000,
+            ..Default::default()
+        }),
+        1,
+    )
+    .await;
+
+    sqlx::query(
+        "UPDATE cycle_counts SET cycle_status = 'RETRY_PENDING', retry_after = 0, retry_count = 1 WHERE request_digest = $1",
+    )
+    .bind(format!("{:x}", digests[0]))
+    .execute(&test_db.pool)
+    .await
+    .unwrap();
+
+    let execution_handle = setup_test_task(test_db.db.clone(), mock_server.uri(), 2).await;
+    execution_handle.await.unwrap();
+
+    verify_request_status(&test_db, &digests, "COMPLETED").await;
+}
+
+/// Test that when max_retries is exhausted, the request is marked FAILED
+#[test_log::test(sqlx::test(migrations = "./migrations"))]
+async fn test_retry_exhaustion(pool: PgPool) {
+    let (test_db, digests, mock_server) = setup_test_fixture(
+        pool,
+        Some(BentoMockConfig { fail_create_session: true, ..Default::default() }),
+        1,
+    )
+    .await;
+
+    sqlx::query(
+        "UPDATE cycle_counts SET cycle_status = 'RETRY_PENDING', retry_after = 0, retry_count = 2 WHERE request_digest = $1",
+    )
+    .bind(format!("{:x}", digests[0]))
+    .execute(&test_db.pool)
+    .await
+    .unwrap();
+
+    let config =
+        IndexerServiceExecutionConfig { max_retries: 2, ..test_config(mock_server.uri(), 1) };
+    let execution_handle = setup_test_task_with_config(test_db.db.clone(), config).await;
+    execution_handle.await.unwrap();
+
+    verify_request_status(&test_db, &digests, "FAILED").await;
 }

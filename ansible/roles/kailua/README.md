@@ -18,6 +18,7 @@ Installs [Kailua](https://github.com/boundless-xyz/kailua) from a GitHub release
 | `kailua_install_method`        | `"source"`                          | Must be `"source"` (download release binary). |
 | `kailua_version`               | `v1.1.9`                            | Release tag for download.                     |
 | `kailua_install_dir`           | `/usr/local/bin`                    | Directory for `kailua-cli` binary.            |
+| `kailua_binary_path`           | `/usr/local/bin/kailua-cli`         | Full path to `kailua-cli` binary.             |
 | `kailua_install_service`       | `true`                              | Install launcher and systemd unit.            |
 | `kailua_launcher_path`         | `/usr/local/bin/kailua_launcher.sh` | Path to the launcher script.                  |
 | **Demo (all `kailua_demo_*`)** |                                     |                                               |
@@ -38,6 +39,7 @@ Installs [Kailua](https://github.com/boundless-xyz/kailua) from a GitHub release
 
 ```yaml
 - hosts: kailua
+  become: true
   roles:
     - role: kailua
 ```
