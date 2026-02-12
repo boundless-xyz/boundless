@@ -71,43 +71,6 @@
     - docker
     - docker-install
 
-- name: Ensure Docker service is enabled and started
-  ansible.builtin.systemd:
-    name: docker
-    enabled: true
-    state: started
-    daemon_reload: true
-  tags:
-    - docker
-    - docker-service
-
-- name: Add users to docker group
-  ansible.builtin.user:
-    name: "{{ item }}"
-    groups: docker
-    append: true
-  loop: "{{ docker_users }}"
-  when: docker_users | length > 0
-  tags:
-    - docker
-    - docker-users
-
-- name: Verify Docker installation
-  ansible.builtin.command:
-    cmd: docker --version
-  register: docker_version_output
-  changed_when: false
-  tags:
-    - docker
-    - docker-verify
-
-- name: Display Docker installation status
-  ansible.builtin.debug:
-    msg: |
-      Docker installation completed successfully.
-      {{ docker_version_output.stdout }}
-      Docker Compose plugin is available via 'docker compose' command.
-
 - name: Fetch NVIDIA Container Toolkit repository list content
   ansible.builtin.uri:
     url: https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list
@@ -155,6 +118,43 @@
   tags:
     - docker
     - docker-config
+
+- name: Ensure Docker service is enabled and started
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags:
+    - docker
+    - docker-service
+
+- name: Add users to docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users }}"
+  when: docker_users | length > 0
+  tags:
+    - docker
+    - docker-users
+
+- name: Verify Docker installation
+  ansible.builtin.command:
+    cmd: docker --version
+  register: docker_version_output
+  changed_when: false
+  tags:
+    - docker
+    - docker-verify
+
+- name: Display Docker installation status
+  ansible.builtin.debug:
+    msg: |
+      Docker installation completed successfully.
+      {{ docker_version_output.stdout }}
+      Docker Compose plugin is available via 'docker compose' command.
 
 - name: Clean up NVIDIA Container Toolkit temporary files
   ansible.builtin.file:
