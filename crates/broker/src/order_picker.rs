@@ -1476,7 +1476,8 @@ pub(crate) mod tests {
         {
             config.load_write().unwrap().market.min_mcycle_price =
                 Amount::parse("0.0000001 ETH", None).unwrap();
-            config.load_write().unwrap().market.max_collateral = Amount::parse("10 ZKC", None).unwrap();
+            config.load_write().unwrap().market.max_collateral =
+                Amount::parse("10 ZKC", None).unwrap();
         }
 
         let mut ctx = PickerTestCtxBuilder::default()
@@ -2878,7 +2879,8 @@ pub(crate) mod tests {
     async fn test_zero_mcycle_price_order_processing() {
         let config = ConfigLock::default();
         {
-            config.load_write().unwrap().market.min_mcycle_price = Amount::parse("0 ETH", None).unwrap();
+            config.load_write().unwrap().market.min_mcycle_price =
+                Amount::parse("0 ETH", None).unwrap();
         }
         let mut ctx = PickerTestCtxBuilder::default().with_config(config).build().await;
 
