@@ -244,3 +244,62 @@ jobs:
           asset_path: ./release-assets/bento-bundle-linux-amd64.tar.gz.sha256
           asset_name: bento-bundle-linux-amd64.tar.gz.sha256
           asset_content_type: text/plain
+
+  build-docker:
+    name: Build and Push Docker Images
+    needs: create-release
+    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Extract minor version (e.g., bento-v1.2.1 -> bento-v1.2)
+          MINOR_VERSION=$(echo "$VERSION" | sed 's/\.[0-9]*$//')
+          echo "minor_version=$MINOR_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push bento-agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfiles/agent.prebuilt.dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.version }}
+            ghcr.io/${{ github.repository }}/bento-agent:${{ steps.get_version.outputs.minor_version }}
+            ghcr.io/${{ github.repository }}/bento-agent:latest
+          build-args: |
+            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
+            BLAKE3_GROTH16_ARTIFACTS_URL=${{ vars.BLAKE3_GROTH16_ARTIFACTS_URL || 'https://staging-signal-artifacts.beboundless.xyz/v3/proving/blake3_groth16_artifacts.tar.xz' }}
+            USE_LOCAL_BLAKE3_GROTH16_SETUP=0
+
+      - name: Build and push bento-rest-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dockerfiles/rest_api.prebuilt.dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.version }}
+            ghcr.io/${{ github.repository }}/bento-rest-api:${{ steps.get_version.outputs.minor_version }}
+            ghcr.io/${{ github.repository }}/bento-rest-api:latest
+          build-args: |
+            BINARY_URL=https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/bento-bundle-linux-amd64.tar.gz
