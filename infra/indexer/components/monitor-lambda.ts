@@ -126,6 +126,8 @@ export class MonitorLambda extends pulumi.ComponentResource {
         subnetIds: args.privSubNetIds,
         securityGroupIds: [args.indexerSgId],
       },
+    }, {
+      dependsOn: opts?.dependsOn,
     },
     );
     this.lambdaFunction = lambda;
