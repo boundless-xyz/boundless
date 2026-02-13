@@ -1933,7 +1933,7 @@ dependencies = [
 
 [[package]]
 name = "blake3_groth16"
-version = "1.3.2"
+version = "1.3.3"
 dependencies = [
  "anyhow",
  "ark-bn254",
@@ -2038,7 +2038,7 @@ dependencies = [
 
 [[package]]
 name = "boundless-market"
-version = "1.3.2"
+version = "1.3.3"
 dependencies = [
  "alloy",
  "alloy-chains",
