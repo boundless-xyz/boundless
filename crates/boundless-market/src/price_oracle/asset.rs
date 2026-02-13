@@ -75,8 +75,8 @@ impl fmt::Display for Asset {
 /// Errors that can occur when parsing an amount string
 #[derive(Debug, thiserror::Error)]
 pub enum ParseAmountError {
-    /// Invalid format, expected '\<value\> \<asset\>'
-    #[error("invalid format: expected '<value> <ASSET>' (e.g., '1.12 USD' (up to 6 decimals), '1.500012 ETH' (up to 18 decimals))")]
+    /// Invalid format, expected '\<value\> \<asset\>' or '\<value\>' when default asset is configured
+    #[error("invalid format: expected '<value> <ASSET>' (e.g., '1.12 USD' (up to 6 decimals), '1.500012 ETH' (up to 18 decimals)) or '<value>' when default asset is configured")]
     InvalidFormat,
     /// Unknown asset type
     #[error("unknown asset: {0}")]

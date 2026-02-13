@@ -244,7 +244,8 @@ impl Default for OrderCommitmentPriority {
     }
 }
 
-/// Deserialize Amount with validation that asset is USD or ETH
+/// Deserialize Amount with validation that asset is USD or ETH.
+/// Plain numbers without asset suffix default to ETH for backward compatibility.
 fn deserialize_mcycle_price<'de, D>(deserializer: D) -> Result<Amount, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -254,7 +255,8 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-/// Deserialize Amount with validation that asset is USD or ZKC
+/// Deserialize Amount with validation that asset is USD or ZKC.
+/// Plain numbers without asset suffix default to ZKC for backward compatibility.
 fn deserialize_max_collateral<'de, D>(deserializer: D) -> Result<Amount, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -264,7 +266,8 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-/// Deserialize Amount with validation that asset is USD or ZKC
+/// Deserialize Amount with validation that asset is USD or ZKC.
+/// Plain numbers without asset suffix default to ZKC for backward compatibility.
 fn deserialize_mcycle_price_collateral_token<'de, D>(deserializer: D) -> Result<Amount, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -278,7 +281,8 @@ where
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
 pub struct MarketConfig {
-    /// Minimum price per mega-cycle. Must include asset: "0.00001 USD" or "0.00000001 ETH"
+    /// Minimum price per mega-cycle. Asset can be specified: "0.00001 USD" or "0.00000001 ETH"
+    /// Plain numbers default to ETH for backward compatibility.
     ///
     /// If USD, converted to target token at runtime via price oracle.
     ///
@@ -287,7 +291,8 @@ pub struct MarketConfig {
     /// decide the minimum price to accept for a request.
     #[serde(alias = "mcycle_price", deserialize_with = "deserialize_mcycle_price")]
     pub min_mcycle_price: Amount,
-    /// Mega-cycle price, denominated in the Boundless collateral token. Must include asset: "0.001 ZKC" or "1 USD"
+    /// Mega-cycle price, denominated in the Boundless collateral token. Asset can be specified: "0.001 ZKC" or "1 USD"
+    /// Plain numbers default to ZKC for backward compatibility.
     ///
     /// If USD, converted to ZKC at runtime via price oracle.
     ///
@@ -357,7 +362,8 @@ pub struct MarketConfig {
     /// but increases RPC load. A higher value reduces RPC calls but may increase response latency.
     #[serde(default = "defaults::events_poll_ms")]
     pub events_poll_ms: u64,
-    /// Max collateral amount. Must include asset: "50 ZKC" or "100 USD"
+    /// Max collateral amount. Asset can be specified: "50 ZKC" or "100 USD"
+    /// Plain numbers default to ZKC for backward compatibility.
     ///
     /// If USD, converted to ZKC at runtime via price oracle.
     /// Requests that require a higher collateral amount than this will not be considered.
