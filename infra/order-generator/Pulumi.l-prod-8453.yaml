@@ -54,7 +54,6 @@ config:
   order-generator-onchain:TIMEOUT: "1800"
   order-generator-onchain:WARN_BALANCE_BELOW: "0.01"
   order-generator-random-requestor:INPUT_MAX_MCYCLES: "200"
-  order-generator-random-requestor:MAX_PRICE_PER_MCYCLE: "0.00000004"
   order-generator-random-requestor:SCHEDULE_EXPRESSION: "rate(7 days)"
   order-generator-random-requestor:COUNT: "10"
   order-generator-random-requestor:INTERVAL: "600"
