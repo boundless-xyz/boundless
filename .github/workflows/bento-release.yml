@@ -146,7 +146,6 @@ jobs:
     runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: write
-      id-token: write
 
     steps:
       - name: Checkout code
@@ -177,73 +176,50 @@ jobs:
           echo "release_name=Bento Release $VERSION" >> $GITHUB_OUTPUT
 
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          release_name: ${{ steps.get_version.outputs.release_name }}
-          body: |
-            ## Bento Components Release
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          gh release create "$VERSION" \
+            --title "${{ steps.get_version.outputs.release_name }}" \
+            --notes "## Bento Components Release
 
-            This release includes a complete bundle of Bento components:
-            - **Bento Agent**: Workflow execution agent (with CUDA support)
-            - **Bento REST API**: REST API server
-            - **Bento Client**: Client library
+          This release includes a complete bundle of Bento components:
+          - **Bento Agent**: Workflow execution agent (with CUDA support)
+          - **Bento REST API**: REST API server
+          - **Bento Client**: Client library
 
-            ### Supported Platforms
-            - Linux AMD64
+          ### Supported Platforms
+          - Linux AMD64
 
-            ### Installation
-            Download the appropriate bundle for your platform and extract:
-            ```bash
-            # Download and extract
-            tar -xzf bento-bundle-linux-amd64.tar.gz
-            cd bento-bundle
+          ### Installation
+          Download the appropriate bundle for your platform and extract:
+          \`\`\`bash
+          # Download and extract
+          tar -xzf bento-bundle-linux-amd64.tar.gz
+          cd bento-bundle
 
-            # Make executables
-            chmod +x bento-agent
-            chmod +x bento-rest-api
-            chmod +x bento-client
-            ```
+          # Make executables
+          chmod +x bento-agent
+          chmod +x bento-rest-api
+          chmod +x bento-client
+          \`\`\`
 
-            ### Usage
-            ```bash
-            # Run agent
-            ./bento-agent --help
+          ### Usage
+          \`\`\`bash
+          # Run agent
+          ./bento-agent --help
 
-            # Run REST API
-            ./bento-rest-api --help
+          # Run REST API
+          ./bento-rest-api --help
 
-            # Run client
-            ./bento-client --help
-            ```
+          # Run client
+          ./bento-client --help
+          \`\`\`
 
-            ### Verification
-            Verify the integrity of downloaded bundles using the provided SHA256 checksums.
-          draft: false
-          prerelease: false
-
-      - name: Upload Bento Bundle (Linux AMD64)
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/bento-bundle-linux-amd64.tar.gz
-          asset_name: bento-bundle-linux-amd64.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload SHA256 checksums
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/bento-bundle-linux-amd64.tar.gz.sha256
-          asset_name: bento-bundle-linux-amd64.tar.gz.sha256
-          asset_content_type: text/plain
+          ### Verification
+          Verify the integrity of downloaded bundles using the provided SHA256 checksums." \
+            ./release-assets/*
 
   build-docker:
     name: Build and Push Docker Images
