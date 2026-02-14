@@ -18,7 +18,10 @@ use std::{
     pin::Pin,
 };
 
-use alloy::{eips::BlockNumberOrTag, primitives::U256, providers::Provider};
+use alloy::{
+    eips::BlockNumberOrTag, primitives::U256, providers::Provider, rpc::types::Filter,
+    sol_types::SolEvent,
+};
 use alloy_primitives::{address, Address};
 use anyhow::{bail, Context, Result};
 use derive_builder::Builder;
@@ -29,7 +32,7 @@ use url::Url;
 
 use crate::{
     client::ClientBuilder,
-    contracts::RequestInputType,
+    contracts::{IBoundlessMarket, RequestInputType},
     indexer_client::{AggregationGranularity, IndexerClient},
     Deployment, GuestEnv, RequestId, RequestInput,
 };
@@ -134,6 +137,10 @@ impl<D: PriceProvider + Clone + Send + 'static, F: PriceProvider + Clone + Send 
                 Ok(price_percentiles) => Ok(price_percentiles),
                 Err(e) => {
                     if let Some(fallback_provider) = fallback {
+                        tracing::warn!(
+                            "Failed to fetch market prices from default provider: {:#}",
+                            e
+                        );
                         // Await the fallback future, moving it into the async block
                         let fallback_fut = fallback_provider.price_percentiles();
                         fallback_fut.await
@@ -245,8 +252,8 @@ pub struct MarketPricing {
 /// use boundless_market::price_provider::MarketPricingConfig;
 ///
 /// let config = MarketPricingConfig::builder()
-///     .event_query_chunk_size(100)
-///     .market_price_blocks_to_query(30000)
+///     .event_query_chunk_size(1000)
+///     .market_price_blocks_to_query(1000)
 ///     .timeout(std::time::Duration::from_secs(300))
 ///     .build()
 ///     .unwrap();
@@ -259,10 +266,10 @@ pub struct MarketPricingConfig {
     #[builder(setter(into, strip_option), default)]
     deployment: Option<Deployment>,
     /// The size of the chunk to use for querying events.
-    #[builder(default = "100")]
+    #[builder(default = "1000")]
     event_query_chunk_size: u64,
     /// The number of blocks to query for market prices.
-    #[builder(default = "30000")]
+    #[builder(default = "1000")]
     market_price_blocks_to_query: u64,
     /// The timeout for the market pricing provider.
     #[builder(default = "std::time::Duration::from_secs(300)")]
@@ -282,8 +289,8 @@ impl MarketPricingConfig {
     /// use boundless_market::price_provider::{MarketPricingConfig, MarketPricingConfigBuilder};
     ///
     /// let config = MarketPricingConfig::builder()
-    ///     .event_query_chunk_size(100)
-    ///     .market_price_blocks_to_query(30000)
+    ///     .event_query_chunk_size(1000)
+    ///     .market_price_blocks_to_query(1000)
     ///     .timeout(std::time::Duration::from_secs(300))
     ///     .build()
     ///     .unwrap();
@@ -319,8 +326,8 @@ impl MarketPricing {
     /// use url::Url;
     ///
     /// let config = MarketPricingConfig::builder()
-    ///     .event_query_chunk_size(100)
-    ///     .market_price_blocks_to_query(30000)
+    ///     .event_query_chunk_size(1000)
+    ///     .market_price_blocks_to_query(1000)
     ///     .timeout(std::time::Duration::from_secs(300))
     ///     .build()
     ///     .unwrap();
@@ -331,12 +338,11 @@ impl MarketPricing {
         Self { rpc_url, config }
     }
 
-    // Get a list of known requestors for the deployment.
+    // Get a list of known requestors for the given chain ID.
     // This is used to filter the market events for pricing.
-    fn known_requestors(&self) -> Option<RequestorMap> {
-        let deployment = self.config.deployment.as_ref()?;
-        match deployment.market_chain_id {
-            Some(11155111) => Some(RequestorMap::new(hash_map::HashMap::from([
+    fn known_requestors_for_chain(chain_id: u64) -> Option<RequestorMap> {
+        match chain_id {
+            11155111 => Some(RequestorMap::new(hash_map::HashMap::from([
                 (
                     address!("0xc197ebe12c7bcf1d9f3b415342bdbc795425335c"),
                     RequestorType::OrderGenerator,
@@ -346,7 +352,7 @@ impl MarketPricing {
                     RequestorType::OrderGenerator,
                 ),
             ]))),
-            Some(8453) => Some(RequestorMap::new(hash_map::HashMap::from([
+            8453 => Some(RequestorMap::new(hash_map::HashMap::from([
                 (
                     address!("0xc197ebe12c7bcf1d9f3b415342bdbc795425335c"),
                     RequestorType::OrderGenerator,
@@ -357,7 +363,7 @@ impl MarketPricing {
                 ),
                 (address!("0x734df7809c4ef94da037449c287166d114503198"), RequestorType::Signal),
             ]))),
-            Some(84532) => Some(RequestorMap::new(hash_map::HashMap::from([
+            84532 => Some(RequestorMap::new(hash_map::HashMap::from([
                 (
                     address!("0xc197ebe12c7bcf1d9f3b415342bdbc795425335c"),
                     RequestorType::OrderGenerator,
@@ -373,10 +379,8 @@ impl MarketPricing {
 
     /// Query market prices from the Boundless Market.
     async fn query_market_pricing(self) -> Result<PricePercentiles> {
-        let Some(requestor_list) = self.known_requestors() else {
-            bail!("No known requestors for deployment");
-        };
-        // Build market client
+        // Build market client. If no deployment is configured, the client builder
+        // will resolve it from the chain ID via the RPC.
         let timeout = self.config.timeout;
         let client = ClientBuilder::new()
             .with_rpc_url(self.rpc_url.clone())
@@ -386,49 +390,66 @@ impl MarketPricing {
             .await
             .context("Failed to create market client")?;
 
+        // Resolve the chain ID from the deployment config or from the RPC.
+        let chain_id = match self.config.deployment.as_ref().and_then(|d| d.market_chain_id) {
+            Some(id) => id,
+            None => client
+                .provider()
+                .get_chain_id()
+                .await
+                .context("Failed to query chain ID from RPC for market pricing")?,
+        };
+
+        let Some(requestor_list) = Self::known_requestors_for_chain(chain_id) else {
+            bail!("No known requestors for chain ID {chain_id}");
+        };
+
         // Get current block and calculate range
         let current_block = client.provider().get_block_number().await?;
         let start_block = current_block.saturating_sub(self.config.market_price_blocks_to_query);
 
-        // Query RequestLocked events in chunks
+        // Query RequestLocked and RequestFulfilled events together in chunks
+        let market_addr = *client.boundless_market.instance().address();
+        let provider = client.provider();
         let mut locked_logs = Vec::new();
-        let mut chunk_start = start_block;
-        while chunk_start < current_block {
-            let chunk_end = (chunk_start + self.config.event_query_chunk_size).min(current_block);
-
-            let locked_filter = client
-                .boundless_market
-                .instance()
-                .RequestLocked_filter()
-                .from_block(chunk_start)
-                .to_block(chunk_end);
-
-            let mut chunk_logs =
-                locked_filter.query().await.context("Failed to query RequestLocked events")?;
-
-            locked_logs.append(&mut chunk_logs);
-            chunk_start = chunk_end + 1;
-        }
-
-        // Query RequestFulfilled events in chunks
         let mut fulfilled_logs = Vec::new();
         let mut chunk_start = start_block;
         while chunk_start < current_block {
             let chunk_end = (chunk_start + self.config.event_query_chunk_size).min(current_block);
 
-            let fulfilled_filter = client
-                .boundless_market
-                .instance()
-                .RequestFulfilled_filter()
+            let filter = Filter::new()
+                .address(market_addr)
                 .from_block(chunk_start)
-                .to_block(chunk_end);
+                .to_block(chunk_end)
+                .event_signature(vec![
+                    IBoundlessMarket::RequestLocked::SIGNATURE_HASH,
+                    IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH,
+                ]);
 
-            let mut chunk_logs = fulfilled_filter
-                .query()
-                .await
-                .context("Failed to query RequestFulfilled events")?;
+            let logs = provider.get_logs(&filter).await.context("Failed to query market events")?;
 
-            fulfilled_logs.append(&mut chunk_logs);
+            for log in logs {
+                match log.topic0() {
+                    Some(t) if *t == IBoundlessMarket::RequestLocked::SIGNATURE_HASH => {
+                        match log.log_decode::<IBoundlessMarket::RequestLocked>() {
+                            Ok(res) => locked_logs.push((res.inner.data, log)),
+                            Err(err) => {
+                                tracing::error!("Failed to decode RequestLocked log: {err:?}");
+                            }
+                        }
+                    }
+                    Some(t) if *t == IBoundlessMarket::RequestFulfilled::SIGNATURE_HASH => {
+                        match log.log_decode::<IBoundlessMarket::RequestFulfilled>() {
+                            Ok(res) => fulfilled_logs.push((res.inner.data, log)),
+                            Err(err) => {
+                                tracing::error!("Failed to decode RequestFulfilled log: {err:?}");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             chunk_start = chunk_end + 1;
         }
 
@@ -680,8 +701,8 @@ mod tests {
     #[test]
     fn market_pricing_config_default() {
         let config = MarketPricingConfig::default();
-        assert_eq!(config.event_query_chunk_size, 100);
-        assert_eq!(config.market_price_blocks_to_query, 30000);
+        assert_eq!(config.event_query_chunk_size, 1000);
+        assert_eq!(config.market_price_blocks_to_query, 1000);
         assert_eq!(config.timeout, std::time::Duration::from_secs(300));
     }
 }

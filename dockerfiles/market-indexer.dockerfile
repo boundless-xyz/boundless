@@ -8,7 +8,7 @@ SHELL ["/bin/bash", "-c"]
 
 RUN cargo install cargo-chef
 
-ARG CACHE_DATE=2025-10-13  # update this date to force rebuild
+ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
 # The indexer doesn't need r0vm to run, but its tests do need it. 
 # Cargo chef always pulls in and builds dev-dependencies, meaning that we need to install r0vm
 # to leverage chef. See https://github.com/LukeMathWalker/cargo-chef/issues/114

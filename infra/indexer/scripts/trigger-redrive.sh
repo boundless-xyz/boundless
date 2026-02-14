@@ -47,7 +47,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --lambda-name) LAMBDA_NAME="$2"; shift 2 ;;
     --lookback-days) LOOKBACK_DAYS="$2"; shift 2 ;;
-    --requestor) REQUESTOR="$2"; shift 2 ;;
+    --requestor) REQUESTOR="${2#0x}"; shift 2 ;;
     --include-stuck) INCLUDE_STUCK="true"; shift 1 ;;
     --dry-run) DRY_RUN="true"; shift 1 ;;
     --region) REGION="$2"; shift 2 ;;

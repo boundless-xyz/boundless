@@ -53,7 +53,7 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
 
 ### Service Monitoring
 
-- `vector_monitor_services` (default: `["bento-api.service", "bento-exec.service", "bento-aux.service", "bento-prove.service", "broker.service", "miner.service"]`): List of systemd units to monitor
+- `vector_monitor_services` (default: `["bento.service"]`): List of systemd units to monitor
 
 ### Buffer Configuration
 
@@ -67,19 +67,19 @@ Vector supports multiple authentication methods for CloudWatch Logs. Credentials
 
 ### System Metrics Collection
 
-- `vector_collect_host_metrics` (default: `true`): Enable collection of system metrics (CPU, memory, disk, network)
-- `vector_host_metrics_collectors` (default: `["cpu", "memory", "disk", "filesystem", "load", "network", "process"]`): List of metric collectors to enable
+- `vector_collect_host_metrics` (default: `true`): Enable collection of host metrics
+- `vector_host_metrics_collectors` (default: `["memory", "disk", "filesystem"]`): List of metric collectors to enable
 - `vector_metrics_scrape_interval` (default: `15`): Interval in seconds between metric scrapes
 - `vector_cloudwatch_metrics_namespace` (default: `"Boundless/SystemMetrics"`): CloudWatch Metrics namespace for system metrics
 
-When enabled, Vector collects and ships the following system metrics to CloudWatch Metrics:
+With defaults, Vector collects and ships:
 
-- **CPU**: usage, frequency, temperature
 - **Memory**: total, free, used, cached, buffers
 - **Disk**: I/O, space, inodes, read/write operations
-- **Network**: bytes, packets, errors, drops
-- **System**: load average, uptime, processes
 - **Filesystem**: mount points, space, inodes
+
+You can enable additional collectors (for example `cpu`, `load`, `network`,
+`process`) by extending `vector_host_metrics_collectors`.
 
 ### Root volume alerting
 
@@ -112,9 +112,9 @@ Use this metric for error-rate dashboards and alarms (e.g. threshold on Sum over
 
 ## Dependencies
 
-- **AWS CLI**: Required
-  - The `awscli` role should be run before the `vector` role if log group creation is needed
-  - AWS CLI is automatically installed by the `monitoring.yml` playbook
+- **AWS CLI**: Optional
+  - The `vector` role itself does not require `aws` binary to run.
+  - Run the `awscli` role first if your workflow creates/validates CloudWatch resources with CLI commands.
 
 ## Example Playbook
 
@@ -154,13 +154,9 @@ Use this metric for error-rate dashboards and alarms (e.g. threshold on Sum over
 
 When `vector_collect_host_metrics` is enabled (default: `true`), Vector automatically collects system metrics and publishes them to CloudWatch Metrics under the namespace specified by `vector_cloudwatch_metrics_namespace`.
 
-Metrics are collected every `vector_metrics_scrape_interval` seconds (default: 15s) and include:
-
-- CPU utilization and load average
-- Memory usage (total, free, used, cached)
-- Disk I/O and filesystem usage
-- Network traffic and errors
-- System uptime and process counts
+Metrics are collected every `vector_metrics_scrape_interval` seconds (default:
+15s). With default collectors, this includes memory, disk, and filesystem
+metrics. Additional categories are available by enabling more collectors.
 
 You can view these metrics in the AWS CloudWatch console under **Metrics** → **Boundless/SystemMetrics** (or your custom namespace).
 

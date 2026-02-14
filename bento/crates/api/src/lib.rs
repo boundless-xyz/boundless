@@ -377,7 +377,7 @@ async fn receipt_upload(
         .await
         .context("Failed to check if object exists")?
     {
-        return Err(AppError::InputAlreadyExists(receipt_id.to_string()));
+        return Err(AppError::ReceiptAlreadyExists(receipt_id.to_string()));
     }
 
     Ok(Json(UploadRes {
@@ -399,7 +399,7 @@ async fn receipt_upload_put(
         .await
         .context("Failed to check if object exists")?
     {
-        return Err(AppError::InputAlreadyExists(receipt_id.to_string()));
+        return Err(AppError::ReceiptAlreadyExists(receipt_id.to_string()));
     }
 
     // TODO: Support streaming uploads

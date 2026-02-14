@@ -1186,6 +1186,20 @@ async fn test_requestor_aggregates() {
         assert!(!first_entry.total_fees_locked_formatted.is_empty());
         // Verify percentile fields exist
         assert!(!first_entry.p50_lock_price_per_cycle_formatted.is_empty());
+        // Verify cost fields exist
+        assert!(!first_entry.total_fixed_cost.is_empty(), "total_fixed_cost should not be empty");
+        assert!(
+            !first_entry.total_fixed_cost_formatted.is_empty(),
+            "total_fixed_cost_formatted should not be empty"
+        );
+        assert!(
+            !first_entry.total_variable_cost.is_empty(),
+            "total_variable_cost should not be empty"
+        );
+        assert!(
+            !first_entry.total_variable_cost_formatted.is_empty(),
+            "total_variable_cost_formatted should not be empty"
+        );
         // Verify fulfillment rate fields exist and are valid
         assert!(
             first_entry.locked_orders_fulfillment_rate >= 0.0
