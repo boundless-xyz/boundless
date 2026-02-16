@@ -553,3 +553,8 @@ bento-setup:
 job-status job_id:
     #!/usr/bin/env bash
     ./scripts/job_status.sh {{job_id}}
+
+# Reset an order
+reset-order order_id:
+    #!/usr/bin/env bash
+    ./scripts/reset-order.sh {{order_id}}
