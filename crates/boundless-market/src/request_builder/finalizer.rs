@@ -71,7 +71,7 @@ impl From<FinalizerConfig> for Finalizer {
 impl Finalizer {
     /// Set the price oracle manager for USD conversions.
     ///
-    /// The price oracle manager is required if [OfferParams] contains
+    /// The price oracle manager is required if OfferParams contains
     /// USD-denominated amounts for pricing or collateral fields.
     pub fn with_price_oracle_manager(
         self,
