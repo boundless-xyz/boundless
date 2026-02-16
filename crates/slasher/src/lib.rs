@@ -547,8 +547,13 @@ where
         // Prefer "safe" block so we don't query the unstable tip
         match provider.get_block_by_number(BlockNumberOrTag::Safe).await {
             Ok(Some(block)) => Ok(block.header.number),
-            Ok(None) | Err(_) => {
-                // RPC doesn't support "safe" or failed; use latest minus a few blocks
+            Ok(None) => {
+                tracing::debug!("RPC returned no 'safe' block, using latest minus delay");
+                let latest = provider.get_block_number().await?;
+                Ok(latest.saturating_sub(FALLBACK_CONFIRMATION_DELAY))
+            }
+            Err(e) => {
+                tracing::warn!("Error getting 'safe' block: {:?}, using latest minus delay", e);
                 let latest = provider.get_block_number().await?;
                 Ok(latest.saturating_sub(FALLBACK_CONFIRMATION_DELAY))
             }
