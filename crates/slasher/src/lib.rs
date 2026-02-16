@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use alloy::{
+    eips::BlockNumberOrTag,
     network::{Ethereum, EthereumWallet},
     primitives::{Address, B256, U256},
     providers::{
@@ -537,8 +538,21 @@ where
         Ok(())
     }
 
+    /// Returns the latest confirmed block number (safe head), or latest minus a small delay
+    /// if the RPC does not support the "safe" tag. Using a confirmed block avoids "invalid
+    /// block range params" errors when querying logs, especially on Base mainnet.
     async fn current_block(&self) -> Result<u64, ServiceError> {
-        Ok(self.boundless_market.instance().provider().get_block_number().await?)
+        const FALLBACK_CONFIRMATION_DELAY: u64 = 2;
+        let provider = self.boundless_market.instance().provider();
+        // Prefer "safe" block so we don't query the unstable tip
+        match provider.get_block_by_number(BlockNumberOrTag::Safe).await {
+            Ok(Some(block)) => Ok(block.header.number),
+            Ok(None) | Err(_) => {
+                // RPC doesn't support "safe" or failed; use latest minus a few blocks
+                let latest = provider.get_block_number().await?;
+                Ok(latest.saturating_sub(FALLBACK_CONFIRMATION_DELAY))
+            }
+        }
     }
 
     async fn block_timestamp(&self, block_number: u64) -> Result<u64, ServiceError> {
