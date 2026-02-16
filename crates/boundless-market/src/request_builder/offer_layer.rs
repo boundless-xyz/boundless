@@ -35,6 +35,58 @@ use clap::Args;
 use derive_builder::Builder;
 use std::sync::Arc;
 
+/// Convert a price Amount to ETH (wei).
+///
+/// Returns the value directly if the amount is already in ETH.
+/// Converts from USD to ETH using the price oracle if needed.
+/// Returns an error if:
+/// - The amount is in USD but no price oracle is provided
+/// - The amount is in an invalid asset (ZKC not allowed for prices)
+async fn convert_amount_to_eth(
+    amount: &Amount,
+    oracle: Option<&PriceOracleManager>,
+) -> Result<U256> {
+    match amount.asset {
+        Asset::ETH => Ok(amount.value),
+        Asset::USD => {
+            let oracle = oracle.context(
+                "Price oracle required to convert USD prices to ETH. \
+                 Configure a price oracle or specify prices in ETH.",
+            )?;
+            let eth_amount =
+                oracle.convert(amount, Asset::ETH).await.context("failed to convert USD to ETH")?;
+            Ok(eth_amount.value)
+        }
+        Asset::ZKC => bail!("ZKC is not valid for price fields. Use USD or ETH."),
+    }
+}
+
+/// Convert a collateral Amount to ZKC.
+///
+/// Returns the value directly if the amount is already in ZKC.
+/// Converts from USD to ZKC using the price oracle if needed.
+/// Returns an error if:
+/// - The amount is in USD but no price oracle is provided
+/// - The amount is in an invalid asset (ETH not allowed for collateral)
+async fn convert_amount_to_zkc(
+    amount: &Amount,
+    oracle: Option<&PriceOracleManager>,
+) -> Result<U256> {
+    match amount.asset {
+        Asset::ZKC => Ok(amount.value),
+        Asset::USD => {
+            let oracle = oracle.context(
+                "Price oracle required to convert USD collateral to ZKC. \
+                 Configure a price oracle or specify collateral in ZKC.",
+            )?;
+            let zkc_amount =
+                oracle.convert(amount, Asset::ZKC).await.context("failed to convert USD to ZKC")?;
+            Ok(zkc_amount.value)
+        }
+        Asset::ETH => bail!("ETH is not valid for collateral. Use USD or ZKC."),
+    }
+}
+
 pub(crate) const DEFAULT_TIMEOUT: u32 = 600;
 pub(crate) const DEFAULT_RAMP_UP_PERIOD: u32 = 60;
 /// Default min price when not set by params, config, or market (wei).
@@ -348,20 +400,6 @@ pub struct OfferParams {
     pub lock_collateral: Option<Amount>,
 }
 
-impl From<Offer> for OfferParams {
-    fn from(value: Offer) -> Self {
-        Self {
-            timeout: Some(value.timeout),
-            min_price: Some(Amount::new(value.minPrice, Asset::ETH)),
-            max_price: Some(Amount::new(value.maxPrice, Asset::ETH)),
-            lock_collateral: Some(Amount::new(value.lockCollateral, Asset::ZKC)),
-            lock_timeout: Some(value.lockTimeout),
-            bidding_start: Some(value.rampUpStart),
-            ramp_up_period: Some(value.rampUpPeriod),
-        }
-    }
-}
-
 impl From<OfferParamsBuilder> for OfferParams {
     fn from(value: OfferParamsBuilder) -> Self {
         // Builder should be infallible.
@@ -376,25 +414,6 @@ impl From<&mut OfferParamsBuilder> for OfferParams {
     }
 }
 
-impl TryFrom<OfferParams> for Offer {
-    type Error = MissingFieldError;
-
-    fn try_from(value: OfferParams) -> Result<Self, Self::Error> {
-        Ok(Self {
-            timeout: value.timeout.ok_or(MissingFieldError::new("timeout"))?,
-            minPrice: value.min_price.ok_or(MissingFieldError::new("min_price"))?.value,
-            maxPrice: value.max_price.ok_or(MissingFieldError::new("max_price"))?.value,
-            lockCollateral: value
-                .lock_collateral
-                .ok_or(MissingFieldError::new("lock_collateral"))?
-                .value,
-            lockTimeout: value.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
-            rampUpStart: value.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
-            rampUpPeriod: value.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
-        })
-    }
-}
-
 impl OfferParams {
     /// Creates a new builder for constructing [OfferParams].
     ///
@@ -402,6 +421,47 @@ impl OfferParams {
     /// that will override the defaults from [OfferLayerConfig].
     pub fn builder() -> OfferParamsBuilder {
         Default::default()
+    }
+
+    /// Create OfferParams from an on-chain Offer struct.
+    ///
+    /// On-chain offers always have ETH prices and ZKC collateral, so amounts
+    /// are tagged with those assets.
+    pub fn from_offer(offer: Offer) -> Self {
+        Self {
+            timeout: Some(offer.timeout),
+            min_price: Some(Amount::new(offer.minPrice, Asset::ETH)),
+            max_price: Some(Amount::new(offer.maxPrice, Asset::ETH)),
+            lock_collateral: Some(Amount::new(offer.lockCollateral, Asset::ZKC)),
+            lock_timeout: Some(offer.lockTimeout),
+            bidding_start: Some(offer.rampUpStart),
+            ramp_up_period: Some(offer.rampUpPeriod),
+        }
+    }
+
+    /// Convert to an on-chain Offer struct.
+    ///
+    /// Price fields must be in ETH and collateral must be in ZKC.
+    /// If any amounts are in USD, they will be converted using the provided price oracle.
+    /// Returns an error if USD amounts are present but no oracle is provided.
+    pub async fn into_offer(
+        self,
+        oracle: Option<&PriceOracleManager>,
+    ) -> Result<Offer, anyhow::Error> {
+        let min_price = self.min_price.ok_or(MissingFieldError::new("min_price"))?;
+        let max_price = self.max_price.ok_or(MissingFieldError::new("max_price"))?;
+        let lock_collateral =
+            self.lock_collateral.ok_or(MissingFieldError::new("lock_collateral"))?;
+
+        Ok(Offer {
+            timeout: self.timeout.ok_or(MissingFieldError::new("timeout"))?,
+            minPrice: convert_amount_to_eth(&min_price, oracle).await?,
+            maxPrice: convert_amount_to_eth(&max_price, oracle).await?,
+            lockCollateral: convert_amount_to_zkc(&lock_collateral, oracle).await?,
+            lockTimeout: self.lock_timeout.ok_or(MissingFieldError::new("lock_timeout"))?,
+            rampUpStart: self.bidding_start.ok_or(MissingFieldError::new("bidding_start"))?,
+            rampUpPeriod: self.ramp_up_period.ok_or(MissingFieldError::new("ramp_up_period"))?,
+        })
     }
 }
 
@@ -462,21 +522,7 @@ where
     /// - The amount is in an invalid asset (ZKC not allowed for prices)
     async fn convert_price_to_eth(&self, amount: Option<&Amount>) -> Result<Option<U256>> {
         let Some(amount) = amount else { return Ok(None) };
-
-        match amount.asset {
-            Asset::ETH => Ok(Some(amount.value)),
-            Asset::USD => {
-                let oracle = self.price_oracle_manager.as_ref().context(
-                    "Price oracle manager required to convert USD prices to ETH. \
-                     Configure a price oracle using with_price_oracle_manager() or specify prices in ETH.",
-                )?;
-                let eth_amount = oracle.convert(amount, Asset::ETH).await?;
-                Ok(Some(eth_amount.value))
-            }
-            Asset::ZKC => {
-                bail!("ZKC is not valid for price fields. Use USD or ETH.")
-            }
-        }
+        convert_amount_to_eth(amount, self.price_oracle_manager.as_deref()).await.map(Some)
     }
 
     /// Convert a collateral Amount to ZKC.
@@ -489,21 +535,7 @@ where
     /// - The amount is in an invalid asset (ETH not allowed for collateral)
     async fn convert_collateral_to_zkc(&self, amount: Option<&Amount>) -> Result<Option<U256>> {
         let Some(amount) = amount else { return Ok(None) };
-
-        match amount.asset {
-            Asset::ZKC => Ok(Some(amount.value)),
-            Asset::USD => {
-                let oracle = self.price_oracle_manager.as_ref().context(
-                    "Price oracle manager required to convert USD collateral to ZKC. \
-                     Configure a price oracle using with_price_oracle_manager() or specify collateral in ZKC.",
-                )?;
-                let zkc_amount = oracle.convert(amount, Asset::ZKC).await?;
-                Ok(Some(zkc_amount.value))
-            }
-            Asset::ETH => {
-                bail!("ETH is not valid for collateral. Use USD or ZKC.")
-            }
-        }
+        convert_amount_to_zkc(amount, self.price_oracle_manager.as_deref()).await.map(Some)
     }
 
     /// Estimates the maximum gas usage for a proof request.
@@ -818,7 +850,7 @@ where
         let request_id = self.require_request_id()?;
 
         let offer = layer.process((&requirements, request_id, self.cycles, &self.offer)).await?;
-        Ok(self.with_offer(offer))
+        Ok(self.with_offer(OfferParams::from_offer(offer)))
     }
 }
 
@@ -1030,6 +1062,126 @@ mod tests {
             assert_eq!(
                 resolve_max_price(None, None, None, Some(10)),
                 default_max_price_per_cycle() * u(10)
+            );
+        }
+    }
+
+    mod offer_params_into_offer {
+        use super::*;
+        use crate::price_oracle::{
+            cached_oracle::CachedPriceOracle, sources::static_source::StaticPriceSource,
+            TradingPair,
+        };
+
+        /// Create a mock oracle manager with fixed prices for testing
+        fn mock_oracle_manager(eth_usd_price: f64, zkc_usd_price: f64) -> PriceOracleManager {
+            let eth_source = Arc::new(StaticPriceSource::new(TradingPair::EthUsd, eth_usd_price));
+            let zkc_source = Arc::new(StaticPriceSource::new(TradingPair::ZkcUsd, zkc_usd_price));
+            let eth_oracle = Arc::new(CachedPriceOracle::new(eth_source));
+            let zkc_oracle = Arc::new(CachedPriceOracle::new(zkc_source));
+            PriceOracleManager::new(eth_oracle, zkc_oracle, 60, 0)
+        }
+
+        #[tokio::test]
+        async fn eth_and_zkc_passthrough_no_oracle() {
+            // Native asset amounts should work without an oracle
+            let params = OfferParams {
+                min_price: Some(Amount::new(U256::from(1_000), Asset::ETH)),
+                max_price: Some(Amount::new(U256::from(2_000), Asset::ETH)),
+                lock_collateral: Some(Amount::new(U256::from(500), Asset::ZKC)),
+                timeout: Some(300),
+                lock_timeout: Some(120),
+                bidding_start: Some(100),
+                ramp_up_period: Some(60),
+            };
+            let offer = params.into_offer(None).await.unwrap();
+            assert_eq!(offer.minPrice, U256::from(1_000));
+            assert_eq!(offer.maxPrice, U256::from(2_000));
+            assert_eq!(offer.lockCollateral, U256::from(500));
+            assert_eq!(offer.timeout, 300);
+            assert_eq!(offer.lockTimeout, 120);
+            assert_eq!(offer.rampUpStart, 100);
+            assert_eq!(offer.rampUpPeriod, 60);
+        }
+
+        #[tokio::test]
+        async fn usd_prices_converted_with_oracle() {
+            let manager = mock_oracle_manager(2000.0, 1.0);
+            manager.refresh_all_rates().await;
+
+            // $2000 USD = 1 ETH at $2000/ETH rate
+            // $10 USD = 10 ZKC at $1/ZKC rate
+            let params = OfferParams {
+                min_price: Some(Amount::parse("1000 USD", None).unwrap()),
+                max_price: Some(Amount::parse("2000 USD", None).unwrap()),
+                lock_collateral: Some(Amount::parse("10 USD", None).unwrap()),
+                timeout: Some(300),
+                lock_timeout: Some(120),
+                bidding_start: Some(100),
+                ramp_up_period: Some(60),
+            };
+            let offer = params.into_offer(Some(&manager)).await.unwrap();
+
+            // Verify converted amounts are non-zero and in expected ranges
+            assert_eq!(offer.minPrice, parse_ether("0.5").unwrap());
+            assert_eq!(offer.maxPrice, parse_ether("1").unwrap());
+            assert_eq!(offer.lockCollateral, Amount::parse("10 ZKC", None).unwrap().value);
+        }
+
+        #[tokio::test]
+        async fn usd_without_oracle_fails() {
+            let params = OfferParams {
+                min_price: Some(Amount::parse("100 USD", None).unwrap()),
+                max_price: Some(Amount::parse("200 USD", None).unwrap()),
+                lock_collateral: Some(Amount::parse("10 USD", None).unwrap()),
+                timeout: Some(300),
+                lock_timeout: Some(120),
+                bidding_start: Some(100),
+                ramp_up_period: Some(60),
+            };
+            let err = params.into_offer(None).await.unwrap_err();
+            assert!(
+                err.to_string().contains("Price oracle required"),
+                "Expected error about price oracle, got: {}",
+                err
+            );
+        }
+
+        #[tokio::test]
+        async fn zkc_in_price_field_fails() {
+            let params = OfferParams {
+                min_price: Some(Amount::new(U256::from(100), Asset::ZKC)),
+                max_price: Some(Amount::new(U256::from(200), Asset::ETH)),
+                lock_collateral: Some(Amount::new(U256::from(50), Asset::ZKC)),
+                timeout: Some(300),
+                lock_timeout: Some(120),
+                bidding_start: Some(100),
+                ramp_up_period: Some(60),
+            };
+            let err = params.into_offer(None).await.unwrap_err();
+            assert!(
+                err.to_string().contains("ZKC is not valid for price fields"),
+                "Expected error about ZKC in price field, got: {}",
+                err
+            );
+        }
+
+        #[tokio::test]
+        async fn eth_in_collateral_field_fails() {
+            let params = OfferParams {
+                min_price: Some(Amount::new(U256::from(100), Asset::ETH)),
+                max_price: Some(Amount::new(U256::from(200), Asset::ETH)),
+                lock_collateral: Some(Amount::new(U256::from(50), Asset::ETH)),
+                timeout: Some(300),
+                lock_timeout: Some(120),
+                bidding_start: Some(100),
+                ramp_up_period: Some(60),
+            };
+            let err = params.into_offer(None).await.unwrap_err();
+            assert!(
+                err.to_string().contains("ETH is not valid for collateral"),
+                "Expected error about ETH in collateral field, got: {}",
+                err
             );
         }
     }

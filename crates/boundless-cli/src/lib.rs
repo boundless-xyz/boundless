@@ -28,6 +28,7 @@ pub mod chain;
 pub mod config_ext;
 pub mod contracts;
 pub mod display;
+pub mod price_oracle_helper;
 
 use alloy::{
     primitives::{Address, Bytes},

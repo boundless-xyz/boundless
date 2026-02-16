@@ -17,15 +17,16 @@ use crate::commands::prover::benchmark::BenchmarkResult;
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
+use crate::price_oracle_helper::{
+    fetch_and_display_prices, format_amount_with_conversion, prompt_validated_amount,
+    try_convert_to_usd, try_init_price_oracle,
+};
 use alloy::primitives::utils::format_units;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
-use alloy_chains::NamedChain;
 use anyhow::{bail, Context, Result};
 use boundless_market::indexer_client::IndexerClient;
-use boundless_market::price_oracle::{
-    Amount, Asset, PriceOracleConfig, PriceOracleManager, TradingPair,
-};
+use boundless_market::price_oracle::Asset;
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
@@ -36,7 +37,6 @@ use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use url::Url;
 
 // Priority requestor list URLs
@@ -61,144 +61,6 @@ mod selection_strings {
     pub const FILE_MODIFY_EXISTING: &str = "Modify existing";
     pub const FILE_GENERATE_NEW: &str = "Generate new";
     pub const FILE_CANCEL: &str = "Cancel";
-}
-
-/// Validate and normalize amount input using the same validation as config parsing
-fn validate_amount_input(
-    input: &str,
-    allowed_assets: &[Asset],
-    field_name: &str,
-) -> Result<String> {
-    Amount::parse_with_allowed(input, allowed_assets, None)
-        .map(|_| input.trim().to_string())
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid {} format: {}. Expected format: '<value> <asset>' where asset is one of: {}",
-                field_name,
-                e,
-                allowed_assets.iter().map(|a| format!("{:?}", a)).collect::<Vec<_>>().join(", ")
-            )
-        })
-}
-
-/// Prompt for amount with validation and retry on invalid input
-fn prompt_validated_amount(
-    prompt_text: &str,
-    default: &str,
-    help_message: &str,
-    allowed_assets: &[Asset],
-    field_name: &str,
-) -> Result<String> {
-    loop {
-        let input = Text::new(prompt_text)
-            .with_default(default)
-            .with_help_message(help_message)
-            .prompt()
-            .context("Failed to get user input")?;
-
-        match validate_amount_input(&input, allowed_assets, field_name) {
-            Ok(validated) => return Ok(validated),
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                eprintln!("Please try again.\n");
-            }
-        }
-    }
-}
-
-/// Try to initialize a price oracle for dual-currency display
-/// Returns None if price fetching fails (display will fall back to single currency)
-async fn try_init_price_oracle(
-    rpc_url: &Url,
-    display: &DisplayManager,
-    chain_id: u64,
-) -> Result<Arc<PriceOracleManager>, anyhow::Error> {
-    display.status("Status", "Fetching current market prices...", "yellow");
-
-    let provider = alloy::providers::ProviderBuilder::new().connect(rpc_url.as_ref()).await?;
-
-    // Build price oracle from default config (uses Chainlink on-chain)
-    let config = PriceOracleConfig::default();
-    let named_chain = NamedChain::try_from(chain_id)?;
-
-    let manager = config.build(named_chain, provider)?;
-    manager.refresh_all_rates().await;
-
-    // Fetch initial prices
-    let (eth_result, zkc_result) =
-        tokio::join!(manager.get_rate(TradingPair::EthUsd), manager.get_rate(TradingPair::ZkcUsd),);
-
-    match (eth_result, zkc_result) {
-        (Ok(eth_quote), Ok(zkc_quote)) => {
-            display.item_colored("ETH/USD", format!("${:.2}", eth_quote.rate_to_f64()), "cyan");
-            display.item_colored("ZKC/USD", format!("${:.4}", zkc_quote.rate_to_f64()), "cyan");
-
-            Ok(Arc::new(manager))
-        }
-        _ => Err(anyhow::anyhow!("⚠  Could not fetch prices from price oracle")),
-    }
-}
-
-/// Format an amount with its USD equivalent (or native equivalent for USD amounts)
-async fn format_amount_with_conversion(
-    amount_str: &str,
-    target: Option<Asset>,
-    price_oracle: Option<Arc<PriceOracleManager>>,
-) -> String {
-    let Ok(amount) = Amount::parse(amount_str, None) else {
-        return amount_str.to_string();
-    };
-
-    let Some(oracle) = price_oracle else {
-        return amount_str.to_string();
-    };
-
-    match amount.asset {
-        Asset::ETH | Asset::ZKC => {
-            if let Ok(usd) = oracle.convert(&amount, Asset::USD).await {
-                format!("{} (~{:.6})", amount_str, usd)
-            } else {
-                amount_str.to_string()
-            }
-        }
-        Asset::USD => {
-            if let Some(target_asset) = target {
-                if let Ok(converted) = oracle.convert(&amount, target_asset).await {
-                    return format!(
-                        "{:.6} (~{} currently, converted at runtime)",
-                        amount_str, converted
-                    );
-                }
-            }
-
-            // No target specified or conversion failed, just indicate runtime conversion
-            format!("{} (converted at runtime)", amount_str)
-        }
-    }
-}
-
-async fn try_convert_to_usd(
-    amount_str: &str,
-    price_oracle: Option<Arc<PriceOracleManager>>,
-) -> String {
-    let Ok(amount) = Amount::parse(amount_str, None) else {
-        return amount_str.to_string();
-    };
-
-    let Some(oracle) = price_oracle else {
-        return amount_str.to_string();
-    };
-
-    match amount.asset {
-        Asset::ETH | Asset::ZKC => {
-            if let Ok(usd) = oracle.convert(&amount, Asset::USD).await {
-                format!("{:.6}", usd)
-            } else {
-                amount_str.to_string()
-            }
-        }
-        Asset::USD => amount_str.to_string(),
-    }
 }
 
 /// Generate optimized broker.toml and compose.yml configuration files
@@ -529,8 +391,11 @@ impl ProverGenerateConfig {
             .context("Failed to query chain ID from RPC provider")?;
 
         // Initialize price oracle for dual-currency display
-        let price_oracle = match try_init_price_oracle(&rpc_url, display, chain_id).await {
-            Ok(oracle) => Some(oracle),
+        let price_oracle = match try_init_price_oracle(&rpc_url, chain_id).await {
+            Ok(oracle) => {
+                fetch_and_display_prices(oracle.clone(), display).await?;
+                Some(oracle)
+            }
             Err(e) => {
                 display.note(&format!("⚠  Price oracle initialization failed: {}", e));
                 display.note("   Collateral and pricing will be shown in single currency only.");

@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::primitives::{Address, U256};
+use alloy::{
+    primitives::{Address, U256},
+    providers::Provider,
+};
 use anyhow::{anyhow, bail, Context, Result};
 use boundless_market::{
     input::GuestEnvBuilder,
@@ -28,6 +31,7 @@ use url::Url;
 use crate::config::{GlobalConfig, RequestorConfig};
 use crate::config_ext::RequestorConfigExt;
 use crate::display::{convert_timestamp, network_name_from_chain_id, DisplayManager};
+use crate::price_oracle_helper::{fetch_and_display_prices, try_init_price_oracle};
 
 /// Submit a proof request constructed with the given offer, input, and image
 #[derive(Args, Clone, Debug)]
@@ -113,14 +117,25 @@ impl RequestorSubmitOffer {
         let requestor_config = self.requestor_config.clone().load_and_validate()?;
         requestor_config.require_private_key_with_help()?;
 
-        let client = requestor_config
-            .client_builder_with_signer(global_config.tx_timeout)?
-            .build()
-            .await
-            .context("Failed to build Boundless Client with signer")?;
+        let mut builder = requestor_config.client_builder_with_signer(global_config.tx_timeout)?;
+
+        // build the price oracle manager and add it to the client builder
+        let rpc_url = requestor_config.require_rpc_url()?;
+        let provider =
+            alloy::providers::ProviderBuilder::new().connect(rpc_url.clone().as_ref()).await?;
+        let chain_id = provider.get_chain_id().await?;
+
+        let price_oracle = try_init_price_oracle(&rpc_url, chain_id).await?;
+
+        builder = builder.with_price_oracle_manager(price_oracle.clone());
+
+        let client =
+            builder.build().await.context("Failed to build Boundless Client with signer")?;
 
         let network_name = network_name_from_chain_id(client.deployment.market_chain_id);
         let display = DisplayManager::with_network(network_name);
+
+        fetch_and_display_prices(price_oracle.clone(), &display).await?;
 
         let request = client.new_request();
 

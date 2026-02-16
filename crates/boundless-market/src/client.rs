@@ -49,10 +49,10 @@ use crate::{
     },
     prover_utils::local_executor::LocalExecutor,
     request_builder::{
-        FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder, ParameterizationMode,
-        PreflightLayer, RequestBuilder, RequestIdLayer, RequestIdLayerConfigBuilder,
-        StandardRequestBuilder, StandardRequestBuilderBuilderError, StorageLayer,
-        StorageLayerConfigBuilder,
+        Finalizer, FinalizerConfigBuilder, OfferLayer, OfferLayerConfigBuilder,
+        ParameterizationMode, PreflightLayer, RequestBuilder, RequestIdLayer,
+        RequestIdLayerConfigBuilder, StandardRequestBuilder, StandardRequestBuilderBuilderError,
+        StorageLayer, StorageLayerConfigBuilder,
     },
     storage::{
         StandardDownloader, StandardUploader, StorageDownloader, StorageError, StorageUploader,
@@ -459,7 +459,10 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
                 boundless_market.clone(),
                 self.request_id_layer_config.build()?,
             ))
-            .finalizer(self.request_finalizer_config.build()?)
+            .finalizer(
+                Finalizer::from(self.request_finalizer_config.build()?)
+                    .with_price_oracle_manager(self.price_oracle_manager.clone()),
+            )
             .build()?;
 
         let mut client = Client {

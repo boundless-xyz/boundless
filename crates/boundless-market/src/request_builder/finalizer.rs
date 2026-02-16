@@ -41,15 +41,43 @@ pub struct FinalizerConfig {
 /// This layer assembles the complete [ProofRequest] from its components and performs
 /// validation checks to ensure the request is valid before it is submitted.
 #[non_exhaustive]
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Finalizer {
     /// Configuration controlling the finalization process.
     pub config: FinalizerConfig,
+    /// Optional price oracle manager for USD conversions in OfferParams.
+    /// Required if OfferParams contains USD-denominated amounts.
+    pub price_oracle_manager: Option<std::sync::Arc<crate::price_oracle::PriceOracleManager>>,
+}
+
+impl std::fmt::Debug for Finalizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Finalizer")
+            .field("config", &self.config)
+            .field(
+                "price_oracle_manager",
+                &self.price_oracle_manager.as_ref().map(|_| "<PriceOracleManager>"),
+            )
+            .finish()
+    }
 }
 
 impl From<FinalizerConfig> for Finalizer {
     fn from(config: FinalizerConfig) -> Self {
-        Self { config }
+        Self { config, price_oracle_manager: None }
+    }
+}
+
+impl Finalizer {
+    /// Set the price oracle manager for USD conversions.
+    ///
+    /// The price oracle manager is required if [OfferParams] contains
+    /// USD-denominated amounts for pricing or collateral fields.
+    pub fn with_price_oracle_manager(
+        self,
+        price_oracle_manager: Option<std::sync::Arc<crate::price_oracle::PriceOracleManager>>,
+    ) -> Self {
+        Self { price_oracle_manager, ..self }
     }
 }
 
@@ -127,7 +155,8 @@ impl Adapt<Finalizer> for RequestParams {
         let offer: Offer = self
             .offer
             .clone()
-            .try_into()
+            .into_offer(layer.price_oracle_manager.as_deref())
+            .await
             .context("failed to build request: offer is incomplete")?;
         let request_id = self.require_request_id().context("failed to build request")?.clone();
 
