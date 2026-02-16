@@ -95,6 +95,8 @@ pub struct SlashServiceConfig {
     pub skip_addresses: Vec<Address>,
     pub tx_timeout: Duration,
     pub max_block_range: u64,
+    /// Blocks to subtract from latest when "safe" is not available (0 = use latest; used by tests).
+    pub block_confirmation_delay: u64,
 }
 
 impl SlashService<ProviderWallet> {
@@ -538,24 +540,26 @@ where
         Ok(())
     }
 
-    /// Returns the latest confirmed block number (safe head), or latest minus a small delay
+    /// Returns the latest confirmed block number (safe head), or latest minus a delay
     /// if the RPC does not support the "safe" tag. Using a confirmed block avoids "invalid
     /// block range params" errors when querying logs, especially on Base mainnet.
+    /// When config.block_confirmation_delay is 0 (e.g. in tests), uses latest directly.
     async fn current_block(&self) -> Result<u64, ServiceError> {
-        const FALLBACK_CONFIRMATION_DELAY: u64 = 2;
         let provider = self.boundless_market.instance().provider();
-        // Prefer "safe" block so we don't query the unstable tip
+        if self.config.block_confirmation_delay == 0 {
+            return Ok(provider.get_block_number().await?);
+        }
         match provider.get_block_by_number(BlockNumberOrTag::Safe).await {
             Ok(Some(block)) => Ok(block.header.number),
             Ok(None) => {
                 tracing::debug!("RPC returned no 'safe' block, using latest minus delay");
                 let latest = provider.get_block_number().await?;
-                Ok(latest.saturating_sub(FALLBACK_CONFIRMATION_DELAY))
+                Ok(latest.saturating_sub(self.config.block_confirmation_delay))
             }
             Err(e) => {
                 tracing::warn!("Error getting 'safe' block: {:?}, using latest minus delay", e);
                 let latest = provider.get_block_number().await?;
-                Ok(latest.saturating_sub(FALLBACK_CONFIRMATION_DELAY))
+                Ok(latest.saturating_sub(self.config.block_confirmation_delay))
             }
         }
     }
