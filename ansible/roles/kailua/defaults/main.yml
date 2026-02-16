@@ -26,6 +26,8 @@ kailua_svm_version: "0.8.24"
 kailua_source_build_dir: "/tmp/kailua-src"
 # Install binary to this directory (should be on PATH, e.g. /usr/local/bin).
 kailua_install_dir: "/usr/local/bin"
+# Installed CLI binary path.
+kailua_binary_path: "{{ kailua_install_dir }}/kailua-cli"
 # Remove clone dir after installing binary.
 kailua_source_clean_build_dir: true
 

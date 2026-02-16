@@ -54,7 +54,11 @@ function ensureCargoLambdaInstalled(): void {
     }
 }
 
-export function createRustLambda(name: string, options: RustLambdaOptions): { lambda: aws.lambda.Function, logGroupName: pulumi.Output<string> } {
+export function createRustLambda(
+    name: string,
+    options: RustLambdaOptions,
+    resourceOptions?: pulumi.CustomResourceOptions,
+): { lambda: aws.lambda.Function, logGroupName: pulumi.Output<string> } {
     ensureCargoLambdaInstalled();
 
     const nameSuffix = options.nameSuffix ?? '';
@@ -121,9 +125,11 @@ export function createRustLambda(name: string, options: RustLambdaOptions): { la
         };
     }
 
-    const lambda = new aws.lambda.Function(`${name}-lambda-${nameSuffix}`, lambdaArgs, {
+    const lambdaResourceOptions = pulumi.mergeOptions(resourceOptions, {
         dependsOn: [logGroup],
     });
+
+    const lambda = new aws.lambda.Function(`${name}-lambda-${nameSuffix}`, lambdaArgs, lambdaResourceOptions);
     const logGroupName = logGroup.name;
 
     // Create the Lambda function
