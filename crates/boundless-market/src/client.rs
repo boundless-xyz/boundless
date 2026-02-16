@@ -120,7 +120,7 @@ pub struct ClientBuilder<U, D, S> {
     pub storage_layer_config: StorageLayerConfigBuilder,
     /// Configuration builder for [RequestIdLayer], part of [StandardRequestBuilder].
     pub request_id_layer_config: RequestIdLayerConfigBuilder,
-    /// Configuration builder for [Finalizer][crate::request_builder::Finalizer], part of [StandardRequestBuilder].
+    /// Configuration builder for [Finalizer], part of [StandardRequestBuilder].
     pub request_finalizer_config: FinalizerConfigBuilder,
     /// Funding mode for onchain requests.
     ///
@@ -784,7 +784,7 @@ impl<U, D, S> ClientBuilder<U, D, S> {
         self
     }
 
-    /// Modify the [Finalizer][crate::request_builder::Finalizer] configuration used in the [StandardRequestBuilder].
+    /// Modify the [Finalizer] configuration used in the [StandardRequestBuilder].
     pub fn config_request_finalizer(
         mut self,
         f: impl FnOnce(&mut FinalizerConfigBuilder) -> &mut FinalizerConfigBuilder,
