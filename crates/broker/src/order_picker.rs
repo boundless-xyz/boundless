@@ -2692,13 +2692,21 @@ pub(crate) mod tests {
         let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
-        // Should be limited by timing constraints
-        // Prove window: 60 seconds -> 60M cycles max
-        // Both should be capped at 60M cycles despite high prices
+        // Should be limited by timing constraints (peak_prove_khz = 1000 → 1M cycles/sec).
+        // prove_window = lock_expires_at - now ≈ lock_timeout = 60s → ~60M cycles.
+        //
+        // prove_limit may drift down by a few seconds of wall-clock time elapsed between
+        // order creation (bidding_start = now()) and the now() call inside
+        // calculate_exec_limits. preflight_limit is stable because it takes the max
+        // with the fulfill-after-expiry window (timeout - lock_timeout = 60s), which
+        // is constant and not subject to drift.
         let expected_cycles = 60_000_000u64;
 
         assert_eq!(preflight_limit, expected_cycles);
-        assert_eq!(prove_limit, expected_cycles);
+        assert!(
+            prove_limit <= expected_cycles && prove_limit >= expected_cycles - 5_000_000,
+            "prove_limit {prove_limit} should be in [55M, 60M]"
+        );
     }
 
     #[tokio::test]
@@ -2771,11 +2779,20 @@ pub(crate) mod tests {
         let (preflight_limit, prove_limit, _reason) =
             ctx.picker.calculate_exec_limits(&order, gas_cost).unwrap();
 
-        // Should be limited by very short deadline: 1 second = 1M cycles
+        // Should be limited by very short deadline (peak_prove_khz = 1000 → 1M cycles/sec).
+        // prove_window = lock_expires_at - now ≈ 1s → ~1M cycles.
+        //
+        // prove_limit may drop to 0 if even 1 second elapses between order creation
+        // and calculate_exec_limits. preflight_limit is stable because it takes the
+        // max with the fulfill-after-expiry window (timeout - lock_timeout = 1s = 1M
+        // cycles), which is constant.
         let expected_cycles = 1_000_000u64;
 
         assert_eq!(preflight_limit, expected_cycles);
-        assert_eq!(prove_limit, expected_cycles);
+        assert!(
+            prove_limit <= expected_cycles,
+            "prove_limit {prove_limit} should be at most {expected_cycles}"
+        );
     }
 
     #[tokio::test]
