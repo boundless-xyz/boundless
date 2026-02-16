@@ -142,6 +142,7 @@ async fn try_init_price_oracle(
 /// Format an amount with its USD equivalent (or native equivalent for USD amounts)
 async fn format_amount_with_conversion(
     amount_str: &str,
+    target: Option<Asset>,
     price_oracle: Option<Arc<PriceOracleManager>>,
 ) -> String {
     let Ok(amount) = Amount::parse(amount_str, None) else {
@@ -155,15 +156,48 @@ async fn format_amount_with_conversion(
     match amount.asset {
         Asset::ETH | Asset::ZKC => {
             if let Ok(usd) = oracle.convert(&amount, Asset::USD).await {
-                format!("{} (~{})", amount_str, usd.format())
+                format!("{} (~{:.6})", amount_str, usd)
             } else {
                 amount_str.to_string()
             }
         }
         Asset::USD => {
-            // USD amounts show "converted at runtime" since we need context to know target
+            if let Some(target_asset) = target {
+                if let Ok(converted) = oracle.convert(&amount, target_asset).await {
+                    return format!(
+                        "{:.6} (~{} currently, converted at runtime)",
+                        amount_str, converted
+                    );
+                }
+            }
+
+            // No target specified or conversion failed, just indicate runtime conversion
             format!("{} (converted at runtime)", amount_str)
         }
+    }
+}
+
+async fn try_convert_to_usd(
+    amount_str: &str,
+    price_oracle: Option<Arc<PriceOracleManager>>,
+) -> String {
+    let Ok(amount) = Amount::parse(amount_str, None) else {
+        return amount_str.to_string();
+    };
+
+    let Some(oracle) = price_oracle else {
+        return amount_str.to_string();
+    };
+
+    match amount.asset {
+        Asset::ETH | Asset::ZKC => {
+            if let Ok(usd) = oracle.convert(&amount, Asset::USD).await {
+                format!("{:.6}", usd)
+            } else {
+                amount_str.to_string()
+            }
+        }
+        Asset::USD => amount_str.to_string(),
     }
 }
 
@@ -506,11 +540,11 @@ impl ProverGenerateConfig {
 
         let recommended_collateral = match priority_requestor_lists.len() {
             1 => &format!(
-                "{} ZKC",
+                "{} USD",
                 boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
             ),
-            2 => "200 ZKC",
-            _ => "500 ZKC",
+            2 => "30 USD",
+            _ => "80 USD",
         };
 
         display.note(&format!(
@@ -519,17 +553,25 @@ impl ProverGenerateConfig {
         ));
         display.note(&format!(
             "  • {}: Recommended for the standard requestor list",
-            format_amount_with_conversion("50 ZKC", price_oracle.clone()).await
+            format_amount_with_conversion(
+                &format!(
+                    "{} USD",
+                    boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
+                ),
+                Some(Asset::ZKC),
+                price_oracle.clone()
+            )
+            .await
         ));
         display.note("    (lower risk)");
         display.note(&format!(
             "  • {}: Recommended for standard + large lists",
-            format_amount_with_conversion("200 ZKC", price_oracle.clone()).await
+            format_amount_with_conversion("50 USD", Some(Asset::ZKC), price_oracle.clone()).await
         ));
         display.note("    (large orders, higher rewards, higher risk)");
         display.note(&format!(
             "  • {}: Recommended for standard + large + XL lists",
-            format_amount_with_conversion("500 ZKC", price_oracle.clone()).await
+            format_amount_with_conversion("100 USD", Some(Asset::ZKC), price_oracle.clone()).await
         ));
         display.note("    (largest orders, highest rewards, highest risk)");
         display.note("");
@@ -595,21 +637,39 @@ impl ProverGenerateConfig {
             Ok(price_percentiles) => {
                 display.item_colored(
                     "Median price",
-                    format!(
-                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                        format_units(price_percentiles.p50 * U256::from(1_000_000), "ether")?,
-                        format_units(price_percentiles.p50 * U256::from(1_000_000), "gwei")?,
-                        format_units(price_percentiles.p50, "wei")?
+                    &format!(
+                        "{} / Mcycle",
+                        format_amount_with_conversion(
+                            &format!(
+                                "{} ETH",
+                                format_units(
+                                    price_percentiles.p50 * U256::from(1_000_000),
+                                    "ether"
+                                )?
+                            ),
+                            None,
+                            price_oracle.clone()
+                        )
+                        .await,
                     ),
                     "cyan",
                 );
                 display.item_colored(
                     "25th percentile",
-                    format!(
-                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                        format_units(price_percentiles.p25 * U256::from(1_000_000), "ether")?,
-                        format_units(price_percentiles.p25 * U256::from(1_000_000), "gwei")?,
-                        format_units(price_percentiles.p25, "wei")?
+                    &format!(
+                        "{} / Mcycle",
+                        format_amount_with_conversion(
+                            &format!(
+                                "{} ETH",
+                                format_units(
+                                    price_percentiles.p25 * U256::from(1_000_000),
+                                    "ether"
+                                )?
+                            ),
+                            None,
+                            price_oracle.clone()
+                        )
+                        .await,
                     ),
                     "cyan",
                 );
@@ -629,6 +689,7 @@ impl ProverGenerateConfig {
                 "Recommended minimum price: {} / Mcycle",
                 format_amount_with_conversion(
                     &format!("{} ETH", format_units(pricing.p25 * U256::from(1_000_000), "ether")?),
+                    None,
                     price_oracle.clone()
                 )
                 .await,
@@ -651,7 +712,14 @@ impl ProverGenerateConfig {
 
             prompt_validated_amount(
                 "Minimum price per Mcycle:",
-                &format!("{:.10}", pricing.p25),
+                &try_convert_to_usd(
+                    &format!(
+                        "{} ETH",
+                        &format_units(pricing.p25 * U256::from(1_000_000), "ether")?
+                    ),
+                    price_oracle.clone(),
+                )
+                .await,
                 "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
                 &[Asset::USD, Asset::ETH],
                 "min_mcycle_price",
@@ -659,7 +727,7 @@ impl ProverGenerateConfig {
         } else {
             // Fallback to manual entry if query failed
             Text::new("Minimum price per mcycle (ETH):")
-                .with_default("0.00000001")
+                .with_default("0.00000001 ETH")
                 .with_help_message("You can update this later in broker.toml")
                 .prompt()
                 .context("Failed to get price")?
@@ -683,6 +751,7 @@ impl ProverGenerateConfig {
             "The recommended price per Mcycle is: {}",
             format_amount_with_conversion(
                 DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
+                None,
                 price_oracle.clone(),
             )
             .await

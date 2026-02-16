@@ -45,6 +45,15 @@ impl Asset {
             Asset::ZKC => 18,
         }
     }
+
+    /// Returns the default number of decimal places for human-readable display
+    pub fn display_decimals(&self) -> usize {
+        match self {
+            Asset::USD => 4,
+            Asset::ETH => 8,
+            Asset::ZKC => 6,
+        }
+    }
 }
 
 impl FromStr for Asset {
@@ -166,15 +175,21 @@ impl Amount {
         Ok(amount)
     }
 
-    /// Format as human-readable string (e.g., "1.5 ETH")
+    /// Format for display with a specific number of decimal places, with rounding.
+    pub fn format_display(&self, decimals: usize) -> String {
+        format_amount_rounded(self.value, self.asset, decimals)
+    }
+
+    /// Format for display using the asset's default decimal places.
     pub fn format(&self) -> String {
-        format_amount(self.value, self.asset)
+        self.format_display(self.asset.display_decimals())
     }
 }
 
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.format())
+        let decimals = f.precision().unwrap_or(self.asset.display_decimals());
+        write!(f, "{}", self.format_display(decimals))
     }
 }
 
@@ -236,11 +251,52 @@ pub fn format_amount(value: U256, asset: Asset) -> String {
     format!("{formatted} {asset}")
 }
 
+/// Format a value with rounding to a specific number of decimal places.
+/// Uses round-half-up rounding and trims trailing zeros.
+fn format_amount_rounded(value: U256, asset: Asset, display_decimals: usize) -> String {
+    let total_decimals = asset.decimals() as usize;
+
+    // If display decimals >= total decimals, no rounding needed
+    if display_decimals >= total_decimals {
+        return format_amount(value, asset);
+    }
+
+    // Round: divisor = 10^(total_decimals - display_decimals)
+    let shift = total_decimals - display_decimals;
+    let divisor = U256::from(10u64).pow(U256::from(shift));
+    let half = divisor / U256::from(2);
+    let rounded = (value + half) / divisor;
+
+    // If rounding would show zero but value is non-zero, fall back to lossless format
+    if rounded == U256::ZERO && value > U256::ZERO {
+        return format_amount(value, asset);
+    }
+
+    // Now `rounded` has `display_decimals` implicit decimal places
+    let s = rounded.to_string();
+
+    if display_decimals == 0 {
+        return format!("{s} {asset}");
+    }
+
+    let formatted = if s.len() <= display_decimals {
+        format!("0.{:0>width$}", s, width = display_decimals)
+    } else {
+        let (integer, fraction) = s.split_at(s.len() - display_decimals);
+        format!("{integer}.{fraction}")
+    };
+
+    // Trim trailing zeros for cleaner display
+    let formatted = formatted.trim_end_matches('0').trim_end_matches('.');
+
+    format!("{formatted} {asset}")
+}
+
 // ============ Serde ============
 
 impl Serialize for Amount {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.format())
+        serializer.serialize_str(&format_amount(self.value, self.asset))
     }
 }
 
@@ -451,6 +507,87 @@ mod tests {
 
         let result = Amount::parse_with_allowed("1.5", &[Asset::ETH, Asset::ZKC], Some(Asset::USD));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_display_usd() {
+        let amount = Amount::parse("1.234567 USD", None).unwrap();
+        // Default 4 decimals, should round 1.234567 to 1.2346
+        assert_eq!(amount.format(), "1.2346 USD");
+        // Explicit 2 decimals
+        assert_eq!(amount.format_display(2), "1.23 USD");
+        // Explicit 6 decimals (no rounding)
+        assert_eq!(amount.format_display(6), "1.234567 USD");
+        // Formatter precision
+        assert_eq!(format!("{:.2}", amount), "1.23 USD");
+    }
+
+    #[test]
+    fn test_format_display_eth() {
+        let amount = Amount::parse("1.123456789012345678 ETH", None).unwrap();
+        // Default 8 decimals, should round
+        assert_eq!(amount.format(), "1.12345679 ETH");
+        // Explicit 2 decimals
+        assert_eq!(amount.format_display(2), "1.12 ETH");
+        // Explicit 18 decimals (no rounding)
+        assert_eq!(amount.format_display(18), "1.123456789012345678 ETH");
+        // Formatter precision
+        assert_eq!(format!("{:.4}", amount), "1.1235 ETH");
+    }
+
+    #[test]
+    fn test_rounding_half_up() {
+        // 1.1255 USD with 4 decimals should stay 1.1255
+        let amount = Amount::parse("1.1255 USD", None).unwrap();
+        assert_eq!(amount.format_display(4), "1.1255 USD");
+
+        // With 3 decimals, 1.1255 rounds to 1.126 (round half up)
+        assert_eq!(amount.format_display(3), "1.126 USD");
+
+        // With 2 decimals, 1.1255 rounds to 1.13
+        assert_eq!(amount.format_display(2), "1.13 USD");
+    }
+
+    #[test]
+    fn test_format_display_zero() {
+        let amount = Amount::parse("0 ETH", None).unwrap();
+        assert_eq!(amount.format(), "0 ETH");
+        assert_eq!(amount.format_display(2), "0 ETH");
+    }
+
+    #[test]
+    fn test_format_display_non_zero_rounds_to_zero() {
+        // Very small amount that would round to zero with default decimals
+        let amount = Amount::parse("0.000000001 ETH", None).unwrap();
+        // With 8 default decimals, this would round to 0, so we fall back to lossless
+        assert_eq!(amount.format(), "0.000000001 ETH");
+        // Explicitly asking for 0 decimals should also fall back
+        assert_eq!(amount.format_display(0), "0.000000001 ETH");
+    }
+
+    #[test]
+    fn test_serialize_preserves_precision() {
+        use serde_json;
+
+        let amount = Amount::parse("1.123456789012345678 ETH", None).unwrap();
+        let serialized = serde_json::to_string(&amount).unwrap();
+        // Serialization preserves all significant digits
+        assert!(serialized.contains("1.123456789012345678 ETH"));
+
+        // Roundtrip
+        let deserialized: Amount = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, amount);
+    }
+
+    #[test]
+    fn test_trailing_zeros_trimmed() {
+        // 1.5000 USD should display as 1.5 USD
+        let amount = Amount::parse("1.5 USD", None).unwrap();
+        assert_eq!(amount.format_display(4), "1.5 USD");
+
+        // 2.0 ETH should display as 2 ETH
+        let amount = Amount::parse("2.0 ETH", None).unwrap();
+        assert_eq!(amount.format_display(8), "2 ETH");
     }
 }
 

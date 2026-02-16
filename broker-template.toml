@@ -23,7 +23,7 @@
 # cycle count, and the current price of the order, the broker computes the
 # current price per mega-cycle being offered for the order. This value is compared to the
 # `min_mcycle_price` to determine if the order should be locked.
-min_mcycle_price = "0.00001 USD"
+min_mcycle_price = "0.00002 USD"
 
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
 # to attempt to fulfill an order in the case that the order was locked by another prover
@@ -77,7 +77,7 @@ priority_requestor_lists = [
 # Examples: "100 USD", "200 ZKC", "200"
 #
 # Requests that require a higher collateral amount than this will be skipped.
-max_collateral = "200 ZKC"
+max_collateral = "10 USD"
 
 # Maximum number of orders to concurrently preflight.
 #

@@ -128,8 +128,8 @@ pub mod defaults {
         0
     }
 
-    /// Recommended max collateral for standard requestor list (lower risk).
-    pub const MAX_COLLATERAL_STANDARD: &str = "50";
+    /// Recommended max collateral for standard requestor list (lower risk) in USD.
+    pub const MAX_COLLATERAL_STANDARD: &str = "10";
 
     pub const fn min_deadline() -> u64 {
         // Currently 150 seconds
@@ -506,7 +506,7 @@ impl Default for MarketConfig {
         // Allow use of assumption_price until it is removed.
         #[allow(deprecated)]
         Self {
-            min_mcycle_price: Amount::parse("0.02 USD", None).expect("valid default"),
+            min_mcycle_price: Amount::parse("0.00002 USD", None).expect("valid default"),
             min_mcycle_price_collateral_token: Amount::parse("0.001 ZKC", None)
                 .expect("valid default"),
             assumption_price: None,
@@ -521,7 +521,7 @@ impl Default for MarketConfig {
             lookback_blocks: defaults::lookback_blocks(),
             events_poll_blocks: defaults::events_poll_blocks(),
             events_poll_ms: defaults::events_poll_ms(),
-            max_collateral: Amount::parse("50 ZKC", None).expect("valid default"),
+            max_collateral: Amount::parse("10 USD", None).expect("valid default"),
             allow_client_addresses: None,
             deny_requestor_addresses: None,
             gas_priority_mode: defaults::priority_mode(),
