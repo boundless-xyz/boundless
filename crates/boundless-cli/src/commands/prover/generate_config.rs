@@ -17,15 +17,16 @@ use crate::commands::prover::benchmark::BenchmarkResult;
 use crate::config::{GlobalConfig, ProverConfig, ProvingBackendConfig};
 use crate::config_file::Config;
 use crate::display::{obscure_url, DisplayManager};
+use crate::price_oracle_helper::{
+    fetch_and_display_prices, format_amount_with_conversion, prompt_validated_amount,
+    try_convert_to_usd, try_init_price_oracle,
+};
 use alloy::primitives::utils::format_units;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
-use alloy_chains::NamedChain;
 use anyhow::{bail, Context, Result};
 use boundless_market::indexer_client::IndexerClient;
-use boundless_market::price_oracle::{
-    Amount, Asset, PriceOracleConfig, PriceOracleManager, TradingPair,
-};
+use boundless_market::price_oracle::Asset;
 use boundless_market::price_provider::{
     MarketPricing, MarketPricingConfigBuilder, PriceProvider, StandardPriceProvider,
 };
@@ -36,7 +37,6 @@ use chrono::Utc;
 use clap::Args;
 use inquire::{Confirm, Select, Text};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use url::Url;
 
 // Priority requestor list URLs
@@ -61,110 +61,6 @@ mod selection_strings {
     pub const FILE_MODIFY_EXISTING: &str = "Modify existing";
     pub const FILE_GENERATE_NEW: &str = "Generate new";
     pub const FILE_CANCEL: &str = "Cancel";
-}
-
-/// Validate and normalize amount input using the same validation as config parsing
-fn validate_amount_input(
-    input: &str,
-    allowed_assets: &[Asset],
-    field_name: &str,
-) -> Result<String> {
-    Amount::parse_with_allowed(input, allowed_assets)
-        .map(|_| input.trim().to_string())
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid {} format: {}. Expected format: '<value> <asset>' where asset is one of: {}",
-                field_name,
-                e,
-                allowed_assets.iter().map(|a| format!("{:?}", a)).collect::<Vec<_>>().join(", ")
-            )
-        })
-}
-
-/// Prompt for amount with validation and retry on invalid input
-fn prompt_validated_amount(
-    prompt_text: &str,
-    default: &str,
-    help_message: &str,
-    allowed_assets: &[Asset],
-    field_name: &str,
-) -> Result<String> {
-    loop {
-        let input = Text::new(prompt_text)
-            .with_default(default)
-            .with_help_message(help_message)
-            .prompt()
-            .context("Failed to get user input")?;
-
-        match validate_amount_input(&input, allowed_assets, field_name) {
-            Ok(validated) => return Ok(validated),
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                eprintln!("Please try again.\n");
-            }
-        }
-    }
-}
-
-/// Try to initialize a price oracle for dual-currency display
-/// Returns None if price fetching fails (display will fall back to single currency)
-async fn try_init_price_oracle(
-    rpc_url: &Url,
-    display: &DisplayManager,
-    chain_id: u64,
-) -> Result<Arc<PriceOracleManager>, anyhow::Error> {
-    display.status("Status", "Fetching current market prices...", "yellow");
-
-    let provider = alloy::providers::ProviderBuilder::new().connect(rpc_url.as_ref()).await?;
-
-    // Build price oracle from default config (uses Chainlink on-chain)
-    let config = PriceOracleConfig::default();
-    let named_chain = NamedChain::try_from(chain_id)?;
-
-    let manager = config.build(named_chain, provider)?;
-    manager.refresh_all_rates().await;
-
-    // Fetch initial prices
-    let (eth_result, zkc_result) =
-        tokio::join!(manager.get_rate(TradingPair::EthUsd), manager.get_rate(TradingPair::ZkcUsd),);
-
-    match (eth_result, zkc_result) {
-        (Ok(eth_quote), Ok(zkc_quote)) => {
-            display.item_colored("ETH/USD", format!("${:.2}", eth_quote.rate_to_f64()), "cyan");
-            display.item_colored("ZKC/USD", format!("${:.4}", zkc_quote.rate_to_f64()), "cyan");
-
-            Ok(Arc::new(manager))
-        }
-        _ => Err(anyhow::anyhow!("⚠  Could not fetch prices from price oracle")),
-    }
-}
-
-/// Format an amount with its USD equivalent (or native equivalent for USD amounts)
-async fn format_amount_with_conversion(
-    amount_str: &str,
-    price_oracle: Option<Arc<PriceOracleManager>>,
-) -> String {
-    let Ok(amount) = Amount::parse(amount_str) else {
-        return amount_str.to_string();
-    };
-
-    let Some(oracle) = price_oracle else {
-        return amount_str.to_string();
-    };
-
-    match amount.asset {
-        Asset::ETH | Asset::ZKC => {
-            if let Ok(usd) = oracle.convert(&amount, Asset::USD).await {
-                format!("{} (~{})", amount_str, usd.format())
-            } else {
-                amount_str.to_string()
-            }
-        }
-        Asset::USD => {
-            // USD amounts show "converted at runtime" since we need context to know target
-            format!("{} (converted at runtime)", amount_str)
-        }
-    }
 }
 
 /// Generate optimized broker.toml and compose.yml configuration files
@@ -495,8 +391,11 @@ impl ProverGenerateConfig {
             .context("Failed to query chain ID from RPC provider")?;
 
         // Initialize price oracle for dual-currency display
-        let price_oracle = match try_init_price_oracle(&rpc_url, display, chain_id).await {
-            Ok(oracle) => Some(oracle),
+        let price_oracle = match try_init_price_oracle(&rpc_url, chain_id).await {
+            Ok(oracle) => {
+                fetch_and_display_prices(oracle.clone(), display).await?;
+                Some(oracle)
+            }
             Err(e) => {
                 display.note(&format!("⚠  Price oracle initialization failed: {}", e));
                 display.note("   Collateral and pricing will be shown in single currency only.");
@@ -506,11 +405,11 @@ impl ProverGenerateConfig {
 
         let recommended_collateral = match priority_requestor_lists.len() {
             1 => &format!(
-                "{} ZKC",
+                "{} USD",
                 boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
             ),
-            2 => "200 ZKC",
-            _ => "500 ZKC",
+            2 => "30 USD",
+            _ => "80 USD",
         };
 
         display.note(&format!(
@@ -519,17 +418,25 @@ impl ProverGenerateConfig {
         ));
         display.note(&format!(
             "  • {}: Recommended for the standard requestor list",
-            format_amount_with_conversion("50 ZKC", price_oracle.clone()).await
+            format_amount_with_conversion(
+                &format!(
+                    "{} USD",
+                    boundless_market::prover_utils::config::defaults::MAX_COLLATERAL_STANDARD
+                ),
+                Some(Asset::ZKC),
+                price_oracle.clone()
+            )
+            .await
         ));
         display.note("    (lower risk)");
         display.note(&format!(
             "  • {}: Recommended for standard + large lists",
-            format_amount_with_conversion("200 ZKC", price_oracle.clone()).await
+            format_amount_with_conversion("50 USD", Some(Asset::ZKC), price_oracle.clone()).await
         ));
         display.note("    (large orders, higher rewards, higher risk)");
         display.note(&format!(
             "  • {}: Recommended for standard + large + XL lists",
-            format_amount_with_conversion("500 ZKC", price_oracle.clone()).await
+            format_amount_with_conversion("100 USD", Some(Asset::ZKC), price_oracle.clone()).await
         ));
         display.note("    (largest orders, highest rewards, highest risk)");
         display.note("");
@@ -595,21 +502,39 @@ impl ProverGenerateConfig {
             Ok(price_percentiles) => {
                 display.item_colored(
                     "Median price",
-                    format!(
-                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                        format_units(price_percentiles.p50 * U256::from(1_000_000), "ether")?,
-                        format_units(price_percentiles.p50 * U256::from(1_000_000), "gwei")?,
-                        format_units(price_percentiles.p50, "wei")?
+                    &format!(
+                        "{} / Mcycle",
+                        format_amount_with_conversion(
+                            &format!(
+                                "{} ETH",
+                                format_units(
+                                    price_percentiles.p50 * U256::from(1_000_000),
+                                    "ether"
+                                )?
+                            ),
+                            None,
+                            price_oracle.clone()
+                        )
+                        .await,
                     ),
                     "cyan",
                 );
                 display.item_colored(
                     "25th percentile",
-                    format!(
-                        "{} ETH/Mcycle ({} Gwei/Mcycle, {} wei/cycle)",
-                        format_units(price_percentiles.p25 * U256::from(1_000_000), "ether")?,
-                        format_units(price_percentiles.p25 * U256::from(1_000_000), "gwei")?,
-                        format_units(price_percentiles.p25, "wei")?
+                    &format!(
+                        "{} / Mcycle",
+                        format_amount_with_conversion(
+                            &format!(
+                                "{} ETH",
+                                format_units(
+                                    price_percentiles.p25 * U256::from(1_000_000),
+                                    "ether"
+                                )?
+                            ),
+                            None,
+                            price_oracle.clone()
+                        )
+                        .await,
                     ),
                     "cyan",
                 );
@@ -629,6 +554,7 @@ impl ProverGenerateConfig {
                 "Recommended minimum price: {} / Mcycle",
                 format_amount_with_conversion(
                     &format!("{} ETH", format_units(pricing.p25 * U256::from(1_000_000), "ether")?),
+                    None,
                     price_oracle.clone()
                 )
                 .await,
@@ -651,7 +577,14 @@ impl ProverGenerateConfig {
 
             prompt_validated_amount(
                 "Minimum price per Mcycle:",
-                &format!("{:.10}", pricing.p25),
+                &try_convert_to_usd(
+                    &format!(
+                        "{} ETH",
+                        &format_units(pricing.p25 * U256::from(1_000_000), "ether")?
+                    ),
+                    price_oracle.clone(),
+                )
+                .await,
                 "Format: '<value> ETH' or '<value> USD'. You can update this later in broker.toml",
                 &[Asset::USD, Asset::ETH],
                 "min_mcycle_price",
@@ -659,7 +592,7 @@ impl ProverGenerateConfig {
         } else {
             // Fallback to manual entry if query failed
             Text::new("Minimum price per mcycle (ETH):")
-                .with_default("0.00000001")
+                .with_default("0.00000001 ETH")
                 .with_help_message("You can update this later in broker.toml")
                 .prompt()
                 .context("Failed to get price")?
@@ -683,6 +616,7 @@ impl ProverGenerateConfig {
             "The recommended price per Mcycle is: {}",
             format_amount_with_conversion(
                 DEFAULT_MIN_MCYCLE_PRICE_COLLATERAL_TOKEN,
+                None,
                 price_oracle.clone(),
             )
             .await

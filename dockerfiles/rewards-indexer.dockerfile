@@ -8,7 +8,7 @@ SHELL ["/bin/bash", "-c"]
 
 RUN cargo install cargo-chef
 
-ARG CACHE_DATE=2025-07-17  # update this date to force rebuild
+ARG CACHE_DATE=2026-02-13  # update this date to force rebuild
 # The rewards indexer doesn't need r0vm to run, but cargo chef pulls in dev-dependencies
 # which require it. See https://github.com/LukeMathWalker/cargo-chef/issues/114
 #

@@ -801,6 +801,18 @@ pub struct RequestorAggregateEntry {
     /// Total cycles (program + overhead) computed across all fulfilled requests in this period
     pub total_cycles: String,
 
+    /// Total fixed cost (gas cost) across all locked requests in this period (as string in wei)
+    pub total_fixed_cost: String,
+
+    /// Total fixed cost (formatted for display)
+    pub total_fixed_cost_formatted: String,
+
+    /// Total variable cost (proving cost) across all locked requests in this period (as string in wei)
+    pub total_variable_cost: String,
+
+    /// Total variable cost (formatted for display)
+    pub total_variable_cost_formatted: String,
+
     /// Epoch number at the start of this period (None if timestamp is before epoch 0)
     pub epoch_number_start: Option<i64>,
 }
@@ -1756,6 +1768,10 @@ async fn get_requestor_aggregates_impl(
                     .locked_orders_fulfillment_rate_adjusted,
                 total_program_cycles: summary.total_program_cycles.to_string(),
                 total_cycles: summary.total_cycles.to_string(),
+                total_fixed_cost: summary.total_fixed_cost.to_string(),
+                total_fixed_cost_formatted: format_eth(&summary.total_fixed_cost.to_string()),
+                total_variable_cost: summary.total_variable_cost.to_string(),
+                total_variable_cost_formatted: format_eth(&summary.total_variable_cost.to_string()),
                 epoch_number_start,
             }
         })

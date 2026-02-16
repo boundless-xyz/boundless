@@ -181,12 +181,6 @@ where
 
         let market =
             BoundlessMarketService::new_for_broker(market_addr, provider.clone(), Address::ZERO);
-        // let event: Event<_, _, IBoundlessMarket::RequestSubmitted, _> = Event::new(
-        //     provider.clone(),
-        //     Filter::new().from_block(start_block).address(market_addr),
-        // );
-
-        // let logs = event.query().await.context("Failed to query RequestSubmitted events")?;
 
         let filter = Filter::new()
             .event_signature(IBoundlessMarket::RequestSubmitted::SIGNATURE_HASH)
@@ -417,7 +411,14 @@ where
 
         loop {
             tokio::select! {
-                Some(log_result) = stream.next() => {
+                log_result = stream.next() => {
+                    let Some(log_result) = log_result else {
+                        // This code path should be unreachable, but is defensive in case
+                        // the stream is closed unexpectedly.
+                        return Err(MarketMonitorErr::EventPollingErr(
+                            anyhow::anyhow!("Event stream ended unexpectedly"),
+                        ));
+                    };
                     match log_result {
                         Ok((event, log)) => {
                             match event {
@@ -535,8 +536,8 @@ where
                             }
                         }
                         Err(err) => {
-                            let event_err = MarketMonitorErr::EventPollingErr(anyhow::anyhow!(err));
-                            tracing::error!("Combined event stream error: {event_err:?}");
+                            tracing::error!("Event stream error: {err:?}");
+                            return Err(err);
                         }
                     }
                 }
@@ -892,6 +893,55 @@ mod tests {
         .unwrap();
         assert_eq!(fulfillment_data, expected_fulfillment_data);
         assert_eq!(seal, fulfillment.seal);
+    }
+
+    /// Verifies that poll_market_events yields an error and terminates when the
+    /// filter_fn fails, which (with the monitor_market fix) causes the monitor
+    /// to return instead of hanging.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn poll_stream_error_propagates() {
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+        let provider = Arc::new(
+            ProviderBuilder::new()
+                .wallet(EthereumWallet::from(signer))
+                .connect(&anvil.endpoint())
+                .await
+                .unwrap(),
+        );
+
+        let chain_monitor = Arc::new(ChainMonitorService::new(provider.clone()).await.unwrap());
+        tokio::spawn(chain_monitor.spawn(Default::default()));
+        // Ensure chain_monitor has its first cached value.
+        let _ = chain_monitor.current_block_number().await.unwrap();
+
+        let market =
+            BoundlessMarketService::new_for_broker(Address::ZERO, provider.clone(), Address::ZERO);
+
+        // Create a stream with a filter_fn that always fails.
+        let stream = MarketMonitor::poll_market_events(
+            chain_monitor,
+            market,
+            0,
+            5,
+            50,
+            |_market: BoundlessMarketService<_>, _from: u64, _to: u64| async move {
+                Err::<Vec<((), alloy::rpc::types::Log)>, _>(anyhow::anyhow!(
+                    "simulated get_logs failure"
+                ))
+            },
+        );
+        tokio::pin!(stream);
+
+        // The stream should yield an error (not hang).
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("stream hung instead of yielding error");
+        assert!(matches!(result, Some(Err(MarketMonitorErr::EventPollingErr(_)))));
+
+        // After the error, the stream should be terminated.
+        assert!(stream.next().await.is_none());
     }
 
     async fn new_request<P: Provider>(idx: u32, ctx: &TestCtx<P>) -> ProofRequest {

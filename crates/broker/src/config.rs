@@ -275,12 +275,12 @@ error = ?"#;
         write_config(CONFIG_TEMPL, config_temp.as_file_mut());
         let config = Config::load(config_temp.path()).await.unwrap();
 
-        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH").unwrap());
+        assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
         assert_eq!(config.market.assumption_price, None);
         assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 300);
         assert_eq!(config.market.lookback_blocks, 100);
-        assert_eq!(config.market.max_collateral, Amount::parse("0.1 ZKC").unwrap());
+        assert_eq!(config.market.max_collateral, Amount::parse("0.1 ZKC", None).unwrap());
         assert_eq!(config.market.max_file_size, 50_000_000);
         assert_eq!(config.market.min_mcycle_limit, 5);
         assert_eq!(config.market.gas_priority_mode, PriorityMode::Medium);
@@ -338,7 +338,7 @@ error = ?"#;
 
         {
             let config = config_mgnr.config.lock_all().unwrap();
-            assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH").unwrap());
+            assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
             assert_eq!(config.market.assumption_price, None);
             assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.min_deadline, 300);
@@ -354,7 +354,7 @@ error = ?"#;
         {
             tracing::debug!("Locking config for reading...");
             let config = config_mgnr.config.lock_all().unwrap();
-            assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH").unwrap());
+            assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
             assert_eq!(config.market.assumption_price, Some("0.1".into()));
             assert_eq!(config.market.peak_prove_khz, Some(10000));
             assert_eq!(config.market.min_deadline, 300);

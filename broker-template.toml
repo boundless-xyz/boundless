@@ -14,15 +14,16 @@
 [market]
 # Minimum price per mega-cycle. Can be specified in USD or ETH.
 # If USD, it will be converted to the order's payment token (ETH) at runtime using the price oracle.
+# Plain numbers without asset suffix default to ETH for backward compatibility.
 #
-# Examples: "0.00001 USD", "0.00000001 ETH"
+# Examples: "0.00001 USD", "0.00000001 ETH", "0.00000001"
 #
 # Orders are preflighted (https://docs.boundless.network/provers/terminology#preflight)
 # to determine the number of cycles required to prove the order. Based on this
 # cycle count, and the current price of the order, the broker computes the
 # current price per mega-cycle being offered for the order. This value is compared to the
 # `min_mcycle_price` to determine if the order should be locked.
-min_mcycle_price = "0.00001 USD"
+min_mcycle_price = "0.00002 USD"
 
 # The minimum price per mega-cycle (i.e. million RISC-V cycles) for the broker
 # to attempt to fulfill an order in the case that the order was locked by another prover
@@ -35,8 +36,11 @@ min_mcycle_price = "0.00001 USD"
 # price per mega-cycle in collateral token that must be offered by the prover
 # for the broker to attempt to fulfill these orders.
 #
-# Must include asset: "0.001 ZKC" or "1 USD"
+# Can be specified in USD or ZKC.
+# Plain numbers default to ZKC for backward compatibility.
 # If USD, converted to ZKC at runtime via price oracle.
+
+# Examples: "0.00005 ZKC", "0.00001 USD", "0.00005"
 #
 # Note: attempting to fulfill these orders is a 'proof race' where the first prover
 # to fulfill the order is rewarded with the collateral.
@@ -73,12 +77,13 @@ priority_requestor_lists = [
 
 # Maximum collateral amount that the broker will use to lock orders.
 # Can be specified in USD or ZKC.
+# Plain numbers default to ZKC for backward compatibility.
 # If USD, it will be converted to ZKC at runtime using the price oracle.
 #
-# Examples: "100 USD", "200 ZKC"
+# Examples: "100 USD", "200 ZKC", "200"
 #
 # Requests that require a higher collateral amount than this will be skipped.
-max_collateral = "200 ZKC"
+max_collateral = "10 USD"
 
 # Maximum number of orders to concurrently preflight.
 #

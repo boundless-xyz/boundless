@@ -9,6 +9,7 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 3. **Downloads broker configuration** (`broker.toml`) from the repository
 4. **Creates a systemd service** to manage Docker Compose
 5. **Starts the prover service**
+6. **Optionally configures MinIO lifecycle rules** for workflow object expiry
 
 ## Requirements
 
@@ -24,7 +25,7 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 | Variable         | Default      | Description              |
 | ---------------- | ------------ | ------------------------ |
 | `prover_dir`     | `/opt/bento` | Deployment directory     |
-| `prover_version` | `v1.2.0`     | Git tag/branch to deploy |
+| `prover_version` | `v1.2.1`     | Git tag/branch to deploy |
 | `prover_state`   | `started`    | Service state            |
 | `prover_user`    | `ubuntu`     | User for Docker commands |
 
@@ -46,23 +47,24 @@ This Ansible role deploys the Boundless prover stack using Docker Compose as a s
 
 ### MinIO Configuration
 
-| Variable                 | Default    | Description         |
-| ------------------------ | ---------- | ------------------- |
-| `prover_minio_host`      | `minio`    | MinIO hostname      |
-| `prover_minio_bucket`    | `workflow` | S3 bucket name      |
-| `prover_minio_root_user` | `admin`    | MinIO root user     |
-| `prover_minio_root_pass` | `password` | MinIO root password |
+| Variable                        | Default    | Description                               |
+| ------------------------------- | ---------- | ----------------------------------------- |
+| `prover_minio_host`             | `minio`    | MinIO hostname                            |
+| `prover_minio_bucket`           | `workflow` | S3 bucket name                            |
+| `prover_minio_root_user`        | `admin`    | MinIO root user                           |
+| `prover_minio_root_pass`        | `password` | MinIO root password                       |
+| `prover_minio_work_expiry_days` | `7`        | Expire workflow objects older than N days |
 
 ### Prover Configuration
 
-| Variable                  | Default            | Description              |
-| ------------------------- | ------------------ | ------------------------ |
-| `prover_rust_log`         | `info`             | Rust log level           |
-| `prover_risc0_home`       | `/usr/local/risc0` | RISC0 home directory     |
-| `prover_segment_size`     | `20`               | Segment size for proving |
-| `prover_risc0_keccak_po2` | `17`               | Keccak power of 2        |
-| `prover_redis_ttl`        | `57600`            | Redis TTL in seconds     |
-| `prover_snark_timeout`    | `180`              | SNARK timeout in seconds |
+| Variable                  | Default                                    | Description              |
+| ------------------------- | ------------------------------------------ | ------------------------ |
+| `prover_rust_log`         | `info,broker=debug,boundless_market=debug` | Rust log level           |
+| `prover_risc0_home`       | `/usr/local/risc0`                         | RISC0 home directory     |
+| `prover_segment_size`     | `20`                                       | Segment size for proving |
+| `prover_risc0_keccak_po2` | `17`                                       | Keccak power of 2        |
+| `prover_redis_ttl`        | `57600`                                    | Redis TTL in seconds     |
+| `prover_snark_timeout`    | `180`                                      | SNARK timeout in seconds |
 
 ### Broker Configuration
 
@@ -91,7 +93,7 @@ all:
   hosts:
     my-prover:
       ansible_user: ubuntu
-      prover_version: v1.2.0
+      prover_version: v1.2.1
       prover_postgres_password: "secure_password"
       prover_minio_root_pass: "secure_password"
       prover_private_key: "0x..."

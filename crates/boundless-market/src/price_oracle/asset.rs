@@ -45,6 +45,15 @@ impl Asset {
             Asset::ZKC => 18,
         }
     }
+
+    /// Returns the default number of decimal places for human-readable display
+    pub fn display_decimals(&self) -> usize {
+        match self {
+            Asset::USD => 4,
+            Asset::ETH => 8,
+            Asset::ZKC => 6,
+        }
+    }
 }
 
 impl FromStr for Asset {
@@ -75,8 +84,8 @@ impl fmt::Display for Asset {
 /// Errors that can occur when parsing an amount string
 #[derive(Debug, thiserror::Error)]
 pub enum ParseAmountError {
-    /// Invalid format, expected '\<value\> \<asset\>'
-    #[error("invalid format: expected '<value> <ASSET>' (e.g., '1.12 USD' (up to 6 decimals), '1.500012 ETH' (up to 18 decimals))")]
+    /// Invalid format, expected '\<value\> \<asset\>' or '\<value\>' when default asset is configured
+    #[error("invalid format: expected '<value> <ASSET>' (e.g., '1.12 USD' (up to 6 decimals), '1.500012 ETH' (up to 18 decimals)) or '<value>' when default asset is configured")]
     InvalidFormat,
     /// Unknown asset type
     #[error("unknown asset: {0}")]
@@ -121,30 +130,66 @@ impl Amount {
         Self { value, asset }
     }
 
-    /// Parse from string like "1.5 ETH" or "100 USD"
-    pub fn parse(s: &str) -> Result<Self, ParseAmountError> {
-        let (value, asset) = parse_amount_str(s)?;
+    /// Parse an amount string into a structured Amount.
+    ///
+    /// Format: "\<value\> \[\<asset\>\]" (e.g., "1.5 ETH", "100 USD", "0.001" if default asset is provided)
+    /// Default asset can be provided for plain numbers without asset specifier
+    pub fn parse(s: &str, default: Option<Asset>) -> Result<Self, ParseAmountError> {
+        let s = s.trim();
+
+        // Split by whitespace to find asset
+        let split = s.split_whitespace().collect::<Vec<_>>();
+
+        // Must have at least value
+        if split.is_empty() {
+            return Err(ParseAmountError::InvalidFormat);
+        }
+        let value_str = split[0];
+
+        // Determine asset in order: specified, default, error
+        let asset: Asset = if split.len() == 2 {
+            let asset_str = split[1];
+            asset_str.trim().parse()?
+        } else if let Some(def) = default {
+            def
+        } else {
+            return Err(ParseAmountError::InvalidFormat);
+        };
+
+        let value = parse_decimal_to_u256(value_str.trim(), asset.decimals(), asset)?;
+
         Ok(Self { value, asset })
     }
 
     /// Parse with validation of allowed assets
-    pub fn parse_with_allowed(s: &str, allowed: &[Asset]) -> Result<Self, ParseAmountError> {
-        let amount = Self::parse(s)?;
+    /// Default asset can be provided for plain numbers without asset specifier
+    pub fn parse_with_allowed(
+        s: &str,
+        allowed: &[Asset],
+        default: Option<Asset>,
+    ) -> Result<Self, ParseAmountError> {
+        let amount = Self::parse(s, default)?;
         if !allowed.contains(&amount.asset) {
             return Err(ParseAmountError::AssetNotAllowed(amount.asset, allowed.to_vec()));
         }
         Ok(amount)
     }
 
-    /// Format as human-readable string (e.g., "1.5 ETH")
+    /// Format for display with a specific number of decimal places, with rounding.
+    pub fn format_display(&self, decimals: usize) -> String {
+        format_amount_rounded(self.value, self.asset, decimals)
+    }
+
+    /// Format for display using the asset's default decimal places.
     pub fn format(&self) -> String {
-        format_amount(self.value, self.asset)
+        self.format_display(self.asset.display_decimals())
     }
 }
 
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.format())
+        let decimals = f.precision().unwrap_or(self.asset.display_decimals());
+        write!(f, "{}", self.format_display(decimals))
     }
 }
 
@@ -152,31 +197,11 @@ impl FromStr for Amount {
     type Err = ParseAmountError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::parse(s)
+        Self::parse(s, None)
     }
 }
 
 // ============ Parsing helpers ============
-
-/// Parse an amount string into a value and asset
-///
-/// Format: "\<value\> \<asset\>" (e.g., "1.5 ETH", "100 USD")
-/// Plain numbers without asset specification are NOT supported and will return an error.
-pub fn parse_amount_str(s: &str) -> Result<(U256, Asset), ParseAmountError> {
-    let s = s.trim();
-
-    // Split by whitespace to find asset
-    let split = s.split_whitespace().collect::<Vec<_>>();
-    if split.len() != 2 {
-        return Err(ParseAmountError::InvalidFormat);
-    }
-    let value_str = split[0];
-    let asset_str = split[1];
-
-    let asset: Asset = asset_str.trim().parse()?;
-    let value = parse_decimal_to_u256(value_str.trim(), asset.decimals(), asset)?;
-    Ok((value, asset))
-}
 
 fn parse_decimal_to_u256(s: &str, decimals: u8, asset: Asset) -> Result<U256, ParseAmountError> {
     let (integer, fraction) = match s.split_once('.') {
@@ -226,18 +251,59 @@ pub fn format_amount(value: U256, asset: Asset) -> String {
     format!("{formatted} {asset}")
 }
 
+/// Format a value with rounding to a specific number of decimal places.
+/// Uses round-half-up rounding and trims trailing zeros.
+fn format_amount_rounded(value: U256, asset: Asset, display_decimals: usize) -> String {
+    let total_decimals = asset.decimals() as usize;
+
+    // If display decimals >= total decimals, no rounding needed
+    if display_decimals >= total_decimals {
+        return format_amount(value, asset);
+    }
+
+    // Round: divisor = 10^(total_decimals - display_decimals)
+    let shift = total_decimals - display_decimals;
+    let divisor = U256::from(10u64).pow(U256::from(shift));
+    let half = divisor / U256::from(2);
+    let rounded = (value + half) / divisor;
+
+    // If rounding would show zero but value is non-zero, fall back to lossless format
+    if rounded == U256::ZERO && value > U256::ZERO {
+        return format_amount(value, asset);
+    }
+
+    // Now `rounded` has `display_decimals` implicit decimal places
+    let s = rounded.to_string();
+
+    if display_decimals == 0 {
+        return format!("{s} {asset}");
+    }
+
+    let formatted = if s.len() <= display_decimals {
+        format!("0.{:0>width$}", s, width = display_decimals)
+    } else {
+        let (integer, fraction) = s.split_at(s.len() - display_decimals);
+        format!("{integer}.{fraction}")
+    };
+
+    // Trim trailing zeros for cleaner display
+    let formatted = formatted.trim_end_matches('0').trim_end_matches('.');
+
+    format!("{formatted} {asset}")
+}
+
 // ============ Serde ============
 
 impl Serialize for Amount {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.format())
+        serializer.serialize_str(&format_amount(self.value, self.asset))
     }
 }
 
 impl<'de> Deserialize<'de> for Amount {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        Amount::parse(&s).map_err(de::Error::custom)
+        Amount::parse(&s, None).map_err(de::Error::custom)
     }
 }
 
@@ -369,27 +435,28 @@ mod tests {
 
     #[test]
     fn test_parse_eth() {
-        let amount = Amount::parse("1.5 ETH").unwrap();
+        let amount = Amount::parse("1.5 ETH", None).unwrap();
         assert_eq!(amount.asset, Asset::ETH);
         assert_eq!(amount.value, U256::from(1_500_000_000_000_000_000u128)); // 1.5 ETH in wei
     }
 
     #[test]
     fn test_parse_usd() {
-        let amount = Amount::parse("100 USD").unwrap();
+        let amount = Amount::parse("100 USD", None).unwrap();
         assert_eq!(amount.asset, Asset::USD);
         assert_eq!(amount.value, U256::from(100_000_000u128)); // 100 USD with 6 decimals
     }
 
     #[test]
     fn test_parse_with_allowed_success() {
-        let amount = Amount::parse_with_allowed("1.5 ETH", &[Asset::ETH, Asset::ZKC]).unwrap();
+        let amount =
+            Amount::parse_with_allowed("1.5 ETH", &[Asset::ETH, Asset::ZKC], None).unwrap();
         assert_eq!(amount.asset, Asset::ETH);
     }
 
     #[test]
     fn test_parse_with_allowed_failure() {
-        let result = Amount::parse_with_allowed("1.5 ETH", &[Asset::USD, Asset::ZKC]);
+        let result = Amount::parse_with_allowed("1.5 ETH", &[Asset::USD, Asset::ZKC], None);
         assert!(result.is_err());
         match result.unwrap_err() {
             ParseAmountError::AssetNotAllowed(asset, allowed) => {
@@ -402,20 +469,20 @@ mod tests {
 
     #[test]
     fn test_format_roundtrip() {
-        let amount = Amount::parse("1.5 ETH").unwrap();
+        let amount = Amount::parse("1.5 ETH", None).unwrap();
         assert_eq!(amount.format(), "1.5 ETH");
         assert_eq!(amount.to_string(), "1.5 ETH");
     }
 
     #[test]
     fn test_wei_precision() {
-        let amount = Amount::parse("0.000000000000000001 ETH").unwrap();
+        let amount = Amount::parse("0.000000000000000001 ETH", None).unwrap();
         assert_eq!(amount.value, U256::from(1)); // 1 wei
     }
 
     #[test]
     fn test_usd_precision() {
-        let amount = Amount::parse("0.000001 USD").unwrap();
+        let amount = Amount::parse("0.000001 USD", None).unwrap();
         assert_eq!(amount.value, U256::from(1)); // 1 micro-USD
     }
 
@@ -427,16 +494,100 @@ mod tests {
     }
 
     #[test]
-    fn test_plain_number_fails() {
-        // Plain numbers without asset should fail with clear error
-        let result = Amount::parse("0.0000001");
+    fn test_default() {
+        let result = Amount::parse("0.0000001", Some(Asset::ETH)).unwrap();
+        assert_eq!(result.asset, Asset::ETH);
+        assert_eq!(result.value, U256::from(100_000_000_000_u128)); // 0.0000001 ETH in wei
+
+        let result =
+            Amount::parse_with_allowed("1.5 ETH", &[Asset::ETH, Asset::ZKC], Some(Asset::ETH))
+                .unwrap();
+        assert_eq!(result.asset, Asset::ETH);
+        assert_eq!(result.value, U256::from(1_500_000_000_000_000_000u128)); // 1.5 ETH in wei
+
+        let result = Amount::parse_with_allowed("1.5", &[Asset::ETH, Asset::ZKC], Some(Asset::USD));
         assert!(result.is_err());
-        match result.unwrap_err() {
-            ParseAmountError::InvalidFormat => {
-                // Expected error
-            }
-            _ => panic!("Expected InvalidFormat error"),
-        }
+    }
+
+    #[test]
+    fn test_format_display_usd() {
+        let amount = Amount::parse("1.234567 USD", None).unwrap();
+        // Default 4 decimals, should round 1.234567 to 1.2346
+        assert_eq!(amount.format(), "1.2346 USD");
+        // Explicit 2 decimals
+        assert_eq!(amount.format_display(2), "1.23 USD");
+        // Explicit 6 decimals (no rounding)
+        assert_eq!(amount.format_display(6), "1.234567 USD");
+        // Formatter precision
+        assert_eq!(format!("{:.2}", amount), "1.23 USD");
+    }
+
+    #[test]
+    fn test_format_display_eth() {
+        let amount = Amount::parse("1.123456789012345678 ETH", None).unwrap();
+        // Default 8 decimals, should round
+        assert_eq!(amount.format(), "1.12345679 ETH");
+        // Explicit 2 decimals
+        assert_eq!(amount.format_display(2), "1.12 ETH");
+        // Explicit 18 decimals (no rounding)
+        assert_eq!(amount.format_display(18), "1.123456789012345678 ETH");
+        // Formatter precision
+        assert_eq!(format!("{:.4}", amount), "1.1235 ETH");
+    }
+
+    #[test]
+    fn test_rounding_half_up() {
+        // 1.1255 USD with 4 decimals should stay 1.1255
+        let amount = Amount::parse("1.1255 USD", None).unwrap();
+        assert_eq!(amount.format_display(4), "1.1255 USD");
+
+        // With 3 decimals, 1.1255 rounds to 1.126 (round half up)
+        assert_eq!(amount.format_display(3), "1.126 USD");
+
+        // With 2 decimals, 1.1255 rounds to 1.13
+        assert_eq!(amount.format_display(2), "1.13 USD");
+    }
+
+    #[test]
+    fn test_format_display_zero() {
+        let amount = Amount::parse("0 ETH", None).unwrap();
+        assert_eq!(amount.format(), "0 ETH");
+        assert_eq!(amount.format_display(2), "0 ETH");
+    }
+
+    #[test]
+    fn test_format_display_non_zero_rounds_to_zero() {
+        // Very small amount that would round to zero with default decimals
+        let amount = Amount::parse("0.000000001 ETH", None).unwrap();
+        // With 8 default decimals, this would round to 0, so we fall back to lossless
+        assert_eq!(amount.format(), "0.000000001 ETH");
+        // Explicitly asking for 0 decimals should also fall back
+        assert_eq!(amount.format_display(0), "0.000000001 ETH");
+    }
+
+    #[test]
+    fn test_serialize_preserves_precision() {
+        use serde_json;
+
+        let amount = Amount::parse("1.123456789012345678 ETH", None).unwrap();
+        let serialized = serde_json::to_string(&amount).unwrap();
+        // Serialization preserves all significant digits
+        assert!(serialized.contains("1.123456789012345678 ETH"));
+
+        // Roundtrip
+        let deserialized: Amount = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, amount);
+    }
+
+    #[test]
+    fn test_trailing_zeros_trimmed() {
+        // 1.5000 USD should display as 1.5 USD
+        let amount = Amount::parse("1.5 USD", None).unwrap();
+        assert_eq!(amount.format_display(4), "1.5 USD");
+
+        // 2.0 ETH should display as 2 ETH
+        let amount = Amount::parse("2.0 ETH", None).unwrap();
+        assert_eq!(amount.format_display(8), "2 ETH");
     }
 }
 
