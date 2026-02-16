@@ -502,7 +502,7 @@ impl ProverGenerateConfig {
             Ok(price_percentiles) => {
                 display.item_colored(
                     "Median price",
-                    &format!(
+                    format!(
                         "{} / Mcycle",
                         format_amount_with_conversion(
                             &format!(
@@ -521,7 +521,7 @@ impl ProverGenerateConfig {
                 );
                 display.item_colored(
                     "25th percentile",
-                    &format!(
+                    format!(
                         "{} / Mcycle",
                         format_amount_with_conversion(
                             &format!(
