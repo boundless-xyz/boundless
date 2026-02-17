@@ -445,9 +445,11 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
         let price_oracle_manager = if self.price_oracle_manager.is_some() {
             self.price_oracle_manager.clone()
         } else {
-            let mut oracle_config = crate::price_oracle::PriceOracleConfig::default();
             // Disable staleness check: no background refresh is spawned for the default oracle.
-            oracle_config.max_secs_without_price_update = 0;
+            let oracle_config = crate::price_oracle::PriceOracleConfig {
+                max_secs_without_price_update: 0,
+                ..Default::default()
+            };
             match oracle_config.build(
                 alloy_chains::NamedChain::try_from(chain_id)
                     .unwrap_or(alloy_chains::NamedChain::Mainnet),
