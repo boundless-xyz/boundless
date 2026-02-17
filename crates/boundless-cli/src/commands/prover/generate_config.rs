@@ -1073,7 +1073,6 @@ impl ProverGenerateConfig {
                 }
             }
 
-            println!(">>>>> {}", config.expected_probability_win_secondary_fulfillment);
             // Update expected_probability_win_secondary_fulfillment
             if let Some(item) = market.get_mut("expected_probability_win_secondary_fulfillment") {
                 *item = toml_edit::value(config.expected_probability_win_secondary_fulfillment as i64);

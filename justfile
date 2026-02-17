@@ -209,7 +209,7 @@ check-clippy-main:
 
 # Format all code
 format:
-    cargo sort --workspace
+    cargo sort --workspace .
     cargo fmt --all
     cd examples/counter && cargo sort --workspace
     cd examples/counter && cargo fmt --all

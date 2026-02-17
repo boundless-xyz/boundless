@@ -495,6 +495,8 @@ impl Default for MarketConfig {
         #[allow(deprecated)]
         Self {
             min_mcycle_price: Amount::parse("0.00002 USD", None).expect("valid default"),
+            expected_probability_win_secondary_fulfillment:
+            defaults::expected_probability_win_secondary_fulfillment(),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
             min_mcycle_limit: defaults::min_mcycle_limit(),
@@ -531,8 +533,6 @@ impl Default for MarketConfig {
             order_pricing_priority: OrderPricingPriority::default(),
             order_commitment_priority: OrderCommitmentPriority::default(),
             cancel_proving_expired_orders: false,
-            expected_probability_win_secondary_fulfillment:
-                defaults::expected_probability_win_secondary_fulfillment(),
         }
     }
 }

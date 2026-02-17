@@ -17,7 +17,6 @@ pub mod config;
 pub(crate) mod local_executor;
 pub mod prover;
 pub(crate) mod requestor_pricing;
-pub mod storage;
 
 #[cfg(not(feature = "prover_utils"))]
 pub use config::MarketConfig;
