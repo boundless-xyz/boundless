@@ -2,6 +2,7 @@ import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
+import * as fs from 'fs';
 import { getEnvVar, getServiceNameV1 } from '../util';
 import { OrderGenerator } from './components/order-generator';
 
@@ -20,6 +21,7 @@ export = () => {
     ? pulumi.output(getEnvVar("ORDER_STREAM_URL"))
     : (baseConfig.getSecret('ORDER_STREAM_URL') || pulumi.output(""));
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
+  const ciCacheSecret = baseConfig.getSecret('CI_CACHE_SECRET');
   const logLevel = baseConfig.get('LOG_LEVEL') || 'info';
   const dockerDir = baseConfig.get('DOCKER_DIR') || '../../';
   const dockerTag = baseConfig.get('DOCKER_TAG') || 'latest';
@@ -59,11 +61,17 @@ export = () => {
   });
 
   let buildSecrets = {};
+  if (ciCacheSecret !== undefined) {
+    const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
+    buildSecrets = {
+      ci_cache_creds: cacheFileData,
+    };
+  }
   if (githubTokenSecret !== undefined) {
     buildSecrets = {
       ...buildSecrets,
       githubTokenSecret
-    }
+    };
   }
 
   const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
