@@ -7,6 +7,7 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
   public role: aws.iam.Role;
   public artifactBucket: aws.s3.Bucket;
   public sccacheBucket: aws.s3.BucketV2;
+  public sccacheUser: aws.iam.User;
 
   constructor(
     name: string,
@@ -50,6 +51,10 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
     // Defines the S3 bucket used for shared sccache build artifacts.
     this.sccacheBucket = new aws.s3.BucketV2(`boundlessSccacheBucket`, {
       bucket: "boundless-sccache",
+    });
+
+    this.sccacheUser = new aws.iam.User(`sccacheUser`, {
+      name: "SCCacheUser",
     });
 
     new aws.s3.BucketServerSideEncryptionConfigurationV2(`sccacheBucketSSEConfiguration`, {
@@ -164,16 +169,35 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
       policyArn: serviceAccountDeploymentRoleAccessPolicy.arn
     });
 
+    new aws.iam.UserPolicy(`sccacheUserBucketAccess`, {
+      user: this.sccacheUser.name,
+      policy: pulumi.jsonStringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Action: ["s3:ListBucket"],
+            Resource: [this.sccacheBucket.arn],
+          },
+          {
+            Effect: "Allow",
+            Action: ["s3:GetObject", "s3:GetObjectAttributes", "s3:PutObject", "s3:DeleteObject"],
+            Resource: [pulumi.interpolate`${this.sccacheBucket.arn}/*`],
+          },
+        ],
+      }),
+    });
+
     const sccacheBucketPolicy = pulumi
-      .all([this.sccacheBucket.arn, this.role.arn])
-      .apply(([sccacheBucketArn, pipelineRoleArn]) =>
+      .all([this.sccacheBucket.arn, this.role.arn, this.sccacheUser.arn])
+      .apply(([sccacheBucketArn, pipelineRoleArn, sccacheUserArn]) =>
         pulumi.jsonStringify({
           Version: "2012-10-17",
           Statement: [
             {
               Effect: "Allow",
               Principal: {
-                AWS: [pipelineRoleArn, ...args.serviceAccountDeploymentRoleArns],
+                AWS: [pipelineRoleArn, sccacheUserArn, ...args.serviceAccountDeploymentRoleArns],
               },
               Action: [
                 "s3:GetObject",
