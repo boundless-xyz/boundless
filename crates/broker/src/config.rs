@@ -192,7 +192,7 @@ mod tests {
     const CONFIG_TEMPL: &str = r#"
 [market]
 mcycle_price = "0.1 ETH"
-mcycle_price_collateral_token = "0.1 ZKC"
+expected_probability_win_secondary_fulfillment = 25
 peak_prove_khz = 500
 min_deadline = 300
 lookback_blocks = 100
@@ -218,7 +218,7 @@ block_deadline_buffer_secs = 120"#;
     const CONFIG_TEMPL_2: &str = r#"
 [market]
 mcycle_price = "0.1 ETH"
-mcycle_price_collateral_token = "0.1 ZKC"
+expected_probability_win_secondary_fulfillment = 50
 assumption_price = "0.1"
 peak_prove_khz = 10000
 min_deadline = 300
@@ -253,7 +253,6 @@ withdraw = true"#;
     const CONFIG_CUSTOM_PRIORITY_MODE: &str = r#"
 [market]
 mcycle_price = "0.2 ETH"
-mcycle_price_collateral_token = "0.2 ZKC"
 max_stake = "0.1 ZKC"
 gas_priority_mode = { custom = { priority_fee_multiplier_percentage = 150, priority_fee_percentile = 15.0, dynamic_multiplier_percentage = 9 } }
 "#;
@@ -276,6 +275,7 @@ error = ?"#;
         let config = Config::load(config_temp.path()).await.unwrap();
 
         assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
+        assert_eq!(config.market.expected_probability_win_secondary_fulfillment, 25);
         assert_eq!(config.market.assumption_price, None);
         assert_eq!(config.market.peak_prove_khz, Some(500));
         assert_eq!(config.market.min_deadline, 300);
@@ -339,6 +339,7 @@ error = ?"#;
         {
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
+            assert_eq!(config.market.expected_probability_win_secondary_fulfillment, 25);
             assert_eq!(config.market.assumption_price, None);
             assert_eq!(config.market.peak_prove_khz, Some(500));
             assert_eq!(config.market.min_deadline, 300);
@@ -355,6 +356,7 @@ error = ?"#;
             tracing::debug!("Locking config for reading...");
             let config = config_mgnr.config.lock_all().unwrap();
             assert_eq!(config.market.min_mcycle_price, Amount::parse("0.1 ETH", None).unwrap());
+            assert_eq!(config.market.expected_probability_win_secondary_fulfillment, 50);
             assert_eq!(config.market.assumption_price, Some("0.1".into()));
             assert_eq!(config.market.peak_prove_khz, Some(10000));
             assert_eq!(config.market.min_deadline, 300);

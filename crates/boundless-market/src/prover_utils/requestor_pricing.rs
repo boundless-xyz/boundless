@@ -182,8 +182,6 @@ async fn build_market_config(price_provider: Option<PriceProviderArc>) -> Market
     tracing::debug!("Using market price for preflight: {}", format_ether(min_mcycle_price));
     MarketConfig {
         min_mcycle_price: Amount::new(min_mcycle_price, Asset::ETH),
-        // Note: collateral cycle price is not available, so ignore this price check during preflight
-        min_mcycle_price_collateral_token: Amount::new(U256::ZERO, Asset::ZKC),
         ..MarketConfig::default()
     }
 }

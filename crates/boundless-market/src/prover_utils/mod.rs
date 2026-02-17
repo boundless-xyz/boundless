@@ -101,9 +101,8 @@ impl fmt::Display for ProveLimitReason {
             ProveLimitReason::CollateralPricing { collateral_reward, mcycle_price_collateral } => {
                 write!(
                     f,
-                    "collateral pricing: order collateral reward {} / {} mcycle_price_collateral_token config",
-                    collateral_reward,
-                    mcycle_price_collateral,
+                    "collateral pricing: order collateral reward {} / {} min_mcycle_price (as ZKC)",
+                    collateral_reward, mcycle_price_collateral,
                 )
             }
             ProveLimitReason::EthPricing {
@@ -806,7 +805,7 @@ pub trait OrderPricingContext {
                     let required_collateral_price =
                         reward.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
                     format!(
-                        "min_mcycle_price_collateral_token set to {} ZKC/Mcycle in config, order requires min_mcycle_price_collateral_token <= {} ZKC/Mcycle to be considered",
+                        "min_mcycle_price (converted to ZKC) set to {} ZKC/Mcycle in config, order requires min_mcycle_price <= {} ZKC/Mcycle to be considered",
                         mcycle_price_collateral,
                         self.format_collateral(required_collateral_price)
                     )
@@ -907,13 +906,10 @@ pub trait OrderPricingContext {
             let mcycle_price_in_collateral_tokens =
                 price.saturating_mul(ONE_MILLION) / U256::from(cycle_count);
 
-            // Get the configured price as Amount
-            let config_min_mcycle_price_collateral_token =
-                &config.min_mcycle_price_collateral_token;
-
-            // Convert to ZKC (handles USD via price oracle)
+            // Get the configured price as Amount and convert to ZKC (handles ETH/USD via price oracle)
+            let config_min_mcycle_price_amount = &config.min_mcycle_price;
             let config_min_mcycle_price_zkc =
-                self.convert_to_zkc(config_min_mcycle_price_collateral_token).await?;
+                self.convert_to_zkc(config_min_mcycle_price_amount).await?;
 
             // Scale from Asset ZKC decimals (18) to contract collateral token decimals
             let config_min_mcycle_price_collateral_tokens: U256 = scale_decimals(
@@ -934,7 +930,7 @@ pub trait OrderPricingContext {
             if mcycle_price_in_collateral_tokens < config_min_mcycle_price_collateral_tokens {
                 return Ok(Skip {
                     reason: format!(
-                        "slashed collateral reward too low. {} (collateral reward) < config mcycle_price_collateral_token {}",
+                        "slashed collateral reward too low. {} (collateral reward) < config min_mcycle_price (as ZKC) {}",
                         self.format_collateral(mcycle_price_in_collateral_tokens),
                         self.format_collateral(config_min_mcycle_price_collateral_tokens),
                     ),
@@ -1070,12 +1066,10 @@ pub trait OrderPricingContext {
         let min_mcycle_price_eth = self.convert_to_eth(min_mcycle_price_amount).await?;
         let min_mcycle_price: U256 = min_mcycle_price_eth.value;
 
-        // Get the configured price as Amount
-        let config_min_mcycle_price_collateral_token = &config.min_mcycle_price_collateral_token;
-
-        // Convert to ZKC (handles USD via price oracle)
+        // Convert min_mcycle_price to ZKC for collateral-based pricing (handles ETH/USD via price oracle)
+        let config_min_mcycle_price_for_collateral = &config.min_mcycle_price;
         let config_min_mcycle_price_zkc =
-            self.convert_to_zkc(config_min_mcycle_price_collateral_token).await?;
+            self.convert_to_zkc(config_min_mcycle_price_for_collateral).await?;
 
         // Scale from Asset ZKC decimals (18) to contract collateral token decimals
         let min_mcycle_price_collateral_tokens: U256 = scale_decimals(
@@ -1086,7 +1080,7 @@ pub trait OrderPricingContext {
 
         // Pricing based cycle limits: Calculate the cycle limit based on collateral price
         let collateral_based_limit = if min_mcycle_price_collateral_tokens == U256::ZERO {
-            tracing::info!("min_mcycle_price_collateral_token is 0, setting unlimited exec limit");
+            tracing::info!("min_mcycle_price is 0, collateral pricing unlimited");
             u64::MAX
         } else {
             let raw_price = order.request.offer.collateral_reward_if_locked_and_not_fulfilled();

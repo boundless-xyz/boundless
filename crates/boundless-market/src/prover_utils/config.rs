@@ -270,17 +270,6 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-/// Deserialize Amount with validation that asset is USD or ZKC.
-/// Plain numbers without asset suffix default to ZKC for backward compatibility.
-fn deserialize_mcycle_price_collateral_token<'de, D>(deserializer: D) -> Result<Amount, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    Amount::parse_with_allowed(&s, &[Asset::USD, Asset::ZKC], Some(Asset::ZKC))
-        .map_err(serde::de::Error::custom)
-}
-
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[non_exhaustive]
@@ -293,20 +282,15 @@ pub struct MarketConfig {
     /// This price is multiplied by the number of mega-cycles (i.e. million RISC-V cycles) that the requested
     /// execution took, as calculated by running the request in preflight. This is one of the inputs to
     /// decide the minimum price to accept for a request.
+    ///
+    /// This price is also used for secondary fulfillment (lock-expired orders), where it is converted
+    /// to ZKC via the price oracle and compared against the collateral reward.
     #[serde(alias = "mcycle_price", deserialize_with = "deserialize_mcycle_price")]
     pub min_mcycle_price: Amount,
-    /// Mega-cycle price, denominated in the Boundless collateral token. Asset can be specified: "0.001 ZKC" or "1 USD"
-    /// Plain numbers default to ZKC for backward compatibility.
-    ///
-    /// If USD, converted to ZKC at runtime via price oracle.
-    ///
-    /// Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
-    /// order when paid in collateral tokens, as is the case for orders with an expired lock.
-    #[serde(
-        alias = "mcycle_price_collateral_token",
-        deserialize_with = "deserialize_mcycle_price_collateral_token"
-    )]
-    pub min_mcycle_price_collateral_token: Amount,
+    /// Expected probability (0-100) of winning the secondary fulfillment race.
+    /// Discounts the collateral reward when evaluating profitability and prioritizing orders.
+    #[serde(default = "defaults::expected_probability_win_secondary_fulfillment")]
+    pub expected_probability_win_secondary_fulfillment: u32,
     /// Assumption price (in native token)
     ///
     /// DEPRECATED
@@ -503,10 +487,6 @@ pub struct MarketConfig {
     /// market. This should remain false to avoid losing partial PoVW jobs.
     #[serde(default)]
     pub cancel_proving_expired_orders: bool,
-    /// Expected probability (0-100) of winning the secondary fulfillment race.
-    /// Discounts the collateral reward when evaluating profitability and prioritizing orders.
-    #[serde(default = "defaults::expected_probability_win_secondary_fulfillment")]
-    pub expected_probability_win_secondary_fulfillment: u32,
 }
 
 impl Default for MarketConfig {
@@ -515,8 +495,6 @@ impl Default for MarketConfig {
         #[allow(deprecated)]
         Self {
             min_mcycle_price: Amount::parse("0.00002 USD", None).expect("valid default"),
-            min_mcycle_price_collateral_token: Amount::parse("0.001 ZKC", None)
-                .expect("valid default"),
             assumption_price: None,
             max_mcycle_limit: defaults::max_mcycle_limit(),
             min_mcycle_limit: defaults::min_mcycle_limit(),
