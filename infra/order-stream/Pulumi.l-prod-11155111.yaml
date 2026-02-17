@@ -24,3 +24,5 @@ config:
     secure: v1:hLXpTRKA6Hr5a4yJ:6me1m90CTo895X+iaqRzfO7RDk5YyLBxnoM+bHlT
   order-stream:ORDER_STREAM_API_KEY:
     secure: v1:DsNrPhmYNQQcY234:l/v/LxjYO0SHieBn7oeDUugqmtGYiEafGdj9cUJ2
+  order-stream:CI_CACHE_SECRET:
+    secure: v1:+a4Detjhba+9w9Sg:nocLLDduVNL1d0ZxsejwdnriV2qeB6ifiqS2cN8XseevjFqlHuJuyF9QF0ebN/4+F+08We/8v+ed/KQQrhMJ3DCKUf4PLh3Vy5slDNM1EIpuj6IVJ+/Spbtuz9gRaZLIIU9DviFuGdJ8PdMCXV0boO0EbnvnriytJEgPhJzO1A==

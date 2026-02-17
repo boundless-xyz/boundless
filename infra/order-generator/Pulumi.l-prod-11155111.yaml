@@ -53,5 +53,5 @@ config:
   order-generator-onchain:INTERVAL: "600"
   order-generator-base:INDEXER_URL:
     secure: v1:+nrnPjvFF6klXo5D:cfXy8A3jcOpCYpq5kTrlMK4Ex7eikZY9ZxMZMYruUzijAx9JQchoS4CraplHDnbGjIYityz7
-  order-generator:CI_CACHE_CREDS:
-    secure: v1:3soKyLd2LQiqEl50:nzreRexBgWLa5vmeqdtT9mui8SfSlOMujHsIO/p2kwTsM5d5xxmoZYl4erJqHBY305jiV6On0Tsdq+mK/pryYjBi6DKi5U05XA4sfe3drcuUoonftSVO4vdZRb3JkF2y35QWivalaimize8q3IVoAh28sUZvsh/TvVMDeALXJQ==
+  order-generator:CI_CACHE_SECRET:
+    secure: v1:7xEYSM+I14UArt5k:dEyopUvzvKUegxpu/59FIpCESyiu12+eAYpNiJLGDOQX6SVEChxliQ/5XGJWLGJHqfIY6wXpgF311Gmb9kQFMG5YQYQ/cITwQYojX8nDMr0V995dcskC84r+6WmoO/yT2ZlLv+O13dxeh87Dw0ejrUB2jiIa32mT0h0kh2w7/w==

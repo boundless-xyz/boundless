@@ -2,7 +2,6 @@ import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as docker_build from '@pulumi/docker-build';
-import * as fs from 'fs';
 import { getEnvVar, getServiceNameV1 } from '../util';
 import { OrderGenerator } from './components/order-generator';
 
@@ -62,9 +61,8 @@ export = () => {
 
   let buildSecrets = {};
   if (ciCacheSecret !== undefined) {
-    const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
     buildSecrets = {
-      ci_cache_creds: cacheFileData,
+      ci_cache_creds: ciCacheSecret,
     };
   }
   if (githubTokenSecret !== undefined) {

@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
@@ -89,9 +88,8 @@ export = () => {
   // Optionally add in the gh token secret and sccache s3 creds to the build ctx
   let buildSecrets = {};
   if (ciCacheSecret !== undefined) {
-    const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
     buildSecrets = {
-      ci_cache_creds: cacheFileData,
+      ci_cache_creds: ciCacheSecret,
     };
   }
   if (githubTokenSecret !== undefined) {

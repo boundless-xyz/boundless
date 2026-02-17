@@ -31,5 +31,5 @@ config:
     secure: v1:E1WuDwMATaOQ6GEE:y8KpEhqaQwjYWkPUmoYNGjuJZTMXmoXcnGyZcECvwkoHjbtA5og5ShcIRcEw2InPOagemm79RIvUAKIWlRthzqBlPXY6gL9eRxwQ
   distributor:DISTRIBUTOR_ETH_ALERT_THRESHOLD: "0.5"
   distributor:DISTRIBUTOR_STAKE_ALERT_THRESHOLD: "200.0"
-  distributor:CI_CACHE_CREDS:
-    secure: v1:5Fl0sslUKV+a926e:jX+kvjwmY9h3gowdZA1LJf0wNGooCM98iip19wi4qtf03X/Q8NMrohiQpFRI0kl5CUJoCD4N5HuscWMZPjkVcv9+I0WZOu6RHkcg2erfeByEIed/3WhM5BlhDBqkO+4dsJye+h7gGqZTxJ3E9sJlW4Lo1BsArwrzNHUXDZJr8w==
+  distributor:CI_CACHE_SECRET:
+    secure: v1:V8ZjvfdO/s9WR8un:0jr2Oga7tyJ2WcrVE+ImjlGl9DbMUH+rq7d7t0tFqlfPGroRKR38FqSMn0n1OpGgNARrfkgdE1M3jS+nf9hNiH0AAjbwCaSXvH1xsSfx18VolkJ3veEc/84ydLTEfqT+XroePxqQFTq+ufWH0iLW3Mvl+f+mDHuthwtXM+VuBA==
