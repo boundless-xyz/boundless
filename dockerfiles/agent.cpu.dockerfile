@@ -2,7 +2,7 @@
 # CPU-only agent build (no CUDA/GPU support)
 ARG RUST_IMG=rust:1.88-bookworm
 ARG RUNTIME_IMG=debian:bookworm-slim
-ARG S3_CACHE_PREFIX="public/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM ${RUST_IMG} AS rust-builder
 

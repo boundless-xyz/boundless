@@ -14,7 +14,7 @@ S3_CACHE_PREFIX=$1
 if [ -f /root/.aws/credentials ]; then
     CREDS_FILE_SIZE=$(stat -c%s /root/.aws/credentials)
     if [ $CREDS_FILE_SIZE -gt 0 ]; then
-        export SCCACHE_BUCKET="risc0-ci-cache"
+        export SCCACHE_BUCKET="boundless-ci-prod-cache"
         export SCCACHE_REGION="us-west-2"
         export SCCACHE_S3_KEY_PREFIX=$S3_CACHE_PREFIX
 

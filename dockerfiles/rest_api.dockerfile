@@ -1,4 +1,4 @@
-ARG S3_CACHE_PREFIX="public/rust-cache-docker-Linux-X64/sccache"
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
 
 FROM rust:1.85.0-bookworm AS builder
 
