@@ -19,10 +19,12 @@ export interface RewardsIndexerArgs {
   serviceMetricsNamespace: string;
   boundlessAlertsTopicArns?: string[];
   dockerRemoteBuilder?: string;
+  rewardsImageUri?: string;
 }
 
 export class RewardsIndexer extends pulumi.ComponentResource {
-  public readonly image: docker_build.Image;
+  public readonly image: docker_build.Image | undefined;
+  public readonly imageRef: pulumi.Output<string>;
   public readonly service: awsx.ecs.FargateService;
 
   constructor(name: string, args: RewardsIndexerArgs, opts?: pulumi.ComponentResourceOptions) {
@@ -60,50 +62,57 @@ export class RewardsIndexer extends pulumi.ComponentResource {
       };
     }
 
-    this.image = new docker_build.Image(`${serviceName}-rewards-img`, {
-      tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-${dockerTag}`],
-      context: {
-        location: dockerDir,
-      },
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/rewards-indexer.dockerfile`,
-      },
-      builder: dockerRemoteBuilder
-        ? {
-          name: dockerRemoteBuilder,
-        }
-        : undefined,
-      buildArgs: {
-        S3_CACHE_PREFIX: `private/boundless/${serviceName}/rust-cache-docker-Linux-X64/sccache`,
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
+    // When rewardsImageUri is set (dependent prod stacks), skip the Docker build.
+    if (args.rewardsImageUri) {
+      this.image = undefined;
+      this.imageRef = pulumi.output(args.rewardsImageUri);
+    } else {
+      this.image = new docker_build.Image(`${serviceName}-rewards-img`, {
+        tags: [pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-${dockerTag}`],
+        context: {
+          location: dockerDir,
+        },
+        platforms: ['linux/amd64'],
+        push: true,
+        dockerfile: {
+          location: `${dockerDir}/dockerfiles/rewards-indexer.dockerfile`,
+        },
+        builder: dockerRemoteBuilder
+          ? {
+            name: dockerRemoteBuilder,
+          }
+          : undefined,
+        buildArgs: {
+          S3_CACHE_PREFIX: `private/boundless/${serviceName}/rust-cache-docker-Linux-X64/sccache`,
+        },
+        secrets: buildSecrets,
+        cacheFrom: [
+          {
+            registry: {
+              ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
+            },
           },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
+        ],
+        cacheTo: [
+          {
+            registry: {
+              mode: docker_build.CacheMode.Max,
+              imageManifest: true,
+              ociMediaTypes: true,
+              ref: pulumi.interpolate`${infra.ecrRepository.repository.repositoryUrl}:rewards-cache`,
+            },
           },
-        },
-      ],
-      registries: [
-        {
-          address: infra.ecrRepository.repository.repositoryUrl,
-          password: infra.ecrAuthToken.apply((authToken) => authToken.password),
-          username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
-        },
-      ],
-    }, { parent: this });
+        ],
+        registries: [
+          {
+            address: infra.ecrRepository.repository.repositoryUrl,
+            password: infra.ecrAuthToken.apply((authToken) => authToken.password),
+            username: infra.ecrAuthToken.apply((authToken) => authToken.userName),
+          },
+        ],
+      }, { parent: this });
+      this.imageRef = this.image.ref;
+    }
 
     const rewardsServiceLogGroup = `${serviceName}-rewards-service-v2`;
 
@@ -135,7 +144,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
         taskRole: { roleArn: infra.taskRole.arn },
         container: {
           name: `${serviceName}-rewards`,
-          image: this.image.ref,
+          image: this.imageRef,
           cpu: 512,
           memory: 256,
           essential: true,
@@ -279,7 +288,7 @@ export class RewardsIndexer extends pulumi.ComponentResource {
     }, { parent: this });
 
     this.registerOutputs({
-      imageRef: this.image.ref,
+      imageRef: this.imageRef,
       serviceUrn: this.service.urn,
     });
   }

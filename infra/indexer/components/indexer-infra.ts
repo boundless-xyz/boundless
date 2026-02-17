@@ -234,38 +234,31 @@ export class IndexerShared extends pulumi.ComponentResource {
       }),
     }, { parent: this });
 
-    this.ecrRepository.repository.arn.apply((repoArn) => {
-      new aws.iam.RolePolicy(`${serviceName}-ecs-pol`, {
-        role: this.executionRole.id,
-        policy: {
-          Version: '2012-10-17',
-          Statement: [
-            {
-              Effect: 'Allow',
-              // GetAuthorizationToken is an account-level AWS ECR action
-              // and does not support resource-level permissions. Must use '*'.
-              // See: https://docs.aws.amazon.com/AmazonECR/latest/userguide/security-iam-awsmanpol.html
-              Action: ['ecr:GetAuthorizationToken'],
-              Resource: '*',
-            },
-            {
-              Effect: 'Allow',
-              Action: [
-                'ecr:BatchCheckLayerAvailability',
-                'ecr:GetDownloadUrlForLayer',
-                'ecr:BatchGetImage',
-              ],
-              Resource: repoArn,
-            },
-            {
-              Effect: 'Allow',
-              Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-              Resource: [this.dbUrlSecret.arn, this.dbReaderUrlSecret.arn],
-            },
-          ],
-        },
-      }, { parent: this });
-    });
+    new aws.iam.RolePolicy(`${serviceName}-ecs-pol`, {
+      role: this.executionRole.id,
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            // ECR actions need Resource: '*' to support pulling from the builder stack's
+            // ECR repo (which may differ from this stack's repo) in dependent prod deploys.
+            Action: [
+              'ecr:GetAuthorizationToken',
+              'ecr:BatchCheckLayerAvailability',
+              'ecr:GetDownloadUrlForLayer',
+              'ecr:BatchGetImage',
+            ],
+            Resource: '*',
+          },
+          {
+            Effect: 'Allow',
+            Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
+            Resource: [this.dbUrlSecret.arn, this.dbReaderUrlSecret.arn],
+          },
+        ],
+      },
+    }, { parent: this });
 
     this.cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, {
       name: `${serviceName}-cluster`,

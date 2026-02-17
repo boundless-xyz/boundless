@@ -49,7 +49,8 @@ export abstract class LaunchBasePipeline<TConfig extends LaunchPipelineConfig> e
     serviceAccountRoleArn: string,
     dockerUsername: string,
     dockerTokenSecret: aws.secretsmanager.Secret,
-    githubTokenSecret: aws.secretsmanager.Secret
+    githubTokenSecret: aws.secretsmanager.Secret,
+    builderStack?: string,
   ): aws.codebuild.ProjectArgs;
 
   protected createSecretsAndPolicy(

@@ -16,6 +16,7 @@ export = () => {
   const githubTokenSecret = config.getSecret('GH_TOKEN_SECRET');
   const dockerDir = config.require('DOCKER_DIR');
   const dockerTag = config.require('DOCKER_TAG');
+  const imageUri = config.get('IMAGE_URI');
   const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
   const bypassAddrs = config.require('BYPASS_ADDRS');
   const boundlessAddress = config.require('BOUNDLESS_ADDRESS');
@@ -42,6 +43,7 @@ export = () => {
     ciCacheSecret,
     dockerDir,
     dockerTag,
+    imageUri,
     orderStreamPingTime,
     privSubNetIds,
     pubSubNetIds,
@@ -63,5 +65,6 @@ export = () => {
   return {
     ORDER_STREAM_LB_URL: orderStream.lbUrl,
     ORDER_STREAM_SWAGGER: orderStream.swaggerUrl,
+    imageRef: orderStream.imageRef,
   };
 };

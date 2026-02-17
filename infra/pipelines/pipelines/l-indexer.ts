@@ -43,6 +43,8 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
             { dependsOn: [role] }
         );
 
+        // l-prod-84532 is the "builder" prod stack: it builds Docker images once.
+        // Other prod stacks reference its images via BUILDER_STACK, skipping redundant builds.
         const prodDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-84532-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
@@ -51,19 +53,19 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
 
         const prodDeploymentEthSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-11155111-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, "l-prod-84532"),
             { dependsOn: [role] }
         );
 
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, "l-prod-84532"),
             { dependsOn: [role] }
         );
 
         const prodDeploymentEthMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-1-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-1", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-1", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, "l-prod-84532"),
             { dependsOn: [role] }
         );
 
@@ -154,7 +156,7 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
                             owner: "AWS",
                             provider: "CodeBuild",
                             version: "1",
-                            runOrder: 2,
+                            runOrder: 3,
                             configuration: {
                                 ProjectName: prodDeploymentEthSepolia.name
                             },
@@ -167,7 +169,7 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
                             owner: "AWS",
                             provider: "CodeBuild",
                             version: "1",
-                            runOrder: 2,
+                            runOrder: 3,
                             configuration: {
                                 ProjectName: prodDeploymentBaseMainnet.name
                             },
@@ -180,7 +182,7 @@ export class LIndexerPipeline extends LaunchDefaultPipeline {
                             owner: "AWS",
                             provider: "CodeBuild",
                             version: "1",
-                            runOrder: 2,
+                            runOrder: 3,
                             configuration: {
                                 ProjectName: prodDeploymentEthMainnet.name
                             },

@@ -28,6 +28,8 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
             { dependsOn: [role] }
         );
 
+        // l-prod-84532 is the "builder" prod stack: it builds the Docker image once.
+        // Other prod stacks reference its image via BUILDER_STACK, skipping redundant builds.
         const prodDeploymentBaseSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-84532-build`,
             this.codeBuildProjectArgs(this.config.appName, "l-prod-84532", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
@@ -36,13 +38,13 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
 
         const prodDeploymentBaseMainnet = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-8453-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-8453", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, "l-prod-84532"),
             { dependsOn: [role] }
         );
 
         const prodDeploymentEthSepolia = new aws.codebuild.Project(
             `l-${this.config.appName}-prod-11155111-build`,
-            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret),
+            this.codeBuildProjectArgs(this.config.appName, "l-prod-11155111", role, BOUNDLESS_PROD_DEPLOYMENT_ROLE_ARN, dockerUsername, dockerTokenSecret, githubTokenSecret, "l-prod-84532"),
             { dependsOn: [role] }
         );
 
@@ -120,7 +122,7 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                             owner: "AWS",
                             provider: "CodeBuild",
                             version: "1",
-                            runOrder: 2,
+                            runOrder: 3,
                             configuration: {
                                 ProjectName: prodDeploymentEthSepolia.name
                             },
@@ -133,7 +135,7 @@ export class LaunchDefaultPipeline extends LaunchBasePipeline<LaunchPipelineConf
                             owner: "AWS",
                             provider: "CodeBuild",
                             version: "1",
-                            runOrder: 2,
+                            runOrder: 3,
                             configuration: {
                                 ProjectName: prodDeploymentBaseMainnet.name
                             },
@@ -242,6 +244,18 @@ ${additionalCommandsStr}          - ls -lt
           - npm run build
           - echo "DEPLOYING stack $STACK_NAME"
           - pulumi stack select $STACK_NAME
+          - |
+            if [ -n "$BUILDER_STACK" ]; then
+              echo "Dependent prod stack: reading image refs from builder stack $BUILDER_STACK"
+              IMAGE_REF=$(pulumi stack output imageRef --stack "$BUILDER_STACK" 2>/dev/null) || IMAGE_REF=""
+              [ -n "$IMAGE_REF" ] && pulumi config set IMAGE_URI "$IMAGE_REF" && echo "Set IMAGE_URI=$IMAGE_REF" || true
+              MARKET_REF=$(pulumi stack output marketImageRef --stack "$BUILDER_STACK" 2>/dev/null) || MARKET_REF=""
+              [ -n "$MARKET_REF" ] && pulumi config set MARKET_IMAGE_URI "$MARKET_REF" && echo "Set MARKET_IMAGE_URI" || true
+              REWARDS_REF=$(pulumi stack output rewardsImageRef --stack "$BUILDER_STACK" 2>/dev/null) || REWARDS_REF=""
+              [ -n "$REWARDS_REF" ] && pulumi config set REWARDS_IMAGE_URI "$REWARDS_REF" && echo "Set REWARDS_IMAGE_URI" || true
+              BACKFILL_REF=$(pulumi stack output backfillImageRef --stack "$BUILDER_STACK" 2>/dev/null) || BACKFILL_REF=""
+              [ -n "$BACKFILL_REF" ] && pulumi config set BACKFILL_IMAGE_URI "$BACKFILL_REF" && echo "Set BACKFILL_IMAGE_URI" || true
+            fi
           - pulumi cancel --yes
           - pulumi refresh --yes
           - pulumi up --yes${postBuildSection ? '\n' + postBuildSection : ''}
@@ -255,8 +269,52 @@ ${additionalCommandsStr}          - ls -lt
         serviceAccountRoleArn: string,
         dockerUsername: string,
         dockerTokenSecret: aws.secretsmanager.Secret,
-        githubTokenSecret: aws.secretsmanager.Secret
+        githubTokenSecret: aws.secretsmanager.Secret,
+        builderStack?: string,
     ): aws.codebuild.ProjectArgs {
+        const envVars: aws.types.input.codebuild.ProjectEnvironmentEnvironmentVariable[] = [
+            {
+                name: "DEPLOYMENT_ROLE_ARN",
+                type: "PLAINTEXT",
+                value: serviceAccountRoleArn
+            },
+            {
+                name: "STACK_NAME",
+                type: "PLAINTEXT",
+                value: stackName
+            },
+            {
+                name: "APP_NAME",
+                type: "PLAINTEXT",
+                value: appName
+            },
+            {
+                name: "GITHUB_TOKEN",
+                type: "SECRETS_MANAGER",
+                value: githubTokenSecret.name
+            },
+            {
+                name: "DOCKER_USERNAME",
+                type: "PLAINTEXT",
+                value: dockerUsername
+            },
+            {
+                name: "DOCKER_PAT",
+                type: "SECRETS_MANAGER",
+                value: dockerTokenSecret.name
+            },
+        ];
+
+        // Dependent prod stacks receive BUILDER_STACK so the buildspec can read
+        // the pre-built image ref instead of rebuilding the Docker image.
+        if (builderStack) {
+            envVars.push({
+                name: "BUILDER_STACK",
+                type: "PLAINTEXT",
+                value: builderStack,
+            });
+        }
+
         return {
             buildTimeout: this.config.buildTimeout!,
             description: `Launch deployment for ${this.config.appName}`,
@@ -266,38 +324,7 @@ ${additionalCommandsStr}          - ls -lt
                 image: "aws/codebuild/standard:7.0",
                 type: "LINUX_CONTAINER",
                 privilegedMode: true,
-                environmentVariables: [
-                    {
-                        name: "DEPLOYMENT_ROLE_ARN",
-                        type: "PLAINTEXT",
-                        value: serviceAccountRoleArn
-                    },
-                    {
-                        name: "STACK_NAME",
-                        type: "PLAINTEXT",
-                        value: stackName
-                    },
-                    {
-                        name: "APP_NAME",
-                        type: "PLAINTEXT",
-                        value: appName
-                    },
-                    {
-                        name: "GITHUB_TOKEN",
-                        type: "SECRETS_MANAGER",
-                        value: githubTokenSecret.name
-                    },
-                    {
-                        name: "DOCKER_USERNAME",
-                        type: "PLAINTEXT",
-                        value: dockerUsername
-                    },
-                    {
-                        name: "DOCKER_PAT",
-                        type: "SECRETS_MANAGER",
-                        value: dockerTokenSecret.name
-                    }
-                ]
+                environmentVariables: envVars,
             },
             artifacts: { type: "CODEPIPELINE" },
             source: {

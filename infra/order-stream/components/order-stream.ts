@@ -12,6 +12,7 @@ const HEALTH_CHECK_PATH = '/api/v1/health';
 export class OrderStreamInstance extends pulumi.ComponentResource {
   public lbUrl: pulumi.Output<string>;
   public swaggerUrl: pulumi.Output<string>;
+  public imageRef: pulumi.Output<string>;
 
   constructor(
     name: string,
@@ -30,6 +31,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       rdsPassword: pulumi.Output<string>;
       albDomain?: pulumi.Output<string>;
       ethRpcUrl: pulumi.Output<string>;
+      imageUri?: string;
       bypassAddrs: string;
       // If true, we don't add the cert to the load balancer. Used during initial cert creation.
       // to avoid adding the cert to the load balancer before the cert is ready.
@@ -85,78 +87,88 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       });
     }
 
-    const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
-      lifecyclePolicy: {
-        rules: [
+    // When imageUri is set (by the pipeline for dependent prod stacks), skip the Docker build
+    // and use the pre-built image directly. Otherwise, build and push to a per-stack ECR repo.
+    let containerImage: pulumi.Output<string>;
+
+    if (args.imageUri) {
+      containerImage = pulumi.output(args.imageUri);
+    } else {
+      const ecrRepository = new awsx.ecr.Repository(`${serviceName}-repo`, {
+        lifecyclePolicy: {
+          rules: [
+            {
+              description: 'Delete untagged images after N days',
+              tagStatus: 'untagged',
+              maximumAgeLimit: 7,
+            },
+          ],
+        },
+        forceDelete: true,
+        name: `${serviceName}-repo`,
+      });
+
+      const authToken = aws.ecr.getAuthorizationTokenOutput({
+        registryId: ecrRepository.repository.registryId,
+      });
+
+      // Optionally add in the gh token secret and sccache s3 creds to the build ctx
+      let buildSecrets = {};
+      if (ciCacheSecret !== undefined) {
+        const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
+        buildSecrets = {
+          ci_cache_creds: cacheFileData,
+        };
+      }
+      if (githubTokenSecret !== undefined) {
+        buildSecrets = {
+          ...buildSecrets,
+          githubTokenSecret
+        }
+      }
+
+      const image = new docker_build.Image(`${serviceName}-img`, {
+        tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:${dockerTag}`],
+        context: {
+          location: dockerDir,
+        },
+        platforms: ['linux/amd64'],
+        push: true,
+        dockerfile: {
+          location: `${dockerDir}/dockerfiles/order_stream.dockerfile`,
+        },
+        buildArgs: {
+          S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
+        },
+        secrets: buildSecrets,
+        cacheFrom: [
           {
-            description: 'Delete untagged images after N days',
-            tagStatus: 'untagged',
-            maximumAgeLimit: 7,
+            registry: {
+              ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+            },
           },
         ],
-      },
-      forceDelete: true,
-      name: `${serviceName}-repo`,
-    });
-
-    const authToken = aws.ecr.getAuthorizationTokenOutput({
-      registryId: ecrRepository.repository.registryId,
-    });
-
-    // Optionally add in the gh token secret and sccache s3 creds to the build ctx
-    let buildSecrets = {};
-    if (ciCacheSecret !== undefined) {
-      const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
-      buildSecrets = {
-        ci_cache_creds: cacheFileData,
-      };
-    }
-    if (githubTokenSecret !== undefined) {
-      buildSecrets = {
-        ...buildSecrets,
-        githubTokenSecret
-      }
-    }
-
-    const image = new docker_build.Image(`${serviceName}-img`, {
-      tags: [pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:${dockerTag}`],
-      context: {
-        location: dockerDir,
-      },
-      platforms: ['linux/amd64'],
-      push: true,
-      dockerfile: {
-        location: `${dockerDir}/dockerfiles/order_stream.dockerfile`,
-      },
-      buildArgs: {
-        S3_CACHE_PREFIX: 'private/boundless/rust-cache-docker-Linux-X64/sccache',
-      },
-      secrets: buildSecrets,
-      cacheFrom: [
-        {
-          registry: {
-            ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+        cacheTo: [
+          {
+            registry: {
+              mode: docker_build.CacheMode.Max,
+              imageManifest: true,
+              ociMediaTypes: true,
+              ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+            },
           },
-        },
-      ],
-      cacheTo: [
-        {
-          registry: {
-            mode: docker_build.CacheMode.Max,
-            imageManifest: true,
-            ociMediaTypes: true,
-            ref: pulumi.interpolate`${ecrRepository.repository.repositoryUrl}:cache`,
+        ],
+        registries: [
+          {
+            address: ecrRepository.repository.repositoryUrl,
+            password: authToken.apply((authToken) => authToken.password),
+            username: authToken.apply((authToken) => authToken.userName),
           },
-        },
-      ],
-      registries: [
-        {
-          address: ecrRepository.repository.repositoryUrl,
-          password: authToken.apply((authToken) => authToken.password),
-          username: authToken.apply((authToken) => authToken.userName),
-        },
-      ],
-    });
+        ],
+      });
+
+      containerImage = image.ref;
+    }
 
     // If we have a cert and a domain, use it, and enable https.
     let listeners: awsx.types.input.lb.ListenerArgs[] = [{
@@ -466,39 +478,37 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
       }),
     });
 
-    ecrRepository.repository.arn.apply(arn => {
-      new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
-        role: executionRole.id,
-        policy: {
-          Version: '2012-10-17',
-          Statement: [
-            {
-              Effect: 'Allow',
-              Action: [
-                'ecr:GetAuthorizationToken',
-                'ecr:BatchCheckLayerAvailability',
-                'ecr:GetDownloadUrlForLayer',
-                'ecr:BatchGetImage',
-              ],
-              Resource: '*',
-            },
-            {
-              Effect: 'Allow',
-              Action: [
-                'logs:CreateLogStream',
-                'logs:PutLogEvents',
-              ],
-              Resource: '*',
-            },
-            {
-              Effect: 'Allow',
-              Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
-              Resource: [dbUrlSecret.arn],
-            },
-          ],
-        },
-      });
-    })
+    new aws.iam.RolePolicy(`${serviceName}-ecs-execution-pol`, {
+      role: executionRole.id,
+      policy: {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: [
+              'ecr:GetAuthorizationToken',
+              'ecr:BatchCheckLayerAvailability',
+              'ecr:GetDownloadUrlForLayer',
+              'ecr:BatchGetImage',
+            ],
+            Resource: '*',
+          },
+          {
+            Effect: 'Allow',
+            Action: [
+              'logs:CreateLogStream',
+              'logs:PutLogEvents',
+            ],
+            Resource: '*',
+          },
+          {
+            Effect: 'Allow',
+            Action: ['secretsmanager:GetSecretValue', 'ssm:GetParameters'],
+            Resource: [dbUrlSecret.arn],
+          },
+        ],
+      },
+    });
 
     const cluster = new aws.ecs.Cluster(`${serviceName}-cluster`, {
       name: `${serviceName}-cluster`,
@@ -550,7 +560,7 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
         },
         container: {
           name: `${serviceName}`,
-          image: image.ref,
+          image: containerImage,
           cpu: 1024,
           memory: 512,
           essential: true,
@@ -795,5 +805,6 @@ export class OrderStreamInstance extends pulumi.ComponentResource {
     this.swaggerUrl = domain.apply((domain) => {
       return albDomain ? `https://${domain}/swagger-ui` : `http://${domain}/swagger-ui`;
     });
+    this.imageRef = containerImage;
   }
 }

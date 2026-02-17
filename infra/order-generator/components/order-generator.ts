@@ -1,7 +1,6 @@
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
-import { Image } from '@pulumi/docker-build';
 import { getServiceNameV1, Severity } from '../../util';
 import * as crypto from 'crypto';
 
@@ -14,7 +13,7 @@ interface OrderGeneratorArgs {
   privateKey: pulumi.Output<string>;
   pinataJWT: pulumi.Output<string>;
   ethRpcUrl: pulumi.Output<string>;
-  image: Image;
+  imageRef: pulumi.Input<string>;
   logLevel: string;
   setVerifierAddr: string;
   boundlessMarketAddr: string;
@@ -268,7 +267,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
         {
           container: {
             name: serviceName,
-            image: args.image.ref,
+            image: args.imageRef,
             cpu: FARGATE_CPU,
             memory: FARGATE_MEMORY,
             essential: true,
@@ -324,7 +323,7 @@ export class OrderGenerator extends pulumi.ComponentResource {
             },
             container: {
               name: serviceName,
-              image: args.image.ref,
+              image: args.imageRef,
               cpu: FARGATE_CPU,
               memory: FARGATE_MEMORY,
               essential: true,
