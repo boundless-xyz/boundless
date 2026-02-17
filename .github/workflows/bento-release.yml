@@ -25,7 +25,8 @@ env:
 jobs:
   build-bento:
     name: Build Bento Components
-    runs-on: [ self-hosted, prod, "Linux", "cpu" ]
+    runs-on: ubuntu-latest
+    # runs-on: [ self-hosted, prod, "Linux", "cpu" ]
     permissions:
       contents: read    # Required for checkout
       id-token: write   # Required for OIDC authentication with AWS
@@ -54,6 +55,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev cuda-toolkit-13-0 nvidia-open
 
+
+          # Temporary installations while using the default ubuntu-latest runner. Remove if using self-hosted AMI
+          sudo apt-get -y install clang curl git-lfs iptables libssl-dev pkg-config uidmap wget zstd cmake tree zlib1g-dev
+
           # Debug PATH and verify tools
           echo "=== PATH Debug ==="
           echo "PATH: $PATH"
@@ -65,8 +70,8 @@ jobs:
           ls -la /usr/local/cuda/bin/ || echo "CUDA bin not found"
           ls -la /usr/bin/gcc || echo "System gcc not found"
 
-      - name: setup sccache + s3
-        uses: ./.github/actions/sccache
+      # - name: setup sccache + s3
+      #   uses: ./.github/actions/sccache
 
       - name: Setup Rust toolchain
         uses: risc0/risc0/.github/actions/rustup@v3.0.3
@@ -124,8 +129,8 @@ jobs:
           tar -czf bento-bundle-${{ matrix.artifact_name }}.tar.gz bento-bundle/
           rm -rf bento-bundle/
 
-      - name: sccache stats
-        run: sccache --show-stats
+      # - name: sccache stats
+      #   run: sccache --show-stats
 
       - name: Create checksums
         working-directory: binaries/${{ matrix.artifact_name }}
