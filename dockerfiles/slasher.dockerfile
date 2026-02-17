@@ -45,9 +45,19 @@ FROM init AS builder
 
 WORKDIR /src
 
+SHELL ["/bin/bash", "-c"]
+
 COPY --from=planner /src/recipe.json /src/recipe.json
 
-RUN cargo chef cook --release --recipe-path recipe.json
+COPY dockerfiles/sccache-setup.sh dockerfiles/sccache-config.sh ./dockerfiles/
+RUN dockerfiles/sccache-setup.sh "x86_64-unknown-linux-musl" "v0.8.2"
+
+ARG S3_CACHE_PREFIX="public/boundless/rust-cache-docker-Linux-X64/sccache"
+
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    cargo chef cook --release --recipe-path recipe.json --package boundless-slasher && \
+    sccache --show-stats
 
 COPY Cargo.toml .
 COPY Cargo.lock .
@@ -59,9 +69,10 @@ COPY remappings.txt .
 COPY foundry.toml .
 COPY blake3_groth16/ ./blake3_groth16/
 
-SHELL ["/bin/bash", "-c"]
-
-RUN cargo build --release --bin boundless-slasher
+RUN --mount=type=secret,id=ci_cache_creds,target=/root/.aws/credentials \
+    source dockerfiles/sccache-config.sh ${S3_CACHE_PREFIX} && \
+    cargo build --release --bin boundless-slasher && \
+    sccache --show-stats
 
 FROM init AS runtime
 

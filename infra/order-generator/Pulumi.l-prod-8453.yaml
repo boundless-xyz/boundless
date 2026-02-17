@@ -82,3 +82,5 @@ config:
   order-generator-evm-requestor:WARN_BALANCE_BELOW: "0.01"
   order-generator-evm-requestor:PRIVATE_KEY:
     secure: v1:+q8g0qby20fDIvXt:EuJ7qrjSDM+aAW2zYNwUzj2SKDV8oRuZv4REHXZY2lMPRiR9uP3zELb20x29dHrIKXsCwF+ZQs263ZarnvGxPSMEUhrg0P02U5GXa/a5i3NqHg==
+  order-generator:CI_CACHE_SECRET:
+    secure: v1:5zmotA0iEUXyWxNQ:A8xd8X44V4tjVyxRR1r9PH+PhkACv6WxGdnt1B8Apk4IE/xyzm7eIS29qBKhyLiJQspuVyMYYrj7hRa3GhM0ncrHyQGk33LhOzy31O9hetxw65xd5Q9prTYj8LWh2LrIJQEf2slSzuGCkoaacEjcC0/ESWsQATyGCgJMvptEAw==

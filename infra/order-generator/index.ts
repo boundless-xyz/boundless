@@ -20,6 +20,7 @@ export = () => {
     ? pulumi.output(getEnvVar("ORDER_STREAM_URL"))
     : (baseConfig.getSecret('ORDER_STREAM_URL') || pulumi.output(""));
   const githubTokenSecret = baseConfig.getSecret('GH_TOKEN_SECRET');
+  const ciCacheSecret = baseConfig.getSecret('CI_CACHE_SECRET');
   const logLevel = baseConfig.get('LOG_LEVEL') || 'info';
   const dockerDir = baseConfig.get('DOCKER_DIR') || '../../';
   const dockerTag = baseConfig.get('DOCKER_TAG') || 'latest';
@@ -59,11 +60,16 @@ export = () => {
   });
 
   let buildSecrets = {};
+  if (ciCacheSecret !== undefined) {
+    buildSecrets = {
+      ci_cache_creds: ciCacheSecret,
+    };
+  }
   if (githubTokenSecret !== undefined) {
     buildSecrets = {
       ...buildSecrets,
       githubTokenSecret
-    }
+    };
   }
 
   const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
