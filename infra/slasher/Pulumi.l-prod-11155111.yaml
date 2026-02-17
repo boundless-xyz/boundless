@@ -22,3 +22,5 @@ config:
   slasher:TX_TIMEOUT: "140"
   slasher:RDS_PASSWORD:
     secure: v1:mMaP5wecyR9zeT4s:3jb9ANipltArpp1yJ62ooRnnuNlSqbtETFJXjPlGsxo=
+  slasher:CI_CACHE_CREDS:
+    secure: v1:YcSNpN7Vkrh5vRx/:tU1mWlXEXJNPUapFzFbmljw4YGSXolB3SJ4IkfIYo3oENg3XAyQmeG6ZRGafGCxUB+jY1J8zLKi3jO2gVd62kYtKE3Yu33gq7xuTumvSKJc4UgwvgPCTZDA5JxzTHqwNloqnxn1FkY6xpqmBikhHEBlk0VmUBC/nGv+DjxIsFA==

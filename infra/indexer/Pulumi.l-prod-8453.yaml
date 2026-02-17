@@ -35,3 +35,5 @@ config:
     secure: v1:lJlgu7dJjEdBpg+J:49guE+TSvKTHVlf/LXakKarxpItokDS83AbT1XKJ2nAme8PrEX0Gcg==
   indexer:ALLOWED_IP_ADDRESSES:
     secure: v1:A5Mdx/awHcbvku4U:xbYCVcJVzRrHibChfMILD8Zeb+G9g6qNiTZMoZkR/OU=
+  indexer:CI_CACHE_CREDS:
+    secure: v1:rd47qqM6SB05Qv//:URnKYGNefqF6yTRoqgMNEJNaJb/gtLoqQL2FWAr4xbu5OFwwYKetS4xS8u1Qre8KiKs2Md6pOQUG9bh33XnYiaaLdchFfhnHQP0mqz1niyLpEP5Njd/+NNc7FNBKQQuG2ETyrdYsT6LfQSST6TheBy68WUdiFv1S/91Z2STpew==

@@ -28,3 +28,5 @@ config:
   distributor:STAKE_TOP_UP_AMOUNT: "1000"
   distributor:ETH_RPC_URL:
     secure: v1:mw+2/htw0bIyL6aq:6YXQ7HD269mekHqzFXo7DwTFCMJKbgPpucbM8zXEa4n7U4M8VL4vNdsmo1yUgSBHzBAgdhpMu1jfLrAg9H8aXYr1loCHJVs3b0U=
+  distributor:CI_CACHE_CREDS:
+    secure: v1:lEj8SX2wdk1Sslwb:F0xGjnU6vN0nNIPo2ek8aMsEJ2K1aA+IxQtjtoWCAK8TOPauRV/ZLzcLb0zngTz52zMwj5UzZ5aA71cyswqJheHbHKwl3C8/w1mvo72GLIPTEONcVIMKLqPXhjMZDwXYWLR/fvesPLJpCaxwFnquIeqmOBrx9MfKuUJSUj4PCQ==

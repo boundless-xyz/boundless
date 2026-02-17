@@ -24,3 +24,5 @@ config:
     secure: v1:rx+I6n4r27Feca/Z:o1kOcwmcaLiulqVuH5rF9liRdwwIvuJJATZLZThJNv4Kab7eonGW2g85GEPJTPnPLsLHHnKQr1nJrsFIe/jl5QOb5hU3pdsHx2Ey
   slasher:RDS_PASSWORD:
     secure: v1:llQL5/ooFDOocYip:LWvNJysL3Sa6Nymbyixzd6Qk4pvgq0hAf9fLf3S8eMA=
+  slasher:CI_CACHE_CREDS:
+    secure: v1:jthLkoSJ3eZ0Xqtf:SNcJsa+vykFwnj1psjW1B946P0Eca8Lr+N2dElDeaVNI68bQ0TroRYRkObnfbOKamEFfywAFIvmRF0YNzMd2FTdS8QSc9IaUrk8qfbig6JBnNnw4sm2irnUECfhbtMsovH5Tdia6CtEShEAgttvSnq5QSJsQiBvoPJK9BSov9g==
