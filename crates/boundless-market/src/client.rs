@@ -440,6 +440,33 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
                 }
             };
 
+        // Set up the price oracle for USD conversions.
+        // If none was explicitly provided, create one from the default config (CoinGecko + Chainlink).
+        let price_oracle_manager = if self.price_oracle_manager.is_some() {
+            self.price_oracle_manager.clone()
+        } else {
+            // Disable staleness check: no background refresh is spawned for the default oracle.
+            let oracle_config = crate::price_oracle::PriceOracleConfig {
+                max_secs_without_price_update: 0,
+                ..Default::default()
+            };
+            match oracle_config.build(
+                alloy_chains::NamedChain::try_from(chain_id)
+                    .unwrap_or(alloy_chains::NamedChain::Mainnet),
+                provider.clone(),
+            ) {
+                Ok(oracle) => {
+                    oracle.refresh_all_rates().await;
+                    tracing::debug!("Default price oracle initialized for USD conversions");
+                    Some(Arc::new(oracle))
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to create default price oracle, USD preflight checks will be degraded: {e}");
+                    None
+                }
+            }
+        };
+
         // Build the RequestBuilder.
         let request_builder = StandardRequestBuilder::builder()
             .storage_layer(StorageLayer::new(
@@ -453,7 +480,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
             .offer_layer(
                 OfferLayer::new(provider.clone(), self.offer_layer_config.build()?)
                     .with_price_provider(price_provider)
-                    .with_price_oracle_manager(self.price_oracle_manager.clone()),
+                    .with_price_oracle_manager(price_oracle_manager.clone()),
             )
             .request_id_layer(RequestIdLayer::new(
                 boundless_market.clone(),
@@ -461,7 +488,7 @@ impl<U, D: StorageDownloader, S> ClientBuilder<U, D, S> {
             ))
             .finalizer(
                 Finalizer::from(self.request_finalizer_config.build()?)
-                    .with_price_oracle_manager(self.price_oracle_manager.clone()),
+                    .with_price_oracle_manager(price_oracle_manager.clone()),
             )
             .build()?;
 
