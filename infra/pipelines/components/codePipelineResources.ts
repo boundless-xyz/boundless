@@ -6,6 +6,7 @@ import * as pulumi from '@pulumi/pulumi';
 export class CodePipelineSharedResources extends pulumi.ComponentResource {
   public role: aws.iam.Role;
   public artifactBucket: aws.s3.Bucket;
+  public sccacheBucket: aws.s3.BucketV2;
 
   constructor(
     name: string,
@@ -45,6 +46,36 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
 
     // Defines the S3 bucket used to store the artifacts for all deployment pipelines.
     this.artifactBucket = new aws.s3.Bucket(`pipeline-artifacts`);
+
+    // Defines the S3 bucket used for shared sccache build artifacts.
+    this.sccacheBucket = new aws.s3.BucketV2(`boundlessSccacheBucket`, {
+      bucket: "boundless-sccache",
+    });
+
+    new aws.s3.BucketServerSideEncryptionConfigurationV2(`sccacheBucketSSEConfiguration`, {
+      bucket: this.sccacheBucket.id,
+      rules: [
+        {
+          applyServerSideEncryptionByDefault: {
+            sseAlgorithm: "AES256",
+          },
+        },
+      ],
+    });
+
+    new aws.s3.BucketLifecycleConfigurationV2(`sccacheBucketLifecycle`, {
+      bucket: this.sccacheBucket.id,
+      rules: [
+        {
+          id: "expire-old-cache",
+          status: "Enabled",
+          filter: {},
+          expiration: {
+            days: 30,
+          },
+        },
+      ],
+    });
 
     // Defines the IAM policy that allows the CodeBuild and CodePipeline roles to access the artifact bucket.
     const s3AccessPolicy = new aws.iam.Policy(`pipeline-artifact-bucket-access`, {
@@ -131,6 +162,35 @@ export class CodePipelineSharedResources extends pulumi.ComponentResource {
     new aws.iam.RolePolicyAttachment(`pipeline-service-account-deployment-role-access`, {
       role: this.role,
       policyArn: serviceAccountDeploymentRoleAccessPolicy.arn
+    });
+
+    const sccacheBucketPolicy = pulumi
+      .all([this.sccacheBucket.arn, this.role.arn])
+      .apply(([sccacheBucketArn, pipelineRoleArn]) =>
+        pulumi.jsonStringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Effect: "Allow",
+              Principal: {
+                AWS: [pipelineRoleArn, ...args.serviceAccountDeploymentRoleArns],
+              },
+              Action: [
+                "s3:GetObject",
+                "s3:GetObjectAttributes",
+                "s3:ListBucket",
+                "s3:PutObject",
+                "s3:DeleteObject",
+              ],
+              Resource: [sccacheBucketArn, `${sccacheBucketArn}/*`],
+            },
+          ],
+        })
+      );
+
+    new aws.s3.BucketPolicy(`sccacheBucketPolicy`, {
+      bucket: this.sccacheBucket.id,
+      policy: sccacheBucketPolicy,
     });
 
     // Allow the pipeline role to read and manage ECR, IAM, ECS, RDS, and Lambda in the ops account.
