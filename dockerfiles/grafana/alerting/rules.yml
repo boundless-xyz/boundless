@@ -1,0 +1,657 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: broker-alerts
+    folder: Broker Alerts
+    interval: 5m
+    rules:
+      - uid: broker-error-spike
+        title: Broker Error Spike
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="broker"} |~ "ERROR" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 10
+              refId: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Broker error spike detected"
+          description: "More than 10 ERROR log lines in the last 5 minutes from the broker service."
+
+      - uid: broker-low-collateral
+        title: "Low Collateral Balance"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="broker"} |~ "\\[B-BAL-STK\\]" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Collateral balance below threshold"
+          description: "Broker collateral (stake) balance has dropped below the configured threshold. Orders may be skipped due to insufficient collateral."
+
+      - uid: broker-low-eth
+        title: "Low ETH Balance"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="broker"} |~ "\\[B-BAL-ETH\\]" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "ETH balance below threshold"
+          description: "Broker ETH balance has dropped below the configured threshold. Transaction submissions may fail."
+
+      - uid: broker-fatal-stake-at-risk
+        title: "FATAL: Stake At Risk"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="broker"} |~ "FATAL STAKE AT RISK" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "FATAL: Stake is at risk of slashing"
+          description: "An order failed to transition from locking to proving status. Locked stake may be slashed if the order is not fulfilled."
+
+      - uid: broker-insufficient-balance-committed
+        title: "Insufficient Balance for Committed Orders"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="broker"} |~ "Insufficient balance for committed orders" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "ETH balance too low for committed orders"
+          description: "The broker does not have enough ETH to cover gas costs for orders it has already committed to. Immediate top-up required."
+
+      - uid: broker-batch-submission-failed
+        title: "Batch Submission Failed"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="broker"} |~ "Batch submission failed|has reached max submission attempts" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Batch submission failure"
+          description: "A proof batch failed to submit on-chain or exhausted all retry attempts."
+
+      - uid: broker-proving-failure
+        title: "Order Proving Failure"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="broker"} |~ "failed to prove after" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Order failed to prove"
+          description: "An order exhausted all proving retries and failed."
+
+  - orgId: 1
+    name: bento-alerts
+    folder: Bento Alerts
+    interval: 5m
+    rules:
+      - uid: bento-exec-error-spike
+        title: "Bento Executor Error Spike"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="exec_agent"} |~ "ERROR" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 10
+              refId: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Executor agent error spike"
+          description: "More than 10 ERROR log lines in the last 5 minutes from exec_agent."
+
+      - uid: bento-exec-task-failure
+        title: "Bento Task Processing Failure"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="exec_agent"} |~ "\\[BENTO-EXEC-030\\]|\\[BENTO-EXEC-033\\]|\\[BENTO-EXEC-034\\]" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bento task processing failure"
+          description: "An executor agent failed to process a task and insert it into the task database."
+
+      - uid: bento-executor-run-failure
+        title: "Bento Executor Run Failure"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="exec_agent"} |~ "\\[BENTO-EXEC-037\\]" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Executor failed to run"
+          description: "An executor agent failed to run a job."
+
+      - uid: bento-gpu-prove-error-spike
+        title: "Bento GPU Prover Error Spike"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="gpu_prove_agent"} |~ "ERROR" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 5
+              refId: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU prove agent error spike"
+          description: "More than 5 ERROR log lines in the last 5 minutes from gpu_prove_agent."
+
+      - uid: bento-aux-cleanup-failure
+        title: "Bento Aux Cleanup Failure"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="aux_agent"} |~ "\\[BENTO-WF-104\\]|\\[BENTO-WF-105\\]|\\[BENTO-WF-106\\]" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Aux agent cleanup failure"
+          description: "The aux agent failed during completed job cleanup or stuck task cleanup."
+
+      - uid: bento-workflow-task-failure
+        title: "Bento Workflow Task Failure"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service=~"exec_agent|gpu_prove_agent|aux_agent"} |~ "\\[BENTO-WF-108\\]" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bento workflow task processing failure"
+          description: "A bento agent encountered a failure during task processing. This may indicate a systemic issue."
+
+      - uid: bento-rest-api-errors
+        title: "Bento REST API Errors"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="rest_api"} |~ "ERROR" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 10
+              refId: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "REST API error spike"
+          description: "More than 10 ERROR log lines in the last 5 minutes from the REST API."
+
+      - uid: bento-stuck-tasks
+        title: "Bento Stuck Tasks Detected"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: loki
+            model:
+              expr: 'count_over_time({compose_service="aux_agent"} |~ "Found .+ stuck pending tasks" [5m])'
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              refId: B
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+              refId: C
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stuck pending tasks detected"
+          description: "The aux agent found stuck pending tasks that needed requeuing. This may indicate agents are crashing or overloaded."
