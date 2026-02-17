@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as aws from '@pulumi/aws';
 import * as awsx from '@pulumi/awsx';
 import * as pulumi from '@pulumi/pulumi';
@@ -43,6 +44,7 @@ export = () => {
   const collateralTokenAddr = config.get('COLLATERAL_TOKEN_ADDR');
 
   const githubTokenSecret = config.get('GH_TOKEN_SECRET');
+  const ciCacheSecret = config.getSecret('CI_CACHE_SECRET');
 
   const baseStackName = config.require('BASE_STACK');
   const baseStack = new pulumi.StackReference(baseStackName);
@@ -112,10 +114,17 @@ export = () => {
 
   const dockerTagPath = pulumi.interpolate`${repo.repository.repositoryUrl}:${dockerTag}`;
 
-  // Optionally add in the gh token secret.
+  // Optionally add in the gh token secret and sccache s3 creds to the build ctx
   let buildSecrets = {};
+  if (ciCacheSecret !== undefined) {
+    const cacheFileData = ciCacheSecret.apply((filePath: any) => fs.readFileSync(filePath, 'utf8'));
+    buildSecrets = {
+      ci_cache_creds: cacheFileData,
+    };
+  }
   if (githubTokenSecret !== undefined) {
     buildSecrets = {
+      ...buildSecrets,
       githubTokenSecret
     }
   }
