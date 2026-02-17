@@ -77,31 +77,35 @@ async fn main() -> Result<()> {
     );
 
     // Build RPC client with fallback support if multiple URLs are provided
-    let client = if all_rpc_urls.len() > 1 {
-        // Multiple URLs - use fallback transport
-        let transports: Vec<Http<_>> =
-            all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
-
-        let active_count =
-            std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
-        let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
-
-        tracing::info!(
-            "Configuring broker with fallback RPC support: {} URLs: {:?}",
-            all_rpc_urls.len(),
-            all_rpc_urls
-        );
-
-        let transport =
-            ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
-
-        RpcClient::builder().transport(transport, false)
-    } else {
+    // let client = if all_rpc_urls.len() > 1 {
+    //     // Multiple URLs - use fallback transport
+    //     let transports: Vec<Http<_>> =
+    //         all_rpc_urls.iter().map(|url| Http::new(url.clone())).collect();
+    //
+    //     let active_count =
+    //         std::num::NonZeroUsize::new(transports.len()).unwrap_or(std::num::NonZeroUsize::MIN);
+    //     let fallback_layer = FallbackLayer::default().with_active_transport_count(active_count);
+    //
+    //     tracing::info!(
+    //         "Configuring broker with fallback RPC support: {} URLs: {:?}",
+    //         all_rpc_urls.len(),
+    //         all_rpc_urls
+    //     );
+    //
+    //     let transport =
+    //         ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
+    //
+    //     RpcClient::builder().transport(transport, false)
+    // } else {
         // Single URL - use regular provider
         let single_url = &all_rpc_urls[0];
         tracing::info!("Configuring broker with single RPC URL: {}", single_url);
-        RpcClient::builder().layer(retry_layer).http(single_url.clone())
-    };
+
+        let metrics_layer = broker::rpcmetrics::RpcMetricsLayer::new();
+        let stats = metrics_layer.stats();
+
+        let client = RpcClient::builder().layer(retry_layer).layer(metrics_layer).http(single_url.clone());
+    // };
 
     // Read config for balance alerts (scope the guard so we can move config_watcher later)
     let balance_alerts_config = {
@@ -165,6 +169,8 @@ async fn main() -> Result<()> {
 
     // Await broker shutdown before returning from main
     broker.start_service().await.context("Broker service failed")?;
+
+    stats.summary();
 
     Ok(())
 }

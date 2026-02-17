@@ -74,6 +74,8 @@ pub(crate) mod submitter;
 pub(crate) mod task;
 pub mod utils;
 
+pub mod rpcmetrics;
+
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
