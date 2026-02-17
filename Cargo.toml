@@ -14,6 +14,7 @@ members = [
     "crates/indexer",
     "crates/lambdas/indexer-api",
     "crates/lambdas/indexer-monitor",
+    "crates/lambdas/indexer-redrive",
     "crates/order-generator",
     "crates/order-stream",
     "crates/povw",
@@ -41,8 +42,8 @@ anyhow = { version = "1.0" }
 
 async-stream = "0.3"
 async-trait = "0.1"
-aws-sdk-cloudwatch = { version = "1.73", default-features = false, features = ["rt-tokio"] }
 aws-config = { version = "1.6", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-cloudwatch = { version = "1.73", default-features = false, features = ["rt-tokio"] }
 aws-sdk-s3 = { version = "1.34", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-smithy-types = "1.3"
 axum = "0.8"
@@ -69,9 +70,9 @@ clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
 distributor = { path = "crates/distributor" }
 futures-util = "0.3"
-google-cloud-storage = "1.7"
-google-cloud-gax = "1.6"
 google-cloud-auth = "1.5"
+google-cloud-gax = "1.6"
+google-cloud-storage = "1.7"
 guest-assessor = { path = "crates/guest/assessor" }
 guest-set-builder = { git = "https://github.com/risc0/risc0-ethereum", tag = "aggregation-v0.8.1" }
 guest-util = { path = "crates/guest/util" }
@@ -81,7 +82,7 @@ order-stream = { path = "crates/order-stream" }
 postcard = { version = "1.0" }
 rand = { version = "0.9" }
 requestor-lists = { path = "crates/requestor-lists" }
-reqwest = { version = "0.13", default-features = false }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 risc0-aggregation = { version = "0.9.0" }
 risc0-binfmt = { version = "3.0.3", default-features = false }
 risc0-build = { version = "3.0.4", features = ["docker", "unstable"] }

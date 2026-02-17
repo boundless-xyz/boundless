@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use anyhow::{bail, Result};
+use boundless_indexer::market::epoch_calculator::DEFAULT_EPOCH0_START_TIME;
 use boundless_indexer::market::service::{IndexerServiceExecutionConfig, TransactionFetchStrategy};
 use boundless_indexer::market::{IndexerService, IndexerServiceConfig};
 use clap::Parser;
@@ -80,6 +81,11 @@ struct MainArgs {
     /// to be scheduled for execution.
     #[clap(long, default_value = "3")]
     execution_interval: u64,
+    /// Unix timestamp when epoch 0 started for epoch-based aggregations.
+    /// Uses ZKC contract epoch logic: epoch = (timestamp - epoch0_start_time) / EPOCH_DURATION
+    /// where EPOCH_DURATION = 2 days (172800 seconds).
+    #[clap(long, env, default_value_t = DEFAULT_EPOCH0_START_TIME)]
+    epoch0_start_time: u64,
     /// Bento API execution configuration. All fields in this group require bento_api_url to be set.
     #[clap(flatten)]
     bento_config: BentoExecutionConfig,
@@ -106,6 +112,15 @@ struct BentoExecutionConfig {
     /// Max number of executing requests queried for status on each iteration of the execution task
     #[clap(long, default_value = "30", requires = "bento_api_url")]
     max_status_queries: u32,
+    /// Max number of scheduled retries (with backoff) before marking a cycle count as FAILED
+    #[clap(long, default_value = "5", requires = "bento_api_url")]
+    max_retries: u32,
+    /// Base delay in seconds for exponential backoff between retries
+    #[clap(long, default_value = "900", requires = "bento_api_url")]
+    retry_base_delay_secs: u64,
+    /// Max delay in seconds for exponential backoff (cap)
+    #[clap(long, default_value = "14400", requires = "bento_api_url")]
+    retry_max_delay_secs: u64,
 }
 
 #[tokio::main]
@@ -145,6 +160,9 @@ async fn main() -> Result<()> {
             max_concurrent_executing: args.bento_config.max_concurrent_executing,
             max_status_queries: args.bento_config.max_status_queries,
             max_iterations: 0,
+            max_retries: args.bento_config.max_retries,
+            retry_base_delay_secs: args.bento_config.retry_base_delay_secs,
+            retry_max_delay_secs: args.bento_config.retry_max_delay_secs,
         }),
         _ => None,
     };
@@ -158,7 +176,10 @@ async fn main() -> Result<()> {
         tx_fetch_strategy,
         execution_config,
         block_delay: args.block_delay,
+        epoch0_start_time: args.epoch0_start_time,
     };
+
+    tracing::info!("Epoch aggregations enabled with epoch0_start_time: {}", args.epoch0_start_time);
 
     let logs_rpc_url = args.logs_rpc_url.clone().unwrap_or_else(|| args.rpc_url.clone());
 

@@ -1,0 +1,69 @@
+---
+# Install method: "source" (compile and run binary) or "docker" (build image, run container).
+kailua_install_method: "source"
+
+# Kailua version (GitHub release tag or branch for clone/build).
+kailua_version: "v1.1.9"
+kailua_repo_url: "https://github.com/boundless-xyz/kailua.git"
+# Release tarball (source install from GitHub releases).
+kailua_archive: "kailua-cli-{{ kailua_version }}-x86_64-unknown-linux-gnu.tar.gz"
+kailua_download_url: "https://github.com/boundless-xyz/kailua/releases/download/{{ kailua_version }}/{{ kailua_archive }}"
+
+# --- Source install ---
+# Build deps (apt packages) for compiling Kailua (Rust + C deps).
+kailua_build_deps:
+  - build-essential
+  - pkg-config
+  - libclang-dev
+  - clang
+  - curl
+  - git
+# Rust toolchain (stable supports edition2024; 1.89+ for current deps).
+kailua_rust_toolchain: "stable"
+# Foundry version via svm-rs (svm install / svm use).
+kailua_svm_version: "0.8.24"
+# Clone repo here to build; removed after install when kailua_source_clean_build_dir.
+kailua_source_build_dir: "/tmp/kailua-src"
+# Install binary to this directory (should be on PATH, e.g. /usr/local/bin).
+kailua_install_dir: "/usr/local/bin"
+# Installed CLI binary path.
+kailua_binary_path: "{{ kailua_install_dir }}/kailua-cli"
+# Remove clone dir after installing binary.
+kailua_source_clean_build_dir: true
+
+# Optional: SSM Agent and CloudWatch Agent (AWS CLI from another role).
+kailua_install_aws_ssm_cloudwatch: false
+kailua_cloudwatch_agent_config: "/tmp/cloudwatch-agent.json"
+
+kailua_install_service: true
+# Launcher script used by systemd (source install).
+kailua_launcher_path: "/usr/local/bin/kailua_launcher.sh"
+
+# Demo: kailua-cli demo (set RPC URLs in inventory). All use kailua_demo_* prefix.
+kailua_demo_blocks_per_proof: "10"
+kailua_demo_l1_rpc: ""
+kailua_demo_l1_beacon_rpc: ""
+kailua_demo_l2_rpc: ""
+kailua_demo_op_node_rpc: ""
+kailua_demo_data_dir: "/kailua-data"
+kailua_demo_data_volume: ""
+kailua_demo_verbosity: "-vvv"
+
+# Optional: set in inventory for launcher env (BOUNDLESS_*).
+kailua_private_key: ""
+kailua_boundless_rpc_url: ""
+kailua_order_stream_url: ""
+
+# Env for docker or launcher (BOUNDLESS_WALLET_KEY, RUST_LOG, etc.).
+kailua_env:
+  RUST_LOG: "info"
+  NUM_CONCURRENT_PROVERS: "1"
+  NUM_CONCURRENT_PREFLIGHTS: "1"
+  NUM_CONCURRENT_PROOFS: "1"
+  SKIP_DERIVATION_PROOF: "true"
+  NTH_PROOF_TO_PROCESS: "1"
+  MAX_BLOCK_EXECUTIONS: "1"
+  ENABLE_EXPERIMENTAL_WITNESS_ENDPOINT: "true"
+  RISC0_INFO: "1"
+  CLEAR_CACHE_DATA: "true"
+  BOUNDLESS_WALLET_KEY: ""

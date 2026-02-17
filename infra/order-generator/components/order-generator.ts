@@ -46,6 +46,7 @@ interface OrderGeneratorArgs {
   };
   indexerUrl: pulumi.Output<string>;
   useZeth?: boolean;
+  maxPriceCap?: string;
 }
 
 export class OrderGenerator extends pulumi.ComponentResource {
@@ -239,6 +240,9 @@ export class OrderGenerator extends pulumi.ComponentResource {
     }
     if (args.useZeth) {
       ogArgs.push(`--use-zeth`);
+    }
+    if (args.maxPriceCap) {
+      ogArgs.push(`--max-price-cap ${args.maxPriceCap}`);
     }
 
     // EFS for persistent rotation state (only when using mnemonic-based rotation)

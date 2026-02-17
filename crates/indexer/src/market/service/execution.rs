@@ -31,12 +31,19 @@ use std::collections::{HashMap, HashSet};
 /// Max number of (image_url -> image_id) entries to keep for reuse.
 const IMAGE_CACHE_MAX_ENTRIES: u64 = 256;
 
+/// Max length for error strings stored in the DB.
+const MAX_ERROR_LENGTH: usize = 100;
+
 /// Type for the image URL -> image_id cache.
 type ImageCache = Cache<String, String>;
 
 /// Format an optional request ID for logging
 fn fmt_request_id(id: Option<U256>) -> String {
     id.map(|i| format!("0x{:x}", i)).unwrap_or_else(|| "unknown".to_string())
+}
+
+fn truncate(s: String) -> String {
+    s.chars().take(MAX_ERROR_LENGTH).collect()
 }
 
 pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) {
@@ -49,6 +56,9 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
     tracing::debug!("  bento_retry_sleep_ms: {}", config.bento_retry_sleep_ms);
     tracing::debug!("  max_concurrent_executing: {}", config.max_concurrent_executing);
     tracing::debug!("  max_status_queries: {}", config.max_status_queries);
+    tracing::debug!("  max_retries: {}", config.max_retries);
+    tracing::debug!("  retry_base_delay_secs: {}", config.retry_base_delay_secs);
+    tracing::debug!("  retry_max_delay_secs: {}", config.retry_max_delay_secs);
 
     let mut interval = tokio::time::interval(config.execution_interval);
 
@@ -70,7 +80,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
         interval.tick().await;
 
         // Check on and log the current state of cycle counts
-        let (pending_count, executing_count, _failed_count) =
+        let (pending_count, executing_count, _failed_count, retry_pending_count) =
             match db.count_cycle_counts_by_status().await {
                 Ok(counts) => counts,
                 Err(e) => {
@@ -82,8 +92,9 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             db.get_cycle_counts_executing(config.max_status_queries).await.unwrap();
 
         tracing::info!(
-            "Current cycle counts execution state: {} pending, {} executing [{}]",
+            "Current cycle counts execution state: {} pending, {} retry_pending, {} executing [{}]",
             pending_count,
+            retry_pending_count,
             executing_count,
             prev_executing_requests
                 .iter()
@@ -104,20 +115,24 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             pending_to_process = config.max_concurrent_executing - executing_count;
         }
         if pending_to_process > 0 {
-            let pending_cycle_counts = match db.get_cycle_counts_pending(pending_to_process).await {
-                Ok(requests) => requests,
-                Err(e) => {
-                    tracing::error!("Unable to get cycle counts in status PENDING: {}", e);
-                    continue;
-                }
-            };
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let pending_cycle_counts =
+                match db.get_cycle_counts_pending(pending_to_process, now_secs).await {
+                    Ok(requests) => requests,
+                    Err(e) => {
+                        tracing::error!("Unable to get cycle counts in status PENDING: {}", e);
+                        continue;
+                    }
+                };
             requests_to_process.extend(pending_cycle_counts);
         }
 
-        // Build a map from request_digest to request_id for logging
+        // Build maps from request_digest for logging and retry logic
         let digest_to_request_id: HashMap<B256, Option<U256>> =
             requests_to_process.iter().map(|req| (req.request_digest, req.request_id)).collect();
-
         if !requests_to_process.is_empty() {
             tracing::debug!(
                 "About to request cycle counts for {} requests: {:?}",
@@ -148,6 +163,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
 
         let mut current_executing_requests = Vec::new();
         let mut failed_executions = Vec::new();
+        let mut retry_executions: Vec<(B256, String)> = Vec::new();
 
         for (request_digest, input_type, input_data, image_id, image_url, max_price) in
             request_inputs_and_images.clone()
@@ -195,7 +211,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                         image_url,
                         e
                     );
-                    failed_executions.push(request_digest);
+                    retry_executions.push((request_digest, truncate(e.to_string())));
                     continue;
                 }
             };
@@ -219,7 +235,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                             request_digest,
                             e
                         );
-                    failed_executions.push(request_digest);
+                    retry_executions.push((request_digest, truncate(e.to_string())));
                     continue;
                 }
             };
@@ -254,6 +270,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                         request_digest,
                         e
                     );
+                    retry_executions.push((request_digest, truncate(e.to_string())));
                     continue;
                 }
             };
@@ -263,6 +280,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     fmt_request_id(request_id),
                     request_digest
                 );
+                retry_executions
+                    .push((request_digest, "Empty input UUID from Bento API".to_string()));
                 continue;
             }
 
@@ -297,6 +316,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                         request_digest,
                         e
                     );
+                    retry_executions.push((request_digest, truncate(e.to_string())));
                     continue;
                 }
             };
@@ -340,7 +360,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                             image_url,
                             e
                         );
-                        failed_executions.push(request_digest);
+                        retry_executions.push((request_digest, truncate(e.to_string())));
                         continue;
                     }
                 };
@@ -370,6 +390,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                             image_id,
                             e
                         );
+                        retry_executions.push((request_digest, truncate(e.to_string())));
                         continue;
                     }
                 };
@@ -418,6 +439,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                         request_digest,
                         e
                     );
+                    retry_executions.push((request_digest, truncate(e.to_string())));
                     continue;
                 }
             };
@@ -427,6 +449,8 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                     fmt_request_id(request_id),
                     request_digest
                 );
+                retry_executions
+                    .push((request_digest, "Empty session UUID from Bento API".to_string()));
                 continue;
             }
 
@@ -509,6 +533,7 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                         execution_info.session_uuid,
                         e
                     );
+                    retry_executions.push((execution_info.request_digest, truncate(e.to_string())));
                     continue;
                 }
             };
@@ -544,12 +569,15 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
                 }
                 _ => {
                     tracing::error!(
-                        "Cycle count status for request id={}, digest={:x} is not SUCCEEDED or RUNNING: {}. Marking as FAILED.",
+                        "Cycle count status for request id={}, digest={:x} is not SUCCEEDED or RUNNING: {}. Scheduling retry.",
                         fmt_request_id(execution_info.request_id),
                         execution_info.request_digest,
                         execution_status.status
                     );
-                    failed_executions.push(execution_info.request_digest);
+                    retry_executions.push((
+                        execution_info.request_digest,
+                        truncate(format!("Bento status: {}", execution_status.status)),
+                    ));
                 }
             }
         }
@@ -579,11 +607,53 @@ pub async fn execute_requests(db: DbObj, config: IndexerServiceExecutionConfig) 
             );
         }
 
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+        let all_retry_counts: HashMap<B256, u32> = requests_to_process
+            .iter()
+            .map(|req| (req.request_digest, req.retry_count))
+            .chain(executing_requests.iter().map(|r| (r.request_digest, r.retry_count)))
+            .collect();
+
+        let mut retry_under_limit = Vec::new();
+        let mut retry_exhausted = Vec::new();
+
+        for (digest, error) in &retry_executions {
+            let retry_count = all_retry_counts.get(digest).copied().unwrap_or(0);
+            if retry_count >= config.max_retries {
+                retry_exhausted.push(*digest);
+                continue;
+            }
+            let backoff_delay = config
+                .retry_base_delay_secs
+                .saturating_mul(2u64.saturating_pow(retry_count))
+                .min(config.retry_max_delay_secs);
+            let retry_after = now + backoff_delay;
+            tracing::info!(
+                "Scheduling retry {}/{} for request digest={:x} at timestamp {}: {:.100}",
+                retry_count + 1,
+                config.max_retries,
+                digest,
+                retry_after,
+                error
+            );
+            retry_under_limit.push((*digest, error.clone(), retry_after));
+        }
+
+        if !retry_under_limit.is_empty() {
+            db.set_cycle_counts_retry_pending(&retry_under_limit).await.unwrap();
+            tracing::debug!(
+                "Updated cycle counts for {} requests with RETRY_PENDING status",
+                retry_under_limit.len()
+            );
+        }
+
+        failed_executions.extend(retry_exhausted);
         if !failed_executions.is_empty() {
             let requests_info = failed_executions
                 .iter()
                 .map(|c| {
-                    // Check executing requests first, then fall back to newly submitted requests
                     let request_id = executing_digest_to_request_id
                         .get(c)
                         .copied()
@@ -728,6 +798,9 @@ mod tests {
             max_concurrent_executing: 5,
             max_status_queries: 20,
             max_iterations: 1,
+            max_retries: 5,
+            retry_base_delay_secs: 900,
+            retry_max_delay_secs: 14400,
         }
     }
 

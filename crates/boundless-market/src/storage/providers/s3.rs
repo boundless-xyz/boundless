@@ -421,4 +421,72 @@ mod tests {
             .await
             .expect("failed to create S3 uploader")
     }
+
+    mod mock {
+        use super::*;
+        use crate::test_helpers::S3Mock;
+
+        #[tokio::test]
+        async fn roundtrip_s3_scheme() {
+            let s3 = S3Mock::start().await.unwrap();
+            temp_env::async_with_vars(s3.env_vars(), async move {
+                let uploader = setup(&s3, false, false).await;
+
+                let test_data = b"s3 scheme test data";
+                let url = uploader.upload_input(test_data).await.expect("upload failed");
+                assert_eq!(url.scheme(), "s3", "expected s3:// URL");
+
+                let downloader = S3StorageDownloader::new(None).await.unwrap();
+                let downloaded = downloader.download_url(url).await.expect("download failed");
+                assert_eq!(downloaded, test_data);
+            })
+            .await;
+        }
+
+        #[tokio::test]
+        async fn roundtrip_presigned() {
+            let s3 = S3Mock::start().await.unwrap();
+            temp_env::async_with_vars(s3.env_vars(), async move {
+                let uploader = setup(&s3, true, false).await;
+
+                let test_data = b"s3 presigned test data";
+                let url = uploader.upload_input(test_data).await.expect("upload failed");
+                assert!(url.scheme() == "https" || url.scheme() == "http", "expected HTTP URL");
+
+                let downloader = HttpDownloader::default();
+                let downloaded = downloader.download_url(url).await.expect("download failed");
+                assert_eq!(downloaded, test_data);
+            })
+            .await;
+        }
+
+        #[tokio::test]
+        async fn download_rejects_oversized_response() {
+            let s3 = S3Mock::start().await.unwrap();
+            temp_env::async_with_vars(s3.env_vars(), async move {
+                let uploader = setup(&s3, false, false).await;
+
+                let test_data = [0x41u8; 100];
+                let url = uploader.upload_input(&test_data).await.expect("upload failed");
+
+                let downloader = S3StorageDownloader::new(None).await.unwrap();
+                let result = downloader.download_url_with_limit(url, 10).await;
+                assert!(matches!(result, Err(StorageError::SizeLimitExceeded { .. })));
+            })
+            .await;
+        }
+
+        async fn setup(s3: &S3Mock, presigned: bool, public_url: bool) -> S3StorageUploader {
+            S3StorageUploader::new(
+                S3Mock::BUCKET.to_string(),
+                Some(s3.endpoint().to_string()),
+                Some(S3Mock::REGION.to_string()),
+                Some((S3Mock::ACCESS_KEY.to_string(), S3Mock::SECRET_KEY.to_string())),
+                presigned,
+                public_url,
+            )
+            .await
+            .expect("failed to create S3 uploader")
+        }
+    }
 }

@@ -118,6 +118,7 @@ export = () => {
   }
   const offchainInputMaxMCycles = offchainConfig.get('INPUT_MAX_MCYCLES') ?? "1000";
   const offchainInterval = offchainConfig.get('INTERVAL');
+  const offchainMaxPriceCap = offchainConfig.get('MAX_PRICE_CAP');
 
   if (offchainPrivateKey) {
     new OrderGenerator('offchain', {
@@ -145,6 +146,7 @@ export = () => {
       inputMaxMCycles: offchainInputMaxMCycles,
       indexerUrl,
       useZeth: false,
+      maxPriceCap: offchainMaxPriceCap,
     });
   }
 
@@ -160,6 +162,7 @@ export = () => {
   }
   const onchainInputMaxMCycles = onchainConfig.get('INPUT_MAX_MCYCLES');
   const onchainInterval = onchainConfig.get('INTERVAL');
+  const onchainMaxPriceCap = onchainConfig.get('MAX_PRICE_CAP');
 
   if (onchainPrivateKey) {
     new OrderGenerator('onchain', {
@@ -184,6 +187,7 @@ export = () => {
       txTimeout,
       indexerUrl,
       useZeth: false,
+      maxPriceCap: onchainMaxPriceCap,
     });
   }
 
@@ -217,6 +221,7 @@ export = () => {
     const randomRequestorWarnBalanceBelow = randomRequestorConfig.get('WARN_BALANCE_BELOW');
     const randomRequestorErrorBalanceBelow = randomRequestorConfig.get('ERROR_BALANCE_BELOW');
     const randomRequestorInputMaxMCycles = randomRequestorConfig.get('INPUT_MAX_MCYCLES');
+    const randomRequestorMaxPriceCap = randomRequestorConfig.get('MAX_PRICE_CAP');
 
     new OrderGenerator('random-requestor', {
       chainId,
@@ -246,6 +251,7 @@ export = () => {
       },
       indexerUrl,
       useZeth: false,
+      maxPriceCap: randomRequestorMaxPriceCap,
     });
   }
 
@@ -274,6 +280,7 @@ export = () => {
   const evmRequestorDeploy = evmRequestorPrivateKey || evmRequestorUsesRotation;
   const evmRequestorInterval = evmRequestorConfig.get('INTERVAL');
   const evmRequestorInputMaxMCycles = evmRequestorConfig.get('INPUT_MAX_MCYCLES');
+  const evmRequestorMaxPriceCap = evmRequestorConfig.get('MAX_PRICE_CAP');
 
   if (evmRequestorDeploy) {
     new OrderGenerator('evm-requestor', {
@@ -300,6 +307,7 @@ export = () => {
       txTimeout,
       indexerUrl,
       useZeth: true,
+      maxPriceCap: evmRequestorMaxPriceCap,
     });
   }
 };

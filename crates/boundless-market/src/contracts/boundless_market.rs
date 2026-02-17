@@ -141,7 +141,7 @@ pub enum MarketError {
     RequestError(#[from] RequestError),
 
     /// Request address does not match with signer.
-    #[error("Request address does not match with signer {0} - {0}")]
+    #[error("Request address does not match with signer {0} - {1}")]
     AddressMismatch(Address, Address),
 
     /// Proof not found.

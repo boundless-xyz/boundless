@@ -149,6 +149,11 @@ struct MainArgs {
     /// Whether to use the Zeth guest.
     #[clap(long, default_value = "false")]
     use_zeth: bool,
+
+    /// Maximum total price cap for the request in ether.
+    /// If set and the offer's maxPrice exceeds this value, caps it with a warning.
+    #[clap(long, value_parser = parse_ether)]
+    max_price_cap: Option<U256>,
 }
 
 #[tokio::main]
@@ -689,7 +694,18 @@ async fn handle_loop_request(
         .with_journal(journal);
 
     // Build the request, including preflight, and assigned the remaining fields.
-    let request = client.build_request(request).await?;
+    let mut request = client.build_request(request).await?;
+
+    if let Some(max_price_cap) = args.max_price_cap {
+        if request.offer.maxPrice > max_price_cap {
+            tracing::warn!(
+                "maxPrice {} ether exceeds max_price_cap {} ether, capping",
+                format_units(request.offer.maxPrice, "ether")?,
+                format_units(max_price_cap, "ether")?
+            );
+            request.offer.maxPrice = max_price_cap;
+        }
+    }
 
     tracing::info!("Request: {:?}", request);
 
@@ -772,7 +788,18 @@ async fn handle_zeth_request(
         .with_env(env);
 
     // Build the request, including preflight, and assigned the remaining fields.
-    let request = client.build_request(request).await?;
+    let mut request = client.build_request(request).await?;
+
+    if let Some(max_price_cap) = args.max_price_cap {
+        if request.offer.maxPrice > max_price_cap {
+            tracing::warn!(
+                "maxPrice {} ether exceeds max_price_cap {} ether, capping",
+                format_units(request.offer.maxPrice, "ether")?,
+                format_units(max_price_cap, "ether")?
+            );
+            request.offer.maxPrice = max_price_cap;
+        }
+    }
 
     tracing::info!("Request: {:?}", request);
 
@@ -848,6 +875,7 @@ mod tests {
             auto_deposit: None,
             submit_offchain: false,
             use_zeth: false,
+            max_price_cap: None,
         }
     }
 

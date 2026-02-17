@@ -1,0 +1,14 @@
+[Unit]
+Description=Kailua
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart={{ kailua_launcher_path }}
+TimeoutStopSec=30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

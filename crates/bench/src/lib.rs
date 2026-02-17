@@ -26,7 +26,8 @@ use alloy::{
 };
 use anyhow::{anyhow, bail, Result};
 use boundless_indexer::{
-    market::service::TransactionFetchStrategy, IndexerService, IndexerServiceConfig,
+    market::{epoch_calculator::DEFAULT_EPOCH0_START_TIME, service::TransactionFetchStrategy},
+    IndexerService, IndexerServiceConfig,
 };
 use boundless_market::{
     balance_alerts_layer::BalanceAlertConfig,
@@ -110,8 +111,14 @@ pub struct MainArgs {
 pub async fn run(args: &MainArgs) -> Result<()> {
     let bench_file = File::open(&args.bench)?;
     let bench: Bench = serde_json::from_reader(bench_file)?;
-    let min_price_per_cycle = parse_ether(&bench.min_price_per_mcycle)? >> 20;
-    let max_price_per_cycle = parse_ether(&bench.max_price_per_mcycle)? >> 20;
+    let min_price_per_cycle = boundless_market::price_oracle::Amount::new(
+        parse_ether(&bench.min_price_per_mcycle)? >> 20,
+        boundless_market::price_oracle::Asset::ETH,
+    );
+    let max_price_per_cycle = boundless_market::price_oracle::Amount::new(
+        parse_ether(&bench.max_price_per_mcycle)? >> 20,
+        boundless_market::price_oracle::Asset::ETH,
+    );
 
     let private_key = args.private_key.clone();
     let wallet = EthereumWallet::from(private_key.clone());
@@ -199,6 +206,7 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                         tx_fetch_strategy: TransactionFetchStrategy::BlockReceipts,
                         execution_config: None,
                         block_delay: 0,
+                        epoch0_start_time: DEFAULT_EPOCH0_START_TIME,
                     },
                 )
                 .await?;
@@ -229,10 +237,10 @@ pub async fn run(args: &MainArgs) -> Result<()> {
                 .with_env(env.clone())
                 .with_offer(
                     OfferParams::builder()
-                        .lock_collateral(parse_units(
-                            &bench.lockin_stake,
-                            collateral_token_decimals,
-                        )?)
+                        .lock_collateral(boundless_market::price_oracle::Amount::new(
+                            parse_units(&bench.lockin_stake, collateral_token_decimals)?.into(),
+                            boundless_market::price_oracle::Asset::ZKC,
+                        ))
                         .ramp_up_period(bench.ramp_up)
                         .timeout(bench.timeout)
                         .lock_timeout(bench.lock_timeout),
@@ -549,10 +557,17 @@ mod tests {
         }
         config.prover.status_poll_ms = 1000;
         config.prover.req_retry_count = 3;
-        config.market.min_mcycle_price = "0.00001".into();
-        config.market.min_mcycle_price_collateral_token = "0.0".into();
+        config.market.min_mcycle_price =
+            boundless_market::price_oracle::Amount::parse("0.00001 ETH", None).unwrap();
+        config.market.min_mcycle_price_collateral_token =
+            boundless_market::price_oracle::Amount::parse("0.0 ZKC", None).unwrap();
         config.market.min_deadline = min_deadline;
         config.batcher.min_batch_size = min_batch_size;
+        // Use static prices for tests to avoid needing real price sources
+        config.price_oracle.eth_usd =
+            boundless_market::price_oracle::config::PriceValue::Static(2500.0);
+        config.price_oracle.zkc_usd =
+            boundless_market::price_oracle::config::PriceValue::Static(1.0);
         config.write(config_file.path()).await.unwrap();
         config_file
     }
