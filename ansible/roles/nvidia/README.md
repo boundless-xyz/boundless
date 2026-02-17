@@ -11,7 +11,8 @@ This role installs NVIDIA drivers and CUDA Toolkit.
 
 ## Role Variables
 
-- `nvidia_cuda_version` (default: `"13-0"`): CUDA version to install (format: "13-0" for CUDA 13.0)
+- `nvidia_cuda_version` (default: `"13-1"`): CUDA version to install (format: "13-1" for CUDA 13.1)
+- `nvidia_drivers_package` (default: `"nvidia-open"`): NVIDIA driver package to install
 - `nvidia_ubuntu_version` (default: `null`): Ubuntu version override (auto-detected if null)
 - `nvidia_reboot_after_install` (default: `false`): Automatically reboot after installation
 
@@ -28,7 +29,7 @@ None.
   roles:
     - role: nvidia
       vars:
-        nvidia_cuda_version: "13-0"
+        nvidia_cuda_version: "13-1"
         nvidia_reboot_after_install: false  # Manual reboot recommended
 ```
 
@@ -36,7 +37,7 @@ None.
 
 1. **Detects Ubuntu version** and maps it to the appropriate CUDA repository
 2. **Installs NVIDIA CUDA keyring** for package repository access
-3. **Installs CUDA Toolkit** (`cuda-toolkit-13-0`) and NVIDIA open-source drivers (`nvidia-open`)
+3. **Installs CUDA Toolkit** (`cuda-toolkit-13-1`) and NVIDIA drivers (`nvidia-open` by default)
 4. **Verifies installation** using `nvidia-smi`
 5. **Optionally reboots** the system if drivers need to be loaded
 

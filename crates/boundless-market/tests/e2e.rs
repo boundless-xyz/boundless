@@ -678,12 +678,20 @@ async fn test_offer_params_explicit_prices_override_provider() {
     // Test that explicit prices in OfferParams override the provider
     let explicit_min = U256::from(2000u64) * U256::from(cycle_count);
     let explicit_max = U256::from(6000u64) * U256::from(cycle_count);
-    let offer_params_explicit: OfferParams =
-        OfferParams::builder().min_price(explicit_min).max_price(explicit_max).into();
+    let offer_params_explicit: OfferParams = OfferParams::builder()
+        .min_price(boundless_market::price_oracle::Amount::new(
+            explicit_min,
+            boundless_market::price_oracle::Asset::ETH,
+        ))
+        .max_price(boundless_market::price_oracle::Amount::new(
+            explicit_max,
+            boundless_market::price_oracle::Asset::ETH,
+        ))
+        .into();
 
     // When prices are explicitly set, they should be used regardless of provider
-    assert_eq!(offer_params_explicit.min_price.unwrap(), explicit_min);
-    assert_eq!(offer_params_explicit.max_price.unwrap(), explicit_max);
+    assert_eq!(offer_params_explicit.min_price.as_ref().unwrap().value, explicit_min);
+    assert_eq!(offer_params_explicit.max_price.as_ref().unwrap().value, explicit_max);
 }
 
 #[tokio::test]

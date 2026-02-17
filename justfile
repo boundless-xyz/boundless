@@ -175,7 +175,7 @@ check-format: check-format-main
     forge fmt --check
 
 check-format-main:
-    cargo sort --workspace --check
+    cargo sort --workspace --check .
     cargo fmt --all --check
 
 # Run Cargo clippy for main workspace and all examples

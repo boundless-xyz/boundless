@@ -17,7 +17,9 @@ use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use boundless_market::{
-    contracts::ProofRequest, request_builder::RequirementParams, StorageUploaderConfig,
+    contracts::ProofRequest,
+    request_builder::{OfferParams, RequirementParams},
+    StorageUploaderConfig,
 };
 use clap::Args;
 use url::Url;
@@ -91,7 +93,7 @@ impl RequestorSubmit {
             .new_request()
             .with_program_url(program_url)?
             .with_request_input(yaml_request.input.clone())
-            .with_offer(yaml_request.offer.clone())
+            .with_offer(OfferParams::from_offer(yaml_request.offer.clone()))
             .with_requirements(RequirementParams::try_from(yaml_request.requirements.clone())?);
 
         let request =
